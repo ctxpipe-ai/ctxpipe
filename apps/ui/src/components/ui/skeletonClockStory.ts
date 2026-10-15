@@ -27,7 +27,8 @@ export function installManualClock() {
   }) as unknown as typeof setTimeout
   globalThis.clearTimeout = ((id?: number) => {
     if (id !== undefined && timers.delete(id)) return
-    real.clearTimeout(id)
+    // Browser timer functions require the global object as their receiver.
+    real.clearTimeout.call(globalThis, id)
   }) as typeof clearTimeout
 
   /** Let React render what the last event or timer scheduled. */
