@@ -1,7 +1,14 @@
-import { and, eq, sql } from "drizzle-orm"
+import { isDeepStrictEqual } from "node:util"
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm"
+import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
+import {
+  githubScopeRepositories,
+  githubScopeSchema,
+} from "../domain/workspace-sources/providers/github.js"
+import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 
@@ -104,6 +111,118 @@ export function reconcileGithubState(
   }
 }
 
+/** A row status whose connection can read the linked repositories. */
+export const LINKING_SOURCE_STATUSES = ["ok", "out_of_access"] as const
+
+/**
+ * The next state of each planned row of one Workspace, by source key. The
+ * pins of a repository belong to the repository, not to the row: a
+ * repository keeps its id and SHAs when it moves to another entry, and a row
+ * whose connection is missing or whose entry is invalid keeps its pins (they
+ * link nothing while the row cannot link) until the row recovers. A
+ * repository is linked only once: the Workspace repository and a repository
+ * of an earlier row are not linked again.
+ */
+export function planSourceStates(input: {
+  existing: ReadonlyArray<{
+    id: string
+    sourceKey: string
+    provider: string | null
+    state: unknown
+  }>
+  planned: ReadonlyArray<{
+    sourceKey: string
+    provider: string | null
+    status: string
+    scope: unknown
+  }>
+  workspaceUrl: string | null
+  now?: Date
+}): Map<string, SourceState | Record<string, never>> {
+  const pinsByRow = new Map(
+    input.existing.map((row) => [row.sourceKey, githubPins(row)]),
+  )
+  const pool = new Map<string, GithubRepositoryPin>()
+  for (const pins of pinsByRow.values())
+    for (const pin of pins) if (!pool.has(pin.gitUrl)) pool.set(pin.gitUrl, pin)
+  const linked = new Set<string>(
+    input.workspaceUrl
+      ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
+      : [],
+  )
+  const states = new Map<string, SourceState | Record<string, never>>()
+  const linking = (status: string) =>
+    (LINKING_SOURCE_STATUSES as readonly string[]).includes(status)
+  for (const planned of input.planned) {
+    if (planned.provider !== "github") {
+      states.set(planned.sourceKey, {})
+      continue
+    }
+    if (!linking(planned.status)) continue
+    const scope = githubScopeSchema.safeParse(planned.scope)
+    const wanted = (
+      scope.success ? githubScopeRepositories(scope.data) : []
+    ).flatMap(({ name, ref }) => {
+      const gitUrl = normalizeWorkspaceRepositoryUrl(
+        `https://github.com/${name}`,
+      )
+      if (linked.has(gitUrl)) return []
+      linked.add(gitUrl)
+      return [{ gitUrl, ref }]
+    })
+    states.set(
+      planned.sourceKey,
+      reconcileGithubState([...pool.values()], wanted, input.now),
+    )
+  }
+  for (const planned of input.planned)
+    if (planned.provider === "github" && !linking(planned.status))
+      states.set(planned.sourceKey, {
+        provider: "github",
+        repositories: (pinsByRow.get(planned.sourceKey) ?? []).filter(
+          (pin) => !linked.has(pin.gitUrl),
+        ),
+      })
+  return states
+}
+
+/** The same state. jsonb does not keep the key order, so compare by value. */
+export function sameSourceState(a: unknown, b: unknown): boolean {
+  return isDeepStrictEqual(a, b)
+}
+
+/**
+ * A jsonb select value: the state of each linking GitHub row of the
+ * Workspace with the id `workspaceId`. Read it with {@link linkedSourcePins}.
+ */
+export function linkedSourceStatesSql(workspaceId: SQL) {
+  const column = (name: AnyPgColumn) =>
+    sql`${workspaceSources}.${sql.identifier(name.name)}`
+  return sql<LinkedSourceStates>`coalesce((
+    select jsonb_agg(jsonb_build_object('id', ${column(workspaceSources.id)}, 'provider', ${column(workspaceSources.provider)}, 'state', ${column(workspaceSources.state)}))
+    from ${workspaceSources}
+    where ${column(workspaceSources.workspaceId)} = ${workspaceId}
+    and ${column(workspaceSources.provider)} = 'github'
+    and ${column(workspaceSources.status)} in (${sql.join(
+      LINKING_SOURCE_STATUSES.map((status) => sql`${status}`),
+      sql`, `,
+    )})
+  ), '[]'::jsonb)`
+}
+
+type LinkedSourceStates = Array<{
+  id: string
+  provider: string | null
+  state: unknown
+}>
+
+/** The pins of the value of {@link linkedSourceStatesSql}. */
+export function linkedSourcePins(
+  rows: LinkedSourceStates,
+): GithubRepositoryPin[] {
+  return rows.flatMap(githubPins)
+}
+
 /** One linked repository of a Workspace, from the state of a GitHub source row. */
 export type LinkedRepositoryPin = {
   id: string
@@ -155,6 +274,8 @@ export async function listLinkedRepositoryPins(
     .where(
       and(
         eq(workspaceSources.provider, "github"),
+        // A row that cannot link keeps its pins, but they link nothing.
+        inArray(workspaceSources.status, [...LINKING_SOURCE_STATUSES]),
         filter.orgId ? eq(workspaceSources.orgId, filter.orgId) : undefined,
         filter.workspaceId
           ? eq(workspaceSources.workspaceId, filter.workspaceId)

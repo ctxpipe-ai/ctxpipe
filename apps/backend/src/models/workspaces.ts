@@ -16,7 +16,6 @@ import { getOrgDb } from "../db/client.js"
 import { conversations } from "../db/schema/conversations.js"
 import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
-import { workspaceSources } from "../db/schema/workspace_sources.js"
 import {
   orgFirstWorkspaces,
   orgMemberPreferences,
@@ -63,8 +62,9 @@ import { generateObjectId } from "../lib/id.js"
 import {
   clearLinkedRepositoryShas,
   getLinkedRepositoryPin,
-  githubPins,
   type LinkedRepositoryPin,
+  linkedSourcePins,
+  linkedSourceStatesSql,
   listLinkedRepositoryPins,
   updateLinkedRepositoryPin,
 } from "./workspace-source-state.js"
@@ -436,15 +436,7 @@ async function readWorkspaceProjectionSnapshot(
           and ${qualified(workspaceKnowledgeUnits.projectionSha)} = coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)})
           and ${unitWithoutChunks(qualified(workspaceKnowledgeUnits.workspaceId), qualified(workspaceKnowledgeUnits.servingId), qualified(workspaceKnowledgeUnits.body))}
         )`,
-        // The raw state of the GitHub source rows; the typed module parses it.
-        linkedSources: sql<
-          Array<{ id: string; provider: string | null; state: unknown }>
-        >`coalesce((
-        select jsonb_agg(jsonb_build_object('id', ${qualified(workspaceSources.id)}, 'provider', ${qualified(workspaceSources.provider)}, 'state', ${qualified(workspaceSources.state)}))
-        from ${workspaceSources}
-        where ${qualified(workspaceSources.workspaceId)} = ${qualified(workspaces.id)}
-        and ${qualified(workspaceSources.provider)} = 'github'
-      ), '[]'::jsonb)`,
+        linkedSources: linkedSourceStatesSql(qualified(workspaces.id)),
         indexedRepositories: sql<
           Array<{
             repository: { id: string; name: string; gitUrl: string }
@@ -485,7 +477,7 @@ async function readWorkspaceProjectionSnapshot(
       allow(active.url, active.sha)
     }
     if (active)
-      for (const linked of (first?.linkedSources ?? []).flatMap(githubPins)) {
+      for (const linked of linkedSourcePins(first?.linkedSources ?? [])) {
         if (linked.indexedSha) allow(linked.gitUrl, linked.indexedSha)
       }
     return {

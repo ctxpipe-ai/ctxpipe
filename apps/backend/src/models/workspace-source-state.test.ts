@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   githubPins,
   parseSourceState,
+  planSourceStates,
   reconcileGithubState,
 } from "./workspace-source-state.js"
 
@@ -88,5 +89,94 @@ describe("reconcileGithubState", () => {
       desiredSha: null,
     })
     expect(next.repositories).toHaveLength(3)
+  })
+})
+
+describe("planSourceStates", () => {
+  const github = (
+    sourceKey: string,
+    repositories: string[],
+    status: "ok" | "out_of_access" | "invalid" | "connection_missing" = "ok",
+  ) => ({
+    sourceKey,
+    provider: "github" as const,
+    status,
+    scope: { repositories },
+  })
+  const row = (sourceKey: string, pins: (typeof pin)[]) => ({
+    id: `wsrc_${sourceKey}`,
+    sourceKey,
+    provider: "github",
+    state: { provider: "github", repositories: pins },
+  })
+  const api = {
+    ...pin,
+    id: "wlr_api",
+    gitUrl: "https://github.com/acme/api",
+  }
+
+  it("keeps the pins of a row whose connection is missing, and gives them back on recovery", () => {
+    const broken = planSourceStates({
+      existing: [row("code", [pin])],
+      planned: [github("code", ["acme/web"], "connection_missing")],
+      workspaceUrl: null,
+    })
+    expect(broken.get("code")).toEqual({
+      provider: "github",
+      repositories: [pin],
+    })
+    const recovered = planSourceStates({
+      existing: [row("code", [pin])],
+      planned: [github("code", ["acme/web"])],
+      workspaceUrl: null,
+    })
+    expect(recovered.get("code")).toEqual({
+      provider: "github",
+      repositories: [pin],
+    })
+  })
+
+  it("keeps the id and SHAs of a repository that moves to another entry", () => {
+    const states = planSourceStates({
+      existing: [row("a", [pin, api]), row("b", [])],
+      planned: [github("a", ["acme/api"]), github("b", ["acme/web"])],
+      workspaceUrl: null,
+    })
+    expect(states.get("a")).toEqual({ provider: "github", repositories: [api] })
+    expect(states.get("b")).toEqual({ provider: "github", repositories: [pin] })
+  })
+
+  it("moves a pin out of a broken row when a usable row links the repository", () => {
+    const states = planSourceStates({
+      existing: [row("old", [pin])],
+      planned: [
+        github("old", ["acme/web"], "invalid"),
+        github("new", ["acme/web"]),
+      ],
+      workspaceUrl: "https://github.com/acme/knowledge",
+    })
+    expect(states.get("new")).toEqual({
+      provider: "github",
+      repositories: [pin],
+    })
+    expect(states.get("old")).toEqual({ provider: "github", repositories: [] })
+  })
+
+  it("gives a non-GitHub row an empty state and skips the Workspace repository", () => {
+    const states = planSourceStates({
+      existing: [],
+      planned: [
+        {
+          sourceKey: "issues",
+          provider: "linear",
+          status: "ok",
+          scope: { teams: ["ENG"] },
+        },
+        github("code", ["acme/knowledge"]),
+      ],
+      workspaceUrl: "https://github.com/acme/knowledge",
+    })
+    expect(states.get("issues")).toEqual({})
+    expect(states.get("code")).toEqual({ provider: "github", repositories: [] })
   })
 })

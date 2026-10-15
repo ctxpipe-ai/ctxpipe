@@ -127,6 +127,95 @@ describe("workspace source state (Postgres)", () => {
     ).toEqual(next.map((pin) => pin.id).sort())
   })
 
+  it("keeps the link id and SHAs through a missing connection and a move to another entry", async () => {
+    const connection = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace(
+      "moves",
+      `https://github.com/acme/moves-${seed.suffix}.git`,
+    )
+    const project = (rows: PlannedSourceRow[], revision: string) =>
+      replaceWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        rows,
+      })
+    const pins = () =>
+      withOrgDbContext(seed.orgId, (db) =>
+        listLinkedRepositoryPins(db, { workspaceId }),
+      )
+    await project([github("repos", connection, ["acme/web"])], "a".repeat(40))
+    const [web] = await pins()
+    if (!web) throw new Error("web is not linked")
+    await withOrgDbContext(seed.orgId, (db) =>
+      updateLinkedRepositoryPin(db, web.id, async () => ({
+        desiredSha: "b".repeat(40),
+      })),
+    )
+    // While the connection is missing, the repository links nothing.
+    await project(
+      [github("repos", connection, ["acme/web"], "connection_missing")],
+      "c".repeat(40),
+    )
+    expect(await pins()).toEqual([])
+    // On recovery, and after a move to a new entry, the pin is the same.
+    await project([github("repos", connection, ["acme/web"])], "d".repeat(40))
+    await project([github("code", connection, ["acme/web"])], "e".repeat(40))
+    expect(await pins()).toMatchObject([
+      { id: web.id, desiredSha: "b".repeat(40) },
+    ])
+  })
+
+  it("does not undo a pin write that runs during a projection", async () => {
+    const connection = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace(
+      "locks",
+      `https://github.com/acme/locks-${seed.suffix}.git`,
+    )
+    const rows = [github("repos", connection, ["acme/web"])]
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows,
+    })
+    const [web] = await withOrgDbContext(seed.orgId, (db) =>
+      listLinkedRepositoryPins(db, { workspaceId }),
+    )
+    if (!web) throw new Error("web is not linked")
+    let release = () => {}
+    const held = new Promise<void>((resolve) => {
+      release = resolve
+    })
+    let locked = () => {}
+    const isLocked = new Promise<void>((resolve) => {
+      locked = resolve
+    })
+    // The pin write holds its row lock while the projection starts.
+    const write = withOrgDbContext(seed.orgId, (db) =>
+      updateLinkedRepositoryPin(db, web.id, async () => {
+        locked()
+        await held
+        return { indexedSha: "f".repeat(40) }
+      }),
+    )
+    await isLocked
+    const projection = replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 200))
+    release()
+    await Promise.all([write, projection])
+    expect(
+      await withOrgDbContext(seed.orgId, (db) =>
+        listLinkedRepositoryPins(db, { workspaceId }),
+      ),
+    ).toMatchObject([{ id: web.id, indexedSha: "f".repeat(40) }])
+  })
+
   it("reads an invalid state as empty, and the next projection writes it again", async () => {
     const connection = await seed.addConnection("github")
     const workspaceId = await seed.addWorkspace("broken")
