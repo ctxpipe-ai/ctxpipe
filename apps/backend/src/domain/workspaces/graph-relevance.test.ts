@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
+  isAnswerKind,
   type RelevanceNode,
   type RelevanceOptions,
   type RelevanceSignal,
@@ -560,11 +561,12 @@ describe("rankRelated diversity", () => {
   // A seed links to a hub with twelve leaves of one kind, and weakly to five
   // nodes of other kinds.
   const leaves = Array.from({ length: 12 }, (_, index) => `leaf${index}`)
-  const others = ["decision", "runbook", "ticket", "incident", "service"]
+  // No kind here answers an intent, so only MMR decides the order.
+  const others = ["runbook", "ticket", "page", "channel", "wiki"]
   const input = {
     nodes: [
       node("s"),
-      node("hub", "team"),
+      node("hub", "folder"),
       ...leaves.map((id) => node(id, "repository")),
       ...others.map((kind) => node(`other-${kind}`, kind)),
     ],
@@ -594,7 +596,7 @@ describe("rankRelated diversity", () => {
 
   it("spreads the kinds when no neighbors are shared", () => {
     const repositories = Array.from({ length: 6 }, (_, index) => `repo${index}`)
-    const kinds = ["incident", "runbook", "ticket"]
+    const kinds = ["page", "runbook", "ticket"]
     const flat = {
       nodes: [
         node("s"),
@@ -981,5 +983,76 @@ describe("rankRelated restart share of the query", () => {
     )
     expect(results.get("s")?.ppr).toBeCloseTo(0.5, 9)
     expect(results.get("q")?.ppr).toBeCloseTo(0.5, 9)
+  })
+})
+
+describe("rankRelated answer kinds of the intent", () => {
+  // A hub service with many rules on a strong free-form edge, one decision
+  // and one owner on weaker free-form edges, and one library.
+  const rules = Array.from({ length: 8 }, (_, index) => `rule${index}`)
+  const input = {
+    nodes: [
+      node("s", "Service"),
+      ...rules.map((id) => node(id, "Rule", { degree: 1 })),
+      node("decision", "Decision", { degree: 1 }),
+      node("owner", "team", { degree: 1 }),
+      node("library", "library", { degree: 1 }),
+      node("change", "pull_request", { degree: 1 }),
+    ],
+    signals: [
+      ...rules.map((id) => signal(id, "s", 0.9, { predicate: "ENFORCED_ON" })),
+      signal("decision", "s", 0.4, { predicate: "GOVERNS" }),
+      signal("owner", "s", 0.4),
+      signal("s", "library", 0.4, { predicate: "IMPORTS" }),
+      signal("change", "s", 0.4, {
+        predicate: "TOUCHED",
+        validFrom: "2026-09-01T00:00:00.000Z",
+      }),
+    ],
+    seeds: ["s"],
+  }
+  const ids = (options: RelevanceOptions) =>
+    rank({ ...input, options }).map((result) => result.id)
+
+  it("ranks the units of the answer kinds of the intent before stronger units of other kinds", () => {
+    expect(ids({ intent: "why" })[0]).toBe("decision")
+    expect(ids({ intent: "ownership" })[0]).toBe("owner")
+    expect(ids({ intent: "dependencies" })[0]).toBe("library")
+    expect(ids({ intent: "change" })[0]).toBe("change")
+  })
+
+  it("keeps the other units after the answers, in score order", () => {
+    const ranked = ids({ intent: "why" })
+    expect(ranked).toHaveLength(12)
+    expect(ranked.slice(1, 9).every((id) => id.startsWith("rule"))).toBe(true)
+  })
+
+  it("puts the answers of every intent first when the call has no intent", () => {
+    const ranked = ids({ intent: "general", diversity: 0.5 })
+    expect(ranked.slice(0, 4).sort()).toEqual([
+      "change",
+      "decision",
+      "library",
+      "owner",
+    ])
+  })
+
+  it("does not reorder an intent with no answer kinds", () => {
+    expect(ids({ intent: "structure" })[0]).toMatch(/^rule/)
+  })
+
+  it("applies limit to the answers first", () => {
+    expect(ids({ intent: "why", limit: 1 })).toEqual(["decision"])
+  })
+})
+
+describe("isAnswerKind", () => {
+  it("compares kinds without case and separators, and takes every kind for an intent with no list", () => {
+    expect(isAnswerKind("change", "pull-request")).toBe(true)
+    expect(isAnswerKind("change", "Decision")).toBe(false)
+    expect(isAnswerKind("general", "Decision")).toBe(true)
+    expect(isAnswerKind("general", "note")).toBe(false)
+    expect(isAnswerKind("structure", "note")).toBe(true)
+    expect(isAnswerKind("why", null)).toBe(false)
   })
 })

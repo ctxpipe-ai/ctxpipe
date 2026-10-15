@@ -391,6 +391,20 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(explicit)).toEqual(["knowledge/teams/edge.md"])
   })
 
+  it("adds the results of all edges when the link edges fill limit with no answer", async () => {
+    // The ownership walk from the library finds only the doc, over a link
+    // edge. The doc fills limit 1 but is no owner, so the walk of all edges
+    // runs, and its owner comes before the doc.
+    const result = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      intent: "ownership",
+      limit: 1,
+    })
+    expect(result.isError).not.toBe(true)
+    expect(refs(result)).toEqual(["knowledge/teams/payments.md"])
+  })
+
   it("filters the results by kind but walks through the other kinds", async () => {
     const result = await related({
       workspace: "platform",

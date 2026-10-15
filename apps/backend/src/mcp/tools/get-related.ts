@@ -16,6 +16,7 @@ import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-pr
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
   INTENT_PRESETS,
+  isAnswerKind,
   RELEVANCE_INTENTS,
   rankRelated,
 } from "../../domain/workspaces/graph-relevance.js"
@@ -423,9 +424,12 @@ export async function rankWorkspaceRelated(
   }
   // The graph stores predicates in upper case, and the ranking does the same.
   // Explicit predicates are the whole walk. With none, the walk follows the
-  // edges of the intent. When that finds fewer than `limit` results, the
-  // results of a walk over all edges come after them: claims have free-form
-  // predicates, so the edges of the intent can miss the answer.
+  // edges of the intent. When that finds fewer than `limit` results of an
+  // answer kind of the intent, a walk over all edges follows: claims have
+  // free-form predicates, so the edges of the intent can miss the answer,
+  // and link edges alone can fill `limit`.
+  const answers = (results: readonly { kind: string | null }[]) =>
+    results.filter((result) => isAnswerKind(input.intent, result.kind))
   const defaultWalk = input.predicates
     ? undefined
     : INTENT_PRESETS[input.intent].walk
@@ -439,7 +443,7 @@ export async function rankWorkspaceRelated(
   // The edges of the walk of all edges are not the edges of the intent, so
   // its results spread over kinds as for `general`.
   // The call keeps its caps as a whole: this walk gets what the first walk left.
-  if (defaultWalk && (walks[0]?.ranked.length ?? 0) < input.limit) {
+  if (defaultWalk && answers(walks[0]?.ranked ?? []).length < input.limit) {
     const first = walks[0]?.expansion
     const total = { ...defaultCaps, ...options.caps }
     const left = {
@@ -459,7 +463,8 @@ export async function rankWorkspaceRelated(
         ),
       )
   }
-  // A unit keeps the node and the rank of the first walk that found it.
+  // A unit keeps the node and the rank of the first walk that found it. The
+  // answers of all walks come before the other results, as in one walk.
   const nodes = new Map<string, ExpandedNode>()
   const edgeIds = new Set<string>()
   for (const { expansion } of walks) {
@@ -469,10 +474,14 @@ export async function rankWorkspaceRelated(
   }
   const refOf = (id: string) => nodes.get(id)?.path ?? id
   const rankedIds = new Set<string>()
-  const ranked = walks
+  const merged = walks
     .flatMap((step) => step.ranked)
     .filter((result) => !rankedIds.has(result.id) && rankedIds.add(result.id))
-    .slice(0, RANKED_LIMIT)
+  const answerIds = new Set(answers(merged).map((result) => result.id))
+  const ranked = [
+    ...merged.filter((result) => answerIds.has(result.id)),
+    ...merged.filter((result) => !answerIds.has(result.id)),
+  ].slice(0, RANKED_LIMIT)
   const units = ranked.length
     ? await withOrgDbContext(org.id, (db) =>
         db
@@ -543,7 +552,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results, results from all edges follow. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results of the kinds that answer the intent, results from all edges follow. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first; with no intent, the units of all of them come first. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

@@ -14,6 +14,9 @@
  * 4. MMR diversity selects the results, and the path with the highest weight
  *    product (Dijkstra on −ln w) explains each result. The path weight has no
  *    predicate weight, so the path does not depend on the intent.
+ * 5. The units of an answer kind of the intent come first (`isAnswerKind`).
+ *    The kind of a unit, not the predicate of its edge, tells what it
+ *    answers, because Workspace claims have free-form predicates.
  *
  * The signal model comes from PR #350 `retrievalScore.ts` (ADR-040): a
  * weighted product of signals, each with a floor, so that one weak signal
@@ -135,6 +138,11 @@ type IntentPreset = {
   hubPenalty: number
   /** λ of MMR. Default 0.3. */
   diversity?: number
+  /**
+   * The kinds of the units that answer the question (`kindKey` form). They
+   * come before the other results. No list: every kind answers.
+   */
+  answers?: readonly string[]
 }
 
 /** No signal goes below this value, so no unit is removed by one signal. */
@@ -183,6 +191,19 @@ const STRUCTURAL_PREDICATES = [
  */
 const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 
+const OWNER_KINDS = ["team", "person", "group"]
+const DECISION_KINDS = ["decision", "incident"]
+const CHANGE_KINDS = ["pullrequest", "commit", "change"]
+const DEPENDENCY_KINDS = [
+  "library",
+  "database",
+  "service",
+  "api",
+  "package",
+  "queue",
+  "stream",
+]
+
 function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
 }
@@ -202,6 +223,14 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
     diversity: 0.5,
+    // The rules and the notes of a hub come after the units that answer
+    // one of the questions.
+    answers: [
+      ...OWNER_KINDS,
+      ...DECISION_KINDS,
+      ...CHANGE_KINDS,
+      ...DEPENDENCY_KINDS,
+    ],
   },
   // A team that owns many services and issues is still the owner.
   ownership: {
@@ -209,6 +238,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: { OWNS: 3 },
     signals: BASE_SIGNALS,
     hubPenalty: 0,
+    answers: OWNER_KINDS,
   },
   // The decisions come before the files that declare them.
   // The walk also reaches the incidents, the rules, and the dependencies
@@ -226,6 +256,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+    answers: DECISION_KINDS,
   },
   // The hub penalty keeps a shared file that many changes touch from
   // pulling unrelated changes into the results.
@@ -238,12 +269,14 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     },
     signals: { ...BASE_SIGNALS, recency: 1 },
     hubPenalty: BASE_HUB_PENALTY,
+    answers: CHANGE_KINDS,
   },
   dependencies: {
     walk: [...DEPENDENCY_PREDICATES, ...LINK_PREDICATES],
     predicates: weightAll(DEPENDENCY_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+    answers: DEPENDENCY_KINDS,
   },
   structure: {
     walk: [...STRUCTURAL_PREDICATES, ...LINK_PREDICATES],
@@ -269,6 +302,15 @@ const PPR_MAX_ITERATIONS = 500
 /** `PullRequest`, `pull-request` and `pull_request` are one kind. */
 function kindKey(kind: string | null | undefined): string {
   return (kind ?? "").toLowerCase().replace(/[^a-z]/g, "")
+}
+
+/** True when a unit of `kind` answers the question of `intent`. */
+export function isAnswerKind(
+  intent: RelevanceIntent,
+  kind: string | null | undefined,
+): boolean {
+  const answers = INTENT_PRESETS[intent].answers
+  return !answers || answers.includes(kindKey(kind))
 }
 
 /**
@@ -692,13 +734,26 @@ export function rankRelated(input: {
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
-  const selected = selectDiverse(candidates, {
-    diversity,
-    maxPerKind: options.maxPerKind,
-    limit: options.limit ?? 100,
-    neighbors,
-  })
-  return selected.map((candidate) => ({
+  // The answers first, each group with its own MMR. The groups share no
+  // kind, so `maxPerKind` counts each kind in one group only.
+  const limit = options.limit ?? 100
+  const intent = options.intent ?? "general"
+  const answers = selectDiverse(
+    candidates.filter((candidate) => isAnswerKind(intent, candidate.node.kind)),
+    { diversity, maxPerKind: options.maxPerKind, limit, neighbors },
+  )
+  const others = selectDiverse(
+    candidates.filter(
+      (candidate) => !isAnswerKind(intent, candidate.node.kind),
+    ),
+    {
+      diversity,
+      maxPerKind: options.maxPerKind,
+      limit: limit - answers.length,
+      neighbors,
+    },
+  )
+  return [...answers, ...others].map((candidate) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
     score: candidate.score,
