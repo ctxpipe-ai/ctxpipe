@@ -66,11 +66,9 @@ describe("ingestion v2 shadow switch", () => {
 })
 
 describe("ingestion publish pipeline switch", () => {
-  it("is the old pipeline", () => {
+  // This read throws while the committed value is v2 and ingestion v2
+  // cannot publish (T21), so this test fails on that change.
+  it("is the old pipeline until ingestion v2 can publish", () => {
     expect(ingestionPublishPipeline()).toBe("legacy")
-  })
-
-  it("fails loudly when it is v2 before ingestion v2 can publish", () => {
-    expect(() => ingestionPublishPipeline("v2")).toThrow(/cannot publish yet/)
   })
 })
