@@ -97,4 +97,28 @@ sources:
     })
     expect(bomb).toMatchObject({ sourceKey: ".file", status: "invalid" })
   })
+
+  it("shows each repository file that cannot move as an invalid row", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      connections,
+      leftoverFiles: [
+        {
+          path: "repositories/tools.md",
+          reason: "ctx| links only GitHub repositories",
+        },
+      ],
+    })
+    expect(rows).toEqual([
+      {
+        sourceKey: "repositories/tools.md",
+        provider: null,
+        connectionId: null,
+        scope: {},
+        status: "invalid",
+        statusDetail:
+          "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+      },
+    ])
+  })
 })

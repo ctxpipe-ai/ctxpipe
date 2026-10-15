@@ -9,10 +9,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import {
@@ -33,6 +30,10 @@ import {
   type NativeIndexFixture,
   withNativeIndexFixture,
 } from "../../test/native-index-fixture.js"
+import {
+  insertLinkedRepositoryRows,
+  setLinkedRepositoryRef,
+} from "../../test/workspace-links-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
@@ -515,7 +516,7 @@ it(
       const { org, workspaceId, remote, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
@@ -555,7 +556,7 @@ it(
       const { org, workspaceId, remote, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
@@ -579,10 +580,7 @@ it(
             .update(workspaces)
             .set({ activeRevision: revision })
             .where(eq(workspaces.id, workspaceId))
-          await db
-            .update(workspaceLinkedRepositories)
-            .set({ desiredRef: "other" })
-            .where(eq(workspaceLinkedRepositories.id, linkedId))
+          await setLinkedRepositoryRef(db, linkedId, "other")
         })
         expect(await persistLinkedIndexedSha(linkedPublication)).toBe(false)
       })
@@ -741,7 +739,6 @@ it.each(["pending", "failed"])(
             orgId: org.id,
             revision: next,
             displayName: null,
-            remotes: [],
             units: [],
             skipped: [],
             embeddingModel: "fixture-embedding",

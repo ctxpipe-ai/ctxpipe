@@ -94,7 +94,7 @@ describe("Workspace source sync frame (Postgres)", () => {
     expect(writes.map((write) => write.workspaceId)).toEqual([docs])
   })
 
-  it("with fetchEach, gives each Workspace only the files of its own scopes", async () => {
+  it("with filesByScope, gives each Workspace only the files of its own scopes", async () => {
     const forge = await seed.addConnection("forge")
     const all = await seed.addWorkspace("each-all")
     const some = await seed.addWorkspace("each-some")
@@ -119,14 +119,16 @@ describe("Workspace source sync frame (Postgres)", () => {
       adapter: {
         provider: "confluence",
         managedPaths: () => ["confluence/ENG/"],
-        async fetchEach({ scopes }) {
+        async fetch({ scopes }) {
           fetched.push(scopes)
           // The same page has a different path in each layout.
-          return scopes.map((scope) =>
-            (scope.spaces as string[]).includes("one-page")
-              ? [{ path: "confluence/ENG/home--1.md", content: "# Home" }]
-              : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
-          )
+          return {
+            filesByScope: scopes.map((scope) =>
+              (scope.spaces as string[]).includes("one-page")
+                ? [{ path: "confluence/ENG/home--1.md", content: "# Home" }]
+                : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
+            ),
+          }
         },
       },
       write: async (write) => {
@@ -145,6 +147,47 @@ describe("Workspace source sync frame (Postgres)", () => {
       [all]: ["confluence/ENG/1/index.md"],
       [some]: ["confluence/ENG/home--1.md"],
     })
+  })
+
+  it("with filesByScope, skips the write of a Workspace whose scope failed", async () => {
+    const forge = await seed.addConnection("forge")
+    const ok = await seed.addWorkspace("each-ok")
+    const failed = await seed.addWorkspace("each-failed")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: ok,
+      revision: "d".repeat(40),
+      rows: [source("docs", forge, ["ENG"])],
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: failed,
+      revision: "e".repeat(40),
+      rows: [source("docs", forge, ["ENG", "broken"])],
+    })
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: {
+        provider: "confluence",
+        managedPaths: () => ["confluence/ENG/"],
+        async fetch({ scopes }) {
+          return {
+            filesByScope: scopes.map((scope) =>
+              (scope.spaces as string[]).includes("broken")
+                ? null
+                : [{ path: "confluence/ENG/1/index.md", content: "# Home" }],
+            ),
+          }
+        },
+      },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes.map((write) => write.workspaceId)).toEqual([ok])
   })
 
   it("deletes only the managed paths that no remaining source owns", async () => {

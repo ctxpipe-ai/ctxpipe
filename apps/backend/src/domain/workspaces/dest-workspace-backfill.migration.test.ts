@@ -22,6 +22,7 @@ describe("dest workspace SQL backfill", () => {
     expect(migrationSql).toContain("notion")
     expect(migrationSql).toContain("slack")
     expect(migrationSql).toContain('DROP TABLE "org_workspace_cutover"')
+    expect(migrationSql).not.toContain("workspace_linked_repositories")
   })
 
   it("removes the runtime cutover job", () => {

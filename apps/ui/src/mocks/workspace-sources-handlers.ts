@@ -26,6 +26,7 @@ export function workspaceSourceFixture(
     scopeSummary: "Summary",
     status: "ok",
     statusDetail: null,
+    removable: true,
     revision: "a1b2c3d",
     updatedAt: "2026-10-01T10:00:00.000Z",
     ...overrides,
@@ -43,6 +44,7 @@ export function workspaceSourceList(
     directCommitAllowed: false,
     items: [],
     pendingChanges: [],
+    linkErrors: [],
     ...overrides,
   }
 }

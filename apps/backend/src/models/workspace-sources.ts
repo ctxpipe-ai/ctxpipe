@@ -1,21 +1,27 @@
+import { isDeepStrictEqual } from "node:util"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../db/schema/workspaces.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import {
+  listLinkedRepositoryPins,
+  planSourceStates,
+  sameSourceState,
+} from "./workspace-source-state.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
-/** The same source entry: provider, connection and scope, not the status. */
+/**
+ * The same source entry: provider, connection and scope, not the status.
+ * jsonb does not keep the key order of the stored scope, so compare by value.
+ */
 export function sameSource(
   row: Pick<WorkspaceSourceRow, "provider" | "connectionId" | "scope">,
   planned: Pick<PlannedSourceRow, "provider" | "connectionId" | "scope">,
@@ -23,7 +29,7 @@ export function sameSource(
   return (
     row.provider === planned.provider &&
     row.connectionId === planned.connectionId &&
-    JSON.stringify(row.scope) === JSON.stringify(planned.scope)
+    isDeepStrictEqual(row.scope, planned.scope)
   )
 }
 
@@ -52,10 +58,22 @@ export async function replaceWorkspaceSourceRows(input: {
 }> {
   return withOrgDbContext(input.orgId, (db) =>
     db.transaction(async (tx) => {
+      // Lock the rows: a pin write (`updateLinkedRepositoryPin`) waits, so
+      // this write cannot undo its SHAs.
       const existing = await tx
         .select()
         .from(workspaceSources)
         .where(eq(workspaceSources.workspaceId, input.workspaceId))
+        .for("update")
+      const [workspace] = await tx
+        .select({ url: workspaces.workspaceRepositoryUrl })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.workspaceId))
+      const states = planSourceStates({
+        existing,
+        planned: input.rows,
+        workspaceUrl: workspace?.url ?? null,
+      })
       const byKey = new Map(existing.map((row) => [row.sourceKey, row]))
       const plannedKeys = new Set(input.rows.map((row) => row.sourceKey))
       const removed = existing.filter((row) => !plannedKeys.has(row.sourceKey))
@@ -74,6 +92,7 @@ export async function replaceWorkspaceSourceRows(input: {
       const now = new Date()
       for (const planned of input.rows) {
         const current = byKey.get(planned.sourceKey)
+        const state = states.get(planned.sourceKey) ?? {}
         if (!current) {
           added.push(planned)
           await tx.insert(workspaceSources).values({
@@ -81,24 +100,26 @@ export async function replaceWorkspaceSourceRows(input: {
             orgId: input.orgId,
             workspaceId: input.workspaceId,
             ...planned,
+            state,
             revision: input.revision,
             createdAt: now,
             updatedAt: now,
           })
           continue
         }
+        const sameState = sameSourceState(current.state, state)
         if (sameRow(current, planned)) {
-          if (current.revision !== input.revision)
+          if (current.revision !== input.revision || !sameState)
             await tx
               .update(workspaceSources)
-              .set({ revision: input.revision })
+              .set({ revision: input.revision, state })
               .where(eq(workspaceSources.id, current.id))
           continue
         }
         changed.push({ before: current, after: planned })
         await tx
           .update(workspaceSources)
-          .set({ ...planned, revision: input.revision, updatedAt: now })
+          .set({ ...planned, state, revision: input.revision, updatedAt: now })
           .where(eq(workspaceSources.id, current.id))
       }
       return { removed, changed, added }
@@ -143,21 +164,6 @@ export async function listConnectionSourceRows(input: {
       )
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
-}
-
-/** True when any Workspace source row uses the connection, in any status. */
-export async function connectionHasWorkspaceSources(input: {
-  orgId: string
-  connectionId: string
-}): Promise<boolean> {
-  const rows = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .select({ id: workspaceSources.id })
-      .from(workspaceSources)
-      .where(eq(workspaceSources.connectionId, input.connectionId))
-      .limit(1),
-  )
-  return rows.length > 0
 }
 
 /**
@@ -296,12 +302,7 @@ export async function listGithubConnectionWorkspaces(input: {
         })
         .from(workspaces)
         .orderBy(workspaces.slug),
-      db
-        .select({
-          workspaceId: workspaceLinkedRepositories.workspaceId,
-          gitUrl: workspaceLinkedRepositories.gitUrl,
-        })
-        .from(workspaceLinkedRepositories),
+      listLinkedRepositoryPins(db),
       db
         .select({ gitUrl: repositories.gitUrl })
         .from(repositories)

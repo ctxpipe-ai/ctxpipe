@@ -45,8 +45,32 @@ function fileError(detail: string): PlannedSourceRow[] {
   ]
 }
 
-/** Turn the text of `.ctxpipe/sources.yaml` into the rows of its projection. */
+/**
+ * Turn the text of `.ctxpipe/sources.yaml` into the rows of its projection.
+ * Each `repositories/*.md` file in `leftoverFiles` (a file that the ADR-050
+ * upgrade cannot move into the sources file) gets an invalid row, keyed by
+ * its path, so that the Workspace shows it with the source errors.
+ */
 export async function planSourceRows(input: {
+  text: string | null
+  connections: ReadonlyMap<string, SourceConnection>
+  checkAccess?: SourceAccessCheck
+  leftoverFiles?: ReadonlyArray<{ path: string; reason: string }>
+}): Promise<PlannedSourceRow[]> {
+  return [
+    ...(await planEntryRows(input)),
+    ...(input.leftoverFiles ?? []).map((file) => ({
+      sourceKey: file.path,
+      provider: null,
+      connectionId: null,
+      scope: {},
+      status: "invalid" as const,
+      statusDetail: `${file.path}: ${file.reason}. Move the link into .ctxpipe/sources.yaml or remove the file.`,
+    })),
+  ]
+}
+
+async function planEntryRows(input: {
   text: string | null
   connections: ReadonlyMap<string, SourceConnection>
   checkAccess?: SourceAccessCheck
