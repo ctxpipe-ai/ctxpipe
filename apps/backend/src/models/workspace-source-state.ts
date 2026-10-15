@@ -124,8 +124,9 @@ const SERVING_SOURCE_STATUSES = ["ok"] as const
  * The next state of each planned row of one Workspace, by source key. The
  * pins of a repository belong to the repository, not to the row: a
  * repository keeps its id and SHAs when it moves to another entry, and a row
- * whose connection is missing or whose entry is invalid keeps its pins (they
- * link nothing while the row cannot link) until the row recovers. A
+ * whose connection is missing or whose entry is invalid keeps its pins and
+ * the pins of the repositories that its scope names (they link nothing while
+ * the row cannot link) until the row recovers. A
  * repository is linked only once: the Workspace repository and a repository
  * of an earlier row are not linked again.
  */
@@ -185,14 +186,31 @@ export function planSourceStates(input: {
       reconcileGithubState([...pool.values()], wanted, input.now),
     )
   }
-  for (const planned of input.planned)
-    if (planned.provider === "github" && !linking(planned.status))
-      states.set(planned.sourceKey, {
-        provider: "github",
-        repositories: (pinsByRow.get(planned.sourceKey) ?? []).filter(
-          (pin) => !linked.has(pin.gitUrl),
-        ),
-      })
+  // A row that cannot link keeps its own pins and the pins of the
+  // repositories that its scope names (by URL and ref), so a file that is
+  // renamed and invalid at the same revision keeps its pin. Each pin goes to
+  // one row only.
+  const kept = new Set<string>()
+  for (const planned of input.planned) {
+    if (planned.provider !== "github" || linking(planned.status)) continue
+    const named = new Set(
+      githubSourceScopeRepositories(planned.scope).map(
+        ({ name, ref }) =>
+          `${normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)} ${ref ?? ""}`,
+      ),
+    )
+    const repositories = [
+      ...(pinsByRow.get(planned.sourceKey) ?? []),
+      ...[...pool.entries()].flatMap(([key, pin]) =>
+        named.has(key) ? [pin] : [],
+      ),
+    ].filter((pin) => {
+      if (linked.has(pin.gitUrl) || kept.has(pin.id)) return false
+      kept.add(pin.id)
+      return true
+    })
+    states.set(planned.sourceKey, { provider: "github", repositories })
+  }
   return states
 }
 

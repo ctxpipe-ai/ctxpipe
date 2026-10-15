@@ -248,6 +248,46 @@ describe("planSourceStates for source files", () => {
     })
   })
 
+  it("keeps the pin of a renamed file that is invalid at that revision", () => {
+    const existing = [
+      {
+        id: "wsrc_old",
+        sourceKey: "sources/github/acme/web.md",
+        provider: "github",
+        state: { provider: "github", repositories: [main] },
+      },
+    ]
+    const renamed = {
+      ...file("sources/github/acme/frontend.md", "acme/web", "main"),
+      status: "invalid",
+    }
+    const invalid = planSourceStates({
+      existing,
+      planned: [renamed],
+      workspaceUrl: null,
+    })
+    expect(invalid.get("sources/github/acme/frontend.md")).toEqual({
+      provider: "github",
+      repositories: [main],
+    })
+    const fixed = planSourceStates({
+      existing: [
+        {
+          id: "wsrc_new",
+          sourceKey: "sources/github/acme/frontend.md",
+          provider: "github",
+          state: invalid.get("sources/github/acme/frontend.md"),
+        },
+      ],
+      planned: [file("sources/github/acme/frontend.md", "acme/web", "main")],
+      workspaceUrl: null,
+    })
+    expect(fixed.get("sources/github/acme/frontend.md")).toEqual({
+      provider: "github",
+      repositories: [main],
+    })
+  })
+
   it("gives a new id and no SHAs when the ref changes", () => {
     const states = planSourceStates({
       existing: [

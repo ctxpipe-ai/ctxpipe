@@ -210,6 +210,20 @@ describe("parseSourceFile", () => {
   })
 })
 
+describe("parseSourceFile of an invalid file", () => {
+  it("keeps the scope when only another key is wrong", () => {
+    const parsed = parseSourceFile(
+      "sources/github/acme/web.md",
+      "---\nid: web\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\n",
+    )
+    expect(parsed).toMatchObject({
+      ok: false,
+      provider: "github",
+      scope: { repository: "acme/web", ref: "main" },
+    })
+  })
+})
+
 describe("checkSourcePath", () => {
   it.each([
     "sources/github/acme/checkout-api.md",
