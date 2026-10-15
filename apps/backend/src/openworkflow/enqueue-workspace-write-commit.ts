@@ -478,6 +478,13 @@ export async function enqueueWriteJob(
         ...(input.kind === "ops_folder_map" && input.previousSha
           ? { previousSha: input.previousSha }
           : {}),
+        // The ownership migration is an ingestion v2 publish (ADR-052).
+        ...(input.kind === "ownership_migration"
+          ? {
+              publishPipeline:
+                input.publishPipeline ?? ingestionPublishPipeline(),
+            }
+          : {}),
       }
       await persistBoundWriteJob({
         admissionStatus,
@@ -486,6 +493,7 @@ export async function enqueueWriteJob(
         revision,
         displayName: command.displayName,
         previousSha: command.previousSha,
+        publishPipeline: command.publishPipeline,
       })
       bound = true
       if (input.kind === "bootstrap")

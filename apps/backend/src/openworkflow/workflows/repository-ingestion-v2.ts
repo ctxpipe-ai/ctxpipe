@@ -173,6 +173,7 @@ export function defineRepositoryIngestionV2Workflow(
         let migrationFailed = new Set<string>()
         if (!input.shadow && !resolved.skipped) {
           const migration = await migrateOwnershipBeforePublish({
+            publishPipeline: input.publishPipeline,
             step,
             orgId: input.orgId,
             runId: run.id,

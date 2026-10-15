@@ -230,6 +230,12 @@ export const workspaceHydrate = defineWorkflow(
             }
             const enqueueRemainingWrites = async () => {
               if (!planning.needed) return
+              // The switch value goes in the plan and in each job it queues,
+              // so the ownership migration job carries its pipeline.
+              const publishPipeline = await step.run(
+                { name: "read-publish-pipeline" },
+                () => ingestionPublishPipeline(),
+              )
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
                 async () => {
@@ -238,7 +244,7 @@ export const workspaceHydrate = defineWorkflow(
                     revision,
                     displayName: workspace.displayName,
                     files,
-                    publishPipeline: ingestionPublishPipeline(),
+                    publishPipeline,
                   })
                   if (await getMigrationExportSha(workspace.id, revision)) {
                     remaining.push({
@@ -314,6 +320,7 @@ export const workspaceHydrate = defineWorkflow(
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,
                       defaultBranch: revision.defaultBranch,
+                      publishPipeline,
                     },
                     {
                       error: (error) => {

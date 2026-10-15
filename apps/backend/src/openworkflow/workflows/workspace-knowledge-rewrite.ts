@@ -1,5 +1,10 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import {
+  type IngestionPublishPipeline,
+  ingestionPublishPipelineSchema,
+  publishPipelineStopped,
+} from "../../domain/ingestion/ingestion-v2-config.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
@@ -19,6 +24,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  discardWriteJobPreparedCommit,
   getMigrationExportSha,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
@@ -44,6 +50,11 @@ const inputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    /**
+     * The publish pipeline when the job was queued (ADR-052 phase 4). Only a
+     * rewrite of ingestion v2 (`publishPipeline` option) reads it.
+     */
+    publishPipeline: ingestionPublishPipelineSchema.optional(),
   })
   .strict()
   .refine(
@@ -66,6 +77,14 @@ export function defineKnowledgeRewriteWorkflow(options: {
   kind: "import_key_cleanup" | "ownership_migration"
   /** Refuse the write unless the binding has a completed migration export. */
   requireMigrationExport?: boolean
+  /**
+   * The rewrite is an ingestion v2 publish (the ownership migration). The
+   * step that pushes compares the job, the queued, and the committed
+   * pipeline (`committed` reads the switch), and a job of the wrong pipeline
+   * stops. A push that loses the race plans again on the new tip, so that
+   * each push goes through this check (no semantic merge).
+   */
+  publishPipeline?: { committed: () => IngestionPublishPipeline }
   transform: (
     files: KnowledgeFile[],
     revision: WorkspaceRevision,
@@ -98,6 +117,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
             kind: options.kind,
             revision: input.revision,
             workflowRunId: run.id,
+            publishPipeline: input.publishPipeline,
           }),
         )
         if (options.requireMigrationExport)
@@ -202,10 +222,36 @@ export function defineKnowledgeRewriteWorkflow(options: {
           })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
-            pushed = await step.run(
+            const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-              () => attemptWorkspaceCommit(input, revision, committed, env),
+              async () => {
+                // The same step reads the switch and pushes, so no step
+                // runs between the check and the push.
+                if (
+                  options.publishPipeline &&
+                  publishPipelineStopped({
+                    job: "v2",
+                    queued: input.publishPipeline ?? "legacy",
+                    committed: options.publishPipeline.committed(),
+                  })
+                ) {
+                  // The job publishes nothing, so it keeps no commit.
+                  await discardWriteJobPreparedCommit(
+                    input.jobId,
+                    committed.sha,
+                  )
+                  await persistWriteJobStatus(input.jobId, "completed")
+                  return { stopped: true as const }
+                }
+                return attemptWorkspaceCommit(input, revision, committed, env)
+              },
             )
+            if ("stopped" in attempt)
+              return {
+                committed: false as const,
+                reason: "publish_pipeline_legacy" as const,
+              }
+            pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>
               persistWriteJobStatus(input.jobId, "paused"),
@@ -214,6 +260,16 @@ export function defineKnowledgeRewriteWorkflow(options: {
             await step.run({ name: "resume-push" }, () =>
               persistWriteJobStatus(input.jobId, "running"),
             )
+          }
+          if (!pushed.pushed && options.publishPipeline) {
+            // The default branch moved: plan again on the new tip.
+            await step.run({ name: "discard-unpublished-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            )
+            revision = await step.run({ name: "refresh-raced-revision" }, () =>
+              refreshWorkspaceWriteRevision(input, revision, env),
+            )
+            continue
           }
           if (!pushed.pushed) {
             const handoff = await step.run(

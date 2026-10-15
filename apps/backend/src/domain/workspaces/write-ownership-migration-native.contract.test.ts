@@ -72,6 +72,8 @@ it(
                   workspaceId: f.workspaceId,
                   jobId,
                   kind: "ownership_migration",
+                  // Queued while ingestion v2 publishes.
+                  publishPipeline: "v2",
                 },
                 {
                   error: (error) => {
@@ -81,13 +83,13 @@ it(
               ),
             ),
           ).toEqual({ started: true })
-          const { workspaceOwnershipMigration } = await import(
+          const { defineWorkspaceOwnershipMigrationWorkflow } = await import(
             "../../openworkflow/workflows/workspace-ownership-migration.js"
           )
-          runner.implementWorkflow(
-            workspaceOwnershipMigration.spec,
-            workspaceOwnershipMigration.fn,
-          )
+          const migration = defineWorkspaceOwnershipMigrationWorkflow({
+            committedPipeline: () => "v2",
+          })
+          runner.implementWorkflow(migration.spec, migration.fn)
           worker = runner.newWorker({ concurrency: 1 })
           await worker.start()
           await expect
@@ -188,6 +190,7 @@ it(
                 workspaceId: f.workspaceId,
                 jobId,
                 kind: "ownership_migration",
+                publishPipeline: "v2",
               },
               {
                 error: (error) => {
@@ -196,13 +199,13 @@ it(
               },
             ),
           )
-          const { workspaceOwnershipMigration } = await import(
+          const { defineWorkspaceOwnershipMigrationWorkflow } = await import(
             "../../openworkflow/workflows/workspace-ownership-migration.js"
           )
-          runner.implementWorkflow(
-            workspaceOwnershipMigration.spec,
-            workspaceOwnershipMigration.fn,
-          )
+          const migration = defineWorkspaceOwnershipMigrationWorkflow({
+            committedPipeline: () => "v2",
+          })
+          runner.implementWorkflow(migration.spec, migration.fn)
           worker = runner.newWorker({ concurrency: 1 })
           await worker.start()
           await expect
@@ -247,10 +250,16 @@ it(
       async (f) => {
         const { BackendPostgres } = await import("openworkflow/postgres")
         const { OpenWorkflow } = await import("openworkflow")
-        const { migrateOwnershipBeforePublish, workspaceOwnershipMigration } =
-          await import(
-            "../../openworkflow/workflows/workspace-ownership-migration.js"
-          )
+        const {
+          migrateOwnershipBeforePublish,
+          defineWorkspaceOwnershipMigrationWorkflow,
+        } = await import(
+          "../../openworkflow/workflows/workspace-ownership-migration.js"
+        )
+        const workspaceOwnershipMigration =
+          defineWorkspaceOwnershipMigrationWorkflow({
+            committedPipeline: () => "v2",
+          })
         const backend = await BackendPostgres.connect(f.databaseUrl, {
           namespaceId: openWorkflowNamespaceId(),
           runMigrations: false,
@@ -267,6 +276,7 @@ it(
               step,
               orgId: input.orgId,
               runId: run.id,
+              publishPipeline: "v2",
               workspaceIds: [input.workspaceId],
               env: parseEnv(process.env),
             }),
@@ -309,6 +319,74 @@ it(
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(migrated)
+        } finally {
+          await worker.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "stops a migration queued under v2 at the push after a rollback to legacy",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files,
+      },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { defineWorkspaceOwnershipMigrationWorkflow } = await import(
+          "../../openworkflow/workflows/workspace-ownership-migration.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        // The switch went back to legacy after the job was queued.
+        const migration = defineWorkspaceOwnershipMigrationWorkflow({
+          committedPipeline: () => "legacy",
+        })
+        runner.implementWorkflow(migration.spec, migration.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        const jobId = `wjob_${f.id}_ownership_rollback`
+        try {
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind: "ownership_migration",
+                publishPipeline: "v2",
+              },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          )
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(f.org, () =>
+                  reconcileWorkspaceWriteJob(jobId),
+                ),
+              { timeout: 30_000 },
+            )
+            .toMatchObject({ status: "completed", commitSha: null })
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(f.sha)
         } finally {
           await worker.stop()
           await backend.stop()

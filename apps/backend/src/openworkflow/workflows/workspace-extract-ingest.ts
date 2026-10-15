@@ -147,6 +147,7 @@ export function defineWorkspaceExtractIngestWorkflow(
               workflowRunId: run.id,
               extraction: input.extraction,
               ingest: input.ingest,
+              publishPipeline: input.publishPipeline,
             }),
           )
           const identity = input.extraction
@@ -379,6 +380,11 @@ export function defineWorkspaceExtractIngestWorkflow(
                   // it immediately before the push, so no step runs between.
                   // Each pipeline pushes only while the switch selects it.
                   if (pipelineStopped()) {
+                    // The job publishes nothing, so it keeps no commit.
+                    await discardWriteJobPreparedCommit(
+                      input.jobId,
+                      committed.sha,
+                    )
                     await persistWriteJobStatus(input.jobId, "completed")
                     return { stopped: true as const }
                   }

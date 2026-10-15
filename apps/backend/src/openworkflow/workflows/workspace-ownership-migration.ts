@@ -1,5 +1,9 @@
 import type { Workflow } from "openworkflow"
 import type { Env } from "../../config/env.js"
+import {
+  type IngestionPublishPipeline,
+  ingestionPublishPipeline,
+} from "../../domain/ingestion/ingestion-v2-config.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { ownershipMigrationFiles } from "../../domain/ingestion/ownership-migration.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
@@ -11,23 +15,36 @@ import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js
  * The one-time move of old extracted files to ingestion v2 ownership
  * (ADR-052 section 3). Hydrate queues it while ingestion v2 publishes, and
  * an ingestion v2 run that publishes runs it first
- * (`migrateOwnershipBeforePublish`).
+ * (`migrateOwnershipBeforePublish`). It is an ingestion v2 publish: a job
+ * that was not queued under v2, or that pushes after a switch back to
+ * legacy, stops. `committedPipeline` reads the committed switch at push
+ * time; a test gives the value that it checks.
  */
-export const workspaceOwnershipMigration = defineKnowledgeRewriteWorkflow({
-  name: "workspace-write-ownership-migration",
-  kind: "ownership_migration",
-  transform: (files, revision) =>
-    ownershipMigrationFiles({
-      workspaceRepositoryUrl: revision.remote.url,
-      files,
-      onDroppedClaim: (drop) =>
-        log.warn({
-          step: "workspace-ownership-migration.claim_dropped",
-          workspaceId: revision.workspaceId,
-          ...drop,
-        }),
-    }),
-})
+export function defineWorkspaceOwnershipMigrationWorkflow(
+  deps: { committedPipeline?: () => IngestionPublishPipeline } = {},
+) {
+  return defineKnowledgeRewriteWorkflow({
+    name: "workspace-write-ownership-migration",
+    kind: "ownership_migration",
+    publishPipeline: {
+      committed: deps.committedPipeline ?? ingestionPublishPipeline,
+    },
+    transform: (files, revision) =>
+      ownershipMigrationFiles({
+        workspaceRepositoryUrl: revision.remote.url,
+        files,
+        onDroppedClaim: (drop) =>
+          log.warn({
+            step: "workspace-ownership-migration.claim_dropped",
+            workspaceId: revision.workspaceId,
+            ...drop,
+          }),
+      }),
+  })
+}
+
+export const workspaceOwnershipMigration =
+  defineWorkspaceOwnershipMigrationWorkflow()
 
 type Step = Parameters<Workflow<unknown, unknown, unknown>["fn"]>[0]["step"]
 
@@ -46,6 +63,8 @@ export async function migrateOwnershipBeforePublish(input: {
   step: Step
   orgId: string
   runId: string
+  /** The pipeline in the run input: the migration job carries it. */
+  publishPipeline: IngestionPublishPipeline
   workspaceIds: readonly string[]
   env: Env
 }): Promise<{ committed: boolean; failed: string[] }> {
@@ -76,6 +95,7 @@ export async function migrateOwnershipBeforePublish(input: {
           workspaceId,
           jobId: `wjob_${input.runId}_${workspaceId}_ownership`,
           revision,
+          publishPipeline: input.publishPipeline,
         },
         { name: `ownership-migration:${workspaceId}` },
       )

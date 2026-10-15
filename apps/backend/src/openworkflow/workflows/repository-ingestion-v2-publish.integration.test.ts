@@ -54,7 +54,7 @@ import {
   type IngestionV2Output,
 } from "./repository-ingestion-v2.js"
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
-import { workspaceOwnershipMigration } from "./workspace-ownership-migration.js"
+import { defineWorkspaceOwnershipMigrationWorkflow } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 /*
@@ -484,6 +484,9 @@ beforeAll(async () => {
     workspaceSemanticMerge.fn,
   )
   // A run outside shadow mode runs the ownership migration first.
+  const workspaceOwnershipMigration = defineWorkspaceOwnershipMigrationWorkflow(
+    { committedPipeline: () => committed.pipeline },
+  )
   runner.implementWorkflow(
     workspaceOwnershipMigration.spec,
     workspaceOwnershipMigration.fn,
