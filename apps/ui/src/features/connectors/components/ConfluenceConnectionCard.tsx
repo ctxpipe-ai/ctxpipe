@@ -9,10 +9,7 @@ import {
   getConfluenceCardPrimaryCta,
   getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import {
   atlassianConnectorKeys,
   deleteAtlassianConnector,
@@ -113,11 +110,6 @@ export function ConfluenceConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={status?.isLinked ? "Atlassian" : "—"}
-      scope={
-        status?.syncTarget
-          ? formatSelectedItemCount(status.selectedSpaceCount)
-          : "Set in each Workspace"
-      }
       actionLabel={
         isError
           ? "Retry"
