@@ -45,18 +45,13 @@ export const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
  * state the grant in the OpenAPI description of the route.
  */
 export function directWriteRoute<R extends RouteConfig>(route: R): R {
-  const middleware = route.middleware
+  if (route.middleware) {
+    throw new Error(`${route.path}: directWriteRoute sets the route middleware`)
+  }
   const forbidden = route.responses[403]
   return {
     ...route,
-    middleware: [
-      requireWriteGrant,
-      ...(Array.isArray(middleware)
-        ? middleware
-        : middleware
-          ? [middleware]
-          : []),
-    ],
+    middleware: requireWriteGrant,
     description: route.description
       ? `${route.description}\n\n${WRITE_GRANT_NOTE}`
       : WRITE_GRANT_NOTE,
