@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
@@ -126,6 +127,10 @@ export const workspaceExtractIngest = defineWorkflow(
           const transformed = await step.run(
             { name: "transform-extract-ingest" },
             async () => {
+              // A job that was queued or paused before the switch to
+              // ingestion v2 must not publish (ADR-052 phase 4).
+              if (ingestionPublishPipeline() !== "legacy")
+                return { stopped: true as const }
               const existingKnowledge = await readGitFiles(
                 acquired.pack,
                 (path) => path.endsWith(".md") && !isConnectorMirrorPath(path),
@@ -152,6 +157,15 @@ export const workspaceExtractIngest = defineWorkflow(
               return { files, knowledgePaths: plan.knowledgePaths }
             },
           )
+          if ("stopped" in transformed) {
+            await step.run({ name: "complete-stopped" }, () =>
+              persistWriteJobStatus(input.jobId, "completed"),
+            )
+            return {
+              committed: false as const,
+              reason: "publish_pipeline_v2" as const,
+            }
+          }
           await step.run({ name: "record-knowledge-paths" }, () =>
             persistWriteJobKnowledgePaths(
               input.jobId,
@@ -210,9 +224,23 @@ export const workspaceExtractIngest = defineWorkflow(
               persistWriteJobStatus(input.jobId, "paused"),
             )
             await step.sleep("await-default-write-access", "1 minute")
-            await step.run({ name: "resume-push" }, () =>
-              persistWriteJobStatus(input.jobId, "running"),
+            const resumed = await step.run(
+              { name: "resume-push" },
+              async () => {
+                // The switch can change while the push waits for write access.
+                if (ingestionPublishPipeline() !== "legacy") {
+                  await persistWriteJobStatus(input.jobId, "completed")
+                  return { stopped: true }
+                }
+                await persistWriteJobStatus(input.jobId, "running")
+                return {}
+              },
             )
+            if (resumed && "stopped" in resumed)
+              return {
+                committed: false as const,
+                reason: "publish_pipeline_v2" as const,
+              }
           }
           if (!pushed.pushed) {
             const handoff = await step.run(

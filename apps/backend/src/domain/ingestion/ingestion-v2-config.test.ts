@@ -1,5 +1,8 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { ingestionV2ShadowEnabled } from "./ingestion-v2-config.js"
+import {
+  ingestionPublishPipeline,
+  ingestionV2ShadowEnabled,
+} from "./ingestion-v2-config.js"
 
 afterEach(() => {
   vi.unstubAllEnvs()
@@ -59,5 +62,15 @@ describe("ingestion v2 shadow switch", () => {
   it("is off when no deployment-environment label is set", () => {
     // The OTel name falls back to `development`; that is not a label.
     expect(inDeployment("")).toBe(false)
+  })
+})
+
+describe("ingestion publish pipeline switch", () => {
+  it("is the old pipeline", () => {
+    expect(ingestionPublishPipeline()).toBe("legacy")
+  })
+
+  it("fails loudly when it is v2 before ingestion v2 can publish", () => {
+    expect(() => ingestionPublishPipeline("v2")).toThrow(/cannot publish yet/)
   })
 })

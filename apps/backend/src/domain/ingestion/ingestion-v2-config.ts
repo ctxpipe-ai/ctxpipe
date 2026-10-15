@@ -26,14 +26,23 @@ export function ingestionV2ShadowEnabled(): boolean {
  * moves the old extracted files to ingestion v2 ownership
  * (`ownership_migration`), and the old pipeline stops its publish.
  *
- * This is committed config, not an env var. To roll back within one release,
+ * This is committed config, not an env var: change the default of
+ * `committed`. To roll back within one release,
  * set it to `legacy` again: the old pipeline publishes again and writes
  * `generated_by: ctxpipe` on each file it changes. When it goes back to `v2`,
  * the migration moves those files again.
  */
 export type IngestionPublishPipeline = "legacy" | "v2"
 
-export function ingestionPublishPipeline(): IngestionPublishPipeline {
+export function ingestionPublishPipeline(
+  committed: IngestionPublishPipeline = "legacy",
+): IngestionPublishPipeline {
   // Ingestion v2 cannot publish until T21 (publish from the ref) is merged.
-  return "legacy"
+  // Until then `v2` stops each publish, so each caller fails loudly instead.
+  // T21 removes this check.
+  if (committed === "v2")
+    throw new Error(
+      "The publish pipeline is v2, but ingestion v2 cannot publish yet (T21)",
+    )
+  return committed
 }
