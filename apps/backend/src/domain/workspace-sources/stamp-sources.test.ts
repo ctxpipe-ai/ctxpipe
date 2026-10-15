@@ -22,6 +22,18 @@ describe("stampSources", () => {
     expect(stampSources("# Plain\n", ["sources/linear/a.md"])).toBe("# Plain\n")
   })
 
+  it("stamps an empty front matter and strips it back to the same text", () => {
+    const empty = "---\n---\n# Title\n"
+    const stamped = stampSources(empty, ["sources/linear/a.md"])
+    expect(stamped).toBe(
+      "---\nsources:\n  - sources/linear/a.md\n---\n# Title\n",
+    )
+    expect(readSourcesStamp(stamped)).toEqual({
+      sources: ["sources/linear/a.md"],
+      stripped: empty,
+    })
+  })
+
   it("keeps a key that follows the list", () => {
     const text = "---\nsources:\n  - sources/linear/a.md\nid: a\n---\nBody\n"
     expect(stampSources(text, ["sources/linear/b.md"])).toBe(
@@ -39,8 +51,12 @@ describe("readSourcesStamp", () => {
     })
   })
 
-  it("returns null for a file with no list", () => {
+  it("returns a null list for a file with no list", () => {
     expect(readSourcesStamp(page)).toEqual({ sources: null, stripped: page })
+  })
+
+  it("returns null for a file with no front matter", () => {
+    expect(readSourcesStamp("# Plain\n")).toBeNull()
   })
 })
 

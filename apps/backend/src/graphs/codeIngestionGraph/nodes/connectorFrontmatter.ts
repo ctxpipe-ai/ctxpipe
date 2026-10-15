@@ -18,20 +18,29 @@ export function asStringArray(value: unknown): string[] {
     : []
 }
 
+/**
+ * The front matter of a Markdown file: its data, its raw lines (none for an
+ * empty `---` pair), and the text after the closing `---`.
+ */
 export function splitFrontmatter(
   content: string,
-): { data: Record<string, unknown>; body: string } | null {
-  const match = content.match(/^---\n([\s\S]*?)\n---/)
-  if (!match?.[1]) return null
+): { data: Record<string, unknown>; lines: string[]; body: string } | null {
+  const match = content.match(/^---\n(?:---|([\s\S]*?)\n---)/)
+  if (!match) return null
+  const yaml = match[1]
   let parsed: unknown
   try {
-    parsed = parseYaml(match[1])
+    parsed = yaml === undefined ? {} : parseYaml(yaml)
   } catch {
     return null
   }
-  const data = asRecord(parsed)
+  const data = asRecord(parsed ?? {})
   if (!data) return null
-  return { data, body: content.slice(match[0].length) }
+  return {
+    data,
+    lines: yaml === undefined ? [] : yaml.split("\n"),
+    body: content.slice(match[0].length),
+  }
 }
 
 /** Drop a leading `# heading` line. */

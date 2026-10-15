@@ -1,17 +1,8 @@
 import { createHash } from "node:crypto"
-import { parse as parseYaml } from "yaml"
-
-const FRONT_MATTER = /^---\n([\s\S]*?)\n---(?=\n|$)/
-
-/** Split the front matter lines from the text after them, or null. */
-function split(text: string): { lines: string[]; after: string } | null {
-  const match = FRONT_MATTER.exec(text)
-  if (!match) return null
-  return {
-    lines: (match[1] ?? "").split("\n"),
-    after: text.slice(match[0].length),
-  }
-}
+import {
+  asStringArray,
+  splitFrontmatter,
+} from "../../graphs/codeIngestionGraph/nodes/connectorFrontmatter.js"
 
 /** Index range of the top-level `sources` key (key line plus its block). */
 function sourcesRange(lines: string[]): [number, number] | null {
@@ -22,8 +13,14 @@ function sourcesRange(lines: string[]): [number, number] | null {
   return [start, end]
 }
 
-function join(lines: string[], after: string): string {
-  return `---\n${lines.join("\n")}\n---${after}`
+function join(lines: string[], body: string): string {
+  return lines.length
+    ? `---\n${lines.join("\n")}\n---${body}`
+    : `---\n---${body}`
+}
+
+function withoutRange(lines: string[], range: [number, number] | null) {
+  return range ? [...lines.slice(0, range[0]), ...lines.slice(range[1])] : lines
 }
 
 /**
@@ -32,48 +29,30 @@ function join(lines: string[], after: string): string {
  * result is the same for a file that already has the list.
  */
 export function stampSources(text: string, paths: readonly string[]): string {
-  const parts = split(text)
+  const parts = splitFrontmatter(text)
   if (!parts) return text
-  const range = sourcesRange(parts.lines)
-  const lines = range
-    ? [...parts.lines.slice(0, range[0]), ...parts.lines.slice(range[1])]
-    : parts.lines
+  const lines = withoutRange(parts.lines, sourcesRange(parts.lines))
   return join(
     [...lines, "sources:", ...paths.map((path) => `  - ${path}`)],
-    parts.after,
+    parts.body,
   )
 }
 
 /**
  * The `sources` list of a file (null when it has none) and the text without
- * it. The text without the list is what a converter wrote.
+ * it. The text without the list is what a converter wrote. Null when the
+ * file has no front matter: the sync does not stamp it.
  */
-export function readSourcesStamp(text: string): {
-  sources: string[] | null
-  stripped: string
-} {
-  const parts = split(text)
-  const range = parts ? sourcesRange(parts.lines) : null
-  if (!parts || !range) return { sources: null, stripped: text }
-  let sources: string[] | null = null
-  try {
-    const value = parseYaml(parts.lines.slice(...range).join("\n")) as {
-      sources?: unknown
-    }
-    if (
-      Array.isArray(value?.sources) &&
-      value.sources.every((item) => typeof item === "string")
-    )
-      sources = value.sources
-  } catch {
-    sources = null
-  }
+export function readSourcesStamp(
+  text: string,
+): { sources: string[] | null; stripped: string } | null {
+  const parts = splitFrontmatter(text)
+  if (!parts) return null
+  const range = sourcesRange(parts.lines)
+  if (!range) return { sources: null, stripped: text }
   return {
-    sources,
-    stripped: join(
-      [...parts.lines.slice(0, range[0]), ...parts.lines.slice(range[1])],
-      parts.after,
-    ),
+    sources: asStringArray(parts.data.sources),
+    stripped: join(withoutRange(parts.lines, range), parts.body),
   }
 }
 

@@ -1,40 +1,118 @@
-import { listTreeBlobs, nativeGit } from "../../services/git/pack.js"
-import { gitBlobSha, readSourcesStamp } from "./stamp-sources.js"
-import type { ExistingBlob } from "./sync.js"
+import { spawn } from "node:child_process"
+import { listTreeBlobs } from "../../services/git/pack.js"
+import { gitBlobSha, readSourcesStamp, stampSources } from "./stamp-sources.js"
+import { type ExistingBlob, type StampOwner, stampOwnerOf } from "./sync.js"
 
 /**
- * The blobs of a tree. For each Markdown file under `stampRoot` it also reads
- * the `sources` front matter, so that the sync can tell a file with the
- * wrong or no list from a file that did not change (ADR-050).
+ * The blobs under the managed paths of `owners` in a tree, as the adapters
+ * wrote them (ADR-050). The sha of a Markdown file is the one of its text
+ * without the `sources` list. A Markdown file with front matter and a wrong
+ * or missing list also gets its text with the right list (`restamped`).
+ * `root` is the Workspace root in the repository; paths are relative to it.
  */
 export async function listExistingBlobs(
   directory: string,
   treeish: string,
-  stampRoot: string,
+  owners: readonly StampOwner[],
+  root = "",
 ): Promise<ExistingBlob[]> {
-  const blobs = await listTreeBlobs(directory, treeish)
-  const marked = blobs.filter(
-    (blob) => blob.path.startsWith(stampRoot) && blob.path.endsWith(".md"),
-  )
-  if (!marked.length) return blobs
-  const output = await nativeGit(
+  const prefixes = [...new Set(owners.flatMap((owner) => owner.prefixes))]
+  if (!prefixes.length) return []
+  const blobs = (
+    await listTreeBlobs(
+      directory,
+      treeish,
+      prefixes.map((prefix) => `${root}${prefix}`),
+    )
+  ).map((blob) => ({ ...blob, path: blob.path.slice(root.length) }))
+  const marked = blobs.filter((blob) => blob.path.endsWith(".md"))
+  const read = new Map<string, ExistingBlob>()
+  let index = 0
+  for await (const body of catFileBatch(
     directory,
-    ["cat-file", "--batch"],
-    `${marked.map((blob) => blob.sha).join("\n")}\n`,
-  )
-  const stamps = new Map<string, ExistingBlob>()
-  let offset = 0
-  for (const blob of marked) {
-    const end = output.indexOf("\n", offset)
-    const size = Number(output.subarray(offset, end).toString().split(" ")[2])
-    const body = output.subarray(end + 1, end + 1 + size)
-    offset = end + 1 + size + 1
-    const { sources, stripped } = readSourcesStamp(body.toString("utf8"))
-    stamps.set(blob.path, {
-      ...blob,
-      sources,
-      ...(sources ? { unstampedSha: gitBlobSha(stripped) } : {}),
-    })
+    marked.map((blob) => blob.sha),
+  )) {
+    const blob = marked[index++]
+    if (!blob) break
+    read.set(blob.path, readStamp(blob, body, stampOwnerOf(owners, blob.path)))
   }
-  return blobs.map((blob) => stamps.get(blob.path) ?? blob)
+  return blobs.map((blob) => read.get(blob.path) ?? blob)
+}
+
+function readStamp(
+  blob: { path: string; sha: string },
+  body: Buffer,
+  sourcePath: string | null,
+): ExistingBlob {
+  const text = body.toString("utf8")
+  const stamp = readSourcesStamp(text)
+  // No front matter: the sync does not stamp the file.
+  if (!stamp) return blob
+  const sha = stamp.sources ? gitBlobSha(stamp.stripped) : blob.sha
+  const right =
+    !sourcePath ||
+    (stamp.sources?.length === 1 && stamp.sources[0] === sourcePath)
+  return right
+    ? { path: blob.path, sha }
+    : { path: blob.path, sha, restamped: stampSources(text, [sourcePath]) }
+}
+
+/**
+ * The contents of the blobs `shas`, in order, from one `git cat-file
+ * --batch`. It holds one blob in memory at a time, so a large mirror does
+ * not fill an output buffer.
+ */
+async function* catFileBatch(
+  directory: string,
+  shas: readonly string[],
+): AsyncGenerator<Buffer> {
+  if (!shas.length) return
+  const child = spawn(
+    "git",
+    ["-c", "core.hooksPath=/dev/null", "-C", directory, "cat-file", "--batch"],
+    { env: { ...process.env, GIT_TERMINAL_PROMPT: "0" } },
+  )
+  const exited = new Promise<number | null>((resolve, reject) => {
+    child.on("error", reject)
+    child.on("close", resolve)
+  })
+  const stderr: Buffer[] = []
+  child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk))
+  child.stdin.end(`${shas.join("\n")}\n`)
+  try {
+    let chunks: Buffer[] = []
+    let length = 0
+    let size: number | null = null
+    for await (const chunk of child.stdout as AsyncIterable<Buffer>) {
+      chunks.push(chunk)
+      length += chunk.length
+      for (;;) {
+        if (size === null) {
+          const pending = Buffer.concat(chunks)
+          const end = pending.indexOf(10)
+          if (end < 0) break
+          const header = pending.subarray(0, end).toString()
+          const match = /^[0-9a-f]+ blob (\d+)$/.exec(header)
+          if (!match) throw new Error(`Git cannot read the blob: ${header}`)
+          size = Number(match[1])
+          chunks = [pending.subarray(end + 1)]
+          length = pending.length - end - 1
+        }
+        // Each blob ends with a newline after its content.
+        if (length < size + 1) break
+        const pending = Buffer.concat(chunks)
+        yield pending.subarray(0, size)
+        chunks = [pending.subarray(size + 1)]
+        length = pending.length - size - 1
+        size = null
+      }
+    }
+    const code = await exited
+    if (code !== 0)
+      throw new Error(
+        `git cat-file exited with ${code}: ${Buffer.concat(stderr).toString().trim()}`,
+      )
+  } finally {
+    child.kill()
+  }
 }

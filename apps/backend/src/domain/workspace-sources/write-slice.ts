@@ -11,7 +11,7 @@ import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { listExistingBlobs } from "./existing-blobs.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
-import type { ExistingBlob, WorkspaceSliceWrite } from "./sync.js"
+import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
 
 /**
  * The production slice writer: read the Workspace head, drop the write when
@@ -84,8 +84,8 @@ export async function readWorkspaceBlobs(input: {
   orgId: string
   workspaceId: string
   env: Env
-  /** The provider root, for example `linear/`: its Markdown files give their `sources` list. */
-  stampRoot: string
+  /** The managed paths to read, with the source path stamped there. */
+  owners: readonly StampOwner[]
 }): Promise<ExistingBlob[]> {
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: input.orgId } },
@@ -107,7 +107,7 @@ export async function readWorkspaceBlobs(input: {
     })
     return withGitDirectory(
       pack.sha,
-      (directory) => listExistingBlobs(directory, pack.sha, input.stampRoot),
+      (directory) => listExistingBlobs(directory, pack.sha, input.owners),
       pack,
     )
   })
