@@ -116,6 +116,11 @@ export function openWorkspaceConversation(input: {
   // sends it on its own chat stream. The cache does not survive a reload, so
   // a reload between this navigate and the session mount loses the message.
   // The window is short and the risk is low.
+  // The message has no observer until the session mounts, so keep it from
+  // garbage collection. A client with a short gcTime would drop it first.
+  input.queryClient.setQueryDefaults(["conversation-start"], {
+    gcTime: Number.POSITIVE_INFINITY,
+  })
   input.queryClient.setQueryData<string>(
     workspaceKeys.conversationStart(input.orgSlug, conversationId),
     input.text,

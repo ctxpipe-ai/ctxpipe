@@ -259,9 +259,15 @@ export function WorkspaceChatSession(props: {
     firstMessageRef.current = text
     void handleSendMessage({ text })
   })
+  // React Strict Mode runs this effect, its cleanup, and the effect again.
+  // Taking the message in the first run would send it on a chat that the
+  // cleanup already closed. The timer takes it once, after the last run.
   useEffect(() => {
-    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
-    if (text) sendFirstMessage(text)
+    const timer = setTimeout(() => {
+      const text = takeFirstMessage(queryClient, orgSlug, conversationId)
+      if (text) sendFirstMessage(text)
+    }, 0)
+    return () => clearTimeout(timer)
   }, [queryClient, orgSlug, conversationId])
 
   return (
