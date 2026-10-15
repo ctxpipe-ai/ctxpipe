@@ -64,13 +64,42 @@ describe("linkGithubRepositories", () => {
             id: "other",
             provider: "github",
             connection: "con_gh2",
-            repositories: ["Acme/Web"],
+            repositories: [{ name: "Acme/Web", ref: "main" }, "acme/api"],
           },
         ]),
         connectionId: "con_gh1",
-        repositories: [{ name: "acme/web", ref: "dev" }],
+        repositories: [
+          { name: "acme/web", ref: "dev" },
+          { name: "acme/api", ref: null },
+        ],
       }),
     ).toBeNull()
+  })
+
+  it("gives the ref to a link that has no ref, in its own entry", () => {
+    const text = linkGithubRepositories({
+      sourcesFile: file([
+        {
+          id: "other",
+          provider: "github",
+          connection: "con_gh2",
+          repositories: ["Acme/Web", "acme/api"],
+        },
+      ]),
+      connectionId: "con_gh1",
+      repositories: [{ name: "acme/web", ref: "dev" }],
+    })
+    expect(parseSourcesYaml(text ?? "")).toEqual({
+      version: 1,
+      sources: [
+        {
+          id: "other",
+          provider: "github",
+          connection: "con_gh2",
+          repositories: [{ name: "Acme/Web", ref: "dev" }, "acme/api"],
+        },
+      ],
+    })
   })
 
   it("refuses a file that is not version 1", () => {

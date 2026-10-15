@@ -1,15 +1,13 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
-import { githubSourceRepositories } from "../../domain/workspace-sources/github-sources.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
   migrationLinkedRepositoryUrls,
-  migrationRepositoryFiles,
-  migrationSourcesFile,
   planKnowledgeProjection,
+  upgradeLinkedRepositories,
 } from "../../domain/workspaces/migration-export.js"
 import {
   sameWorkspaceRevision,
@@ -38,6 +36,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -168,8 +167,6 @@ export const workspaceMigrationExport = defineWorkflow(
                     file.path !== sourcesPath &&
                     !isLinkedRepositoryDeclaration(file.path),
                 )
-                // ADR-050: the `repositories/*.md` files move into the file.
-                const repositoryFiles = migrationRepositoryFiles(existing)
                 const currentSources =
                   existing.find((file) => file.path === sourcesPath)?.content ??
                   null
@@ -185,35 +182,33 @@ export const workspaceMigrationExport = defineWorkflow(
                   existingKnowledge,
                   stampImportKey: true,
                 })
-                const sourcesFile = migrationSourcesFile({
+                // ADR-050: the `repositories/*.md` files and the org
+                // repositories move into the sources file.
+                const upgrade = upgradeLinkedRepositories({
                   sourcesFile: currentSources,
                   connectionId,
-                  repositories: [
-                    ...repositoryFiles,
-                    ...linkedUrls.map((gitUrl) => ({ gitUrl, ref: null })),
-                  ],
+                  files: existing,
+                  repositories: linkedUrls.map((gitUrl) => ({ gitUrl })),
                 })
-                // Delete a repository file only when the file links it.
-                const linkedNow = new Set(
-                  githubSourceRepositories(
-                    sourcesFile ?? currentSources,
-                    null,
-                  ).map((linked) => linked.gitUrl),
-                )
                 return {
                   files: [
                     ...(plan.wouldChange ? plan.files : []),
-                    ...(sourcesFile
-                      ? [{ path: sourcesPath, content: sourcesFile }]
+                    ...(upgrade.sourcesFile
+                      ? [{ path: sourcesPath, content: upgrade.sourcesFile }]
                       : []),
                   ],
-                  deletePaths: repositoryFiles
-                    .filter((file) => linkedNow.has(file.gitUrl))
-                    .map((file) => file.path),
+                  deletePaths: upgrade.deletePaths,
                   knowledgePaths: plan.knowledgePaths,
+                  skipped: upgrade.skipped,
                 }
               },
             )
+            // A repository or file that cannot move stays out of the sources
+            // file; the projection shows a leftover file as a source error.
+            if (transformed.skipped.length)
+              getLogger().set({
+                migrationExport: { skippedLinks: transformed.skipped },
+              })
             await step.run({ name: "record-knowledge-paths" }, () =>
               persistWriteJobKnowledgePaths(
                 input.jobId,

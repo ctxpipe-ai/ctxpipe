@@ -2,6 +2,7 @@ import { createHash } from "node:crypto"
 import { isAlias, isMap, isSeq } from "yaml"
 import { SourceChangeError } from "../workspace-sources/edit.js"
 import { linkGithubRepositories } from "../workspace-sources/github-links.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
@@ -79,22 +80,70 @@ export function migrationSourcesFile(input: {
 }
 
 /**
- * The `repositories/*.md` files of a Workspace repository that the upgrade
- * moves into `.ctxpipe/sources.yaml`: each well-formed file for a GitHub
- * repository, with its `branch` as `ref`. A file for another host stays.
+ * Move the `repositories/*.md` files and the other `repositories` into the
+ * GitHub sources of `.ctxpipe/sources.yaml` (ADR-050). A file goes away only
+ * when the new file links its repository with the same ref. `sourcesFile` is
+ * the new text, or null when the text does not change. `skipped` tells why a
+ * file or a URL stays out of the sources file. Running it again on its own
+ * result changes nothing.
  */
-export function migrationRepositoryFiles(
-  files: ReadonlyArray<{ path: string; content: string }>,
-): Array<{ path: string; gitUrl: string; ref: string | null }> {
-  return files.flatMap((file) => {
-    if (!isLinkedRepositoryDeclaration(file.path)) return []
+export function upgradeLinkedRepositories(input: {
+  sourcesFile: string | null
+  connectionId: string
+  files: ReadonlyArray<{ path: string; content: string }>
+  repositories?: ReadonlyArray<{ gitUrl: string; ref?: string | null }>
+}): {
+  sourcesFile: string | null
+  deletePaths: string[]
+  skipped: Array<{ item: string; reason: string }>
+} {
+  const onlyGithub = "ctx| links only GitHub repositories"
+  const fileSkips = new Map<string, string>()
+  const moved: Array<{ path: string; gitUrl: string; ref: string | null }> = []
+  for (const file of input.files) {
+    if (!isLinkedRepositoryDeclaration(file.path)) continue
     const parsed = parseLinkedRepositoryMarkdown(file.content)
-    if (parsed.malformed) return []
+    if (parsed.malformed) {
+      fileSkips.set(file.path, "The file cannot be read as a linked repository")
+      continue
+    }
     const gitUrl = normalizeWorkspaceRepositoryUrl(parsed.git)
-    return githubRepoFullNameFromWorkspaceUrl(gitUrl)
-      ? [{ path: file.path, gitUrl, ref: parsed.branch }]
-      : []
+    if (githubRepoFullNameFromWorkspaceUrl(gitUrl))
+      moved.push({ path: file.path, gitUrl, ref: parsed.branch })
+    else fileSkips.set(file.path, onlyGithub)
+  }
+  const repositories = input.repositories ?? []
+  const sourcesFile = migrationSourcesFile({
+    sourcesFile: input.sourcesFile,
+    connectionId: input.connectionId,
+    repositories: [...moved, ...repositories],
   })
+  const linkedRefs = new Map(
+    githubSourceRepositories(sourcesFile ?? input.sourcesFile, null).map(
+      (linked) => [linked.gitUrl, linked.ref],
+    ),
+  )
+  const deletePaths: string[] = []
+  for (const file of moved) {
+    if (!linkedRefs.has(file.gitUrl)) continue
+    const ref = linkedRefs.get(file.gitUrl) ?? null
+    if (ref === file.ref) deletePaths.push(file.path)
+    else
+      fileSkips.set(
+        file.path,
+        `The repository is linked with ${ref ? `ref ${ref}` : "no ref"}, but the file asks for ${file.ref ? `ref ${file.ref}` : "no ref"}`,
+      )
+  }
+  const skipped = [
+    ...input.files.flatMap((file) => {
+      const reason = fileSkips.get(file.path)
+      return reason ? [{ item: file.path, reason }] : []
+    }),
+    ...repositories
+      .filter(({ gitUrl }) => !githubRepoFullNameFromWorkspaceUrl(gitUrl))
+      .map(({ gitUrl }) => ({ item: gitUrl, reason: onlyGithub })),
+  ]
+  return { sourcesFile, deletePaths, skipped }
 }
 
 export function importKeyFromDedup(

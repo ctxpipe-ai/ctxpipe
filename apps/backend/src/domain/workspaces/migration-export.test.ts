@@ -7,12 +7,12 @@ import {
   importKeyFromDedup,
   isoDate,
   migrationLinkedRepositoryUrls,
-  migrationRepositoryFiles,
   migrationSourcesFile,
   noOpExportUsesResolvedTip,
   objectTitleFromPayload,
   planKnowledgeProjection,
   repositoryIdFromDedup,
+  upgradeLinkedRepositories,
   workspaceByRepositoryUrl,
 } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
@@ -83,36 +83,76 @@ describe("migration export", () => {
     ).toBeNull()
   })
 
-  it("moves repository files with their branch as ref", () => {
-    const files = migrationRepositoryFiles([
-      {
-        path: "repositories/api.md",
-        content:
-          "---\ngit: https://github.com/Acme/API.git\nbranch: release\n---\n",
-      },
-      {
-        path: "repositories/tools.md",
-        content: "---\ngit: https://gitlab.com/acme/tools\n---\n",
-      },
-      { path: "repositories/bad.md", content: "---\nname: no git\n" },
-      { path: "knowledge/a.md", content: "# A\n" },
+  it("moves the files into sources.yaml and keeps the ref of a link without one", () => {
+    const declaration = (git: string, branch?: string) =>
+      `---\ngit: ${git}\n${branch ? `branch: ${branch}\n` : ""}---\n`
+    const result = upgradeLinkedRepositories({
+      sourcesFile:
+        "version: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [acme/web, {name: acme/jobs, ref: main}]\n",
+      connectionId: "con_gh",
+      files: [
+        // Linked without a ref: the link gets the branch of the file.
+        {
+          path: "repositories/web.md",
+          content: declaration("https://github.com/acme/web", "stable"),
+        },
+        // Linked with another ref: the file stays.
+        {
+          path: "repositories/jobs.md",
+          content: declaration("https://github.com/acme/jobs", "dev"),
+        },
+        {
+          path: "repositories/api.md",
+          content: declaration("https://github.com/acme/api"),
+        },
+        {
+          path: "repositories/tools.md",
+          content: declaration("https://gitlab.com/acme/tools"),
+        },
+        { path: "repositories/bad.md", content: "---\nname: no git\n" },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/acme/ops" },
+        { gitUrl: "https://bitbucket.org/acme/legacy" },
+      ],
+    })
+    expect(parse(result.sourcesFile ?? "").sources[0].repositories).toEqual([
+      { name: "acme/web", ref: "stable" },
+      { name: "acme/jobs", ref: "main" },
+      "acme/api",
+      "acme/ops",
     ])
-    expect(files).toEqual([
+    expect(result.deletePaths).toEqual([
+      "repositories/web.md",
+      "repositories/api.md",
+    ])
+    expect(result.skipped).toEqual([
       {
-        path: "repositories/api.md",
-        gitUrl: "https://github.com/acme/api",
-        ref: "release",
+        item: "repositories/jobs.md",
+        reason: expect.stringContaining("ref main"),
+      },
+      {
+        item: "repositories/tools.md",
+        reason: expect.stringContaining("only GitHub"),
+      },
+      {
+        item: "repositories/bad.md",
+        reason: expect.stringContaining("cannot be read"),
+      },
+      {
+        item: "https://bitbucket.org/acme/legacy",
+        reason: expect.stringContaining("only GitHub"),
       },
     ])
+    // Running it again on its own result changes nothing.
     expect(
-      parse(
-        migrationSourcesFile({
-          sourcesFile: null,
-          connectionId: "con_gh",
-          repositories: files,
-        }) ?? "",
-      ).sources[0].repositories,
-    ).toEqual([{ name: "acme/api", ref: "release" }])
+      upgradeLinkedRepositories({
+        sourcesFile: result.sourcesFile,
+        connectionId: "con_gh",
+        files: [],
+        repositories: [{ gitUrl: "https://github.com/acme/ops" }],
+      }),
+    ).toEqual({ sourcesFile: null, deletePaths: [], skipped: [] })
   })
 
   it("adds only the repositories that no GitHub source of the file links", () => {
