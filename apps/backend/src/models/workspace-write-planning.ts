@@ -47,6 +47,7 @@ export async function reserveHydrateWrites(input: {
       kind: HydrateWriteRequirement["kind"]
       jobId: string
       previousSha?: string
+      linkGitUrl?: string
     }> = []
     for (const requirement of input.remaining) {
       const { kind, remainder } = requirement
@@ -85,6 +86,9 @@ export async function reserveHydrateWrites(input: {
           jobId: previous.id,
           ...(previous.payload?.previousSha
             ? { previousSha: previous.payload.previousSha }
+            : {}),
+          ...(previous.payload?.linkGitUrl
+            ? { linkGitUrl: previous.payload.linkGitUrl }
             : {}),
         })
         continue
@@ -130,6 +134,12 @@ export async function reserveHydrateWrites(input: {
           ...("previousSha" in requirement && requirement.previousSha
             ? { previousSha: requirement.previousSha }
             : {}),
+          ...("linkGitUrl" in requirement
+            ? {
+                linkAction: "link" as const,
+                linkGitUrl: requirement.linkGitUrl,
+              }
+            : {}),
         },
       })
       reserved.push({
@@ -137,6 +147,9 @@ export async function reserveHydrateWrites(input: {
         jobId,
         ...("previousSha" in requirement && requirement.previousSha
           ? { previousSha: requirement.previousSha }
+          : {}),
+        ...("linkGitUrl" in requirement
+          ? { linkGitUrl: requirement.linkGitUrl }
           : {}),
       })
     }

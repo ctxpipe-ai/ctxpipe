@@ -232,11 +232,12 @@ export const workspaceHydrate = defineWorkflow(
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
                 async () => {
-                  const { files } = await readTree()
+                  const { files, sourcesFile } = await readTree()
                   const remaining = planHydrateWrites({
                     revision,
                     displayName: workspace.displayName,
                     files,
+                    sourcesFile,
                   })
                   if (await getMigrationExportSha(workspace.id, revision)) {
                     remaining.push({
@@ -308,6 +309,12 @@ export const workspaceHydrate = defineWorkflow(
                       jobId: command.jobId,
                       kind: command.kind,
                       previousSha: command.previousSha,
+                      ...(command.linkGitUrl
+                        ? {
+                            linkAction: "link" as const,
+                            linkGitUrl: command.linkGitUrl,
+                          }
+                        : {}),
                       jobGeneration: revision.generation,
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,
