@@ -35,13 +35,14 @@ describe("getBuildkiteSetupStep", () => {
 })
 
 describe("getBuildkiteCardCtaLabel", () => {
-  it("asks for a reconnect, then for the webhook, then for nothing", () => {
+  it("asks for a reconnect, then for the webhook, then offers Manage", () => {
     expect(getBuildkiteCardCtaLabel({ ...installed, status: "revoked" })).toBe(
       "Reconnect Buildkite",
     )
     expect(
       getBuildkiteCardCtaLabel({ ...installed, webhookConfigured: false }),
     ).toBe("Add the webhook")
-    expect(getBuildkiteCardCtaLabel(installed)).toBeNull()
+    // As on the other cards: Manage opens the Workspaces step.
+    expect(getBuildkiteCardCtaLabel(installed)).toBe("Manage")
   })
 })

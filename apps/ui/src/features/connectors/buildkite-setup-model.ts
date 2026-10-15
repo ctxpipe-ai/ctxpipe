@@ -30,8 +30,9 @@ export function getBuildkiteSetupStep(
   return progress.workspacesDone ? "done" : "workspaces"
 }
 
-/** The card action while setup is not complete, or null. */
-export function getBuildkiteCardCtaLabel(status: SetupStatus): string | null {
+/** The card action: finish the setup, or Manage once it is complete. */
+export function getBuildkiteCardCtaLabel(status: SetupStatus): string {
   if (status.status === "revoked") return "Reconnect Buildkite"
-  return status.webhookConfigured ? null : "Add the webhook"
+  // As on the other cards, Manage opens the Workspaces step of the setup.
+  return status.webhookConfigured ? "Manage" : "Add the webhook"
 }
