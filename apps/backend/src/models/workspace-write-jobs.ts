@@ -865,7 +865,7 @@ export async function adoptInitializedBootstrapRevision(input: {
 }
 
 /**
- * The link edits of a Workspace that cannot go into `.ctxpipe/sources.yaml`,
+ * The link edits of a Workspace that cannot go into the source files under `sources/`,
  * newest first. Only the last edit of each repository counts, so a later
  * edit of the same repository that completes removes the entry.
  */

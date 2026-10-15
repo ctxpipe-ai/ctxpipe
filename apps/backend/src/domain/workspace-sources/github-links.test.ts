@@ -2,7 +2,9 @@ import { describe, expect, it } from "vitest"
 import { SourceChangeError } from "./edit.js"
 import {
   linkGithubRepositories,
+  linkGithubSourceFile,
   unlinkGithubRepository,
+  unlinkGithubSourceFile,
 } from "./github-links.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
 
@@ -162,5 +164,63 @@ describe("unlinkGithubRepository", () => {
     expect(
       unlinkGithubRepository({ sourcesFile: null, name: "acme/web" }),
     ).toBeNull()
+  })
+})
+
+describe("linkGithubSourceFile", () => {
+  const file = (extra = "") =>
+    `---\nprovider: github\nconnection: con_gh1\nrepository: acme/web\n${extra}---\nWhy we read it.\n`
+
+  it("gives the ref to a linked repository that has none and keeps the body", () => {
+    const result = linkGithubSourceFile({
+      files: [{ path: "sources/github/acme/web.md", content: file() }],
+      connectionId: "con_gh1",
+      repository: { name: "acme/web", ref: "release" },
+    })
+    expect(result?.deletes).toEqual([])
+    expect(result?.writes[0]).toMatchObject({
+      path: "sources/github/acme/web.md",
+    })
+    expect(result?.writes[0]?.content).toContain("ref: release")
+    expect(result?.writes[0]?.content.endsWith("---\nWhy we read it.\n")).toBe(
+      true,
+    )
+  })
+
+  it("changes nothing when the repository has a ref or the request has none", () => {
+    const files = [
+      { path: "sources/github/acme/web.md", content: file("ref: main\n") },
+    ]
+    expect(
+      linkGithubSourceFile({
+        files,
+        connectionId: "con_gh1",
+        repository: { name: "acme/web", ref: "release" },
+      }),
+    ).toBeNull()
+    expect(
+      linkGithubSourceFile({
+        files: [{ path: "sources/github/acme/web.md", content: file() }],
+        connectionId: "con_gh1",
+        repository: { name: "Acme/Web", ref: null },
+      }),
+    ).toBeNull()
+  })
+})
+
+describe("unlinkGithubSourceFile", () => {
+  it("deletes each file of the repository, matched without case, and nothing else", () => {
+    const content = (repository: string) =>
+      `---\nprovider: github\nconnection: con_gh1\nrepository: ${repository}\n---\n`
+    expect(
+      unlinkGithubSourceFile({
+        files: [
+          { path: "sources/github/acme/web.md", content: content("Acme/Web") },
+          { path: "sources/github/acme/api.md", content: content("acme/api") },
+        ],
+        name: "acme/web",
+      }),
+    ).toEqual({ writes: [], deletes: ["sources/github/acme/web.md"] })
+    expect(unlinkGithubSourceFile({ files: [], name: "acme/web" })).toBeNull()
   })
 })

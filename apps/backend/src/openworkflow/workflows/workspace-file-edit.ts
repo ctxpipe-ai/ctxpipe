@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { SOURCES_FOLDER_PREFIX } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
@@ -18,6 +19,7 @@ import {
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
+  discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
@@ -210,6 +212,24 @@ export const workspaceFileEdit = defineWorkflow(
             await step.run({ name: "resume-push" }, () =>
               persistWriteJobStatus(input.jobId, "running"),
             )
+          }
+          if (
+            !pushed.pushed &&
+            [...files.map((file) => file.path), ...changes.deletePaths].every(
+              (path) => path.startsWith(SOURCES_FOLDER_PREFIX),
+            )
+          ) {
+            // A change of files under `sources/` never goes through the
+            // semantic merge: a model merge can break a source file. Make the
+            // same change again on the new tip.
+            await step.run({ name: "discard-candidate" }, () =>
+              discardWriteJobPreparedCommit(input.jobId, committed.sha),
+            )
+            revision = await step.run(
+              { name: "read-new-tip", retryPolicy: { maximumAttempts: 3 } },
+              () => refreshWorkspaceWriteRevision(input, revision, env),
+            )
+            continue
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
