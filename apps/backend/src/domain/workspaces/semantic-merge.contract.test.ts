@@ -72,7 +72,9 @@ it("resolves conflicts with one forced structured call on the high tier", async 
     },
     requests,
   )
-  await expect(resolveSemanticConflicts(conflicts, { origin: "agent" })).resolves.toEqual([
+  await expect(
+    resolveSemanticConflicts(conflicts, { origin: "agent" }),
+  ).resolves.toEqual([
     { path: "a.md", content: "merged" },
     { path: "b.md", content: null },
   ])
@@ -88,9 +90,9 @@ it("resolves conflicts with one forced structured call on the high tier", async 
 it("rejects a resolution that misses a conflicting path", async () => {
   configureModel()
   replyWithToolCall({ files: [{ path: "a.md", content: "merged" }] }, [])
-  await expect(resolveSemanticConflicts(conflicts, { origin: "agent" })).rejects.toThrow(
-    "did not resolve exactly",
-  )
+  await expect(
+    resolveSemanticConflicts(conflicts, { origin: "agent" }),
+  ).rejects.toThrow("did not resolve exactly")
 })
 
 it("rejects a resolution that adds a path outside the conflicts", async () => {
@@ -104,9 +106,9 @@ it("rejects a resolution that adds a path outside the conflicts", async () => {
     },
     [],
   )
-  await expect(resolveSemanticConflicts(conflicts, { origin: "agent" })).rejects.toThrow(
-    "did not resolve exactly",
-  )
+  await expect(
+    resolveSemanticConflicts(conflicts, { origin: "agent" }),
+  ).rejects.toThrow("did not resolve exactly")
 })
 
 it.each([

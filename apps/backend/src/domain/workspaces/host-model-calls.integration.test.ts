@@ -217,9 +217,10 @@ it.each([
     ),
   ).resolves.toBe("Read this first.\n\n## Folders\n\n- `runbooks/`\n")
   await expect(
-    resolveSemanticConflicts([
-      { path: "a.md", base: "one", current: "two", incoming: "three" },
-    ], { origin: "agent" }),
+    resolveSemanticConflicts(
+      [{ path: "a.md", base: "one", current: "two", incoming: "three" }],
+      { origin: "agent" },
+    ),
   ).resolves.toEqual([{ path: "a.md", content: "merged" }])
   await expect(
     classifyUnkeyedKnowledgeCollision({
