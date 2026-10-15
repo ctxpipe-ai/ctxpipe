@@ -276,6 +276,14 @@ describe("pushIngestStep", () => {
       ["AGENTS.md", "path"],
     ])
     expect(git(remote, ["show", `${result.sha}:AGENTS.md`])).toBe("# Agents")
+    expect(
+      await findStepCommit({
+        remote: { url: remote },
+        ref: ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
+        runId: RUN,
+        step: "skill:services:apis:ws_alpha",
+      }),
+    ).toMatchObject({ ops: 1, rejects: 1 })
   })
 
   it("advances a ref from the expected old tip", async () => {
@@ -425,7 +433,7 @@ describe("step paging (patch.json more)", () => {
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
       }),
-    ).resolves.toEqual({ sha: pushed.sha, ops: 1, more: true })
+    ).resolves.toEqual({ sha: pushed.sha, ops: 1, rejects: 0, more: true })
   })
 
   it("has no trailer and more false when patch.json has no more", async () => {
@@ -458,7 +466,7 @@ describe("findStepCommit", () => {
         runId: RUN,
         step: "skill:services:apis:ws_alpha",
       }),
-    ).resolves.toEqual({ sha: pushed.sha, ops: 1, more: false })
+    ).resolves.toEqual({ sha: pushed.sha, ops: 1, rejects: 0, more: false })
     await expect(
       findStepCommit({
         remote: { url: remote },

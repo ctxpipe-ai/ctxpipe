@@ -5,7 +5,11 @@ import { useQuery } from "@tanstack/react-query"
 import { Button as RACButton } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { SkeletonRow, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { githubRepoFullNameFromGitUrl } from "@/features/repositories/github-web-url"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -67,11 +71,30 @@ export function GithubWorkspaceDestination({
 
       {loading ? (
         <div className="mt-8 space-y-6">
-          <div aria-busy>
+          {/* The box of the "Create workspace" button and the workspace cards. */}
+          <div aria-busy className="space-y-6">
             <span className="sr-only">Loading workspaces</span>
-            <SkeletonRow size="catalog" lines={2} />
-            <SkeletonRow size="catalog" lines={2} />
-            <SkeletonRow size="catalog" lines={2} />
+            <Skeleton className="block h-9 w-44 rounded-md" />
+            <div className="space-y-2">
+              {[0, 1, 2].map((row) => (
+                <div
+                  key={row}
+                  className="flex items-start gap-3 rounded-md border border-transparent p-4"
+                >
+                  <Skeleton className="size-9 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText
+                      className="font-medium"
+                      boneClassName="w-40"
+                    />
+                    <SkeletonText
+                      className="mt-1 font-mono text-xs"
+                      boneClassName="w-56"
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
           </div>
           <Button variant="quiet" onPress={onClose}>
             Close wizard

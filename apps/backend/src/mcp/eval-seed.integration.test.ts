@@ -11,13 +11,16 @@ import { setupServer } from "msw/node"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import {
   advanceMcpEvalWorkspace,
+  createMcpEvalApiKey,
   mcpEvalManifest,
   prepareMcpEvalRepositories,
   seedMcpEval,
 } from "../../evals/mcp/seed.js"
+import { listCallOrgs } from "../auth/call-org.js"
+import { getAuth } from "../auth/config.js"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
-import { organizations, users } from "../db/schema/auth.js"
+import { apikeys, organizations, users } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { readWorkspaceGraph } from "../domain/workspaces/graph-projection.js"
@@ -400,3 +403,30 @@ it(
     )
   },
 )
+
+it("creates a personal API key that reaches only the two fixture organizations of the run", async () => {
+  // The first test seeded `run`; the user is also a member of the orgs of other seeds.
+  const orgIds = ["harbor", "meadow"].map((key) => `org_mcp_eval_${run}_${key}`)
+  const created = await createMcpEvalApiKey({ userId, organizationIds: orgIds })
+  try {
+    const verified = await getAuth().api.verifyApiKey({
+      body: { key: created.key },
+    })
+    expect(verified.valid).toBe(true)
+    const reachable = await listCallOrgs({
+      kind: "user",
+      userId,
+      oauthReferenceId: null,
+      personalApiKeyId: created.id,
+    })
+    expect(reachable.map((org) => org.slug).sort()).toEqual([
+      `mcp-eval-${run}-harbor`,
+      `mcp-eval-${run}-meadow`,
+    ])
+    await expect(
+      createMcpEvalApiKey({ userId, organizationIds: [] }),
+    ).rejects.toThrow("organization")
+  } finally {
+    await getSystemDb().delete(apikeys).where(eq(apikeys.id, created.id))
+  }
+})

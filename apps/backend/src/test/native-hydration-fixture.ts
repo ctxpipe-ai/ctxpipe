@@ -561,10 +561,11 @@ async function createNativeHydrationFixture(
           )
         }
         const tool = body.tools?.[0]?.function.name
-        const captureIntent =
-          tool === "capture_thread" &&
-          options.slackCaptureIntent &&
-          !body.messages?.some((message) => message.role === "tool")
+        // The Slack mention agent forces one structured `mention_intent` call.
+        const mentionIntent =
+          tool === "mention_intent"
+            ? { capture: options.slackCaptureIntent === true }
+            : undefined
         const folderList =
           tool === "agents_md_folder_list" ? options.folderListReply : undefined
         if (tool) semanticRequests.push(body)
@@ -581,7 +582,7 @@ async function createNativeHydrationFixture(
             {
               index: 0,
               message:
-                captureIntent ||
+                mentionIntent ||
                 folderList ||
                 (tool && options.semanticMergeResolution)
                   ? {
@@ -594,10 +595,9 @@ async function createNativeHydrationFixture(
                           function: {
                             name: tool,
                             arguments: JSON.stringify(
-                              captureIntent
-                                ? {}
-                                : (folderList ??
-                                    options.semanticMergeResolution),
+                              mentionIntent ??
+                                folderList ??
+                                options.semanticMergeResolution,
                             ),
                           },
                         },
@@ -607,14 +607,7 @@ async function createNativeHydrationFixture(
                       role: "assistant",
                       content: "ctxpipe - Bootstrap workspace knowledge",
                     },
-              finish_reason:
-                tool === "capture_thread"
-                  ? captureIntent
-                    ? "tool_calls"
-                    : "stop"
-                  : tool
-                    ? "tool_calls"
-                    : "stop",
+              finish_reason: tool ? "tool_calls" : "stop",
             },
           ],
           usage: { prompt_tokens: 1, completion_tokens: 1, total_tokens: 2 },

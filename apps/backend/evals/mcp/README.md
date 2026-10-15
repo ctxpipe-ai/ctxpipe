@@ -28,19 +28,17 @@ pnpm --filter @ctxpipe/backend exec bun evals/mcp/run-seed.ts prepare /tmp/mcp-e
 
 The command creates three bare Git repositories and prints a JSON map of their URLs. The `harbor-payments` repository also has a `next` branch with one more commit (the second projection, see below). It refuses an existing output directory. Keep these repositories while the evaluation uses them.
 
-For local codesearch on the same host, use these file URLs. For Docker, mount the repository directory at the same absolute path in the backend and codesearch containers.
+For a local run, use the file URLs on the same host. If you use Docker, mount the repository directory at the same absolute path in the backend and codesearch containers.
 
-For a preview, publish the three bare repositories to dedicated test remotes that both services can read. Use `git push <test-remote> main` from each prepared bare repository. Use `git push <test-remote> main next` for `harbor-payments`. Put the three remote URLs in a JSON file with the keys `harbor-payments`, `harbor-platform`, and `meadow-payments`. The seed reads these remotes and refuses content that differs from the fixtures. It never pushes Git data itself.
+## Seed a local database
 
-## Seed a local or preview database
-
-Use a migrated test database, a live FalkorDB, codesearch, and the normal embedding provider configuration. Run the command with the backend environment of the target. Use the `ctxpipe_app` database role. Do not run it against production.
+Use a migrated local test database, a live FalkorDB, codesearch, and the normal embedding provider configuration. Use the `ctxpipe_app` database role. Do not run it against production.
 
 ```sh
 pnpm --filter @ctxpipe/backend exec bun --env-file=.env.local evals/mcp/run-seed.ts seed trial-1 USER_ID /tmp/mcp-eval-remotes.json
 ```
 
-Replace `USER_ID` with an existing test user's id. For a preview, run the command in that preview's backend environment. The command adds that user to both fixture organizations. It does not create credentials or print secrets. Connect the evaluation client as that user and consent to both organizations, or create a personal API key with both organizations.
+Replace `USER_ID` with an existing local test user's id. The command adds that user to both fixture organizations. It does not create credentials or print secrets. Connect the evaluation client as that user and consent to both organizations, or create a personal API key with both organizations.
 
 The run name determines the organization slugs: `mcp-eval-trial-1-harbor` and `mcp-eval-trial-1-meadow`. Use a new run name for each seed. An existing run is refused before its data changes. A failed run can leave partial fixture data; use a fresh disposable database or a new run name after you correct the cause.
 
@@ -59,3 +57,55 @@ The command prints the Workspace id and the new SHA. The first projection SHA is
 ## Proof
 
 `src/mcp/eval-seed.integration.test.ts` uses real Git, Postgres as `ctxpipe_app`, and live FalkorDB. MSW replaces only the embedding and codesearch HTTP boundaries. It proves seed publication and organization isolation. The mock codesearch reports one language, so the seed reaches the SCIP phase on each index. The mock builds no shard, so no SCIP content is proven: P4-2 cases that read symbols, definitions, or references are unproven until the seed runs against real codesearch. The seed copies the domain calls of the hydrate and index workflows instead of running them, because the real hydrate workflow queues write jobs that a live worker would run against the fixture organizations; see the comment on `publishWorkspaceRevision`. Native codesearch tests require `zoekt-webserver` and run in CI; the seed must also pass against real codesearch before MCPJam results are accepted.
+
+## MCPJam eval suite (CTX-574)
+
+`cases.ts` holds 22 coding-agent tasks. They run against the seeded fixture organizations. The suite uses `@mcpjam/sdk`. Each case runs 3 times for each client model. A run needs at least two models.
+
+A case checks four things:
+
+- Tool choice: the agent calls the expected tools.
+- Argument quality: the agent uses the `excludeRepositories` rule, filters, and the search mode correctly.
+- Result relevance: a tool result holds the expected ref.
+- Task success: the answer holds the fixture facts.
+
+The gate divides passed iterations by requested iterations. An iteration that throws or times out is a failure. Each model must pass 0.9 of its iterations. When `baseline.json` holds a recorded run, the gate also fails on a fall from it. The aggregate may fall by 0.05. One case may lose one iteration.
+
+`check.ts` judges a run, and `gate.ts` decides the exit code. Both are pure. `src/mcp/eval-suite.test.ts` tests them without a model. That test also checks that each expected fact exists in the fixtures. It also checks that each argument fits the registered tool schemas.
+
+The `stale-cursor` case uses a real cursor. Before that case, `run.ts` calls `search_knowledge` and keeps the cursor. Then it runs `run-seed.ts advance`, so the Workspace moves to its second projection. The case runs last and expects the error `stale_cursor`. Thus each seed supports one run.
+
+### CI
+
+CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pull request with the label `mcp-evals`. The job never uses a preview, because a preview database is a copy of production data. The job does these steps:
+
+1. It starts Postgres and FalkorDB as service containers and applies the migrations.
+2. It starts codesearch and the backend from the checked-out code.
+3. It runs `run-seed.ts ci`. This command prepares the fixture repositories, creates a made-up user, and seeds the fixtures. It also creates a personal API key for the two fixture organizations only. It writes the key to a temporary file and does not print it.
+4. It runs `run.ts` against `http://localhost:3000/mcp`.
+5. It uploads the results with the pass rates of each model and case, and the logs.
+
+The model provider keys are the only secrets. Only the steps that need them get them. The variable `MCP_EVAL_MODELS` names the client models, at least two.
+
+A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. `.github/workflows/mcp-evals-reminder.yaml` adds a comment that asks for the label.
+
+### Record the baseline (one time)
+
+Until `baseline.json` holds a run, it is `null`, and only the 0.9 floor applies. The job summary says so. To record the baseline, do these steps:
+
+1. Start the workflow by hand with `update_baseline` set.
+2. Download `baseline.json` from the `mcp-eval-results` artifact.
+3. Commit it as `apps/backend/evals/mcp/baseline.json`.
+
+### Run on a local stack
+
+Use a fresh migrated database, live FalkorDB, codesearch, and the backend environment. Run commands from `apps/backend`.
+
+```sh
+bun --env-file=.env.local evals/mcp/run-seed.ts ci local1 /tmp/mcp-eval-fixtures /tmp/mcp-eval-seed.json
+ANTHROPIC_API_KEY=... OPENAI_API_KEY=... bun --env-file=.env.local evals/mcp/run.ts \
+  --url http://localhost:3000/mcp --seed /tmp/mcp-eval-seed.json \
+  --models <provider/model>,<provider/model> --out results.json
+```
+
+The server must offer exactly the seven read tools. Any other tool set exits with code 2.

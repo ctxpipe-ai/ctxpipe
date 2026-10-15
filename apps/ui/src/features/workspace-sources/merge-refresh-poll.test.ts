@@ -145,9 +145,12 @@ describe("refresh after a source pull request merges", () => {
       await vi.advanceTimersByTimeAsync(5_000)
       expect(hits()).toBe(3)
 
-      await vi.advanceTimersByTimeAsync(10 * 60_000)
+      // The window is 2 minutes: 5 s reads for 115 s more, then it stops.
+      await vi.advanceTimersByTimeAsync(115_000)
+      expect(hits()).toBeGreaterThan(20)
+      await vi.advanceTimersByTimeAsync(10_000)
       const capped = hits()
-      expect(capped).toBeLessThanOrEqual(39)
+      expect(capped).toBeLessThanOrEqual(27)
       await vi.advanceTimersByTimeAsync(10 * 60_000)
       expect(hits()).toBe(capped)
     })

@@ -3,7 +3,9 @@ import { cp, mkdir, readdir, readFile } from "node:fs/promises"
 import { join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { z } from "zod"
+import { getAuth } from "../../src/auth/config.js"
 import { withUserIdContext } from "../../src/auth/context.js"
+import { setOrganizations } from "../../src/auth/oauth-grants.js"
 import { withOrgIdContext } from "../../src/auth/withAuth.js"
 import { getSystemDb } from "../../src/db/client.js"
 import { members, organizations } from "../../src/db/schema/auth.js"
@@ -537,4 +539,23 @@ export async function advanceMcpEvalWorkspace(input: {
       return { key: fixture.key, id: workspace.id, orgId: org.id, sha: tip.sha }
     }),
   )
+}
+
+/**
+ * Create a personal API key for the evaluation user, limited to the fixture
+ * organizations. A key with an empty org set reaches every membership, so an
+ * empty list is refused. The caller keeps the key secret.
+ */
+export async function createMcpEvalApiKey(input: {
+  userId: string
+  organizationIds: string[]
+}): Promise<{ id: string; key: string }> {
+  if (input.organizationIds.length === 0)
+    throw new Error("The evaluation key needs at least one organization")
+  const created = await getAuth().api.createApiKey({
+    body: { userId: input.userId, name: "mcp-eval" },
+  })
+  if (!created?.key) throw new Error("createApiKey did not return a key")
+  await setOrganizations({ apiKeyId: created.id }, input.organizationIds)
+  return { id: created.id, key: created.key }
 }

@@ -5,10 +5,7 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { toast } from "sonner"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
 import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import { getNotionCardCtaLabel } from "../notion-setup-model"
 import {
   deleteNotionConnector,
@@ -99,11 +96,6 @@ export function NotionConnectionCard({
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}
-      scope={
-        status?.syncTarget && status.selectedResourceCount != null
-          ? formatSelectedItemCount(status.selectedResourceCount)
-          : "Set in each Workspace"
-      }
       actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
       onAction={
         isError

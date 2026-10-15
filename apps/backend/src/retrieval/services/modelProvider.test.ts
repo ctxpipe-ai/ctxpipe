@@ -93,7 +93,7 @@ describe("modelProvider", () => {
     process.env.MODEL_MEDIUM_NAME = "m-med?reasoning.effort=medium"
     process.env.MODEL_HIGH_NAME = "m-high?reasoning.effort=high"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     expect(chatOpenAIConstructor).toHaveBeenCalled()
@@ -121,7 +121,7 @@ describe("modelProvider", () => {
     process.env.MODEL_HIGH_NAME = ""
     process.env.MODEL_EMBEDDING_NAME = ""
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("high")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -140,7 +140,7 @@ describe("modelProvider", () => {
     process.env.MODEL_MEDIUM_NAME = "m-med"
     process.env.MODEL_HIGH_NAME = "m-high"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("fast")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -159,7 +159,7 @@ describe("modelProvider", () => {
     process.env.MODEL_MEDIUM_NAME = "same-model"
     process.env.MODEL_HIGH_NAME = "m-high"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -177,7 +177,7 @@ describe("modelProvider", () => {
     process.env.MODEL_MEDIUM_NAME =
       "openai/gpt-5.5?reasoning.effort=medium&text.verbosity=low"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -197,7 +197,7 @@ describe("modelProvider", () => {
     process.env.MODEL_MEDIUM_NAME = "m-med"
     process.env.MODEL_HIGH_NAME = "m-high"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -232,7 +232,7 @@ describe("modelProvider", () => {
     process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
     process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     expect(chatOpenAIConstructor).not.toHaveBeenCalled()
@@ -299,7 +299,7 @@ describe("modelProvider", () => {
     delete process.env.MODEL_MEDIUM_NAME
     delete process.env.MODEL_HIGH_NAME
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("fast")
 
     const fastCall = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -333,7 +333,7 @@ describe("modelProvider", () => {
     process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
     process.env.MODEL_MEDIUM_NAME = "openai.gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { reasoning: false })
 
     const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
@@ -348,7 +348,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
     process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { reasoning: false })
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -363,7 +363,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
     process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5?reasoning.effort=medium"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { reasoning: false })
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -379,7 +379,7 @@ describe("modelProvider", () => {
     process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
     process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium")
 
     const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
@@ -395,7 +395,7 @@ describe("modelProvider", () => {
     process.env.MODEL_BEDROCK_AWS_REGION = "us-east-1"
     process.env.MODEL_MEDIUM_NAME = "moonshotai.kimi-k2.5"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { streaming: false, temperature: 0.1 })
 
     const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
@@ -412,7 +412,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER_URL = "https://api.openai.com/v1"
     process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { streaming: false })
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {
@@ -427,7 +427,7 @@ describe("modelProvider", () => {
     process.env.MODEL_PROVIDER_URL = "https://openrouter.ai/api/v1"
     process.env.MODEL_MEDIUM_NAME = "openai/gpt-5.5"
     vi.resetModules()
-    const { getModel } = await import("./modelProvider.js")
+    const { getModel } = await import("./legacyModelProvider.js")
     getModel("medium", { streaming: false })
 
     const call = chatOpenAIConstructor.mock.calls[0]?.[0] as {

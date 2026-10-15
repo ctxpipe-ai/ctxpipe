@@ -12,6 +12,11 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { setTimeout as delay } from "node:timers/promises"
 import { pathToFileURL } from "node:url"
+import {
+  InMemorySpanExporter,
+  SimpleSpanProcessor,
+} from "@opentelemetry/sdk-trace-base"
+import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -191,9 +196,15 @@ function refsOf(name: string): Record<string, string> {
   )
 }
 
+const spanExporter = new InMemorySpanExporter()
+const tracerProvider = new NodeTracerProvider({
+  spanProcessors: [new SimpleSpanProcessor(spanExporter)],
+})
+
 beforeAll(async () => {
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl) throw new Error("DATABASE_URL is required for ingestion v2")
+  tracerProvider.register()
   initDb(databaseUrl)
   stubGithubApp()
   server.listen({ onUnhandledRequest: "error" })
@@ -335,6 +346,7 @@ beforeAll(async () => {
 afterAll(async () => {
   await worker?.stop()
   await backend?.stop()
+  await tracerProvider.shutdown()
   server.close()
   vi.unstubAllEnvs()
   await withOrgDbContext(orgId, async (db) => {
@@ -398,6 +410,47 @@ describe("ingestion v2 in shadow mode", () => {
 
       expect(result).toMatchObject({ status: "done", shards: 1 })
       if (result.status !== "done") throw new Error("The run did not finish")
+
+      // Telemetry (T11): one run span with the source SHA and the bundle
+      // hash, one span for the shard, and a span for each skill step.
+      const spans = spanExporter.getFinishedSpans()
+      const runSpans = spans.filter(
+        (span) =>
+          span.name === "ingestion.run" &&
+          span.attributes["ctxpipe.ingest.run.id"] === runId,
+      )
+      expect(runSpans).toHaveLength(1)
+      expect(runSpans[0]?.status.code).not.toBe(2)
+      expect(runSpans[0]?.attributes).toMatchObject({
+        "ctxpipe.ingest.source.sha": sourceSha,
+        "ctxpipe.ingest.bundle": expect.stringMatching(/^ingest-[0-9a-f]{16}$/),
+        "ctxpipe.ingest.mode": "shadow",
+        "ctxpipe.ingest.status": "done",
+        "ctxpipe.ingest.shards": 1,
+        "ctxpipe.ingest.rejects": 0,
+        "ctxpipe.ingest.partial": 0,
+      })
+      expect(
+        spans.filter(
+          (span) =>
+            span.name === "ingestion.shard" &&
+            span.attributes["ctxpipe.ingest.run.id"] === runId,
+        ),
+      ).not.toHaveLength(0)
+      const stepSpans = spans.filter(
+        (span) =>
+          span.name === "ingestion.step" &&
+          span.attributes["ctxpipe.ingest.run.id"] === runId,
+      )
+      expect(stepSpans.length).toBeGreaterThanOrEqual(5)
+      for (const span of stepSpans)
+        expect(span.attributes).toEqual(
+          expect.objectContaining({
+            "ctxpipe.ingest.ops": expect.any(Number),
+            "ctxpipe.ingest.rejects": expect.any(Number),
+            "ctxpipe.ingest.ref.tip": expect.stringMatching(/^[0-9a-f]{40}$/),
+          }),
+        )
       // The host validator accepted each file that the stand-in agent wrote.
       const steps = await getSystemDb().execute<{
         step_name: string
@@ -554,7 +607,11 @@ describe("ingestion v2 with a failed shard", () => {
               and wr.id = ${runId}
           `)
           const row = rows.rows[0]
-          if (row?.step === "failed" && (row.run !== "running" || row.parked)) {
+          // The parent can park before the sibling reaches its gate.
+          if (
+            row?.step === "failed" &&
+            (row.run !== "running" || (row.parked && wide.waiting))
+          ) {
             parentStatus = row.run
             break
           }

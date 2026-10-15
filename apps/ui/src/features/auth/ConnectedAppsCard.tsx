@@ -17,7 +17,11 @@ import {
 } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
-import { Skeleton, useSkeletonHold } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
 import { apiFetch, readApiJson } from "@/lib/api-result"
@@ -132,11 +136,28 @@ export function ConnectedAppsCard() {
         </CardHeader>
         <CardContent className="space-y-4">
           {loading ? (
-            <div aria-hidden className="flex flex-col gap-3">
+            // The box of the app list: the same card border, padding and gap.
+            <div aria-hidden className="flex flex-col gap-2">
               {[1, 2].map((row) => (
-                <div key={row} className="flex flex-col gap-2 py-2">
-                  <Skeleton className="h-4 w-40 max-w-full" />
-                  <Skeleton className="h-3 w-56 max-w-full" />
+                <div
+                  key={row}
+                  className="flex flex-col gap-3 rounded-md border border-transparent p-3 sm:flex-row sm:items-center"
+                >
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <SkeletonText
+                      className="text-sm"
+                      boneClassName="w-40 max-w-full"
+                    />
+                    <SkeletonText
+                      className="text-xs"
+                      boneClassName="w-56 max-w-full"
+                    />
+                  </div>
+                  {/* The two buttons of a loaded row: Edit organizations, Revoke. */}
+                  <div className="flex shrink-0 items-center gap-2">
+                    <Skeleton className="h-9 w-39 shrink-0 rounded-md" />
+                    <Skeleton className="h-9 w-25 shrink-0 rounded-md" />
+                  </div>
                 </div>
               ))}
             </div>
@@ -287,9 +308,18 @@ function EditOrganizationsModal(props: {
           </DialogHeader>
           {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
           {organizationsPending ? (
+            // The box of `OrganizationPicker`: a check box and two text lines per row.
             <div aria-hidden className="flex flex-col gap-2">
-              <Skeleton className="h-4 w-40" />
-              <Skeleton className="h-4 w-32" />
+              <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
+              {[0, 1].map((row) => (
+                <div key={row} className="flex items-center gap-2">
+                  <Skeleton className="size-4.5 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText className="text-sm" boneClassName="w-40" />
+                    <SkeletonText className="text-xs" boneClassName="w-24" />
+                  </div>
+                </div>
+              ))}
             </div>
           ) : (
             <OrganizationPicker
