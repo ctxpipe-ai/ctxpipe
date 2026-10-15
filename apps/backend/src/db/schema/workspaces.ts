@@ -227,6 +227,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      /** Why the job failed, when it failed for a known reason. */
+      failureReason?: string
       displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string

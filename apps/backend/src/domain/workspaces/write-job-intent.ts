@@ -51,6 +51,8 @@ export type WorkspaceWriteJobPayload = {
   displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
+  /** Why the job failed, when it failed for a known reason. */
+  failureReason?: string
   defaultBranch?: string
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null

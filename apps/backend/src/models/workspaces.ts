@@ -579,7 +579,7 @@ export async function createWorkspace(input: {
   slug?: string
   githubConnectionId?: string
   write?: WorkspaceWriteProbe
-}): Promise<WorkspaceRecord & { autoLinkGitUrls: string[] }> {
+}): Promise<WorkspaceRecord> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const userId = requireCurrentUserId()
@@ -652,7 +652,7 @@ export async function createWorkspace(input: {
                 .returning()
               if (updated) row = updated
             }
-            return { ...row, autoLinkGitUrls: [] }
+            return row
           }
 
           const slugRows = await tx
@@ -685,23 +685,6 @@ export async function createWorkspace(input: {
 
           if (!row) throw new Error("Failed to create workspace")
 
-          const autoLinkGitUrls: string[] = []
-          const siblings = await tx
-            .select({ id: workspaces.id })
-            .from(workspaces)
-            .where(eq(workspaces.orgId, orgId))
-          if (siblings.length === 1) {
-            const orgRepos = await tx
-              .select({ gitUrl: repositories.gitUrl })
-              .from(repositories)
-              .where(eq(repositories.orgId, orgId))
-            for (const repo of orgRepos) {
-              const gitUrl = normalizeWorkspaceRepositoryUrl(repo.gitUrl)
-              if (!gitUrl || gitUrl === workspaceRepositoryUrl) continue
-              autoLinkGitUrls.push(gitUrl)
-            }
-          }
-
           await tx
             .insert(orgMemberPreferences)
             .values({
@@ -718,7 +701,7 @@ export async function createWorkspace(input: {
               },
             })
 
-          return { ...row, autoLinkGitUrls }
+          return row
         })
       } catch (error) {
         if (isUniqueViolation(error, "workspaces_org_id_repository_url_uidx")) {

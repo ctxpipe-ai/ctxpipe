@@ -41,14 +41,24 @@ export async function getWriteJobCommitSha(
   })
 }
 
+/** Set the status of a job. `failureReason` records why a job failed. */
 export async function persistWriteJobStatus(
   jobId: string,
   status: string,
+  failureReason?: string,
 ): Promise<void> {
   await orgSql(async () => {
     const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
-      .set({ status, updatedAt: new Date() })
+      .set({
+        status,
+        updatedAt: new Date(),
+        ...(failureReason
+          ? {
+              payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb(${failureReason}::text))`,
+            }
+          : {}),
+      })
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),

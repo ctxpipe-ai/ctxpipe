@@ -2,6 +2,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
 import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
@@ -10,7 +11,6 @@ import {
 } from "../../domain/workspaces/revision.js"
 import {
   attemptWorkspaceCommit,
-  captureSemanticHandoff,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
 } from "../../domain/workspaces/write-broker.js"
@@ -38,7 +38,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
-import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 export const workspaceLinkUnlinkInputSchema = z
   .object({
@@ -94,7 +93,10 @@ export const workspaceLinkUnlink = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
-        for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
+        // A lost push race reads the new tip and makes the same edit again.
+        // A link edit never goes through the semantic merge: a model merge
+        // can break `.ctxpipe/sources.yaml`, and with it every link.
+        for (let attempt = 0; attempt < 8; attempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
           >
@@ -116,24 +118,29 @@ export const workspaceLinkUnlink = defineWorkflow(
           }
           const changes = await step.run(
             { name: "transform-link-unlink" },
-            async () =>
-              changeLinkedRepository({
+            async () => {
+              const files = await readGitFiles(
+                acquired.pack,
+                (path) =>
+                  path === SOURCES_FILE_PATH ||
+                  isLinkedRepositoryDeclaration(path),
+              )
+              return changeLinkedRepository({
                 sourcesFile:
-                  (
-                    await readGitFiles(
-                      acquired.pack,
-                      (path) => path === SOURCES_FILE_PATH,
-                    )
-                  )[0]?.content ?? null,
+                  files.find((file) => file.path === SOURCES_FILE_PATH)
+                    ?.content ?? null,
+                files,
                 action: input.linkAction,
                 gitUrl: input.linkGitUrl,
                 connectionId,
-              }),
+              })
+            },
           )
           if (changes.refused) {
-            getLogger().set({ linkRefused: changes.refused })
+            const refused = changes.refused
+            getLogger().set({ linkRefused: refused })
             await step.run({ name: "fail-refused" }, () =>
-              persistWriteJobStatus(input.jobId, "failed"),
+              persistWriteJobStatus(input.jobId, "failed", refused),
             )
             return {
               committed: false as const,
@@ -141,7 +148,8 @@ export const workspaceLinkUnlink = defineWorkflow(
             }
           }
           const files = changes.files
-          if (!files.length) {
+          const deletePaths = changes.deletePaths
+          if (!files.length && !deletePaths.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
               refreshWorkspaceWriteRevision(input, revision, env),
             )
@@ -157,20 +165,21 @@ export const workspaceLinkUnlink = defineWorkflow(
               reason: "no_changes" as const,
             }
           }
+          const changedPaths = [
+            ...files.map((file) => file.path),
+            ...deletePaths,
+          ]
           const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files),
+            stageGitFiles(acquired.pack, files, deletePaths),
           )
           await step.run({ name: "validate" }, () =>
-            validateGitTree(
-              staged,
-              files.map((file) => file.path),
-            ),
+            validateGitTree(staged, changedPaths),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
               repoName: repositoryName.split("/")[1] ?? repositoryName,
               trigger: "link_unlink",
-              fileNames: files.map((file) => file.path),
+              fileNames: changedPaths,
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
@@ -197,22 +206,11 @@ export const workspaceLinkUnlink = defineWorkflow(
             )
           }
           if (!pushed.pushed) {
-            const handoff = await step.run(
-              { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+            revision = await step.run(
+              { name: "read-new-tip", retryPolicy: { maximumAttempts: 3 } },
+              () => refreshWorkspaceWriteRevision(input, revision, env),
             )
-            const result = await step.runWorkflow(
-              workspaceSemanticMerge.spec,
-              handoff,
-              { name: "semantic-merge-child" },
-            )
-            await step.run({ name: "complete-merged-result" }, () =>
-              persistWriteJobCommitSha(
-                input.jobId,
-                result.committed ? result.commitSha : null,
-              ),
-            )
-            return result
+            continue
           }
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
@@ -233,7 +231,7 @@ export const workspaceLinkUnlink = defineWorkflow(
           )
           return { committed: true as const, commitSha: committed.sha }
         }
-        throw new Error("Default branch kept changing during no-op validation")
+        throw new Error("Default branch kept changing during the link edit")
       },
     )
   },

@@ -1,3 +1,5 @@
+import { mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { expect, it } from "vitest"
 import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -101,29 +103,30 @@ it(
           expect(await run(jobId, "link")).toMatchObject({
             status: "completed",
           })
-          // Link edits only sources.yaml; it keeps the comment, the other
-          // entry, and the old repository file.
-          expect(tree()).toEqual([
-            ".ctxpipe/sources.yaml",
-            "repositories/other.md",
-          ])
-          expect(show("repositories/other.md")).toBe(legacy.trim())
+          // Link edits sources.yaml; it keeps the comment and the other
+          // entry. The GitHub repository file moves into the file with its
+          // branch as ref (the ADR-050 upgrade of a converted Workspace).
+          expect(tree()).toEqual([".ctxpipe/sources.yaml"])
           const linked = show(".ctxpipe/sources.yaml")
           expect(linked).toContain("# Owned by the team")
+          const issues = {
+            id: "issues",
+            provider: "linear",
+            connection: "con_linear_fixture",
+            teams: ["ENG"],
+          }
           expect(parse(linked)).toEqual({
             version: 1,
             sources: [
-              {
-                id: "issues",
-                provider: "linear",
-                connection: "con_linear_fixture",
-                teams: ["ENG"],
-              },
+              issues,
               {
                 id: "linked-repositories",
                 provider: "github",
                 connection: f.connectionId,
-                repositories: ["next/other"],
+                repositories: [
+                  { name: "old/other", ref: "stable" },
+                  "next/other",
+                ],
               },
             ],
           })
@@ -137,14 +140,20 @@ it(
             ),
           ).toMatchObject({ status: "completed", commitSha: null })
 
-          // A repository outside GitHub cannot be linked.
+          // A repository outside GitHub cannot be linked; the job keeps why.
           expect(
             await run(
               `${jobId}_gitlab`,
               "link",
               "https://gitlab.com/acme/tools",
             ),
-          ).toMatchObject({ status: "failed" })
+          ).toMatchObject({
+            status: "failed",
+            payload: {
+              failureReason:
+                "Only a GitHub repository can be linked to a Workspace",
+            },
+          })
 
           expect(
             await run(
@@ -153,8 +162,18 @@ it(
               "https://github.com/next/other",
             ),
           ).toMatchObject({ status: "completed" })
-          expect(parse(show(".ctxpipe/sources.yaml"))).toEqual(parse(sources))
-          expect(show("repositories/other.md")).toBe(legacy.trim())
+          expect(parse(show(".ctxpipe/sources.yaml"))).toEqual({
+            version: 1,
+            sources: [
+              issues,
+              {
+                id: "linked-repositories",
+                provider: "github",
+                connection: f.connectionId,
+                repositories: [{ name: "old/other", ref: "stable" }],
+              },
+            ],
+          })
           expect(
             f.git(
               "--git-dir",
@@ -164,6 +183,99 @@ it(
               `${f.sha}..refs/heads/main`,
             ),
           ).toBe("2")
+        } finally {
+          await worker?.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "makes the same link edit again on the new tip after a lost push race, without a semantic merge",
+  { timeout: 60_000 },
+  async () => {
+    const entry = (id: string, repository: string) =>
+      `  - id: ${id}\n    provider: github\n    connection: CONNECTION\n    repositories: [${repository}]\n`
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        let worker: ReturnType<typeof runner.newWorker> | undefined
+        try {
+          const { workspaceLinkUnlink } = await import(
+            "../../openworkflow/workflows/workspace-link-unlink.js"
+          )
+          // Only the link workflow runs: a semantic merge child never starts.
+          runner.implementWorkflow(
+            workspaceLinkUnlink.spec,
+            workspaceLinkUnlink.fn,
+          )
+          // Another writer wins the race: the tip moves after the job took
+          // its revision.
+          mkdirSync(join(f.directory, ".ctxpipe"), { recursive: true })
+          writeFileSync(
+            join(f.directory, ".ctxpipe/sources.yaml"),
+            `version: 1\nsources:\n${entry("team", "acme/team")}`.replace(
+              "CONNECTION",
+              f.connectionId,
+            ),
+          )
+          f.git("add", "--", ".ctxpipe/sources.yaml")
+          f.git(
+            "-c",
+            "user.name=Contract",
+            "-c",
+            "user.email=contract@example.test",
+            "commit",
+            "-m",
+            "Link the team repository",
+          )
+          f.git("push", f.remote, "HEAD:main")
+          const jobId = `wjob_${f.id}_race`
+          const handle = await runner.runWorkflow(workspaceLinkUnlink.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            linkAction: "link",
+            linkGitUrl: "https://github.com/acme/web",
+          })
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+          expect(await handle.result({ timeoutMs: 45_000 })).toMatchObject({
+            committed: true,
+          })
+          expect(
+            parse(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                "refs/heads/main:.ctxpipe/sources.yaml",
+              ),
+            ).sources,
+          ).toEqual([
+            {
+              id: "team",
+              provider: "github",
+              connection: f.connectionId,
+              repositories: ["acme/team", "acme/web"],
+            },
+          ])
+          expect(f.semanticRequests).toEqual([])
+          expect(
+            await withOrgIdContext(f.org, () =>
+              reconcileWorkspaceWriteJob(jobId),
+            ),
+          ).toMatchObject({ status: "completed" })
         } finally {
           await worker?.stop()
           await backend.stop()
