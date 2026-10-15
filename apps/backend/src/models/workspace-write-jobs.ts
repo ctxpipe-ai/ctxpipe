@@ -10,6 +10,7 @@ import {
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
+import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -497,15 +498,19 @@ export async function persistBoundWriteJob(input: {
   admissionStatus?: "queued" | "paused"
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
+  /** Stored for a later resume; not part of the command identity. */
+  publishPipeline?: "legacy" | "v2"
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
       ...(input.extraction ? { extraction: input.extraction } : {}),
+      ...(input.ingest ? { ingest: input.ingest } : {}),
       ...(input.mirror ? { mirror: input.mirror } : {}),
       ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
@@ -516,6 +521,9 @@ export async function persistBoundWriteJob(input: {
         ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
         : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
+      ...(input.publishPipeline
+        ? { publishPipeline: input.publishPipeline }
+        : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -561,6 +569,7 @@ export async function persistBoundWriteJob(input: {
       row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
+      !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName
     )

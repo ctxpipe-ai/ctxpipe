@@ -321,6 +321,123 @@ export async function pushIngestAssemble(input: {
 }
 
 /**
+ * The files of a publish (T21, ADR-052 section 6): the delta from the pinned
+ * revision to the assembled tip of the run, replayed on `current`, the
+ * default tip. The tip must be a commit of the run (its `Ctxpipe-Run`
+ * trailer). A delete of a file whose host `root` is in `withheldRoots` stays
+ * out: a failed root gets no retraction (concept section 7.3).
+ *
+ * A path that the run and the default branch both changed after the pin goes
+ * to `semanticMerge.resolve`, and its result goes through the patch
+ * validator on `current`, as in assemble. One rejected file refuses the
+ * publish. Each other path is the run's file, which passed the validator in
+ * its step. Returns the files and deletes from `current`.
+ */
+export async function mergeIngestPublish(input: {
+  runId: string
+  pinnedRevision: string
+  tip: string
+  current: string
+  withheldRoots: readonly string[]
+  bundle: string
+  remote: IngestRemote
+  semanticMerge: NonNullable<
+    Parameters<typeof pushIngestAssemble>[0]["semanticMerge"]
+  >
+}): Promise<{
+  files: Array<{ path: string; content: string; encoding?: "base64" }>
+  deletePaths: string[]
+}> {
+  return withScratchRepository(async (repoDir) => {
+    await fetchCommits(
+      repoDir,
+      input.remote,
+      [...new Set([input.pinnedRevision, input.tip, input.current])],
+      { blobs: true },
+    )
+    if ((await stepTrailers(repoDir, input.tip)).run !== input.runId)
+      throw new IngestRefRefusedError(
+        "The assembled tip is not a commit of the ingestion run",
+      )
+    const text = async (spec: string) =>
+      (await runGit(repoDir, ["cat-file", "blob", spec])).toString("utf8")
+    const withheld = new Set(input.withheldRoots)
+    const moved = new Map(
+      (await diffTree(repoDir, input.pinnedRevision, input.current)).map(
+        (change) => [change.path.toLowerCase(), change.blob],
+      ),
+    )
+    const clean: string[] = []
+    const conflicts: Array<{ path: string; versions: Array<string | null> }> =
+      []
+    for (const change of await diffTree(
+      repoDir,
+      input.pinnedRevision,
+      input.tip,
+    )) {
+      const reason = disallowedPathReason(change.path)
+      if (reason) throw new IngestRefRefusedError(`${change.path}: ${reason}`)
+      if (change.blob === null && withheld.size) {
+        const front = splitFrontMatter(
+          await text(`${input.pinnedRevision}:${change.path}`),
+        )
+        const root = front ? parseYamlObject(front.yaml)?.root : undefined
+        if (typeof root === "string" && withheld.has(root)) continue
+      }
+      const key = change.path.toLowerCase()
+      if (!moved.has(key)) clean.push(change.indexLine)
+      else if (moved.get(key) !== change.blob)
+        conflicts.push({
+          path: change.path,
+          versions: [moved.get(key) ?? null, change.blob],
+        })
+    }
+
+    const indexEnv = { GIT_INDEX_FILE: join(repoDir, "publish.index") }
+    await runGit(repoDir, ["read-tree", input.current], { env: indexEnv })
+    await runGit(repoDir, ["update-index", "-z", "--index-info"], {
+      env: indexEnv,
+      input: clean.join(""),
+    })
+    let tree = (await runGit(repoDir, ["write-tree"], { env: indexEnv }))
+      .toString()
+      .trim()
+    if (conflicts.length)
+      tree = await mergeConflicts(repoDir, {
+        pinnedRevision: input.pinnedRevision,
+        tree,
+        conflicts,
+        // The run cap counted these paths in the run's steps.
+        opsBefore: 0,
+        bundle: input.bundle,
+        merge: input.semanticMerge,
+      })
+
+    const files: Array<{ path: string; content: string; encoding?: "base64" }> =
+      []
+    const deletePaths: string[] = []
+    for (const change of await diffTree(repoDir, input.current, tree)) {
+      if (change.blob === null) {
+        deletePaths.push(change.path)
+        continue
+      }
+      const bytes = await runGit(repoDir, ["cat-file", "blob", change.blob])
+      const utf8 = bytes.toString("utf8")
+      files.push(
+        Buffer.from(utf8, "utf8").equals(bytes)
+          ? { path: change.path, content: utf8 }
+          : {
+              path: change.path,
+              content: bytes.toString("base64"),
+              encoding: "base64",
+            },
+      )
+    }
+    return { files, deletePaths }
+  })
+}
+
+/**
  * Resume: the commit on the ref tip when it is this run's commit for `step`
  * (a crash after the push), else null.
  */
@@ -769,14 +886,14 @@ async function mergeConflicts(
           "rev-parse",
           "--verify",
           "--quiet",
-          `${input.pinnedRevision}:${conflict.path}`,
+          `${baseCommit}:${conflict.path}`,
         ]).then(
           (out) => out.toString().trim(),
           () => undefined,
         )
         const content = current.get(conflict.path) ?? null
         if (content === null) {
-          // A path that is not in the pinned revision is already absent.
+          // A path that is not in the base tree is already absent.
           if (baseBlob)
             ops.push({ op: "delete", path: conflict.path, baseBlob })
           continue

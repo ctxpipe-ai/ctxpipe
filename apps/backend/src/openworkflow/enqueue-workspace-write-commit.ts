@@ -1,5 +1,6 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { ingestionPublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
@@ -46,6 +47,7 @@ import {
 } from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
+import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
@@ -197,12 +199,18 @@ export async function enqueueWriteJob(
   }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
-    Record<EnqueueWriteJobInput["kind"], typeof workspaceClaimsUpgrade>
+    Record<
+      EnqueueWriteJobInput["kind"],
+      | typeof workspaceClaimsUpgrade
+      | typeof workspaceMigrationExport
+      | typeof workspaceOwnershipMigration
+    >
   > = {
     migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
+    ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
@@ -325,6 +333,7 @@ export async function enqueueWriteJob(
           jobId,
           revision,
           extraction: input.extraction,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -332,6 +341,7 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           extraction: command.extraction,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
@@ -420,6 +430,7 @@ export async function enqueueWriteJob(
           revision,
           linkAction: input.linkAction,
           linkGitUrl: input.linkGitUrl,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -428,6 +439,7 @@ export async function enqueueWriteJob(
           revision,
           linkAction: command.linkAction,
           linkGitUrl: command.linkGitUrl,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceLinkUnlink.spec, command, {
@@ -471,6 +483,13 @@ export async function enqueueWriteJob(
         ...(input.kind === "ops_folder_map" && input.previousSha
           ? { previousSha: input.previousSha }
           : {}),
+        // The ownership migration is an ingestion v2 publish (ADR-052).
+        ...(input.kind === "ownership_migration"
+          ? {
+              publishPipeline:
+                input.publishPipeline ?? ingestionPublishPipeline(),
+            }
+          : {}),
       }
       await persistBoundWriteJob({
         admissionStatus,
@@ -479,6 +498,7 @@ export async function enqueueWriteJob(
         revision,
         displayName: command.displayName,
         previousSha: command.previousSha,
+        publishPipeline: command.publishPipeline,
       })
       bound = true
       if (input.kind === "bootstrap")

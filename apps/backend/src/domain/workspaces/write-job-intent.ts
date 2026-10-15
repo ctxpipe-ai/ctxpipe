@@ -1,6 +1,10 @@
 import { z } from "zod"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
+import {
+  type IngestionPublishPipeline,
+  ingestionPublishPipelineSchema,
+} from "../ingestion/ingestion-v2-config.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
@@ -8,6 +12,7 @@ import {
   type WorkspaceExtraction,
   workspaceExtractionSchema,
 } from "./extraction.js"
+import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
@@ -40,6 +45,8 @@ export type WorkspaceWritePlanning = {
 export type WorkspaceWriteJobPayload = {
   bootstrapBinding?: UnbornBootstrapBinding
   extraction?: WorkspaceExtraction
+  /** An ingestion v2 publish (T21): the run and its assembled tip. */
+  ingest?: IngestPublishSource
   revision?: WorkspaceRevision
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
@@ -51,6 +58,8 @@ export type WorkspaceWriteJobPayload = {
   displayName?: string
   linkAction?: "link" | "unlink"
   linkGitUrl?: string
+  /** The publish pipeline when the job was queued (ADR-052 phase 4). */
+  publishPipeline?: IngestionPublishPipeline
   defaultBranch?: string
   jobWorkspaceUrl?: string
   conflictParentSha?: string | null
@@ -82,6 +91,7 @@ const writeJobKindSchema = z.enum([
   "link_unlink",
   "ui_file_edit",
   "import_key_cleanup",
+  "ownership_migration",
 ])
 
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
@@ -96,6 +106,8 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   displayName: z.string().trim().min(1).optional(),
   linkAction: z.enum(["link", "unlink"]).optional(),
   linkGitUrl: z.string().min(1).optional(),
+  /** Empty: the enqueue reads the committed switch. */
+  publishPipeline: ingestionPublishPipelineSchema.optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -114,6 +126,7 @@ export type WriteJobEnqueueFields = Pick<
   | "defaultBranch"
   | "linkAction"
   | "linkGitUrl"
+  | "publishPipeline"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -131,6 +144,7 @@ export function writeJobIntentPayload(
   if (input.displayName !== undefined) payload.displayName = input.displayName
   if (input.linkAction) payload.linkAction = input.linkAction
   if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
+  if (input.publishPipeline) payload.publishPipeline = input.publishPipeline
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -179,6 +193,13 @@ export function shouldResumePausedWriteJob(input: {
   )
 }
 
+/** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
+const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
+  "extract_ingest",
+  "link_unlink",
+  "ownership_migration",
+])
+
 export function enqueueInputFromPausedJob(input: {
   orgId: string
   workspaceId: string
@@ -210,6 +231,11 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
+    // A publish job that was stored before the pipeline field was queued
+    // under `legacy`. It does not get the switch value at resume time.
+    ...(PUBLISH_PIPELINE_KINDS.has(input.job.kind)
+      ? { publishPipeline: payload.publishPipeline ?? "legacy" }
+      : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }
       : {}),

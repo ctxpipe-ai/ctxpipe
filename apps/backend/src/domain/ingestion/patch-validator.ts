@@ -1,4 +1,11 @@
-import { lstat, readdir, readFile, rm } from "node:fs/promises"
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
@@ -125,7 +132,7 @@ const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
 const MAX_PATCH_JSON_BYTES = 1024 * 1024
-const MAX_STEP_OPS = 30
+export const MAX_STEP_OPS = 30
 export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
@@ -167,12 +174,34 @@ const ClaimSchema = z
 
 type Claim = z.infer<typeof ClaimSchema>
 
+/**
+ * A claim that the ownership migration carried over from the old pipeline
+ * (ADR-052 section 3). It keeps each old key, also `valid_from` and
+ * `valid_to`. Only the host writes it: a step can keep it or leave it out,
+ * but cannot add or change one.
+ */
+const LegacyClaimSchema = z
+  .object({
+    to: z.string().min(1),
+    evidence: z.object({ kind: z.literal("legacy") }).strict(),
+  })
+  .passthrough()
+
+const isLegacyClaim = (claim: unknown) =>
+  LegacyClaimSchema.safeParse(claim).success
+
 const FrontMatterSchema = z
   .object({
     kind: z.string(),
     name: z.string().min(1).max(200),
     summary: z.string().max(1000).optional(),
-    claims: z.array(ClaimSchema).max(200).optional(),
+    claims: z
+      .array(z.union([ClaimSchema, LegacyClaimSchema]))
+      .refine(
+        (claims) => claims.filter((c) => !isLegacyClaim(c)).length <= 200,
+        "A file has at most 200 claims",
+      )
+      .optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -343,9 +372,20 @@ export async function validatePatchStep(
 
   const stagedPaths = new Set(staged.map((f) => f.path))
   const ops: StagedOp[] = []
+  const updated = staged.filter((file) => baseEntries.has(file.path))
+  const updatedIds = await hashBlobs(
+    input.repoDir,
+    updated.map((file) => file.content),
+    { write: false },
+  )
+  const unchanged = new Set(
+    updated
+      .filter((file, i) => updatedIds[i] === baseEntries.get(file.path))
+      .map((file) => file.path),
+  )
   for (const file of staged) {
     const base = baseEntries.get(file.path)
-    if (base && (await blobId(input.repoDir, file.content)) === base) continue
+    if (unchanged.has(file.path)) continue
     ops.push({
       op: base ? "update" : "create",
       path: file.path,
@@ -739,7 +779,8 @@ type WriteOutput = {
   added?: string
 }
 
-const AREA_PATH = /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
+export const AREA_PATH =
+  /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 
 function generatedByHost(raw: string): boolean {
   const front = splitFrontMatter(raw)
@@ -937,15 +978,44 @@ async function checkFullWrite(
   if (quote) return quote
 
   const claims = attributes.claims ?? []
-  const baseClaims = Array.isArray(baseAttributes.claims)
-    ? baseAttributes.claims.map(withoutConfidence)
+  const baseClaims: unknown[] = Array.isArray(baseAttributes.claims)
+    ? baseAttributes.claims
     : []
-  const fresh = claims.filter(
-    (claim) =>
-      !baseClaims.some((b) => isDeepStrictEqual(b, withoutConfidence(claim))),
+  // A claim that is in the base stays as the base has it, with its
+  // confidence. A closed legacy claim is history: it stays also when the
+  // step leaves it out.
+  const kept = (claim: unknown) =>
+    baseClaims.find((b) =>
+      isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+    )
+  // A step cannot replace, rewrite, or re-label a legacy claim: a new claim
+  // with the target and predicate of a base legacy claim is refused.
+  const legacyKeys = new Set(
+    baseClaims.filter(isLegacyClaim).map((b) => claimKey(b)),
   )
+  const fresh: Claim[] = []
+  for (const claim of claims) {
+    if (kept(claim)) continue
+    if (isLegacyClaim(claim) || legacyKeys.has(claimKey(claim)))
+      return {
+        rule: "front_matter",
+        reason: "Only the host sets or changes a legacy claim",
+      }
+    fresh.push(claim as Claim)
+  }
   const evidence = await evidenceProblem(fresh, context)
   if (evidence) return evidence
+  const outClaims = [
+    ...claims.map((claim) => kept(claim) ?? stampClaim(claim as Claim)),
+    ...baseClaims.filter(
+      (b) =>
+        isLegacyClaim(b) &&
+        (b as { valid_to?: unknown }).valid_to != null &&
+        !claims.some((claim) =>
+          isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+        ),
+    ),
+  ]
 
   const baseRoot =
     typeof baseAttributes.root === "string" ? baseAttributes.root : undefined
@@ -962,7 +1032,7 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
-    ...(claims.length ? { claims: claims.map(stampClaim) } : {}),
+    ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourceUrl],
     ...(root === undefined ? {} : { root }),
@@ -973,7 +1043,8 @@ async function checkFullWrite(
   return {
     output: `---\n${stringify(stamped, { lineWidth: 0 })}---\n${front.body}`,
     links: markdownLinks(front.body),
-    claimTargets: claims.map((c) => c.to),
+    // A legacy claim can name a file that is gone: it records history.
+    claimTargets: claims.filter((c) => !isLegacyClaim(c)).map((c) => c.to),
   }
 }
 
@@ -1084,6 +1155,12 @@ function stampClaim(claim: Claim) {
   }
 }
 
+/** The target and predicate of a claim. */
+function claimKey(claim: unknown): string {
+  const { to, predicate } = (claim ?? {}) as Record<string, unknown>
+  return JSON.stringify([to, predicate])
+}
+
 function withoutConfidence(claim: unknown): unknown {
   if (!claim || typeof claim !== "object") return claim
   const { confidence: _confidence, ...rest } = claim as Record<string, unknown>
@@ -1163,7 +1240,17 @@ function humanSectionProblem(
   return null
 }
 
-function humanBlocks(text: string): string[] {
+/**
+ * True when `after` has front matter and keeps each human section of
+ * `before` byte for byte in its body (the check of a staged write). A host
+ * edit outside a patch step uses it.
+ */
+export function humanSectionsKept(before: string, after: string): boolean {
+  const front = splitFrontMatter(after)
+  return front !== null && humanSectionProblem(front, before) === null
+}
+
+export function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
 }
 
@@ -1723,7 +1810,7 @@ export function parseYamlObject(yaml: string): Record<string, unknown> | null {
   }
 }
 
-function normalizeSourceUrl(url: string): string {
+export function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
 
@@ -1831,10 +1918,44 @@ async function listTree(
   return entries
 }
 
-async function blobId(repoDir: string, content: Buffer): Promise<string> {
-  return (await git(repoDir, ["hash-object", "--stdin"], { input: content }))
-    .toString()
-    .trim()
+/**
+ * The blob ids of `contents`, in order, from one git process. A git process
+ * for each file made a step of 30 ops start more than 30 processes, which
+ * is slow when the host is busy.
+ */
+async function hashBlobs(
+  repoDir: string,
+  contents: ReadonlyArray<Buffer | string>,
+  options: { write: boolean },
+): Promise<string[]> {
+  if (contents.length === 0) return []
+  const dir = await mkdtemp(join(tmpdir(), "ctxpipe-patch-blobs-"))
+  try {
+    const paths = await Promise.all(
+      contents.map(async (content, i) => {
+        const path = join(dir, String(i))
+        await writeFile(path, content)
+        return path
+      }),
+    )
+    // `--no-filters` hashes the bytes as is, like `--stdin` does.
+    const out = await git(
+      repoDir,
+      [
+        "hash-object",
+        ...(options.write ? ["-w"] : []),
+        "--no-filters",
+        "--stdin-paths",
+      ],
+      { input: `${paths.join("\n")}\n` },
+    )
+    const ids = out.toString().trim().split("\n")
+    if (ids.length !== contents.length)
+      throw new Error("git hash-object returned the wrong number of ids")
+    return ids
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 async function readBlobs(
@@ -1871,21 +1992,18 @@ async function applyOps(
   }
   try {
     await git(repoDir, ["read-tree", baseCommit], { env })
-    const lines: string[] = []
-    for (const op of ops) {
-      if (op.op === "delete") {
-        lines.push(`0 ${"0".repeat(40)}\t${op.path}`)
-        continue
-      }
-      const sha = (
-        await git(repoDir, ["hash-object", "-w", "--stdin"], {
-          input: op.output ?? "",
-        })
-      )
-        .toString()
-        .trim()
-      lines.push(`100644 ${sha}\t${op.path}`)
-    }
+    const written = ops.filter((op) => op.op !== "delete")
+    const ids = await hashBlobs(
+      repoDir,
+      written.map((op) => op.output ?? ""),
+      { write: true },
+    )
+    const idOf = new Map(written.map((op, i) => [op, ids[i]]))
+    const lines = ops.map((op) =>
+      op.op === "delete"
+        ? `0 ${"0".repeat(40)}\t${op.path}`
+        : `100644 ${idOf.get(op)}\t${op.path}`,
+    )
     if (lines.length)
       await git(repoDir, ["update-index", "--index-info"], {
         env,

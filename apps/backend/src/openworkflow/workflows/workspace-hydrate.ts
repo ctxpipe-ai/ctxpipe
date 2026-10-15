@@ -2,6 +2,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
@@ -229,6 +230,12 @@ export const workspaceHydrate = defineWorkflow(
             }
             const enqueueRemainingWrites = async () => {
               if (!planning.needed) return
+              // The switch value goes in the plan and in each job it queues,
+              // so the ownership migration job carries its pipeline.
+              const publishPipeline = await step.run(
+                { name: "read-publish-pipeline" },
+                () => ingestionPublishPipeline(),
+              )
               const plan = await step.run(
                 { name: "plan-remaining-writes" },
                 async () => {
@@ -237,6 +244,7 @@ export const workspaceHydrate = defineWorkflow(
                     revision,
                     displayName: workspace.displayName,
                     files,
+                    publishPipeline,
                   })
                   if (await getMigrationExportSha(workspace.id, revision)) {
                     remaining.push({
@@ -312,6 +320,7 @@ export const workspaceHydrate = defineWorkflow(
                       jobWorkspaceUrl: revision.remote.url,
                       jobDesiredSha: revision.sha,
                       defaultBranch: revision.defaultBranch,
+                      publishPipeline,
                     },
                     {
                       error: (error) => {
