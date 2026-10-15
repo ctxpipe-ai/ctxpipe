@@ -918,7 +918,7 @@ it(
 )
 
 it(
-  "refuses a queued file edit of a host-only path and leaves the default branch alone",
+  "refuses a queued file edit of a host-only path, fails the job at once, and runs the next write",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -927,10 +927,8 @@ it(
         const { workspaceFileEdit } = await import(
           "../../openworkflow/workflows/workspace-file-edit.js"
         )
-        const spec = {
-          ...workspaceFileEdit.spec,
-          retryPolicy: { maximumAttempts: 1 },
-        }
+        // The default retry policy stays: the refusal must not need an override.
+        const spec = workspaceFileEdit.spec
         f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
         await f.worker.stop()
         const worker = f.runner.newWorker({ concurrency: 1 })
@@ -956,9 +954,34 @@ it(
           expect(run?.error?.message).toContain(
             ".ctxpipe/sources.yaml is host-only. Change it through a pull request.",
           )
+          expect(run?.attempts).toBe(1)
+          // Read the row without reconcile, which would fail it later by itself.
+          const { workspaceWriteJobs } = await import(
+            "../../db/schema/workspaces.js"
+          )
+          const { withOrgDbContext } = await import("../../db/client.js")
+          const { eq } = await import("drizzle-orm")
+          const [row] = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ status: workspaceWriteJobs.status })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.id, jobId)),
+          )
+          expect(row?.status).toBe("failed")
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
+          const next = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_after_refusal`,
+            revision: { ...f.revision, access: "write-default" },
+            files: [{ path: "document-000.md", content: "# After refusal\n" }],
+            deletePaths: [],
+          })
+          expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
+            committed: true,
+          })
         } finally {
           await worker.stop()
         }
