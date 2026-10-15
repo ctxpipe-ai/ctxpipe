@@ -48,6 +48,33 @@ import {
  * credentials; without them it fails rather than skips.
  */
 
+/**
+ * Run a git command in the sandbox. On a failure, print the state of the CA
+ * bundle (CTX-727: an intermittent "error adding trust anchors"), then
+ * rethrow. The output holds file metadata and certificate lines only.
+ */
+async function gitWithCaDiagnostics(
+  handle: {
+    process: {
+      exec: (
+        command: string,
+      ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+    }
+  },
+  command: string,
+) {
+  const result = await handle.process.exec(command)
+  if (result.exitCode === 0) return result
+  const bundle = "/etc/ssl/certs/ca-certificates.crt"
+  const state = await handle.process.exec(
+    `ls -l /etc/ssl/certs/ | head -n 40; stat ${bundle}; wc -l ${bundle}; tail -n 3 ${bundle}; date +%s.%N`,
+  )
+  console.error(
+    `[vercel] git failed (exit ${result.exitCode}): ${result.stderr.trim()}\n[vercel] CA bundle state:\n${state.stdout}${state.stderr}`,
+  )
+  return result
+}
+
 const OPENCODE_VERSION = "1.18.34"
 const tags = { purpose: "ci-contract" }
 const created: string[] = []
@@ -421,7 +448,8 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
       "env; cat /proc/1/environ 2>/dev/null | tr '\\0' '\\n'",
     )
     expect(environment.stdout.includes(githubToken)).toBe(false)
-    const clone = await handle.process.exec(
+    const clone = await gitWithCaDiagnostics(
+      handle,
       "GIT_TERMINAL_PROMPT=0 git ls-remote https://github.com/ctxpipe-ai/ctxpipe.git HEAD",
     )
     expect(clone.exitCode, clone.stderr).toBe(0)
