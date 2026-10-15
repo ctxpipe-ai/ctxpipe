@@ -969,9 +969,6 @@ export const RemoveSendsChange: Story = {
       }),
     )
     const dialog = within(await within(document.body).findByRole("alertdialog"))
-    await expect(
-      dialog.queryByRole("button", { name: "Commit directly" }),
-    ).toBeNull()
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )

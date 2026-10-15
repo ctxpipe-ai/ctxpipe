@@ -918,6 +918,56 @@ it(
 )
 
 it(
+  "refuses a queued file edit of a host-only path and leaves the default branch alone",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const spec = {
+          ...workspaceFileEdit.spec,
+          retryPolicy: { maximumAttempts: 1 },
+        }
+        f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
+        await f.worker.stop()
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          const jobId = `wjob_${f.id}_hostonly`
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            files: [{ path: ".ctxpipe/sources.yaml", content: "version: 1\n" }],
+            deletePaths: [],
+          })
+          const [result] = await Promise.allSettled([
+            handle.result({ timeoutMs: 30_000 }),
+          ])
+          expect(result?.status).toBe("rejected")
+          const run = await f.backend.getWorkflowRun({
+            workflowRunId: handle.workflowRun.id,
+          })
+          expect(run?.status).toBe("failed")
+          expect(run?.error?.message).toContain(
+            ".ctxpipe/sources.yaml is host-only. Change it through a pull request.",
+          )
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(f.sha)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
   "rechecks an apparent no-op against the current default and applies the requested edit",
   { timeout: 60_000 },
   async () => {
@@ -1096,6 +1146,82 @@ it(
           )
           await owner.unsafe(`DROP FUNCTION public.${fixtureName}()`)
           await owner.end()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "lands a host direct-commit edit of a source file under sources/ (CTX-721)",
+  { timeout: 60_000 },
+  async () => {
+    // Only agent writes without a pull request refuse sources/. A direct
+    // commit from the Sources settings is a host write for a person.
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        count: 1,
+      },
+      async (f) => {
+        await f.publish()
+        const { enqueueWriteJob } = await import(
+          "../../openworkflow/enqueue-workspace-write-commit.js"
+        )
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const path = "sources/github/example-org/checkout-api.md"
+        const content =
+          "---\nrepository: https://github.com/example-org/checkout-api\n---\n"
+        try {
+          const jobId = `wjob_${f.id}_source_edit`
+          const accepted = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind: "ui_file_edit",
+                mergeFiles: [{ path, content }],
+                mergeDeletePaths: [],
+              },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          )
+          expect(accepted).toEqual({ started: true })
+          await worker.start()
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(
+                  f.org,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
+                ),
+              { timeout: 30_000 },
+            )
+            .toBe("completed")
+          expect(
+            f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`),
+          ).toBe(content.trimEnd())
+        } finally {
+          await worker.stop()
           await backend.stop()
         }
       },

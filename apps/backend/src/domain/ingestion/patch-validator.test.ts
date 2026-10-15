@@ -145,6 +145,8 @@ beforeAll(() => {
     "linear/issues/eng-1.md": "# Issue\n",
     "AGENTS.md": "# Agents\n",
     ".ctxpipe/sources.yaml": "sources: []\n",
+    "sources/github/example-org/checkout-api.md":
+      "---\nrepository: https://github.com/example-org/checkout-api\n---\n",
   })
   git(contextDir, ["add", "-A"])
   git(contextDir, ["commit", "-q", "-m", "base"])
@@ -760,6 +762,56 @@ describe("validatePatchStep human files", () => {
     expect(rulesOf(result)).toEqual(["link"])
   })
 
+  it("rejects generated_by or sources that the agent adds to a human file (CTX-722)", async () => {
+    const result = await run(
+      stage({
+        files: {
+          [path]: HUMAN_PORTAL.replace(
+            "name: Portal\n",
+            "name: Portal\ngenerated_by: ctxpipe-extract\n",
+          ),
+          "knowledge/apps/no-related.md": doc(
+            { kind: "App", name: "No related", sources: [SOURCE_URL] },
+            "# No related\n\nHuman prose.\n",
+          ),
+        },
+      }),
+    )
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(["additive_only", "additive_only"])
+    expect(readTree(result.tree, path)).toBe(HUMAN_PORTAL)
+  })
+
+  it("accepts an owned file that the agent writes without generated_by (CTX-722)", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/owned-0.md": service(
+            "Owned 0",
+            "# Owned 0\n\nNew prose.\n",
+          ),
+        },
+      }),
+    )
+    expect(result.rejections).toEqual([])
+    expect(result.accepted.map((op) => op.path)).toEqual([
+      "knowledge/services/owned-0.md",
+    ])
+  })
+
+  it("rejects a host-only path with its own reason (CTX-722)", async () => {
+    const result = await run(
+      stage({ files: { ".ctxpipe/sources.yaml": "sources: [evil]\n" } }),
+    )
+    expect(result.rejections).toEqual([
+      {
+        path: ".ctxpipe/sources.yaml",
+        rule: "path",
+        reason: "Only ctx| writes host-only paths",
+      },
+    ])
+  })
+
   it("rejects a removed claim on a human file", async () => {
     const changed = HUMAN_PORTAL.replace(
       /claims:\n[\s\S]*?(?=---)/,
@@ -1301,6 +1353,40 @@ describe("validatePatchStep review fixes", () => {
       "knowledge/instructions/unit-testing.md",
     ])
     expect(rulesOf(result)).toEqual(["front_matter"])
+  })
+})
+
+describe("validatePatchStep sources folder (CTX-721)", () => {
+  const SOURCE_FILE = "sources/github/example-org/checkout-api.md"
+  const HOST_ONLY = "Only ctx| writes host-only paths"
+
+  it.each([
+    ["a new source file", "sources/github/evil/exfil.md"],
+    ["a source file in another case", "Sources/github/evil/exfil.md"],
+    ["a changed source file", SOURCE_FILE],
+  ])("rejects %s with the host-only reason", async (_name, path) => {
+    const result = await run(
+      stage({
+        files: {
+          [path]:
+            "---\nrepository: https://github.com/attacker-org/drop\n---\n",
+        },
+      }),
+    )
+    expect(result.rejections).toEqual([
+      { path, rule: "path", reason: HOST_ONLY },
+    ])
+    expect(result.accepted).toEqual([])
+  })
+
+  it("rejects a deleted source file and keeps it in the tree", async () => {
+    const result = await run(stage({ deletes: [SOURCE_FILE] }))
+    expect(result.rejections).toEqual([
+      { path: SOURCE_FILE, rule: "path", reason: HOST_ONLY },
+    ])
+    expect(readTree(result.tree, SOURCE_FILE)).toBe(
+      readTree(baseCommit, SOURCE_FILE),
+    )
   })
 })
 

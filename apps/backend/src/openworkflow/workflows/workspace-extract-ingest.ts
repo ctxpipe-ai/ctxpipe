@@ -4,6 +4,7 @@ import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirro
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
+import { isHostOnlyPath } from "../../domain/workspaces/host-only.js"
 import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
 import {
   sameWorkspaceRevision,
@@ -144,6 +145,7 @@ export const workspaceExtractIngest = defineWorkflow(
               const files = plan.files.filter(
                 (file) =>
                   !file.path.startsWith(".agents/") &&
+                  !isHostOnlyPath(file.path) &&
                   (!isLinkedRepositoryDeclaration(file.path) ||
                     file.path === input.extraction.sourceDeclaration?.path) &&
                   !isConnectorMirrorPath(file.path) &&
@@ -217,7 +219,14 @@ export const workspaceExtractIngest = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(
+                  input,
+                  revision,
+                  committed,
+                  env,
+                  "extraction",
+                ),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,
