@@ -9,17 +9,13 @@ import {
 } from "./write-job-intent.js"
 
 describe("writeJobIntentPayload", () => {
-  it("stores first-create link fields so a paused job can resume", () => {
+  it("stores the paused job fields so it can resume", () => {
     expect(
       writeJobIntentPayload({
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: "https://github.com/acme/app.git",
+        kind: "bootstrap",
         jobWorkspaceUrl: "https://github.com/acme/docs",
       }),
     ).toEqual({
-      linkAction: "link",
-      linkGitUrl: "https://github.com/acme/app.git",
       jobWorkspaceUrl: "https://github.com/acme/docs",
     })
   })
@@ -103,19 +99,17 @@ describe("shouldResumePausedWriteJob", () => {
 })
 
 describe("enqueueInputFromPausedJob", () => {
-  it("replays the stored link payload onto the same job id", () => {
+  it("replays the stored payload onto the same job id", () => {
     expect(
       enqueueInputFromPausedJob({
         orgId: "org_1",
         workspaceId: "ws_1",
         job: {
           id: "wjob_link",
-          kind: "link_unlink",
+          kind: "bootstrap",
           generation: 1,
           desiredSha: null,
           payload: {
-            linkAction: "link",
-            linkGitUrl: "https://github.com/acme/app.git",
             jobWorkspaceUrl: "https://github.com/acme/docs",
           },
         },
@@ -123,23 +117,19 @@ describe("enqueueInputFromPausedJob", () => {
     ).toEqual({
       orgId: "org_1",
       workspaceId: "ws_1",
-      kind: "link_unlink",
+      kind: "bootstrap",
       jobId: "wjob_link",
       jobGeneration: 1,
       jobDesiredSha: null,
       jobWorkspaceUrl: "https://github.com/acme/docs",
-      linkAction: "link",
-      linkGitUrl: "https://github.com/acme/app.git",
-      // A job stored before the pipeline field was queued under legacy.
-      publishPipeline: "legacy",
     })
   })
 
   it("resumes a publish job with no stored pipeline as legacy, not with the current switch", () => {
     for (const kind of [
       "extract_ingest",
-      "link_unlink",
       "ownership_migration",
+      "unlink_retraction",
     ] as const)
       expect(
         enqueueInputFromPausedJob({

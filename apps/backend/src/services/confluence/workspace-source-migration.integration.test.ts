@@ -4,13 +4,13 @@ import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { applySourceFileChange } from "../../domain/workspace-sources/edit.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import {
   parseSourceEntry,
   sourcesFileSchema,
 } from "../../domain/workspace-sources/sources-file.js"
 import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
+import { applySourcesYamlChange } from "../../domain/workspace-sources/sources-yaml-edit.js"
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   isConfluenceTargetHandedOver,
@@ -125,7 +125,7 @@ describe("Confluence source migration hook (Postgres)", () => {
     })
     let text: string | null = null
     for (const change of changes.get("ws_context") ?? [])
-      text = applySourceFileChange(text, change).text
+      text = applySourcesYamlChange(text, change).text
     const file = sourcesFileSchema.parse(parseSourcesYaml(text ?? ""))
     expect(file.sources.map(parseSourceEntry)).toEqual([
       {

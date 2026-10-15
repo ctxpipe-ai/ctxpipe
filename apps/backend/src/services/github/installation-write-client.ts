@@ -696,6 +696,37 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Merge an open pull request by its URL. Returns the SHA of the merge commit. */
+export async function mergePullRequest(
+  input: BaseInput & { pullUrl: string },
+): Promise<string> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined)
+    throw new Error(`Not a pull request URL: ${input.pullUrl}`)
+  const context = await getInstallationContext(input, {
+    contents: "write",
+    pull_requests: "write",
+  })
+  const urlRepository = input.pullUrl.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
+  )
+  if (
+    urlRepository?.[1]?.toLowerCase() !== context.owner.toLowerCase() ||
+    urlRepository[2]?.toLowerCase() !== context.repo.toLowerCase()
+  )
+    throw new Error(
+      `Pull request ${input.pullUrl} is not in ${context.owner}/${context.repo}`,
+    )
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.merge({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.sha
+}
+
 /** Resolve the head branch (ref) of an open pull request from its URL. */
 export async function getPullRequestHeadBranch(
   input: BaseInput & { pullUrl: string },

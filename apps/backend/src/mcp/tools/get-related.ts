@@ -69,7 +69,7 @@ export const getRelatedInputShape = {
     .enum(RELEVANCE_INTENTS)
     .default("general")
     .describe(
-      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general. Set it, or give the question as query: with neither, one page must serve every kind of question.",
+      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, provenance (the sources that a unit came from), or general. Set it, or give the question as query: with neither, one page must serve every kind of question.",
     ),
   predicates: z
     .array(name)
@@ -77,7 +77,7 @@ export const getRelatedInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general).",
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general). Only provenance or these predicates walk FROM_SOURCE.",
     ),
   excludePredicates: z
     .array(name)
@@ -388,7 +388,7 @@ export async function rankWorkspaceRelated(
   let searchTimedOut = false
   let queryEmbedding: Promise<number[] | null> | undefined
   // Walk the graph and rank what the walk found. No `predicates` walks all
-  // edges.
+  // edges, except the edges to a hub source (FROM_SOURCE).
   const walk = async (
     predicates: string[] | undefined,
     diversity = input.diversity,
@@ -613,7 +613,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. Each result can explain why: the path of predicates from a seed. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

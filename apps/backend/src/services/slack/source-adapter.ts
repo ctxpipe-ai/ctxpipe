@@ -157,9 +157,7 @@ export async function captureSlackThreadToSources(input: {
   excludeMessageTs?: string
   capturedByUserId?: string
   write: SliceWriter
-  readExisting?: (
-    workspaceId: string,
-  ) => Promise<ReadonlyArray<{ path: string; sha: string }>>
+  readExisting?: Parameters<typeof syncConnectionSources>[0]["readExisting"]
 }): Promise<
   | { kind: "no_source" }
   | { kind: "captured"; capture: SlackCaptureResult; workspaces: string[] }

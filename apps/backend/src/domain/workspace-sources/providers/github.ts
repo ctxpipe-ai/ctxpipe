@@ -66,7 +66,48 @@ export const githubSourceScope: SourceScopeDefinition = {
   label: "GitHub",
   schema: githubScopeSchema,
   summarize: (scope) => {
+    // A source file row (ADR-050 revision 2026-10-16) has the file scope.
+    if (githubFileScopeSchema.safeParse(scope).success)
+      return githubFileSourceScope.summarize(scope)
     const count = githubScopeSchema.parse(scope).repositories.length
     return `${count} linked ${count === 1 ? "repository" : "repositories"}`
   },
+}
+
+/**
+ * The scope of one GitHub source file (ADR-050, revision 2026-10-16): one
+ * repository and an optional `ref`. Thus each file holds one pin, and the
+ * provenance of a unit is for one repository.
+ */
+export const githubFileScopeSchema = z.strictObject({
+  repository: repositoryNameSchema,
+  ref: refSchema.optional(),
+})
+
+export type GithubFileScope = z.infer<typeof githubFileScopeSchema>
+
+/** The GitHub scope of a source file under `sources/github/`. */
+export const githubFileSourceScope: SourceScopeDefinition = {
+  connectionType: "github",
+  label: "GitHub",
+  schema: githubFileScopeSchema,
+  summarize: (scope) => {
+    const { repository, ref } = githubFileScopeSchema.parse(scope)
+    return ref ? `${repository} (${ref})` : repository
+  },
+}
+
+/**
+ * The repositories of a GitHub scope of either form: a source file (one
+ * `repository`) or a `.ctxpipe/sources.yaml` entry (`repositories`). A scope
+ * that does not parse gives none.
+ */
+export function githubSourceScopeRepositories(
+  scope: unknown,
+): Array<{ name: string; ref: string | null }> {
+  const file = githubFileScopeSchema.safeParse(scope)
+  if (file.success)
+    return [{ name: file.data.repository, ref: file.data.ref ?? null }]
+  const entry = githubScopeSchema.safeParse(scope)
+  return entry.success ? githubScopeRepositories(entry.data) : []
 }

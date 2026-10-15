@@ -25,7 +25,6 @@ describe("workspace write job kinds", () => {
       "semantic_merge",
       "ops_folder_map",
       "bootstrap",
-      "link_unlink",
       "ui_file_edit",
       "import_key_cleanup",
       "ownership_migration",

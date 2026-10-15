@@ -52,6 +52,89 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("does not read a folder blob that is larger than the limit or not text", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-folder-limit-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "sources", "linear"), { recursive: true })
+    await writeFile(join(dir, "sources", "linear", "ok.md"), "---\n---\n")
+    await writeFile(
+      join(dir, "sources", "linear", "big.md"),
+      "x".repeat(64 * 1024 + 1),
+    )
+    await writeFile(
+      join(dir, "sources", "linear", "logo.png"),
+      Buffer.from([0x89, 0x50, 0x00, 0x01]),
+    )
+    await git("add", ".")
+    await git(
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "Folder fixture",
+    )
+    const sha = await git("rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      extraFolders: ["sources/"],
+      extraFolderMaxBytes: 64 * 1024,
+    })
+    expect([...files].sort((a, b) => a.path.localeCompare(b.path))).toEqual([
+      { path: "sources/linear/big.md", content: "", omitted: "too_large" },
+      { path: "sources/linear/logo.png", content: "", omitted: "binary" },
+      { path: "sources/linear/ok.md", content: "---\n---\n" },
+    ])
+  })
+
+  it("reads only the blobs under a prefix, so the remote never sends the other files", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-prefix-tree-"))
+    const work = join(dir, "work")
+    const remote = join(dir, "remote.git")
+    const git = async (cwd: string, ...args: string[]) =>
+      (await execFileAsync("git", ["-C", cwd, ...args])).stdout.trim()
+    await execFileAsync("git", ["init", "-b", "main", work])
+    await execFileAsync("mkdir", ["-p", join(work, "sources/linear")])
+    await execFileAsync("mkdir", ["-p", join(work, "docs")])
+    await writeFile(join(work, "sources/linear/eng.md"), "Source body.\n")
+    const others = Array.from({ length: 30 }, (_, i) => `docs/page-${i}.md`)
+    for (const [i, path] of others.entries())
+      await writeFile(join(work, path), `Page ${i}.\n`)
+    await git(work, "add", ".")
+    await git(
+      work,
+      "-c",
+      "user.name=Contract",
+      "-c",
+      "user.email=contract@example.test",
+      "commit",
+      "-m",
+      "Many pages",
+    )
+    const sha = await git(work, "rev-parse", "HEAD")
+    const otherBlobs = await Promise.all(
+      others.map((path) => git(work, "rev-parse", `HEAD:${path}`)),
+    )
+    // A remote with loose objects only, that cannot read any other blob: a
+    // fetch that asks for one of them fails.
+    await execFileAsync("git", ["init", "--bare", "-b", "main", remote])
+    await git(remote, "config", "uploadpack.allowFilter", "true")
+    await git(remote, "config", "uploadpack.allowAnySHA1InWant", "true")
+    await git(work, "push", "-q", remote, "main")
+    for (const blob of otherBlobs)
+      await rm(join(remote, "objects", blob.slice(0, 2), blob.slice(2)))
+    const url = `file://${remote}`
+    await expect(listMarkdownFilesAtGitSha({ url, sha })).rejects.toThrow()
+
+    expect(
+      await listMarkdownFilesAtGitSha({ url, sha, prefix: "sources/" }),
+    ).toEqual([{ path: "sources/linear/eng.md", content: "Source body.\n" }])
+  })
+
   it("resolves a linked ref that is a branch, a light tag, or an annotated tag", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-tag-tip-"))
     const git = async (...args: string[]) =>

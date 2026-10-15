@@ -18,10 +18,7 @@ const revision: WorkspaceRevision = {
 const declaration = (git: string, branch?: string) =>
   `---\ngit: ${git}\n${branch ? `branch: ${branch}\n` : ""}---\n`
 
-function plan(
-  files: Array<{ path: string; content: string }>,
-  sourcesFile: string | null,
-) {
+function plan(files: Array<{ path: string; content: string }>) {
   const bootstrapped = bootstrapWorkspaceFiles({
     displayName: "Knowledge",
     existing: new Map(),
@@ -30,66 +27,23 @@ function plan(
     revision,
     displayName: "Knowledge",
     files: [...bootstrapped, ...files],
-    sourcesFile,
     publishPipeline: "legacy",
-  }).filter((requirement) => requirement.kind === "link_unlink")
+  })
 }
 
 describe("planHydrateWrites: repository files of ADR-050", () => {
-  it("plans one link edit that moves the GitHub repository files", () => {
+  it("plans no write for repository files (the conversion moves them)", () => {
     expect(
-      plan(
-        [
-          {
-            path: "repositories/web.md",
-            content: declaration("https://github.com/Acme/Web.git", "stable"),
-          },
-          {
-            path: "repositories/api.md",
-            content: declaration("https://github.com/acme/api"),
-          },
-        ],
-        null,
-      ),
-    ).toEqual([
-      {
-        kind: "link_unlink",
-        remainder: 2,
-        linkGitUrl: "https://github.com/acme/web",
-      },
-    ])
-  })
-
-  it("plans nothing when no file can move", () => {
-    const sources =
-      "version: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [{name: acme/web, ref: main}]\n"
-    expect(
-      plan(
-        [
-          // Linked with another ref: the file stays, as a source error.
-          {
-            path: "repositories/web.md",
-            content: declaration("https://github.com/acme/web", "stable"),
-          },
-          {
-            path: "repositories/tools.md",
-            content: declaration("https://gitlab.com/acme/tools"),
-          },
-        ],
-        sources,
-      ),
-    ).toEqual([])
-    // An invalid sources file takes no link edit.
-    expect(
-      plan(
-        [
-          {
-            path: "repositories/api.md",
-            content: declaration("https://github.com/acme/api"),
-          },
-        ],
-        "version: 2\n",
-      ),
+      plan([
+        {
+          path: "repositories/web.md",
+          content: declaration("https://github.com/Acme/Web.git", "stable"),
+        },
+        {
+          path: "repositories/api.md",
+          content: declaration("https://github.com/acme/api"),
+        },
+      ]),
     ).toEqual([])
   })
 })

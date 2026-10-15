@@ -36,6 +36,7 @@ export const RELEVANCE_INTENTS = [
   "change",
   "dependencies",
   "structure",
+  "provenance",
 ] as const
 
 export type RelevanceIntent = (typeof RELEVANCE_INTENTS)[number]
@@ -196,6 +197,15 @@ const STRUCTURAL_PREDICATES = [
  */
 const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 
+/**
+ * The predicate of the edge from a unit to the `Source` unit that it came
+ * from (ADR-050). A `Source` unit has one such edge from each of its units,
+ * so it is a hub. The walk of all edges (also the fallback walk) does not
+ * follow these edges (`expandWorkspaceGraph`). Only the `provenance` intent,
+ * or `predicates` that name them, walk them.
+ */
+export const FROM_SOURCE_PREDICATE = "FROM_SOURCE"
+
 const OWNER_KINDS = ["team", "person", "group"]
 const DECISION_KINDS = ["decision", "incident"]
 const CHANGE_KINDS = ["pullrequest", "commit", "change"]
@@ -289,6 +299,13 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: weightAll(STRUCTURAL_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+  },
+  // A source with many units is still the source of each of them.
+  provenance: {
+    walk: [FROM_SOURCE_PREDICATE, ...LINK_PREDICATES],
+    predicates: { [FROM_SOURCE_PREDICATE]: 3 },
+    signals: BASE_SIGNALS,
+    hubPenalty: 0,
   },
 }
 
@@ -754,14 +771,29 @@ export function rankRelated(input: {
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
+  // For provenance, the sources of a seed (and the units of a Source seed)
+  // come first. The other units of those sources come last, below the other
+  // answers, so that they do not fill the results.
+  const tierOf = (index: number) => {
+    if (options.intent !== "provenance" || seedSet.has(index)) return 0
+    const path = paths[index] ?? []
+    const fromSource = path.every(
+      (step) => step.edge.predicate === FROM_SOURCE_PREDICATE,
+    )
+    if (fromSource && path.length === 1) return 0
+    return fromSource && path.length > 1 ? 2 : 1
+  }
   const limit = options.limit ?? 100
   const intent = options.intent ?? "general"
-  const selection = {
+  // One count per group: the answers and the other units each get maxPerKind.
+  const selection = (perKind: Map<string, number>) => ({
     diversity,
     maxPerKind: options.maxPerKind,
-    limit,
+    perKind,
     neighbors,
-  }
+  })
+  const answerSelection = selection(new Map())
+  const otherSelection = selection(new Map())
   // The answers first, each group with its own MMR. A strong query hit also
   // counts as an answer: a query names a unit that the kinds of the intent
   // do not list, such as a runbook. In the answer group, the query factor of
@@ -769,14 +801,27 @@ export function rankRelated(input: {
   const isAnswer = (candidate: (typeof candidates)[number]) =>
     isAnswerKind(intent, candidate.node.kind) ||
     candidate.queryMatch >= STRONG_QUERY_MATCH
-  const answers = selectDiverse(candidates.filter(isAnswer), selection)
-  const selected = [
-    ...answers.map((candidate) => ({ candidate, answer: true })),
-    ...selectDiverse(
-      candidates.filter((candidate) => !isAnswer(candidate)),
-      { ...selection, limit: limit - answers.length },
-    ).map((candidate) => ({ candidate, answer: false })),
-  ]
+  const selected: Array<{
+    candidate: (typeof candidates)[number]
+    answer: boolean
+  }> = []
+  for (const tier of [0, 1, 2]) {
+    if (selected.length >= limit) break
+    const pool = candidates.filter(
+      (candidate) => tierOf(candidate.index) === tier,
+    )
+    const answers = selectDiverse(pool.filter(isAnswer), {
+      ...answerSelection,
+      limit: limit - selected.length,
+    })
+    selected.push(...answers.map((candidate) => ({ candidate, answer: true })))
+    selected.push(
+      ...selectDiverse(
+        pool.filter((candidate) => !isAnswer(candidate)),
+        { ...otherSelection, limit: limit - selected.length },
+      ).map((candidate) => ({ candidate, answer: false })),
+    )
+  }
   return selected.map(({ candidate, answer }) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
@@ -801,12 +846,13 @@ function selectDiverse<
   options: {
     diversity: number
     maxPerKind: number | undefined
+    /** The count of selected units of each kind; the call adds to it. */
+    perKind: Map<string, number>
     limit: number
     neighbors: ReadonlyArray<ReadonlySet<number>>
   },
 ): T[] {
-  const { diversity, maxPerKind, limit } = options
-  const perKind = new Map<string, number>()
+  const { diversity, maxPerKind, limit, perKind } = options
   const kindFull = (candidate: T) =>
     maxPerKind !== undefined &&
     (perKind.get(kindKey(candidate.node.kind)) ?? 0) >= maxPerKind

@@ -241,7 +241,7 @@ const manageHandlers = (calls: typeof addCalls) => [
       workspaceName: docsWorkspace.displayName,
       sources: [
         {
-          sourceKey: "slack",
+          path: "sources/slack/slack.md",
           provider: "slack",
           status: "ok",
           scopeSummary: "1 Slack channel",
@@ -253,7 +253,7 @@ const manageHandlers = (calls: typeof addCalls) => [
     workspaceSourceList({
       items: [
         workspaceSourceFixture({
-          sourceKey: "slack",
+          path: "sources/slack/slack.md",
           provider: "slack",
           connectionId,
           scope: { channels: ["C0ENG0001"] },
@@ -288,8 +288,9 @@ export const ManageKeepsTheCurrentScope: Story = {
     await waitFor(() => expect(manageCalls).toHaveLength(1))
     await expect(manageCalls[0]).toMatchObject({
       method: "PUT",
-      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/slack`,
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
       body: {
+        path: "sources/slack/slack.md",
         source: {
           provider: "slack",
           connectionId,
@@ -318,7 +319,8 @@ export const ManageRemovesAnUncheckedWorkspace: Story = {
     await waitFor(() => expect(manageCalls).toHaveLength(1))
     await expect(manageCalls[0]).toMatchObject({
       method: "DELETE",
-      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/slack`,
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
+      query: { path: "sources/slack/slack.md" },
     })
   },
 }
@@ -378,7 +380,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "slack",
+                  path: "sources/slack/slack.md",
                   provider: "slack",
                   status: "ok",
                   scopeSummary: "1 Slack channel",
@@ -391,7 +393,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "slack",
+                    path: "sources/slack/slack.md",
                     provider: "slack",
                     connectionId,
                     scope: { channels: docsChannels },

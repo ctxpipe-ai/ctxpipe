@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
-import { assertNotInOrgDbContext } from "../../db/client.js"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
   lastGoodTarget,
   type SourceTarget,
@@ -12,10 +13,14 @@ import {
 } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
+import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
+import { githubSourceScopeRepositories } from "./providers/github.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -161,6 +166,11 @@ export async function enqueueSourceProjectionFollowUps(input: {
     changed: Array<{ before: WorkspaceSourceRow; after: PlannedSourceRow }>
     removed: WorkspaceSourceRow[]
   }
+  /**
+   * The committed publish pipeline. Only ingestion v2 retracts a repository
+   * that left the sources (CTX-720).
+   */
+  publishPipeline: IngestionPublishPipeline
 }): Promise<void> {
   assertNotInOrgDbContext()
   // Clean up only what left the file: the last good target of a removed
@@ -168,7 +178,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
   // target. A status change (a removed connection), an entry that became
   // invalid, and a file that cannot be read keep the committed files, as the
   // remove-connector dialog says.
-  const removed = [
+  const left = [
     ...input.projected.removed.map(lastGoodTarget),
     ...input.projected.changed.map(({ before, after }) => {
       const target = lastGoodTarget(before)
@@ -176,10 +186,19 @@ export async function enqueueSourceProjectionFollowUps(input: {
         ? target
         : null
     }),
-  ].filter(
-    (target): target is SourceTarget =>
-      target !== null && hasAdapter(target.provider),
-  )
+  ].filter((target): target is SourceTarget => target !== null)
+  const removed = left.filter((target) => hasAdapter(target.provider))
+  await enqueueRepositoryRetractions({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    revision: input.revision,
+    publishPipeline: input.publishPipeline,
+    left,
+    kept: [
+      ...input.projected.added,
+      ...input.projected.changed.map((change) => change.after),
+    ],
+  })
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
       kind: "cleanup",
@@ -225,5 +244,70 @@ export async function enqueueSourceProjectionFollowUps(input: {
         message: error instanceof Error ? error.message : String(error),
       })
     }
+  }
+}
+
+/** The normalized repository URLs of a GitHub target or row. */
+function githubRepositoryUrls(source: {
+  provider: string | null
+  scope: unknown
+}): string[] {
+  if (source.provider !== "github") return []
+  return githubSourceScopeRepositories(source.scope).map(({ name }) =>
+    normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`),
+  )
+}
+
+/**
+ * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
+ * ingestion v2 extracted from it. One host write job for each repository,
+ * only while ingestion v2 publishes. A source entry that became invalid
+ * keeps its repository, as it keeps its files (the CTX-710 rule above). A source that names the repository
+ * after the projection keeps it; the job checks the sources at the tip again.
+ * The job id is fixed for the revision, so a retry queues no second job.
+ */
+async function enqueueRepositoryRetractions(input: {
+  orgId: string
+  workspaceId: string
+  revision: string
+  publishPipeline: IngestionPublishPipeline
+  left: ReadonlyArray<SourceTarget>
+  kept: ReadonlyArray<PlannedSourceRow>
+}): Promise<void> {
+  const kept = new Set(input.kept.flatMap(githubRepositoryUrls))
+  const repositories = [
+    ...new Set(input.left.flatMap(githubRepositoryUrls)),
+  ].filter((url) => !kept.has(url))
+  if (!repositories.length || input.publishPipeline !== "v2") return
+  const org = await getSystemDb().query.organizations.findFirst({
+    where: { id: { eq: input.orgId } },
+  })
+  if (!org) throw new Error("Organization not found")
+  for (const url of repositories) {
+    const jobId = `wjob_retract_${createHash("sha256")
+      .update(`${input.workspaceId}\0${input.revision}\0${url}`)
+      .digest("hex")
+      .slice(0, 32)}`
+    // Admission reads the Workspace in the org context.
+    await withOrgIdContext(org, () =>
+      enqueueWriteJob(
+        {
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          kind: "unlink_retraction",
+          jobId,
+          retractRepositoryUrl: url,
+          publishPipeline: "v2",
+        },
+        {
+          error: (error) =>
+            log.error({
+              step: "workspace_sources.enqueue_retraction",
+              workspaceId: input.workspaceId,
+              message: error.message,
+            }),
+        },
+      ),
+    )
   }
 }

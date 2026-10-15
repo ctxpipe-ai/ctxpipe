@@ -6,11 +6,12 @@ import {
   ingestionPublishPipelineSchema,
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
-import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
+import { sourcesHaveNoRepository } from "../../domain/workspace-sources/projection-plan.js"
+import {
+  isSourcesTreePath,
+  splitSourcesTree,
+} from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
-import { changeLinkedRepository } from "../../domain/workspaces/link-declarations.js"
-import { linkedRepositoryUrlSchema } from "../../domain/workspaces/linked-repository-url.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -35,7 +36,6 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
@@ -46,19 +46,19 @@ import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
 
-export const workspaceLinkUnlinkInputSchema = z
+export const workspaceUnlinkRetractionInputSchema = z
   .object({
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
-    linkAction: z.enum(["link", "unlink"]),
-    linkGitUrl: linkedRepositoryUrlSchema,
+    /** The source repository that left the sources. */
+    retractRepositoryUrl: z.string().min(1),
     /**
-     * The publish pipeline when the job was queued. While it is `v2`, an
-     * unlink also retracts what the repository owns (ADR-052 section 3).
-     * The step that pushes reads the committed value again: when it does not
-     * agree with the plan, the unlink plans again with the committed value.
+     * The publish pipeline when the job was queued. Only ingestion v2 owns
+     * files that a retraction can remove (ADR-052 section 3). The step that
+     * pushes reads the committed value again: when it does not agree with
+     * the plan, the job plans again with the committed value.
      */
     publishPipeline: ingestionPublishPipelineSchema.default("legacy"),
   })
@@ -71,54 +71,62 @@ export const workspaceLinkUnlinkInputSchema = z
   )
 
 /**
+ * The host retraction of a repository source that a merged revision removed
+ * (CTX-720 on the CTX-710 path). The projection of that revision queues it
+ * (`enqueueSourceProjectionFollowUps`). A person approved the removal when
+ * they merged it, so the retraction is a direct host commit, as the cleanup
+ * of a removed connector source is.
+ *
+ * - The plan reads the sources at the tip. When a source names the
+ *   repository again, or a source file cannot be read, it retracts nothing.
+ * - The push step compares the planned pipeline with the committed switch.
+ *   When they differ, the job plans again with the committed value (no
+ *   retraction under `legacy`).
+ * - A lost push race plans again on the new tip. It never goes through the
+ *   semantic merge, because that would push the old plan with no new check.
+ *
  * `committedPipeline` reads the committed switch at push time; a test gives
  * the value that it checks.
  */
-export function defineWorkspaceLinkUnlinkWorkflow(
+export function defineWorkspaceUnlinkRetractionWorkflow(
   deps: { committedPipeline?: () => IngestionPublishPipeline } = {},
 ) {
   const committedPipeline = deps.committedPipeline ?? ingestionPublishPipeline
   return defineWorkflow(
     {
-      name: "workspace-write-link-unlink",
-      schema: workspaceLinkUnlinkInputSchema,
+      name: "workspace-write-unlink-retraction",
+      schema: workspaceUnlinkRetractionInputSchema,
     },
     async ({ input: queuedInput, step, run }) => {
-      const input = workspaceLinkUnlinkInputSchema.parse(queuedInput)
-      // An unlink retracts while ingestion v2 publishes. The plan starts with
-      // the queued value; the push step compares it with the committed value.
-      const retracts = (pipeline: IngestionPublishPipeline) =>
-        input.linkAction === "unlink" && pipeline === "v2"
-      let planned = retracts(input.publishPipeline)
+      const input = workspaceUnlinkRetractionInputSchema.parse(queuedInput)
+      let planned = input.publishPipeline
       return withWorkspaceWriteContext(
         input,
-        "workspace-write-link-unlink",
+        "workspace-write-unlink-retraction",
         async () => {
           const env = parseEnv(process.env)
           let revision = input.revision
           const repositoryName = githubRepoFullNameFromWorkspaceUrl(
             revision.remote.url,
           )
-          const connectionId = revision.remote.connectionId
-          if (!repositoryName || !connectionId)
+          if (!repositoryName || !revision.remote.connectionId)
             throw new Error(
               "Workspace writes require a connected GitHub repository",
             )
           const completed = await completedWorkspaceWrite(
             input,
-            "link_unlink",
+            "unlink_retraction",
             run.id,
           )
           if (completed) return completed
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
-              kind: "link_unlink",
+              kind: "unlink_retraction",
               revision: input.revision,
-              linkAction: input.linkAction,
-              linkGitUrl: input.linkGitUrl,
               workflowRunId: run.id,
               publishPipeline: input.publishPipeline,
+              retractRepositoryUrl: input.retractRepositoryUrl,
             }),
           )
           // A no-op plan is checked against a fresh tip at most 3 times; a
@@ -146,56 +154,38 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                 persistWriteJobStatus(input.jobId, "running"),
               )
             }
+            const pipeline = planned
             const changes = await step.run(
-              { name: "transform-link-unlink" },
+              { name: "transform-unlink-retraction" },
               async () => {
-                const files = await readGitFiles(
-                  acquired.pack,
-                  (path) =>
-                    path === SOURCES_FILE_PATH ||
-                    isLinkedRepositoryDeclaration(path),
+                const none: Awaited<ReturnType<typeof planUnlinkRetraction>> =
+                  { files: [], deletePaths: [] }
+                if (pipeline !== "v2") return none
+                // The CTX-710 fence: a repository that a source names again
+                // keeps its files, also when that entry is invalid for now.
+                const { sourcesFile, sourceFiles } = splitSourcesTree(
+                  await readGitFiles(acquired.pack, isSourcesTreePath),
                 )
-                const declarations = changeLinkedRepository({
-                  sourcesFile:
-                    files.find((file) => file.path === SOURCES_FILE_PATH)
-                      ?.content ?? null,
-                  files,
-                  action: input.linkAction,
-                  gitUrl: input.linkGitUrl,
-                  connectionId,
-                })
-                if (!planned || declarations.refused) return declarations
-                // While ingestion v2 publishes, the same commit retracts what
-                // the repository owns (ADR-052 section 3).
-                const retraction = await planUnlinkRetraction({
+                if (
+                  !(await sourcesHaveNoRepository(
+                    { text: sourcesFile, sourceFiles },
+                    input.retractRepositoryUrl,
+                  ))
+                )
+                  return none
+                return planUnlinkRetraction({
                   pack: acquired.pack,
-                  sourceUrl: input.linkGitUrl,
+                  sourceUrl: input.retractRepositoryUrl,
                   workspaceRepositoryUrl: revision.remote.url,
                   observedAt: new Date(run.createdAt).toISOString(),
                 })
-                return {
-                  refused: null,
-                  files: [...declarations.files, ...retraction.files],
-                  deletePaths: [
-                    ...declarations.deletePaths,
-                    ...retraction.deletePaths,
-                  ],
-                }
               },
             )
-            if (changes.refused) {
-              const refused = changes.refused
-              getLogger().set({ linkRefused: refused })
-              await step.run({ name: "fail-refused" }, () =>
-                persistWriteJobStatus(input.jobId, "failed", refused),
-              )
-              return {
-                committed: false as const,
-                reason: "refused" as const,
-              }
-            }
-            const files = changes.files
-            if (!files.length && !changes.deletePaths.length) {
+            const changedPaths = [
+              ...changes.files.map((file) => file.path),
+              ...changes.deletePaths,
+            ]
+            if (!changedPaths.length) {
               const refreshed = await step.run({ name: "confirm-no-op" }, () =>
                 refreshWorkspaceWriteRevision(input, revision, env),
               )
@@ -213,22 +203,16 @@ export function defineWorkspaceLinkUnlinkWorkflow(
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
-              stageGitFiles(acquired.pack, files, changes.deletePaths),
+              stageGitFiles(acquired.pack, changes.files, changes.deletePaths),
             )
             await step.run({ name: "validate" }, () =>
-              validateGitTree(staged, [
-                ...files.map((file) => file.path),
-                ...changes.deletePaths,
-              ]),
+              validateGitTree(staged, changedPaths),
             )
             const subject = await step.run({ name: "commit-subject" }, () =>
               generateCommitSubject({
                 repoName: repositoryName.split("/")[1] ?? repositoryName,
-                trigger: "link_unlink",
-                fileNames: [
-                  ...files.map((file) => file.path),
-                  ...changes.deletePaths,
-                ],
+                trigger: "unlink_retraction",
+                fileNames: changedPaths,
               }),
             )
             const committed = await step.run({ name: "commit" }, async () => {
@@ -248,12 +232,14 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                 async () => {
                   // The same step reads the switch and pushes, so no step
                   // runs between the check and the push.
-                  if (retracts(committedPipeline()) !== planned)
-                    return { replan: true as const }
+                  const committedValue = committedPipeline()
+                  if (committedValue !== pipeline)
+                    return { replan: committedValue }
                   return attemptWorkspaceCommit(input, revision, committed, env)
                 },
               )
               if ("replan" in attempt) {
+                planned = attempt.replan
                 // An earlier pause result must not survive a replan.
                 pushed = undefined
                 break
@@ -269,9 +255,7 @@ export function defineWorkspaceLinkUnlinkWorkflow(
               )
             }
             if (!pushed?.pushed) {
-              // The switch changed, or the default branch moved: plan again,
-              // on the new tip. A semantic merge would push the old plan with
-              // no new retraction and no check of the switch.
+              // The switch changed, or the default branch moved: plan again.
               await step.run({ name: "discard-unpublished-candidate" }, () =>
                 discardWriteJobPreparedCommit(input.jobId, committed.sha),
               )
@@ -280,10 +264,9 @@ export function defineWorkspaceLinkUnlinkWorkflow(
                   { name: "refresh-raced-revision" },
                   () => refreshWorkspaceWriteRevision(input, revision, env),
                 )
-              else planned = !planned
               if (++lostRaces > 5)
                 throw new Error(
-                  "Default branch or publish pipeline kept changing during the unlink push",
+                  "Default branch or publish pipeline kept changing during the retraction push",
                 )
               continue
             }
@@ -315,4 +298,5 @@ export function defineWorkspaceLinkUnlinkWorkflow(
   )
 }
 
-export const workspaceLinkUnlink = defineWorkspaceLinkUnlinkWorkflow()
+export const workspaceUnlinkRetraction =
+  defineWorkspaceUnlinkRetractionWorkflow()

@@ -8,6 +8,7 @@ import {
   withCompleteWorkspaceGraph,
 } from "./graph-projection.js"
 import { readOrRebuild } from "./graph-rebuild.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import type { PublishedProjection } from "./revision.js"
 
 /**
@@ -29,6 +30,11 @@ const expandParamsSchema = z
     seeds: z.array(z.string().min(1)).min(1).max(10),
     maxDepth: z.number().int().min(0).max(4).default(1),
     direction: z.enum(["out", "in", "both"]).default("both"),
+    /**
+     * Walk only these predicates. Without them the walk follows each edge
+     * except FROM_SOURCE: a `Source` unit is a hub (ADR-050), so only a
+     * walk that names FROM_SOURCE follows it.
+     */
     predicates: z.array(z.string().min(1)).min(1).optional(),
     excludePredicates: z.array(z.string().min(1)).optional(),
     minConfidence: z.number().min(0).max(1).default(0),
@@ -320,7 +326,7 @@ export async function expandHop(
   // starts before the window ends and ends after the window starts.
   const match = `MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       WHERE r.confidence >= $minConfidence
-        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
+        ${input.predicates ? "AND r.predicate IN $predicates" : "AND r.predicate <> $skippedPredicate"}
         ${input.excludePredicates?.length ? "AND NOT r.predicate IN $excludePredicates" : ""}
         AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
         AND (r.validTo IS NULL OR r.validTo > $windowFrom)`
@@ -361,6 +367,7 @@ export async function expandHop(
       projectionKey: input.projectionKey,
       frontier: input.frontier,
       predicates: input.predicates ?? [],
+      skippedPredicate: FROM_SOURCE_PREDICATE,
       excludePredicates: input.excludePredicates ?? [],
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,

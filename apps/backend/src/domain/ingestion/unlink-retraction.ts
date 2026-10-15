@@ -5,7 +5,7 @@ import { join } from "node:path"
 import { isMap, isSeq } from "yaml"
 import {
   type GitPack,
-  listTreeBlobs,
+  listPackBlobs,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
@@ -244,7 +244,8 @@ async function validateDeletes(
     pack.sha,
     async (repoDir) => {
       const blobs = new Map(
-        (await listTreeBlobs(repoDir, pack.sha)).map((b) => [b.path, b.sha]),
+        // Root-relative paths, as `readGitFiles` gives them.
+        (await listPackBlobs(repoDir, pack)).map((b) => [b.path, b.sha]),
       )
       // A step has at most MAX_STEP_OPS ops, so the deletes go in batches
       // on the same base. A delete does not depend on another one.
@@ -275,6 +276,7 @@ async function validateDeletes(
             sourcePathExists: async () => false,
             readSourceFile: async () => null,
             rootGone: true,
+            rootPath: pack.root ?? "",
           })
           if (
             result.rejections.length ||

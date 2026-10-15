@@ -19,9 +19,7 @@ function isMerged(
   list: WorkspaceSourceListResponse | undefined,
 ) {
   if (!list || list.fileError) return false
-  const source = list.items.find(
-    (item) => item.sourceKey === pullRequest.sourceKey,
-  )
+  const source = list.items.find((item) => item.path === pullRequest.path)
   return pullRequest.scope === null
     ? !source
     : source !== undefined &&

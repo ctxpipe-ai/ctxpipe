@@ -4,10 +4,8 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
-import {
-  githubScopeRepositories,
-  githubScopeSchema,
-} from "../domain/workspace-sources/providers/github.js"
+import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
+import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
 import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
@@ -170,7 +168,7 @@ export function githubPins(row: {
 }
 
 /**
- * The next GitHub state for the repositories that the file wants. A
+ * The next GitHub state for the repositories that the sources want. A
  * repository with the same URL and ref keeps its id and SHAs. A new
  * repository, or one with a changed ref, gets a new id and no SHAs.
  */
@@ -179,12 +177,13 @@ export function reconcileGithubState(
   wanted: ReadonlyArray<{ gitUrl: string; ref: string | null }>,
   now: Date = new Date(),
 ): GithubSourceState {
-  const byUrl = new Map(previous.map((pin) => [pin.gitUrl, pin]))
   return {
     provider: "github",
     repositories: wanted.map(({ gitUrl, ref }) => {
-      const current = byUrl.get(gitUrl)
-      if (current && current.ref === ref) return current
+      const current = previous.find(
+        (pin) => pin.gitUrl === gitUrl && pin.ref === ref,
+      )
+      if (current) return current
       return {
         id: generateObjectId("wlr"),
         gitUrl,
@@ -212,8 +211,9 @@ const SERVING_SOURCE_STATUSES = ["ok"] as const
  * The next state of each planned row of one Workspace, by source key. The
  * pins of a repository belong to the repository, not to the row: a
  * repository keeps its id and SHAs when it moves to another entry, and a row
- * whose connection is missing or whose entry is invalid keeps its pins (they
- * link nothing while the row cannot link) until the row recovers. A
+ * whose connection is missing or whose entry is invalid keeps its pins and
+ * the pins of the repositories that its scope names (they link nothing while
+ * the row cannot link) until the row recovers. A
  * repository is linked only once: the Workspace repository and a repository
  * of an earlier row are not linked again. An `invalid` row keeps the last
  * good target of its source (see {@link lastGoodTarget}).
@@ -235,9 +235,14 @@ export function planSourceStates(input: {
       { row, pins: githubPins(row) },
     ]),
   )
+  // A pin belongs to its repository URL and ref, not to a row or a path, so
+  // a renamed source file keeps its pin (ADR-050, revision 2026-10-16).
   const pool = new Map<string, GithubRepositoryPin>()
   for (const { pins } of byKey.values())
-    for (const pin of pins) if (!pool.has(pin.gitUrl)) pool.set(pin.gitUrl, pin)
+    for (const pin of pins) {
+      const key = `${pin.gitUrl} ${pin.ref ?? ""}`
+      if (!pool.has(key)) pool.set(key, pin)
+    }
   const linked = new Set<string>(
     input.workspaceUrl
       ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
@@ -246,37 +251,53 @@ export function planSourceStates(input: {
   const states = new Map<string, StoredSourceState>()
   const linking = (status: string) =>
     (LINKING_SOURCE_STATUSES as readonly string[]).includes(status)
-  for (const planned of input.planned) {
+  for (const planned of linkingOrder(input.planned)) {
     if (planned.provider !== "github") {
       states.set(planned.sourceKey, {})
       continue
     }
     if (!linking(planned.status)) continue
-    const scope = githubScopeSchema.safeParse(planned.scope)
-    const wanted = (
-      scope.success ? githubScopeRepositories(scope.data) : []
-    ).flatMap(({ name, ref }) => {
-      const gitUrl = normalizeWorkspaceRepositoryUrl(
-        `https://github.com/${name}`,
-      )
-      if (linked.has(gitUrl)) return []
-      linked.add(gitUrl)
-      return [{ gitUrl, ref }]
-    })
+    const wanted = githubSourceScopeRepositories(planned.scope).flatMap(
+      ({ name, ref }) => {
+        const gitUrl = normalizeWorkspaceRepositoryUrl(
+          `https://github.com/${name}`,
+        )
+        if (linked.has(gitUrl)) return []
+        linked.add(gitUrl)
+        return [{ gitUrl, ref }]
+      },
+    )
     states.set(
       planned.sourceKey,
       reconcileGithubState([...pool.values()], wanted, input.now),
     )
   }
+  // A row that cannot link keeps its own pins and the pins of the
+  // repositories that its scope names (by URL and ref), so a file that is
+  // renamed and invalid at the same revision keeps its pin. Each pin goes to
+  // one row only. An `invalid` row also keeps the last good target.
+  const kept = new Set<string>()
   for (const planned of input.planned) {
     const current = byKey.get(planned.sourceKey)
-    if (planned.provider === "github" && !linking(planned.status))
-      states.set(planned.sourceKey, {
-        provider: "github",
-        repositories: (current?.pins ?? []).filter(
-          (pin) => !linked.has(pin.gitUrl),
+    if (planned.provider === "github" && !linking(planned.status)) {
+      const named = new Set(
+        githubSourceScopeRepositories(planned.scope).map(
+          ({ name, ref }) =>
+            `${normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)} ${ref ?? ""}`,
         ),
+      )
+      const repositories = [
+        ...(current?.pins ?? []),
+        ...[...pool.entries()].flatMap(([key, pin]) =>
+          named.has(key) ? [pin] : [],
+        ),
+      ].filter((pin) => {
+        if (linked.has(pin.gitUrl) || kept.has(pin.id)) return false
+        kept.add(pin.id)
+        return true
       })
+      states.set(planned.sourceKey, { provider: "github", repositories })
+    }
     if (planned.status !== "invalid" || !current) continue
     const target = heldTargetOf(current.row)
     if (target !== null)

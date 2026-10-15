@@ -56,10 +56,10 @@ export type WorkspaceWriteJobPayload = {
   previousSha?: string
   mirror?: ConnectorMirrorSource
   displayName?: string
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   /** The publish pipeline when the job was queued (ADR-052 phase 4). */
   publishPipeline?: IngestionPublishPipeline
+  /** The source repository that an `unlink_retraction` job retracts. */
+  retractRepositoryUrl?: string
   /** Why the job failed, when it failed for a known reason. */
   failureReason?: string
   defaultBranch?: string
@@ -90,10 +90,10 @@ const writeJobKindSchema = z.enum([
   "semantic_merge",
   "ops_folder_map",
   "bootstrap",
-  "link_unlink",
   "ui_file_edit",
   "import_key_cleanup",
   "ownership_migration",
+  "unlink_retraction",
 ])
 
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
@@ -106,10 +106,9 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .optional(),
   displayName: z.string().trim().min(1).optional(),
-  linkAction: z.enum(["link", "unlink"]).optional(),
-  linkGitUrl: z.string().min(1).optional(),
   /** Empty: the enqueue reads the committed switch. */
   publishPipeline: ingestionPublishPipelineSchema.optional(),
+  retractRepositoryUrl: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -126,9 +125,8 @@ export type WriteJobEnqueueFields = Pick<
   | "mirror"
   | "displayName"
   | "defaultBranch"
-  | "linkAction"
-  | "linkGitUrl"
   | "publishPipeline"
+  | "retractRepositoryUrl"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -144,9 +142,9 @@ export function writeJobIntentPayload(
   if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
-  if (input.linkAction) payload.linkAction = input.linkAction
-  if (input.linkGitUrl) payload.linkGitUrl = input.linkGitUrl
   if (input.publishPipeline) payload.publishPipeline = input.publishPipeline
+  if (input.retractRepositoryUrl)
+    payload.retractRepositoryUrl = input.retractRepositoryUrl
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -198,8 +196,8 @@ export function shouldResumePausedWriteJob(input: {
 /** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
 const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
   "extract_ingest",
-  "link_unlink",
   "ownership_migration",
+  "unlink_retraction",
 ])
 
 export function enqueueInputFromPausedJob(input: {
@@ -231,8 +229,9 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.extraction ? { extraction: payload.extraction } : {}),
     ...(payload.mirror ? { mirror: payload.mirror } : {}),
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
-    ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
-    ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
+    ...(payload.retractRepositoryUrl
+      ? { retractRepositoryUrl: payload.retractRepositoryUrl }
+      : {}),
     // A publish job that was stored before the pipeline field was queued
     // under `legacy`. It does not get the switch value at resume time.
     ...(PUBLISH_PIPELINE_KINDS.has(input.job.kind)

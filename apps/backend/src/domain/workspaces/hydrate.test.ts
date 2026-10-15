@@ -156,6 +156,77 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.skipped).toEqual([])
   })
 
+  it("links the repository of each GitHub source file, with the file as its path", () => {
+    const files = [
+      {
+        path: "sources/github/acme/web.md",
+        content:
+          "---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: main\n---\nThe web app.\n",
+      },
+      {
+        path: "sources/github/acme/secret.md",
+        content:
+          "---\nprovider: github\nconnection: con_elsewhere\nrepository: acme/secret\n---\n",
+      },
+    ]
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files,
+      sourceFiles: files.map((file) => ({
+        path: file.path,
+        text: file.content,
+      })),
+      githubConnectionIds: new Set(["con_github1"]),
+    })
+    expect(result.linked).toEqual([
+      {
+        path: "sources/github/acme/web.md",
+        git: "https://github.com/acme/web",
+        branch: "main",
+        connectionId: "con_github1",
+      },
+    ])
+  })
+
+  it("links a repository from the source that held it at the previous revision", () => {
+    const githubFile = (path: string, ref: string) => ({
+      path,
+      text: `---\nprovider: github\nconnection: con_github1\nrepository: acme/web\nref: ${ref}\n---\n`,
+    })
+    const sourceFiles = [
+      githubFile("sources/github/acme/a.md", "next"),
+      githubFile("sources/github/acme/b.md", "main"),
+    ]
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      workspaceUrl: "https://github.com/acme/knowledge",
+      files: sourceFiles.map((file) => ({
+        path: file.path,
+        content: file.text,
+      })),
+      sourceFiles,
+      githubConnectionIds: new Set(["con_github1"]),
+      previousSourceRows: [
+        {
+          sourceKey: "sources/github/acme/b.md",
+          provider: "github",
+          connectionId: "con_github1",
+          scope: { repository: "acme/web", ref: "main" },
+          status: "ok",
+        },
+      ],
+    })
+    expect(result.linked).toEqual([
+      {
+        path: "sources/github/acme/b.md",
+        git: "https://github.com/acme/web",
+        branch: "main",
+        connectionId: "con_github1",
+      },
+    ])
+  })
+
   it("keeps the ontology kind from front matter for the workspace graph", () => {
     const { units } = hydrateKnowledgeTree({
       workspaceId: "ws_1",
@@ -343,6 +414,48 @@ describe("computeWorkspaceGraphQuality", () => {
       predicates: { DEPENDS_ON: 1, REFERENCES: 1 },
     })
     expect(quality.joinDensity).toBeCloseTo(2 / 3)
+  })
+
+  it("does not count a FROM_SOURCE edge for orphans or joins", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "sources/github/acme/shop.md",
+          content:
+            "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+        },
+        {
+          path: "sources/linear/eng.md",
+          content: "---\nprovider: linear\nconnection: con_linear1\n---\n",
+        },
+        {
+          path: "knowledge/services/api.md",
+          content: `---\n${stringify({
+            sources: ["sources/github/acme/shop.md", "sources/linear/eng.md"],
+            claims: [
+              {
+                to: "../notes/plain.md",
+                predicate: "REFERENCES",
+                source: "../../linear/issues/PAY-1.md",
+              },
+            ],
+          })}---\nAPI.`,
+        },
+        { path: "knowledge/notes/plain.md", content: "Plain." },
+      ],
+    })
+    const quality = computeWorkspaceGraphQuality(
+      units,
+      hydrateUnitsToProjectionClaims(units),
+    )
+    expect(quality).toMatchObject({
+      totalUnits: 4,
+      totalClaims: 3,
+      multiSourceUnits: 0,
+      orphanUnits: 2,
+      predicates: { FROM_SOURCE: 2, REFERENCES: 1 },
+    })
   })
 })
 
@@ -555,6 +668,71 @@ describe("hydrateKnowledgeTree pull request changes", () => {
     ])
   })
 
+  it("resolves a source path in `sources` to the repository of its GitHub source file", () => {
+    const source = {
+      path: "sources/github/acme/shop.md",
+      content:
+        "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+    }
+    expect(
+      changedEdges(["apps/api/main.ts"], undefined, [
+        source,
+        unitFile("knowledge/services/api.md", "Service", {
+          root: "apps/api",
+          sources: ["sources/github/acme/shop.md"],
+        }),
+        unitFile("knowledge/services/elsewhere.md", "Service", {
+          root: "apps/api",
+          sources: ["sources/github/acme/missing.md"],
+        }),
+      ]),
+    ).toEqual([
+      {
+        from: pullRequest([]).path,
+        to: "knowledge/services/api.md",
+        validFrom: MERGED_AT,
+      },
+    ])
+  })
+
+  it("gives a `./sources/` path both its FROM_SOURCE edge and its CHANGED match", () => {
+    const mirror = pullRequest(["apps/api/main.ts"])
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "sources/github/acme/shop.md",
+          content:
+            "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\n",
+        },
+        unitFile("knowledge/services/api.md", "Service", {
+          root: "apps/api",
+          sources: [" ./sources/github/acme/shop.md "],
+        }),
+        mirror,
+      ],
+    })
+    const pathOf = new Map(units.map((unit) => [unit.servingId, unit.path]))
+    expect(
+      hydrateUnitsToProjectionClaims(units)
+        .filter((claim) => claim.predicate !== "LINKS_TO")
+        .map((claim) => [
+          pathOf.get(claim.subjectId),
+          claim.predicate,
+          pathOf.get(claim.objectId),
+        ]),
+    ).toEqual(
+      expect.arrayContaining([
+        [mirror.path, "CHANGED", "knowledge/services/api.md"],
+        [
+          "knowledge/services/api.md",
+          "FROM_SOURCE",
+          "sources/github/acme/shop.md",
+        ],
+      ]),
+    )
+  })
+
   it("writes no CHANGED claim for a pull request that is not merged", () => {
     expect(
       changedEdges(["apps/api/src/checkout.ts"], {
@@ -562,5 +740,69 @@ describe("hydrateKnowledgeTree pull request changes", () => {
         mergedAt: null,
       }),
     ).toEqual([])
+  })
+})
+
+describe("hydrateKnowledgeTree source files", () => {
+  const SOURCE =
+    "---\nprovider: github\nconnection: con_github1\nrepository: acme/shop\n---\nThe shop.\n"
+
+  it("projects each file under sources/ as a Source unit and each listed source as a FROM_SOURCE edge", () => {
+    const { units } = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        { path: "sources/github/acme/shop.md", content: SOURCE },
+        {
+          path: "sources/linear/eng.md",
+          content: "---\nprovider: linear\nconnection: con_linear1\n---\n",
+        },
+        {
+          path: "knowledge/services/api.md",
+          content: `---\n${stringify({
+            kind: "Service",
+            sources: [
+              "sources/github/acme/shop.md",
+              "./sources/linear/eng.md",
+              "sources/github/acme/shop.md",
+              "sources/github/acme/missing.md",
+              "knowledge/notes/plain.md",
+              "https://github.com/acme/shop",
+              7,
+            ],
+          })}---\n# API\n`,
+        },
+        { path: "knowledge/notes/plain.md", content: "Plain notes." },
+      ],
+    })
+    expect(
+      units.map((unit) => [unit.path, unit.kind ?? null, unit.source]),
+    ).toEqual([
+      ["sources/github/acme/shop.md", "Source", "authored"],
+      ["sources/linear/eng.md", "Source", "authored"],
+      ["knowledge/services/api.md", "Service", "authored"],
+      ["knowledge/notes/plain.md", null, "authored"],
+    ])
+    const pathOf = new Map(units.map((unit) => [unit.servingId, unit.path]))
+    expect(
+      hydrateUnitsToProjectionClaims(units).map((claim) => ({
+        from: pathOf.get(claim.subjectId),
+        to: pathOf.get(claim.objectId),
+        predicate: claim.predicate,
+        confidence: claim.aggregatedConfidence,
+      })),
+    ).toEqual([
+      {
+        from: "knowledge/services/api.md",
+        to: "sources/github/acme/shop.md",
+        predicate: "FROM_SOURCE",
+        confidence: 1,
+      },
+      {
+        from: "knowledge/services/api.md",
+        to: "sources/linear/eng.md",
+        predicate: "FROM_SOURCE",
+        confidence: 1,
+      },
+    ])
   })
 })

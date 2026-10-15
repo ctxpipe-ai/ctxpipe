@@ -68,7 +68,7 @@ export function chooseWorkspacesRequests(
 
 /** A source of the connection that a Workspace has now (Manage). */
 export type ExistingWorkspaceSource = {
-  sourceKey: string
+  path: string
   scope: Record<string, unknown>
 }
 
@@ -93,10 +93,10 @@ export type WorkspaceSourceChange =
   | {
       kind: "update"
       workspaceSlug: string
-      sourceKey: string
+      path: string
       source: WorkspaceSourceInput
     }
-  | { kind: "remove"; workspaceSlug: string; sourceKey: string }
+  | { kind: "remove"; workspaceSlug: string; path: string }
 
 /** JSON with sorted object keys, so that key order is not a change. */
 export function stableJson(value: unknown): string {
@@ -129,14 +129,14 @@ export function chooseWorkspacesChanges(
     const current = existing[request.workspaceSlug]
     if (!current) changes.push({ kind: "add", ...request })
     else if (stableJson(current.scope) !== stableJson(request.source.scope))
-      changes.push({ kind: "update", ...request, sourceKey: current.sourceKey })
+      changes.push({ kind: "update", ...request, path: current.path })
   }
   for (const [workspaceSlug, current] of Object.entries(existing))
     if (!value.workspaceSlugs.includes(workspaceSlug))
       changes.push({
         kind: "remove",
         workspaceSlug,
-        sourceKey: current.sourceKey,
+        path: current.path,
       })
   return changes
 }

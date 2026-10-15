@@ -6,26 +6,35 @@ import {
 } from "../../domain/workspace-sources/edit.js"
 import { requestConnectionSourcesSync } from "../../domain/workspace-sources/enqueue.js"
 import {
+  addWorkspaceSources,
   changeWorkspaceSource,
   listConnectionUsage,
   listWorkspaceSources,
 } from "../../domain/workspace-sources/service.js"
-import { getWorkspaceBySlug } from "../../models/workspaces.js"
 import {
+  getWorkspaceBySlug,
+  type WorkspaceRecord,
+} from "../../models/workspaces.js"
+import {
+  batchCreateWorkspaceSourcesRoute,
   createWorkspaceSourceRoute,
   deleteWorkspaceSourceRoute,
   listConnectionWorkspacesRoute,
   listWorkspaceSourcesRoute,
+  renameWorkspaceSourceRoute,
   syncConnectionSourcesRoute,
   updateWorkspaceSourceRoute,
 } from "./workspace-sources-contract.js"
 
-async function applyChange(workspaceSlug: string, change: SourceChange) {
+/** Run one source change of the Workspace; a refused change gives its status. */
+async function applyChange<T>(
+  workspaceSlug: string,
+  change: (workspace: WorkspaceRecord) => Promise<T>,
+) {
   const workspace = await getWorkspaceBySlug(workspaceSlug)
   if (!workspace) return { status: 404 as const, error: "Not found" }
   try {
-    const result = await changeWorkspaceSource({ workspace, change })
-    return { status: 200 as const, result }
+    return { status: 200 as const, result: await change(workspace) }
   } catch (error) {
     if (error instanceof SourceChangeError)
       return { status: error.status, error: error.message }
@@ -47,35 +56,75 @@ export const workspaceSourcesRoutes = new OpenAPIHono<AppEnv>()
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
     const body = c.req.valid("json")
-    const out = await applyChange(c.req.valid("param").workspaceSlug, {
+    const change: SourceChange = {
       action: "add",
-      sourceKey: body.sourceKey,
+      path: body.path,
       ...body.source,
-    })
+    }
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      (workspace) => changeWorkspaceSource({ workspace, change }),
+    )
+    if (out.status === 200) return c.json(out.result, 200)
+    return c.json({ error: out.error }, out.status)
+  })
+  .openapi(batchCreateWorkspaceSourcesRoute, async (c) => {
+    if (!c.get("user") || !c.get("session"))
+      return c.json({ error: "Unauthorized" }, 401)
+    const body = c.req.valid("json")
+    const changes = body.sources.map((item) => ({
+      action: "add" as const,
+      path: item.path,
+      ...item.source,
+    }))
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      (workspace) => addWorkspaceSources({ workspace, changes }),
+    )
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })
   .openapi(updateWorkspaceSourceRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
-    const { workspaceSlug, sourceKey } = c.req.valid("param")
     const body = c.req.valid("json")
-    const out = await applyChange(workspaceSlug, {
+    const change: SourceChange = {
       action: "edit",
-      sourceKey,
+      path: body.path,
       ...body.source,
-    })
+    }
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      (workspace) => changeWorkspaceSource({ workspace, change }),
+    )
+    if (out.status === 200) return c.json(out.result, 200)
+    return c.json({ error: out.error }, out.status)
+  })
+  .openapi(renameWorkspaceSourceRoute, async (c) => {
+    if (!c.get("user") || !c.get("session"))
+      return c.json({ error: "Unauthorized" }, 401)
+    const body = c.req.valid("json")
+    const change: SourceChange = {
+      action: "rename",
+      path: body.path,
+      newPath: body.newPath,
+    }
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      (workspace) => changeWorkspaceSource({ workspace, change }),
+    )
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })
   .openapi(deleteWorkspaceSourceRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
-    const { workspaceSlug, sourceKey } = c.req.valid("param")
-    const out = await applyChange(workspaceSlug, {
-      action: "remove",
-      sourceKey,
-    })
+    const { path } = c.req.valid("query")
+    const change: SourceChange = { action: "remove", path }
+    const out = await applyChange(
+      c.req.valid("param").workspaceSlug,
+      (workspace) => changeWorkspaceSource({ workspace, change }),
+    )
     if (out.status === 200) return c.json(out.result, 200)
     return c.json({ error: out.error }, out.status)
   })

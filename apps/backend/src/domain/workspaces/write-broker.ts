@@ -44,11 +44,11 @@ import {
   resolveWorkspaceReadRevision,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
-import type { WriteOrigin } from "./semantic-merge.js"
 import {
   gitChangesOutsideWorkspaceRoot,
   workspaceRootPath,
 } from "./root-path.js"
+import type { WriteOrigin } from "./semantic-merge.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
   WRITE_STATUS_REASONS,

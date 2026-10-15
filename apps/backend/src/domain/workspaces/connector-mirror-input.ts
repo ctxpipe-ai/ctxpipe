@@ -38,13 +38,14 @@ const workspaceSourcesProviderSchema = z.enum([
  * A Workspace source sync (ADR-050): the scope is `.ctxpipe/sources.yaml` of
  * the target Workspace. A change of that file discards the write. A cleanup
  * of removed sources has `removedTargets` instead: it is discarded only when
- * the file at the head has one of these targets again.
+ * the sources at the head have one of these targets again.
  */
 const workspaceSourcesMirrorSchema = z.union([
   z
     .object({
       provider: workspaceSourcesProviderSchema,
       connectionId: z.string().min(1),
+      /** The sources fence id (`sourcesFenceAt`); the name is from the YAML-only fence. */
       sourcesBlobSha: gitObjectIdSchema.nullable(),
     })
     .strict(),

@@ -506,10 +506,10 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   /** Stored for a later resume; not part of the command identity. */
   publishPipeline?: "legacy" | "v2"
+  /** The source repository that an `unlink_retraction` job retracts. */
+  retractRepositoryUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -527,12 +527,12 @@ export async function persistBoundWriteJob(input: {
         ? { displayName: input.displayName }
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
-      ...(input.linkAction
-        ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
-        : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
       ...(input.publishPipeline
         ? { publishPipeline: input.publishPipeline }
+        : {}),
+      ...(input.retractRepositoryUrl
+        ? { retractRepositoryUrl: input.retractRepositoryUrl }
         : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -575,13 +575,12 @@ export async function persistBoundWriteJob(input: {
     if (
       !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
-      row.payload?.linkAction !== input.linkAction ||
-      row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
-      row.payload?.displayName !== input.displayName
+      row.payload?.displayName !== input.displayName ||
+      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {
@@ -870,56 +869,5 @@ export async function adoptInitializedBootstrapRevision(input: {
         updatedAt: new Date(),
       })
       .where(eq(workspaceWriteJobs.id, input.jobId))
-  })
-}
-
-/**
- * The link edits of a Workspace that cannot go into `.ctxpipe/sources.yaml`,
- * newest first. Only the last edit of each repository counts, so a later
- * edit of the same repository that completes removes the entry.
- */
-export async function listRefusedLinkEdits(workspaceId: string): Promise<
-  Array<{
-    action: "link" | "unlink"
-    gitUrl: string
-    reason: string
-    failedAt: Date
-  }>
-> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .selectDistinctOn([sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`], {
-        status: workspaceWriteJobs.status,
-        payload: workspaceWriteJobs.payload,
-        updatedAt: workspaceWriteJobs.updatedAt,
-      })
-      .from(workspaceWriteJobs)
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, workspaceId),
-          eq(workspaceWriteJobs.kind, "link_unlink"),
-          sql`${workspaceWriteJobs.payload}->>'linkGitUrl' is not null`,
-        ),
-      )
-      .orderBy(
-        sql`${workspaceWriteJobs.payload}->>'linkGitUrl'`,
-        sql`${workspaceWriteJobs.createdAt} desc`,
-      )
-    return rows
-      .flatMap((row) =>
-        row.status === WRITE_JOB_STATUSES.failed &&
-        row.payload?.linkGitUrl &&
-        row.payload.failureReason
-          ? [
-              {
-                action: row.payload.linkAction ?? ("link" as const),
-                gitUrl: row.payload.linkGitUrl,
-                reason: row.payload.failureReason,
-                failedAt: row.updatedAt,
-              },
-            ]
-          : [],
-      )
-      .sort((a, b) => b.failedAt.getTime() - a.failedAt.getTime())
   })
 }

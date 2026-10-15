@@ -1,8 +1,12 @@
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parseEnv } from "../../config/env.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { slackSourceAdapter } from "../../services/slack/source-adapter.js"
 import { fakeSourceAdapter } from "../../test/fake-source-adapter.js"
+import { commitGitTree, removeGitTrees } from "../../test/git-tree.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { listExistingBlobs } from "./existing-blobs.js"
+import { gitBlobSha, stampSources } from "./stamp-sources.js"
 import {
   cleanupRemovedSources,
   syncConnectionSources,
@@ -26,6 +30,7 @@ describe("Workspace source sync frame (Postgres)", () => {
   })
   afterAll(async () => {
     await seed.cleanup()
+    removeGitTrees()
   })
 
   it("fetches once for a connection and writes one slice for each Workspace", async () => {
@@ -92,6 +97,199 @@ describe("Workspace source sync frame (Postgres)", () => {
       },
     })
     expect(writes.map((write) => write.workspaceId)).toEqual([docs])
+  })
+
+  it("stamps each mirror file with the path of the source that owns it", async () => {
+    const forge = await seed.addConnection("forge")
+    const docs = await seed.addWorkspace("stamp-docs")
+    const eng = await seed.addWorkspace("stamp-eng")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: docs,
+      revision: "a".repeat(40),
+      rows: [
+        source("sources/confluence/all-docs.md", forge, ["ENG"]),
+        source("sources/confluence/hr.md", forge, ["HR"]),
+        // A key that is not a source path (the YAML dual read) gets no stamp.
+        source("legacy-key", forge, ["OPS"]),
+      ],
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: eng,
+      revision: "b".repeat(40),
+      rows: [source("sources/confluence/team/eng.md", forge, ["ENG"])],
+    })
+    const writes: WorkspaceSliceWrite[] = []
+    const page = (title: string) => `---\nsource: confluence\n---\n# ${title}\n`
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: {
+        provider: "confluence",
+        managedPaths: (scope) =>
+          (scope.spaces as string[]).map((space) => `confluence/${space}/`),
+        async fetch() {
+          return [
+            { path: "confluence/ENG/home.md", content: page("ENG") },
+            { path: "confluence/HR/policy.md", content: page("HR") },
+            { path: "confluence/OPS/run.md", content: page("OPS") },
+            {
+              path: "confluence/ENG/logo.png",
+              content: "AA==",
+              encoding: "base64" as const,
+            },
+          ]
+        },
+      },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    const contents = (workspaceId: string) =>
+      Object.fromEntries(
+        writes
+          .find((write) => write.workspaceId === workspaceId)
+          ?.files.map((file) => [file.path, file.content]) ?? [],
+      )
+    expect(contents(docs)).toEqual({
+      "confluence/ENG/home.md":
+        "---\nsource: confluence\nsources:\n  - sources/confluence/all-docs.md\n---\n# ENG\n",
+      "confluence/HR/policy.md":
+        "---\nsource: confluence\nsources:\n  - sources/confluence/hr.md\n---\n# HR\n",
+      "confluence/OPS/run.md": page("OPS"),
+      "confluence/ENG/logo.png": "AA==",
+    })
+    expect(contents(eng)["confluence/ENG/home.md"]).toBe(
+      "---\nsource: confluence\nsources:\n  - sources/confluence/team/eng.md\n---\n# ENG\n",
+    )
+  })
+
+  it("gives the adapter the sha of its own text and restamps, from Git, the files it does not write again", async () => {
+    const forge = await seed.addConnection("forge")
+    const docs = await seed.addWorkspace("restamp")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: docs,
+      revision: "c".repeat(40),
+      rows: [source("sources/confluence/renamed.md", forge, ["ENG"])],
+    })
+    const page = (title: string) => `---\nsource: confluence\n---\n# ${title}\n`
+    const dir = commitGitTree({
+      "confluence/ENG/ok.md": stampSources(page("ok"), [
+        "sources/confluence/renamed.md",
+      ]),
+      // Stamped with the old path before a rename.
+      "confluence/ENG/old.md": stampSources(page("old"), [
+        "sources/confluence/before.md",
+      ]),
+      // Written before the stamp existed.
+      "confluence/ENG/none.md": page("none"),
+      // No front matter: the sync does not stamp it.
+      "confluence/ENG/asset.md": "plain\n",
+    })
+    const seen: Array<ReadonlyArray<{ path: string; sha: string | null }>> = []
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: {
+        provider: "confluence",
+        managedPaths: () => ["confluence/ENG/"],
+        async fetch({ existing }) {
+          seen.push(existing ?? [])
+          // An incremental patch: the adapter writes nothing again.
+          return { files: [], deletePaths: [] }
+        },
+      },
+      write: async (write) => {
+        writes.push(write)
+      },
+      readExisting: (_workspaceId, owners) =>
+        listExistingBlobs(dir, "HEAD", owners),
+    })
+    expect(
+      Object.fromEntries(seen[0]?.map((f) => [f.path, f.sha]) ?? []),
+    ).toEqual({
+      "confluence/ENG/ok.md": gitBlobSha(page("ok")),
+      "confluence/ENG/old.md": gitBlobSha(page("old")),
+      "confluence/ENG/none.md": gitBlobSha(page("none")),
+      "confluence/ENG/asset.md": gitBlobSha("plain\n"),
+    })
+    expect(writes).toHaveLength(1)
+    expect(
+      Object.fromEntries(
+        writes[0]?.files.map((file) => [file.path, file.content]) ?? [],
+      ),
+    ).toEqual({
+      "confluence/ENG/old.md": stampSources(page("old"), [
+        "sources/confluence/renamed.md",
+      ]),
+      "confluence/ENG/none.md": stampSources(page("none"), [
+        "sources/confluence/renamed.md",
+      ]),
+    })
+  })
+
+  it("stamps a Slack thread from before the stamp, and restamps it after a rename", async () => {
+    const slack = await seed.addConnection("slack")
+    const docs = await seed.addWorkspace("slack-restamp")
+    const thread = "---\nsource: slack\nchannel_id: C0123ABCD\n---\n# Thread\n"
+    const sync = async (sourceKey: string, files: Record<string, string>) => {
+      await replaceWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId: docs,
+        revision: "d".repeat(40),
+        rows: [
+          {
+            sourceKey,
+            provider: "slack",
+            connectionId: slack,
+            scope: { channels: ["C0123ABCD"] },
+            status: "ok",
+            statusDetail: null,
+          },
+        ],
+      })
+      const dir = commitGitTree(files)
+      const writes: WorkspaceSliceWrite[] = []
+      await syncConnectionSources({
+        orgId: seed.orgId,
+        connectionId: slack,
+        env: parseEnv(process.env),
+        adapter: slackSourceAdapter,
+        write: async (write) => {
+          writes.push(write)
+        },
+        readExisting: (_workspaceId, owners) =>
+          listExistingBlobs(dir, "HEAD", owners),
+      })
+      return writes
+    }
+    const before = await sync("sources/slack/eng.md", {
+      "slack/channels/C0123ABCD/1.md": thread,
+    })
+    const stamped = stampSources(thread, ["sources/slack/eng.md"])
+    expect(before[0]?.files).toEqual([
+      { path: "slack/channels/C0123ABCD/1.md", content: stamped },
+    ])
+    // The next sync after the commit writes nothing.
+    expect(
+      await sync("sources/slack/eng.md", {
+        "slack/channels/C0123ABCD/1.md": stamped,
+      }),
+    ).toEqual([])
+    const renamed = await sync("sources/slack/team/eng.md", {
+      "slack/channels/C0123ABCD/1.md": stamped,
+    })
+    expect(renamed[0]?.files).toEqual([
+      {
+        path: "slack/channels/C0123ABCD/1.md",
+        content: stampSources(thread, ["sources/slack/team/eng.md"]),
+      },
+    ])
   })
 
   it("with filesByScope, gives each Workspace only the files of its own scopes", async () => {
