@@ -106,9 +106,8 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   {
     method: "PATCH",
     path: "/connectors/slack/config?connectionId=con_missing",
-    body: {},
-    // No Slack connection exists, so the route refuses before it reads the body.
-    expectedStatus: 400,
+    body: { repositoryId: "repo_missing" },
+    expectedStatus: 404,
     orgAdmin: true as const,
   },
   ...(["linear", "notion", "pagerduty"] as const).flatMap((connector) => [
