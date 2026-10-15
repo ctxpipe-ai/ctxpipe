@@ -284,7 +284,8 @@ function bucket(
 ): Record<string, Omit<Coverage, "recall">> {
   const out: Record<string, Omit<Coverage, "recall">> = {}
   for (const row of rows) {
-    const entry = (out[row.group] ??= { old: 0, shadow: 0, matched: 0 })
+    const entry = out[row.group] ?? { old: 0, shadow: 0, matched: 0 }
+    out[row.group] = entry
     if (row.side !== "shadow") entry.old++
     if (row.side !== "old") entry.shadow++
     if (row.side === "both") entry.matched++
