@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { ownershipMigrationFiles } from "../../domain/ingestion/ownership-migration.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
+import { log } from "../../observability/logger.js"
 import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js"
 
 /**
@@ -18,6 +19,12 @@ export const workspaceOwnershipMigration = defineKnowledgeRewriteWorkflow({
     ownershipMigrationFiles({
       workspaceRepositoryUrl: revision.remote.url,
       files,
+      onDroppedClaim: (drop) =>
+        log.warn({
+          step: "workspace-ownership-migration.claim_dropped",
+          workspaceId: revision.workspaceId,
+          ...drop,
+        }),
     }),
 })
 

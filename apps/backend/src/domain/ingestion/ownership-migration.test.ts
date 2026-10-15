@@ -83,16 +83,81 @@ describe("ownership migration of old extracted files", () => {
         {
           to: "./billing.md",
           predicate: "CALLS",
-          evidence: { path: "src/billing-client.ts", kind: "model" },
           confidence: 0.9,
+          valid_from: "2026-01-01T00:00:00.000Z",
+          source: "https://github.com/acme/api.git#src/billing-client.ts",
+          evidence: { kind: "legacy" },
         },
         {
           to: "./ledger.md",
           predicate: "WRITES",
-          evidence: { path: "src/orders.ts", kind: "model" },
+          confidence: 0.8,
+          evidence: { kind: "legacy" },
+        },
+        {
+          to: "./old.md",
+          predicate: "CALLS",
+          confidence: 0.8,
+          valid_to: "2026-02-01T00:00:00.000Z",
+          evidence: { kind: "legacy" },
+        },
+        { to: "./unnamed.md", confidence: 0.8, evidence: { kind: "legacy" } },
+        {
+          to: "./outside.md",
+          predicate: "READS",
+          confidence: 0.8,
+          source: "../../outside.ts",
+          evidence: { kind: "legacy" },
         },
       ],
     })
+  })
+
+  it("reports each old claim that it cannot keep, and why", () => {
+    const dropped: unknown[] = []
+    const [migrated] = ownershipMigrationFiles({
+      workspaceRepositoryUrl,
+      files: [
+        {
+          path: "knowledge/services/odd.md",
+          content: [
+            "---",
+            "generated_by: ctxpipe",
+            "source: https://github.com/acme/api#a.ts",
+            "claims:",
+            "  - just text",
+            "  - predicate: CALLS",
+            "  - to: ./kept.md",
+            '  - to: "  "',
+            "---",
+            "",
+            "# Odd",
+            "",
+          ].join("\n"),
+        },
+      ],
+      onDroppedClaim: (drop) => dropped.push(drop),
+    })
+    expect(front(migrated?.content ?? "").claims).toEqual([
+      { to: "./kept.md", evidence: { kind: "legacy" } },
+    ])
+    expect(dropped).toEqual([
+      {
+        path: "knowledge/services/odd.md",
+        index: 0,
+        reason: "The claim is not a map",
+      },
+      {
+        path: "knowledge/services/odd.md",
+        index: 1,
+        reason: "The claim has no target (to)",
+      },
+      {
+        path: "knowledge/services/odd.md",
+        index: 3,
+        reason: "The claim has no target (to)",
+      },
+    ])
   })
 
   it("names a file from its first heading, or else from its path", () => {

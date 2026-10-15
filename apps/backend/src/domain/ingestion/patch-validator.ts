@@ -174,12 +174,34 @@ const ClaimSchema = z
 
 type Claim = z.infer<typeof ClaimSchema>
 
+/**
+ * A claim that the ownership migration carried over from the old pipeline
+ * (ADR-052 section 3). It keeps each old key, also `valid_from` and
+ * `valid_to`. Only the host writes it: a step can keep it or leave it out,
+ * but cannot add or change one.
+ */
+const LegacyClaimSchema = z
+  .object({
+    to: z.string().min(1),
+    evidence: z.object({ kind: z.literal("legacy") }).strict(),
+  })
+  .passthrough()
+
+const isLegacyClaim = (claim: unknown) =>
+  LegacyClaimSchema.safeParse(claim).success
+
 const FrontMatterSchema = z
   .object({
     kind: z.string(),
     name: z.string().min(1).max(200),
     summary: z.string().max(1000).optional(),
-    claims: z.array(ClaimSchema).max(200).optional(),
+    claims: z
+      .array(z.union([ClaimSchema, LegacyClaimSchema]))
+      .refine(
+        (claims) => claims.filter((c) => !isLegacyClaim(c)).length <= 200,
+        "A file has at most 200 claims",
+      )
+      .optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -955,15 +977,39 @@ async function checkFullWrite(
   if (quote) return quote
 
   const claims = attributes.claims ?? []
-  const baseClaims = Array.isArray(baseAttributes.claims)
-    ? baseAttributes.claims.map(withoutConfidence)
+  const baseClaims: unknown[] = Array.isArray(baseAttributes.claims)
+    ? baseAttributes.claims
     : []
-  const fresh = claims.filter(
-    (claim) =>
-      !baseClaims.some((b) => isDeepStrictEqual(b, withoutConfidence(claim))),
-  )
+  // A claim that is in the base stays as the base has it, with its
+  // confidence. A closed legacy claim is history: it stays also when the
+  // step leaves it out.
+  const kept = (claim: unknown) =>
+    baseClaims.find((b) =>
+      isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+    )
+  const fresh: Claim[] = []
+  for (const claim of claims) {
+    if (kept(claim)) continue
+    if (isLegacyClaim(claim))
+      return {
+        rule: "front_matter",
+        reason: "Only the host sets a legacy claim",
+      }
+    fresh.push(claim as Claim)
+  }
   const evidence = await evidenceProblem(fresh, context)
   if (evidence) return evidence
+  const outClaims = [
+    ...claims.map((claim) => kept(claim) ?? stampClaim(claim as Claim)),
+    ...baseClaims.filter(
+      (b) =>
+        isLegacyClaim(b) &&
+        (b as { valid_to?: unknown }).valid_to != null &&
+        !claims.some((claim) =>
+          isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+        ),
+    ),
+  ]
 
   const baseRoot =
     typeof baseAttributes.root === "string" ? baseAttributes.root : undefined
@@ -980,7 +1026,7 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
-    ...(claims.length ? { claims: claims.map(stampClaim) } : {}),
+    ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourceUrl],
     ...(root === undefined ? {} : { root }),
@@ -991,7 +1037,8 @@ async function checkFullWrite(
   return {
     output: `---\n${stringify(stamped, { lineWidth: 0 })}---\n${front.body}`,
     links: markdownLinks(front.body),
-    claimTargets: claims.map((c) => c.to),
+    // A legacy claim can name a file that is gone: it records history.
+    claimTargets: claims.filter((c) => !isLegacyClaim(c)).map((c) => c.to),
   }
 }
 

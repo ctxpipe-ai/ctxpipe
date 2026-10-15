@@ -29,9 +29,13 @@ const V2_KEYS = new Set([
  *   `source`, `confidence`, and others).
  * - It sets `name` from the old `name`, the first `# ` heading, or the file
  *   name.
- * - Each old claim gets `evidence` (the path of its `source`, else the path
- *   of the file `source`, with kind `model`). It drops a closed claim (with
- *   `valid_to`), and a claim with no valid target, predicate, or path.
+ * - Each old claim stays with all its keys, also `valid_from`, `valid_to`,
+ *   and `source`, because hydrate and graph traversal read them for history.
+ *   It gets `evidence` of kind `legacy`: the old pipeline did not record how
+ *   it found the claim. A claim with no `confidence` gets the old file
+ *   `confidence`, which hydrate used for it. Only a claim with no target
+ *   (`to`) cannot stay, because hydrate cannot read it either.
+ *   `onDroppedClaim` gets each such claim and the reason.
  *
  * The body stays byte for byte, so human sections and human text stay. A
  * file with no `generated_by: ctxpipe` (a human took it over, or ingestion v2
@@ -42,6 +46,11 @@ const V2_KEYS = new Set([
 export function ownershipMigrationFiles(input: {
   workspaceRepositoryUrl: string
   files: ReadonlyArray<{ path: string; content: string }>
+  onDroppedClaim?: (drop: {
+    path: string
+    index: number
+    reason: string
+  }) => void
 }): Array<{ path: string; content: string }> {
   const workspaceUrl = normalizeWorkspaceRepositoryUrl(
     input.workspaceRepositoryUrl,
@@ -63,7 +72,6 @@ export function ownershipMigrationFiles(input: {
       source.split("#")[0] ?? "",
     )
     if (sourceUrl === workspaceUrl) continue
-    const filePath = sourcePath(source)
     out.push({
       path: file.path,
       content: updateKnowledgeMetadata(file.content, (document) => {
@@ -72,7 +80,12 @@ export function ownershipMigrationFiles(input: {
           ? sources.toJSON().filter((s): s is string => typeof s === "string")
           : []
         const known = new Set(listed.map(normalizeWorkspaceRepositoryUrl))
-        const claims = v2Claims(document.get("claims", true), filePath)
+        const claims = legacyClaims(
+          document.get("claims", true),
+          document.get("confidence"),
+          (index, reason) =>
+            input.onDroppedClaim?.({ path: file.path, index, reason }),
+        )
         const summary = document.get("summary")
         const name = fileName(document.get("name"), parsed.body, file.path)
         if (!isMap(document.contents)) return
@@ -97,54 +110,29 @@ export function ownershipMigrationFiles(input: {
   return out
 }
 
-/** The relative path after `#` in a source URL, or a relative path as is. */
-function sourcePath(raw: unknown): string | null {
-  if (typeof raw !== "string") return null
-  const value = raw.trim()
-  const path = /^(?:(?:https?|ssh|git):\/\/|git@)/i.test(value)
-    ? value.split("#")[1]
-    : value
-  if (
-    !path ||
-    path.length > 500 ||
-    path.startsWith("/") ||
-    path.includes("\\") ||
-    path.split("/").some((s) => s === "" || s === "." || s === "..")
-  )
-    return null
-  return path
-}
-
-function v2Claims(
+function legacyClaims(
   raw: unknown,
-  filePath: string | null,
+  fileConfidence: unknown,
+  drop: (index: number, reason: string) => void,
 ): Array<Record<string, unknown>> {
   if (!isSeq(raw)) return []
   const claims: Array<Record<string, unknown>> = []
-  for (const item of raw.toJSON() as unknown[]) {
-    if (!item || typeof item !== "object") continue
-    const claim = item as Record<string, unknown>
-    const to = typeof claim.to === "string" ? claim.to.trim() : ""
-    const predicate = claim.predicate
-    const path =
-      claim.source === undefined ? filePath : sourcePath(claim.source)
-    if (
-      claim.valid_to != null ||
-      !to ||
-      to.length > 500 ||
-      typeof predicate !== "string" ||
-      !/^[A-Z][A-Z0-9_]{0,63}$/.test(predicate) ||
-      !path
-    )
+  for (const [index, item] of (raw.toJSON() as unknown[]).entries()) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) {
+      drop(index, "The claim is not a map")
       continue
-    const confidence = claim.confidence
+    }
+    const claim = item as Record<string, unknown>
+    if (typeof claim.to !== "string" || !claim.to.trim()) {
+      drop(index, "The claim has no target (to)")
+      continue
+    }
     claims.push({
-      to,
-      predicate,
-      evidence: { path, kind: "model" },
-      ...(typeof confidence === "number" && confidence >= 0 && confidence <= 1
-        ? { confidence }
+      ...(claim.confidence === undefined && typeof fileConfidence === "number"
+        ? { confidence: fileConfidence }
         : {}),
+      ...claim,
+      evidence: { kind: "legacy" },
     })
   }
   return claims
