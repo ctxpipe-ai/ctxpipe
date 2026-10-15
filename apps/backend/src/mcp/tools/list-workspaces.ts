@@ -303,12 +303,10 @@ export const listWorkspaces = defineMcpReadTool({
                     Object.keys(units).length - MAX_HEADER_ITEMS,
                 }
               : {}),
-            sources: sources
-              .slice(0, MAX_HEADER_ITEMS)
-              .map((source) => ({
-                ...source,
-                key: truncateText(source.key, 60),
-              })),
+            sources: sources.slice(0, MAX_HEADER_ITEMS).map((source) => ({
+              ...source,
+              key: truncateText(source.key, 60),
+            })),
             ...(sources.length > MAX_HEADER_ITEMS
               ? { sourcesNotShown: sources.length - MAX_HEADER_ITEMS }
               : {}),
