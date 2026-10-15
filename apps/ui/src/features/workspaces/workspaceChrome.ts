@@ -17,8 +17,8 @@ export const workspaceChromeOuterClassName =
  * in the width, so the idle tab has transparent side borders of the same
  * size: a tab switch does not move the tabs beside it. Text tabs add `px-3`;
  * the icon tab is square (7px + 1px border + 16px icon).
- * Idle tab: 32px face + 2px (`0.5`) inset; `-translate-y-px` restores the gap
- * above the card after the strip sits 1px over the hairline.
+ * Idle tab: the same 37px box, with a transparent border, so the selected and
+ * idle tabs share one top edge and one baseline.
  */
 export const workspaceChromeTabClassName = [
   "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-[7px]",
@@ -28,8 +28,8 @@ export const workspaceChromeTabClassName = [
 
 /** Idle tab. It takes the same box as the active tab. */
 export const workspaceChromeTabIdleClassName = [
-  "box-border my-0.5 -translate-y-px inline-flex h-8 shrink-0 cursor-pointer items-center justify-center px-[7px]",
-  "rounded-md border border-b-0 border-transparent bg-transparent",
+  "box-border inline-flex h-[37px] shrink-0 cursor-pointer items-center justify-center px-[7px]",
+  "rounded-t-md border border-b-0 border-transparent bg-transparent",
   "text-sm font-medium leading-none text-zinc-400",
   "transition-[color,background-color] hover:bg-teal-900/30 hover:text-zinc-50",
 ].join(" ")

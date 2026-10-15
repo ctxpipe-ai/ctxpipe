@@ -120,3 +120,29 @@ export const EscapeReturnsFocus: Story = {
     expect(patches).toEqual([])
   },
 }
+
+/** Enter saves the typed name: one PATCH with the new name, and the new title shows. */
+export const RenameSavesNewName: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Rename conversation: New conversation",
+      }),
+    )
+    const input = await canvas.findByRole("textbox", {
+      name: "Conversation name",
+    })
+    // Focus selects the old name, so typing replaces it.
+    await waitFor(() => expect(input).toHaveFocus())
+    await userEvent.keyboard("Quarterly plan")
+    await userEvent.keyboard("{Enter}")
+    await waitFor(() => expect(patches).toEqual(["Quarterly plan"]))
+    expect(
+      await canvas.findByRole("button", {
+        name: "Rename conversation: Quarterly plan",
+      }),
+    ).toBeVisible()
+    expect(canvas.queryByRole("textbox")).toBeNull()
+  },
+}
