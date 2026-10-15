@@ -52,11 +52,11 @@ export type WorkspaceRootViolation = {
 }
 
 /**
- * Finds the changes in each commit from `base` to `head` that leave the root
- * folder: a path outside it, a new symlink below it whose target is outside
- * it, or a new submodule (gitlink) below it, which points to another
- * repository. Each commit is compared with its first parent, because the
- * history keeps a change that a later commit removes. Git records a write
+ * Finds the changes from `base` to `head`, and in each commit between them,
+ * that leave the root folder: a path outside it, a new symlink below it whose
+ * target is outside it, or a new submodule (gitlink) below it, which points to
+ * another repository. Each commit is also compared with its first parent,
+ * because the history keeps a change that a later commit removes. Git records a write
  * through an existing symlink at the target path, so the path check also
  * catches that case.
  */
@@ -76,7 +76,10 @@ export async function gitChangesOutsideWorkspaceRoot(input: {
     .toString("utf8")
     .split("\n")
     .filter(Boolean)
-  const violations: WorkspaceRootViolation[] = []
+  // The net change from `base` comes first: a commit with no parent that
+  // holds only the root folder looks clean against the empty tree, but it
+  // drops each file outside the root.
+  const violations = await changesOutsideRoot(input, input.base, input.head)
   for (const line of commits) {
     const [commit = "", parent] = line.split(" ")
     const before =
@@ -92,7 +95,13 @@ export async function gitChangesOutsideWorkspaceRoot(input: {
         .trim()
     violations.push(...(await changesOutsideRoot(input, before, commit)))
   }
-  return violations
+  const seen = new Set<string>()
+  return violations.filter((violation) => {
+    const key = `${violation.reason}\0${violation.path}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 async function changesOutsideRoot(

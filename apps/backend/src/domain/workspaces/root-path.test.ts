@@ -252,10 +252,24 @@ describe("gitChangesOutsideWorkspaceRoot", () => {
         head,
         rootPath: "docs/context",
       }),
-    ).resolves.toEqual([
-      { path: "src/leak.ts", reason: "outside_root" },
-      { path: "src/leak.ts", reason: "outside_root" },
-    ])
+    ).resolves.toEqual([{ path: "src/leak.ts", reason: "outside_root" }])
+  })
+
+  it("rejects a commit without a parent that drops the files outside the root folder", async () => {
+    const { dir, base } = repository()
+    git(dir, ["checkout", "-q", "--orphan", "rooted"])
+    git(dir, ["rm", "-q", "-r", "--cached", "."])
+    git(dir, ["add", "docs/context/knowledge/a.md"])
+    git(dir, ["commit", "-q", "-m", "only the root"])
+    const head = git(dir, ["rev-parse", "HEAD"])
+    await expect(
+      gitChangesOutsideWorkspaceRoot({
+        directory: dir,
+        base,
+        head,
+        rootPath: "docs/context",
+      }),
+    ).resolves.toContainEqual({ path: "src/app.ts", reason: "outside_root" })
   })
 
   it("rejects a file outside the root folder in a merged commit without a parent", async () => {
