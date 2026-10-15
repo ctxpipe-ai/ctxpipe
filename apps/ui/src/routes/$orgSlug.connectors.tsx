@@ -305,9 +305,9 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                   key={row.id}
                   orgSlug={orgSlug}
                   connectionId={row.id}
-                  onOpenSetup={() => {
+                  onOpenSetup={(options) => {
                     setPlainConnectionId(row.id)
-                    setPlainReconnect(true)
+                    setPlainReconnect(Boolean(options?.reconnect))
                     setPlainSetupOpen(true)
                   }}
                 />

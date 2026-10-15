@@ -44,6 +44,7 @@ describe("getPlainCardCtaLabel", () => {
     expect(getPlainCardCtaLabel(status({ webhookConfigured: false }))).toBe(
       "Reconnect Plain",
     )
-    expect(getPlainCardCtaLabel(status())).toBeNull()
+    // As on the other cards: Manage opens the Workspaces step.
+    expect(getPlainCardCtaLabel(status())).toBe("Manage")
   })
 })

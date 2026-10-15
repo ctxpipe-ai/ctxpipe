@@ -18,7 +18,8 @@ import { PlainMark } from "./PlainMark"
 type PlainConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (options: { reconnect: true }) => void
+  /** With `reconnect`, the setup opens at the key. */
+  onOpenSetup: (options?: { reconnect: true }) => void
 }
 
 export function PlainConnectionCard({
@@ -81,7 +82,10 @@ export function PlainConnectionCard({
         isError
           ? () => void refetch()
           : actionLabel
-            ? () => onOpenSetup({ reconnect: true })
+            ? () =>
+                actionLabel === "Manage"
+                  ? onOpenSetup()
+                  : onOpenSetup({ reconnect: true })
             : undefined
       }
     >

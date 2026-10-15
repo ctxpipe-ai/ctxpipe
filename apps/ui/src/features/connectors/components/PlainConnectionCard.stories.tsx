@@ -65,6 +65,12 @@ export const Connected: Story = {
     await expect(
       canvas.queryByRole("button", { name: /Reconnect Plain/ }),
     ).toBeNull()
+    // As on the other connector cards, Manage opens the setup at the
+    // Workspaces step, not at the key.
+    onOpenSetup.mockClear()
+    await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
+    await userEvent.click(await canvas.findByRole("button", { name: "Manage" }))
+    await expect(onOpenSetup).toHaveBeenCalledWith()
   },
 }
 

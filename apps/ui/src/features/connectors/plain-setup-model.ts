@@ -28,11 +28,12 @@ export function getPlainSetupStep(
 }
 
 /**
- * The card action, or null. A reconnect also creates a missing webhook
- * target, so it is the action for both problems.
+ * The card action. A reconnect also creates a missing webhook target, so it
+ * is the action for both problems; as on the other cards, Manage opens the
+ * Workspaces step once the connection is complete.
  */
-export function getPlainCardCtaLabel(status: SetupStatus): string | null {
+export function getPlainCardCtaLabel(status: SetupStatus): string {
   return status.status === "revoked" || !status.webhookConfigured
     ? "Reconnect Plain"
-    : null
+    : "Manage"
 }
