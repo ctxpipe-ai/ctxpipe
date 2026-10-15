@@ -887,14 +887,14 @@ export const DiffTriggerPaneClosed: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    const diff = await page.findByRole(
-      "button",
-      { name: "Diff" },
+    // The trigger fades in for 100 ms when it mounts, and a re-render can
+    // replace it, so find it again on each try.
+    await waitFor(
+      () => expect(page.getByRole("button", { name: "Diff" })).toBeVisible(),
       { timeout: 15_000 },
     )
+    const diff = page.getByRole("button", { name: "Diff" })
     const files = page.getByRole("button", { name: "Files" })
-    // The trigger fades in for 100 ms when it mounts.
-    await waitFor(() => expect(diff).toBeVisible())
     expect(diff.parentElement).toBe(files.parentElement)
     expect(diff.className).toBe(files.className)
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()

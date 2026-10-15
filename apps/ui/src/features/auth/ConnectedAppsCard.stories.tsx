@@ -86,9 +86,6 @@ export const SkeletonRowMatchesLoadedRow: Story = {
       actions: within(loadedRow).getAllByRole("button").map(rect),
     }
     expect(loaded.actions).toHaveLength(2)
-    if (JSON.stringify(skeleton) !== JSON.stringify(loaded))
-      throw new Error(
-        `DIAG skeleton=${JSON.stringify(skeleton)} loaded=${JSON.stringify(loaded)}`,
-      )
+    expect(skeleton).toEqual(loaded)
   },
 }
