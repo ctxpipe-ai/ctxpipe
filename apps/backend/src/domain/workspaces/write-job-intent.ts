@@ -193,6 +193,13 @@ export function shouldResumePausedWriteJob(input: {
   )
 }
 
+/** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
+const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
+  "extract_ingest",
+  "link_unlink",
+  "ownership_migration",
+])
+
 export function enqueueInputFromPausedJob(input: {
   orgId: string
   workspaceId: string
@@ -224,8 +231,10 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.linkAction ? { linkAction: payload.linkAction } : {}),
     ...(payload.linkGitUrl ? { linkGitUrl: payload.linkGitUrl } : {}),
-    ...(payload.publishPipeline
-      ? { publishPipeline: payload.publishPipeline }
+    // A publish job that was stored before the pipeline field was queued
+    // under `legacy`. It does not get the switch value at resume time.
+    ...(PUBLISH_PIPELINE_KINDS.has(input.job.kind)
+      ? { publishPipeline: payload.publishPipeline ?? "legacy" }
       : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }

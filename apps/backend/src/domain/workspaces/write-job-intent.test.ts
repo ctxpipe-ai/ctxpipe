@@ -130,7 +130,44 @@ describe("enqueueInputFromPausedJob", () => {
       jobWorkspaceUrl: "https://github.com/acme/docs",
       linkAction: "link",
       linkGitUrl: "https://github.com/acme/app.git",
+      // A job stored before the pipeline field was queued under legacy.
+      publishPipeline: "legacy",
     })
+  })
+
+  it("resumes a publish job with no stored pipeline as legacy, not with the current switch", () => {
+    for (const kind of [
+      "extract_ingest",
+      "link_unlink",
+      "ownership_migration",
+    ] as const)
+      expect(
+        enqueueInputFromPausedJob({
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          job: {
+            id: `wjob_${kind}`,
+            kind,
+            generation: 1,
+            desiredSha: null,
+            payload: { jobWorkspaceUrl: "https://github.com/acme/docs" },
+          },
+        }).publishPipeline,
+      ).toBe("legacy")
+  })
+
+  it("resumes a publish job with its stored pipeline, and gives no pipeline to another kind", () => {
+    const resume = (
+      kind: "ownership_migration" | "claims_upgrade",
+      payload: { publishPipeline?: "v2" },
+    ) =>
+      enqueueInputFromPausedJob({
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        job: { id: "wjob_1", kind, generation: 1, desiredSha: null, payload },
+      }).publishPipeline
+    expect(resume("ownership_migration", { publishPipeline: "v2" })).toBe("v2")
+    expect(resume("claims_upgrade", {})).toBeUndefined()
   })
 })
 
