@@ -379,11 +379,6 @@ export type SlackBindRepositoryInput = {
 
 export type SlackBindRepositoryResult = SlackBinding & {
   setupPhase: SlackSetupPhase
-  repositoryIngestion?: {
-    orgId: string
-    repositoryId: string
-    targetBranch?: string
-  }
 }
 
 /**
@@ -394,7 +389,7 @@ export type SlackBindRepositoryResult = SlackBinding & {
 async function resolveRepositoryIdForSlackSync(
   db: ReturnType<typeof getOrgDb>,
   input: SlackBindRepositoryInput,
-): Promise<{ repositoryId: string; branch: string; didCreate: boolean }> {
+): Promise<{ repositoryId: string; branch: string }> {
   if (input.repositoryId) {
     const [byId] = await db
       .select({
@@ -420,7 +415,6 @@ async function resolveRepositoryIdForSlackSync(
     return {
       repositoryId: byId.id,
       branch: input.branch ?? byId.defaultBranch ?? "main",
-      didCreate: false,
     }
   }
 
@@ -449,7 +443,6 @@ async function resolveRepositoryIdForSlackSync(
     return {
       repositoryId: byUrl.id,
       branch: input.branch ?? byUrl.defaultBranch ?? "main",
-      didCreate: false,
     }
   }
 
@@ -479,7 +472,7 @@ async function resolveRepositoryIdForSlackSync(
     .returning({ id: repositoryCheckouts.id })
   if (!checkout) throw new Error("Failed to create repository checkout")
 
-  return { repositoryId, branch, didCreate: true }
+  return { repositoryId, branch }
 }
 
 /**
@@ -491,8 +484,10 @@ export async function bindSlackSyncTargetRepository(
   input: SlackBindRepositoryInput,
 ): Promise<SlackBindRepositoryResult> {
   const result = await withOrgDbContext(input.orgId, async (tx) => {
-    const { repositoryId, branch, didCreate } =
-      await resolveRepositoryIdForSlackSync(tx, input)
+    const { repositoryId, branch } = await resolveRepositoryIdForSlackSync(
+      tx,
+      input,
+    )
 
     const [connectionRow] = await tx
       .select()
@@ -528,24 +523,12 @@ export async function bindSlackSyncTargetRepository(
       row: updated,
       binding,
       setupPhase: derivedSlackSetupPhase(binding),
-      ...(didCreate
-        ? {
-            repositoryIngestion: {
-              orgId: input.orgId,
-              repositoryId,
-              targetBranch: branch,
-            },
-          }
-        : {}),
     }
   })
   await upsertConnectionDirectory(result.row)
   return {
     ...result.binding,
     setupPhase: result.setupPhase,
-    ...(result.repositoryIngestion
-      ? { repositoryIngestion: result.repositoryIngestion }
-      : {}),
   }
 }
 

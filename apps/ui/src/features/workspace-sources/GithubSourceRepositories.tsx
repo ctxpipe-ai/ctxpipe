@@ -1,5 +1,5 @@
 import HyperDX from "@hyperdx/browser"
-import { IconGitBranch, IconUnlink } from "@tabler/icons-react"
+import { IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useMemo, useState } from "react"
 import { Heading } from "react-aria-components"
@@ -40,12 +40,39 @@ import {
   workspaceSourceKeys,
 } from "./queries"
 import type { SourceConnectionOption } from "./SourceEditorDialog"
+import {
+  sourceRowActionsClassName,
+  sourceRowClassName,
+  sourceRowMetaClassName,
+  sourceRowNoteClassName,
+  sourceRowSeparatorClassName,
+  sourceRowStatusClassName,
+  sourceRowsClassName,
+} from "./source-table"
 
-function scopeRepositories(source: WorkspaceSource): string[] {
+/** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
+type ScopeItem = string | { name: string; ref?: string }
+
+function itemName(item: ScopeItem): string {
+  return typeof item === "string" ? item : item.name
+}
+
+/** The items of a GitHub source, as the file has them (refs stay). */
+function scopeItems(source: WorkspaceSource): ScopeItem[] {
   const value = source.scope.repositories
   return Array.isArray(value)
-    ? value.filter((name): name is string => typeof name === "string")
+    ? value.filter(
+        (item): item is ScopeItem =>
+          typeof item === "string" ||
+          (typeof item === "object" &&
+            item !== null &&
+            typeof (item as { name?: unknown }).name === "string"),
+      )
     : []
+}
+
+function scopeRepositories(source: WorkspaceSource): string[] {
+  return scopeItems(source).map(itemName)
 }
 
 function sameName(a: string, b: string): boolean {
@@ -151,9 +178,8 @@ export function repositoryRows(
 
 /**
  * The GitHub section body of the Workspace sources: one list of the linked
- * repositories. Repositories from GitHub sources change through
- * `.ctxpipe/sources.yaml`. Repositories that only an old
- * `repositories/*.md` file links still show, and unlink as before.
+ * repositories. The GitHub sources of `.ctxpipe/sources.yaml` are the only
+ * links; each change goes through that file.
  */
 export function GithubSourceRepositories(props: {
   orgSlug: string
@@ -184,16 +210,18 @@ export function GithubSourceRepositories(props: {
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
       const { source, linked } = row
-      // A repositories/*.md file can link the repository too. Its unlink
-      // deletes that file, and does nothing when no file links it.
-      if (linked)
-        await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
-      if (!source) return null
+      // Without a source row (the file changed since the last projection),
+      // the unlink command removes the repository from the file.
+      if (!source) {
+        if (linked)
+          await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
+        return null
+      }
       const delivery: SourceDelivery = directCommitAllowed
         ? "commit"
         : "pull_request"
-      const repositories = scopeRepositories(source).filter(
-        (name) => !sameName(name, row.title),
+      const repositories = scopeItems(source).filter(
+        (item) => !sameName(itemName(item), row.title),
       )
       if (repositories.length === 0)
         return deleteWorkspaceSource(
@@ -233,30 +261,31 @@ export function GithubSourceRepositories(props: {
   return (
     <>
       {rows.length === 0 ? (
-        <p className="px-2 py-2 text-sm text-muted-foreground">
+        <p className="border-t border-white/[0.06] px-3 py-2 text-sm text-muted-foreground">
           No GitHub repositories in this Workspace.
         </p>
       ) : (
         <>
           {rows.length > 8 || query !== "" ? (
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Filter repositories"
-              aria-label="Filter linked repositories"
-              className="mt-2"
-            />
+            <div className="border-t border-white/[0.06] px-3 py-2">
+              <SearchField
+                value={query}
+                onChange={setQuery}
+                placeholder="Filter repositories"
+                aria-label="Filter linked repositories"
+              />
+            </div>
           ) : null}
           <ul
             id={listId}
             aria-label="GitHub repositories"
             className={cn(
-              "mt-1 flex flex-col",
+              sourceRowsClassName,
               expanded && filtered.length > 5 && "max-h-80 overflow-auto",
             )}
           >
             {filtered.length === 0 ? (
-              <li className="px-2 py-2 text-sm text-muted-foreground">
+              <li className="px-3 py-2 text-sm text-muted-foreground">
                 No repositories match that filter.
               </li>
             ) : (
@@ -267,61 +296,81 @@ export function GithubSourceRepositories(props: {
                   : pendingTag
                 const canUnlink = row.source ? canEdit : true
                 return (
-                  <li
-                    key={row.key}
-                    className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-foreground/[0.04]"
-                  >
-                    <span
-                      className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
-                      aria-hidden
-                    >
-                      <IconGitBranch className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      {webUrl ? (
-                        <Link
-                          href={webUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          variant="secondary"
-                          className="block truncate text-sm text-foreground no-underline hover:text-teal-300"
-                        >
-                          {row.title}
-                        </Link>
+                  <li key={row.key} className={sourceRowClassName}>
+                    {webUrl ? (
+                      <Link
+                        href={webUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="secondary"
+                        className="block min-w-0 truncate text-sm text-foreground no-underline hover:text-teal-300"
+                      >
+                        {row.title}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm text-foreground">
+                        {row.title}
+                      </p>
+                    )}
+                    <p className={sourceRowMetaClassName}>
+                      <span className="truncate">
+                        {row.source
+                          ? (row.source.connectionName ?? "No connection")
+                          : "Linked by a repositories file"}
+                      </span>
+                      {row.source ? (
+                        <>
+                          <span
+                            aria-hidden
+                            className={sourceRowSeparatorClassName}
+                          >
+                            ·
+                          </span>
+                          <code className="truncate font-mono">
+                            {row.source.sourceKey}
+                          </code>
+                        </>
                       ) : (
-                        <p className="truncate text-sm text-foreground">
-                          {row.title}
-                        </p>
+                        <span className="hidden @3xl:block" />
                       )}
-                      {row.source ? null : (
-                        <p className="truncate text-xs text-muted-foreground">
-                          Linked by a repositories file
-                        </p>
-                      )}
-                      {row.linked?.indexingStatus === "complete_with_issues" &&
-                      row.linked.indexingError ? (
-                        <p className="mt-0.5 text-xs text-amber-200/80">
-                          {row.linked.indexingError}
-                        </p>
+                    </p>
+                    <span className={sourceRowStatusClassName}>
+                      <span className={status.className}>
+                        <span className={status.dotClassName} aria-hidden />
+                        {status.label}
+                      </span>
+                    </span>
+                    <div className={sourceRowActionsClassName}>
+                      {canUnlink ? (
+                        <Button
+                          variant="quiet"
+                          size="icon-sm"
+                          aria-label={`Unlink ${row.title}`}
+                          isDisabled={unlinkMutation.isPending}
+                          onPress={() => unlinkMutation.mutate(row)}
+                        >
+                          <IconUnlink
+                            className="size-4 text-muted-foreground"
+                            aria-hidden
+                          />
+                        </Button>
                       ) : null}
                     </div>
-                    <span className={cn("shrink-0", status.className)}>
-                      <span className={status.dotClassName} aria-hidden />
-                      {status.label}
-                    </span>
-                    {canUnlink ? (
-                      <Button
-                        variant="quiet"
-                        size="icon-sm"
-                        aria-label={`Unlink ${row.title}`}
-                        isDisabled={unlinkMutation.isPending}
-                        onPress={() => unlinkMutation.mutate(row)}
+                    {row.source ? null : (
+                      <p className={sourceRowNoteClassName}>
+                        Not in sources.yaml any more. It goes at the next sync.
+                      </p>
+                    )}
+                    {row.linked?.indexingStatus === "complete_with_issues" &&
+                    row.linked.indexingError ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "text-amber-200/80",
+                        )}
                       >
-                        <IconUnlink
-                          className="size-4 text-muted-foreground"
-                          aria-hidden
-                        />
-                      </Button>
+                        {row.linked.indexingError}
+                      </p>
                     ) : null}
                   </li>
                 )
@@ -329,15 +378,17 @@ export function GithubSourceRepositories(props: {
             )}
           </ul>
           {!filtering && rows.length > 5 ? (
-            <Button
-              variant="quiet"
-              className="mt-1 h-8 px-2 text-xs text-muted-foreground tabular-nums"
-              aria-expanded={expanded}
-              aria-controls={listId}
-              onPress={() => setShowAll(!showAll)}
-            >
-              {showAll ? "Show fewer" : `Show all ${rows.length}`}
-            </Button>
+            <div className="border-t border-white/[0.06] px-1 py-1">
+              <Button
+                variant="quiet"
+                className="h-8 px-2 text-xs text-muted-foreground tabular-nums"
+                aria-expanded={expanded}
+                aria-controls={listId}
+                onPress={() => setShowAll(!showAll)}
+              >
+                {showAll ? "Show fewer" : `Show all ${rows.length}`}
+              </Button>
+            </div>
           ) : null}
         </>
       )}
@@ -443,7 +494,7 @@ function AddGithubRepositoriesModal(props: {
                   provider: "github",
                   connectionId,
                   scope: {
-                    repositories: [...scopeRepositories(existing), ...names],
+                    repositories: [...scopeItems(existing), ...names],
                   },
                 },
                 input.delivery,

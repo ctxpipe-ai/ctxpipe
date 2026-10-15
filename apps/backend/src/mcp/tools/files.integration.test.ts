@@ -27,13 +27,13 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
   workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
-  workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { knowledgeChunkRows } from "../../domain/workspaces/knowledge-chunks.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { HARD_CAP_CHARS } from "../framework/budget.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
@@ -326,7 +326,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           workspaceId: paymentsId,
         })),
       )
-      await db.insert(workspaceLinkedRepositories).values([
+      await insertLinkedRepositoryRows(db, [
         ...["payments-api", "ledger", "unindexed", "huge-api"].map((short) => ({
           id: generateObjectId("wlr"),
           orgId: seed.orgId,

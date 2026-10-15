@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import {
   SOURCE_PROVIDERS,
   SOURCE_STATUSES,
@@ -34,6 +35,8 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
+    /** False when the row has no id in the file, so a remove cannot name it. */
+    removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
     revision: z.string(),
     updatedAt: z.string().datetime(),
@@ -50,6 +53,16 @@ export const PendingSourceChangeSchema = z
   })
   .openapi("PendingWorkspaceSourceChange")
 
+export const LinkErrorSchema = z
+  .object({
+    action: z.enum(["link", "unlink"]),
+    gitUrl: z.string(),
+    /** Why the edit cannot go into the file. */
+    reason: z.string(),
+    failedAt: z.string().datetime(),
+  })
+  .openapi("WorkspaceSourceLinkError")
+
 export const WorkspaceSourceListResponseSchema = z
   .object({
     /** The path of the config file in the Workspace repository. */
@@ -65,6 +78,8 @@ export const WorkspaceSourceListResponseSchema = z
     directCommitAllowed: z.boolean(),
     /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
+    /** Repository link edits that cannot go into the file, newest first. */
+    linkErrors: z.array(LinkErrorSchema),
   })
   .openapi("WorkspaceSourceListResponse")
 
@@ -144,7 +159,7 @@ const errors = {
     description:
       "Conflict: the key exists (add), the Workspace is read-only, or the file is not valid",
   },
-} as const
+}
 
 const changeOk = {
   200: {
@@ -153,7 +168,7 @@ const changeOk = {
     },
     description: "The file change: a PR (awaiting merge) or a queued commit",
   },
-} as const
+}
 
 export const listWorkspaceSourcesRoute = createRoute({
   method: "get",
@@ -171,43 +186,49 @@ export const listWorkspaceSourcesRoute = createRoute({
   },
 })
 
-export const createWorkspaceSourceRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/sources",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: CreateWorkspaceSourceRequestSchema },
+export const createWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/sources",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: CreateWorkspaceSourceRequestSchema },
+        },
       },
     },
-  },
-  responses: { ...changeOk, ...errors },
-})
+    responses: { ...changeOk, ...errors },
+  }),
+)
 
-export const updateWorkspaceSourceRoute = createRoute({
-  method: "put",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
-  request: {
-    params: WorkspaceSourceParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: UpdateWorkspaceSourceRequestSchema },
+export const updateWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "put",
+    path: "/{workspaceSlug}/sources/{sourceKey}",
+    request: {
+      params: WorkspaceSourceParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: UpdateWorkspaceSourceRequestSchema },
+        },
       },
     },
-  },
-  responses: { ...changeOk, ...errors },
-})
+    responses: { ...changeOk, ...errors },
+  }),
+)
 
-export const deleteWorkspaceSourceRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
-  request: {
-    params: WorkspaceSourceParamsSchema,
-    query: DeleteWorkspaceSourceQuerySchema,
-  },
-  responses: { ...changeOk, ...errors },
-})
+export const deleteWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "delete",
+    path: "/{workspaceSlug}/sources/{sourceKey}",
+    request: {
+      params: WorkspaceSourceParamsSchema,
+      query: DeleteWorkspaceSourceQuerySchema,
+    },
+    responses: { ...changeOk, ...errors },
+  }),
+)
 
 export const ConnectionUsageItemSchema = z
   .object({
@@ -253,31 +274,32 @@ export const listConnectionWorkspacesRoute = createRoute({
   },
 })
 
-export const syncConnectionSourcesRoute = createRoute({
-  method: "post",
-  path: "/{connectionId}/sync",
-  request: { params: ConnectionIdParamsSchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+export const syncConnectionSourcesRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/{connectionId}/sync",
+      request: { params: ConnectionIdParamsSchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description:
+            "A full sync of the connection's Workspace sources is queued. A second request in the same minute queues no other sync.",
+        },
+        401: errors[401],
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "No Workspace source of this connection can sync",
         },
       },
-      description:
-        "A full sync of the connection's Workspace sources is queued. A second request in the same minute queues no other sync.",
     },
-    401: errors[401],
-    403: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forbidden: only an org admin or owner can start a sync",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No Workspace source of this connection can sync",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 export type WorkspaceSourceListResponse = z.infer<
   typeof WorkspaceSourceListResponseSchema

@@ -53,7 +53,7 @@ export async function createWorkspaceLifecycle(input: {
   source?: WorkspaceAddSource
   rootPath?: string
   log: WorkspaceLog
-}): Promise<WorkspaceRecord & { autoLinkGitUrls: string[] }> {
+}): Promise<WorkspaceRecord> {
   const githubConnectionId = await resolveWorkspaceGithubConnectionId({
     orgId: input.orgId,
     requested: input.githubConnectionId,
@@ -81,6 +81,8 @@ export async function createWorkspaceLifecycle(input: {
     { orgId: created.orgId, workspaceId: created.id },
     input.log,
   )
+  // The export links the org repositories of the first Workspace in one
+  // commit of `.ctxpipe/sources.yaml` (ADR-050).
   void enqueueWorkspaceWriteCommit(
     {
       orgId: created.orgId,
@@ -93,18 +95,6 @@ export async function createWorkspaceLifecycle(input: {
     { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
     input.log,
   )
-  for (const gitUrl of created.autoLinkGitUrls) {
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: created.orgId,
-        workspaceId: created.id,
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: gitUrl,
-      },
-      input.log,
-    )
-  }
   void enqueueWorkspaceTipCheck(created.orgId, input.log)
   return created
 }

@@ -83,4 +83,47 @@ describe("readSliceTarget", () => {
       "confluence/ENG/home.md",
     ])
   })
+
+  it("fences a cleanup on its removed targets, not on the whole sources file", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-slice-target-"))
+    await git("git", ["init", "-b", "main", dir])
+    await git("git", ["-C", dir, "config", "user.email", "dev@example.com"])
+    await git("git", ["-C", dir, "config", "user.name", "Dev"])
+    const entry = (id: string, team: string) =>
+      `  - {id: ${id}, provider: linear, connection: con_a, teams: [${team}]}\n`
+    const removed = [
+      { provider: "linear", connectionId: "con_a", scope: { teams: ["ENG"] } },
+    ]
+    const withoutX = await commit({
+      ".ctxpipe/sources.yaml": `version: 1\nsources:\n${entry("y", "OPS")}`,
+      "linear/teams/ENG/README.md": "# ENG\n",
+    })
+    const edited = await commit({
+      ".ctxpipe/sources.yaml": `version: 1\nsources:\n${entry("y", "OPS")}${entry("z", "WEB")}`,
+    })
+    const target = await readSliceTarget({
+      url: dir,
+      headSha: edited,
+      rowsRevision: withoutX,
+      removed,
+    })
+    expect(target.fresh).toBe(true)
+
+    // Not absent: the target is back, an entry id cannot be read, or the
+    // file cannot be read.
+    for (const text of [
+      `version: 1\nsources:\n${entry("x", "ENG")}`,
+      "version: 1\nsources: [{provider: linear}]\n",
+      "version: [\n",
+    ]) {
+      const head = await commit({ ".ctxpipe/sources.yaml": text })
+      const stale = await readSliceTarget({
+        url: dir,
+        headSha: head,
+        rowsRevision: withoutX,
+        removed,
+      })
+      expect(stale.fresh, text).toBe(false)
+    }
+  })
 })

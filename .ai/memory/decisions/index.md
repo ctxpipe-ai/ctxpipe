@@ -58,7 +58,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-048](ADR-048-native-postgres-sandbox-ownership.md) | Conversation sandboxes: stock providers, Postgres ownership, git as durable state | Accepted (amended by ADR-051 and ADR-052: ingest sandboxes) |
 | [ADR-049](ADR-049-self-host-chat-sandbox-stock-docker.md) | Self-host chat sandboxes: stock Docker on DinD and an EC2 host; Agent Vault adds their credentials | Accepted |
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources in a config file; connections hold auth only | Accepted |
-| [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs and parallel chat claims) |
+| [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs, parallel chat claims, answers-first ranking with strong query hits, and shared fallback budgets) |
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted |
 
 Numbers 035 and 036 are unused. The next new ADR is 053.

@@ -25,6 +25,14 @@ export type KnowledgeSearchInput = {
   unitIds?: readonly string[]
   /** Default 10, at most 50. */
   limit?: number
+  /** Monotonic deadline shared by all work in a related-unit call. */
+  deadline?: number
+  /**
+   * The embedding of `query` (`embedQuery`), so that a caller that searches
+   * the same query more than once embeds it once. With none, the search
+   * embeds the query.
+   */
+  embedding?: Promise<number[] | null>
 }
 
 /** The best chunk of one unit. */
@@ -83,19 +91,61 @@ let pgvectorVersion: string | null | undefined
 export async function searchKnowledge(
   input: KnowledgeSearchInput,
 ): Promise<KnowledgeHit[]> {
-  const query = input.query.trim()
-  if (!query || input.workspaceIds.length === 0 || input.unitIds?.length === 0)
-    return []
-  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 50)
-  let embedding: number[] | null = null
+  if (input.deadline === undefined) return runSearch(input)
+  const remaining = input.deadline - performance.now()
+  if (remaining <= 0)
+    throw new DOMException("Search deadline reached", "TimeoutError")
+  const controller = new AbortController()
+  let timer: ReturnType<typeof setTimeout> | undefined
   try {
-    embedding = await generateEmbedding(query)
+    return await Promise.race([
+      runSearch(input, controller.signal),
+      new Promise<never>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = new DOMException(
+            "Search deadline reached",
+            "TimeoutError",
+          )
+          controller.abort(error)
+          reject(error)
+        }, remaining)
+      }),
+    ])
+  } finally {
+    clearTimeout(timer)
+  }
+}
+
+/**
+ * The embedding of a search query, or null when the model call fails: the
+ * search then uses full text only. An abort of `signal` rejects.
+ */
+export async function embedQuery(
+  query: string,
+  signal?: AbortSignal,
+): Promise<number[] | null> {
+  try {
+    return await generateEmbedding(query.trim(), signal)
   } catch (error) {
+    signal?.throwIfAborted()
     log.warn({
       step: "knowledge-search-embed",
       message: `Query embedding failed; the search uses full text only: ${String(error)}`,
     })
+    return null
   }
+}
+
+async function runSearch(
+  input: KnowledgeSearchInput,
+  signal?: AbortSignal,
+): Promise<KnowledgeHit[]> {
+  signal?.throwIfAborted()
+  const query = input.query.trim()
+  if (!query || input.workspaceIds.length === 0 || input.unitIds?.length === 0)
+    return []
+  const limit = Math.min(Math.max(Math.trunc(input.limit ?? 10), 1), 50)
+  const embedding = await (input.embedding ?? embedQuery(query, signal))
   const filters: SQL[] = [
     sql`c.workspace_id = ANY(${textArray(input.workspaceIds)})`,
     sql`u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`,
@@ -142,6 +192,18 @@ export async function searchKnowledge(
   const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
 
   const rows = await withOrgDbContext(input.orgId, async (db) => {
+    signal?.throwIfAborted()
+    const setTimeBudget = async () => {
+      if (input.deadline === undefined) return
+      signal?.throwIfAborted()
+      const remaining = Math.ceil(input.deadline - performance.now())
+      if (remaining <= 0)
+        throw new DOMException("Search deadline reached", "TimeoutError")
+      await db.execute(
+        sql`SELECT set_config('statement_timeout', ${String(remaining)}, true)`,
+      )
+    }
+    await setTimeBudget()
     // Dates without an offset are UTC, as in claim-confidence.ts.
     await db.execute(sql`SELECT set_config('TimeZone', 'UTC', true)`)
     let semantic = sql`SELECT NULL::text, NULL::text, NULL::text, NULL::int, NULL::bigint WHERE false`
@@ -200,6 +262,7 @@ export async function searchKnowledge(
           ) AS nearest`
       }
     }
+    await setTimeBudget()
     const result = await db.execute<{
       workspace_id: string
       unit_id: string

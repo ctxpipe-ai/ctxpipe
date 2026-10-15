@@ -279,6 +279,7 @@ export const getInstallationRoute = createRoute({
   },
 })
 
+// No write grant: a rebind queues only the system bootstrap commit, not user content.
 export const registerInstallationRoute = createRoute({
   method: "post",
   path: "/",

@@ -1,10 +1,12 @@
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { parseEnv } from "../../config/env.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { enqueueSourceProjectionFollowUps } from "./enqueue.js"
+import { projectWorkspaceSources } from "./project.js"
 import {
   FILE_ERROR_SOURCE_KEY,
   type PlannedSourceRow,
@@ -48,6 +50,50 @@ describe("Source projection follow-ups (Postgres)", () => {
         projected,
       })
     }
+    return cleanupRuns(workspaceId)
+  }
+
+  /**
+   * Commit each text of `.ctxpipe/sources.yaml` to a git repository in turn,
+   * project each commit as hydrate does, and run the follow-ups. Each text
+   * can use `{linear}`, the id of one new Linear connection. Returns the
+   * cleanup runs queued for the Workspace.
+   */
+  async function projectFile(slug: string, texts: string[]) {
+    const env = parseEnv(process.env)
+    const linear = await seed.addConnection("linear")
+    const workspaceId = await seed.addWorkspace(slug)
+    const repo = await seed.gitRepository()
+    for (const text of texts) {
+      const revision = await repo.commit({
+        ".ctxpipe/sources.yaml": text.replaceAll("{linear}", linear),
+      })
+      const projected = await projectWorkspaceSources({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        text: await repo.sourcesText(revision),
+        env,
+        // No access check: the Linear API is not part of this test.
+        adapters: {
+          linear: {
+            provider: "linear",
+            managedPaths: () => ["linear/"],
+            fetch: async () => [],
+          },
+        },
+      })
+      await enqueueSourceProjectionFollowUps({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        projected,
+      })
+    }
+    return cleanupRuns(workspaceId)
+  }
+
+  async function cleanupRuns(workspaceId: string) {
     const runs = await backend.listWorkflowRuns({ limit: 1000 })
     return runs.data
       .map((run) => run.input as Record<string, unknown>)
@@ -137,5 +183,75 @@ describe("Source projection follow-ups (Postgres)", () => {
     ])
 
     expect(cleanups).toEqual([])
+  })
+
+  const eng = (id = "issues") => `version: 1
+sources:
+  - id: ${id}
+    provider: linear
+    connection: "{linear}"
+    teams: [ENG]
+`
+  const ops = eng().replace("[ENG]", "[OPS]")
+  const invalid = eng().replace("[ENG]", "5")
+  const noSources = "version: 1\nsources: []\n"
+  const broken = "version: [\n"
+  const cleanedEng = [
+    expect.objectContaining({
+      removed: [expect.objectContaining({ scope: { teams: ["ENG"] } })],
+    }),
+  ]
+
+  it("cleans up the last good scope when an invalid entry gets a new scope", async () => {
+    expect(
+      await projectFile("invalid-then-new-scope", [eng(), invalid, ops]),
+    ).toEqual(cleanedEng)
+  })
+
+  it("cleans up the last good scope when an invalid entry is removed", async () => {
+    expect(
+      await projectFile("invalid-then-removed", [eng(), invalid, noSources]),
+    ).toEqual(cleanedEng)
+  })
+
+  it("keeps the files when an invalid entry gets its old scope again", async () => {
+    expect(
+      await projectFile("invalid-then-same", [eng(), invalid, eng()]),
+    ).toEqual([])
+  })
+
+  it("cleans up a source removed while the sources file could not be read", async () => {
+    expect(
+      await projectFile("file-error-then-removed", [eng(), broken, noSources]),
+    ).toEqual(cleanedEng)
+  })
+
+  it("keeps the files when the sources file can be read again unchanged", async () => {
+    expect(
+      await projectFile("file-error-then-same", [eng(), broken, eng()]),
+    ).toEqual([])
+  })
+
+  it("keeps the files while an entry has an id that cannot be read", async () => {
+    expect(
+      await projectFile("unreadable-id", [eng(), eng("Not An Id")]),
+    ).toEqual([])
+    expect(
+      await projectFile("unreadable-id-fixed", [
+        eng(),
+        eng("Not An Id"),
+        eng(),
+      ]),
+    ).toEqual([])
+  })
+
+  it("cleans up a source removed after its entry had an id that cannot be read", async () => {
+    expect(
+      await projectFile("unreadable-id-then-removed", [
+        eng(),
+        eng("Not An Id"),
+        noSources,
+      ]),
+    ).toEqual(cleanedEng)
   })
 })

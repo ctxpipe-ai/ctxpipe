@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest"
 import { planSourceMigration } from "../migration-plan.js"
 import { parseSourceEntry } from "../sources-file.js"
-import { githubSourceScope } from "./github.js"
+import {
+  githubScopeRepositories,
+  githubScopeSchema,
+  githubSourceScope,
+} from "./github.js"
 
 describe("githubSourceScope", () => {
   it("accepts linked repositories as owner/name", () => {
@@ -27,6 +31,27 @@ describe("githubSourceScope", () => {
       expect(githubSourceScope.schema.safeParse(scope).success).toBe(false)
   })
 
+  it("accepts a repository with a branch or tag ref", () => {
+    const scope = {
+      repositories: ["acme/web", { name: "acme/api", ref: "release/2.x" }],
+    }
+    expect(githubSourceScope.schema.safeParse(scope).success).toBe(true)
+    expect(githubScopeRepositories(githubScopeSchema.parse(scope))).toEqual([
+      { name: "acme/web", ref: null },
+      { name: "acme/api", ref: "release/2.x" },
+    ])
+  })
+
+  it("refuses a bad ref, an extra item key, and a name repeated in a map", () => {
+    for (const scope of [
+      { repositories: [{ name: "acme/web", ref: "bad ref" }] },
+      { repositories: [{ name: "acme/web", ref: "a..b" }] },
+      { repositories: [{ name: "acme/web", branch: "main" }] },
+      { repositories: ["acme/web", { name: "ACME/web", ref: "dev" }] },
+    ])
+      expect(githubSourceScope.schema.safeParse(scope).success).toBe(false)
+  })
+
   it("summarizes the number of linked repositories", () => {
     expect(githubSourceScope.summarize({ repositories: ["acme/web"] })).toBe(
       "1 linked repository",
@@ -40,7 +65,7 @@ describe("githubSourceScope", () => {
 })
 
 describe("the GitHub migration of linked repositories", () => {
-  it("gives an entry that the GitHub scope accepts", () => {
+  it("gives an entry that the GitHub scope accepts, with a branch as ref", () => {
     const { changes } = planSourceMigration({
       workspaces: [
         {
@@ -48,13 +73,17 @@ describe("the GitHub migration of linked repositories", () => {
           workspaceRepositoryUrl: "https://github.com/acme/knowledge.git",
           githubConnectionId: "con_github1",
           sourcesFile: null,
+          repositoryFiles: [
+            "https://github.com/Acme/Web.git",
+            "git@github.com:acme/api.git",
+            "https://gitlab.example/acme/x",
+          ].map((git, index) => ({
+            path: `repositories/r${index}.md`,
+            content: `---\ngit: ${git}\n${index === 0 ? "branch: release\n" : ""}---\n`,
+          })),
         },
       ],
-      linked: [
-        { workspaceId: "ws_eng", gitUrl: "https://github.com/Acme/Web.git" },
-        { workspaceId: "ws_eng", gitUrl: "git@github.com:acme/api.git" },
-        { workspaceId: "ws_eng", gitUrl: "https://gitlab.example/acme/x" },
-      ],
+      linked: [],
       bindings: [],
     })
     const [change] = changes.get("ws_eng") ?? []
@@ -68,7 +97,11 @@ describe("the GitHub migration of linked repositories", () => {
       }),
     ).toMatchObject({
       ok: true,
-      entry: { scope: { repositories: ["acme/api", "acme/web"] } },
+      entry: {
+        scope: {
+          repositories: ["acme/api", { name: "acme/web", ref: "release" }],
+        },
+      },
     })
   })
 })

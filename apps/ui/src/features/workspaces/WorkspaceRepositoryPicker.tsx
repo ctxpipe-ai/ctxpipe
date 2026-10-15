@@ -1,13 +1,16 @@
-import { IconExternalLink } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
+import { IconBrandGithub, IconExternalLink } from "@tabler/icons-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
 import { useMemo, useState } from "react"
 import { TextField as AriaTextField, Link } from "react-aria-components"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { FieldGroup, Input, Label } from "@/components/ui/Field"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   GithubRepoPickerList,
   GithubRepoPickerSkeleton,
@@ -69,7 +72,7 @@ export function WorkspaceRepositoryPicker(props: {
     .map((connection) => connection.id)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, githubConnectionIds),
-    enabled: connectionsQuery.isSuccess,
+    enabled: connectionsQuery.isSuccess && githubConnectionIds.length > 0,
     refetchOnWindowFocus: "always",
   })
 
@@ -139,6 +142,11 @@ export function WorkspaceRepositoryPicker(props: {
         <div className="relative overflow-hidden">
           <TabPanel id="select" className="p-0">
             <SelectGitHubPanel
+              orgSlug={orgSlug}
+              noGithubConnection={
+                connectionsQuery.isSuccess && githubConnectionIds.length === 0
+              }
+              onPasteInstead={() => setMode("paste")}
               pending={pending}
               submitLabel={submitLabel}
               searchQuery={searchQuery}
@@ -229,6 +237,10 @@ export function WorkspaceRepositoryPicker(props: {
 }
 
 function SelectGitHubPanel(props: {
+  orgSlug: string
+  /** The org has no GitHub connection yet. */
+  noGithubConnection: boolean
+  onPasteInstead: () => void
   pending?: boolean
   submitLabel: string
   searchQuery: string
@@ -258,6 +270,15 @@ function SelectGitHubPanel(props: {
     />
   )
 
+  if (props.noGithubConnection) {
+    return (
+      <ConnectGithubEmpty
+        orgSlug={props.orgSlug}
+        onPasteInstead={props.onPasteInstead}
+      />
+    )
+  }
+
   if (props.reposPending) {
     return <GithubRepoPickerSkeleton />
   }
@@ -274,8 +295,8 @@ function SelectGitHubPanel(props: {
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          No installation repositories available. Connect GitHub under
-          Connectors, or paste a git URL.
+          No repository is free to use. Give the GitHub App access to one more
+          repository, or paste a git URL.
         </p>
         {accessLine}
       </div>
@@ -325,6 +346,65 @@ function SelectGitHubPanel(props: {
           </Button>
         ) : null}
       </div>
+    </div>
+  )
+}
+
+/**
+ * The Select GitHub tab when the org has no GitHub connection. "Connect
+ * GitHub" starts the same flow as the Connectors catalog. The hosted app
+ * installs in a popup, so the dialog stays open and the list loads after.
+ */
+function ConnectGithubEmpty(props: {
+  orgSlug: string
+  onPasteInstead: () => void
+}) {
+  const { orgSlug } = props
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const { start, isPending, isSyncing, SelfHostedWizardModal } =
+    useGithubConnectFlow({
+      orgSlug,
+      onRegistered: () => {
+        void queryClient.invalidateQueries({
+          queryKey: orgConnectionsOptions(orgSlug).queryKey,
+        })
+      },
+      onAlreadyInstalled: () => {
+        void navigate({
+          to: "/$orgSlug/github/setup",
+          params: { orgSlug },
+          search: { returnTo: "connectors" },
+        })
+      },
+      onRegistrationFailed: (message) => toast.error(message),
+    })
+
+  return (
+    <div className="flex items-start gap-4 rounded-md border border-border bg-zinc-900/40 p-4">
+      <span className="ctx-node size-10 shrink-0 rounded-md" aria-hidden>
+        <IconBrandGithub className="size-5 text-foreground" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-sm font-medium text-foreground">Connect GitHub</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Connect the GitHub App to pick a repository here. You stay in this
+          dialog.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            isPending={isPending || isSyncing}
+            onPress={() => start("connect")}
+          >
+            Connect GitHub
+          </Button>
+          <Button variant="quiet" onPress={props.onPasteInstead}>
+            Paste a git URL
+          </Button>
+        </div>
+      </div>
+      {SelfHostedWizardModal}
     </div>
   )
 }

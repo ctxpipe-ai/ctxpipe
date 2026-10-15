@@ -11,7 +11,7 @@ describe("githubSourceRepositories", () => {
       "  - id: product-repos",
       "    provider: github",
       "    connection: con_github1",
-      "    repositories: [acme/web, acme/api]",
+      "    repositories: [acme/web, {name: acme/api, ref: v2}]",
       "  - id: broken",
       "    provider: github",
       "    connection: con_github1",
@@ -28,12 +28,22 @@ describe("githubSourceRepositories", () => {
     expect(githubSourceRepositories(text, connections)).toEqual([
       {
         gitUrl: "https://github.com/acme/web",
+        ref: null,
         connectionId: "con_github1",
       },
       {
         gitUrl: "https://github.com/acme/api",
+        ref: "v2",
         connectionId: "con_github1",
       },
+    ])
+    // Without a connection set, each valid GitHub entry links.
+    expect(
+      githubSourceRepositories(text, null).map((item) => item.gitUrl),
+    ).toEqual([
+      "https://github.com/acme/web",
+      "https://github.com/acme/api",
+      "https://github.com/acme/secret",
     ])
   })
 
