@@ -270,6 +270,40 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** Fade cue: 100 ms, `ease-out`. The global rule in `styles.css` stops it under reduced motion. */
+function expectFadeCue(node: Element | null) {
+  expect(node).not.toBeNull()
+  expect(node).toHaveClass("animate-in", "fade-in", "duration-100", "ease-out")
+  expect(getComputedStyle(node as Element).animationDuration).toBe("0.1s")
+}
+
+/** The global reduced-motion rule must cap every transition and animation. */
+function reducedMotionRuleCapsMotion() {
+  const rules: string[] = []
+  const walk = (list: CSSRuleList, inReduce: boolean) => {
+    for (const rule of Array.from(list)) {
+      if (rule instanceof CSSMediaRule) {
+        walk(
+          rule.cssRules,
+          rule.conditionText.includes("prefers-reduced-motion: reduce"),
+        )
+      } else if (inReduce) {
+        rules.push(rule.cssText)
+      }
+    }
+  }
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      walk(sheet.cssRules, false)
+    } catch {
+      // A cross-origin sheet is not ours.
+    }
+  }
+  const text = rules.join("\n")
+  expect(text).toContain("transition-duration: 0.01ms !important")
+  expect(text).toContain("animation-duration: 0.01ms !important")
+}
+
 /** Collapsed pane: the triggers stand alone in the chat header. */
 export const Triggers: Story = {
   render: (args) => (
@@ -286,9 +320,9 @@ export const Triggers: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("button", { name: "Graph" }))
     expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
-    expect(canvas.getByRole("button", { name: "Files" })).toHaveClass(
-      "border-white/10",
-    )
+    // Hide pane mounts the triggers: the strip fades in.
+    expectFadeCue(canvas.getByRole("button", { name: "Files" }).parentElement)
+    reducedMotionRuleCapsMotion()
   },
 }
 
@@ -539,9 +573,41 @@ export const TextTabsKeepPadding: Story = {
       expect(style.paddingLeft).toBe("12px")
       expect(style.paddingRight).toBe("12px")
     }
+    // A new tab fades in when it mounts.
+    expectFadeCue(active)
+    expectFadeCue(idle)
     const files = await canvas.findByRole("tab", { name: "Files" })
     // The icon tab is square: 7px + 1px border + 16px icon on each side.
     expect(files.getBoundingClientRect().width).toBe(32)
+  },
+}
+
+/** A tab change moves no tab: the selected and idle tabs share one top edge, and x and width stay put. */
+export const TabChangeKeepsPosition: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
+    previewPath: null,
+  },
+  parameters: SelectedTabInView.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const a = await canvas.findByRole("tab", { name: "ledger.md" })
+    const b = await canvas.findByRole("tab", { name: "meeting-notes-1.md" })
+    const box = (tab: HTMLElement) => {
+      const r = tab.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, x: r.x, width: r.width }
+    }
+    await expect(a).toHaveAttribute("aria-selected", "true")
+    // Wait for the mount fade to end so no frame skews the numbers.
+    await waitFor(() => expect(box(a).top).toBe(box(b).top))
+    const before = { a: box(a), b: box(b) }
+    expect(before.a.top).toBe(before.b.top)
+    expect(before.a.bottom).toBe(before.b.bottom)
+    await userEvent.click(b)
+    await waitFor(() => expect(b).toHaveAttribute("aria-selected", "true"))
+    const after = { a: box(a), b: box(b) }
+    expect(after).toEqual(before)
   },
 }
 
@@ -551,6 +617,10 @@ export const TreeCollapsed: Story = {
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
     treeCollapsed: true,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expectFadeCue(await canvas.findByRole("button", { name: "Show tree" }))
   },
   parameters: {
     storyRoute: {
@@ -879,6 +949,27 @@ export const Maximized: Story = {
   args: {
     pane: { kind: "files" },
     maximized: true,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const restore = await canvas.findByRole("button", {
+      name: "Show conversation",
+    })
+    // The restore icon and the maximize icon cross-fade in 100 ms.
+    const icons = Array.from(restore.querySelectorAll("svg"))
+    expect(icons).toHaveLength(2)
+    for (const icon of icons) {
+      expect(icon).toHaveClass(
+        "transition-[opacity,scale]",
+        "duration-100",
+        "ease-out",
+      )
+      expect(getComputedStyle(icon).transitionDuration).toBe("0.1s")
+    }
+    // The conversation title button slides in at the left of the strip.
+    const title = canvasElement.querySelector(".slide-in-from-left-1")
+    expectFadeCue(title)
+    expect(title).toHaveClass("slide-in-from-left-1")
   },
   parameters: {
     msw: {
