@@ -400,3 +400,119 @@ it(
     )
   },
 )
+
+it(
+  "hydrate of an exported Workspace moves its repository files into sources.yaml, and the links project",
+  { timeout: 90_000 },
+  async () => {
+    // The export of an earlier version left `repositories/*.md` files and no
+    // GitHub entry in sources.yaml (for example, on a preview database).
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "notes.md", body: "# Notes\nTeam notes.\n" },
+          {
+            path: "repositories/web.md",
+            body: "---\ngit: https://github.com/acme/web.git\n---\n\nThe web app.\n",
+          },
+          {
+            path: "repositories/api.md",
+            body: "---\ngit: https://github.com/acme/api.git\nbranch: stable\n---\n",
+          },
+        ],
+      },
+      async (f) => {
+        // A second worker also runs the link edit that hydrate plans.
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceLinkUnlink } = await import(
+          "../../openworkflow/workflows/workspace-link-unlink.js"
+        )
+        const { workspaceHydrate } = await import(
+          "../../openworkflow/workflows/workspace-hydrate.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
+        runner.implementWorkflow(
+          workspaceLinkUnlink.spec,
+          workspaceLinkUnlink.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        await f.worker.start()
+        try {
+          await f.handle.result({ timeoutMs: 30_000 })
+          const show = (path: string) =>
+            f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`)
+          const tree = () =>
+            f
+              .git(
+                "--git-dir",
+                f.remote,
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "refs/heads/main",
+              )
+              .split("\n")
+          await expect
+            .poll(() => tree().includes(".ctxpipe/sources.yaml"), {
+              timeout: 45_000,
+            })
+            .toBe(true)
+          expect(
+            tree().filter((path) => path.startsWith("repositories/")),
+          ).toEqual([])
+          expect(parse(show(".ctxpipe/sources.yaml"))).toMatchObject({
+            version: 1,
+            sources: [
+              {
+                provider: "github",
+                connection: f.connectionId,
+                repositories: expect.arrayContaining([
+                  "acme/web",
+                  { name: "acme/api", ref: "stable" },
+                ]),
+              },
+            ],
+          })
+          expect(show("notes.md")).toBe("# Notes\nTeam notes.")
+          expect(f.semanticRequests).toEqual([])
+          // The hydrate of the new commit projects the links.
+          const { listLinkedRepositoryPins } = await import(
+            "../../models/workspace-source-state.js"
+          )
+          const { withOrgDbContext } = await import("../../db/client.js")
+          await expect
+            .poll(
+              async () =>
+                (
+                  await withOrgDbContext(f.org.id, (db) =>
+                    listLinkedRepositoryPins(db, {
+                      workspaceId: f.workspaceId,
+                    }),
+                  )
+                )
+                  .map((pin) => `${pin.gitUrl}@${pin.desiredRef ?? ""}`)
+                  .sort(),
+              { timeout: 45_000 },
+            )
+            .toEqual([
+              "https://github.com/acme/api@stable",
+              "https://github.com/acme/web@",
+            ])
+        } finally {
+          await worker.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
