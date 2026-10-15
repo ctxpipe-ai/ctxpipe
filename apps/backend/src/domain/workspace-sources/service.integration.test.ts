@@ -1,11 +1,9 @@
-import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
-import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
@@ -156,7 +154,6 @@ it(
               connectionId: linear,
               scope: { teams: ["ENG"] },
             },
-            delivery: "pull_request",
           })
         })
 
@@ -350,7 +347,6 @@ it(
               connectionId: linear,
               scope: { teams: ["CTX"] },
             },
-            delivery: "pull_request",
           })
         })
 
@@ -376,7 +372,6 @@ async function addLinearSource(f: NativeHydrationFixture, linear: string) {
         connectionId: linear,
         scope: { teams: ["CTX"] },
       },
-      delivery: "pull_request",
     })
   })
 }
@@ -577,7 +572,6 @@ for (const change of ["edit", "remove"] as const)
                       scope: { teams: ["OPS"] },
                     }
                   : { action: "remove", path: "sources/linear/eng.md" },
-              delivery: "pull_request",
             })
           })
 
@@ -768,7 +762,6 @@ it(
               path: "sources/linear/eng.md",
               newPath: "sources/linear/engineering.md",
             },
-            delivery: "pull_request",
           })
         })
 
@@ -809,11 +802,18 @@ it(
 
 for (const action of ["add", "edit", "rename", "remove"] as const)
   it(
-    `queues a direct commit of a source ${action} with only its own files`,
+    `opens a pull request for a source ${action} with only its own files`,
     { timeout: 60_000 },
     async () => {
+      const gitWrites: Array<{ method: string; path: string; body: unknown }> =
+        []
       await withNativeHydrationFixture(
-        { github: true, githubWriteView: "writable", writeStatus: "writable" },
+        {
+          github: true,
+          githubWriteView: "writable",
+          writeStatus: "writable",
+          onGithubPullRequest: () => {},
+        },
         async (f) => {
           const linear = await addLinearConnection(f)
           f.server.use(
@@ -825,7 +825,7 @@ for (const action of ["add", "edit", "rename", "remove"] as const)
               "sources/linear/eng.md": linearFile(linear, "Body.\n"),
               "ENG-1.md": "---\nsources:\n  - sources/linear/eng.md\n---\n",
             }),
-            gitDatabase("a".repeat(40)),
+            gitDatabase("a".repeat(40), gitWrites),
           )
           const change = {
             add: {
@@ -857,11 +857,7 @@ for (const action of ["add", "edit", "rename", "remove"] as const)
             withOrgIdContext(f.org, async () => {
               const workspace = await getWorkspaceById(f.workspaceId)
               if (!workspace) throw new Error("Missing fixture Workspace")
-              return changeWorkspaceSource({
-                workspace,
-                change,
-                delivery: "commit",
-              })
+              return changeWorkspaceSource({ workspace, change })
             }),
           )
 
@@ -874,22 +870,27 @@ for (const action of ["add", "edit", "rename", "remove"] as const)
             },
             remove: { files: [], deletes: ["sources/linear/eng.md"] },
           }[action]
-          expect(result).toMatchObject({ outcome: "commit_queued" })
-          const jobs = await withOrgDbContext(f.org.id, (db) =>
-            db
-              .select()
-              .from(workspaceWriteJobs)
-              .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
-          )
-          const job = jobs.find((item) => item.kind === "ui_file_edit")
-          expect(job?.payload?.mergeDeletePaths ?? []).toEqual(expected.deletes)
+          expect(result).toMatchObject({ outcome: "pull_request" })
+          const entries = gitWrites
+            .filter(
+              (write) => write.method === "POST" && write.path === "trees",
+            )
+            .flatMap(
+              (write) =>
+                (
+                  write.body as {
+                    tree: Array<{ path: string; sha?: null; content?: string }>
+                  }
+                ).tree,
+            )
           expect(
-            (job?.payload?.mergeFiles ?? []).map((file) => file.path),
+            entries.filter((entry) => entry.sha === null).map((e) => e.path),
+          ).toEqual(expected.deletes)
+          expect(
+            entries.filter((entry) => entry.sha !== null).map((e) => e.path),
           ).toEqual(expected.files)
           if (action === "edit")
-            expect(job?.payload?.mergeFiles?.[0]?.content).toMatch(
-              /---\nBody\.\n$/,
-            )
+            expect(entries[0]?.content).toMatch(/---\nBody\.\n$/)
         },
       )
     },
@@ -928,7 +929,6 @@ it(
             return changeWorkspaceSource({
               workspace,
               change,
-              delivery: "pull_request",
             })
           })
         const rename = (path: string, newPath: string) =>
@@ -1019,7 +1019,6 @@ it(
                 connectionId: f.connectionId,
                 scope: { repository: "Acme/Web" },
               },
-              delivery: "pull_request",
             })
           }),
         ).rejects.toMatchObject({ status: 409 })
@@ -1067,7 +1066,6 @@ it(
             return addWorkspaceSources({
               workspace,
               changes,
-              delivery: "pull_request",
             })
           })
 
@@ -1089,6 +1087,131 @@ it(
         await expect(run([add("acme/web"), add("Acme/Web")])).rejects.toThrow(
           /already a source|exists/,
         )
+        expect(pullRequests).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
+  "lists each path of an open batch pull request as pending and refuses a later add of one",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40)),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () =>
+              HttpResponse.json([
+                pull(
+                  71,
+                  "ctxpipe/sources/add/github/acme/web/_and_/github/acme/api/k71-0a1b2c3d",
+                ),
+              ]),
+          ),
+        )
+        const inWorkspace = <T>(
+          run: (
+            workspace: NonNullable<
+              Awaited<ReturnType<typeof getWorkspaceById>>
+            >,
+          ) => Promise<T>,
+        ) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return run(workspace)
+          })
+
+        const sources = await inWorkspace(listWorkspaceSources)
+
+        expect(
+          sources.pendingChanges.map((change) => [change.action, change.path]),
+        ).toEqual([
+          ["add", "sources/github/acme/web.md"],
+          ["add", "sources/github/acme/api.md"],
+        ])
+        await expect(
+          inWorkspace((workspace) =>
+            changeWorkspaceSource({
+              workspace,
+              change: {
+                action: "add",
+                provider: "github",
+                connectionId: f.connectionId,
+                scope: { repository: "acme/api" },
+              },
+            }),
+          ),
+        ).rejects.toMatchObject({ status: 409 })
+      },
+    )
+  },
+)
+
+it(
+  "gives an auto path that no explicit path of the batch takes, and refuses a branch name over 200 characters",
+  { timeout: 60_000 },
+  async () => {
+    const pullRequests: Array<{ head?: string }> = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: (body) => {
+          pullRequests.push(body as { head?: string })
+        },
+      },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40)),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const linear = await addLinearConnection(f)
+        const run = (
+          changes: Parameters<typeof addWorkspaceSources>[0]["changes"],
+        ) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return addWorkspaceSources({ workspace, changes })
+          })
+        const team = (teams: string[], path?: string) => ({
+          action: "add" as const,
+          ...(path ? { path } : {}),
+          provider: "linear" as const,
+          connectionId: linear,
+          scope: { teams },
+        })
+
+        const result = await run([
+          team(["ENG"]),
+          team(["OPS"], "sources/linear/linear.md"),
+        ])
+
+        expect(result.paths).toEqual([
+          "sources/linear/linear-2.md",
+          "sources/linear/linear.md",
+        ])
+
+        const repository = (index: number) => ({
+          action: "add" as const,
+          provider: "github" as const,
+          connectionId: f.connectionId,
+          scope: { repository: `acme/${"r".repeat(40)}-${index}` },
+        })
+        await expect(run([0, 1, 2, 3].map(repository))).rejects.toMatchObject({
+          status: 400,
+        })
         expect(pullRequests).toHaveLength(1)
       },
     )

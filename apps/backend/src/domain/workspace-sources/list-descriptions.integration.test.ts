@@ -1,3 +1,4 @@
+import { rm } from "node:fs/promises"
 import { afterAll, beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -40,11 +41,13 @@ it("lists the body of each source file from git at the served revision", async (
     rows: ["eng", "none", "huge"].map((n) => row(`sources/linear/${n}.md`)),
   })
 
-  const list = await withOrgIdContext({ id: seed.orgId } as never, async () => {
-    const workspace = await getWorkspaceById(workspaceId)
-    if (!workspace) throw new Error("missing Workspace")
-    return listWorkspaceSources(workspace)
-  })
+  const listOnce = () =>
+    withOrgIdContext({ id: seed.orgId } as never, async () => {
+      const workspace = await getWorkspaceById(workspaceId)
+      if (!workspace) throw new Error("missing Workspace")
+      return listWorkspaceSources(workspace)
+    })
+  const list = await listOnce()
 
   const byPath = Object.fromEntries(list.items.map((i) => [i.path, i]))
   expect(byPath["sources/linear/eng.md"]?.description).toBe(
@@ -52,4 +55,11 @@ it("lists the body of each source file from git at the served revision", async (
   )
   expect(byPath["sources/linear/none.md"]?.description).toBeUndefined()
   expect(byPath["sources/linear/huge.md"]?.description).toBeUndefined()
+
+  // A revision does not change, so a later list (a UI poll) reads no git.
+  await rm(repo.dir, { recursive: true, force: true })
+  const again = await listOnce()
+  expect(
+    again.items.find((i) => i.path === "sources/linear/eng.md")?.description,
+  ).toBe("Engineering issues.")
 })
