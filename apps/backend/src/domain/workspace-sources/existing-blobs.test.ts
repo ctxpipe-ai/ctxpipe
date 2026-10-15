@@ -68,6 +68,26 @@ describe("listExistingBlobs (real git)", () => {
     expect(blobs).toHaveLength(70)
     expect(blobs.every((blob) => blob.restamped !== undefined)).toBe(true)
   })
+
+  it("skips a Markdown blob over the size cap and still reads the next one", async () => {
+    const huge = `---\nsource: slack\n---\n${"x".repeat(3 * 1024 * 1024)}\n`
+    const dir = commitGitTree({
+      "slack/channels/C1/a.md": page,
+      "slack/channels/C1/b-huge.md": huge,
+      "slack/channels/C1/c.md": page,
+    })
+    const blobs = await listExistingBlobs(dir, "HEAD", [
+      { prefixes: ["slack/channels/C1/"], sourcePath: "sources/slack/c.md" },
+    ])
+    const byPath = Object.fromEntries(blobs.map((blob) => [blob.path, blob]))
+    const restamped = stampSources(page, ["sources/slack/c.md"])
+    expect(byPath["slack/channels/C1/b-huge.md"]).toEqual({
+      path: "slack/channels/C1/b-huge.md",
+      sha: gitBlobSha(huge),
+    })
+    expect(byPath["slack/channels/C1/a.md"]?.restamped).toBe(restamped)
+    expect(byPath["slack/channels/C1/c.md"]?.restamped).toBe(restamped)
+  })
 })
 
 describe("stampMirrorFiles (real git)", () => {

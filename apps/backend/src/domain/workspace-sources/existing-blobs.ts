@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process"
+import { log } from "../../observability/logger.js"
 import { listTreeBlobs } from "../../services/git/pack.js"
 import { gitBlobSha, readSourcesStamp, stampSources } from "./stamp-sources.js"
 import { type ExistingBlob, type StampOwner, stampOwnerOf } from "./sync.js"
@@ -28,16 +29,31 @@ export async function listExistingBlobs(
   const marked = blobs.filter((blob) => blob.path.endsWith(".md"))
   const read = new Map<string, ExistingBlob>()
   let index = 0
+  let skipped = 0
   for await (const body of catFileBatch(
     directory,
     marked.map((blob) => blob.sha),
   )) {
     const blob = marked[index++]
     if (!blob) break
+    // Too large to read: the adapter path decides about this file.
+    if (!body) {
+      skipped++
+      continue
+    }
     read.set(blob.path, readStamp(blob, body, stampOwnerOf(owners, blob.path)))
   }
+  if (skipped)
+    log.warn({
+      step: "existing-blobs",
+      message: "Markdown blobs over the size cap are not read for stamping",
+      skipped,
+    })
   return blobs.map((blob) => read.get(blob.path) ?? blob)
 }
+
+/** A Markdown blob over this size is not read into memory. */
+const maxBlobBytes = 2 * 1024 * 1024
 
 function readStamp(
   blob: { path: string; sha: string },
@@ -60,12 +76,13 @@ function readStamp(
 /**
  * The contents of the blobs `shas`, in order, from one `git cat-file
  * --batch`. It holds one blob in memory at a time, so a large mirror does
- * not fill an output buffer.
+ * not fill an output buffer. A blob over `maxBlobBytes` is dropped while it
+ * streams and yields null.
  */
 async function* catFileBatch(
   directory: string,
   shas: readonly string[],
-): AsyncGenerator<Buffer> {
+): AsyncGenerator<Buffer | null> {
   if (!shas.length) return
   const child = spawn(
     "git",
@@ -80,30 +97,39 @@ async function* catFileBatch(
   child.stderr.on("data", (chunk: Buffer) => stderr.push(chunk))
   child.stdin.end(`${shas.join("\n")}\n`)
   try {
-    let chunks: Buffer[] = []
-    let length = 0
+    let pending: Buffer = Buffer.alloc(0)
     let size: number | null = null
+    // Bytes of an oversized blob (and its newline) still to drop.
+    let dropping = 0
     for await (const chunk of child.stdout as AsyncIterable<Buffer>) {
-      chunks.push(chunk)
-      length += chunk.length
+      pending = pending.length ? Buffer.concat([pending, chunk]) : chunk
       for (;;) {
+        if (dropping) {
+          const drop = Math.min(dropping, pending.length)
+          pending = pending.subarray(drop)
+          dropping -= drop
+          if (dropping) break
+          yield null
+          continue
+        }
         if (size === null) {
-          const pending = Buffer.concat(chunks)
           const end = pending.indexOf(10)
           if (end < 0) break
           const header = pending.subarray(0, end).toString()
           const match = /^[0-9a-f]+ blob (\d+)$/.exec(header)
           if (!match) throw new Error(`Git cannot read the blob: ${header}`)
           size = Number(match[1])
-          chunks = [pending.subarray(end + 1)]
-          length = pending.length - end - 1
+          pending = pending.subarray(end + 1)
+          if (size > maxBlobBytes) {
+            dropping = size + 1
+            size = null
+            continue
+          }
         }
         // Each blob ends with a newline after its content.
-        if (length < size + 1) break
-        const pending = Buffer.concat(chunks)
+        if (pending.length < size + 1) break
         yield pending.subarray(0, size)
-        chunks = [pending.subarray(size + 1)]
-        length = pending.length - size - 1
+        pending = pending.subarray(size + 1)
         size = null
       }
     }
