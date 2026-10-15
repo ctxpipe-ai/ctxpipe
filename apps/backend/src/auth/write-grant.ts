@@ -67,7 +67,11 @@ export const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
  * The return type leaves out `middleware`: its untyped path would widen the
  * route path that the `hc` client infers.
  */
-export function directWriteRoute<R extends RouteConfig>(
+export function directWriteRoute<
+  // A separate path parameter keeps the path literal, as in `createRoute`.
+  P extends string,
+  R extends RouteConfig & { path: P },
+>(
   route: R,
   options?: { orgAdmin: true },
 ): R & {
