@@ -67,7 +67,6 @@ export function BuildkiteSetupDialog({
   onConnectionIdChange,
 }: BuildkiteSetupDialogProps) {
   const queryClient = useQueryClient()
-  const [webhookSkipped, setWebhookSkipped] = useState(false)
   const [replacing, setReplacing] = useState(replaceWebhook)
   const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
   const workspacesDone = pullRequests.length > 0
@@ -80,7 +79,6 @@ export function BuildkiteSetupDialog({
   })
   const status = statusQuery.data
   const step = getBuildkiteSetupStep(status, {
-    webhookSkipped,
     workspacesDone,
     replaceWebhook: replacing,
   })
@@ -146,7 +144,6 @@ export function BuildkiteSetupDialog({
           connectionId={connectionId}
           status={status}
           onSaved={() => setReplacing(false)}
-          onSkip={() => setWebhookSkipped(true)}
         />
       )
     }
@@ -304,7 +301,6 @@ function WebhookStep(props: {
   connectionId: string
   status: BuildkiteConnectorStatus
   onSaved: () => void
-  onSkip: () => void
 }) {
   const queryClient = useQueryClient()
   const [webhookToken, setWebhookToken] = useState("")
@@ -334,8 +330,8 @@ function WebhookStep(props: {
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           With the webhook, a finished build reaches the Workspaces in about 10
-          minutes. Without it, ctx| syncs once a day and when you select Sync
-          now.
+          minutes. To add it later, close this dialog: the connector card shows
+          Add the webhook.
         </p>
       </div>
       <ol className="list-decimal space-y-3 pl-5 text-sm text-muted-foreground">
@@ -396,13 +392,6 @@ function WebhookStep(props: {
           onPress={() => save.mutate()}
         >
           Save webhook token
-        </Button>
-        <Button
-          variant="secondary"
-          className="rounded-md"
-          onPress={props.onSkip}
-        >
-          Skip for now
         </Button>
       </div>
     </div>

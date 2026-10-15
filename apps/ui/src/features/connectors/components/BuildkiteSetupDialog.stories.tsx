@@ -196,6 +196,10 @@ export const SaveWebhookToken: Story = {
         "https://app.example.com/api/v1/webhook/buildkite/con_story_buildkite",
       ),
     ).toBeVisible()
+    // As in the other connector setups, a step has no skip: Close leaves.
+    await expect(
+      body.queryByRole("button", { name: "Skip for now" }),
+    ).toBeNull()
     // Each field of the Buildkite form has its own step.
     await expect(body.getByText(/Clear every event except/)).toBeVisible()
     await expect(
@@ -213,23 +217,6 @@ export const SaveWebhookToken: Story = {
     await expect(webhookCalls).toEqual([
       { connectionId, webhookToken: "hook-token" },
     ])
-  },
-}
-
-export const SkipWebhook: Story = {
-  args: { connectionId },
-  parameters: { msw: { handlers: { page: webhookHandlers() } } },
-  play: async ({ canvasElement }) => {
-    const body = within(canvasElement.ownerDocument.body)
-    await visible(
-      await body.findByRole("heading", { name: "Add the Buildkite webhook" }),
-    )
-    await userEvent.click(body.getByRole("button", { name: "Skip for now" }))
-    await expect(
-      await body.findByRole("heading", {
-        name: "Add Buildkite to Workspaces",
-      }),
-    ).toBeVisible()
   },
 }
 

@@ -64,15 +64,17 @@ commit and pull request. The Workspace graph then joins the build to them.
     The webhook tells ctx| when a build finishes. In Buildkite, open
     **Settings → Notification Services**, and add a **Webhook**:
 
-    1. Paste the webhook URL that the setup shows.
-    2. For the token, select the signature option
-       (`X-Buildkite-Signature`). ctx| refuses a plain token.
-    3. Under **Events**, select only `build.finished`.
-    4. Select the pipelines, then save the webhook.
+    1. **Webhook URL:** paste the URL that the setup shows.
+    2. **Token:** select the signature option (`X-Buildkite-Signature`).
+       ctx| refuses a plain token.
+    3. **Events:** clear every event except `build.finished`.
+    4. **Pipelines:** keep all pipelines, or select the pipelines that your
+       Workspaces sync. Then save the webhook.
     5. Copy the token of the webhook, and paste it into the setup.
 
-    You can skip this step. Without the webhook, ctx| syncs once a day and
-    when you select **Sync now**.
+    To add the webhook later, close the setup: the connector card shows
+    **Add the webhook**, and **Add to a Workspace** under **Used in**. Until
+    then, ctx| syncs once a day and when you select **Sync now**.
   </Step>
 
   <Step>
