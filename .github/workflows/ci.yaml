@@ -34,7 +34,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -52,6 +52,8 @@ jobs:
         run: node scripts/ci/check-test-policy.mjs
       - name: Reject slow UI motion
         run: node scripts/ci/check-ui-motion.mjs
+      - name: Reject non-Blacksmith runners
+        run: node scripts/ci/check-runners.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
@@ -67,7 +69,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,7 +92,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -235,7 +237,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -273,7 +275,7 @@ jobs:
       always() && (github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require every test job
         env:
@@ -313,7 +315,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -346,7 +348,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -371,7 +373,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -403,7 +405,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -419,7 +421,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
     # Vercel project, never production.
     environment: Preview
@@ -474,7 +476,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: hashicorp/setup-terraform@v3
@@ -508,7 +510,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.

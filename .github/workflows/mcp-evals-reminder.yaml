@@ -21,7 +21,7 @@ jobs:
   remind:
     name: Ask for the mcp-evals label
     if: "github.event.pull_request.head.repo.fork != true && !contains(github.event.pull_request.labels.*.name, 'mcp-evals')"
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 5
     steps:
       - name: Post the reminder once
