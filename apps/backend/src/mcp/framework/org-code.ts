@@ -345,27 +345,34 @@ function checkGraphAnchors(
   }
 }
 
-/** One SCIP graph primitive over each repository of the scope. */
+/**
+ * One SCIP graph primitive over each repository of the scope. `keep` filters
+ * the rows of each repository before the merge, so a cursor counts only the
+ * kept rows. With `keep`, each repository gives its full 200 rows, because
+ * the filter can drop any of them.
+ */
 export async function findSymbolAcrossRepositories(
   org: CallOrg,
   scope: CodeScope,
   body: Omit<GraphRequestBody, "checkoutKey" | "limit">,
   budget: Budget,
+  keep?: (row: Record<string, unknown>) => boolean,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
   checkGraphAnchors(body)
   return fanOut(scope, budget, "graph", async (repository, transport) => {
     const answer = await codesearchGraphQuery(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: repositoryLimit(budget, 200) },
+      { ...body, limit: keep ? 200 : repositoryLimit(budget, 200) },
       undefined,
       transport,
     )
     // An empty answer without an index is not "no symbol".
     if (answer.index === "missing") return "not_indexed"
     if (answer.index === "unreadable") return "failed"
-    return Array.isArray(answer.results)
+    const rows = Array.isArray(answer.results)
       ? (answer.results as Record<string, unknown>[])
       : []
+    return keep ? rows.filter(keep) : rows
   })
 }
 

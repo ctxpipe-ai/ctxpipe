@@ -2,6 +2,7 @@ import { z } from "zod"
 import { truncateText } from "../framework/budget.js"
 import { resolveCallWorkspace } from "../framework/call-workspace.js"
 import { decodeCursor } from "../framework/cursor.js"
+import { languageOfPath } from "../framework/languages.js"
 import {
   resolveCodeScope,
   searchCodeText,
@@ -35,34 +36,6 @@ const textFileSchema = z.object({
 
 /** Matches that one file shows; `matchCount` counts all of them. */
 const MATCHES_PER_FILE = 3
-
-/** Languages by file extension, for structural matches. */
-const LANGUAGES: Record<string, string> = {
-  ts: "TypeScript",
-  tsx: "TSX",
-  js: "JavaScript",
-  jsx: "JavaScript",
-  mjs: "JavaScript",
-  cjs: "JavaScript",
-  py: "Python",
-  go: "Go",
-  rs: "Rust",
-  java: "Java",
-  kt: "Kotlin",
-  rb: "Ruby",
-  cs: "C#",
-  c: "C",
-  h: "C",
-  cpp: "C++",
-  swift: "Swift",
-  php: "PHP",
-  scala: "Scala",
-}
-
-function languageOf(path: string): string | null {
-  const extension = path.slice(path.lastIndexOf(".") + 1).toLowerCase()
-  return LANGUAGES[extension] ?? null
-}
 
 type FileHits = {
   repository: string
@@ -230,7 +203,7 @@ export const searchCodeTool = defineMcpReadTool({
       return {
         repository: item.repository,
         path: match.file,
-        language: languageOf(match.file),
+        language: languageOfPath(match.file),
         matches: [
           {
             startLine: match.range.start.line + 1,

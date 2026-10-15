@@ -1119,6 +1119,68 @@ it("pages search_code and find_symbol with a cursor", async () => {
   })
 })
 
+it("keeps only the symbols of the language that find_symbol names", async () => {
+  requests = []
+  server.use(
+    http.post(
+      "http://codesearch.test/:repository/graph",
+      async ({ request }) => {
+        requests.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({
+          ok: true,
+          results: [
+            {
+              symbol: "scip-typescript npm example 1 charge().",
+              symbol_name: "charge",
+              kind: "function",
+              file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/src/charge.ts`,
+            },
+            {
+              symbol: "scip-python python example 1 charge().",
+              symbol_name: "charge",
+              kind: "function",
+              file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/tools/charge.py`,
+            },
+            {
+              symbol: "scip-python python example 1 refund().",
+              symbol_name: "refund",
+              kind: "function",
+            },
+          ],
+        })
+      },
+    ),
+  )
+  const call = (language?: string) =>
+    callTool({
+      name: "find_symbol",
+      arguments: {
+        org: seed.orgSlug,
+        symbol: "charge",
+        relation: "definition",
+        excludeRepositories: [],
+        ...(language ? { language } : {}),
+      },
+    })
+  const names = async (language?: string) =>
+    (
+      (await call(language)).structuredContent?.results as Array<{
+        ref?: string
+        name: string
+      }>
+    ).map((row) => row.ref ?? row.name)
+  expect(await names("python")).toEqual([
+    "example/alpha:tools/charge.py",
+    "refund",
+  ])
+  expect(await names("TS")).toEqual(["example/alpha:src/charge.ts"])
+  expect(await names()).toHaveLength(3)
+  expect(requests.map((body) => body.limit)).toEqual([200, 200, 21])
+  expect((await call("cobol"))._meta?.["ai.ctxpipe/error"]).toMatchObject({
+    code: "invalid_argument",
+  })
+})
+
 it("takes a search_code ref as the filePath of find_symbol", async () => {
   requests = []
   server.use(
