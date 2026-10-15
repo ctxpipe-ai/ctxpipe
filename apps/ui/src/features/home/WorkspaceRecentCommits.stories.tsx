@@ -83,13 +83,7 @@ export const OpensInNewTab: Story = {
           throw new Error(`${step}: icon opacity is ${seen}, not ${opacity}`)
       })
     await userEvent.hover(hash)
-    try {
-      await iconOpacity("on hover", "1")
-    } catch (error) {
-      throw new Error(
-        `DIAG hovered=${hash.getAttribute("data-hovered")} rac=${hash.getAttribute("data-rac")} hoverMedia=${matchMedia("(hover: hover)").matches} cls=${icon.getAttribute("class")} cause=${String(error)}`,
-      )
-    }
+    await iconOpacity("on hover", "1")
     await userEvent.unhover(hash)
     await iconOpacity("after hover", "0")
 
