@@ -215,7 +215,7 @@ it(
 )
 
 it(
-  "re-checks write access on each Workspace detail read with a read_only write status",
+  "queues one idempotent re-check per minute on Workspace detail reads with a read_only write status",
   { timeout: 45_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
@@ -228,17 +228,61 @@ it(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       const before = await tipCheckKeys(f.org.id)
-
-      for (let i = 0; i < 2; i++) {
-        const detail = await app.request("/workspaces/knowledge")
-        expect(detail.status).toBe(200)
+      // Pin the clock so both reads share one minute.
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      const minute = Math.floor(Date.now() / 60_000)
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
       }
 
       await expect
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([null, null])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
+    })
+  },
+)
+
+it(
+  "queues a new re-check with a new key when a read_only Workspace is read in the next minute",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "read_only" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const before = await tipCheckKeys(f.org.id)
+      const start = Math.floor(Date.now() / 60_000) * 60_000
+      const now = vi.spyOn(Date, "now")
+      try {
+        for (const at of [start, start + 60_000]) {
+          now.mockReturnValue(at)
+          expect((await app.request("/workspaces/knowledge")).status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
+      }
+
+      const minute = start / 60_000
+      await expect
+        .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
+          timeout: 5_000,
+        })
+        .toEqual([
+          `tip-check-on-demand:${f.org.id}:${minute}`,
+          `tip-check-on-demand:${f.org.id}:${minute + 1}`,
+        ])
     })
   },
 )
