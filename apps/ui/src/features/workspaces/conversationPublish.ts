@@ -117,7 +117,6 @@ export type PublishErrorCode =
   | "nothing_committed"
   | "no_changes"
   | "no_write_access"
-  | "host_only_path"
   | "host_only_field"
   | "no_pr_access"
   | "pr_refused"
@@ -153,8 +152,6 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   nothing_committed: "There are no commits yet. Use Sync to commit the files.",
   no_changes: "There are no changes to publish.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
-  host_only_path:
-    "Only ctx| can change the .ctxpipe folder. Ask the agent to remove those changes from the branch, then publish again. To change sources, open Sources in the Workspace settings.",
   host_only_field:
     "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",
   no_pr_access:

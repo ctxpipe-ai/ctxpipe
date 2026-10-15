@@ -40,7 +40,7 @@ import {
   UNPUSHED_COMMITS_COMMAND,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
-import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
+import { addedOwnershipField } from "./host-only.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   type BranchChanges,
@@ -117,8 +117,6 @@ export type SessionPublishSkip =
   | "nothing_committed"
   /** The session branch is not on GitHub. */
   | "no_changes"
-  /** The commits change a path that only ctx| writes, such as `.ctxpipe/`. */
-  | "host_only_path"
   /** The commits add or change `generated_by` or `sources` front matter. */
   | "host_only_field"
 
@@ -553,9 +551,12 @@ async function brokerPush(input: {
       })
       await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
       // The check reads the broker's own copy of the objects, not the
-      // sandbox, because the agent controls the sandbox.
-      const hostOnly = await hostOnlyChange(directory, packBase, sha)
-      if (hostOnly) throw new PublishRefused(hostOnly)
+      // sandbox, because the agent controls the sandbox. A change to a
+      // host-only path such as `.ctxpipe/` is allowed: the push reaches only
+      // the session branch, so the change reaches the default branch only
+      // through a pull request that a person merges.
+      if (await addsOwnershipField(directory, packBase, sha))
+        throw new PublishRefused("host_only_field")
       // The write token only ever reaches this conversation's session branch,
       // never a branch that is (or became) the default.
       const latestDefault = await resolveGitRemoteTip({
@@ -607,9 +608,9 @@ async function brokerPush(input: {
 }
 
 /**
- * The first change that only the host can make (CTX-722): a path under a
- * host-only folder on either side of a change, or a file that gets an
- * ownership field it did not have. The check reads the net change from `base`
+ * True when a change from `base` to `sha` gives a file an ownership field
+ * that it did not have (CTX-722). Only the host sets these fields, because
+ * they give a file to ingestion. The check reads the net change from `base`
  * to `sha`, and each commit between them against its first parent, because
  * the history keeps a change that a later commit removes. A commit with no
  * parent is compared with the empty tree. A rename compares the file with its
@@ -617,11 +618,11 @@ async function brokerPush(input: {
  * file that is not Markdown has no ownership fields, so a rename to Markdown
  * cannot bring them in.
  */
-async function hostOnlyChange(
+async function addsOwnershipField(
   directory: string,
   base: string,
   sha: string,
-): Promise<"host_only_path" | "host_only_field" | null> {
+): Promise<boolean> {
   const emptyTree = async () =>
     (await nativeGit(directory, ["hash-object", "-t", "tree", "--stdin"], ""))
       .toString("utf8")
@@ -642,7 +643,6 @@ async function hostOnlyChange(
       await nativeGit(directory, ["cat-file", "blob", `${commit}:${path}`])
     ).toString("utf8")
   const isMarkdown = (path: string) => /\.md$/i.test(path)
-  let field = false
   for (const [from, to] of pairs) {
     const changes = parseNameStatus(
       await nativeGit(directory, [
@@ -655,26 +655,16 @@ async function hostOnlyChange(
         to,
       ]),
     )
-    if (
-      changes.some(
-        (change) => isHostOnlyPath(change.from) || isHostOnlyPath(change.to),
-      )
-    )
-      return "host_only_path"
-    if (field) continue
     for (const change of changes) {
       if (change.status.startsWith("D") || !isMarkdown(change.to)) continue
       const before =
         change.status.startsWith("A") || !isMarkdown(change.from)
           ? null
           : await blob(from, change.from)
-      if (addedOwnershipField(before, await blob(to, change.to))) {
-        field = true
-        break
-      }
+      if (addedOwnershipField(before, await blob(to, change.to))) return true
     }
   }
-  return field ? "host_only_field" : null
+  return false
 }
 
 function sanitizeCredentials(

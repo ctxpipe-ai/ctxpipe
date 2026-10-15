@@ -3,9 +3,11 @@ import { parseYamlObject, splitFrontMatter } from "../ingestion/front-matter.js"
 import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
 
 /**
- * The Workspace paths that only the host writes (CTX-722). A source grants
- * data flow, so no agent write can change its config. The patch validator,
- * the ingest ref broker and conversation publish all read this list.
+ * The Workspace paths that no agent write can change without a pull request
+ * (CTX-722). A source grants data flow, so a person must review a change to
+ * its config. The patch validator, the ingest ref broker and the semantic
+ * merge write without a pull request, so they refuse these paths.
+ * Conversation publish pushes only to the session branch, so it allows them.
  * CTX-721 adds `sources/` here.
  */
 const HOST_ONLY_FOLDERS = [".ctxpipe"] as const
