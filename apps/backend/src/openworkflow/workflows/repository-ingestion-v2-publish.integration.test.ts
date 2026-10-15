@@ -1,0 +1,437 @@
+import { execFileSync } from "node:child_process"
+import {
+  chmodSync,
+  mkdirSync,
+  mkdtempSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
+import { tmpdir } from "node:os"
+import { dirname, join } from "node:path"
+import { and, eq, sql } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
+import { setupServer } from "msw/node"
+import { OpenWorkflow } from "openworkflow"
+import { BackendPostgres } from "openworkflow/postgres"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { parseEnv } from "../../config/env.js"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
+import { connections } from "../../db/schema/connections.js"
+import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
+import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
+import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
+import { generateObjectId } from "../../lib/id.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import {
+  type GithubTokenLog,
+  githubTokenHandlers,
+  insertGithubConnection,
+  stubGithubApp,
+} from "../../test/ingest-github.js"
+import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
+import { openWorkflowNamespaceId } from "../namespace.js"
+import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
+import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.js"
+import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
+import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
+
+/*
+ * Ingestion v2 publish (T21), with real Postgres, a real OpenWorkflow worker,
+ * the real broker, and real git. GitHub is a set of local bare repositories
+ * (`url.<dir>.insteadOf https://github.com/`); msw mints its tokens and
+ * answers the model calls of the host stand-in sandbox.
+ */
+
+const MODEL_URL = "https://ingest-model.test/v1/step"
+const GIT_ENV = {
+  GIT_AUTHOR_NAME: "Fixture",
+  GIT_AUTHOR_EMAIL: "fixture@example.com",
+  GIT_COMMITTER_NAME: "Fixture",
+  GIT_COMMITTER_EMAIL: "fixture@example.com",
+}
+
+const orgId = generateObjectId("org")
+const connectionId = generateObjectId("con")
+const suffix = Math.random().toString(36).slice(2, 8)
+const sourceName = `acme/billing-api-${suffix}`
+const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
+const workspaceIds = [generateObjectId("ws"), generateObjectId("ws")].sort()
+const githubLog: GithubTokenLog = { minted: [], revoked: [] }
+/** A human commit lands on context B while the first run is in its steps. */
+const human = { pushed: false, sha: "" }
+/** Each run writes another text, so each run has a delta to publish. */
+let edition = 1
+
+const server = setupServer(
+  ...githubTokenHandlers(githubLog, () => "fixture-only-github-token"),
+  http.post(MODEL_URL, async ({ request }) => {
+    const body = (await request.json()) as {
+      root: string | null
+      workspaceId: string
+    }
+    if (body.workspaceId === workspaceIds[1] && !human.pushed) {
+      human.pushed = true
+      human.sha = humanCommit(contexts[1] ?? "")
+    }
+    const root = body.root ?? "."
+    const name = root === "." ? "billing-api" : (root.split("/").pop() ?? root)
+    return HttpResponse.json({
+      more: false,
+      files: [
+        {
+          path: `knowledge/services/${name}.md`,
+          content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service sends invoices (edition ${edition}).\n`,
+        },
+      ],
+    })
+  }),
+)
+
+let folder: string
+let remotes: string
+let backend: BackendPostgres
+let worker: ReturnType<OpenWorkflow["newWorker"]>
+let runner: OpenWorkflow
+let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
+let sourceSha: string
+const pinned: string[] = []
+
+function git(cwd: string, ...args: string[]): string {
+  return execFileSync("git", args, {
+    cwd,
+    encoding: "utf8",
+    env: { ...process.env, ...GIT_ENV },
+  }).trim()
+}
+
+function remote(name: string, files: Record<string, string>): string {
+  const work = mkdtempSync(join(folder, "work-"))
+  for (const [path, content] of Object.entries(files)) {
+    mkdirSync(dirname(join(work, path)), { recursive: true })
+    writeFileSync(join(work, path), content)
+  }
+  git(work, "init", "-q", "-b", "main")
+  git(work, "add", "-A")
+  git(work, "commit", "-q", "-m", "seed")
+  const bare = join(remotes, name)
+  mkdirSync(dirname(bare), { recursive: true })
+  execFileSync("git", ["clone", "-q", "--bare", work, bare])
+  return git(work, "rev-parse", "HEAD")
+}
+
+/** A person adds `notes/human.md` on the default branch of `name`. */
+function humanCommit(name: string): string {
+  const work = mkdtempSync(join(folder, "human-"))
+  git(work, "clone", "-q", join(remotes, name), ".")
+  mkdirSync(join(work, "notes"), { recursive: true })
+  writeFileSync(join(work, "notes/human.md"), "# Notes from a person\n")
+  git(work, "add", "-A")
+  git(work, "commit", "-q", "-m", "Add notes")
+  git(work, "push", "-q", "origin", "main")
+  return git(work, "rev-parse", "HEAD")
+}
+
+function refsOf(name: string, runId: string): string[] {
+  return git(
+    join(remotes, name),
+    "for-each-ref",
+    "--format=%(refname)",
+    `refs/ctxpipe/ingest/${runId}/`,
+  )
+    .split("\n")
+    .filter(Boolean)
+}
+
+function startRun(authorTime: string) {
+  return runner.runWorkflow(parent.spec, {
+    orgId,
+    shadow: false,
+    source: {
+      url: `https://github.com/${sourceName}`,
+      githubConnectionId: connectionId,
+    },
+    sha: sourceSha,
+    authorTime,
+  })
+}
+
+beforeAll(async () => {
+  const databaseUrl = process.env.DATABASE_URL
+  if (!databaseUrl)
+    throw new Error("DATABASE_URL is required for the ingestion v2 publish")
+  initDb(databaseUrl)
+  stubGithubApp()
+  server.listen({ onUnhandledRequest: "bypass" })
+  folder = mkdtempSync(join(tmpdir(), "ingestion-v2-publish-"))
+  remotes = join(folder, "remotes")
+  const gitConfig = join(folder, "gitconfig")
+  writeFileSync(
+    gitConfig,
+    `[url "${remotes}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n[uploadpack]\n\tallowAnySHA1InWant = true\n`,
+  )
+  vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfig)
+
+  sourceSha = remote(sourceName, {
+    "package.json": '{ "name": "billing-api" }\n',
+    "README.md": "# Billing API\n",
+  })
+  for (const name of contexts)
+    pinned.push(remote(name, { "README.md": "# Context\n" }))
+
+  // The real stage helpers and script skills, and one fixture model skill.
+  const real = await readIngestSkillBundle()
+  const bundleDir = join(folder, "bundle")
+  const kept = ["bin", "discover-roots", "repository"]
+  for (const file of real.files.filter((f) =>
+    kept.includes(f.path.split("/")[0] ?? ""),
+  )) {
+    mkdirSync(dirname(join(bundleDir, file.path)), { recursive: true })
+    writeFileSync(join(bundleDir, file.path), file.content, {
+      mode: file.executable ? 0o755 : 0o644,
+    })
+  }
+  mkdirSync(join(bundleDir, "classify-kind"))
+  writeFileSync(
+    join(bundleDir, "classify-kind/SKILL.md"),
+    "---\nname: classify-kind\ndescription: Fixture model skill.\n---\n# classify-kind\n",
+  )
+
+  await getSystemDb().insert(organizations).values({
+    id: orgId,
+    slug: orgId,
+    name: "Ingestion v2 publish proof",
+    createdAt: new Date(),
+  })
+  await insertGithubConnection({
+    orgId,
+    id: connectionId,
+    installationId: 445,
+    accountSlug: "acme",
+  })
+  for (const [i, workspaceId] of workspaceIds.entries()) {
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(workspaces).values({
+        id: workspaceId,
+        orgId,
+        slug: `publish-${i}-${suffix}`,
+        displayName: `Publish ${i}`,
+        workspaceRepositoryUrl: `https://github.com/${contexts[i]}`,
+        githubConnectionId: connectionId,
+        desiredGeneration: 3,
+        desiredSha: pinned[i],
+        desiredDefaultBranch: "main",
+        writeStatus: "writable",
+      }),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId,
+      workspaceId,
+      revision: pinned[i] ?? "",
+      rows: [
+        {
+          sourceKey: "billing",
+          provider: "github",
+          connectionId,
+          scope: { repositories: [sourceName] },
+          status: "ok",
+          statusDetail: null,
+        },
+      ],
+    })
+  }
+
+  backend = await BackendPostgres.connect(databaseUrl, {
+    runMigrations: false,
+    namespaceId: openWorkflowNamespaceId(),
+  })
+  runner = new OpenWorkflow({ backend })
+  const deps = {
+    runtime: standInIngestShardRuntime({ modelUrl: MODEL_URL, folder }),
+    bundle: () => readIngestSkillBundle(bundleDir),
+  }
+  const shard = defineIngestionShardWorkflow(deps)
+  parent = defineRepositoryIngestionV2Workflow({ ...deps, shard })
+  runner.implementWorkflow(shard.spec, shard.fn)
+  runner.implementWorkflow(parent.spec, parent.fn)
+  runner.implementWorkflow(
+    workspaceExtractIngest.spec,
+    workspaceExtractIngest.fn,
+  )
+  runner.implementWorkflow(
+    workspaceSemanticMerge.spec,
+    workspaceSemanticMerge.fn,
+  )
+  worker = runner.newWorker({ concurrency: 4 })
+  await worker.start()
+}, 120_000)
+
+afterAll(async () => {
+  await worker?.stop()
+  await backend?.stop()
+  server.close()
+  vi.unstubAllEnvs()
+  await withOrgDbContext(orgId, async (db) => {
+    await db
+      .delete(workspaceWriteJobs)
+      .where(eq(workspaceWriteJobs.orgId, orgId))
+    await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
+    await db.delete(connections).where(eq(connections.orgId, orgId))
+  })
+  await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
+  await closeDb()
+  rmSync(folder, { recursive: true, force: true })
+}, 60_000)
+
+describe("ingestion v2 publish", () => {
+  let runId = ""
+
+  it(
+    "publishes one commit per Workspace, keeps a human commit made after the pin, and deletes the run's refs",
+    { timeout: 420_000 },
+    async () => {
+      const handle = await startRun("2026-10-05T00:00:00.000Z")
+      const result = await handle.result({ timeoutMs: 400_000 })
+      runId = handle.workflowRun.id
+      expect(result).toMatchObject({ status: "done" })
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      expect(human.pushed).toBe(true)
+
+      for (const [i, name] of contexts.entries()) {
+        const bare = join(remotes, name)
+        const main = git(bare, "rev-parse", "main")
+        expect(result.workspaces).toContainEqual(
+          expect.objectContaining({
+            workspaceId: workspaceIds[i],
+            published: main,
+          }),
+        )
+        // One publish commit on the tip that the run found at publish.
+        // Context B moved after the pin: the semantic merge replays the
+        // delta on the human commit.
+        const parentSha = git(bare, "rev-parse", "main^")
+        expect(parentSha).toBe(i === 0 ? pinned[0] : human.sha)
+        if (i === 0)
+          expect(git(bare, "log", "-1", "--format=%B", "main")).toContain(
+            `Ctxpipe-Run: ${runId}`,
+          )
+        const files = git(bare, "ls-tree", "-r", "--name-only", "main")
+        expect(files.split("\n")).toEqual(
+          expect.arrayContaining([
+            "README.md",
+            "knowledge/services/billing-api.md",
+          ]),
+        )
+        // The run's refs are gone after publish.
+        expect(refsOf(name, runId)).toEqual([])
+      }
+      // The human commit stays on context B, byte for byte.
+      expect(
+        git(join(remotes, contexts[1] ?? ""), "show", "main:notes/human.md"),
+      ).toBe("# Notes from a person")
+    },
+  )
+
+  it(
+    "makes the same commit when the publish is replayed",
+    { timeout: 120_000 },
+    async () => {
+      if (!runId) throw new Error("The first publish did not run")
+      const bare = join(remotes, contexts[0] ?? "")
+      const before = git(bare, "rev-parse", "main")
+      const rows = await getSystemDb().execute<{ input: unknown }>(sql`
+        select input from openworkflow.workflow_runs
+        where namespace_id = ${openWorkflowNamespaceId()}
+          and workflow_name = 'workspace-write-extract-ingest'
+          and input->>'workspaceId' = ${workspaceIds[0]}
+          and input->'ingest'->>'runId' = ${runId}
+      `)
+      expect(rows.rows).toHaveLength(1)
+      // A new run of the same command: the write job holds its result.
+      const replay = await runner.runWorkflow(
+        workspaceExtractIngest.spec,
+        rows.rows[0]?.input as never,
+      )
+      await expect(replay.result({ timeoutMs: 100_000 })).resolves.toEqual({
+        committed: true,
+        commitSha: before,
+      })
+      expect(git(bare, "rev-parse", "main")).toBe(before)
+      const jobs = await withOrgDbContext(orgId, (db) =>
+        db
+          .select({ id: workspaceWriteJobs.id })
+          .from(workspaceWriteJobs)
+          .where(
+            and(
+              eq(workspaceWriteJobs.workspaceId, workspaceIds[0] ?? ""),
+              eq(workspaceWriteJobs.kind, "extract_ingest"),
+            ),
+          ),
+      )
+      expect(jobs).toHaveLength(1)
+    },
+  )
+
+  it(
+    "leaves the refs when delete-refs fails after publish, and the tip check clean-up removes them",
+    { timeout: 420_000 },
+    async () => {
+      // A git that refuses each ref delete: the run stops between publish
+      // and delete-refs.
+      const bin = join(folder, "no-delete-bin")
+      mkdirSync(bin)
+      const realGit = execFileSync("/bin/sh", ["-c", "command -v git"], {
+        encoding: "utf8",
+      }).trim()
+      writeFileSync(
+        join(bin, "git"),
+        `#!/bin/sh\nfor a in "$@"; do case "$a" in :refs/ctxpipe/ingest/*) echo "fixture: delete refused" >&2; exit 1;; esac; done\nexec "${realGit}" "$@"\n`,
+      )
+      chmodSync(join(bin, "git"), 0o755)
+      // The hydrate of the first publish would move each pin; no hydrate
+      // worker runs here, so move the pins to the default tips.
+      for (const [i, name] of contexts.entries())
+        await withOrgDbContext(orgId, (db) =>
+          db
+            .update(workspaces)
+            .set({ desiredSha: git(join(remotes, name), "rev-parse", "main") })
+            .where(eq(workspaces.id, workspaceIds[i] ?? "")),
+        )
+      edition = 2
+      vi.stubEnv("PATH", `${bin}:${process.env.PATH}`)
+      const handle = await startRun("2026-10-06T00:00:00.000Z")
+      const second = handle.workflowRun.id
+      try {
+        await expect(handle.result({ timeoutMs: 400_000 })).rejects.toThrow()
+      } finally {
+        vi.stubEnv("PATH", process.env.PATH?.replace(`${bin}:`, "") ?? "")
+      }
+      for (const name of contexts) {
+        const bare = join(remotes, name)
+        // The publish landed before the failed delete.
+        expect(git(bare, "log", "-1", "--format=%B", "main")).toContain(
+          `Ctxpipe-Run: ${second}`,
+        )
+      }
+      expect(refsOf(contexts[0] ?? "", second)).not.toEqual([])
+
+      // The run failed, and it is not a shadow run: the clean-up of the
+      // Workspace tip check deletes its refs.
+      for (const [i, name] of contexts.entries()) {
+        await withIngestionOrg(orgId, () =>
+          cleanUpWorkspaceIngestRefs(
+            { orgId, workspaceId: workspaceIds[i] ?? "", now: new Date() },
+            parseEnv(process.env),
+          ),
+        )
+        expect(refsOf(name, second)).toEqual([])
+      }
+    },
+  )
+})

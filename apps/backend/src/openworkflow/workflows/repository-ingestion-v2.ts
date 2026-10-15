@@ -521,6 +521,11 @@ export function defineRepositoryIngestionV2Workflow(
                 })
               }
             }
+          }
+        // Each Workspace publishes first, so a failed delete stops no
+        // publish.
+        if (!input.shadow)
+          for (const { workspaceId, generation } of destinations)
             await step.run(
               {
                 name: `delete-refs:${workspaceId}`,
@@ -535,7 +540,7 @@ export function defineRepositoryIngestionV2Workflow(
                         job: {
                           runId: run.id,
                           workspaceId,
-                          generation: destination.generation,
+                          generation,
                         },
                       },
                       env(),
@@ -554,7 +559,6 @@ export function defineRepositoryIngestionV2Workflow(
                 }
               },
             )
-          }
 
         getLogger().info("ingestion-v2.finished", {
           shards,
