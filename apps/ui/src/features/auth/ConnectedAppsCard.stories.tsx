@@ -66,6 +66,8 @@ export const SkeletonRowMatchesLoadedRow: Story = {
         height: Math.round(height),
       }
     }
+    // Measure both rows with the same fonts.
+    await document.fonts.ready
     const skeletonRow = canvasElement.querySelector("div[aria-hidden] > div")
     if (!skeletonRow) throw new Error("No skeleton row")
     const skeletonActions = skeletonRow.lastElementChild

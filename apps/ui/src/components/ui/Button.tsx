@@ -33,7 +33,7 @@ const button = tv({
   variants: {
     variant: {
       primary:
-        "bg-primary text-primary-foreground hover:bg-primary/90 pressed:bg-primary/80",
+        "bg-primary text-primary-foreground hovered:bg-primary/90 pressed:bg-primary/80",
       secondary:
         "border-border bg-secondary text-secondary-foreground hover:bg-secondary/80 pressed:bg-secondary/70",
       destructive:
