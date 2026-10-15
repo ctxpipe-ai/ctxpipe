@@ -39,6 +39,7 @@ import {
   UNPUSHED_COMMITS_COMMAND,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
+import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   type BranchChanges,
@@ -115,6 +116,10 @@ export type SessionPublishSkip =
   | "nothing_committed"
   /** The session branch is not on GitHub. */
   | "no_changes"
+  /** The commits change a path that only ctx| writes, such as `.ctxpipe/`. */
+  | "host_only_path"
+  /** The commits add or change `generated_by` or `sources` front matter. */
+  | "host_only_field"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
@@ -538,6 +543,10 @@ async function brokerPush(input: {
         file: localPack,
       })
       await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
+      // The check reads the broker's own copy of the objects, not the
+      // sandbox, because the agent controls the sandbox.
+      const hostOnly = await hostOnlyChange(directory, packBase, sha)
+      if (hostOnly) throw new PublishRefused(hostOnly)
       // The write token only ever reaches this conversation's session branch,
       // never a branch that is (or became) the default.
       const latestDefault = await resolveGitRemoteTip({
@@ -586,6 +595,54 @@ async function brokerPush(input: {
   } finally {
     await run(`rm -f -- ${shellSingleQuote(agentPack)}`)
   }
+}
+
+/**
+ * The first change from `base` to `sha` that only the host can make (CTX-722):
+ * a path under a host-only folder on either side of a change, or a Markdown
+ * file that gets an ownership field it did not have. A rename compares the
+ * file with its old version, so an agent can move a generated file.
+ */
+async function hostOnlyChange(
+  directory: string,
+  base: string,
+  sha: string,
+): Promise<"host_only_path" | "host_only_field" | null> {
+  const fields = (
+    await nativeGit(directory, [
+      "diff-tree",
+      "-r",
+      "-z",
+      "-M",
+      "--name-status",
+      base,
+      sha,
+    ])
+  )
+    .toString("utf8")
+    .split("\0")
+  const changes: Array<{ status: string; from: string; to: string }> = []
+  for (let index = 0; index < fields.length - 1; ) {
+    const status = fields[index++] ?? ""
+    const from = fields[index++] ?? ""
+    const to = status.startsWith("R") ? (fields[index++] ?? "") : from
+    changes.push({ status, from, to })
+  }
+  if (
+    changes.some(({ from, to }) => isHostOnlyPath(from) || isHostOnlyPath(to))
+  )
+    return "host_only_path"
+  const blob = async (commit: string, path: string) =>
+    (
+      await nativeGit(directory, ["cat-file", "blob", `${commit}:${path}`])
+    ).toString("utf8")
+  for (const { status, from, to } of changes) {
+    if (status.startsWith("D") || !/\.md$/i.test(to)) continue
+    const before = status.startsWith("A") ? null : await blob(base, from)
+    if (addedOwnershipField(before, await blob(sha, to)))
+      return "host_only_field"
+  }
+  return null
 }
 
 function sanitizeCredentials(

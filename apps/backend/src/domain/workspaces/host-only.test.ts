@@ -31,7 +31,10 @@ describe("addedOwnershipField", () => {
     expect(
       addedOwnershipField(
         human,
-        human.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"),
+        human.replace(
+          "name: Checkout\n",
+          "name: Checkout\ngenerated_by: ctxpipe-extract\n",
+        ),
       ),
     ).toBe("generated_by")
   })

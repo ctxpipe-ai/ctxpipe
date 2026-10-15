@@ -109,6 +109,17 @@ export function conversationBranchPushTool(input: {
           // the sandbox's read credential to fetch.
           next: `The branch on GitHub has commits you do not have. Fetch them with \`${SANDBOX_READ_GIT} fetch origin "$(git branch --show-current)"\`, then run \`git rebase FETCH_HEAD\` on the session branch, resolve any conflicts, and push again.`,
         }
+      if (
+        outcome.status === "skipped" &&
+        (outcome.reason === "host_only_path" ||
+          outcome.reason === "host_only_field")
+      )
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Only ctx| writes .ctxpipe/ and the generated_by and sources front matter fields. Undo those changes in new commits (or rewrite the branch), then push again. Ask the user to edit sources on the Sources page.",
+        }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
   }

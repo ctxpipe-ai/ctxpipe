@@ -140,6 +140,9 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
       /folder structure is the map.*update the folder list in AGENTS\.md/,
     )
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /Do not change \.ctxpipe\/ .*generated_by.*sources/,
+    )
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).not.toMatch(
       /what'?s in this repo/i,
     )
