@@ -5,12 +5,20 @@ import { eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { HttpResponse, http } from "msw"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
+import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import { repositories } from "../../db/schema/repositories.js"
+import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import {
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
+import { workspaceCheckoutKey } from "../../domain/workspaces/derived-stores.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
@@ -22,6 +30,10 @@ import { estimateTokens } from "../framework/budget.js"
 import { loadServerInstructions } from "../framework/instructions.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { listWorkspaces } from "./list-workspaces.js"
+
+// biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
+const server = useMswServer()
+const CODESEARCH = "http://codesearch.test"
 
 let seed: SeededOrg
 function createApp() {
@@ -242,6 +254,7 @@ describe("list_workspaces through MCP", () => {
           { key: "linked-repositories", provider: "github", status: "ok" },
           { key: "tickets", provider: "linear", status: "out_of_access" },
         ],
+        units: {},
         skipped: [],
       })
       expect(JSON.stringify(result)).not.toMatch(
@@ -343,6 +356,161 @@ describe("list_workspaces through MCP", () => {
       })
     } finally {
       await client.close()
+    }
+  })
+  it("gives the AGENTS.md description, unit counts per kind, and 50 repositories a page", async () => {
+    const id = generateObjectId("ws")
+    const repositoryId = generateObjectId("repo")
+    const sha = "c".repeat(40)
+    const revision = {
+      workspaceId: id,
+      generation: 1,
+      remote: {
+        url: "https://github.com/example/handbook",
+        connectionId: null,
+      },
+      defaultBranch: "main",
+      sha,
+      access: "read" as const,
+    }
+    const longTitle = `Platform handbook ${"x".repeat(80)}`
+    try {
+      await withOrgDbContext(seed.orgId, async (db) => {
+        await db.insert(workspaces).values({
+          id,
+          orgId: seed.orgId,
+          slug: "a-handbook",
+          displayName: longTitle,
+          workspaceRepositoryUrl: revision.remote.url,
+          desiredDefaultBranch: "main",
+          activeRevision: revision,
+          hydratePhases: {
+            url: revision.remote.url,
+            sha,
+            revision,
+            embeddings: true,
+            graph: { revision, result: { kind: "ready" } },
+            index: { revision, result: { kind: "ready" } },
+          },
+        })
+        await db.insert(repositories).values({
+          id: repositoryId,
+          orgId: seed.orgId,
+          name: "example/handbook",
+          gitUrl: `${revision.remote.url}.git`,
+        })
+        await db.insert(repositoryCheckouts).values({
+          id: generateObjectId("checkout"),
+          orgId: seed.orgId,
+          repositoryId,
+          checkoutKey: workspaceCheckoutKey(id, sha),
+          ref: "main",
+          commitSha: sha,
+        })
+        await db.insert(workspaceKnowledgeUnits).values(
+          [
+            ["knowledge/services/api.md", "Service"],
+            ["knowledge/services/web.md", "Service"],
+            ["knowledge/decisions/adr-1.md", "Decision"],
+            ["notes/loose.md", null],
+          ].map(([path, kind]) => ({
+            servingId: generateObjectId("kn"),
+            orgId: seed.orgId,
+            workspaceId: id,
+            path: path as string,
+            kind,
+            body: "Body.",
+            projectionSha: sha,
+          })),
+        )
+        await insertLinkedRepositoryRows(
+          db,
+          Array.from({ length: 60 }, (_, index) => ({
+            id: generateObjectId("wlr"),
+            orgId: seed.orgId,
+            workspaceId: id,
+            gitUrl: `https://github.com/example/service-${String(index).padStart(2, "0")}`,
+          })),
+        )
+      })
+      vi.stubEnv("CODESEARCH_URL", CODESEARCH)
+      const reads: string[] = []
+      server.use(
+        http.post(
+          `${CODESEARCH}/:repoId/files-query`,
+          async ({ request, params }) => {
+            reads.push(String(params.repoId))
+            const body = (await request.json()) as { paths: string[] }
+            const agents = [
+              "# Platform handbook",
+              "",
+              "<!-- folder list -->",
+              "",
+              `Shared   infrastructure for the platform teams. ${"More text. ".repeat(40)}`,
+              "",
+              "## Folders",
+            ].join("\n")
+            return HttpResponse.json(
+              body.paths.includes("AGENTS.md")
+                ? { "AGENTS.md": Buffer.from(agents).toString("base64") }
+                : {},
+            )
+          },
+        ),
+      )
+      const client = await connect()
+      try {
+        const list = await call(client, "list_workspaces", {})
+        const [listed] = list.structuredContent?.orgs as Array<{
+          workspaces: Array<{ title: string }>
+        }>
+        expect(listed?.workspaces[0]?.title).toHaveLength(60)
+        expect(listed?.workspaces[0]?.title).toMatch(/^Platform handbook x+/)
+
+        const first = await call(client, "list_workspaces", {
+          org: seed.orgSlug,
+          workspace: "a-handbook",
+        })
+        expect(first.isError).not.toBe(true)
+        expect(reads).toEqual([repositoryId])
+        const description = first.structuredContent?.description as string
+        expect(description).toMatch(
+          /^Shared infrastructure for the platform teams\. More text\./,
+        )
+        expect(description.length).toBeLessThanOrEqual(300)
+        expect(first.structuredContent?.units).toEqual({
+          Decision: 1,
+          Service: 2,
+          unit: 1,
+        })
+        const page1 = first.structuredContent?.repositories as string[]
+        expect(page1).toHaveLength(50)
+        expect(page1[0]).toBe("example/service-00")
+        expect(
+          estimateTokens(first.content?.[0]?.text ?? ""),
+        ).toBeLessThanOrEqual(600)
+        const cursor = first.structuredContent?.cursor
+        expect(cursor).toEqual(expect.any(String))
+
+        const second = await call(client, "list_workspaces", {
+          org: seed.orgSlug,
+          workspace: "a-handbook",
+          cursor,
+        })
+        expect(second.isError).not.toBe(true)
+        expect(second.structuredContent).toEqual({
+          org: seed.orgSlug,
+          workspace: "a-handbook",
+          repositories: Array.from(
+            { length: 10 },
+            (_, index) => `example/service-${50 + index}`,
+          ),
+        })
+      } finally {
+        await client.close()
+      }
+    } finally {
+      vi.unstubAllEnvs()
     }
   })
 })
