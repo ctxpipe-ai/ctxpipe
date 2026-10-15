@@ -450,10 +450,26 @@ it.each([
     edit: "git mv knowledge/services/billing.md knowledge/services/billing-v2.md",
     reason: null,
   },
-])(
+  {
+    name: "renames a pushed text file with ownership fields to Markdown",
+    first: `printf '%s' ${shellSingleQuote(GENERATED_UNIT)} > knowledge/services/y.txt`,
+    edit: "git mv knowledge/services/y.txt knowledge/services/y.md",
+    reason: "host_only_field",
+  },
+  {
+    name: "adds and then removes a .ctxpipe file in two commits",
+    edit: "printf 'x\\n' > .ctxpipe/x.yaml && git add -A && git commit -qm add && git rm -q .ctxpipe/x.yaml && git commit -qm remove",
+    reason: "host_only_path",
+  },
+  {
+    name: "adds and then removes generated_by in two commits",
+    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git commit -qam remove`,
+    reason: "host_only_field",
+  },
+] as Array<{ name: string; first?: string; edit: string; reason: string | null }>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
-  async ({ edit, reason }) => {
+  async ({ first, edit, reason }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -489,27 +505,40 @@ it.each([
             "https://github.com/fixture/hydration-contract.git",
           )
           await recordSandbox(f, conversationId, raw.id, f.revision)
+          const push = () =>
+            withOrgIdContext(f.org, () =>
+              withUserIdContext(`user_${f.id}`, () =>
+                pushConversationSession({
+                  handle: adaptTanstackHandle(raw),
+                  conversationId,
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  env: parseEnv(process.env),
+                  commit: { subject: "Conversation edit" },
+                }),
+              ),
+            )
+          const branch = conversationSessionBranch(conversationId)
+          if (first) {
+            expect((await raw.process.exec(first)).exitCode).toBe(0)
+            expect(await push()).toMatchObject({ status: "pushed", branch })
+          }
+          const commits = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-list",
+            "--all",
+            "--count",
+          )
           expect((await raw.process.exec(edit)).exitCode).toBe(0)
 
-          const result = await withOrgIdContext(f.org, () =>
-            withUserIdContext(`user_${f.id}`, () =>
-              pushConversationSession({
-                handle: adaptTanstackHandle(raw),
-                conversationId,
-                orgId: f.org.id,
-                workspaceId: f.workspaceId,
-                env: parseEnv(process.env),
-                commit: { subject: "Conversation edit" },
-              }),
-            ),
-          )
+          const result = await push()
 
-          const branch = conversationSessionBranch(conversationId)
           if (reason) {
             expect(result).toEqual({ status: "skipped", reason, dirty: false })
             expect(
               f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
-            ).toBe("1")
+            ).toBe(commits)
           } else {
             expect(result).toMatchObject({ status: "pushed", branch })
           }
