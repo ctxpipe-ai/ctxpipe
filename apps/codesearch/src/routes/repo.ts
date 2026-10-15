@@ -697,14 +697,11 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     const result: Record<string, string> = {}
-    // A root folder that is missing or leaves the checkout holds no files.
-    const base = root
-      ? await resolveContainedRealPath(basePath, root).catch(() => null)
-      : basePath
-    if (!base) return c.json(result, 200)
     for (const p of paths) {
       try {
-        result[p] = (await readContainedFile(base, p)).toString("base64")
+        result[p] = (await readContainedFile(basePath, p, root)).toString(
+          "base64",
+        )
       } catch {
         // omit missing files
       }

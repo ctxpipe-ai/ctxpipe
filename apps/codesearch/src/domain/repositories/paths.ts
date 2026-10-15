@@ -117,19 +117,32 @@ export async function resolveSafeReadableFilePath(
  * of the open descriptor is checked again, so a path that a checkout changes
  * after the first check is not read. Other platforms have only the first
  * check.
+ *
+ * With `root`, a repo-relative folder, `relativePath` is relative to that
+ * folder, and the real path of the file must be below the real checkout path
+ * joined with `root`. Thus a root folder with a symlink at any segment holds
+ * no files, and a symlink below the root folder must stay below it. The read
+ * time checks above apply to this limit too.
  */
 export async function readContainedFile(
   basePath: string,
   relativePath: string,
+  root = "",
 ) {
-  const resolved = await resolveSafeReadableFilePath(basePath, relativePath)
+  const rootPath = resolveSafePath(basePath, root)
+  const resolved = await resolveSafeReadableFilePath(
+    basePath,
+    relative(resolve(basePath), resolve(rootPath, relativePath)),
+  )
   const base = await realpath(basePath)
+  const limit = join(base, relative(resolve(basePath), rootPath))
+  if (!resolved.startsWith(`${limit}${sep}`)) throw notFound()
   const handle = await open(resolved, constants.O_RDONLY | constants.O_NOFOLLOW)
   try {
     if (process.platform === "linux") {
       const opened = await readlink(`/proc/self/fd/${handle.fd}`)
       if (
-        !opened.startsWith(`${base}${sep}`) ||
+        !opened.startsWith(`${limit}${sep}`) ||
         hasGitSegment(relative(base, opened))
       ) {
         throw notFound()
