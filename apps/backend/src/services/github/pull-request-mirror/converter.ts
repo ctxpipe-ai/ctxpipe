@@ -37,8 +37,6 @@ function heading(title: string): string {
 
 export function renderGithubPullRequest(
   snapshot: GithubPullRequestSnapshot,
-  /** The source file of the repository in the Workspace (ADR-050), when it has one. */
-  sourcePath?: string | null,
 ): GithubPrMirrorFile {
   const sections = [
     frontmatter({
@@ -64,7 +62,6 @@ export function renderGithubPullRequest(
       mergedAt: snapshot.mergedAt,
       files: snapshot.files,
       requiredChecks: snapshot.requiredChecks,
-      ...(sourcePath ? { sources: [sourcePath] } : {}),
     }),
     heading(snapshot.title),
     snapshot.body.trim() || "_No description._",

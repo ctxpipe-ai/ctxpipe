@@ -1,7 +1,7 @@
 import { afterAll, describe, expect, it } from "vitest"
 import { commitGitTree, removeGitTrees } from "../../test/git-tree.js"
 import { listExistingBlobs } from "./existing-blobs.js"
-import { gitBlobSha, stampSources } from "./stamp-sources.js"
+import { gitBlobSha, stampMirrorFiles, stampSources } from "./stamp-sources.js"
 
 afterAll(removeGitTrees)
 
@@ -67,5 +67,38 @@ describe("listExistingBlobs (real git)", () => {
     ])
     expect(blobs).toHaveLength(70)
     expect(blobs.every((blob) => blob.restamped !== undefined)).toBe(true)
+  })
+})
+
+describe("stampMirrorFiles (real git)", () => {
+  it("stamps the new files and restamps the closed pull requests after a rename", async () => {
+    const pull = (number: number) =>
+      `---\nsource: github\nnumber: ${number}\n---\n# PR ${number}\n`
+    const dir = commitGitTree({
+      "github/pulls/acme/api/1--1.md": stampSources(pull(1), [
+        "sources/github/acme/api.md",
+      ]),
+      "github/pulls/acme/api/2--2.md": pull(2),
+      "github/pulls/acme/api/3--3.md": stampSources(pull(3), [
+        "sources/github/team/api.md",
+      ]),
+    })
+    const sourcePath = "sources/github/team/api.md"
+    const existing = await listExistingBlobs(dir, "HEAD", [
+      { prefixes: ["github/pulls/acme/api/"], sourcePath },
+    ])
+    const files = stampMirrorFiles(
+      [
+        { path: "github/pulls/acme/api/2--2.md", content: pull(2) },
+        { path: "github/pulls/acme/api/4--4.md", content: pull(4) },
+      ],
+      sourcePath,
+      existing,
+    )
+    expect(Object.fromEntries(files.map((f) => [f.path, f.content]))).toEqual({
+      "github/pulls/acme/api/1--1.md": stampSources(pull(1), [sourcePath]),
+      "github/pulls/acme/api/2--2.md": stampSources(pull(2), [sourcePath]),
+      "github/pulls/acme/api/4--4.md": stampSources(pull(4), [sourcePath]),
+    })
   })
 })

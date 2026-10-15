@@ -3,6 +3,8 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { githubSourcePathOf } from "../../domain/workspace-sources/github-sources.js"
+import { stampMirrorFiles } from "../../domain/workspace-sources/stamp-sources.js"
+import { readWorkspaceBlobs } from "../../domain/workspace-sources/write-slice.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -14,6 +16,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
+import { GITHUB_PR_PULLS_PREFIX } from "../../services/github/pull-request-mirror/converter.js"
 import { shouldMirrorGithubPullRequest } from "../../services/github/pull-request-mirror/policy.js"
 import {
   captureClosedGithubPullRequestPage,
@@ -101,6 +104,27 @@ async function captureTarget(input: {
   })
 }
 
+/** The mirror files of the repository with a wrong or missing stamp. */
+async function readStampsToWrite(input: {
+  orgId: string
+  workspaceId: string
+  repository: string
+  sourcePath: string
+}) {
+  const blobs = await readWorkspaceBlobs({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    env: parseEnv(process.env),
+    owners: [
+      {
+        prefixes: [`${GITHUB_PR_PULLS_PREFIX}${input.repository}/`],
+        sourcePath: input.sourcePath,
+      },
+    ],
+  })
+  return blobs.filter((blob) => blob.restamped !== undefined)
+}
+
 /**
  * Mirror closed pull requests (merged or not) of one linked repository into
  * one Workspace: the webhook's pull requests, or a backfill of the newest closed ones.
@@ -131,7 +155,6 @@ export const githubSyncPullRequest = defineWorkflow(
           env: parseEnv(process.env),
           connectionId: target.connectionId,
           repository: target.repository,
-          sourcePath: target.sourcePath,
         }
         const files: GithubPrMirrorFile[] = []
         if (input.numbers) {
@@ -162,7 +185,24 @@ export const githubSyncPullRequest = defineWorkflow(
             if (!after || pulls >= GITHUB_PR_BACKFILL_MAX) break
           }
         }
-        if (files.length === 0) return { written: 0 }
+        const sourcePath = target.sourcePath
+        // Stamp each file with the source file of the repository (ADR-050),
+        // and restamp from Git the closed pull requests of an older stamp.
+        const stamped = sourcePath
+          ? stampMirrorFiles(
+              files,
+              sourcePath,
+              await step.run({ name: "read-github-pr-mirror-stamps" }, () =>
+                readStampsToWrite({
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  repository: target.repository,
+                  sourcePath,
+                }),
+              ),
+            )
+          : files
+        if (stamped.length === 0) return { written: 0 }
         await step.runWorkflow(
           workspaceConnectorMirror.spec,
           {
@@ -171,7 +211,7 @@ export const githubSyncPullRequest = defineWorkflow(
             revision: target.revision,
             mirror: { provider: "github", gitUrl: input.gitUrl },
             jobId: `wjob_${run.id}_mirror`,
-            files,
+            files: stamped,
             deletePaths: [],
           },
           { name: "commit-github-pull-requests" },
@@ -187,7 +227,7 @@ export const githubSyncPullRequest = defineWorkflow(
             },
             { error: (error) => getLogger().error(error) },
           )
-        return { written: files.length }
+        return { written: stamped.length }
       },
     ),
 )

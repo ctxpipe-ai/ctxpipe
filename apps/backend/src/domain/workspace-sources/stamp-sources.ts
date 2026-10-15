@@ -56,6 +56,30 @@ export function readSourcesStamp(
   }
 }
 
+/**
+ * The files of one mirror commit with the `sources` list `sourcePath`: each
+ * file of the commit, plus each existing file with a wrong or missing list
+ * (`restamped`, from Git) that the commit does not write again.
+ */
+export function stampMirrorFiles(
+  files: ReadonlyArray<{ path: string; content: string }>,
+  sourcePath: string,
+  existing: ReadonlyArray<{ path: string; restamped?: string }>,
+): Array<{ path: string; content: string }> {
+  const written = new Set(files.map((file) => file.path))
+  return [
+    ...files.map((file) => ({
+      path: file.path,
+      content: stampSources(file.content, [sourcePath]),
+    })),
+    ...existing.flatMap((blob) =>
+      blob.restamped !== undefined && !written.has(blob.path)
+        ? [{ path: blob.path, content: blob.restamped }]
+        : [],
+    ),
+  ]
+}
+
 /** The Git blob id of UTF-8 text, as `git hash-object` prints it. */
 export function gitBlobSha(text: string): string {
   const body = Buffer.from(text, "utf8")

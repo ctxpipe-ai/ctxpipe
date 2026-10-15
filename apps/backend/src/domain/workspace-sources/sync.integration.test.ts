@@ -277,7 +277,9 @@ describe("Workspace source sync frame (Postgres)", () => {
     ])
     // The next sync after the commit writes nothing.
     expect(
-      await sync("sources/slack/eng.md", { "slack/channels/C0123ABCD/1.md": stamped }),
+      await sync("sources/slack/eng.md", {
+        "slack/channels/C0123ABCD/1.md": stamped,
+      }),
     ).toEqual([])
     const renamed = await sync("sources/slack/team/eng.md", {
       "slack/channels/C0123ABCD/1.md": stamped,

@@ -1,5 +1,4 @@
 import { describe, expect, it } from "vitest"
-import { parse as parseYaml } from "yaml"
 import {
   githubPullRequestMarkdownPath,
   parseGithubPullRequestMarkdown,
@@ -105,18 +104,5 @@ describe("github pull request mirror paths", () => {
     expect(githubPullRequestMarkdownPath("acme/api", 7, 99)).toBe(
       "github/pulls/acme/api/7--99.md",
     )
-  })
-
-  it("stamps the source file path in the sources front matter", () => {
-    const stamped = renderGithubPullRequest(
-      snapshot,
-      "sources/github/acme/api.md",
-    ).content
-    const front = parseYaml(/^---\n([\s\S]*?)\n---/.exec(stamped)?.[1] ?? "")
-    expect(front.sources).toEqual(["sources/github/acme/api.md"])
-    expect(renderGithubPullRequest(snapshot).content).not.toContain("sources:")
-    expect(parseGithubPullRequestMarkdown(stamped)).toMatchObject({
-      number: 42,
-    })
   })
 })

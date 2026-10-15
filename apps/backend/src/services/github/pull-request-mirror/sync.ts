@@ -55,8 +55,6 @@ type GithubPrSource = {
   connectionId: string
   /** `owner/repo`. */
   repository: string
-  /** The source file of the repository in the Workspace; stamped into each file. */
-  sourcePath?: string | null
 }
 
 async function clientFor(input: GithubPrSource) {
@@ -81,14 +79,11 @@ async function clientFor(input: GithubPrSource) {
   return { octokit, owner, repo }
 }
 
-function render(
-  snapshots: GithubPullRequestSnapshot[],
-  sourcePath: string | null | undefined,
-): GithubPrMirrorFile[] {
+function render(snapshots: GithubPullRequestSnapshot[]): GithubPrMirrorFile[] {
   return snapshots.flatMap((snapshot) => {
     if (!shouldMirrorGithubPullRequest(snapshot)) return []
     snapshot.reviewDecision = reviewDecisionFromReviews(snapshot.reviews)
-    return [renderGithubPullRequest(snapshot, sourcePath)]
+    return [renderGithubPullRequest(snapshot)]
   })
 }
 
@@ -102,7 +97,6 @@ export async function captureGithubPullRequests(
         ...(await clientFor(input)),
         numbers: input.numbers,
       }),
-      input.sourcePath,
     ),
   }
 }
@@ -121,7 +115,7 @@ export async function captureClosedGithubPullRequestPage(
     after: input.after,
   })
   return {
-    files: render(page.snapshots, input.sourcePath),
+    files: render(page.snapshots),
     pulls: page.snapshots.length,
     nextAfter: page.nextAfter,
   }
