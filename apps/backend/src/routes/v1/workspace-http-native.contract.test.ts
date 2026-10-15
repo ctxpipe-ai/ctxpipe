@@ -217,7 +217,7 @@ it(
 )
 
 it(
-  "re-checks write access on each Workspace detail read with a read_only write status",
+  "queues one idempotent re-check per minute on Workspace detail reads with a read_only write status",
   { timeout: 45_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
@@ -230,17 +230,23 @@ it(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       const before = await tipCheckKeys(f.org.id)
-
-      for (let i = 0; i < 2; i++) {
-        const detail = await app.request("/workspaces/knowledge")
-        expect(detail.status).toBe(200)
+      // Pin the clock so both reads share one minute.
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      const minute = Math.floor(Date.now() / 60_000)
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
       }
 
       await expect
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([null, null])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
     })
   },
 )
