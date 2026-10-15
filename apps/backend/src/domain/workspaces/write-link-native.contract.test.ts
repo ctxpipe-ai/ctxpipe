@@ -1,12 +1,15 @@
 import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
+import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
 import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
+import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { listWorkspaceSources } from "../workspace-sources/service.js"
 
 it(
   "links and unlinks one canonical remote in the GitHub source of sources.yaml",
@@ -154,6 +157,28 @@ it(
                 "Only a GitHub repository can be linked to a Workspace",
             },
           })
+          // The Sources list shows why, with the source errors.
+          const refused = {
+            action: "link",
+            gitUrl: "https://gitlab.com/acme/tools",
+            reason: "Only a GitHub repository can be linked to a Workspace",
+          }
+          // No source pull request is open.
+          f.server.use(
+            http.get(
+              "https://api.github.com/repos/fixture/hydration-contract/pulls",
+              () => HttpResponse.json([]),
+            ),
+          )
+          const linkErrors = () =>
+            withOrgIdContext(f.org, async () => {
+              const workspace = await getWorkspaceById(f.workspaceId)
+              if (!workspace) throw new Error("Missing fixture Workspace")
+              return (await listWorkspaceSources(workspace)).linkErrors
+            })
+          expect(await linkErrors()).toEqual([
+            { ...refused, failedAt: expect.any(String) },
+          ])
 
           expect(
             await run(
@@ -162,6 +187,8 @@ it(
               "https://github.com/next/other",
             ),
           ).toMatchObject({ status: "completed" })
+          // A later edit of another repository keeps the refused one shown.
+          expect(await linkErrors()).toMatchObject([refused])
           expect(parse(show(".ctxpipe/sources.yaml"))).toEqual({
             version: 1,
             sources: [
