@@ -890,7 +890,10 @@ export const AddSendsChange: Story = {
     })
   },
 }
+
+/** Several repositories go to the server in one batch, so in one pull request. */
 export const AddSeveralSendsOneBatch: Story = {
+  tags: ["workspace-golden"],
   parameters: {
     msw: {
       handlers: {
