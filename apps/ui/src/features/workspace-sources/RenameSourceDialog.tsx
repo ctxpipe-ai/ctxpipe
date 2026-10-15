@@ -23,10 +23,9 @@ export function RenameSourceDialog(props: {
   orgSlug: string
   workspaceSlug: string
   path: string
-  directCommitAllowed: boolean
   onClose: () => void
 }) {
-  const { orgSlug, workspaceSlug, path, directCommitAllowed, onClose } = props
+  const { orgSlug, workspaceSlug, path, onClose } = props
   const queryClient = useQueryClient()
   const folder = path.slice(0, path.lastIndexOf("/"))
   const [name, setName] = useState(
@@ -38,11 +37,11 @@ export function RenameSourceDialog(props: {
   const mutation = useMutation({
     mutationFn: (delivery: SourceDelivery) =>
       renameWorkspaceSource(orgSlug, workspaceSlug, path, newPath, delivery),
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(sourceChangeMessage(result))
+      toast.success(sourceChangeMessage())
       onClose()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -84,15 +83,6 @@ export function RenameSourceDialog(props: {
           <Button variant="quiet" onPress={onClose}>
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={!valid || mutation.isPending}
-              onPress={() => mutation.mutate("commit")}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={!valid}

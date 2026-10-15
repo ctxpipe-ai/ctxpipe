@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import type {
   ConnectionUsageResponse,
+  WorkspaceSourceBatchResult,
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 } from "backend/routes/v1/workspace-sources-contract"
@@ -10,16 +11,12 @@ import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
+  WorkspaceSourceBatchResult,
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 }
-/**
- * One source file. `description` is the file body (what the source is for).
- * The list response of the backend does not carry it yet, so it is optional.
- */
-export type WorkspaceSource = WorkspaceSourceListResponse["items"][number] & {
-  description?: string | null
-}
+/** One source file. `description` is the trimmed file body, when it has one. */
+export type WorkspaceSource = WorkspaceSourceListResponse["items"][number]
 export type PendingSourceChange =
   WorkspaceSourceListResponse["pendingChanges"][number]
 export type ConnectionUsageItem = ConnectionUsageResponse["items"][number]
@@ -33,16 +30,12 @@ export type WorkspaceSourceInput = {
   description?: string
 }
 
-/** How a change reaches a source file: a PR (the default) or a direct commit. */
-export type SourceDelivery = "pull_request" | "commit"
+/** How a change reaches a source file: always a pull request. */
+export type SourceDelivery = "pull_request"
 
 /** The toast after a change, true to what happens next. */
-export function sourceChangeMessage(
-  result: WorkspaceSourceChangeResult,
-): string {
-  return result.outcome === "pull_request"
-    ? "Pull request opened. The change applies after the merge."
-    : "Change queued. It appears after the next sync."
+export function sourceChangeMessage(): string {
+  return "Pull request opened. The change applies after the merge."
 }
 
 export const workspaceSourceKeys = {
@@ -158,6 +151,25 @@ export async function createWorkspaceSource(
   })
   return readApiJson<WorkspaceSourceChangeResult>(res, {
     message: "Failed to add the source",
+  })
+}
+
+/** Add several sources in one pull request (or one commit). One refused source refuses all. */
+export async function createWorkspaceSourcesBatch(
+  orgSlug: string,
+  workspaceSlug: string,
+  sources: { path?: string; source: WorkspaceSourceInput }[],
+  delivery: SourceDelivery = "pull_request",
+): Promise<WorkspaceSourceBatchResult> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].sources.batch.$post({
+    param: { orgSlug, workspaceSlug },
+    json: { sources, delivery },
+  })
+  return readApiJson<WorkspaceSourceBatchResult>(res, {
+    message: "Failed to add the sources",
   })
 }
 

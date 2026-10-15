@@ -158,7 +158,10 @@ function SourceRow(props: {
           <code className="font-mono">{source.path}</code>
         </p>
         {source.description ? (
-          <p className="mt-0.5 line-clamp-2 text-xs text-muted-foreground">
+          <p
+            className="mt-0.5 truncate text-xs text-muted-foreground"
+            title={source.description}
+          >
             {source.description}
           </p>
         ) : null}
@@ -380,11 +383,11 @@ export function WorkspaceSources(props: {
   const removeMutation = useMutation({
     mutationFn: (input: { path: string; delivery: SourceDelivery }) =>
       deleteWorkspaceSource(orgSlug, workspaceSlug, input.path, input.delivery),
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(sourceChangeMessage(result))
+      toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -399,7 +402,6 @@ export function WorkspaceSources(props: {
 
   const data = sourcesQuery.data
   const canEdit = data?.canEdit ?? false
-  const directCommitAllowed = data?.directCommitAllowed ?? false
   const items = data?.items ?? []
   const pendingChanges = data?.pendingChanges ?? []
   const pendingOf = (path: string) =>
@@ -613,7 +615,6 @@ export function WorkspaceSources(props: {
                         sources={sources}
                         connections={connectionsOf(provider)}
                         canEdit={canEdit}
-                        directCommitAllowed={directCommitAllowed}
                         addOpen={githubAddOpen}
                         onAddOpenChange={setGithubAddOpen}
                       />
@@ -675,7 +676,6 @@ export function WorkspaceSources(props: {
           orgSlug={orgSlug}
           workspaceSlug={workspaceSlug}
           connections={connectionsOf(editor.provider)}
-          directCommitAllowed={directCommitAllowed}
           target={editor}
           onClose={() => setEditor(null)}
         />
@@ -685,7 +685,6 @@ export function WorkspaceSources(props: {
           orgSlug={orgSlug}
           workspaceSlug={workspaceSlug}
           path={renaming.path}
-          directCommitAllowed={directCommitAllowed}
           onClose={() => setRenaming(null)}
         />
       ) : null}
@@ -713,21 +712,6 @@ export function WorkspaceSources(props: {
                 <Button variant="quiet" onPress={close}>
                   Cancel
                 </Button>
-                {directCommitAllowed ? (
-                  <Button
-                    variant="secondary"
-                    onPress={() => {
-                      if (removing)
-                        removeMutation.mutate({
-                          path: removing.path,
-                          delivery: "commit",
-                        })
-                      close()
-                    }}
-                  >
-                    Commit directly
-                  </Button>
-                ) : null}
                 <Button
                   variant="destructive"
                   autoFocus

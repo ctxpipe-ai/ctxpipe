@@ -813,6 +813,61 @@ export const AddSendsChange: Story = {
     })
   },
 }
+export const AddSeveralSendsOneBatch: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          githubInstallationReposHandler([
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+            },
+            {
+              name: "web",
+              clone_url: "https://github.com/acme/web.git",
+              full_name: "acme/web",
+            },
+          ]),
+          ...workspaceSourceChangeHandlers(addCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    addCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("checkbox", { name: "acme/api" }),
+    )
+    await userEvent.click(dialog.getByRole("checkbox", { name: "acme/web" }))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    // Two repositories make one batch request, so one pull request.
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      path: "/acme/api/v1/workspaces/docs/sources/batch",
+      body: {
+        delivery: "pull_request",
+        sources: [
+          { source: { scope: { repository: "acme/api" } } },
+          { source: { scope: { repository: "acme/web" } } },
+        ],
+      },
+    })
+  },
+}
 export const RemoveSendsChange: Story = {
   parameters: {
     msw: {
@@ -955,8 +1010,6 @@ export const LoadFailed: Story = {
   },
 }
 
-const commitCalls: ChangeCall[] = []
-
 export const ReadOnlyHidesChanges: Story = {
   tags: ["workspace-golden"],
   parameters: {
@@ -988,75 +1041,6 @@ export const ReadOnlyHidesChanges: Story = {
         name: "Remove sources/linear/eng-issues.md",
       }),
     ).toBeNull()
-  },
-}
-
-export const DirectCommitQueued: Story = {
-  tags: ["workspace-golden"],
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [githubSource, linearSource],
-              directCommitAllowed: true,
-            }),
-          ),
-          connected,
-          githubInstallationReposHandler([
-            {
-              name: "docs",
-              full_name: "acme/docs",
-              clone_url: "https://github.com/acme/docs.git",
-            },
-          ]),
-          ...workspaceSourceChangeHandlers(commitCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
-    commitCalls.length = 0
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Add repositories" }),
-    )
-    const dialog = within(await within(document.body).findByRole("dialog"))
-    await userEvent.click(
-      await dialog.findByRole("checkbox", { name: "acme/docs" }),
-    )
-    await userEvent.click(
-      dialog.getByRole("button", { name: "Commit directly" }),
-    )
-    await waitFor(() => expect(commitCalls).toHaveLength(1))
-    await expect(commitCalls[0]).toMatchObject({
-      method: "POST",
-      path: "/acme/api/v1/workspaces/docs/sources",
-      body: {
-        source: { scope: { repository: "acme/docs" } },
-        delivery: "commit",
-      },
-    })
-    await within(document.body).findByText(
-      "Change queued. It appears after the next sync.",
-    )
-
-    await userEvent.click(
-      await canvas.findByRole("button", {
-        name: "Remove sources/linear/eng-issues.md",
-      }),
-    )
-    const confirm = within(
-      await within(document.body).findByRole("alertdialog"),
-    )
-    await userEvent.click(
-      confirm.getByRole("button", { name: "Commit directly" }),
-    )
-    await waitFor(() => expect(commitCalls).toHaveLength(2))
-    await expect(commitCalls[1]?.method).toBe("DELETE")
   },
 }
 

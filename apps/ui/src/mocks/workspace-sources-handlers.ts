@@ -26,7 +26,6 @@ export function workspaceSourceFixture(
     scopeSummary: "Summary",
     status: "ok",
     statusDetail: null,
-    description: null,
     removable: true,
     revision: "a1b2c3d",
     updatedAt: "2026-10-01T10:00:00.000Z",
@@ -66,8 +65,8 @@ export function workspaceSourcesHandler(
 }
 
 /**
- * Records each add, edit, rename, and remove request. It answers a direct
- * commit with `commit_queued` and any other change with a pull request. The
+ * Records each add, edit, rename, and remove request. It answers each change
+ * with a pull request. The
  * result names the new path for a rename and the path of the request
  * otherwise (`sources/<provider>/new.md` for an add without a path).
  */
@@ -93,18 +92,25 @@ export function workspaceSourceChangeHandlers(
       newPath?: string
       delivery?: string
       source?: { provider?: string }
+      sources?: { path?: string; source: { provider?: string } }[]
     } | null
+    if (json?.sources) {
+      const paths = json.sources.map(
+        (item, index) =>
+          item.path ??
+          `sources/${item.source.provider ?? "github"}/new-${index}.md`,
+      )
+      return HttpResponse.json({
+        outcome: "pull_request",
+        paths,
+        pullRequestUrl: "https://github.com/acme/docs/pull/7",
+      })
+    }
     const path =
       json?.newPath ??
       json?.path ??
       url.searchParams.get("path") ??
       `sources/${json?.source?.provider ?? "github"}/new.md`
-    const delivery =
-      request.method === "DELETE"
-        ? url.searchParams.get("delivery")
-        : json?.delivery
-    if (delivery === "commit")
-      return HttpResponse.json({ outcome: "commit_queued", path })
     return HttpResponse.json({
       outcome: "pull_request",
       path,
@@ -112,7 +118,7 @@ export function workspaceSourceChangeHandlers(
     })
   }
   const matches = ({ request }: { request: Request }) =>
-    /\/api\/v1\/workspaces\/[^/]+\/sources(\/rename)?$/.test(
+    /\/api\/v1\/workspaces\/[^/]+\/sources(\/rename|\/batch)?$/.test(
       new URL(request.url).pathname,
     )
   return [

@@ -42,18 +42,10 @@ export function SourceEditorDialog(props: {
   workspaceSlug: string
   /** The connections of this provider in the org. */
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   target: SourceEditorTarget
   onClose: () => void
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    connections,
-    directCommitAllowed,
-    target,
-    onClose,
-  } = props
+  const { orgSlug, workspaceSlug, connections, target, onClose } = props
   const { provider } = target
   const editing = target.kind === "edit" ? target.source : null
   const queryClient = useQueryClient()
@@ -106,11 +98,11 @@ export function SourceEditorDialog(props: {
             name ? `sources/${provider}/${name}.md` : undefined,
           )
     },
-    onSuccess: (result) => {
+    onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      toast.success(sourceChangeMessage(result))
+      toast.success(sourceChangeMessage())
       onClose()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -193,22 +185,6 @@ export function SourceEditorDialog(props: {
           <Button variant="quiet" onPress={onClose}>
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={!valid || saveMutation.isPending}
-              onPress={() => {
-                if (connectionId && scope)
-                  saveMutation.mutate({
-                    connectionId,
-                    scope,
-                    delivery: "commit",
-                  })
-              }}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={!valid}

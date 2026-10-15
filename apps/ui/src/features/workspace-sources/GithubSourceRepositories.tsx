@@ -32,6 +32,7 @@ import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
+  createWorkspaceSourcesBatch,
   deleteWorkspaceSource,
   type SourceDelivery,
   sourceChangeMessage,
@@ -186,18 +187,10 @@ export function GithubSourceRepositories(props: {
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
-  directCommitAllowed: boolean
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    linkedRepositories,
-    sources,
-    canEdit,
-    directCommitAllowed,
-  } = props
+  const { orgSlug, workspaceSlug, linkedRepositories, sources, canEdit } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [showAll, setShowAll] = useState(false)
@@ -221,9 +214,7 @@ export function GithubSourceRepositories(props: {
           await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
         return null
       }
-      const delivery: SourceDelivery = directCommitAllowed
-        ? "commit"
-        : "pull_request"
+      const delivery: SourceDelivery = "pull_request"
       // One file holds one repository, so an unlink deletes the file. A
       // legacy row has no file that a delete can name.
       if (!source.removable)
@@ -244,7 +235,7 @@ export function GithubSourceRepositories(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      if (result) toast.success(sourceChangeMessage(result))
+      if (result) toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -394,7 +385,6 @@ function AddGithubRepositoriesModal(props: {
   orgSlug: string
   workspaceSlug: string
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   takenUrls: string[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -403,7 +393,6 @@ function AddGithubRepositoriesModal(props: {
     orgSlug,
     workspaceSlug,
     connections,
-    directCommitAllowed,
     takenUrls,
     isOpen,
     onOpenChange,
@@ -452,18 +441,32 @@ function AddGithubRepositoriesModal(props: {
       delivery: SourceDelivery
     }) => {
       // One source file for each repository. The server names each file
-      // sources/github/<owner>/<name>.md.
-      const results = []
-      for (const repo of input.repos)
-        results.push(
+      // sources/github/<owner>/<name>.md. Several repositories share one
+      // request, so they share one pull request (the route takes 20).
+      const toInput = (repo: GithubRepoItem) => ({
+        provider: "github" as const,
+        connectionId: repo.githubConnectionId ?? "",
+        scope: { repository: repo.full_name },
+      })
+      const [only] = input.repos
+      if (input.repos.length === 1 && only)
+        return [
           await createWorkspaceSource(
             orgSlug,
             workspaceSlug,
-            {
-              provider: "github",
-              connectionId: repo.githubConnectionId ?? "",
-              scope: { repository: repo.full_name },
-            },
+            toInput(only),
+            input.delivery,
+          ),
+        ]
+      const results = []
+      for (let i = 0; i < input.repos.length; i += 20)
+        results.push(
+          await createWorkspaceSourcesBatch(
+            orgSlug,
+            workspaceSlug,
+            input.repos.slice(i, i + 20).map((repo) => ({
+              source: toInput(repo),
+            })),
             input.delivery,
           ),
         )
@@ -478,11 +481,21 @@ function AddGithubRepositoriesModal(props: {
       })
       HyperDX.addAction("repository_index_started")
       const first = results[0]
-      if (results.length > 1 && first?.outcome === "pull_request")
+      if (first)
         toast.success(
-          `${results.length} pull requests opened. Each change applies after its merge.`,
+          results.length > 1
+            ? `${results.length} pull requests opened. Each change applies after its merge.`
+            : sourceChangeMessage(),
+          first.outcome === "pull_request"
+            ? {
+                action: {
+                  label: "View pull request",
+                  onClick: () =>
+                    window.open(first.pullRequestUrl, "_blank", "noopener"),
+                },
+              }
+            : undefined,
         )
-      else if (first) toast.success(sourceChangeMessage(first))
       close()
     },
     onError: (error: Error) => toast.error(error.message),
@@ -568,15 +581,6 @@ function AddGithubRepositoriesModal(props: {
           >
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={selected.length === 0 || addMutation.isPending}
-              onPress={() => add("commit")}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={selected.length === 0}
