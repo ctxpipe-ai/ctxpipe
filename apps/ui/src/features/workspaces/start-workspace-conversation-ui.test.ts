@@ -16,6 +16,7 @@ import { installMemorySessionStorage } from "./session-storage-test"
 import {
   newUiConversationId,
   openWorkspaceConversation,
+  scheduleFirstMessage,
   seedWorkspaceConversation,
   seedWorkspaceDetailFromList,
   takeFirstMessage,
@@ -142,26 +143,25 @@ describe("openWorkspaceConversation", () => {
     expect(takeFirstMessage(queryClient, "acme", opened)).toBeUndefined()
   })
 
-  it("keeps the first message while no session has mounted, even with a zero gcTime", async () => {
-    const queryClient = new QueryClient({
-      defaultOptions: { queries: { gcTime: 0 } },
-    })
-    const navigate = vi.fn().mockResolvedValue(undefined)
-    server.use(
-      http.get(/\/api\/v1\/workspaces\/[^/]+$/, () =>
-        HttpResponse.json(docsWorkspace),
-      ),
-    )
-    openWorkspaceConversation({
-      queryClient,
-      navigate: navigate as never,
-      selectNav: vi.fn(),
-      orgSlug: "acme",
-      workspace: { id: "ws_1", slug: "docs" },
-      text: "Still here?",
-    })
-    const opened = navigate.mock.calls[0]?.[0]?.params?.conversationId
-    await new Promise((resolve) => setTimeout(resolve, 20))
-    expect(takeFirstMessage(queryClient, "acme", opened)).toBe("Still here?")
+  it("sends the first message once when Strict Mode runs the effect twice", () => {
+    vi.useFakeTimers()
+    try {
+      const queryClient = new QueryClient()
+      queryClient.setQueryData(
+        workspaceKeys.conversationStart("acme", "conv_1"),
+        "Hello",
+      )
+      const send = vi.fn()
+      // Effect, cleanup, effect: the order Strict Mode uses.
+      const cancel = scheduleFirstMessage(queryClient, "acme", "conv_1", send)
+      cancel()
+      scheduleFirstMessage(queryClient, "acme", "conv_1", send)
+      vi.runAllTimers()
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send).toHaveBeenCalledWith("Hello")
+      expect(takeFirstMessage(queryClient, "acme", "conv_1")).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

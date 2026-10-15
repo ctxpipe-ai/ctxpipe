@@ -116,11 +116,6 @@ export function openWorkspaceConversation(input: {
   // sends it on its own chat stream. The cache does not survive a reload, so
   // a reload between this navigate and the session mount loses the message.
   // The window is short and the risk is low.
-  // The message has no observer until the session mounts, so keep it from
-  // garbage collection. A client with a short gcTime would drop it first.
-  input.queryClient.setQueryDefaults(["conversation-start"], {
-    gcTime: Number.POSITIVE_INFINITY,
-  })
   input.queryClient.setQueryData<string>(
     workspaceKeys.conversationStart(input.orgSlug, conversationId),
     input.text,
@@ -158,4 +153,23 @@ export function takeFirstMessage(
   const text = queryClient.getQueryData<string>(key)
   queryClient.removeQueries({ queryKey: key, exact: true })
   return text
+}
+
+/**
+ * Take the first message after the current commit and call `send` once.
+ * React Strict Mode runs an effect, its cleanup, and the effect again. A
+ * take in the first run would send on a chat that the cleanup already closed.
+ * The returned function cancels a take that has not run yet.
+ */
+export function scheduleFirstMessage(
+  queryClient: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+  send: (text: string) => void,
+): () => void {
+  const timer = setTimeout(() => {
+    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
+    if (text) send(text)
+  }, 0)
+  return () => clearTimeout(timer)
 }

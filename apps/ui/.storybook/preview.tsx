@@ -24,23 +24,27 @@ const storybookDefaultMswHandlers = {
 }
 
 function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
-  const client = useMemo(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 0,
-            gcTime: 0,
-            /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
-            retry: false,
-          },
-          mutations: {
-            retry: false,
-          },
+  const client = useMemo(() => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 0,
+          gcTime: 0,
+          /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
+          retry: false,
         },
-      }),
-    [],
-  )
+        mutations: {
+          retry: false,
+        },
+      },
+    })
+    // The first message of a new conversation waits in the cache until its
+    // session mounts. A zero gcTime would drop it first; production keeps the default.
+    client.setQueryDefaults(["conversation-start"], {
+      gcTime: Number.POSITIVE_INFINITY,
+    })
+    return client
+  }, [])
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 

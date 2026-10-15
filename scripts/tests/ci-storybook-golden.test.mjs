@@ -379,5 +379,7 @@ test("CI runs every story with a play function in shards", () => {
   )
   assert.match(workflow, /name: Storybook Playwright all plays/)
   assert.match(workflow, /STORYBOOK_PLAYS: all/)
+  assert.match(workflow, /SKIP_STORYBOOK_BUILD: "1"/)
+  assert.match(workflow, /name: Storybook build\n(?:.*\n)*?    runs-on: blacksmith-4vcpu-ubuntu-2404/)
   assert.match(workflow, /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/4/)
 })
