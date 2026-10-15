@@ -82,12 +82,22 @@ export const OpensInNewTab: Story = {
         if (seen !== opacity)
           throw new Error(`${step}: icon opacity is ${seen}, not ${opacity}`)
       })
+    const seen: string[] = []
+    for (const type of ["pointerover", "pointerenter", "pointerleave", "pointerout", "pointermove"])
+      document.addEventListener(
+        type,
+        (event) =>
+          seen.push(
+            `${type}:${(event.target as Element).tagName}:${event.isTrusted ? "T" : "s"}:${(event as PointerEvent).pointerType}`,
+          ),
+        { capture: true },
+      )
     await userEvent.hover(hash)
     try {
       await iconOpacity("on hover", "1")
     } catch (error) {
       throw new Error(
-        `DIAG hovered=${hash.getAttribute("data-hovered")} rac=${hash.getAttribute("data-rac")} hoverMedia=${matchMedia("(hover: hover)").matches} cls=${icon.getAttribute("class")} cause=${String(error)}`,
+        `DIAG hovered=${hash.getAttribute("data-hovered")} rac=${hash.getAttribute("data-rac")} hoverMedia=${matchMedia("(hover: hover)").matches} cls=${icon.getAttribute("class")} events=${seen.join(" ")} cause=${String(error)}`,
       )
     }
     await userEvent.unhover(hash)
