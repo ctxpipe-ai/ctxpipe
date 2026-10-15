@@ -237,6 +237,26 @@ describe("gitChangesOutsideWorkspaceRoot", () => {
       }),
     ).resolves.toEqual([{ path: "docs/link", reason: "symlink_outside_root" }])
   })
+
+  it("rejects a new submodule below the root folder", async () => {
+    const { dir, base } = repository()
+    git(dir, [
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `160000,${base},docs/context/vendor`,
+    ])
+    git(dir, ["commit", "-q", "-m", "submodule"])
+    const head = git(dir, ["rev-parse", "HEAD"])
+    await expect(
+      gitChangesOutsideWorkspaceRoot({
+        directory: dir,
+        base,
+        head,
+        rootPath: "docs/context",
+      }),
+    ).resolves.toEqual([{ path: "docs/context/vendor", reason: "submodule" }])
+  })
 })
 
 describe("workspaceRootPath", () => {

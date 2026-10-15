@@ -48,12 +48,13 @@ export function workspaceRootPath(
 
 export type WorkspaceRootViolation = {
   path: string
-  reason: "outside_root" | "symlink_outside_root"
+  reason: "outside_root" | "symlink_outside_root" | "submodule"
 }
 
 /**
  * Finds the changes from `base` to `head` that leave the root folder: a path
- * outside it, or a new symlink below it whose target is outside it. Git
+ * outside it, a new symlink below it whose target is outside it, or a new
+ * submodule (gitlink) below it, which points to another repository. Git
  * records a write through an existing symlink at the target path, so the
  * path check also catches that case.
  */
@@ -83,6 +84,10 @@ export async function gitChangesOutsideWorkspaceRoot(input: {
       .split(" ")
     if (!isInsideWorkspaceRoot(input.rootPath, path)) {
       violations.push({ path, reason: "outside_root" })
+      continue
+    }
+    if (newMode === "160000") {
+      violations.push({ path, reason: "submodule" })
       continue
     }
     if (newMode !== "120000") continue
