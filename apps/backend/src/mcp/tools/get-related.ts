@@ -16,7 +16,6 @@ import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-pr
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
   INTENT_PRESETS,
-  inferIntent,
   isAnswerKind,
   RELEVANCE_INTENTS,
   rankRelated,
@@ -65,9 +64,9 @@ export const getRelatedInputShape = {
     ),
   intent: z
     .enum(RELEVANCE_INTENTS)
-    .optional()
+    .default("general")
     .describe(
-      'The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general. Set it: one page with no intent must serve every kind of question. With no intent, the words of query choose one (for example "who owns" gives ownership); general turns that off.',
+      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general. Set it, or give the question as query: with neither, one page must serve every kind of question.",
     ),
   predicates: z
     .array(name)
@@ -352,7 +351,6 @@ export async function rankWorkspaceRelated(
       "workspace_not_ready",
       `The knowledge graph of Workspace "${workspace.slug}" is ${reason}. Try again in a few minutes.`,
     )
-  const intent = input.intent ?? inferIntent(input.query)
   const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
   const total = { ...defaultCaps, ...options.caps }
@@ -421,7 +419,7 @@ export async function rankWorkspaceRelated(
       seeds: seedIds,
       queryHits,
       options: {
-        intent,
+        intent: input.intent,
         predicateWeights: input.predicateWeights,
         direction: input.direction,
         restart: input.restart,
@@ -447,8 +445,10 @@ export async function rankWorkspaceRelated(
   // edges of the intent. Add all edges only for a short result list or a
   // list with no answer kind. Free-form claims can be outside the preset.
   const answers = (results: readonly { kind: string | null }[]) =>
-    results.filter((result) => isAnswerKind(intent, result.kind))
-  const defaultWalk = input.predicates ? undefined : INTENT_PRESETS[intent].walk
+    results.filter((result) => isAnswerKind(input.intent, result.kind))
+  const defaultWalk = input.predicates
+    ? undefined
+    : INTENT_PRESETS[input.intent].walk
   const walks = [
     await walk(
       input.predicates?.map((predicate) => predicate.toUpperCase()) ??
@@ -493,14 +493,18 @@ export async function rankWorkspaceRelated(
   const refOf = (id: string) => nodes.get(id)?.path ?? id
   const rankedIds = new Set<string>()
   const ordered =
-    intent === "general"
+    input.intent === "general"
       ? walks.flatMap((step) => step.ranked)
       : [
           ...walks.flatMap((step) =>
-            step.ranked.filter((result) => isAnswerKind(intent, result.kind)),
+            step.ranked.filter((result) =>
+              isAnswerKind(input.intent, result.kind),
+            ),
           ),
           ...walks.flatMap((step) =>
-            step.ranked.filter((result) => !isAnswerKind(intent, result.kind)),
+            step.ranked.filter(
+              (result) => !isAnswerKind(input.intent, result.kind),
+            ),
           ),
         ]
   const ranked = ordered
@@ -578,7 +582,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. With no intent, the words of query choose one; with no cue the call is general, and one page must then serve every kind of question. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results or no answer kind, a second walk follows all edges. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first: intent-walk answers, then all-edges answers, then other results. For general, all those kinds come first, together with strong query matches. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results or no answer kind, a second walk follows all edges. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first, together with strong query matches: intent-walk answers, then all-edges answers, then other results. With no intent, the call is general: all those kinds come first. Set intent, or give the question as query: with neither, one page must serve every kind of question. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

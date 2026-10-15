@@ -321,58 +321,6 @@ export function isAnswerKind(
 }
 
 /**
- * The words that tell the question of a `query`. "who" alone is a weak cue:
- * "who changed it" asks for a change. "why" is a strong cue: "why does it use
- * a queue" asks for a decision.
- */
-const INTENT_CUES: ReadonlyArray<[RelevanceIntent, RegExp, number]> = [
-  ["ownership", /\bwho\b/g, 0.5],
-  [
-    "ownership",
-    /\b(own|owns|owned|owners?|ownership|maintain(s|ed|ers?)?|on-?call|responsible|teams?)\b/g,
-    1,
-  ],
-  ["why", /\bwhy\b/g, 2],
-  [
-    "why",
-    /\b(reasons?|rationale|decisions?|decided?|chose|choose|adrs?|trade-?offs?|incidents?|postmortems?|outages?)\b/g,
-    1,
-  ],
-  [
-    "change",
-    /\b(change[sd]?|recent(ly)?|latest|pull requests?|prs?|commits?|merged|modified|history|introduced|regress(ed|ion)?|last (week|month|release))\b/g,
-    1,
-  ],
-  [
-    "dependencies",
-    /\b(depend(s|ed|ing|ency|encies)?|uses?|using|calls?|consumes?|imports?|librar(y|ies)|databases?|upstream|downstream|reads? from|writes? to|requires?)\b/g,
-    1,
-  ],
-  [
-    "structure",
-    /\b(structure|architecture|components?|modules?|layout|endpoints?|exposes?)\b/g,
-    1,
-  ],
-]
-
-/**
- * The intent that the words of `query` ask for, for a call with no intent.
- * A tie or no cue gives `general`, so a query that is not a question keeps
- * the mixed first page.
- */
-export function inferIntent(query: string | undefined): RelevanceIntent {
-  const text = (query ?? "").toLowerCase()
-  const scores = new Map<RelevanceIntent, number>()
-  for (const [intent, cue, weight] of INTENT_CUES) {
-    const count = text.match(cue)?.length ?? 0
-    if (count > 0)
-      scores.set(intent, (scores.get(intent) ?? 0) + count * weight)
-  }
-  const [first, second] = [...scores].sort((a, b) => b[1] - a[1])
-  return first && (!second || first[1] > second[1]) ? first[0] : "general"
-}
-
-/**
  * max(0.1, 2^(-age / half-life)) for a change edge, from its `validFrom`.
  * State facts do not decay here: their validity window and decay control them.
  */

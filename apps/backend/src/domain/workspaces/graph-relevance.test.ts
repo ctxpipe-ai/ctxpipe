@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest"
 import type { GraphExpansion } from "./graph-expand.js"
 import {
-  inferIntent,
   isAnswerKind,
   type RelevanceNode,
   type RelevanceOptions,
@@ -1096,30 +1095,5 @@ describe("isAnswerKind", () => {
     expect(isAnswerKind("general", "note")).toBe(false)
     expect(isAnswerKind("structure", "note")).toBe(true)
     expect(isAnswerKind("why", null)).toBe(false)
-  })
-})
-
-describe("inferIntent", () => {
-  it.each([
-    ["who owns the billing service", "ownership"],
-    ["Which team maintains billing?", "ownership"],
-    ["why does billing use a queue", "why"],
-    ["the decisions behind the billing design", "why"],
-    ["what changed recently in billing", "change"],
-    ["who changed billing last week", "change"],
-    ["latest pull requests to billing", "change"],
-    ["what does billing depend on", "dependencies"],
-    ["which databases does billing read from", "dependencies"],
-    ["the architecture and components of billing", "structure"],
-  ] as const)("infers the intent of %j", (query, intent) => {
-    expect(inferIntent(query)).toBe(intent)
-  })
-
-  it.each([
-    [undefined],
-    ["connection saturation runbook"],
-    ["the owners and the dependencies of billing"],
-  ])("falls back to general for %j", (query) => {
-    expect(inferIntent(query)).toBe("general")
   })
 })
