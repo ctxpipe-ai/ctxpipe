@@ -24,10 +24,14 @@ import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
   createPullRequestWithFiles,
   getFileContent,
+  listFilesInTree,
   listOpenPullRequestsByBranchPrefix,
 } from "../../services/github/installation-write-client.js"
 import { workspaceAllowsConversationEdits } from "../workspaces/chat-sandbox-policy.js"
+import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
+import { changeLinkedRepository } from "../workspaces/link-declarations.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
   applySourceFileChange,
@@ -38,11 +42,16 @@ import {
 } from "./edit.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
-import { checkSourcePath, SOURCE_FILES_FOLDER } from "./source-file.js"
+import {
+  checkSourcePath,
+  githubSourcePath,
+  SOURCE_FILES_FOLDER,
+} from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
 import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import {
   SOURCE_SCOPES,
+  SOURCES_FILE_PATH,
   type SourceProvider,
   sourceProviderSchema,
   summarizeSourceScope,
@@ -526,6 +535,55 @@ export async function addWorkspaceSources(input: {
     deletes: [],
   })
   return { outcome: "pull_request", paths, pullRequestUrl }
+}
+
+/**
+ * Unlink one repository by a pull request that removes it from each file of
+ * the default branch that links it: its file under `sources/`, its entry in
+ * the legacy `.ctxpipe/sources.yaml`, and its `repositories/*.md`
+ * declaration. The hydrate of the merged revision retracts its knowledge.
+ */
+export async function unlinkWorkspaceRepository(input: {
+  workspace: WorkspaceRecord
+  gitUrl: string
+}): Promise<WorkspaceSourceChangeResult> {
+  const { workspace, gitUrl } = input
+  const repository = assertCanEdit(workspace)
+  const { branch, ...target } = repository
+  const paths = (await listFilesInTree({ ...target, branch }))
+    .map((file) => file.path)
+    .filter(
+      (path) =>
+        path === SOURCES_FILE_PATH ||
+        path.startsWith(SOURCES_FOLDER_PREFIX) ||
+        isLinkedRepositoryDeclaration(path),
+    )
+  const changes = changeLinkedRepository({
+    action: "unlink",
+    gitUrl,
+    connectionId: repository.githubConnectionId,
+    files: await readSourceFiles(repository, paths),
+  })
+  if (changes.refused) throw new SourceChangeError(409, changes.refused)
+  if (!changes.files.length && !changes.deletePaths.length)
+    throw new SourceChangeError(
+      409,
+      "No file on the default branch links this repository",
+    )
+  const name = githubRepoFullNameFromWorkspaceUrl(gitUrl) ?? ""
+  const [owner = "", repo = ""] = name.split("/")
+  // The branch and title name the source file of the repository, also when
+  // only a legacy form links it.
+  const path = githubSourcePath(owner, repo)
+  const pullRequestUrl = await openSourcePullRequest({
+    repository,
+    action: "remove",
+    paths: [path],
+    label: SOURCE_SCOPES.github.label,
+    writes: changes.files,
+    deletes: changes.deletePaths,
+  })
+  return { outcome: "pull_request", path, pullRequestUrl }
 }
 
 export async function listConnectionUsage(

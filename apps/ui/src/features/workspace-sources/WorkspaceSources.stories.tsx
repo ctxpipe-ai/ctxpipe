@@ -651,14 +651,11 @@ export const UnlinkLastRepositoryRemovesTheSource: Story = {
                 path: new URL(request.url).pathname,
                 body: null,
               })
-              return HttpResponse.json(
-                {
-                  queued: true,
-                  action: "unlink",
-                  gitUrl: "https://github.com/acme/api",
-                },
-                { status: 202 },
-              )
+              return HttpResponse.json({
+                outcome: "pull_request",
+                path: "sources/github/acme/api.md",
+                pullRequestUrl: "https://github.com/acme/docs/pull/7",
+              })
             },
           ),
         ],

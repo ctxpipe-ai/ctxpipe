@@ -1,15 +1,17 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { SourceChangeError } from "../../domain/workspace-sources/edit.js"
+import { unlinkWorkspaceRepository } from "../../domain/workspace-sources/service.js"
 import {
   getWorkspaceBySlug,
   listLinkedRepositories,
 } from "../../models/workspaces.js"
-import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
   workspaceSlugParams,
 } from "./workspace-route-shared.js"
+import { WorkspaceSourceChangeResultSchema } from "./workspace-sources-contract.js"
 
 const LinkedRepositorySchema = z
   .object({
@@ -31,14 +33,6 @@ const LinkedRepositoryParamsSchema = z
     linkedId: z.string().min(1),
   })
   .openapi("WorkspaceLinkedRepositoryParams")
-
-const LinkedWriteQueuedSchema = z
-  .object({
-    queued: z.literal(true),
-    action: z.enum(["link", "unlink"]),
-    gitUrl: z.string(),
-  })
-  .openapi("WorkspaceLinkedWriteQueued")
 
 const listLinkedRoute = createRoute({
   method: "get",
@@ -71,9 +65,11 @@ const deleteLinkedRoute = createRoute({
   path: "/{workspaceSlug}/linked-repositories/{linkedId}",
   request: { params: LinkedRepositoryParamsSchema },
   responses: {
-    202: {
-      content: { "application/json": { schema: LinkedWriteQueuedSchema } },
-      description: "Unlink write queued",
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceSourceChangeResultSchema },
+      },
+      description: "The pull request that unlinks the repository",
     },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -89,7 +85,8 @@ const deleteLinkedRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Write status unknown",
+      description:
+        "The Workspace is read-only, or no file of the default branch links the repository",
     },
   },
 })
@@ -129,20 +126,17 @@ export const workspaceLinkedRoutes = new OpenAPIHono<AppEnv>()
     const existing = await listLinkedRepositories(workspace.id)
     const row = existing.find((item) => item.id === linkedId)
     if (!row) return c.json({ error: "Not found" }, 404)
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: workspace.orgId,
-        workspaceId: workspace.id,
-        kind: "link_unlink",
-        linkAction: "unlink",
-        linkGitUrl: row.gitUrl,
-      },
-      c.get("log"),
-    )
-    return c.json(
-      { queued: true as const, action: "unlink" as const, gitUrl: row.gitUrl },
-      202,
-    )
+    // An unlink changes the sources config, so it goes by a pull request.
+    try {
+      return c.json(
+        await unlinkWorkspaceRepository({ workspace, gitUrl: row.gitUrl }),
+        200,
+      )
+    } catch (error) {
+      if (error instanceof SourceChangeError)
+        return c.json({ error: error.message }, error.status)
+      throw error
+    }
   })
 
 export { LinkedRepositorySchema }

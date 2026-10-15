@@ -209,10 +209,11 @@ export function GithubSourceRepositories(props: {
     mutationFn: async (row: RepositoryRow) => {
       const { source, linked } = row
       // Without a source row (the file changed since the last projection),
-      // the unlink command removes the repository from the file.
+      // the unlink opens a pull request that removes the repository from
+      // each file that links it.
       if (!source) {
         if (linked)
-          await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
+          return unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
         return null
       }
       const delivery: SourceDelivery = directCommitAllowed
