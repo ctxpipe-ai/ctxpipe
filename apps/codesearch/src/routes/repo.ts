@@ -332,6 +332,23 @@ export const getFileRoute = createRoute({
 const filesQueryRequestSchema = z
   .object({
     paths: z.array(z.string()).min(1),
+    /**
+     * A folder of the checkout. When set, `paths` are relative to it and a
+     * read never leaves it, also through a symlink.
+     */
+    root: z
+      .string()
+      .max(300)
+      .refine(
+        (root) =>
+          !root.startsWith("/") &&
+          !root.includes("\\") &&
+          root
+            .split("/")
+            .every((segment) => segment && segment !== "." && segment !== ".."),
+        "The root must be a relative folder path",
+      )
+      .optional(),
   })
   .openapi("FilesQueryRequest")
 
@@ -671,7 +688,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const { paths } = c.req.valid("json")
+    const { paths, root } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const basePath = repoCheckoutPath(
@@ -680,9 +697,14 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       checkoutKeyFromAuth(auth, repoId, repo.publishedCheckoutKey),
     )
     const result: Record<string, string> = {}
+    // A root folder that is missing or leaves the checkout holds no files.
+    const base = root
+      ? await resolveContainedRealPath(basePath, root).catch(() => null)
+      : basePath
+    if (!base) return c.json(result, 200)
     for (const p of paths) {
       try {
-        result[p] = (await readContainedFile(basePath, p)).toString("base64")
+        result[p] = (await readContainedFile(base, p)).toString("base64")
       } catch {
         // omit missing files
       }

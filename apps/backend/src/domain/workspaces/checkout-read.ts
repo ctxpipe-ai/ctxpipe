@@ -28,9 +28,13 @@ export async function listWorkspaceCheckoutPaths(
 export async function readWorkspaceCheckoutFile(
   input: WorkspaceCheckoutRead & { path: string },
 ): Promise<ExplorerGitFile> {
+  // Refuse an unsafe path before any request.
+  workspaceRepositoryPath(input.rootPath, input.path)
+  // Codesearch resolves the path and its symlinks inside the root folder, so
+  // a link below the root cannot read a file outside it.
   const bytes = await fetchCheckoutFileBytes({
     ...input,
-    path: workspaceRepositoryPath(input.rootPath, input.path),
+    ...(input.rootPath ? { root: input.rootPath } : {}),
     orgId: requireCurrentOrgId(),
   })
   return bytes === null ? { kind: "missing" } : { kind: "bytes", bytes }

@@ -708,6 +708,35 @@ describe("reads stay inside the checkout", () => {
     expect(atob(body["in-link"] as string)).toBe("inside\n")
   })
 
+  it("POST /files-query with a root reads only below the root folder", async () => {
+    // The link stays in the checkout but leaves the root folder.
+    await symlink("../inside.txt", join(checkoutDir, "sub", "up-link"))
+    const app = createTestApp()
+    const query = async (root: string, paths: string[]) => {
+      const res = await app.request("/repo_abcdef27/files-query", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ root, paths }),
+      })
+      return { status: res.status, body: (await res.json()) as object }
+    }
+
+    const sub = await query("sub", ["inner.txt", "up-link", "../inside.txt"])
+    expect(sub.status).toBe(200)
+    expect(Object.keys(sub.body)).toEqual(["inner.txt"])
+    // A root folder that is a symlink resolves inside the checkout only.
+    expect((await query("in-dir", ["inner.txt"])).body).toHaveProperty(
+      "inner.txt",
+    )
+    for (const root of ["out-dir", "git-dir", "missing"])
+      expect(await query(root, ["inner.txt", "config"])).toEqual({
+        status: 200,
+        body: {},
+      })
+    for (const root of ["../outside", "/etc", "sub/../.."])
+      expect((await query(root, ["inner.txt"])).status).toBe(400)
+  })
+
   it("GET /files answers a symlinked directory outside like a missing one", async () => {
     const app = createTestApp()
     const missing = await app.request("/repo_abcdef27/files?path=missing")

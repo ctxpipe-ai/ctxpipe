@@ -7,7 +7,7 @@ import {
   readWorkspaceCheckoutFile,
 } from "./checkout-read.js"
 
-const requested: string[][] = []
+const requested: Array<{ paths: string[]; root?: string }> = []
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 useMswServer(
   http.get("http://codesearch.test/:repositoryId/tree", () =>
@@ -23,8 +23,9 @@ useMswServer(
   http.post(
     "http://codesearch.test/:repositoryId/files-query",
     async ({ request }) => {
-      const { paths } = (await request.json()) as { paths: string[] }
-      requested.push(paths)
+      const body = (await request.json()) as { paths: string[]; root?: string }
+      requested.push(body)
+      const { paths } = body
       return HttpResponse.json(
         Object.fromEntries(
           paths.map((path) => [
@@ -59,11 +60,14 @@ describe("Workspace checkout reads with a root folder", () => {
     ).resolves.toEqual(["AGENTS.md", "knowledge/a.md"])
   })
 
-  it("reads a root-relative path below the root folder", async () => {
+  it("reads a root-relative path and lets codesearch keep the read below the root folder", async () => {
+    // Codesearch resolves symlinks against the root folder, not the checkout.
     const file = await withOrgIdContext(org, () =>
       readWorkspaceCheckoutFile({ ...read, path: "knowledge/a.md" }),
     )
-    expect(requested).toEqual([["docs/context/knowledge/a.md"]])
+    expect(requested).toEqual([
+      { paths: ["knowledge/a.md"], root: "docs/context" },
+    ])
     expect(file).toMatchObject({ kind: "bytes" })
   })
 
@@ -74,5 +78,12 @@ describe("Workspace checkout reads with a root folder", () => {
       ),
     ).rejects.toThrow()
     expect(requested).toEqual([])
+  })
+
+  it("sends no root for a Workspace at the repository root", async () => {
+    await withOrgIdContext(org, () =>
+      readWorkspaceCheckoutFile({ ...read, rootPath: "", path: "README.md" }),
+    )
+    expect(requested).toEqual([{ paths: ["README.md"] }])
   })
 })
