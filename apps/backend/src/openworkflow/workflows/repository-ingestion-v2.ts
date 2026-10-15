@@ -75,9 +75,12 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * validator; a rejected merge publishes nothing and makes the Workspace
  * `partial`. A `partial` Workspace publishes its accepted ops, but the
  * deletes of a failed root stay out: a failed root gets no retraction. A
- * refused assemble publishes the run base. Then
- * `delete-refs` deletes the run's refs; the tip check deletes the refs that
- * a crash leaves (the run is then finished and not a shadow run).
+ * refused assemble publishes the run base. A publish that fails (the
+ * semantic merge model fails, or the default branch wins each push race)
+ * also makes the Workspace `partial`, and the other Workspaces publish. Then
+ * `delete-refs` deletes the run's refs, but not the refs of a failed
+ * publish. The tip check deletes the refs that stay (the run is then
+ * finished and not a shadow run).
  */
 
 /** The write job of the publish of one Workspace; a replay finds it. */
@@ -473,6 +476,8 @@ export function defineRepositoryIngestionV2Workflow(
 
         await release()
 
+        /** The Workspaces whose publish failed: their refs stay. */
+        const failedPublish = new Set<string>()
         if (!input.shadow)
           for (const destination of destinations) {
             const { workspaceId } = destination
@@ -531,8 +536,17 @@ export function defineRepositoryIngestionV2Workflow(
                 entry.published = published.committed
                   ? published.commitSha
                   : null
-                if (!published.committed && published.reason === "refused") {
-                  entry.refused = published.refused
+                if (!published.committed && published.reason === "failed")
+                  failedPublish.add(workspaceId)
+                if (
+                  !published.committed &&
+                  (published.reason === "refused" ||
+                    published.reason === "failed")
+                ) {
+                  entry.refused =
+                    published.reason === "refused"
+                      ? published.refused
+                      : published.failed
                   entry.partial += 1
                   getLogger().warn("ingestion-v2.partial", {
                     step: `publish:${workspaceId}`,
@@ -554,7 +568,9 @@ export function defineRepositoryIngestionV2Workflow(
         // Each Workspace publishes first, so a failed delete stops no
         // publish.
         if (!input.shadow)
-          for (const { workspaceId, generation } of destinations)
+          for (const { workspaceId, generation } of destinations.filter(
+            (d) => !failedPublish.has(d.workspaceId),
+          ))
             await step.run(
               {
                 name: `delete-refs:${workspaceId}`,

@@ -56,6 +56,9 @@ export function extractionHydrateKey(jobId: string): string {
   return `${jobId}:hydrate`
 }
 
+/** The semantic merge model failed (timeout, size, or a schema mismatch). */
+class SemanticResolveError extends Error {}
+
 export const workspaceExtractIngestInputSchema = z
   .object({
     orgId: z.string().min(1),
@@ -174,7 +177,16 @@ export const workspaceExtractIngest = defineWorkflow(
                         withheldRoots: ingest.withheldRoots,
                         bundle: ingest.bundle,
                         semanticMerge: {
-                          resolve: resolveSemanticConflicts,
+                          resolve: (conflicts) =>
+                            resolveSemanticConflicts(conflicts).catch(
+                              (error: unknown) => {
+                                throw new SemanticResolveError(
+                                  error instanceof Error
+                                    ? error.message
+                                    : String(error),
+                                )
+                              },
+                            ),
                           source: { url: source.url, sha: sourceSha },
                           sourcePathExists: (path) => sourceTree().exists(path),
                           readSourceFile: (path) => sourceTree().read(path),
@@ -187,8 +199,19 @@ export const workspaceExtractIngest = defineWorkflow(
                 } catch (error) {
                   // A merge that fails the patch validator: the Workspace
                   // is `partial`, and the publish writes nothing.
-                  if (!(error instanceof IngestRefRefusedError)) throw error
-                  return { refused: error.message.slice(0, 300) }
+                  if (error instanceof IngestRefRefusedError)
+                    return { refused: error.message.slice(0, 300) }
+                  // A failed semantic merge model: the same, but the run
+                  // keeps the refs.
+                  if (error instanceof SemanticResolveError)
+                    return {
+                      failed:
+                        `The semantic merge failed: ${error.message}`.slice(
+                          0,
+                          300,
+                        ),
+                    }
+                  throw error
                 } finally {
                   await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
                 }
@@ -234,6 +257,16 @@ export const workspaceExtractIngest = defineWorkflow(
               committed: false as const,
               reason: "refused" as const,
               refused: transformed.refused,
+            }
+          }
+          if ("failed" in transformed) {
+            await step.run({ name: "fail-publish" }, () =>
+              persistWriteJobStatus(input.jobId, "failed"),
+            )
+            return {
+              committed: false as const,
+              reason: "failed" as const,
+              failed: transformed.failed,
             }
           }
           if (input.extraction)
@@ -363,6 +396,18 @@ export const workspaceExtractIngest = defineWorkflow(
             persistWriteJobCommitSha(input.jobId, committed.sha),
           )
           return { committed: true as const, commitSha: committed.sha }
+        }
+        if (input.ingest) {
+          // Each attempt lost the push race: publish nothing, and let the
+          // run publish its other Workspaces.
+          await step.run({ name: "fail-raced-publish" }, () =>
+            persistWriteJobStatus(input.jobId, "failed"),
+          )
+          return {
+            committed: false as const,
+            reason: "failed" as const,
+            failed: "The default branch kept changing during the publish",
+          }
         }
         throw new Error("Default branch kept changing during no-op validation")
       },
