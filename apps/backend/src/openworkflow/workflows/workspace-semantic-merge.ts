@@ -288,6 +288,7 @@ export const workspaceSemanticMerge = defineWorkflow(
               return {
                 committed: false as const,
                 reason: "publish_pipeline_v2" as const,
+                commitSha: undefined,
               }
             pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
