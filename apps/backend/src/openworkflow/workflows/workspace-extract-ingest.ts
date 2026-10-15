@@ -215,32 +215,33 @@ export const workspaceExtractIngest = defineWorkflow(
           })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
-            pushed = await step.run(
+            const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-              () => attemptWorkspaceCommit(input, revision, committed, env),
+              async () => {
+                // The switch can change after the transform and while the
+                // push waits for write access. The step that pushes reads
+                // it immediately before the push, so no step runs between.
+                if (ingestionPublishPipeline() !== "legacy") {
+                  await persistWriteJobStatus(input.jobId, "completed")
+                  return { stopped: true as const }
+                }
+                return attemptWorkspaceCommit(input, revision, committed, env)
+              },
             )
+            if ("stopped" in attempt)
+              return {
+                committed: false as const,
+                reason: "publish_pipeline_v2" as const,
+              }
+            pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>
               persistWriteJobStatus(input.jobId, "paused"),
             )
             await step.sleep("await-default-write-access", "1 minute")
-            const resumed = await step.run(
-              { name: "resume-push" },
-              async () => {
-                // The switch can change while the push waits for write access.
-                if (ingestionPublishPipeline() !== "legacy") {
-                  await persistWriteJobStatus(input.jobId, "completed")
-                  return { stopped: true }
-                }
-                await persistWriteJobStatus(input.jobId, "running")
-                return {}
-              },
+            await step.run({ name: "resume-push" }, () =>
+              persistWriteJobStatus(input.jobId, "running"),
             )
-            if (resumed && "stopped" in resumed)
-              return {
-                committed: false as const,
-                reason: "publish_pipeline_v2" as const,
-              }
           }
           if (!pushed.pushed) {
             const handoff = await step.run(
