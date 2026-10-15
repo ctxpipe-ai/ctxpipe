@@ -115,6 +115,14 @@ export function reconcileGithubState(
 export const LINKING_SOURCE_STATUSES = ["ok", "out_of_access"] as const
 
 /**
+ * A row status whose linked repositories the product serves: MCP, chat, and
+ * sandbox checkouts read only these. An `out_of_access` row means that the
+ * customer took back our access, so its cached code is not served. The row
+ * keeps its pins, so a link keeps its id and SHAs when access comes back.
+ */
+const SERVING_SOURCE_STATUSES = ["ok"] as const
+
+/**
  * The next state of each planned row of one Workspace, by source key. The
  * pins of a repository belong to the repository, not to the row: a
  * repository keeps its id and SHAs when it moves to another entry, and a row
@@ -192,10 +200,10 @@ export function sameSourceState(a: unknown, b: unknown): boolean {
 }
 
 /**
- * A jsonb select value: the state of each linking GitHub row of the
+ * A jsonb select value: the state of each serving GitHub row of the
  * Workspace with the id `workspaceId`. Read it with {@link linkedSourcePins}.
  */
-export function linkedSourceStatesSql(workspaceId: SQL) {
+export function servedSourceStatesSql(workspaceId: SQL) {
   const column = (name: AnyPgColumn) =>
     sql`${workspaceSources}.${sql.identifier(name.name)}`
   return sql<LinkedSourceStates>`coalesce((
@@ -204,7 +212,7 @@ export function linkedSourceStatesSql(workspaceId: SQL) {
     where ${column(workspaceSources.workspaceId)} = ${workspaceId}
     and ${column(workspaceSources.provider)} = 'github'
     and ${column(workspaceSources.status)} in (${sql.join(
-      LINKING_SOURCE_STATUSES.map((status) => sql`${status}`),
+      SERVING_SOURCE_STATUSES.map((status) => sql`${status}`),
       sql`, `,
     )})
   ), '[]'::jsonb)`
@@ -216,7 +224,7 @@ type LinkedSourceStates = Array<{
   state: unknown
 }>
 
-/** The pins of the value of {@link linkedSourceStatesSql}. */
+/** The pins of the value of {@link servedSourceStatesSql}. */
 export function linkedSourcePins(
   rows: LinkedSourceStates,
 ): GithubRepositoryPin[] {
@@ -258,9 +266,29 @@ function toLinked(
  * The linked repositories of the org in the current database context, in
  * creation order. `workspaceId` limits the read to one Workspace.
  */
-export async function listLinkedRepositoryPins(
+export function listLinkedRepositoryPins(
   db: Queryable,
   filter: { orgId?: string; workspaceId?: string } = {},
+): Promise<LinkedRepositoryPin[]> {
+  return listPins(db, filter, LINKING_SOURCE_STATUSES)
+}
+
+/**
+ * The linked repositories that the product serves (MCP, chat, sandbox
+ * checkouts): the pins of `ok` rows only. Arguments as for
+ * {@link listLinkedRepositoryPins}.
+ */
+export function listServedRepositoryPins(
+  db: Queryable,
+  filter: { orgId?: string; workspaceId?: string } = {},
+): Promise<LinkedRepositoryPin[]> {
+  return listPins(db, filter, SERVING_SOURCE_STATUSES)
+}
+
+async function listPins(
+  db: Queryable,
+  filter: { orgId?: string; workspaceId?: string },
+  statuses: readonly string[],
 ): Promise<LinkedRepositoryPin[]> {
   const rows = await db
     .select({
@@ -275,7 +303,7 @@ export async function listLinkedRepositoryPins(
       and(
         eq(workspaceSources.provider, "github"),
         // A row that cannot link keeps its pins, but they link nothing.
-        inArray(workspaceSources.status, [...LINKING_SOURCE_STATUSES]),
+        inArray(workspaceSources.status, [...statuses]),
         filter.orgId ? eq(workspaceSources.orgId, filter.orgId) : undefined,
         filter.workspaceId
           ? eq(workspaceSources.workspaceId, filter.workspaceId)

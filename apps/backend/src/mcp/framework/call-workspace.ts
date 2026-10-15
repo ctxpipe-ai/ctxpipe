@@ -3,7 +3,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import { isValidSlug } from "../../domain/workspaces/slug.js"
-import { listLinkedRepositoryPins } from "../../models/workspace-source-state.js"
+import { listServedRepositoryPins } from "../../models/workspace-source-state.js"
 import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError, workspaceNotFound } from "./tool-errors.js"
 import type { CallOrg } from "./tool-org.js"
@@ -83,15 +83,16 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
 /**
  * Every repository link of the org: the Workspace and the git URL, oldest
  * first. The GitHub sources of `.ctxpipe/sources.yaml` link repositories; the
- * pinned state of their `workspace_sources` rows lists them (ADR-050). With
- * `workspaceId`, only the links of that Workspace.
+ * pinned state of their `workspace_sources` rows lists them (ADR-050). MCP
+ * serves only the links of `ok` sources. With `workspaceId`, only the links
+ * of that Workspace.
  */
 export async function listOrgRepositoryLinks(
   org: CallOrg,
   workspaceId?: string,
 ): Promise<Array<{ workspaceId: string; gitUrl: string }>> {
   const pins = await withOrgDbContext(org.id, (db) =>
-    listLinkedRepositoryPins(db, { orgId: org.id, workspaceId }),
+    listServedRepositoryPins(db, { orgId: org.id, workspaceId }),
   )
   return pins.map((pin) => ({
     workspaceId: pin.workspaceId,

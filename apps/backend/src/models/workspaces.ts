@@ -64,8 +64,8 @@ import {
   getLinkedRepositoryPin,
   type LinkedRepositoryPin,
   linkedSourcePins,
-  linkedSourceStatesSql,
   listLinkedRepositoryPins,
+  servedSourceStatesSql,
   updateLinkedRepositoryPin,
 } from "./workspace-source-state.js"
 import { isUniqueViolation, orgSql } from "./workspace-sql.js"
@@ -436,7 +436,7 @@ async function readWorkspaceProjectionSnapshot(
           and ${qualified(workspaceKnowledgeUnits.projectionSha)} = coalesce(${qualified(workspaces.activeRevision)}->>'sha', ${qualified(workspaces.activeProjectionSha)})
           and ${unitWithoutChunks(qualified(workspaceKnowledgeUnits.workspaceId), qualified(workspaceKnowledgeUnits.servingId), qualified(workspaceKnowledgeUnits.body))}
         )`,
-        linkedSources: linkedSourceStatesSql(qualified(workspaces.id)),
+        linkedSources: servedSourceStatesSql(qualified(workspaces.id)),
         indexedRepositories: sql<
           Array<{
             repository: { id: string; name: string; gitUrl: string }

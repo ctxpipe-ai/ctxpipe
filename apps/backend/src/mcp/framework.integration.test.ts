@@ -23,6 +23,7 @@ import {
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
+import { listLinkedRepositoryPins } from "../models/workspace-source-state.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
 import {
@@ -312,7 +313,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
         })),
       )
       // ADR-050: GitHub sources in .ctxpipe/sources.yaml link repositories
-      // too. A source without a usable connection links nothing.
+      // too. Only an `ok` source serves its repositories.
       await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
@@ -333,7 +334,7 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
           sourceKey: "github-broken",
           provider: "github",
           scope: { repositories: ["example/broken"] },
-          status: "connection_missing",
+          status: "out_of_access",
           revision: sha1,
         },
       ])
@@ -630,6 +631,28 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       excluded: ["example/payments-api"],
     })
     await client.close()
+  })
+
+  it("hides the repository of an out_of_access source and keeps its pins", async () => {
+    const client = await connect()
+    try {
+      const result = await call(client, "probe_repositories", {
+        org: seed.orgSlug,
+        excludeRepositories: [],
+      })
+      expect(result.structuredContent?.repositories).not.toContain(
+        "example/broken",
+      )
+    } finally {
+      await client.close()
+    }
+    // The pins stay, so the link keeps its id and SHAs when access returns.
+    const pins = await withOrgDbContext(seed.orgId, (db) =>
+      listLinkedRepositoryPins(db, { workspaceId: readyWorkspaceId }),
+    )
+    expect(pins.map((pin) => pin.gitUrl)).toContain(
+      "https://github.com/example/broken",
+    )
   })
 
   it("walks a cursor and gives stale_cursor after a new projection", async () => {

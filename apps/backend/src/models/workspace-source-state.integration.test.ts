@@ -2,11 +2,14 @@ import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { withOrgDbContext } from "../db/client.js"
+import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
+import { workspaceGithubReadScope } from "../domain/workspaces/docker-run-vault.js"
 import { seedSourcesOrg } from "../test/workspace-sources-fixture.js"
 import {
   listLinkedRepositoryPins,
+  listServedRepositoryPins,
   updateLinkedRepositoryPin,
 } from "./workspace-source-state.js"
 import { replaceWorkspaceSourceRows } from "./workspace-sources.js"
@@ -250,5 +253,78 @@ describe("workspace source state (Postgres)", () => {
         (row) => row.gitUrl,
       ),
     ).toEqual(["https://github.com/acme/web"])
+  })
+
+  it("serves only the pins of ok rows, and keeps the pins of an out_of_access row", async () => {
+    const connection = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace("withdrawn")
+    const web = `acme/web-${seed.suffix}`
+    const jobs = `acme/jobs-${seed.suffix}`
+    await withOrgDbContext(seed.orgId, (db) =>
+      db.insert(repositories).values(
+        [web, jobs].map((name) => ({
+          id: `repo_${name.replaceAll(/[^a-z0-9]/gi, "_")}`,
+          orgId: seed.orgId,
+          name,
+          gitUrl: `https://github.com/${name}`,
+          githubConnectionId: connection,
+        })),
+      ),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [
+        github("code", connection, [web]),
+        github("more", connection, [jobs], "out_of_access"),
+      ],
+    })
+    const urls = (pins: Array<{ gitUrl: string }>) =>
+      pins.map((pin) => pin.gitUrl).sort()
+    const linked = await withOrgDbContext(seed.orgId, (db) =>
+      listLinkedRepositoryPins(db, { workspaceId }),
+    )
+    expect(urls(linked)).toEqual([
+      `https://github.com/${jobs}`,
+      `https://github.com/${web}`,
+    ])
+    expect(
+      urls(
+        await withOrgDbContext(seed.orgId, (db) =>
+          listServedRepositoryPins(db, { workspaceId }),
+        ),
+      ),
+    ).toEqual([`https://github.com/${web}`])
+    // A chat sandbox gets no read access to the withdrawn repository.
+    expect(
+      await workspaceGithubReadScope(seed.orgId, {
+        workspaceId,
+        generation: 1,
+        remote: {
+          url: `https://github.com/acme/withdrawn-${seed.suffix}`,
+          connectionId: connection,
+        },
+        defaultBranch: "main",
+        sha: "a".repeat(40),
+        access: "read",
+      }),
+    ).toEqual([`acme/withdrawn-${seed.suffix}`, web].sort())
+
+    // When access comes back, the link keeps its id.
+    const before = linked.find((pin) => pin.gitUrl.endsWith(jobs))
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        github("code", connection, [web]),
+        github("more", connection, [jobs]),
+      ],
+    })
+    const served = await withOrgDbContext(seed.orgId, (db) =>
+      listServedRepositoryPins(db, { workspaceId }),
+    )
+    expect(served.find((pin) => pin.gitUrl.endsWith(jobs))?.id).toBe(before?.id)
   })
 })

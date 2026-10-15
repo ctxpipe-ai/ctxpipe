@@ -3,7 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { getWorkspaceGithubReadToken } from "../../models/github-installation.js"
-import { listLinkedRepositoryPins } from "../../models/workspace-source-state.js"
+import { listServedRepositoryPins } from "../../models/workspace-source-state.js"
 import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
@@ -46,7 +46,7 @@ export function workspaceChatGithubRepository(url: string): string | undefined {
 
 /**
  * The GitHub repositories a Docker run may read: the Workspace repository and
- * the linked repositories on the same GitHub connection.
+ * the served linked repositories on the same GitHub connection.
  */
 export async function workspaceGithubReadScope(
   orgId: string,
@@ -56,7 +56,7 @@ export async function workspaceGithubReadScope(
   if (!connectionId) return []
   const linked = await withOrgDbContext(orgId, async (db) => {
     const [pins, bound] = await Promise.all([
-      listLinkedRepositoryPins(db, {
+      listServedRepositoryPins(db, {
         orgId,
         workspaceId: revision.workspaceId,
       }),
