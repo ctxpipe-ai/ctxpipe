@@ -22,11 +22,12 @@ type RepoFile = { path: string; content: string }
  * `sources/github/<owner>/<name>.md` with the connection `connectionId`.
  * Unlink deletes the file of that repository. `files` holds each file under
  * `sources/`, `.ctxpipe/sources.yaml`, and the `repositories/*.md`
- * declarations, which a Workspace that has no conversion yet still has:
- * link also moves each declaration into a source file (it keeps the branch
- * as the ref), and unlink also removes the repository from the legacy file
- * and the declarations. `refused` tells why the change cannot be
- * made: the repository is not on GitHub, or a file is in the way.
+ * declarations, which a Workspace that has no conversion yet still has.
+ * Link does not change these legacy forms (T10 converts them). Unlink also
+ * removes the repository from the legacy file and deletes its declaration,
+ * and does not touch the files of other repositories. `refused` tells why
+ * the change cannot be made: the repository is not on GitHub, or a file is
+ * in the way.
  */
 export function changeLinkedRepository(input: {
   action: "link" | "unlink"
@@ -62,9 +63,7 @@ export function changeLinkedRepository(input: {
     const declared = githubRepoFullNameFromWorkspaceUrl(
       normalizeWorkspaceRepositoryUrl(parsed.git),
     )
-    return declared
-      ? [{ path: file.path, name: declared, ref: parsed.branch }]
-      : []
+    return declared ? [{ path: file.path, name: declared }] : []
   })
   const legacyLinked = (repository: string) =>
     githubSourceRepositories(legacyYaml, null).some((linked) => {
@@ -73,34 +72,22 @@ export function changeLinkedRepository(input: {
     })
   try {
     if (input.action === "link") {
-      // The link edit also moves each repository file into a source file
-      // (the declarations of a Workspace that is not converted yet). The
-      // repository of this edit comes last. A repository that the legacy
-      // file links needs no source file.
-      let current = [...sourceFiles]
-      const writes: RepoFile[] = []
-      const wanted = [...declarations, { name, ref: null as string | null }]
-      for (const item of wanted) {
-        if (legacyLinked(item.name)) continue
-        const known = wanted.find((other) => sameName(other.name, item.name))
-        if (known !== item) continue
-        const changes = linkGithubSourceFile({
-          files: current,
-          connectionId: input.connectionId,
-          repository: item,
-        })
-        if (!changes) continue
-        writes.push(...changes.writes)
-        current = [
-          ...current.filter(
-            (file) => !changes.writes.some((write) => write.path === file.path),
-          ),
-          ...changes.writes,
-        ]
-      }
+      // Link writes only the file of this repository. A repository that the
+      // legacy file or a repository file already links needs no source
+      // file. T10 converts the legacy forms.
+      if (
+        legacyLinked(name) ||
+        declarations.some((declaration) => sameName(declaration.name, name))
+      )
+        return { files: [], deletePaths: [], refused: null }
+      const changes = linkGithubSourceFile({
+        files: sourceFiles,
+        connectionId: input.connectionId,
+        repository: { name, ref: null },
+      })
       return {
-        files: writes,
-        deletePaths: declarations.map((declaration) => declaration.path),
+        files: changes?.writes ?? [],
+        deletePaths: changes?.deletes ?? [],
         refused: null,
       }
     }

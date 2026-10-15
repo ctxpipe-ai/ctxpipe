@@ -2,7 +2,6 @@ import { existsSync, mkdirSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
-import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
@@ -106,16 +105,16 @@ it(
           expect(await run(jobId, "link")).toMatchObject({
             status: "completed",
           })
-          // Link writes one source file for the repository and one for the
-          // repository file, which goes away. The legacy file and its
-          // comment stay as they are.
+          // Link writes only the source file of the repository. The
+          // repository file of another repository and the legacy file stay
+          // byte for byte.
           expect(tree()).toEqual([
             ".ctxpipe/sources.yaml",
+            "repositories/other.md",
             "sources/github/next/other.md",
-            "sources/github/old/other.md",
           ])
-          expect(show("sources/github/old/other.md")).toContain("ref: stable")
-          expect(show(".ctxpipe/sources.yaml")).toContain("# Owned by the team")
+          expect(show("repositories/other.md")).toBe(legacy.trimEnd())
+          expect(show(".ctxpipe/sources.yaml")).toBe(sources.trimEnd())
           expect(show("sources/github/next/other.md")).toBe(
             `---\nprovider: github\nconnection: ${f.connectionId}\nrepository: next/other\n---`,
           )
@@ -178,8 +177,9 @@ it(
           // Unlink deletes the file of the repository and nothing else.
           expect(tree()).toEqual([
             ".ctxpipe/sources.yaml",
-            "sources/github/old/other.md",
+            "repositories/other.md",
           ])
+          expect(show("repositories/other.md")).toBe(legacy.trimEnd())
           expect(
             f.git(
               "--git-dir",
@@ -510,114 +510,6 @@ it(
           await backend.stop()
         }
         expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
-      },
-    )
-  },
-)
-
-it(
-  "hydrate of an exported Workspace moves its repository files into source files, and the links project",
-  { timeout: 90_000 },
-  async () => {
-    // The export of an earlier version left `repositories/*.md` files and no
-    // GitHub entry in sources.yaml (for example, on a preview database).
-    await withNativeHydrationFixture(
-      {
-        github: true,
-        githubWriteView: "writable",
-        writeStatus: "writable",
-        files: [
-          { path: "notes.md", body: "# Notes\nTeam notes.\n" },
-          {
-            path: "repositories/web.md",
-            body: "---\ngit: https://github.com/acme/web.git\n---\n\nThe web app.\n",
-          },
-          {
-            path: "repositories/api.md",
-            body: "---\ngit: https://github.com/acme/api.git\nbranch: stable\n---\n",
-          },
-        ],
-      },
-      async (f) => {
-        // A second worker also runs the link edit that hydrate plans.
-        const { BackendPostgres } = await import("openworkflow/postgres")
-        const { OpenWorkflow } = await import("openworkflow")
-        const { workspaceLinkUnlink } = await import(
-          "../../openworkflow/workflows/workspace-link-unlink.js"
-        )
-        const { workspaceHydrate } = await import(
-          "../../openworkflow/workflows/workspace-hydrate.js"
-        )
-        const backend = await BackendPostgres.connect(f.databaseUrl, {
-          namespaceId: openWorkflowNamespaceId(),
-          runMigrations: false,
-        })
-        const runner = new OpenWorkflow({ backend })
-        runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
-        runner.implementWorkflow(
-          workspaceLinkUnlink.spec,
-          workspaceLinkUnlink.fn,
-        )
-        const worker = runner.newWorker({ concurrency: 1 })
-        await worker.start()
-        await f.worker.start()
-        try {
-          await f.handle.result({ timeoutMs: 30_000 })
-          const show = (path: string) =>
-            f.git("--git-dir", f.remote, "show", `refs/heads/main:${path}`)
-          const tree = () =>
-            f
-              .git(
-                "--git-dir",
-                f.remote,
-                "ls-tree",
-                "-r",
-                "--name-only",
-                "refs/heads/main",
-              )
-              .split("\n")
-          await expect
-            .poll(() => tree().includes("sources/github/acme/web.md"), {
-              timeout: 45_000,
-            })
-            .toBe(true)
-          expect(
-            tree().filter((path) => path.startsWith("repositories/")),
-          ).toEqual([])
-          expect(tree().filter((path) => path.startsWith("sources/"))).toEqual([
-            "sources/github/acme/api.md",
-            "sources/github/acme/web.md",
-          ])
-          expect(show("sources/github/acme/api.md")).toContain("ref: stable")
-          expect(show("notes.md")).toBe("# Notes\nTeam notes.")
-          expect(f.semanticRequests).toEqual([])
-          // The hydrate of the new commit projects the links.
-          const { listLinkedRepositoryPins } = await import(
-            "../../models/workspace-source-state.js"
-          )
-          const { withOrgDbContext } = await import("../../db/client.js")
-          await expect
-            .poll(
-              async () =>
-                (
-                  await withOrgDbContext(f.org.id, (db) =>
-                    listLinkedRepositoryPins(db, {
-                      workspaceId: f.workspaceId,
-                    }),
-                  )
-                )
-                  .map((pin) => `${pin.gitUrl}@${pin.desiredRef ?? ""}`)
-                  .sort(),
-              { timeout: 45_000 },
-            )
-            .toEqual([
-              "https://github.com/acme/api@stable",
-              "https://github.com/acme/web@",
-            ])
-        } finally {
-          await worker.stop()
-          await backend.stop()
-        }
       },
     )
   },

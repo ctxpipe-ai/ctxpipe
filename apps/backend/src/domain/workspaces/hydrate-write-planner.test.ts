@@ -35,7 +35,7 @@ function plan(
 }
 
 describe("planHydrateWrites: repository files of ADR-050", () => {
-  it("plans one link edit that moves the GitHub repository files", () => {
+  it("plans no link edit for repository files (the conversion moves them)", () => {
     expect(
       plan(
         [
@@ -49,45 +49,6 @@ describe("planHydrateWrites: repository files of ADR-050", () => {
           },
         ],
         null,
-      ),
-    ).toEqual([
-      {
-        kind: "link_unlink",
-        remainder: 2,
-        linkGitUrl: "https://github.com/acme/web",
-      },
-    ])
-  })
-
-  it("plans nothing when no file can move", () => {
-    const sources =
-      "version: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [{name: acme/web, ref: main}]\n"
-    expect(
-      plan(
-        [
-          // Linked with another ref: the file stays, as a source error.
-          {
-            path: "repositories/web.md",
-            content: declaration("https://github.com/acme/web", "stable"),
-          },
-          {
-            path: "repositories/tools.md",
-            content: declaration("https://gitlab.com/acme/tools"),
-          },
-        ],
-        sources,
-      ),
-    ).toEqual([])
-    // An invalid sources file takes no link edit.
-    expect(
-      plan(
-        [
-          {
-            path: "repositories/api.md",
-            content: declaration("https://github.com/acme/api"),
-          },
-        ],
-        "version: 2\n",
       ),
     ).toEqual([])
   })
