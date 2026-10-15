@@ -40,6 +40,7 @@ function pages(
       },
       root,
       skill: { name: "apis" },
+      run: { runId: "run_fixture" },
       destination: { workspaceId: "ws_alpha" },
       state,
     } as unknown as Parameters<typeof runSkillPages>[0]),

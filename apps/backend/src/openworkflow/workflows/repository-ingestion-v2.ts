@@ -588,9 +588,9 @@ export function defineRepositoryIngestionV2Workflow(
               entry.refused = "The ownership migration failed"
               entry.partial += 1
               keepRefs.add(workspaceId)
-              logIngestEvent("warn", "ingestion-v2.partial", {
+              getLogger().warn("ingestion-v2.partial", {
                 ingestionRunId: run.id,
-                ingestStep: `ownership-migration:${workspaceId}`,
+                step: `ownership-migration:${workspaceId}`,
                 workspaceId,
                 reason: "ownership_migration_failed",
               })
@@ -661,9 +661,9 @@ export function defineRepositoryIngestionV2Workflow(
                       ? published.refused
                       : published.failed
                   entry.partial += 1
-                  logIngestEvent("warn", "ingestion-v2.partial", {
+                  getLogger().warn("ingestion-v2.partial", {
                     ingestionRunId: run.id,
-                    ingestStep: `publish:${workspaceId}`,
+                    step: `publish:${workspaceId}`,
                     workspaceId,
                     // A fixed code: the cause text can hold model or customer text.
                     reason: published.reason,
@@ -672,9 +672,9 @@ export function defineRepositoryIngestionV2Workflow(
               } else {
                 entry.refused = "The Workspace binding changed before publish"
                 entry.partial += 1
-                logIngestEvent("warn", "ingestion-v2.partial", {
+                getLogger().warn("ingestion-v2.partial", {
                   ingestionRunId: run.id,
-                  ingestStep: `publish:${workspaceId}`,
+                  step: `publish:${workspaceId}`,
                   workspaceId,
                   reason: entry.refused,
                 })

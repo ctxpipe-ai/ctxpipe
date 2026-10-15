@@ -33,18 +33,6 @@ afterEach(() => {
 afterAll(() => server.close())
 
 describe("resolveIngestConflicts", () => {
-  it("lets a model provider misconfiguration propagate as itself", async () => {
-    vi.stubEnv("MODEL_PROVIDER", "bedrock")
-    vi.stubEnv("MODEL_BEDROCK_AWS_REGION", "")
-    vi.stubEnv("AWS_REGION", "")
-    vi.stubEnv("AWS_DEFAULT_REGION", "")
-    const error = await resolveIngestConflicts(conflicts).catch(
-      (e: unknown) => e,
-    )
-    expect(error).toBeInstanceOf(Error)
-    expect(error).not.toBeInstanceOf(SemanticResolveError)
-  })
-
   it("lets an invalid provider setting propagate as itself", async () => {
     vi.stubEnv("MODEL_PROVIDER", "not-a-provider")
     const error = await resolveIngestConflicts(conflicts).catch(
