@@ -36,7 +36,8 @@ export const WithWorkspaces: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByLabelText("Select workspace"))
     const page = within(canvasElement.ownerDocument.body)
-    const menu = await page.findByRole("menu", { name: "Workspaces" })
+    // React Aria names the menu by its trigger (aria-labelledby wins over aria-label).
+    const menu = await page.findByRole("menu", { name: "Select workspace" })
     expect(menu.className).toMatch(/rounded-md/)
   },
 }

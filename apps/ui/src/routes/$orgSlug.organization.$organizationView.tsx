@@ -65,24 +65,26 @@ export function OrganizationSettingsBody(props: {
       <h1 className="mb-6 font-mono text-xs font-normal uppercase tracking-[0.24em] text-teal-400 sm:mb-8">
         organization settings
       </h1>
-      {isApiKeys ? (
-        <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
-          <OrganizationSettingsNav orgSlug={orgSlug} current="api-keys" />
-          {organizationId ? (
+      {/* Our nav lists every view, so Settings and Members also link to API Keys. */}
+      <div className="flex w-full grow flex-col gap-4 md:flex-row md:gap-12">
+        <OrganizationSettingsNav orgSlug={orgSlug} current={organizationView} />
+        {isApiKeys ? (
+          organizationId ? (
             <OrganizationApiKeysCard organizationId={organizationId} />
           ) : (
             <p className="text-sm text-muted-foreground">
               This organization could not be loaded.
             </p>
-          )}
-        </div>
-      ) : (
-        <OrganizationView
-          pathname={organizationView}
-          localization={organizationApiKeyLocalization}
-          classNames={organizationViewClassNames}
-        />
-      )}
+          )
+        ) : (
+          <OrganizationView
+            hideNav
+            pathname={organizationView}
+            localization={organizationApiKeyLocalization}
+            classNames={organizationViewClassNames}
+          />
+        )}
+      </div>
     </main>
   )
 }

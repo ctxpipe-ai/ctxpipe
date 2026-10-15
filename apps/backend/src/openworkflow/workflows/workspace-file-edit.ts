@@ -26,7 +26,7 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -115,42 +115,28 @@ export const workspaceFileEdit = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const changes = await step.run({ name: "transform-file-edit" }, () =>
-            withGitDirectory(
-              revision.sha,
-              async (directory) => {
-                const paths = (
-                  await nativeGit(directory, [
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    "-z",
-                    revision.sha,
-                  ])
-                )
-                  .toString()
-                  .split("\0")
-                const files: typeof input.files = []
-                for (const file of input.files) {
-                  const existing = paths.includes(file.path)
-                    ? (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${file.path}`,
-                        ])
-                      ).toString()
-                    : null
-                  if (existing !== file.content) files.push(file)
-                }
-                return {
-                  files,
-                  deletePaths: input.deletePaths.filter((path) =>
-                    paths.includes(path),
-                  ),
-                }
-              },
-              acquired.pack,
-            ),
+          const changes = await step.run(
+            { name: "transform-file-edit" },
+            async () => {
+              const named = new Set([
+                ...input.files.map((file) => file.path),
+                ...input.deletePaths,
+              ])
+              // Root-relative paths below the Workspace root folder.
+              const existing = new Map(
+                (
+                  await readGitFiles(acquired.pack, (path) => named.has(path))
+                ).map((file) => [file.path, file.content]),
+              )
+              return {
+                files: input.files.filter(
+                  (file) => existing.get(file.path) !== file.content,
+                ),
+                deletePaths: input.deletePaths.filter((path) =>
+                  existing.has(path),
+                ),
+              }
+            },
           )
           const files = changes.files
           if (!files.length && !changes.deletePaths.length) {

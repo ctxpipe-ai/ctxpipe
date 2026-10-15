@@ -6,6 +6,7 @@ import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connec
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
@@ -120,14 +121,14 @@ export async function assertConnectorMirrorScope(
     )
 }
 
-/** The blob id of `path` at the pack's commit, or null when it is absent. */
+/** The blob id of root-relative `path` at the pack's commit, or null when it is absent. */
 async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const entry = (
-        await nativeGit(directory, ["ls-tree", pack.sha, "--", path])
-      )
+      const tree = await packRootTree(directory, pack)
+      if (!tree) return null
+      const entry = (await nativeGit(directory, ["ls-tree", tree, "--", path]))
         .toString()
         .trim()
       return entry ? (entry.split(/\s+/)[2] ?? null) : null

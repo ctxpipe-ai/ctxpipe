@@ -8,6 +8,7 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -120,6 +121,7 @@ export const workspaceValidFromPersist = defineWorkflow(
                 sha: revision.sha,
                 token,
                 includeIntroducingCommits: true,
+                root: workspaceRootPath(revision),
               })
               const timestamps: Record<string, string> = {}
               for (const file of files)

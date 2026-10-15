@@ -97,6 +97,7 @@ export async function resolveIngestionV2Run(
               generation: row.desiredGeneration,
               pinnedRevision: row.desiredSha,
               repositoryId: repositoryId(row.workspaceRepositoryUrl),
+              ...(row.rootPath ? { rootPath: row.rootPath } : {}),
             },
           ]
         : [],
