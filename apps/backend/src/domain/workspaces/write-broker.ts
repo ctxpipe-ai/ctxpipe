@@ -44,6 +44,7 @@ import {
   resolveWorkspaceReadRevision,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
+import type { WriteOrigin } from "./semantic-merge.js"
 import {
   gitChangesOutsideWorkspaceRoot,
   workspaceRootPath,
@@ -405,6 +406,7 @@ export async function captureSemanticHandoff(
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
+  origin: WriteOrigin,
 ) {
   const { readGitCommitChanges } = await import(
     "../../services/git/write-tree.js"
@@ -424,6 +426,7 @@ export async function captureSemanticHandoff(
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     jobId: input.jobId,
+    origin,
     handoff: {
       ownerRunId: handoff.ownerRunId,
       candidateSha: handoff.candidateSha,

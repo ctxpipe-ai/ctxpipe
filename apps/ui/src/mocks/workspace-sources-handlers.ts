@@ -41,7 +41,6 @@ export function workspaceSourceList(
     revision: "a1b2c3d",
     fileError: null,
     canEdit: true,
-    directCommitAllowed: false,
     items: [],
     pendingChanges: [],
     linkErrors: [],
@@ -65,8 +64,8 @@ export function workspaceSourcesHandler(
 }
 
 /**
- * Records each add, edit, and remove request. It answers a direct commit
- * with `commit_queued` and any other change with a pull request.
+ * Records each add, edit, and remove request. It answers each change with a
+ * pull request.
  */
 export function workspaceSourceChangeHandlers(
   calls: { method: string; path: string; body: unknown }[] = [],
@@ -76,12 +75,6 @@ export function workspaceSourceChangeHandlers(
     const body = request.method === "DELETE" ? null : await request.json()
     calls.push({ method: request.method, path, body })
     const sourceKey = path.split("/").at(-1) ?? "new-source"
-    const delivery =
-      request.method === "DELETE"
-        ? new URL(request.url).searchParams.get("delivery")
-        : (body as { delivery?: string } | null)?.delivery
-    if (delivery === "commit")
-      return HttpResponse.json({ outcome: "commit_queued", sourceKey })
     return HttpResponse.json({
       outcome: "pull_request",
       sourceKey,

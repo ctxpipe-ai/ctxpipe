@@ -11,7 +11,11 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
+import {
+  assertWriteOriginAllowed,
+  resolveSemanticConflicts,
+  writeOriginSchema,
+} from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -42,6 +46,7 @@ import {
   mergeGitFiles,
   resolveGitMergeTree,
 } from "../../services/git/merge-tree.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   validateGitTree,
@@ -83,6 +88,7 @@ export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    origin: writeOriginSchema,
     handoff: z
       .object({
         ownerRunId: z.string().min(1),
@@ -169,6 +175,29 @@ export const workspaceSemanticMerge = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
+          // Check every path the write changes, not only the paths that
+          // conflict, as the origin requires (CTX-722).
+          if (input.origin !== "host")
+            await step.run(
+              {
+                name: "check-agent-write",
+                retryPolicy: { maximumAttempts: 1 },
+              },
+              async () => {
+                const paths = new Set(input.files.map((file) => file.path))
+                const current = new Map(
+                  (
+                    await readGitFiles(acquired.pack, (path) => paths.has(path))
+                  ).map((file) => [file.path, file.content] as const),
+                )
+                assertWriteOriginAllowed({
+                  origin: input.origin,
+                  files: input.files,
+                  deletePaths: input.deletePaths,
+                  current,
+                })
+              },
+            )
           const merged = await step.run(
             { name: "transform-semantic-merge" },
             () =>
@@ -214,7 +243,10 @@ export const workspaceSemanticMerge = defineWorkflow(
                   name: "resolve-semantic-conflicts",
                   retryPolicy: { maximumAttempts: 3 },
                 },
-                () => resolveSemanticConflicts(merged.conflicts),
+                () =>
+                  resolveSemanticConflicts(merged.conflicts, {
+                    origin: input.origin,
+                  }),
               )
             : null
           const staged = await step.run({ name: "stage" }, () =>

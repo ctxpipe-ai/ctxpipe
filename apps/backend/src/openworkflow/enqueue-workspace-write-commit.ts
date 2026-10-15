@@ -355,6 +355,9 @@ export async function enqueueWriteJob(
           workspaceId: input.workspaceId,
           jobId,
           revision,
+          // A direct semantic merge carries no trusted origin, so it gets
+          // every check (CTX-722).
+          origin: "agent",
           previousSha: input.previousSha,
           files: input.mergeFiles ?? [],
           deletePaths: input.mergeDeletePaths ?? [],

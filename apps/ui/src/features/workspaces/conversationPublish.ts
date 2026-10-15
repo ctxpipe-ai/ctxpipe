@@ -118,6 +118,7 @@ export type PublishErrorCode =
   | "no_changes"
   | "outside_root"
   | "no_write_access"
+  | "host_only_field"
   | "no_pr_access"
   | "pr_refused"
   | "stale_url"
@@ -154,6 +155,8 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   outside_root:
     "The agent changed files outside the Workspace folder. Ask it to undo those changes.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
+  host_only_field:
+    "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",
   no_pr_access:
     "The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
   stale_url: workspaceMoved,

@@ -21,6 +21,7 @@ import {
   parseAreaBody,
   withoutAreaSource,
 } from "./area-file.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import {
   legacySourceUrl,
   ownershipMigrationFiles,
@@ -33,8 +34,6 @@ import {
   humanSectionsKept,
   MAX_STEP_OPS,
   normalizeSourceUrl,
-  parseYamlObject,
-  splitFrontMatter,
   validatePatchStep,
 } from "./patch-validator.js"
 
