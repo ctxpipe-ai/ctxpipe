@@ -179,14 +179,22 @@ export async function syncConnectionSources(input: {
     ...(result.keepPaths ?? []),
     ...unreachable.map((lost) => lost.path),
   ]
+  const syncing = new Set(rows.map((row) => row.id))
   const written: string[] = []
   for (const [workspaceId, entry] of byWorkspace) {
     const all = filesOf(entry.scopeKeys)
     if (!all) continue
     const ownedPrefixes = [...entry.prefixes].sort()
-    const keepPrefixes = kept
-      .filter((path) => underAny(path, ownedPrefixes))
-      .sort()
+    const keepPrefixes = [
+      ...new Set([
+        ...kept.filter((path) => underAny(path, ownedPrefixes)),
+        ...(
+          await heldPrefixes(input.orgId, workspaceId, adapter, syncing)
+        ).filter((prefix) =>
+          ownedPrefixes.some((owned) => overlaps(prefix, owned)),
+        ),
+      ]),
+    ].sort()
     const files = all.filter((file) => underAny(file.path, ownedPrefixes))
     const deletePaths = result.deletePaths?.filter(
       (path) => underAny(path, ownedPrefixes) && !underAny(path, keepPrefixes),
@@ -210,6 +218,27 @@ export async function syncConnectionSources(input: {
     written.push(workspaceId)
   }
   return { fetchedScopes: scopes.length, workspaces: written }
+}
+
+/**
+ * The managed paths of the last good targets of the sources of one
+ * Workspace that are not `ok` (held, invalid, or out of reach) and not in
+ * this sync. A sync must not delete their files: only a cleanup of a removed
+ * source does.
+ */
+async function heldPrefixes(
+  orgId: string,
+  workspaceId: string,
+  adapter: SourceAdapter,
+  syncing: ReadonlySet<string>,
+): Promise<string[]> {
+  const prefixes = (await listWorkspaceSourceRows({ orgId, workspaceId }))
+    .filter((row) => row.status !== "ok" && !syncing.has(row.id))
+    .map(lastGoodTarget)
+    .filter((target) => target?.provider === adapter.provider)
+    .flatMap((target) => (target ? adapter.managedPaths(target.scope) : []))
+  assertManagedPaths(adapter, prefixes)
+  return prefixes
 }
 
 /**

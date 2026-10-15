@@ -321,6 +321,46 @@ describe("Workspace source sync frame (Postgres)", () => {
     expect(writes).toMatchObject([{ ownedPrefixes: ["confluence/HR/"] }])
   })
 
+  it("keeps the files of a held source in a full sync of a wider source", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("held-sync")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    // `eng-docs` is held as `invalid`; a new `all` source owns every space.
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        source("all", forge, ["*"]),
+        {
+          ...source(".entry-2", forge, []),
+          scope: {},
+          status: "invalid",
+          statusDetail: "The id is not valid",
+        },
+      ],
+    })
+    const { adapter } = fakeSourceAdapter({ HR: { policy: "# HR" } })
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter,
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes).toMatchObject([
+      { ownedPrefixes: ["confluence/"], keepPrefixes: ["confluence/ENG/"] },
+    ])
+  })
+
   it("refuses managed paths that leave the provider root", async () => {
     const forge = await seed.addConnection("forge")
     const workspaceId = await seed.addWorkspace("guard")
