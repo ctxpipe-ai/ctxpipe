@@ -103,15 +103,19 @@ export async function writeWorkspaceRevisionGraph(
   if (claims.length)
     await graph.executeQuery(workspaceClaimsQuery, { projectionKey, claims })
   // Count the edges that the graph holds. A claim without a target unit
-  // writes no edge, so it does not count.
+  // writes no edge, so it does not count. The hub penalty uses `degree`: a
+  // unit's own edge to its source (FROM_SOURCE) does not make it a hub, so
+  // `degree` does not count it. The source still counts each such edge.
   if (nodes.length)
     await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
       OPTIONAL MATCH (n)-[o:WorkspaceSignal {projectionKey: $projectionKey}]->()
-      WITH n, count(o) AS outDegree
+      WITH n, count(o) AS outDegree,
+        sum(CASE WHEN o.predicate = 'FROM_SOURCE' THEN 1 ELSE 0 END) AS provenanceDegree
       OPTIONAL MATCH (n)<-[i:WorkspaceSignal {projectionKey: $projectionKey}]-()
-      WITH n, outDegree, count(i) AS inDegree
-      SET n.outDegree = outDegree, n.inDegree = inDegree, n.degree = outDegree + inDegree`,
+      WITH n, outDegree, provenanceDegree, count(i) AS inDegree
+      SET n.outDegree = outDegree, n.inDegree = inDegree,
+        n.degree = outDegree - provenanceDegree + inDegree`,
       { projectionKey },
     )
   await graph.executeQuery(

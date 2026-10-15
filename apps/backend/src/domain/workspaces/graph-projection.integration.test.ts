@@ -129,6 +129,36 @@ it("sets path and degree counts on each node of a graph with a hub", async () =>
   ])
 })
 
+it("does not count a unit's own FROM_SOURCE edge in its degree, but counts it on the source", async () => {
+  const rev = revision("f")
+  const fromSource = (path: string) => {
+    const base = unit(path, [], ["source.md"])
+    return {
+      ...base,
+      claims: base.claims.map((claim) => ({
+        ...claim,
+        predicate: "FROM_SOURCE",
+      })),
+    }
+  }
+  await write(rev, [
+    unit("source.md", []),
+    fromSource("a.md"),
+    { ...fromSource("b.md"), links: ["a.md"] },
+  ])
+  expect(await nodeRows(rev)).toEqual([
+    { id: "ku_a_md", path: "a.md", degree: 1, inDegree: 1, outDegree: 1 },
+    { id: "ku_b_md", path: "b.md", degree: 1, inDegree: 0, outDegree: 2 },
+    {
+      id: "ku_source_md",
+      path: "source.md",
+      degree: 2,
+      inDegree: 2,
+      outDegree: 0,
+    },
+  ])
+})
+
 it("writes the same graph when the units arrive in the opposite order", async () => {
   const forward = revision("b")
   const reverse = revision("c")
