@@ -141,10 +141,16 @@ function observedBody(
   response: Response,
   observer?: CompletionObserver,
   signal?: AbortSignal,
-) {
+): ReadableStream<Uint8Array> {
   if (!observer?.observe || !response.body) {
     observer?.onObservedComplete?.(response.status)
-    return response.body
+    // No upstream body sends an empty body.
+    return (
+      response.body ??
+      new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      })
+    )
   }
   const reader = response.body.getReader()
   let ended = false
