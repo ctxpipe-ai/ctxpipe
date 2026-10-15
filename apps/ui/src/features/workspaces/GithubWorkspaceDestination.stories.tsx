@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { AppShell } from "@/components/AppShell"
+import {
+  expectSkeletonMatchesLoaded,
+  SkeletonMatchFrame,
+} from "@/components/ui/skeletonMatchStory"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { GithubWorkspaceDestination } from "./GithubWorkspaceDestination"
@@ -71,5 +75,36 @@ export const OnboardingEmpty: Story = {
     variant: "onboarding",
     status: "ready",
     workspaces: [],
+  },
+}
+
+/**
+ * The loading skeleton has the same box as the page with three workspaces:
+ * the button, the cards and the close button.
+ */
+export const LoadingSkeletonMatches: Story = {
+  tags: ["workspace-golden"],
+  args: {
+    status: "loading",
+    workspaces: [],
+  },
+  render: (args) => (
+    <SkeletonMatchFrame
+      skeleton={<GithubWorkspaceDestination {...args} status="loading" />}
+      loaded={
+        <GithubWorkspaceDestination
+          {...args}
+          status="ready"
+          workspaces={[
+            docsWorkspace,
+            readOnlyWorkspace,
+            { ...docsWorkspace, id: "ws_third", slug: "third" },
+          ]}
+        />
+      }
+    />
+  ),
+  play: async ({ canvasElement }) => {
+    await expectSkeletonMatchesLoaded(canvasElement)
   },
 }
