@@ -6,6 +6,7 @@ import {
   ingestSourceTree,
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
@@ -203,6 +204,10 @@ export const workspaceExtractIngest = defineWorkflow(
                   await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
                 }
               }
+              // A job of the old pipeline that was queued or paused before
+              // the switch to ingestion v2 must not publish (ADR-052 phase 4).
+              if (ingestionPublishPipeline() !== "legacy")
+                return { stopped: true as const }
               if (!input.extraction || !identity)
                 throw new Error("The extraction command has no capture")
               const extraction = input.extraction
@@ -236,6 +241,15 @@ export const workspaceExtractIngest = defineWorkflow(
               }
             },
           )
+          if ("stopped" in transformed) {
+            await step.run({ name: "complete-stopped" }, () =>
+              persistWriteJobStatus(input.jobId, "completed"),
+            )
+            return {
+              committed: false as const,
+              reason: "publish_pipeline_v2" as const,
+            }
+          }
           if ("refused" in transformed) {
             await step.run({ name: "refuse-publish" }, () =>
               persistWriteJobStatus(input.jobId, "failed"),
@@ -323,10 +337,31 @@ export const workspaceExtractIngest = defineWorkflow(
           })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
-            pushed = await step.run(
+            const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-              () => attemptWorkspaceCommit(input, revision, committed, env),
+              async () => {
+                // The switch can change after the transform and while the
+                // push waits for write access. The step that pushes reads
+                // it immediately before the push, so no step runs between.
+                // Each pipeline pushes only while the switch selects it.
+                if (
+                  ingestionPublishPipeline() !==
+                  (input.ingest ? "v2" : "legacy")
+                ) {
+                  await persistWriteJobStatus(input.jobId, "completed")
+                  return { stopped: true as const }
+                }
+                return attemptWorkspaceCommit(input, revision, committed, env)
+              },
             )
+            if ("stopped" in attempt)
+              return {
+                committed: false as const,
+                reason: input.ingest
+                  ? ("publish_pipeline_legacy" as const)
+                  : ("publish_pipeline_v2" as const),
+              }
+            pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>
               persistWriteJobStatus(input.jobId, "paused"),

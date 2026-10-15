@@ -20,6 +20,7 @@ import {
   ingestionV2InputSchema,
   ingestionV2Status,
 } from "../../domain/ingestion/ingestion-run.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   resolveIngestionV2Run,
   withIngestionOrg,
@@ -53,6 +54,7 @@ import {
 } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
+import { migrateOwnershipBeforePublish } from "./workspace-ownership-migration.js"
 
 /*
  * The ingestion v2 parent workflow (ADR-052, T09 and T21):
@@ -83,7 +85,9 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
  * branch wins each push race) also makes the Workspace `partial`, and the
  * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
  * not the refs of a Workspace whose merge model or publish failed. The tip check deletes the refs that stay (the run is then
- * finished and not a shadow run).
+ * finished and not a shadow run). A run outside shadow mode first runs
+ * the ownership migration in each destination
+ * (`ownership-migration:<workspaceId>`).
  */
 
 /** The write job of the publish of one Workspace; a replay finds it. */
@@ -152,9 +156,33 @@ export function defineRepositoryIngestionV2Workflow(
       )
 
       async function ingest(): Promise<IngestionV2Output> {
-        const resolved = await step.run({ name: "resolve" }, () =>
+        if (!input.shadow && ingestionPublishPipeline() !== "v2")
+          // Only a run while the switch is v2 may take files over from the
+          // old pipeline and publish.
+          throw new Error(
+            "Ingestion v2 runs outside shadow mode only while the publish pipeline is v2",
+          )
+
+        let resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )
+        // Before the first v2 publish to a Workspace, its old extracted files
+        // move to ingestion v2 ownership (ADR-052 section 3). Then the run
+        // reads the new revisions.
+        if (
+          !input.shadow &&
+          !resolved.skipped &&
+          (await migrateOwnershipBeforePublish({
+            step,
+            orgId: input.orgId,
+            runId: run.id,
+            workspaceIds: resolved.destinations.map((d) => d.workspaceId),
+            env: env(),
+          }))
+        )
+          resolved = await step.run({ name: "resolve-migrated" }, () =>
+            resolveIngestionV2Run(input),
+          )
         if (resolved.skipped || resolved.destinations.length === 0)
           return {
             status: "skipped",

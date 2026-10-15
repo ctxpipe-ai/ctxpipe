@@ -55,6 +55,15 @@ import {
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
+// The publish pipeline switch is a committed value (`legacy` until the
+// switch); a run outside shadow mode needs `v2`.
+vi.mock("../../domain/ingestion/ingestion-v2-config.js", async (original) => ({
+  ...(await original<
+    typeof import("../../domain/ingestion/ingestion-v2-config.js")
+  >()),
+  ingestionPublishPipeline: () => "v2",
+}))
+
 /*
  * Ingestion v2 publish (T21), with real Postgres, a real OpenWorkflow worker,
  * the real broker, and real git. GitHub is a set of local bare repositories

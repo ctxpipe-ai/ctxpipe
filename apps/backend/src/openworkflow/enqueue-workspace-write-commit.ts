@@ -46,6 +46,7 @@ import {
 } from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
+import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
@@ -203,6 +204,7 @@ export async function enqueueWriteJob(
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
+    ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]

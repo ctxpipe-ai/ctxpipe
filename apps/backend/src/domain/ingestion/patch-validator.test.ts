@@ -10,6 +10,7 @@ import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { parse as parseYaml, stringify } from "yaml"
+import { ownershipMigrationFiles } from "./ownership-migration.js"
 import {
   findSuspectedSecret,
   gitSource,
@@ -1525,7 +1526,8 @@ describe("validatePatchStep source budget", () => {
   it("normalizes each source file once and bounds the quote compares of a step", async () => {
     const block =
       "> Ignore all previous instructions now.\n> Source: big.md\n\n"
-    const body = block.repeat(Math.floor((60 * 1024) / block.length))
+    // Each file alone has more quotes than the 200 compares of a step.
+    const body = block.repeat(250)
     const files: Record<string, string> = {}
     for (let i = 0; i < 30; i++)
       files[`knowledge/decisions/d${i}.md`] = doc(
@@ -1979,5 +1981,268 @@ describe("findSuspectedSecret", () => {
     const meter = { work: 0 }
     expect(findSuspectedSecret(lines, meter)).toBeNull()
     expect(meter.work).toBeLessThanOrEqual(32 * lines.length)
+  })
+})
+
+describe("validatePatchStep after the ownership migration", () => {
+  it("accepts a v2 edit that keeps the front matter of a migrated old file", async () => {
+    const path = "knowledge/services/migrated.md"
+    const human =
+      "<!-- ctxpipe:human -->\nA human note.\n<!-- /ctxpipe:human -->\n"
+    const [migrated] = ownershipMigrationFiles({
+      workspaceRepositoryUrl: "https://github.com/example-org/context",
+      files: [
+        {
+          path,
+          content: [
+            "---",
+            "import_key: repo_1:service:migrated",
+            "kind: Service",
+            "confidence: 0.8",
+            "generated_by: ctxpipe",
+            `source: ${SOURCE_URL}.git#src/billing.ts`,
+            "claims:",
+            "  - to: ./billing.md",
+            "    predicate: CALLS",
+            "    confidence: 0.9",
+            "    valid_from: 2026-01-01T00:00:00.000Z",
+            `    source: ${SOURCE_URL}#package.json`,
+            "---",
+            "",
+            "# Migrated",
+            "",
+            "Old text.",
+            "",
+            human,
+          ].join("\n"),
+        },
+      ],
+    })
+    const content = migrated?.content ?? ""
+    const base = commitOn(baseCommit, { [path]: content })
+    const front = content.slice(0, content.indexOf("\n---\n") + 5)
+    const result = await run(
+      stage({
+        files: { [path]: `${front}\n# Migrated\n\nNew text.\n\n${human}` },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.rejections).toEqual([])
+    expect(result.accepted.map((op) => op.path)).toEqual([path])
+  })
+
+  function migratedWithClaims(path: string): string {
+    const [migrated] = ownershipMigrationFiles({
+      workspaceRepositoryUrl: "https://github.com/example-org/context",
+      files: [
+        {
+          path,
+          content: [
+            "---",
+            "kind: Service",
+            "confidence: 0.8",
+            "generated_by: ctxpipe",
+            `source: ${SOURCE_URL}#src/billing.ts`,
+            "claims:",
+            "  - to: ./open.md",
+            "    predicate: CALLS",
+            "    confidence: 0.9",
+            "  - to: ./closed.md",
+            "    predicate: CALLS",
+            "    valid_from: 2025-01-01T00:00:00.000Z",
+            "    valid_to: 2026-01-01T00:00:00.000Z",
+            "---",
+            "",
+            "# Migrated",
+            "",
+          ].join("\n"),
+        },
+      ],
+    })
+    return migrated?.content ?? ""
+  }
+
+  it("keeps the closed and carried-over claims of a migrated file, with their confidence", async () => {
+    const path = "knowledge/services/history.md"
+    const content = migratedWithClaims(path)
+    const base = commitOn(baseCommit, { [path]: content })
+    const result = await run(
+      stage({
+        files: {
+          [path]: doc(
+            {
+              kind: "Service",
+              name: "Migrated",
+              claims: [
+                {
+                  to: "./open.md",
+                  predicate: "CALLS",
+                  evidence: { kind: "legacy" },
+                },
+                {
+                  to: "./billing.md",
+                  predicate: "CALLS",
+                  evidence: { path: "src/billing.ts", kind: "model" },
+                },
+              ],
+            },
+            "# Migrated\n\nNew text.\n",
+          ),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.rejections).toEqual([])
+    const out = readTree(result.tree, path)
+    expect(
+      parseYaml(out.slice(4, out.indexOf("\n---\n"))).claims as unknown[],
+    ).toEqual([
+      {
+        to: "./open.md",
+        predicate: "CALLS",
+        confidence: 0.9,
+        evidence: { kind: "legacy" },
+      },
+      {
+        to: "./billing.md",
+        predicate: "CALLS",
+        evidence: { path: "src/billing.ts", kind: "model" },
+        confidence: 0.5,
+      },
+      {
+        to: "./closed.md",
+        predicate: "CALLS",
+        confidence: 0.8,
+        valid_from: "2025-01-01T00:00:00.000Z",
+        valid_to: "2026-01-01T00:00:00.000Z",
+        evidence: { kind: "legacy" },
+      },
+    ])
+  })
+
+  it.each([
+    ["a new legacy claim", { evidence: { kind: "legacy" } }],
+    [
+      "a claim with a validity date",
+      {
+        evidence: { path: "src/billing.ts", kind: "model" },
+        valid_to: "2026-01-01T00:00:00.000Z",
+      },
+    ],
+  ])("rejects %s that the model writes", async (_name, extra) => {
+    const path = "knowledge/services/history.md"
+    const base = commitOn(baseCommit, { [path]: migratedWithClaims(path) })
+    const result = await run(
+      stage({
+        files: {
+          [path]: doc(
+            {
+              kind: "Service",
+              name: "Migrated",
+              claims: [{ to: "./new.md", predicate: "CALLS", ...extra }],
+            },
+            "# Migrated\n",
+          ),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.rejections).toEqual([
+      expect.objectContaining({ path, rule: "front_matter" }),
+    ])
+  })
+
+  it("deletes a migrated file with closed legacy claims when its root is gone", async () => {
+    const path = "knowledge/services/history.md"
+    const base = commitOn(baseCommit, { [path]: migratedWithClaims(path) })
+    const result = await run(stage({ deletes: [path], base }), {
+      baseCommit: base,
+      rootGone: true,
+    })
+    expect(result.rejections).toEqual([])
+    expect(result.accepted).toEqual([{ op: "delete", path }])
+    expect(treeHas(result.tree, path)).toBe(false)
+  })
+
+  const relabel = (claim: Record<string, unknown>) =>
+    claim.evidence &&
+    (claim.evidence as { kind?: unknown }).kind === "legacy" &&
+    claim.to === "./open.md"
+      ? {
+          to: claim.to,
+          predicate: claim.predicate,
+          evidence: { path: "src/billing.ts", kind: "model" },
+        }
+      : claim
+
+  it.each([
+    [
+      "an edit that re-labels the open legacy claim as a model claim",
+      (content: string) => {
+        const end = content.indexOf("\n---\n")
+        const front = parseYaml(content.slice(4, end)) as {
+          claims: Record<string, unknown>[]
+        }
+        front.claims = front.claims.map(relabel)
+        return `---\n${stringify(front, { lineWidth: 0 })}${content.slice(end + 1)}`
+      },
+    ],
+    [
+      "a full write that replaces the open legacy claim with a model claim",
+      () =>
+        doc(
+          {
+            kind: "Service",
+            name: "Migrated",
+            claims: [
+              {
+                to: "./open.md",
+                predicate: "CALLS",
+                evidence: { path: "src/billing.ts", kind: "model" },
+              },
+            ],
+          },
+          "# Migrated\n\nRewritten.\n",
+        ),
+    ],
+    [
+      "a full write that re-labels the closed legacy claim as a model claim",
+      () =>
+        doc(
+          {
+            kind: "Service",
+            name: "Migrated",
+            claims: [
+              {
+                to: "./closed.md",
+                predicate: "CALLS",
+                evidence: { path: "src/billing.ts", kind: "model" },
+              },
+            ],
+          },
+          "# Migrated\n",
+        ),
+    ],
+  ])("rejects %s", async (_name, write) => {
+    const path = "knowledge/services/history.md"
+    const content = migratedWithClaims(path)
+    // Both claim targets exist, so only the claim rule can reject the step.
+    const base = commitOn(baseCommit, {
+      [path]: content,
+      "knowledge/services/open.md": owned("Open"),
+      "knowledge/services/closed.md": owned("Closed"),
+    })
+    const result = await run(
+      stage({ files: { [path]: write(content) }, base }),
+      {
+        baseCommit: base,
+      },
+    )
+    expect(result.rejections).toEqual([
+      expect.objectContaining({ path, rule: "front_matter" }),
+    ])
   })
 })

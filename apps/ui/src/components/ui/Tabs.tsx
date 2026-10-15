@@ -63,7 +63,7 @@ export function TabList<T extends object>(props: TabListProps<T>) {
 
 const tabProps = tv({
   extend: focusRing,
-  base: "group relative flex items-center cursor-default rounded-md px-3 py-1.5 text-sm font-medium transition forced-color-adjust-none [-webkit-tap-highlight-color:transparent]",
+  base: "group relative flex items-center cursor-default rounded-md px-3 py-1.5 text-sm font-medium transition-colors forced-color-adjust-none [-webkit-tap-highlight-color:transparent]",
   variants: {
     isDisabled: {
       true: "text-neutral-200 dark:text-neutral-600 forced-colors:text-[GrayText] selected:text-white dark:selected:text-neutral-500 forced-colors:selected:text-[HighlightText] selected:bg-neutral-200 dark:selected:bg-neutral-600 forced-colors:selected:bg-[GrayText]",
@@ -82,7 +82,7 @@ export function Tab(props: TabProps) {
       {composeRenderProps(props.children, (children) => (
         <>
           {children}
-          <SelectionIndicator className="absolute top-0 left-0 w-full h-full z-10 bg-white rounded-md mix-blend-difference group-disabled:bg-neutral-400 group-disabled:mix-blend-normal group-disabled:dark:bg-neutral-600 group-disabled:-z-1 motion-safe:transition-[translate,width,height] " />
+          <SelectionIndicator className="absolute top-0 left-0 w-full h-full z-10 bg-white rounded-md mix-blend-difference group-disabled:bg-neutral-400 group-disabled:mix-blend-normal group-disabled:dark:bg-neutral-600 group-disabled:-z-1" />
         </>
       ))}
     </RACTab>
