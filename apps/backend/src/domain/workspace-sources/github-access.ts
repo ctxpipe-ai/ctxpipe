@@ -6,10 +6,7 @@ import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.j
 import { recordSourceAccessCheck } from "../../models/workspace-sources.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import {
-  githubScopeRepositories,
-  githubScopeSchema,
-} from "./providers/github.js"
+import { githubSourceScopeRepositories } from "./providers/github.js"
 
 function githubUrl(repositoryName: string): string {
   return normalizeWorkspaceRepositoryUrl(`https://github.com/${repositoryName}`)
@@ -32,9 +29,7 @@ export async function checkGithubSourceAccess(input: {
   connectionId: string
   scope: Record<string, unknown>
 }): Promise<string | null> {
-  const repositories = githubScopeRepositories(
-    githubScopeSchema.parse(input.scope),
-  )
+  const repositories = githubSourceScopeRepositories(input.scope)
   const missing: string[] = []
   for (const { name } of repositories) {
     const repository = await ensureOrgRepositoryForGitUrl({
@@ -81,8 +76,8 @@ export async function githubRepositoriesWithoutAccess(input: {
   )
   const still: Array<{ workspaceId: string; urls: string[] }> = []
   for (const row of rows) {
-    const scope = githubScopeSchema.safeParse(row.scope)
-    if (!scope.success) continue
+    const repositories = githubSourceScopeRepositories(row.scope)
+    if (!repositories.length) continue
     let detail = row.statusDetail
     if (
       row.connectionId &&
@@ -104,9 +99,7 @@ export async function githubRepositoriesWithoutAccess(input: {
     if (detail)
       still.push({
         workspaceId: row.workspaceId,
-        urls: githubScopeRepositories(scope.data).map(({ name }) =>
-          githubUrl(name),
-        ),
+        urls: repositories.map(({ name }) => githubUrl(name)),
       })
   }
   const unbound = new Set(

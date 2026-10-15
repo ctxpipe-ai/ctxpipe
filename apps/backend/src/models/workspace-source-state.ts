@@ -4,10 +4,7 @@ import type { AnyPgColumn } from "drizzle-orm/pg-core"
 import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
-import {
-  githubScopeRepositories,
-  githubScopeSchema,
-} from "../domain/workspace-sources/providers/github.js"
+import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
@@ -84,7 +81,7 @@ export function githubPins(row: {
 }
 
 /**
- * The next GitHub state for the repositories that the file wants. A
+ * The next GitHub state for the repositories that the sources want. A
  * repository with the same URL and ref keeps its id and SHAs. A new
  * repository, or one with a changed ref, gets a new id and no SHAs.
  */
@@ -93,12 +90,13 @@ export function reconcileGithubState(
   wanted: ReadonlyArray<{ gitUrl: string; ref: string | null }>,
   now: Date = new Date(),
 ): GithubSourceState {
-  const byUrl = new Map(previous.map((pin) => [pin.gitUrl, pin]))
   return {
     provider: "github",
     repositories: wanted.map(({ gitUrl, ref }) => {
-      const current = byUrl.get(gitUrl)
-      if (current && current.ref === ref) return current
+      const current = previous.find(
+        (pin) => pin.gitUrl === gitUrl && pin.ref === ref,
+      )
+      if (current) return current
       return {
         id: generateObjectId("wlr"),
         gitUrl,
@@ -150,9 +148,14 @@ export function planSourceStates(input: {
   const pinsByRow = new Map(
     input.existing.map((row) => [row.sourceKey, githubPins(row)]),
   )
+  // A pin belongs to its repository URL and ref, not to a row or a path, so
+  // a renamed source file keeps its pin (ADR-050, revision 2026-10-16).
   const pool = new Map<string, GithubRepositoryPin>()
   for (const pins of pinsByRow.values())
-    for (const pin of pins) if (!pool.has(pin.gitUrl)) pool.set(pin.gitUrl, pin)
+    for (const pin of pins) {
+      const key = `${pin.gitUrl} ${pin.ref ?? ""}`
+      if (!pool.has(key)) pool.set(key, pin)
+    }
   const linked = new Set<string>(
     input.workspaceUrl
       ? [normalizeWorkspaceRepositoryUrl(input.workspaceUrl)]
@@ -167,17 +170,16 @@ export function planSourceStates(input: {
       continue
     }
     if (!linking(planned.status)) continue
-    const scope = githubScopeSchema.safeParse(planned.scope)
-    const wanted = (
-      scope.success ? githubScopeRepositories(scope.data) : []
-    ).flatMap(({ name, ref }) => {
-      const gitUrl = normalizeWorkspaceRepositoryUrl(
-        `https://github.com/${name}`,
-      )
-      if (linked.has(gitUrl)) return []
-      linked.add(gitUrl)
-      return [{ gitUrl, ref }]
-    })
+    const wanted = githubSourceScopeRepositories(planned.scope).flatMap(
+      ({ name, ref }) => {
+        const gitUrl = normalizeWorkspaceRepositoryUrl(
+          `https://github.com/${name}`,
+        )
+        if (linked.has(gitUrl)) return []
+        linked.add(gitUrl)
+        return [{ gitUrl, ref }]
+      },
+    )
     states.set(
       planned.sourceKey,
       reconcileGithubState([...pool.values()], wanted, input.now),

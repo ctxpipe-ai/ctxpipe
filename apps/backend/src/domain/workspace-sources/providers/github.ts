@@ -93,3 +93,18 @@ export const githubFileSourceScope: SourceScopeDefinition = {
     return ref ? `${repository} (${ref})` : repository
   },
 }
+
+/**
+ * The repositories of a GitHub scope of either form: a source file (one
+ * `repository`) or a `.ctxpipe/sources.yaml` entry (`repositories`). A scope
+ * that does not parse gives none.
+ */
+export function githubSourceScopeRepositories(
+  scope: unknown,
+): Array<{ name: string; ref: string | null }> {
+  const file = githubFileScopeSchema.safeParse(scope)
+  if (file.success)
+    return [{ name: file.data.repository, ref: file.data.ref ?? null }]
+  const entry = githubScopeSchema.safeParse(scope)
+  return entry.success ? githubScopeRepositories(entry.data) : []
+}

@@ -122,3 +122,255 @@ sources:
     ])
   })
 })
+
+const fileConnections = new Map([
+  ["con_github1", { id: "con_github1", type: "github" }],
+  ["con_linear1", { id: "con_linear1", type: "linear" }],
+])
+
+function githubFile(path: string, repository: string, ref?: string) {
+  return {
+    path,
+    text: `---\nprovider: github\nconnection: con_github1\nrepository: ${repository}\n${ref ? `ref: ${ref}\n` : ""}---\n\nNotes.\n`,
+  }
+}
+
+function linearFile(path: string, team: string) {
+  return {
+    path,
+    text: `---\nprovider: linear\nconnection: con_linear1\nteams: [${team}]\n---\n`,
+  }
+}
+
+/** The managed path of a fake Linear scope: one folder for each team. */
+const linearManagedPaths = (entry: { scope: Record<string, unknown> }) =>
+  ((entry.scope.teams as string[] | undefined) ?? []).map(
+    (team) => `linear/teams/${team}/`,
+  )
+
+function statuses(rows: Awaited<ReturnType<typeof planSourceRows>>) {
+  return rows.map((row) => [row.sourceKey, row.status, row.statusDetail])
+}
+
+describe("planSourceRows from source files", () => {
+  it("gives one row for each file, keyed by its path", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        githubFile("sources/github/acme/web.md", "acme/web", "main"),
+        linearFile("sources/linear/eng.md", "ENG"),
+      ],
+      connections: fileConnections,
+    })
+    expect(rows).toEqual([
+      {
+        sourceKey: "sources/github/acme/web.md",
+        provider: "github",
+        connectionId: "con_github1",
+        scope: { repository: "acme/web", ref: "main" },
+        status: "ok",
+        statusDetail: null,
+      },
+      {
+        sourceKey: "sources/linear/eng.md",
+        provider: "linear",
+        connectionId: "con_linear1",
+        scope: { teams: ["ENG"] },
+        status: "ok",
+        statusDetail: null,
+      },
+    ])
+  })
+
+  it("gives an invalid row for a malformed file and for a file that breaks the path rules", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        { path: "sources/linear/broken.md", text: "---\nprovider: [\n---\n" },
+        { path: "sources/linear/eng.yaml", text: "provider: linear\n" },
+        linearFile("sources/slack/eng.md", "ENG"),
+      ],
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/linear/broken.md", "invalid", expect.stringContaining("YAML")],
+      ["sources/linear/eng.yaml", "invalid", expect.stringContaining(".md")],
+      ["sources/slack/eng.md", "invalid", expect.stringContaining("folder")],
+    ])
+    expect(rows[0]?.provider).toBe("linear")
+  })
+
+  it("checks the connection of a file as it checks a YAML entry", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        {
+          path: "sources/linear/gone.md",
+          text: "---\nprovider: linear\nconnection: con_gone\nteams: [ENG]\n---\n",
+        },
+        {
+          path: "sources/github/acme/web.md",
+          text: "---\nprovider: github\nconnection: con_linear1\nrepository: acme/web\n---\n",
+        },
+      ],
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/github/acme/web.md",
+        "invalid",
+        expect.stringContaining("linear connection"),
+      ],
+      ["sources/linear/gone.md", "connection_missing", expect.any(String)],
+    ])
+  })
+
+  it("passes the path as the key of the access check", async () => {
+    const keys: string[] = []
+    await planSourceRows({
+      text: null,
+      files: [githubFile("sources/github/acme/web.md", "acme/web")],
+      connections: fileConnections,
+      checkAccess: async (entry) => {
+        keys.push(entry.key)
+        return null
+      },
+    })
+    expect(keys).toEqual(["sources/github/acme/web.md"])
+  })
+
+  it("makes a GitHub file that names the Workspace repository invalid", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [githubFile("sources/github/acme/context.md", "Acme/Context")],
+      connections: fileConnections,
+      workspaceUrl: "https://github.com/acme/context.git",
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/github/acme/context.md",
+        "invalid",
+        expect.stringContaining("Workspace repository"),
+      ],
+    ])
+  })
+
+  it("keeps the first path in byte order when two files name the same repository", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        githubFile("sources/github/acme/web.md", "acme/web"),
+        githubFile("sources/github/acme/web-copy.md", "ACME/Web", "main"),
+      ],
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/github/acme/web-copy.md", "ok", null],
+      [
+        "sources/github/acme/web.md",
+        "invalid",
+        expect.stringContaining("sources/github/acme/web-copy.md"),
+      ],
+    ])
+  })
+
+  it("keeps the row that was ok at the previous revision when a new file names its repository", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        githubFile("sources/github/acme/web.md", "acme/web"),
+        githubFile("sources/github/acme/a-new.md", "acme/web"),
+      ],
+      connections: fileConnections,
+      previousOkKeys: new Set(["sources/github/acme/web.md"]),
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/github/acme/a-new.md",
+        "invalid",
+        expect.stringContaining("sources/github/acme/web.md"),
+      ],
+      ["sources/github/acme/web.md", "ok", null],
+    ])
+  })
+
+  it("makes the later of two sources with overlapping managed paths invalid", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        linearFile("sources/linear/eng.md", "ENG"),
+        linearFile("sources/linear/all.md", "ENG"),
+        linearFile("sources/linear/ops.md", "OPS"),
+      ],
+      connections: fileConnections,
+      managedPaths: linearManagedPaths,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/linear/all.md", "ok", null],
+      [
+        "sources/linear/eng.md",
+        "invalid",
+        expect.stringContaining("sources/linear/all.md"),
+      ],
+      ["sources/linear/ops.md", "ok", null],
+    ])
+  })
+
+  it("finds an overlap when one managed path is below the other", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        linearFile("sources/linear/a.md", "ENG"),
+        linearFile("sources/linear/b.md", "OPS"),
+      ],
+      connections: fileConnections,
+      managedPaths: (entry) =>
+        entry.key === "sources/linear/a.md"
+          ? ["linear/"]
+          : ["linear/teams/OPS/"],
+      previousOkKeys: new Set(["sources/linear/b.md"]),
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/linear/a.md",
+        "invalid",
+        expect.stringContaining("sources/linear/b.md"),
+      ],
+      ["sources/linear/b.md", "ok", null],
+    ])
+  })
+
+  it("does not count a row that is not ok in a conflict", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        githubFile("sources/github/acme/a.md", "acme/web"),
+        githubFile("sources/github/acme/b.md", "acme/web"),
+      ],
+      connections: fileConnections,
+      checkAccess: async (entry) =>
+        entry.key === "sources/github/acme/a.md" ? "No access" : null,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/github/acme/a.md", "out_of_access", "No access"],
+      ["sources/github/acme/b.md", "ok", null],
+    ])
+  })
+
+  it("reads the YAML entries and the files together, and applies the rules to both", async () => {
+    const rows = await planSourceRows({
+      text: "version: 1\nsources:\n  - {id: code, provider: github, connection: con_github1, repositories: [acme/web, acme/api]}\n",
+      files: [githubFile("sources/github/acme/web.md", "acme/web")],
+      connections: fileConnections,
+      previousOkKeys: new Set(["code"]),
+    })
+    expect(statuses(rows)).toEqual([
+      ["code", "ok", null],
+      [
+        "sources/github/acme/web.md",
+        "invalid",
+        expect.stringContaining("code"),
+      ],
+    ])
+  })
+})
