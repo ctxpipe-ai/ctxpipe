@@ -10,13 +10,19 @@ import {
 import { readOrRebuild } from "./graph-rebuild.js"
 import type { PublishedProjection } from "./revision.js"
 
-/** The limits of ADR-051 section 6. A caller can set lower limits. */
-const defaultCaps = {
+/**
+ * The limits of ADR-051 section 6. A caller can set lower limits. A test can
+ * give the walk up to `maxTestTimeoutMs`, so that the load of the machine does
+ * not change a result.
+ */
+export const defaultCaps = {
   maxNodes: 5_000,
   maxEdges: 25_000,
   hopTimeoutMs: 1_000,
   totalTimeoutMs: 3_000,
 }
+
+const maxTestTimeoutMs = 60_000
 
 const expandParamsSchema = z
   .object({
@@ -44,8 +50,8 @@ const expandParamsSchema = z
       .object({
         maxNodes: z.number().int().min(1).max(defaultCaps.maxNodes),
         maxEdges: z.number().int().min(0).max(defaultCaps.maxEdges),
-        hopTimeoutMs: z.number().int().min(0).max(defaultCaps.hopTimeoutMs),
-        totalTimeoutMs: z.number().int().min(0).max(defaultCaps.totalTimeoutMs),
+        hopTimeoutMs: z.number().int().min(0).max(maxTestTimeoutMs),
+        totalTimeoutMs: z.number().int().min(0).max(maxTestTimeoutMs),
       })
       .partial()
       .optional(),
@@ -100,7 +106,7 @@ export type GraphExpansion = {
     | "hop_timeout"
     | "total_timeout"
     | null
-  /** Nodes with more matching edges than `maxFanOut`; only their strongest edges were walked. */
+  /** Nodes with more matching edges than `maxFanOut`; only the strongest edges of each predicate were walked. */
   cappedHubs: string[]
 }
 
@@ -154,9 +160,10 @@ function rows<T extends z.ZodObject>(
 
 /**
  * Walk the published Workspace graph from `seeds`, one bounded Cypher query
- * for each hop. Each node expands only its `maxFanOut` strongest matching
- * edges. The walk never reads the whole graph: it stops at a cap and marks
- * the result `partial`. The result is sorted by id, so it does not depend on
+ * for each hop. Each node expands at most `maxFanOut` matching edges: the
+ * strongest edge of each predicate, then the second strongest, and so on.
+ * The walk never reads the whole graph: it stops at a cap and marks the
+ * result `partial`. The result is sorted by id, so it does not depend on
  * the write order of the graph.
  */
 export async function expandWorkspaceGraph(
@@ -299,18 +306,37 @@ export async function expandHop(
     in: "<-[r:WorkspaceSignal {projectionKey: $projectionKey}]-",
     both: "-[r:WorkspaceSignal {projectionKey: $projectionKey}]-",
   }[input.direction]
+  // The fan-out takes the edges of a node in turns by predicate, the
+  // strongest edge of each predicate first, so that one predicate with many
+  // edges does not fill the fan-out of a node. Of equal edges, the newest
+  // (`validFrom`) comes first. Round 1 holds at most `perNodeLimit`
+  // predicates, those with the strongest edges, and each predicate reads at
+  // most `perNodeLimit` edges in its own subquery. Thus the memory of a node
+  // stays at most perNodeLimit² edges, however many edges a hub has.
   // Validity compares ISO strings. An edge is valid in the window when it
   // starts before the window ends and ends after the window starts.
+  const match = `MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
+      WHERE r.confidence >= $minConfidence
+        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
+        AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
+        AND (r.validTo IS NULL OR r.validTo > $windowFrom)`
   const result = await client.executeQuery(
     `UNWIND $frontier AS fromId
     CALL {
       WITH fromId
-      MATCH (f:WorkspaceKnowledgeUnit {projectionKey: $projectionKey, id: fromId})${pattern}(n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
-      WHERE r.confidence >= $minConfidence
-        ${input.predicates ? "AND r.predicate IN $predicates" : ""}
-        AND (r.validFrom IS NULL OR r.validFrom <= $windowTo)
-        AND (r.validTo IS NULL OR r.validTo > $windowFrom)
-      RETURN DISTINCT r ORDER BY r.confidence DESC, r.id LIMIT $perNodeLimit
+      ${match}
+      WITH fromId, r.predicate AS predicate, max(r.confidence) AS best
+      ORDER BY best DESC, predicate LIMIT $perNodeLimit
+      CALL {
+        WITH fromId, predicate
+        ${match} AND r.predicate = predicate
+        WITH DISTINCT r ORDER BY r.confidence DESC, coalesce(r.validFrom, '') DESC, r.id
+        LIMIT $perNodeLimit
+        RETURN collect(r) AS ranked
+      }
+      UNWIND range(0, size(ranked) - 1) AS rank
+      WITH ranked[rank] AS r, rank
+      RETURN r ORDER BY rank, r.confidence DESC, coalesce(r.validFrom, '') DESC, r.id LIMIT $perNodeLimit
     }
     WITH fromId, collect(r) AS top
     WITH collect({fromId: fromId, top: top}) AS groups
@@ -326,7 +352,7 @@ export async function expandHop(
     RETURN fromId, probe, cappedHubs, r.id AS id, startNode(r).id AS sourceId, endNode(r).id AS targetId,
       r.predicate AS predicate, r.confidence AS confidence, r.validFrom AS validFrom,
       r.validTo AS validTo, r.source AS source, r.lastObservedAt AS lastObservedAt, ${nodeFields("node_")}
-    ORDER BY probe, confidence DESC, id, fromId LIMIT $rowLimit`,
+    ORDER BY probe, confidence DESC, coalesce(validFrom, '') DESC, id, fromId LIMIT $rowLimit`,
     {
       projectionKey: input.projectionKey,
       frontier: input.frontier,
@@ -344,9 +370,13 @@ export async function expandHop(
   const nodes = new Map(
     rows(nodeSchema, result.records, "node_").map((node) => [node.id, node]),
   )
-  // The strongest edges come first, so a cap keeps them. Ties sort by id.
+  // The strongest edges come first, so a cap keeps them. Ties sort the
+  // newest first, then by id.
   const edges = rows(edgeSchema, result.records).sort(
-    (a, b) => b.confidence - a.confidence || compare(a.id, b.id),
+    (a, b) =>
+      b.confidence - a.confidence ||
+      compare(b.validFrom ?? "", a.validFrom ?? "") ||
+      compare(a.id, b.id),
   )
   const cappedHubs = z
     .array(z.string())

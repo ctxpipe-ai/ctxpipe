@@ -90,6 +90,7 @@ function validate() {
     skill: "apis",
     bundle: "ingest-0000000000000000",
     sourcePathExists: async () => true,
+    readSourceFile: async () => null,
   })
 }
 

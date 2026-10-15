@@ -58,6 +58,21 @@ export const CORE_ALLOWED_CONNECTIONS: Array<{
     predicate: "HAS_INSTRUCTION",
     objectKind: "InstructionUnit",
   },
+  // Ingestion v2 (ADR-052): the triples that the skills write.
+  ...["Repository", "Service", "App", "Library"].map((subjectKind) => ({
+    subjectKind,
+    predicate: "FOLLOWS",
+    objectKind: "InstructionUnit",
+  })),
+  {
+    subjectKind: "Repository",
+    predicate: "USES_LIBRARY",
+    objectKind: "Library",
+  },
+  { subjectKind: "App", predicate: "READS_FROM", objectKind: "Database" },
+  { subjectKind: "App", predicate: "WRITES_TO", objectKind: "Database" },
+  { subjectKind: "App", predicate: "DEPENDS_ON", objectKind: "Database" },
+  { subjectKind: "App", predicate: "RUNS_ON", objectKind: "Infrastructure" },
 ]
 
 const PACKAGE_KINDS = ["Service", "App", "Library"] as const
@@ -112,6 +127,11 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "PullRequest", predicate: "MODIFIED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "REMOVED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "RENAMED", objectKind: "File" },
+  ...[...PACKAGE_KINDS, "Repository"].map((objectKind) => ({
+    subjectKind: "PullRequest",
+    predicate: "CHANGED",
+    objectKind,
+  })),
   // reference
   { subjectKind: "Issue", predicate: "REFERENCES", objectKind: "PullRequest" },
   { subjectKind: "PullRequest", predicate: "REFERENCES", objectKind: "Issue" },
@@ -140,19 +160,21 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
 export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   IMPLEMENTED_IN: "a Service, App or Library lives in this Repository",
   DEPENDS_ON:
-    "runtime dependency on a Service, Database or Library; an Issue depends on the Issue that blocks it",
+    "runtime dependency of a Service or App on a Service, Database or Library; an Issue depends on the Issue that blocks it",
   EXPOSES_API: "a Service serves this API",
   CONSUMES_API: "a Service or API calls this API or Operation",
   HAS_OPERATION: "an API has this Operation (method + path)",
   PRODUCES_TO: "a Service publishes to this Stream",
   CONSUMES_FROM: "a Service consumes from this Stream",
-  READS_FROM: "a Service reads this Database",
-  WRITES_TO: "a Service writes this Database",
-  USES_LIBRARY: "a Service uses this Library",
+  READS_FROM: "a Service or App reads this Database",
+  WRITES_TO: "a Service or App writes this Database",
+  USES_LIBRARY: "a Service or Repository uses this Library",
   IMPLEMENTS_PATTERN: "a Service implements this architectural Pattern",
-  RUNS_ON: "a Service is deployed on this Infrastructure",
+  RUNS_ON: "a Service or App is deployed on this Infrastructure",
   HAS_INSTRUCTION:
     "a Repository or Service is governed by this InstructionUnit (stated norm)",
+  FOLLOWS:
+    "a Repository, Service, App or Library follows the practice of this shared InstructionUnit area file",
   MEMBER_OF_PRIMARY: "an InstructionUnit belongs to this Skill",
   DECLARED_IN:
     "provenance: the InstructionUnit or Decision is stated in this File",
@@ -167,6 +189,8 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "change event: the PullRequest removed this File (valid_from = merge date)",
   RENAMED:
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
+  CHANGED:
+    "change event: the merged PullRequest changed this Service, App, Library or Repository (valid_from = merge date)",
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; an Issue references a related Issue; a Thread references a PullRequest, Issue or Decision",
   RESOLVES:

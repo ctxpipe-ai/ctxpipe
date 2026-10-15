@@ -29,6 +29,8 @@ export type RelatedUnit = {
   kind: string
   title?: string
   body?: string
+  /** Unit paths that the body links to. Hydrate turns each into a `LINKS_TO` edge. */
+  links?: string[]
   claims?: Array<{
     to: string
     predicate: string
@@ -86,7 +88,9 @@ export async function seedRelatedWorkspace(input: {
     servingId: servingId(unit.path),
     kind: unit.kind,
     body: unit.body ?? `# ${unit.title ?? unit.path}\n`,
-    links: [],
+    links: (unit.links ?? []).map((to) =>
+      posix.relative(posix.dirname(unit.path), to),
+    ),
     claims: (unit.claims ?? []).map((claim) => ({
       to: posix.relative(posix.dirname(unit.path), claim.to),
       predicate: claim.predicate,

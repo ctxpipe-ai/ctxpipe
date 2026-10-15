@@ -2,46 +2,15 @@
 // ctxpipe-finish: write patch.json for the staged tree and the recorded
 // deletes. The base blob of a file is the one ctxpipe-stage recorded, else
 // the blob at the base commit. Unchanged staged files make no op.
-import { writeFileSync } from "node:fs"
-import { join } from "node:path"
-import {
-  baseBlob,
-  contentBlob,
-  currentStep,
-  fail,
-  parseArgs,
-  readDeletes,
-  readStaged,
-  stagedFile,
-  stagedPaths,
-} from "./stage-lib.mjs"
+// `--more` tells the host that files wait for a next page; a `more` that a
+// script of the step already wrote in patch.json stays.
+import { currentStep, fail, parseArgs, writePatch } from "./stage-lib.mjs"
 
-const { root } = parseArgs()
-const step = currentStep(root)
-const recorded = readStaged(step)
-const ops = []
-const staged = new Set(stagedPaths(step))
-for (const path of staged) {
-  const blob = path in recorded ? recorded[path] : baseBlob(step, path)
-  if (!blob) ops.push({ op: "create", path })
-  else if (contentBlob(step, stagedFile(step, path)) !== blob)
-    ops.push({ op: "update", path, baseBlob: blob })
-}
-for (const [path, entry] of Object.entries(readDeletes(step))) {
-  if (staged.has(path)) fail(`${path} is both staged and deleted`)
-  ops.push({
-    op: "delete",
-    path,
-    baseBlob: entry.baseBlob,
-    reason: entry.reason,
-  })
-}
-ops.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
-writeFileSync(
-  join(step.stepDir, "patch.json"),
-  `${JSON.stringify({ ops }, null, 2)}\n`,
-)
+const { root, args } = parseArgs()
+for (const arg of args) if (arg !== "--more") fail(`Unknown argument ${arg}`)
+const more = args.includes("--more")
+const ops = writePatch(currentStep(root), { more })
 const count = (op) => ops.filter((o) => o.op === op).length
 process.stdout.write(
-  `patch.json: ${count("create")} create, ${count("update")} update, ${count("delete")} delete\n`,
+  `patch.json: ${count("create")} create, ${count("update")} update, ${count("delete")} delete${more ? ", more" : ""}\n`,
 )

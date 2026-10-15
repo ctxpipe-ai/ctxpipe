@@ -241,8 +241,11 @@ export function dockerIngestSandboxProvider(input: {
   runId: string
   shard: number
   image: string
-  /** The egress of the step that creates the sandbox. */
-  egress: IngestEgress
+  /**
+   * The egress of the step that creates the sandbox. Absent: the provider
+   * can only resume and destroy (the end of a shard).
+   */
+  egress?: IngestEgress
   /** Defaults to the deployment's (`AGENT_VAULT_ADDR`). */
   access?: AgentVaultAccess
   /**
@@ -265,18 +268,23 @@ export function dockerIngestSandboxProvider(input: {
     capabilities: () => docker.capabilities(),
     async create(createInput) {
       const access = requireAccess(input.access)
+      const egress = input.egress
+      if (!egress)
+        throw new Error(
+          "Only a step with its egress can make an ingest sandbox",
+        )
       let vault: RunVault | undefined
       let handle: SandboxHandle | undefined
       try {
         const git = await ingestGitAccess({
           ...input,
-          repositories: input.egress.repositories,
+          repositories: egress.repositories,
         })
         vault = await openRunVault({
           access,
           runKey,
           ttlSeconds: INGEST_VAULT_TTL_SECONDS,
-          rules: ingestCredentialRules(input.egress, git),
+          rules: ingestCredentialRules(egress, git),
           unmatchedHosts: "deny",
         })
         handle = await docker.create({

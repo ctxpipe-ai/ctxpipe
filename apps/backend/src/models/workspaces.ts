@@ -986,6 +986,7 @@ export async function listOrgWorkspaces(
       | "updatedAt"
       | "createdAt"
       | "lastJobAt"
+      | "rootPath"
     >
   >
 > {
@@ -1007,6 +1008,7 @@ export async function listOrgWorkspaces(
         updatedAt: workspaces.updatedAt,
         createdAt: workspaces.createdAt,
         lastJobAt: workspaces.lastJobAt,
+        rootPath: workspaces.rootPath,
       })
       .from(workspaces)
       .where(eq(workspaces.orgId, orgId)),

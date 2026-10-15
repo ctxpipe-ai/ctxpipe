@@ -19,6 +19,7 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-bootstrap.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { bootstrapKnowledgeSkillMarkdown } from "./bootstrap.js"
 import { createWorkspaceLifecycle } from "./workspace-lifecycle.js"
 
 it.each([
@@ -137,7 +138,10 @@ it.each([
               })
               writeFileSync(
                 join(human, ".agents/skills/ctxpipe-knowledge/SKILL.md"),
-                "---\nname: ctxpipe-knowledge\n---\n\nWrite knowledge/ files with confidence 0.5 or 0.7. Avoid obj_ jargon.\n",
+                // Satisfied means current: bootstrap adds the extracted-files section to an older skill.
+                bootstrapKnowledgeSkillMarkdown(
+                  "---\nname: ctxpipe-knowledge\n---\n\nWrite knowledge/ files with confidence 0.5 or 0.7. Avoid obj_ jargon.\n",
+                ),
               )
             }
             f.git("-C", human, "add", ".")

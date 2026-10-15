@@ -38,7 +38,7 @@ const LINEAR_KINDS: Record<string, string> = {
  * The kind of a Markdown file at a connector-mirror path, or null. Layouts:
  * `confluence/<KEY>/…`, `linear/teams/<KEY>/<dir>/…`,
  * `linear/projects/<id>/<dir>/…`, `slack/channels/<channel>/…`,
- * `pagerduty/incidents/…`.
+ * `pagerduty/incidents/…`, `github/pulls/<owner>/<repo>/<file>.md`.
  */
 export function mirrorUnitKind(path: string): string | null {
   const parts = path.split("/")
@@ -63,6 +63,8 @@ export function mirrorUnitKind(path: string): string | null {
       return parts.length === 4 && file === "index.md" ? "Channel" : null
     case "pagerduty":
       return parts[1] === "incidents" ? "Incident" : null
+    case "github":
+      return parts[1] === "pulls" && parts.length === 5 ? "PullRequest" : null
     default:
       return null
   }
