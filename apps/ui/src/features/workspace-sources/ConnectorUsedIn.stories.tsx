@@ -125,7 +125,7 @@ export const PullRequestAwaitingMerge: Story = {
               stat: "",
               pendingChanges: [
                 {
-                  sourceKey: "notion",
+                  path: "notion",
                   provider: "notion",
                   action: "add",
                   pullRequestUrl: "https://github.com/acme/docs/pull/7",
@@ -139,7 +139,7 @@ export const PullRequestAwaitingMerge: Story = {
               stat: "2 Notion pages",
               pendingChanges: [
                 {
-                  sourceKey: "runbooks",
+                  path: "runbooks",
                   provider: "notion",
                   action: "edit",
                   pullRequestUrl: "https://github.com/acme/ops/pull/3",

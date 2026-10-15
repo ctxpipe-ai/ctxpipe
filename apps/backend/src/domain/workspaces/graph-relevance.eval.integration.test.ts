@@ -56,12 +56,14 @@ const INTENTS: readonly EvalIntent[] = [
   "why",
   "change",
   "dependencies",
+  "provenance",
 ]
 
 /**
  * The walk of each intent (`INTENT_PRESETS[intent].walk`), which `get_related`
  * uses when the caller gives no `predicates`. The ablation rows use it with a
- * fan-out of 1,000, so that no fan-out cap decides the result.
+ * fan-out of 200 (the most that get_related allows), so that no fan-out cap
+ * decides the result.
  */
 const scopedPredicates = (intent: EvalIntent) => [
   ...(INTENT_PRESETS[intent].walk ?? []),
@@ -72,7 +74,9 @@ const scopedPredicates = (intent: EvalIntent) => [
  * that an agent makes with only `intent`, and the call with no `intent`. The
  * measured value is at or above the floor. With no intent, one first page
  * must serve four kinds of question (an owner, decisions, five changes, and
- * the dependencies), so its floors are lower. The units of the answer kinds
+ * the dependencies), so its floors are lower. With no intent, the walk of all edges
+ * skips FROM_SOURCE, so a hub source does not crowd out the other answers, and
+ * the provenance floor is 0. The units of the answer kinds
  * of the intent come first, so the rules of a hub service do not crowd out
  * its decisions and dependencies on free-form predicates. On free-form
  * predicates, the gateway that calls a service still ranks among its
@@ -83,21 +87,35 @@ const floors: Record<
   Record<"intent" | "no intent", Record<EvalIntent, number>>
 > = {
   canonical: {
-    intent: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.95 },
+    intent: {
+      ownership: 0.95,
+      why: 0.95,
+      change: 0.9,
+      dependencies: 0.95,
+      provenance: 0.95,
+    },
     "no intent": {
       ownership: 0.8,
       why: 0.65,
       change: 0.25,
       dependencies: 0.22,
+      provenance: 0,
     },
   },
   "free-form": {
-    intent: { ownership: 0.95, why: 0.95, change: 0.9, dependencies: 0.8 },
+    intent: {
+      ownership: 0.95,
+      why: 0.95,
+      change: 0.9,
+      dependencies: 0.8,
+      provenance: 0.95,
+    },
     "no intent": {
       ownership: 0.95,
       why: 0.65,
       change: 0.25,
       dependencies: 0.22,
+      provenance: 0,
     },
   },
 }
@@ -153,11 +171,12 @@ function evalSuite(vocabulary: EvalVocabulary) {
         // The defaults of `get_related`, except the fan-out of a scoped walk:
         // no node of the fixture has more than 1,000 matching edges, so no
         // tie in the edge order decides which edges the walk keeps. The
-        // unscoped walk is the `general` walk: all edges, fan-out 50.
+        // unscoped walk is the `general` walk: all edges except the hub
+        // source edges, fan-out 50.
         maxDepth: 2,
         direction: "both",
         minConfidence: 0.2,
-        maxFanOut: scoped ? 1_000 : 50,
+        maxFanOut: scoped ? 200 : 50,
         predicates: scoped ? scopedPredicates(question.intent) : undefined,
         validAt: fixture.now.toISOString(),
         caps,
@@ -365,7 +384,7 @@ describe("graph relevance eval (synthetic engineering Workspace, canonical vocab
         seeds: [question.seed],
         intent: question.intent,
         predicates: scopedPredicates(question.intent),
-        maxFanOut: 1_000,
+        maxFanOut: 200,
       })
       const tool = await rankWorkspaceRelated(
         org(),

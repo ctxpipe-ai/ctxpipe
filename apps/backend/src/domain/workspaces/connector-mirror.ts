@@ -11,8 +11,12 @@ import {
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
-import { sourcesFileHasNone } from "../workspace-sources/projection-plan.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { sourcesHaveNone } from "../workspace-sources/projection-plan.js"
+import {
+  isSourcesTreePath,
+  sourcesFenceAt,
+  splitSourcesTree,
+} from "../workspace-sources/source-tree.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
@@ -39,7 +43,7 @@ export async function assertConnectorMirrorBinding(
     | WorkspaceSourcesMirrorSource,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  // A Workspace source sync has no binding: the sources file fences it.
+  // A Workspace source sync has no binding: the sources fence id fences it.
   if ("sourcesBlobSha" in source || "removedTargets" in source) return
   // GitHub has no binding; assertConnectorMirrorScope checks the link.
   if (source.provider === "github") return
@@ -76,34 +80,40 @@ export async function assertConnectorMirrorScope(
   pack: GitPack,
 ): Promise<void> {
   if ("sourcesBlobSha" in source) {
-    if ((await blobShaAt(pack, SOURCES_FILE_PATH)) !== source.sourcesBlobSha)
+    const fence = await withGitDirectory(
+      pack.sha,
+      (directory) => sourcesFenceAt(directory, pack),
+      pack,
+    )
+    if (fence !== source.sourcesBlobSha)
       throw new Error(
         "Workspace sources changed; discard this capture and sync the current sources",
       )
     return
   }
   if ("removedTargets" in source) {
-    const [file] = await readGitFiles(
-      pack,
-      (path) => path === SOURCES_FILE_PATH,
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
     )
     if (
-      !(await sourcesFileHasNone(file?.content ?? null, source.removedTargets))
+      !(await sourcesHaveNone(
+        { text: sourcesFile, sourceFiles },
+        source.removedTargets,
+      ))
     )
       throw new Error(
-        "A removed Workspace source is in the sources file again; discard this cleanup",
+        "A removed Workspace source is in the sources again; discard this cleanup",
       )
     return
   }
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
-    const [file] = await readGitFiles(
-      pack,
-      (path) => path === SOURCES_FILE_PATH,
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
     )
     const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
     if (
-      !githubSourceRepositories(file?.content ?? null, null).some(
+      !githubSourceRepositories(sourcesFile, null, sourceFiles).some(
         (linked) => linked.gitUrl === target,
       )
     )

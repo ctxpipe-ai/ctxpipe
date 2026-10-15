@@ -1,6 +1,6 @@
 import { posix, win32 } from "node:path"
 import { log } from "../../observability/logger.js"
-import type { HydrateClaim } from "./hydrate.js"
+import { type HydrateClaim, sourcePathOf } from "./hydrate.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -29,6 +29,11 @@ type Target = { path: string; root: string | null }
 
 export function pullRequestChangedClaims(
   units: readonly Unit[],
+  /**
+   * Path of each GitHub source file → its repository URL. A `sources` value
+   * is a source path (ADR-050) or, in a unit written before, a URL.
+   */
+  sourceRepositories: ReadonlyMap<string, string> = new Map(),
 ): Map<string, HydrateClaim[]> {
   let invalidRoots = 0
   const targets = new Map<string, Target[]>()
@@ -49,7 +54,10 @@ export function pullRequestChangedClaims(
       continue
     }
     for (const source of stringList(unit.attributes.sources)) {
-      const key = normalizeWorkspaceRepositoryUrl(source)
+      const path = sourcePathOf(source)
+      const key =
+        (path && sourceRepositories.get(path)) ??
+        normalizeWorkspaceRepositoryUrl(source)
       const list = targets.get(key) ?? []
       list.push({ path: unit.path, root })
       targets.set(key, list)

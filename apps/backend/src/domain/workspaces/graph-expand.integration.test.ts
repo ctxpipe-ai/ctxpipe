@@ -438,6 +438,29 @@ describe("expandWorkspaceGraph on FalkorDB", () => {
     ).toEqual(["a.md", "b.md", "e.md"].map(id))
   })
 
+  it("walks a FROM_SOURCE edge only when the predicates name it", async () => {
+    const projection = await publish([
+      unit("a.md", [
+        { to: "b.md", predicate: "DEPENDS_ON" },
+        { to: "source.md", predicate: "FROM_SOURCE" },
+      ]),
+      unit("b.md"),
+      unit("source.md"),
+    ])
+    const seeds = [id("a.md")]
+    expect(nodeIds(await expand(projection, { seeds }))).toEqual(
+      ["a.md", "b.md"].map(id),
+    )
+    expect(
+      nodeIds(
+        await expand(projection, {
+          seeds,
+          predicates: ["FROM_SOURCE", "DEPENDS_ON"],
+        }),
+      ),
+    ).toEqual(["a.md", "b.md", "source.md"].map(id))
+  })
+
   it("stops at maxDepth and gives each node its hop", async () => {
     const projection = await publish([
       unit("a.md", [{ to: "b.md" }]),

@@ -1,5 +1,6 @@
 import {
   IconAlertTriangle,
+  IconCursorText,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -41,6 +42,7 @@ import {
   workspaceSourceKeys,
   workspaceSourcesOptions,
 } from "./queries"
+import { RenameSourceDialog } from "./RenameSourceDialog"
 import {
   SourceEditorDialog,
   type SourceEditorTarget,
@@ -137,7 +139,11 @@ function AwaitingMergeLink(props: { change: PendingSourceChange }) {
       variant="secondary"
       className="mt-0.5 inline-block text-xs"
     >
-      {change.action === "remove" ? "Removal awaiting merge" : "Awaiting merge"}
+      {change.action === "remove"
+        ? "Removal awaiting merge"
+        : change.action === "rename"
+          ? "Rename awaiting merge"
+          : "Awaiting merge"}
     </TextLink>
   )
 }
@@ -170,9 +176,10 @@ function SourceRow(props: {
   /** False when the group header shows the status detail. */
   showDetail: boolean
   onEdit: (() => void) | null
+  onRename: (() => void) | null
   onRemove: (() => void) | null
 }) {
-  const { source, pending, showDetail, onEdit, onRemove } = props
+  const { source, pending, showDetail, onEdit, onRename, onRemove } = props
   const tag = STATUS_TAG[source.status]
   return (
     <li className={sourceRowClassName}>
@@ -184,7 +191,7 @@ function SourceRow(props: {
         <span aria-hidden className={sourceRowSeparatorClassName}>
           ·
         </span>
-        <code className="truncate font-mono">{source.sourceKey}</code>
+        <code className="truncate font-mono">{source.path}</code>
       </p>
       <span className={cn(sourceRowStatusClassName, tag.className)}>
         <span className={tag.dotClassName} aria-hidden />
@@ -195,25 +202,54 @@ function SourceRow(props: {
           <Button
             variant="quiet"
             size="icon-sm"
-            aria-label={`Edit ${source.sourceKey}`}
+            aria-label={`Edit ${source.path}`}
             onPress={onEdit}
           >
             <IconPencil className="size-4 text-muted-foreground" aria-hidden />
+          </Button>
+        ) : null}
+        {onRename ? (
+          <Button
+            variant="quiet"
+            size="icon-sm"
+            aria-label={`Rename ${source.path}`}
+            onPress={onRename}
+          >
+            <IconCursorText
+              className="size-4 text-muted-foreground"
+              aria-hidden
+            />
           </Button>
         ) : null}
         {onRemove ? (
           <Button
             variant="quiet"
             size="icon-sm"
-            aria-label={`Remove ${source.sourceKey}`}
+            aria-label={`Remove ${source.path}`}
             onPress={onRemove}
           >
             <IconTrash className="size-4 text-muted-foreground" aria-hidden />
           </Button>
         ) : null}
       </div>
-      {(showDetail && source.statusDetail) || pending ? (
+      {(showDetail && source.statusDetail) ||
+      pending ||
+      source.description ||
+      !source.removable ? (
         <div className={sourceRowNoteClassName}>
+          {source.description ? (
+            <p
+              className="truncate text-muted-foreground"
+              title={source.description}
+            >
+              {source.description}
+            </p>
+          ) : null}
+          {source.removable ? null : (
+            <p className="text-muted-foreground">
+              This row is not a source file. Edit the file that defines it.
+            </p>
+          )}
           {showDetail && source.statusDetail ? (
             <p
               className={
@@ -238,7 +274,7 @@ function PendingAddRow(props: { change: PendingSourceChange }) {
       <p className="truncate text-sm text-foreground">New source</p>
       <p className={sourceRowMetaClassName}>
         <span className="hidden @3xl:block" />
-        <code className="truncate font-mono">{props.change.sourceKey}</code>
+        <code className="truncate font-mono">{props.change.path}</code>
       </p>
       <div className={cn(sourceRowNoteClassName, "mt-0")}>
         <AwaitingMergeLink change={props.change} />
@@ -255,24 +291,23 @@ function PendingAddRow(props: { change: PendingSourceChange }) {
 function GithubSourceNotes(props: {
   sources: WorkspaceSource[]
   pendingAdds: PendingSourceChange[]
-  pendingOf: (sourceKey: string) => PendingSourceChange | undefined
+  pendingOf: (path: string) => PendingSourceChange | undefined
 }) {
   const { sources, pendingAdds, pendingOf } = props
   const notes = sources.filter(
     (source) =>
-      pendingOf(source.sourceKey) ||
-      (source.status !== "ok" && source.statusDetail),
+      pendingOf(source.path) || (source.status !== "ok" && source.statusDetail),
   )
   if (notes.length === 0 && pendingAdds.length === 0) return null
   return (
     <ul className={sourceRowsClassName}>
       {notes.map((source) => {
-        const pending = pendingOf(source.sourceKey)
+        const pending = pendingOf(source.path)
         return (
-          <li key={source.sourceKey} className="px-3 py-2">
+          <li key={source.path} className="px-3 py-2">
             <p className="truncate text-xs text-muted-foreground">
               {source.connectionName ?? "No connection"} ·{" "}
-              <code className="font-mono">{source.sourceKey}</code>
+              <code className="font-mono">{source.path}</code>
             </p>
             {source.status !== "ok" && source.statusDetail ? (
               <p className="mt-0.5 text-xs text-amber-200/80">
@@ -284,7 +319,7 @@ function GithubSourceNotes(props: {
         )
       })}
       {pendingAdds.map((change) => (
-        <PendingAddRow key={change.sourceKey} change={change} />
+        <PendingAddRow key={change.path} change={change} />
       ))}
     </ul>
   )
@@ -364,7 +399,7 @@ function SourcesSkeleton() {
 
 /**
  * The "Sources" section of the Workspace settings pane: the entries of
- * `.ctxpipe/sources.yaml`, grouped by provider. Each provider group has the
+ * `sources/` (one file for each source), grouped by provider. Each provider group has the
  * anchor `source-<provider>`.
  */
 export function WorkspaceSources(props: {
@@ -385,12 +420,13 @@ export function WorkspaceSources(props: {
   const loading = useSkeletonHold(sourcesQuery.isPending)
   const connectionsQuery = useQuery(orgConnectionsOptions(orgSlug))
   const [editor, setEditor] = useState<SourceEditorTarget | null>(null)
+  const [renaming, setRenaming] = useState<WorkspaceSource | null>(null)
   const [removing, setRemoving] = useState<WorkspaceSource | null>(null)
   const [githubAddOpen, setGithubAddOpen] = useState(false)
 
   const removeMutation = useMutation({
-    mutationFn: (sourceKey: string) =>
-      deleteWorkspaceSource(orgSlug, workspaceSlug, sourceKey),
+    mutationFn: (path: string) =>
+      deleteWorkspaceSource(orgSlug, workspaceSlug, path),
     onSuccess: () => {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
@@ -420,8 +456,8 @@ export function WorkspaceSources(props: {
     [linkedRepositories, data?.items],
   )
   const pendingChanges = data?.pendingChanges ?? []
-  const pendingOf = (sourceKey: string) =>
-    pendingChanges.find((change) => change.sourceKey === sourceKey)
+  const pendingOf = (path: string) =>
+    pendingChanges.find((change) => change.path === path)
   const unknownProvider = items.filter((item) => item.provider == null)
   const groups = SOURCE_PROVIDERS.filter(
     (provider) =>
@@ -430,12 +466,8 @@ export function WorkspaceSources(props: {
       connectionsOf(provider).length > 0 ||
       (provider === "github" && (linkedRepositories?.length ?? 0) > 0),
   )
-  const linkErrors = data?.linkErrors ?? []
   const isEmpty =
-    groups.length === 0 &&
-    unknownProvider.length === 0 &&
-    !data?.fileError &&
-    linkErrors.length === 0
+    groups.length === 0 && unknownProvider.length === 0 && !data?.fileError
 
   return (
     // The section is the container of the table columns (`source-table.ts`).
@@ -459,10 +491,8 @@ export function WorkspaceSources(props: {
           ) : null}
           {data && isEmpty ? null : (
             <p className="mt-0.5 text-xs text-muted-foreground">
-              Saved in{" "}
-              <code className="font-mono">
-                {data?.path ?? ".ctxpipe/sources.yaml"}
-              </code>
+              Saved as one file for each source in{" "}
+              <code className="font-mono">{data?.path ?? "sources"}/</code>
             </p>
           )}
         </div>
@@ -521,31 +551,9 @@ export function WorkspaceSources(props: {
             <div className="mt-4">
               <InlineAlert
                 variant="error"
-                title="The sources file is not valid"
+                title="The legacy sources file is not valid"
               >
                 {data.fileError}
-              </InlineAlert>
-            </div>
-          ) : null}
-          {linkErrors.length > 0 ? (
-            <div className="mt-4">
-              <InlineAlert
-                variant="warning"
-                title={
-                  linkErrors.length === 1
-                    ? "A repository link was not saved"
-                    : `${linkErrors.length} repository links were not saved`
-                }
-              >
-                <ul className="flex flex-col gap-1">
-                  {linkErrors.map((error) => (
-                    <li key={error.gitUrl}>
-                      {error.action === "link" ? "Link" : "Unlink"}{" "}
-                      <code className="font-mono">{error.gitUrl}</code>:{" "}
-                      {error.reason}
-                    </li>
-                  ))}
-                </ul>
               </InlineAlert>
             </div>
           ) : null}
@@ -553,28 +561,29 @@ export function WorkspaceSources(props: {
             <div aria-hidden className={sourceTableHeadClassName}>
               <span>Source</span>
               <span>Connection</span>
-              <span>Key</span>
+              <span>File</span>
               <span>Status</span>
             </div>
             <div className="flex flex-col divide-y divide-white/[0.06]">
               {unknownProvider.length > 0 ? (
                 <ConnectorGroup
                   Icon={IconAlertTriangle}
-                  title="Entries not valid"
+                  title="Files not valid"
                   meta={
                     unknownProvider.length === 1
-                      ? "1 entry"
-                      : `${unknownProvider.length} entries`
+                      ? "1 file"
+                      : `${unknownProvider.length} files`
                   }
                 >
                   <ul className={sourceRowsClassName}>
                     {unknownProvider.map((source) => (
                       <SourceRow
-                        key={source.sourceKey}
+                        key={source.path}
                         source={source}
-                        pending={pendingOf(source.sourceKey)}
+                        pending={pendingOf(source.path)}
                         showDetail
                         onEdit={null}
+                        onRename={null}
                         onRemove={
                           canEdit && source.removable
                             ? () => setRemoving(source)
@@ -595,9 +604,7 @@ export function WorkspaceSources(props: {
                   (change) =>
                     change.provider === provider &&
                     change.action === "add" &&
-                    !sources.some(
-                      (item) => item.sourceKey === change.sourceKey,
-                    ),
+                    !sources.some((item) => item.path === change.path),
                 )
                 // The GitHub group counts repositories, not source entries.
                 const repositories =
@@ -679,22 +686,27 @@ export function WorkspaceSources(props: {
                       <ul className={sourceRowsClassName}>
                         {sources.map((source) => (
                           <SourceRow
-                            key={source.sourceKey}
+                            key={source.path}
                             source={source}
-                            pending={pendingOf(source.sourceKey)}
+                            pending={pendingOf(source.path)}
                             showDetail={
                               !shared.some(
                                 ([detail]) => detail === source.statusDetail,
                               )
                             }
                             onEdit={
-                              canEdit
+                              canEdit && source.removable
                                 ? () =>
                                     setEditor({
                                       kind: "edit",
                                       provider,
                                       source,
                                     })
+                                : null
+                            }
+                            onRename={
+                              canEdit && source.removable
+                                ? () => setRenaming(source)
                                 : null
                             }
                             onRemove={
@@ -705,10 +717,7 @@ export function WorkspaceSources(props: {
                           />
                         ))}
                         {pendingAdds.map((change) => (
-                          <PendingAddRow
-                            key={change.sourceKey}
-                            change={change}
-                          />
+                          <PendingAddRow key={change.path} change={change} />
                         ))}
                       </ul>
                     )}
@@ -729,6 +738,14 @@ export function WorkspaceSources(props: {
           onClose={() => setEditor(null)}
         />
       ) : null}
+      {renaming ? (
+        <RenameSourceDialog
+          orgSlug={orgSlug}
+          workspaceSlug={workspaceSlug}
+          path={renaming.path}
+          onClose={() => setRenaming(null)}
+        />
+      ) : null}
       <Modal
         isOpen={removing != null}
         onOpenChange={(open) => {
@@ -743,11 +760,11 @@ export function WorkspaceSources(props: {
                 slot="title"
                 className="my-0 text-lg font-medium leading-6 text-foreground"
               >
-                Remove {removing?.sourceKey ?? "source"}?
+                Remove {removing?.path ?? "source"}?
               </Heading>
               <p className="mt-3 text-sm text-muted-foreground">
-                The change removes the source from the sources file. After it
-                lands, the sync deletes its files. Git history keeps them.
+                The change deletes the source file. After it lands, the sync
+                deletes the files that the source wrote. Git history keeps them.
               </p>
               <div className="mt-6 flex justify-end gap-2">
                 <Button variant="quiet" onPress={close}>
@@ -757,7 +774,7 @@ export function WorkspaceSources(props: {
                   variant="destructive"
                   autoFocus
                   onPress={() => {
-                    if (removing) removeMutation.mutate(removing.sourceKey)
+                    if (removing) removeMutation.mutate(removing.path)
                     close()
                   }}
                 >

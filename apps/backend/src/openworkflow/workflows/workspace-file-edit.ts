@@ -63,6 +63,7 @@ export const workspaceFileEdit = defineWorkflow(
   {
     name: "workspace-write-ui-file-edit",
     schema: workspaceFileEditInputSchema,
+    retryPolicy: { maximumAttempts: 1 },
   },
   async ({ input: queuedInput, step, run }) => {
     const input = workspaceFileEditInputSchema.parse(queuedInput)
@@ -102,7 +103,15 @@ export const workspaceFileEdit = defineWorkflow(
           ...input.files.map((file) => file.path),
           ...input.deletePaths,
         ])
-        if (refusal) throw new Error(refusal)
+        if (refusal) {
+          // A refusal is permanent: fail the job row now so it cannot hold up
+          // the write queue, and never retry it.
+          await step.run(
+            { name: "refuse-command", retryPolicy: { maximumAttempts: 1 } },
+            () => persistWriteJobStatus(input.jobId, "failed"),
+          )
+          throw new Error(refusal)
+        }
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>

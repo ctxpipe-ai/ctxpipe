@@ -252,6 +252,182 @@ describe("planSourceStates", () => {
   })
 })
 
+describe("planSourceStates for source files", () => {
+  const file = (sourceKey: string, repository: string, ref?: string) => ({
+    sourceKey,
+    provider: "github" as const,
+    status: "ok",
+    scope: ref ? { repository, ref } : { repository },
+  })
+  const main = { ...pin, id: "wlr_main", ref: "main" }
+  const release = {
+    ...pin,
+    id: "wlr_release",
+    ref: "release",
+    desiredSha: "b".repeat(40),
+    indexedSha: "b".repeat(40),
+  }
+
+  it("gives a renamed file the pin of its repository and ref", () => {
+    const states = planSourceStates({
+      existing: [
+        {
+          id: "wsrc_old",
+          sourceKey: "sources/github/acme/web.md",
+          provider: "github",
+          connectionId: null,
+          scope: {},
+          status: "ok",
+          state: { provider: "github", repositories: [pin] },
+        },
+      ],
+      planned: [file("sources/github/acme/frontend.md", "acme/web")],
+      workspaceUrl: null,
+    })
+    expect(states.get("sources/github/acme/frontend.md")).toEqual({
+      provider: "github",
+      repositories: [pin],
+    })
+  })
+
+  it("matches a pin by repository and ref, not by the first pin of the repository", () => {
+    const states = planSourceStates({
+      existing: [
+        {
+          id: "wsrc_b",
+          sourceKey: "sources/github/acme/web.md",
+          provider: "github",
+          connectionId: null,
+          scope: {},
+          status: "ok",
+          state: { provider: "github", repositories: [release] },
+        },
+        {
+          id: "wsrc_a",
+          sourceKey: "sources/github/acme/web-main.md",
+          provider: "github",
+          connectionId: null,
+          scope: {},
+          status: "ok",
+          state: { provider: "github", repositories: [main] },
+        },
+      ],
+      planned: [
+        file("sources/github/acme/web-main.md", "acme/web", "main"),
+        {
+          ...file("sources/github/acme/web.md", "acme/web", "release"),
+          status: "invalid",
+        },
+        file("sources/github/acme/web-release.md", "acme/web", "release"),
+      ],
+      workspaceUrl: null,
+    })
+    expect(states.get("sources/github/acme/web-main.md")).toEqual({
+      provider: "github",
+      repositories: [main],
+    })
+  })
+
+  it("keeps the pin of a renamed file that is invalid at that revision", () => {
+    const existing = [
+      {
+        id: "wsrc_old",
+        sourceKey: "sources/github/acme/web.md",
+        provider: "github",
+        connectionId: null,
+        scope: {},
+        status: "ok",
+        state: { provider: "github", repositories: [main] },
+      },
+    ]
+    const renamed = {
+      ...file("sources/github/acme/frontend.md", "acme/web", "main"),
+      status: "invalid",
+    }
+    const invalid = planSourceStates({
+      existing,
+      planned: [renamed],
+      workspaceUrl: null,
+    })
+    expect(invalid.get("sources/github/acme/frontend.md")).toEqual({
+      provider: "github",
+      repositories: [main],
+    })
+    const fixed = planSourceStates({
+      existing: [
+        {
+          id: "wsrc_new",
+          sourceKey: "sources/github/acme/frontend.md",
+          provider: "github",
+          connectionId: null,
+          scope: {},
+          status: "ok",
+          state: invalid.get("sources/github/acme/frontend.md"),
+        },
+      ],
+      planned: [file("sources/github/acme/frontend.md", "acme/web", "main")],
+      workspaceUrl: null,
+    })
+    expect(fixed.get("sources/github/acme/frontend.md")).toEqual({
+      provider: "github",
+      repositories: [main],
+    })
+  })
+
+  it("gives the pin of a repository to the source file, not to a YAML entry that also names it", () => {
+    const states = planSourceStates({
+      existing: [],
+      planned: [
+        {
+          sourceKey: "apps",
+          provider: "github",
+          status: "ok",
+          scope: { repositories: ["acme/web", "acme/api"] },
+        },
+        file("sources/github/acme/web.md", "acme/web"),
+      ],
+      workspaceUrl: null,
+    })
+    const urls = (key: string) =>
+      (
+        states.get(key) as { repositories: Array<{ gitUrl: string }> }
+      ).repositories.map((pin) => pin.gitUrl)
+    expect(urls("sources/github/acme/web.md")).toEqual([
+      "https://github.com/acme/web",
+    ])
+    expect(urls("apps")).toEqual(["https://github.com/acme/api"])
+  })
+
+  it("gives a new id and no SHAs when the ref changes", () => {
+    const states = planSourceStates({
+      existing: [
+        {
+          id: "wsrc_a",
+          sourceKey: "sources/github/acme/web.md",
+          provider: "github",
+          connectionId: null,
+          scope: {},
+          status: "ok",
+          state: { provider: "github", repositories: [main] },
+        },
+      ],
+      planned: [file("sources/github/acme/web.md", "acme/web", "release")],
+      workspaceUrl: null,
+    })
+    const [next] = (
+      states.get("sources/github/acme/web.md") as {
+        repositories: (typeof pin)[]
+      }
+    ).repositories
+    expect(next).toMatchObject({
+      ref: "release",
+      desiredSha: null,
+      indexedSha: null,
+    })
+    expect(next?.id).not.toBe("wlr_main")
+  })
+})
+
 describe("an invalid row whose stored target does not parse", () => {
   it("logs once when the projection writes it, not on each read, and keeps it", () => {
     const events: unknown[] = []

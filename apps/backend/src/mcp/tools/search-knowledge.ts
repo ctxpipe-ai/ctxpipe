@@ -29,8 +29,30 @@ const hitSchema = z.object({
   startLine: z.number().int(),
   endLine: z.number().int(),
   score: z.number(),
+  claims: z
+    .string()
+    .optional()
+    .describe("The claims of the unit: predicate and target, at most five."),
   served: servedSchema,
 })
+
+/**
+ * The claims of a unit on one line: at most five `PREDICATE target` pairs,
+ * then the number of the others. Undefined when the unit has no claim.
+ */
+export function claimSummary(
+  claims: readonly { predicate: string | null; to: string }[],
+): string | undefined {
+  if (claims.length === 0) return undefined
+  const shown = claims
+    .slice(0, 5)
+    .map(({ predicate, to }) => (predicate ? `${predicate} ${to}` : to))
+  const more = claims.length - shown.length
+  return truncateText(
+    [...shown, ...(more > 0 ? [`+${more} more`] : [])].join("; "),
+    300,
+  )
+}
 
 /** Register this tool at the seven-tool cutover (ADR-051). */
 export const searchKnowledgeTool = defineMcpReadTool({
@@ -76,9 +98,9 @@ export const searchKnowledgeTool = defineMcpReadTool({
       .number()
       .int()
       .min(1)
-      .max(50)
-      .default(10)
-      .describe("Hits in one page. Default 10."),
+      .max(20)
+      .default(8)
+      .describe("Hits in one page. Default 8, at most 20."),
     cursor: z
       .string()
       .max(2_048)
@@ -146,6 +168,7 @@ export const searchKnowledgeTool = defineMcpReadTool({
     const items = hits.map((hit) => {
       const workspace = workspaces.find((w) => w.id === hit.workspaceId)
       if (!workspace) throw new Error("Search returned an unknown Workspace")
+      const claims = claimSummary(hit.claims)
       return {
         workspace: workspace.slug,
         ref: hit.path,
@@ -153,10 +176,11 @@ export const searchKnowledgeTool = defineMcpReadTool({
         kind: hit.kind,
         source: hit.source,
         updatedAt: hit.updatedAt.toISOString(),
-        snippet: truncateText(hit.text, 3_000),
+        snippet: truncateText(hit.text, 600),
         startLine: hit.startLine,
         endLine: hit.endLine,
         score: hit.score,
+        ...(claims ? { claims } : {}),
         served: { ...workspace.served, sha: hit.projectionSha },
       }
     })

@@ -3,6 +3,7 @@ import {
   type QueryClient,
   queryOptions,
 } from "@tanstack/react-query"
+import type { WorkspaceSourceChangeResult } from "backend/routes/v1/workspace-sources-contract"
 import type {
   ConversationDetail,
   ConversationListItem,
@@ -1099,14 +1100,16 @@ export async function unlinkWorkspaceRepository(
   orgSlug: string,
   workspaceSlug: string,
   linkedId: string,
-): Promise<void> {
+): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
     "linked-repositories"
   ][":linkedId"].$delete({
     param: { orgSlug, workspaceSlug, linkedId },
   })
-  await readApiJson<void>(res, { message: "Failed to unlink repository" })
+  return readApiJson<WorkspaceSourceChangeResult>(res, {
+    message: "Failed to unlink repository",
+  })
 }
 
 export function landingWorkspace(

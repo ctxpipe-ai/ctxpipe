@@ -213,3 +213,76 @@ it(
     )
   },
 )
+
+it(
+  "drops the write when a file under sources/ changed after the rows' revision",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.publish()
+        const commit = (path: string, text: string, message: string) => {
+          mkdirSync(join(f.directory, path, ".."), { recursive: true })
+          writeFileSync(join(f.directory, path), text)
+          f.git("add", path)
+          f.git(
+            "-c",
+            "user.name=Human",
+            "-c",
+            "user.email=human@example.test",
+            "commit",
+            "-m",
+            message,
+          )
+          f.git("push", f.remote, "HEAD:refs/heads/main")
+          return f.git("rev-parse", "HEAD")
+        }
+        const sourcesRevision = commit(
+          "sources/linear/eng.md",
+          "---\nprovider: linear\nconnection: con_linear\nteams: [ENG]\n---\n",
+          "Add the Linear source",
+        )
+        // A person narrows the source after the projection planned the write.
+        commit(
+          "sources/linear/eng.md",
+          "---\nprovider: linear\nconnection: con_linear\nteams: [OPS]\n---\n",
+          "Change the Linear source",
+        )
+        const write = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          provider: "linear" as const,
+          connectionId: "con_linear",
+          files: [{ path: "linear/teams/ENG/README.md", content: "# ENG\n" }],
+          ownedPrefixes: ["linear/teams/ENG/"],
+          keepPrefixes: [],
+        }
+        const env = parseEnv(process.env)
+
+        expect(
+          await writeWorkspaceSlice({ ...write, sourcesRevision }, env),
+        ).toEqual({ queued: false })
+        const jobs = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({ kind: workspaceWriteJobs.kind })
+            .from(workspaceWriteJobs)
+            .where(
+              and(
+                eq(workspaceWriteJobs.workspaceId, f.workspaceId),
+                eq(workspaceWriteJobs.kind, "connector_mirror"),
+              ),
+            ),
+        )
+        expect(jobs).toHaveLength(0)
+
+        // A change outside sources/ does not stop the write.
+        const head = commit("notes.md", "Notes\n", "Add notes")
+        commit("other.md", "Other\n", "Add other")
+        expect(
+          await writeWorkspaceSlice({ ...write, sourcesRevision: head }, env),
+        ).toEqual({ queued: true })
+      },
+    )
+  },
+)

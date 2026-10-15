@@ -148,6 +148,12 @@ describe("workspaceChatOpenCodeContract", () => {
     )
   })
 
+  it("tells the agent that a change under sources/ needs a pull request (CTX-721)", () => {
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /Each file under sources\/ is one source.*session branch.*pull request/,
+    )
+  })
+
   it("tells the agent the product vocabulary in the prompt it gets", () => {
     const { prompt } = workspaceChatOpenCodeConfig({
       modelBase: "openai/gpt-5.6-terra",

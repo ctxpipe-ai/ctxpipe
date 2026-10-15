@@ -26,8 +26,6 @@ export type WorkspaceWriteCommand = {
   revision: WorkspaceRevision
   files?: GitFileChange[]
   deletePaths?: string[]
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -69,8 +67,6 @@ export async function completedWorkspaceWrite(
     !sameWorkspaceRevision(recorded.payload?.revision, input.revision) ||
     !isDeepStrictEqual(recorded.payload?.mergeFiles, input.files) ||
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
-    recorded.payload?.linkAction !== input.linkAction ||
-    recorded.payload?.linkGitUrl !== input.linkGitUrl ||
     !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
     !isDeepStrictEqual(recorded.payload?.extraction, input.extraction) ||
     recorded.payload?.previousSha !== input.previousSha ||

@@ -355,6 +355,34 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(lowerCase)).toContain("knowledge/services/payments-api.md")
   })
 
+  it("never walks an excluded predicate, and never returns an excluded kind", async () => {
+    const all = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+    })
+    expect(refs(all)).toContain("knowledge/docs/overview.md")
+    expect(refs(all)).toContain("knowledge/services/payments-api.md")
+    const noDependents = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+      excludePredicates: ["depends_on"],
+    })
+    expect(refs(noDependents)).not.toContain(
+      "knowledge/services/payments-api.md",
+    )
+    expect(refs(noDependents)).toContain("knowledge/docs/overview.md")
+    const noDocs = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+      excludeKinds: ["doc"],
+    })
+    expect(refs(noDocs)).not.toContain("knowledge/docs/overview.md")
+    expect(refs(noDocs)).toContain("knowledge/services/payments-api.md")
+  })
+
   it("adds the results of all edges after a short intent walk, but not for explicit predicates", async () => {
     const gateway = "knowledge/services/gateway.md"
     // The ownership walk finds only the owner. The walk of all edges adds
@@ -915,6 +943,9 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       { queryWeight: 1.5 },
       { diversity: -0.1 },
       { hubPenalty: -1 },
+      { hubPenalty: 1.5 },
+      { maxFanOut: 4 },
+      { maxFanOut: 201 },
       { recencyHalfLifeDays: 0 },
       { maxDepth: 5 },
     ]) {

@@ -85,7 +85,7 @@ export const Populated: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "product-repos",
+                  path: "product-repos",
                   provider: "github",
                   connectionId: "con_gh1",
                   connectionName: "acme-gh",
@@ -93,14 +93,14 @@ export const Populated: Story = {
                   scopeSummary: "2 repositories",
                 }),
                 workspaceSourceFixture({
-                  sourceKey: "eng-docs",
+                  path: "eng-docs",
                   provider: "confluence",
                   connectionId: "con_cf1",
                   connectionName: "acme.atlassian.net",
                   scopeSummary: "3 spaces",
                 }),
                 workspaceSourceFixture({
-                  sourceKey: "eng-issues",
+                  path: "eng-issues",
                   provider: "linear",
                   connectionId: "con_li1",
                   connectionName: "Acme Linear",

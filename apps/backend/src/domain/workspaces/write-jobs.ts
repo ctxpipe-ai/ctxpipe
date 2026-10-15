@@ -8,7 +8,6 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "semantic_merge",
   "ops_folder_map",
   "bootstrap",
-  "link_unlink",
   "ui_file_edit",
   "import_key_cleanup",
 ] as const
