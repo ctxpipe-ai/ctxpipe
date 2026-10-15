@@ -37,7 +37,7 @@ import {
   workspaceChatPrepareOptions,
   workspaceKeys,
 } from "./queries"
-import { takeFirstMessage } from "./start-workspace-conversation-ui"
+import { scheduleFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -262,10 +262,13 @@ export function WorkspaceChatSession(props: {
     firstMessageRef.current = text
     void handleSendMessage({ text })
   })
-  useEffect(() => {
-    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
-    if (text) sendFirstMessage(text)
-  }, [queryClient, orgSlug, conversationId])
+  useEffect(
+    () =>
+      scheduleFirstMessage(queryClient, orgSlug, conversationId, (text) =>
+        sendFirstMessage(text),
+      ),
+    [queryClient, orgSlug, conversationId],
+  )
 
   return (
     <WorkspaceChatChrome

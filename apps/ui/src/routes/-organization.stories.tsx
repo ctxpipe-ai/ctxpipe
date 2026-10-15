@@ -46,7 +46,8 @@ export const Settings: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const nav = canvas.getByRole("navigation", {
+    // The nav shows after the organization loads.
+    const nav = await canvas.findByRole("navigation", {
       name: "Organization settings",
     })
     await expect(nav).toHaveTextContent("Settings")
@@ -69,7 +70,8 @@ export const ApiKeysEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const nav = canvas.getByRole("navigation", {
+    // The nav shows after the organization loads.
+    const nav = await canvas.findByRole("navigation", {
       name: "Organization settings",
     })
     await expect(nav).toHaveTextContent("API Keys")

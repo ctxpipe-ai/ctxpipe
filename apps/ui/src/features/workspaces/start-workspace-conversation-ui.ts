@@ -154,3 +154,22 @@ export function takeFirstMessage(
   queryClient.removeQueries({ queryKey: key, exact: true })
   return text
 }
+
+/**
+ * Take the first message after the current commit and call `send` once.
+ * React Strict Mode runs an effect, its cleanup, and the effect again. A
+ * take in the first run would send on a chat that the cleanup already closed.
+ * The returned function cancels a take that has not run yet.
+ */
+export function scheduleFirstMessage(
+  queryClient: QueryClient,
+  orgSlug: string,
+  conversationId: string,
+  send: (text: string) => void,
+): () => void {
+  const timer = setTimeout(() => {
+    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
+    if (text) send(text)
+  }, 0)
+  return () => clearTimeout(timer)
+}

@@ -555,10 +555,14 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const composer = await canvas.findByPlaceholderText(
-      "What should ctxpipe do in this Workspace?",
+    // Query again on each try: Home swaps the disabled composer for a new one when the list loads.
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
+      ).toBeEnabled(),
     )
-    await waitFor(() => expect(composer).toBeEnabled())
     await userEvent.click(
       canvas.getByRole("button", { name: "Delete Workspace" }),
     )
@@ -580,7 +584,7 @@ export const DeleteLastWorkspaceEmptiesHome: Story = {
       ).toBeDisabled()
     })
     expect(
-      canvas.getByRole("button", { name: "Create a workspace" }),
+      canvas.getByRole("button", { name: "Create Workspace" }),
     ).toBeVisible()
   },
 }

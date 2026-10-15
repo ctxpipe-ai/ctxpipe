@@ -188,6 +188,7 @@ export const RenameConversation: Story = {
     })
     await userEvent.clear(input)
     await userEvent.type(input, "Discarded{Escape}")
+    // The composer is a textbox too, so name the rename field.
     expect(
       canvas.queryByRole("textbox", { name: "Conversation name" }),
     ).not.toBeInTheDocument()
