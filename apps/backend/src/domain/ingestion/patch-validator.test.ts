@@ -2154,4 +2154,83 @@ describe("validatePatchStep after the ownership migration", () => {
       expect.objectContaining({ path, rule: "front_matter" }),
     ])
   })
+
+  const relabel = (claim: Record<string, unknown>) =>
+    claim.evidence &&
+    (claim.evidence as { kind?: unknown }).kind === "legacy" &&
+    claim.to === "./open.md"
+      ? {
+          to: claim.to,
+          predicate: claim.predicate,
+          evidence: { path: "src/billing.ts", kind: "model" },
+        }
+      : claim
+
+  it.each([
+    [
+      "an edit that re-labels the open legacy claim as a model claim",
+      (content: string) => {
+        const end = content.indexOf("\n---\n")
+        const front = parseYaml(content.slice(4, end)) as {
+          claims: Record<string, unknown>[]
+        }
+        front.claims = front.claims.map(relabel)
+        return `---\n${stringify(front, { lineWidth: 0 })}${content.slice(end + 1)}`
+      },
+    ],
+    [
+      "a full write that replaces the open legacy claim with a model claim",
+      () =>
+        doc(
+          {
+            kind: "Service",
+            name: "Migrated",
+            claims: [
+              {
+                to: "./open.md",
+                predicate: "CALLS",
+                evidence: { path: "src/billing.ts", kind: "model" },
+              },
+            ],
+          },
+          "# Migrated\n\nRewritten.\n",
+        ),
+    ],
+    [
+      "a full write that re-labels the closed legacy claim as a model claim",
+      () =>
+        doc(
+          {
+            kind: "Service",
+            name: "Migrated",
+            claims: [
+              {
+                to: "./closed.md",
+                predicate: "CALLS",
+                evidence: { path: "src/billing.ts", kind: "model" },
+              },
+            ],
+          },
+          "# Migrated\n",
+        ),
+    ],
+  ])("rejects %s", async (_name, write) => {
+    const path = "knowledge/services/history.md"
+    const content = migratedWithClaims(path)
+    // Both claim targets exist, so only the claim rule can reject the step.
+    const base = commitOn(baseCommit, {
+      [path]: content,
+      "knowledge/services/open.md": owned("Open"),
+      "knowledge/services/closed.md": owned("Closed"),
+    })
+    const result = await run(
+      stage({ files: { [path]: write(content) }, base }),
+      {
+        baseCommit: base,
+      },
+    )
+    expect(result.rejections).toEqual([
+      expect.objectContaining({ path, rule: "front_matter" }),
+    ])
+  })
 })

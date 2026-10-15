@@ -987,13 +987,18 @@ async function checkFullWrite(
     baseClaims.find((b) =>
       isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
     )
+  // A step cannot replace, rewrite, or re-label a legacy claim: a new claim
+  // with the target and predicate of a base legacy claim is refused.
+  const legacyKeys = new Set(
+    baseClaims.filter(isLegacyClaim).map((b) => claimKey(b)),
+  )
   const fresh: Claim[] = []
   for (const claim of claims) {
     if (kept(claim)) continue
-    if (isLegacyClaim(claim))
+    if (isLegacyClaim(claim) || legacyKeys.has(claimKey(claim)))
       return {
         rule: "front_matter",
-        reason: "Only the host sets a legacy claim",
+        reason: "Only the host sets or changes a legacy claim",
       }
     fresh.push(claim as Claim)
   }
@@ -1147,6 +1152,12 @@ function stampClaim(claim: Claim) {
     evidence: { path: claim.evidence.path, kind: claim.evidence.kind },
     confidence: CONFIDENCE[claim.evidence.kind],
   }
+}
+
+/** The target and predicate of a claim. */
+function claimKey(claim: unknown): string {
+  const { to, predicate } = (claim ?? {}) as Record<string, unknown>
+  return JSON.stringify([to, predicate])
 }
 
 function withoutConfidence(claim: unknown): unknown {
