@@ -27,6 +27,8 @@ const github = vi.hoisted(() => ({
   createPullRequestWithFiles: vi.fn(),
   getFileContent: vi.fn(),
   getPullRequestHeadBranch: vi.fn(),
+  // The root folder lookup reads the Workspace rows from Postgres.
+  workspaceRootPathOfRepository: vi.fn(async () => ""),
 }))
 const assetBoundary = vi.hoisted(() => ({
   download: vi.fn(),

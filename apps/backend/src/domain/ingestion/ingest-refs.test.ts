@@ -129,6 +129,7 @@ function step(
     authorTime?: Date
     remoteUrl?: string
     baseCommit?: string
+    rootPath?: string
     more?: boolean
     root?: string
   } = {},
@@ -160,6 +161,7 @@ function step(
       source: { url: SOURCE_URL, sha: "1".repeat(40) },
       skill: "apis",
       sourcePathExists: async () => true,
+      ...(input.rootPath === undefined ? {} : { rootPath: input.rootPath }),
       readSourceFile: async () => null,
       ...(input.root ? { root: input.root } : {}),
     },
@@ -791,7 +793,11 @@ describe("pushIngestAssemble", () => {
     await expect(assembled(298)).resolves.toMatchObject({ ops: 2 })
   })
 
-  async function shards(files: Array<Record<string, string>>, root?: string) {
+  async function shards(
+    files: Array<Record<string, string>>,
+    root?: string,
+    rootPath?: string,
+  ) {
     const tips: Array<{ shard: string; tip: string }> = []
     for (const [index, shardFiles] of files.entries()) {
       const shard = String(index)
@@ -800,6 +806,7 @@ describe("pushIngestAssemble", () => {
         step: `skill:root-${shard}:apis:ws_alpha`,
         files: shardFiles,
         ...(root ? { root } : {}),
+        rootPath,
       })
       tips.push({ shard, tip: result.sha })
     }
@@ -809,8 +816,10 @@ describe("pushIngestAssemble", () => {
   function assemble(
     tips: Array<{ shard: string; tip: string }>,
     remoteUrl = remote,
+    rootPath?: string,
   ) {
     return pushIngestAssemble({
+      ...(rootPath === undefined ? {} : { rootPath }),
       job: { runId: RUN, workspaceId: WORKSPACE },
       pinnedRevision: pinned,
       shards: tips,
@@ -885,6 +894,63 @@ describe("pushIngestAssemble", () => {
     ])
     await expect(assemble(tips)).rejects.toThrow(IngestAssembleConflictError)
     await expect(assemble(tips)).rejects.toThrow(/knowledge\/services\/a\.md/)
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+
+  it("writes only below the Workspace root folder", async () => {
+    const tips = await shards(
+      [{ "knowledge/services/a.md": service("A") }],
+      undefined,
+      "docs/context",
+    )
+    const result = await assemble(tips, remote, "docs/context")
+    expect(result.ops).toBe(1)
+    expect(
+      git(remote, ["ls-tree", "-r", "--name-only", result.sha]).split("\n"),
+    ).toContain("docs/context/knowledge/services/a.md")
+  })
+
+  it("refuses a shard that changes a path outside the Workspace root folder", async () => {
+    const tips = await shards([{ "knowledge/services/a.md": service("A") }])
+    await expect(assemble(tips, remote, "docs/context")).rejects.toBeInstanceOf(
+      IngestRefRefusedError,
+    )
+    expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
+  })
+
+  it("refuses a shard that adds a symlink below the Workspace root folder", async () => {
+    const index = join(root, `symlink-${RUN}.index`)
+    const env = {
+      ...process.env,
+      GIT_INDEX_FILE: index,
+      GIT_AUTHOR_NAME: "Fixture",
+      GIT_AUTHOR_EMAIL: "fixture@example.com",
+      GIT_COMMITTER_NAME: "Fixture",
+      GIT_COMMITTER_EMAIL: "fixture@example.com",
+    }
+    const run = (args: string[], input?: string) =>
+      execFileSync("git", args, { cwd: remote, env, input, encoding: "utf8" })
+        .toString()
+        .trim()
+    const blob = run(["hash-object", "-w", "--stdin"], "../../../../src")
+    run(["read-tree", pinned])
+    run([
+      "update-index",
+      "--add",
+      "--cacheinfo",
+      `120000,${blob},docs/context/knowledge/services/link.md`,
+    ])
+    const tree = run(["write-tree"])
+    const tip = run(["commit-tree", tree, "-p", pinned, "-m", "symlink"])
+    run([
+      "update-ref",
+      ingestRefName({ runId: RUN, workspaceId: WORKSPACE, shard: "0" }),
+      tip,
+    ])
+    rmSync(index, { force: true })
+    await expect(
+      assemble([{ shard: "0", tip }], remote, "docs/context"),
+    ).rejects.toBeInstanceOf(IngestRefRefusedError)
     expect(remoteRefs(remote).has(ASSEMBLED)).toBe(false)
   })
 

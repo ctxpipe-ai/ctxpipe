@@ -33,6 +33,7 @@ function ws(id: string, slug: string): Workspace {
     slug,
     displayName: slug,
     workspaceRepositoryUrl: `https://github.com/acme/${slug}`,
+    rootPath: "",
     githubConnectionId: null,
     desiredGeneration: 1,
     desiredSha: null,

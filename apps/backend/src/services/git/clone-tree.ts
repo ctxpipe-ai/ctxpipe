@@ -3,6 +3,7 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { workspaceRelativePath } from "./root-folder.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -240,6 +241,11 @@ export async function listMarkdownFilesAtGitSha(input: {
   includeIntroducingCommits?: boolean
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
+  /**
+   * Workspace root folder. Only files below it are read, and every path
+   * (including `extraPaths`) is relative to it.
+   */
+  root?: string
 }): Promise<
   Array<{
     path: string
@@ -250,11 +256,14 @@ export async function listMarkdownFilesAtGitSha(input: {
   }>
 > {
   return withFetchedGitSha(input, async (dir) => {
-    const entries = (await listTreeEntries(dir)).filter(
-      (entry) =>
+    const entries = (await listTreeEntries(dir)).flatMap((entry) => {
+      const path = workspaceRelativePath(input.root ?? "", entry.path)
+      return path !== null &&
         entry.kind === "blob" &&
-        (entry.path.endsWith(".md") || input.extraPaths?.includes(entry.path)),
-    )
+        (path.endsWith(".md") || input.extraPaths?.includes(path))
+        ? [{ ...entry, repositoryPath: entry.path, path }]
+        : []
+    })
     if (entries.length === 0) return []
     // The caller keeps all blob contents in memory. This limit bounds that
     // memory.
@@ -331,11 +340,11 @@ export async function listMarkdownFilesAtGitSha(input: {
       return {
         path: entry.path,
         content: stdout.subarray(start, end).toString("utf8"),
-        ...(introduced.has(entry.path)
-          ? { introducingCommitTimestamp: introduced.get(entry.path) }
+        ...(introduced.has(entry.repositoryPath)
+          ? { introducingCommitTimestamp: introduced.get(entry.repositoryPath) }
           : {}),
-        ...(lastChanged.has(entry.path)
-          ? { lastCommitTimestamp: lastChanged.get(entry.path) }
+        ...(lastChanged.has(entry.repositoryPath)
+          ? { lastCommitTimestamp: lastChanged.get(entry.repositoryPath) }
           : {}),
       }
     })

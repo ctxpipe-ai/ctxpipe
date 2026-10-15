@@ -81,6 +81,33 @@ describe("buildContextIndex (Postgres, git)", () => {
   })
   afterAll(() => ctx.cleanup())
 
+  it("reads the raw files below the Workspace root folder", async () => {
+    const rooted = Object.fromEntries(
+      Object.entries(files).map(([path, content]) => [
+        `docs/context/${path}`,
+        content,
+      ]),
+    )
+    const rootedSha = await repo.commit(rooted)
+    await project(rootedSha, files)
+    try {
+      const { index } = await build({
+        workspaceId,
+        sha: rootedSha,
+        sourceUrl,
+        repoDir: repo.dir,
+        rootPath: "docs/context",
+      })
+      expect(
+        index.entries.find(
+          (entry) => entry.path === "knowledge/services/api.md",
+        ),
+      ).toMatchObject({ summary: "Serves the public API.", owned: true })
+    } finally {
+      await project(sha, files)
+    }
+  })
+
   it("lists each unit with title, sources, and the owned flag", async () => {
     const { index } = await build({
       workspaceId,
