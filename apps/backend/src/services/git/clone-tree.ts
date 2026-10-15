@@ -161,8 +161,13 @@ async function withFetchedGitSha<T>(
     sha: string
     token?: string
     includeIntroducingCommits?: boolean
+    /** Fetch the trees only; `fetchBlobs` gets each blob that the read needs. */
+    treesOnly?: boolean
   },
-  read: (dir: string) => Promise<T>,
+  read: (
+    dir: string,
+    fetchBlobs: (shas: readonly string[]) => Promise<void>,
+  ) => Promise<T>,
 ): Promise<T> {
   if (!/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(input.sha))
     throw new Error("A full immutable Git commit SHA is required")
@@ -180,11 +185,20 @@ async function withFetchedGitSha<T>(
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
+    if (input.treesOnly)
+      for (const [key, value] of [
+        ["remote.origin.promisor", "true"],
+        ["remote.origin.partialclonefilter", "blob:none"],
+      ])
+        await gitExec(["-C", dir, "config", key, value], { timeout: 15_000 })
+    // A remote without filter support sends every blob; the read still works.
+    const filter = input.treesOnly ? ["--filter=blob:none"] : []
     await gitExec(
       [
         "-C",
         dir,
         "fetch",
+        ...filter,
         ...(input.includeIntroducingCommits ? [] : ["--depth", "1"]),
         "origin",
         input.sha,
@@ -194,7 +208,14 @@ async function withFetchedGitSha<T>(
         env,
       },
     )
-    return await read(dir)
+    return await read(dir, async (shas) => {
+      if (!input.treesOnly || shas.length === 0) return
+      // One fetch for all the blobs, not one lazy fetch for each blob.
+      await gitExec(
+        ["-C", dir, "fetch", "--no-tags", ...filter, "origin", ...shas],
+        { timeout: 60_000, env },
+      )
+    })
   } finally {
     await rm(dir, { recursive: true, force: true })
   }
@@ -202,9 +223,18 @@ async function withFetchedGitSha<T>(
 
 async function listTreeEntries(
   dir: string,
+  prefix?: string,
 ): Promise<Array<{ kind: string; sha: string; path: string }>> {
   const { stdout } = await gitExec(
-    ["-C", dir, "ls-tree", "-rz", "--full-tree", "FETCH_HEAD"],
+    [
+      "-C",
+      dir,
+      "ls-tree",
+      "-rz",
+      "--full-tree",
+      "FETCH_HEAD",
+      ...(prefix ? ["--", prefix] : []),
+    ],
     { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
   )
   return stdout
@@ -242,6 +272,11 @@ export async function listMarkdownFilesAtGitSha(input: {
   extraPaths?: readonly string[]
   /** Folders (`sources/`) whose every blob to read, also a non-Markdown one. */
   extraFolders?: readonly string[]
+  /**
+   * Read only the files under this folder (`sources/`). The fetch then gets
+   * the trees and only the blobs under the folder.
+   */
+  prefix?: string
 }): Promise<
   Array<{
     path: string
@@ -251,99 +286,107 @@ export async function listMarkdownFilesAtGitSha(input: {
     lastCommitTimestamp?: string
   }>
 > {
-  return withFetchedGitSha(input, async (dir) => {
-    const entries = (await listTreeEntries(dir)).filter(
-      (entry) =>
-        entry.kind === "blob" &&
-        (entry.path.endsWith(".md") ||
-          input.extraPaths?.includes(entry.path) ||
-          input.extraFolders?.some((folder) => entry.path.startsWith(folder))),
-    )
-    if (entries.length === 0) return []
-    // The caller keeps all blob contents in memory. This limit bounds that
-    // memory.
-    const { stdout } = await gitExec(
-      ["-C", dir, "cat-file", "--batch"],
-      { timeout: 30_000, maxBuffer: 200 * 1024 * 1024 },
-      `${entries.map((entry) => entry.sha).join("\n")}\n`,
-    )
-    const introduced = new Map<string, string>()
-    const lastChanged = new Map<string, string>()
-    if (input.includeIntroducingCommits) {
-      // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
-      const { stdout: history } = await gitExec(
-        [
-          "-C",
-          dir,
-          "log",
-          "--topo-order",
-          "--format=%x00%ct",
-          "--raw",
-          "-z",
-          // Adds give the introducing commit; edits give the last change.
-          "--diff-filter=AMT",
-          "--no-renames",
-          "FETCH_HEAD",
-          "--",
-          "*.md",
-        ],
-        { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
+  const { prefix } = input
+  return withFetchedGitSha(
+    { ...input, treesOnly: !!prefix },
+    async (dir, fetchBlobs) => {
+      const entries = (await listTreeEntries(dir, prefix)).filter(
+        (entry) =>
+          entry.kind === "blob" &&
+          (!prefix || entry.path.startsWith(prefix)) &&
+          (entry.path.endsWith(".md") ||
+            input.extraPaths?.includes(entry.path) ||
+            input.extraFolders?.some((folder) =>
+              entry.path.startsWith(folder),
+            )),
       )
-      const records = history.toString("utf8").split("\0")
-      let timestamp: string | undefined
-      for (let i = 0; i < records.length; i++) {
-        const record = records[i] ?? ""
-        if (/^[0-9]+$/.test(record))
-          timestamp = new Date(Number(record) * 1000).toISOString()
-        else {
-          const status =
-            /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
-              record,
-            )?.[1]
-          if (status) {
-            const path = records[++i]
-            if (!path || !timestamp)
-              throw new Error("Invalid introducing-commit record")
-            if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
-            if (status === "A" && !introduced.has(path))
-              introduced.set(path, timestamp)
-          } else if (record) throw new Error("Invalid Git history response")
+      if (entries.length === 0) return []
+      await fetchBlobs(entries.map((entry) => entry.sha))
+      // The caller keeps all blob contents in memory. This limit bounds that
+      // memory.
+      const { stdout } = await gitExec(
+        ["-C", dir, "cat-file", "--batch"],
+        { timeout: 30_000, maxBuffer: 200 * 1024 * 1024 },
+        `${entries.map((entry) => entry.sha).join("\n")}\n`,
+      )
+      const introduced = new Map<string, string>()
+      const lastChanged = new Map<string, string>()
+      if (input.includeIntroducingCommits) {
+        // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
+        const { stdout: history } = await gitExec(
+          [
+            "-C",
+            dir,
+            "log",
+            "--topo-order",
+            "--format=%x00%ct",
+            "--raw",
+            "-z",
+            // Adds give the introducing commit; edits give the last change.
+            "--diff-filter=AMT",
+            "--no-renames",
+            "FETCH_HEAD",
+            "--",
+            "*.md",
+          ],
+          { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
+        )
+        const records = history.toString("utf8").split("\0")
+        let timestamp: string | undefined
+        for (let i = 0; i < records.length; i++) {
+          const record = records[i] ?? ""
+          if (/^[0-9]+$/.test(record))
+            timestamp = new Date(Number(record) * 1000).toISOString()
+          else {
+            const status =
+              /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
+                record,
+              )?.[1]
+            if (status) {
+              const path = records[++i]
+              if (!path || !timestamp)
+                throw new Error("Invalid introducing-commit record")
+              if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
+              if (status === "A" && !introduced.has(path))
+                introduced.set(path, timestamp)
+            } else if (record) throw new Error("Invalid Git history response")
+          }
         }
       }
-    }
-    let offset = 0
-    return entries.map((entry) => {
-      const newline = stdout.indexOf(10, offset)
-      if (newline < 0) throw new Error("Incomplete Git batch response")
-      const [sha, kind, sizeText] = stdout
-        .subarray(offset, newline)
-        .toString("ascii")
-        .split(" ")
-      const size = Number(sizeText)
-      const start = newline + 1
-      const end = start + size
-      if (
-        sha !== entry.sha ||
-        kind !== "blob" ||
-        !Number.isSafeInteger(size) ||
-        size < 0 ||
-        end >= stdout.length ||
-        stdout[end] !== 10
-      )
-        throw new Error("Invalid blob in immutable Git batch")
-      offset = end + 1
-      return {
-        path: entry.path,
-        content: stdout.subarray(start, end).toString("utf8"),
-        ...(introduced.has(entry.path)
-          ? { introducingCommitTimestamp: introduced.get(entry.path) }
-          : {}),
-        ...(lastChanged.has(entry.path)
-          ? { lastCommitTimestamp: lastChanged.get(entry.path) }
-          : {}),
-      }
-    })
-  })
+      let offset = 0
+      return entries.map((entry) => {
+        const newline = stdout.indexOf(10, offset)
+        if (newline < 0) throw new Error("Incomplete Git batch response")
+        const [sha, kind, sizeText] = stdout
+          .subarray(offset, newline)
+          .toString("ascii")
+          .split(" ")
+        const size = Number(sizeText)
+        const start = newline + 1
+        const end = start + size
+        if (
+          sha !== entry.sha ||
+          kind !== "blob" ||
+          !Number.isSafeInteger(size) ||
+          size < 0 ||
+          end >= stdout.length ||
+          stdout[end] !== 10
+        )
+          throw new Error("Invalid blob in immutable Git batch")
+        offset = end + 1
+        return {
+          path: entry.path,
+          content: stdout.subarray(start, end).toString("utf8"),
+          ...(introduced.has(entry.path)
+            ? { introducingCommitTimestamp: introduced.get(entry.path) }
+            : {}),
+          ...(lastChanged.has(entry.path)
+            ? { lastCommitTimestamp: lastChanged.get(entry.path) }
+            : {}),
+        }
+      })
+    },
+  )
 }
 
 /** List every file path at a stored SHA. Token never logged. */
