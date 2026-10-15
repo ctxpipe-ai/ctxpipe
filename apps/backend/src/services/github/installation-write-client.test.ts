@@ -264,7 +264,10 @@ describe("mergePullRequest", () => {
   beforeEach(() => {
     getInstallationOctokitForOrgMock.mockResolvedValue({
       installation: { installationId: 42 },
-      octokit: new Octokit({ auth: "test-token", throttle: { enabled: false } }),
+      octokit: new Octokit({
+        auth: "test-token",
+        throttle: { enabled: false },
+      }),
     })
   })
 

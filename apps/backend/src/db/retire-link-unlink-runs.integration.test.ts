@@ -32,8 +32,8 @@ async function runMigration() {
 async function insertRun(id: string, workflowName: string, status: string) {
   await db.query(
     `INSERT INTO "openworkflow"."workflow_runs"
-      ("namespace_id", "id", "workflow_name", "status", "attempts", "available_at", "created_at", "updated_at")
-     VALUES ('default', $1, $2, $3, 0, now(), now(), now())`,
+      ("namespace_id", "id", "workflow_name", "status", "config", "attempts", "available_at", "created_at", "updated_at")
+     VALUES ('default', $1, $2, $3, '{}'::jsonb, 0, now(), now(), now())`,
     [id, workflowName, status],
   )
 }
