@@ -11,6 +11,10 @@ import {
   publishedProjection,
 } from "../../domain/workspaces/revision.js"
 import {
+  workspaceRootPath,
+  workspaceRootPathSchema,
+} from "../../domain/workspaces/root-path.js"
+import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
@@ -65,6 +69,10 @@ const WorkspaceSchema = z
     slug: z.string(),
     displayName: z.string(),
     workspaceRepositoryUrl: z.string(),
+    rootPath: z.string().openapi({
+      description:
+        'Folder in the repository that holds the Workspace. ctx| reads and changes files only below it. `""` is the repository root.',
+    }),
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),
     desiredSha: z.string().nullable(),
@@ -115,6 +123,10 @@ const CreateWorkspaceRequestSchema = z
     slug: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).optional(),
     source: WorkspaceAddSourceSchema.optional(),
+    rootPath: workspaceRootPathSchema.optional().openapi({
+      description:
+        'Folder in the repository that holds the Workspace, for example `docs/context`. Omit it or send `""` for the repository root.',
+    }),
   })
   .openapi("CreateWorkspaceRequest")
 
@@ -125,6 +137,10 @@ const UpdateWorkspaceRequestSchema = z
     workspaceRepositoryUrl: z.string().min(1).optional(),
     githubConnectionId: z.string().min(1).nullable().optional(),
     source: WorkspaceAddSourceSchema.optional(),
+    rootPath: workspaceRootPathSchema.optional().openapi({
+      description:
+        'Folder in the repository that holds the Workspace, for example `docs/context`. Omit it or send `""` for the repository root.',
+    }),
   })
   .openapi("UpdateWorkspaceRequest")
 
@@ -152,6 +168,7 @@ function serializeWorkspace(
     slug: string
     displayName: string
     workspaceRepositoryUrl: string
+    rootPath: string
     githubConnectionId: string | null
     desiredGeneration: number
     desiredSha: string | null
@@ -174,6 +191,7 @@ function serializeWorkspace(
     slug: row.slug,
     displayName: row.displayName,
     workspaceRepositoryUrl: row.workspaceRepositoryUrl,
+    rootPath: workspaceRootPath(row),
     githubConnectionId: row.githubConnectionId,
     desiredGeneration: row.desiredGeneration,
     desiredSha: row.desiredSha,
@@ -418,6 +436,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       slug: body.slug,
       githubConnectionId: body.githubConnectionId,
       source: body.source,
+      rootPath: body.rootPath,
       log: c.get("log"),
     })
     return c.json(serializeWorkspace(created, null), 201)
@@ -475,13 +494,16 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       body.workspaceRepositoryUrl !== undefined ||
       body.githubConnectionId !== undefined ||
       body.source !== undefined
+    const rootMoved =
+      body.rootPath !== undefined &&
+      body.rootPath !== workspaceRootPath(current)
     const trimmedName = body.displayName?.trim()
     // The settings form always sends the name, so only a new name renames.
     const renamed =
       trimmedName && trimmedName !== current.displayName
         ? trimmedName
         : undefined
-    if (renamed && bindingSubmitted)
+    if (renamed && (bindingSubmitted || rootMoved))
       return c.json(
         {
           error:
@@ -525,6 +547,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       nextSlug: body.slug,
       persistConnection,
       bindingSubmitted,
+      rootPath: body.rootPath,
       log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)

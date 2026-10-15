@@ -44,6 +44,10 @@ import {
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import {
+  gitChangesOutsideWorkspaceRoot,
+  workspaceRootPath,
+} from "./root-path.js"
+import {
   githubRepoFullNameFromWorkspaceUrl,
   WRITE_STATUS_REASONS,
 } from "./write-status.js"
@@ -167,6 +171,22 @@ export async function pushWorkspaceCommit(
       if (pushTip.sha === committed.sha) return
       if (live?.writeStatus !== "writable")
         throw new WorkspaceWriteAccessUnavailableError()
+      // Never push a change outside the Workspace root folder (CTX-709).
+      const rootPath = workspaceRootPath(revision)
+      if (
+        rootPath &&
+        (
+          await gitChangesOutsideWorkspaceRoot({
+            directory,
+            base: revision.sha,
+            head: committed.sha,
+            rootPath,
+          })
+        ).length
+      )
+        throw new Error(
+          "The commit changes files outside the Workspace root folder",
+        )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
       if (input.extraction)
@@ -319,6 +339,7 @@ export async function refreshWorkspaceWriteRevision(
         url: resolved.revision.remote.url,
         sha: resolved.revision.sha,
         token: resolved.token,
+        root: workspaceRootPath(resolved.revision),
       }),
     )
   }
@@ -331,6 +352,7 @@ export async function refreshWorkspaceWriteRevision(
         url: resolved.revision.remote.url,
         sha: resolved.revision.sha,
         token: resolved.token,
+        root: workspaceRootPath(resolved.revision),
       }),
     )
   return { ...resolved.revision, access: "write-default" }
@@ -576,6 +598,7 @@ type AdmittedIngestRemote = {
   url: string
   connectionId: string
   repositoryName: string
+  rootPath: string
 }
 
 /**
@@ -609,7 +632,12 @@ async function admitIngestJob(
     throw new IngestRefRefusedError(
       "Ingest refs require a connected GitHub repository",
     )
-  return { url, connectionId, repositoryName }
+  return {
+    url,
+    connectionId,
+    repositoryName,
+    rootPath: workspaceRootPath(workspace.revision),
+  }
 }
 
 async function ingestWriteRemote(
@@ -665,7 +693,12 @@ export async function pushWorkspaceIngestStep(
     input.job,
   )
   const remote = await ingestWriteRemote(input.orgId, admitted, env)
-  return pushIngestStep({ ...input, remote })
+  // The root folder comes from the Workspace, never from the caller.
+  return pushIngestStep({
+    ...input,
+    patch: { ...input.patch, rootPath: admitted.rootPath },
+    remote,
+  })
 }
 
 /** The assemble job kind: merge the shard tips into the assembled ref. */
@@ -682,7 +715,7 @@ export async function pushWorkspaceIngestAssemble(
     input.job,
   )
   const remote = await ingestWriteRemote(input.orgId, admitted, env)
-  return pushIngestAssemble({ ...input, remote })
+  return pushIngestAssemble({ ...input, rootPath: admitted.rootPath, remote })
 }
 
 /**

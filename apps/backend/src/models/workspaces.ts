@@ -47,6 +47,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../domain/workspaces/root-path.js"
 import {
   displayNameFromGitUrl,
   isValidSlug,
@@ -200,7 +201,7 @@ export type WorkspaceWriteProbeBinding = Pick<
   | "githubConnectionId"
   | "desiredSha"
   | "desiredDefaultBranch"
->
+> & { rootPath?: string }
 
 function desiredWorkspaceRevision(
   row: WorkspaceWriteProbeBinding,
@@ -216,6 +217,8 @@ function desiredWorkspaceRevision(
     defaultBranch: row.desiredDefaultBranch,
     sha: row.desiredSha,
     access: "read",
+    // Absent for the repository root, so that stored revisions stay equal in SQL.
+    ...(workspaceRootPath(row) ? { rootPath: workspaceRootPath(row) } : {}),
   })
 }
 
@@ -572,6 +575,8 @@ export async function createWorkspace(input: {
   slug?: string
   githubConnectionId?: string
   write?: WorkspaceWriteProbe
+  /** Root folder in the repository; validated with `workspaceRootPathSchema`. */
+  rootPath?: string
 }): Promise<WorkspaceRecord & { autoLinkGitUrls: string[] }> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
@@ -665,6 +670,7 @@ export async function createWorkspace(input: {
               slug,
               displayName,
               workspaceRepositoryUrl,
+              rootPath: workspaceRootPath(input),
               githubConnectionId: input.githubConnectionId ?? null,
               desiredGeneration: 1,
               hydrateStatus: "pending",
@@ -744,6 +750,7 @@ export async function updateWorkspace(
     githubConnectionId?: string | null
     readOnlyReason?: string | null
     write?: WorkspaceWriteProbe
+    rootPath?: string
   },
 ): Promise<WorkspaceRecord | null> {
   return orgSql(async () => {
@@ -866,6 +873,18 @@ export async function updateWorkspace(
     if (input.readOnlyReason !== undefined) {
       patch.readOnlyReason = input.readOnlyReason
     }
+    if (input.rootPath !== undefined) {
+      const rootPath = workspaceRootPath(input)
+      // A new root folder is a new projection: start a new desired generation.
+      if (rootPath !== workspaceRootPath(existing)) {
+        patch.rootPath = rootPath
+        if (patch.desiredGeneration === undefined)
+          Object.assign(
+            patch,
+            nextRelinkFields(existing.desiredGeneration, input.write),
+          )
+      }
+    }
 
     try {
       const [updated] = await db
@@ -967,6 +986,7 @@ export async function listOrgWorkspaces(
       | "updatedAt"
       | "createdAt"
       | "lastJobAt"
+      | "rootPath"
     >
   >
 > {
@@ -988,6 +1008,7 @@ export async function listOrgWorkspaces(
         updatedAt: workspaces.updatedAt,
         createdAt: workspaces.createdAt,
         lastJobAt: workspaces.lastJobAt,
+        rootPath: workspaces.rootPath,
       })
       .from(workspaces)
       .where(eq(workspaces.orgId, orgId)),

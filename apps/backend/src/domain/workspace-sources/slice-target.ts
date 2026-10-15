@@ -1,6 +1,7 @@
 import {
-  listTreeBlobs,
+  listPackBlobs,
   nativeGit,
+  packRootTree,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
@@ -8,10 +9,12 @@ import { SOURCES_FILE_PATH } from "./sources-file.js"
 
 async function blobAt(
   directory: string,
-  sha: string,
+  commit: { sha: string; root?: string },
   path: string,
 ): Promise<string | null> {
-  const entry = (await nativeGit(directory, ["ls-tree", sha, "--", path]))
+  const tree = await packRootTree(directory, commit)
+  if (!tree) return null
+  const entry = (await nativeGit(directory, ["ls-tree", tree, "--", path]))
     .toString()
     .trim()
   return entry ? (entry.split(/\s+/)[2] ?? null) : null
@@ -28,6 +31,8 @@ export async function readSliceTarget(input: {
   token?: string
   headSha: string
   rowsRevision: string
+  /** Workspace root folder; paths in the result are relative to it. */
+  root?: string
 }): Promise<{
   paths: string[]
   sourcesBlobSha: string | null
@@ -40,23 +45,22 @@ export async function readSliceTarget(input: {
     sha: input.headSha,
     additionalShas,
     token: input.token,
+    root: input.root,
   })
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const sourcesBlobSha = await blobAt(
-        directory,
-        pack.sha,
-        SOURCES_FILE_PATH,
-      )
+      const sourcesBlobSha = await blobAt(directory, pack, SOURCES_FILE_PATH)
       return {
-        paths: (await listTreeBlobs(directory, pack.sha)).map(
-          (blob) => blob.path,
-        ),
+        paths: (await listPackBlobs(directory, pack)).map((blob) => blob.path),
         sourcesBlobSha,
         fresh:
           sourcesBlobSha ===
-          (await blobAt(directory, input.rowsRevision, SOURCES_FILE_PATH)),
+          (await blobAt(
+            directory,
+            { sha: input.rowsRevision, root: pack.root },
+            SOURCES_FILE_PATH,
+          )),
       }
     },
     pack,

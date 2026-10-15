@@ -4,11 +4,12 @@ import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import {
-  listTreeBlobs,
+  listPackBlobs,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
+import { workspaceRootPath } from "../workspaces/root-path.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
 import type { WorkspaceSliceWrite } from "./sync.js"
@@ -39,6 +40,7 @@ export async function writeWorkspaceSlice(
       token: resolved.token,
       headSha: resolved.revision.sha,
       rowsRevision: write.sourcesRevision,
+      root: workspaceRootPath(resolved.revision),
     })
   })
   // The next projection plans a new write from the changed sources file.
@@ -101,10 +103,11 @@ export async function readWorkspaceBlobs(input: {
       sha: resolved.revision.sha,
       additionalShas: [],
       token: resolved.token,
+      root: workspaceRootPath(resolved.revision),
     })
     return withGitDirectory(
       pack.sha,
-      (directory) => listTreeBlobs(directory, pack.sha),
+      (directory) => listPackBlobs(directory, pack),
       pack,
     )
   })

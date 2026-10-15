@@ -37,6 +37,8 @@ export const workspaces = pgTable.withRLS(
     slug: text("slug").notNull(),
     displayName: text("display_name").notNull(),
     workspaceRepositoryUrl: text("workspace_repository_url").notNull(),
+    /** Root folder in the repository (CTX-709); `""` is the repository root. */
+    rootPath: text("root_path").notNull().default(""),
     githubConnectionId: text("github_connection_id").references(
       () => connections.id,
       { onDelete: "set null" },

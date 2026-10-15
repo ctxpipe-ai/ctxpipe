@@ -91,6 +91,12 @@ export type PatchStepInput = {
   root?: string
   /** Counts the characters that the text checks read, so a test can check the bound. */
   meter?: WorkMeter
+  /**
+   * Workspace root folder; `""` (the default) is the repository root. All
+   * paths of the step (staged files, ops, results) are relative to it. Only
+   * the git reads and the tree write add the folder.
+   */
+  rootPath?: string
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -329,7 +335,8 @@ export async function validatePatchStep(
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
 
-  const baseEntries = await listTree(input.repoDir, input.baseCommit)
+  const rootPath = input.rootPath ?? ""
+  const baseEntries = await listTree(input.repoDir, input.baseCommit, rootPath)
   const patch = await readPatchJson(input.stagedDir, reject)
   const meta = patch.ops
   const rejectedBeforeOps = rejections.length
@@ -638,9 +645,14 @@ export async function validatePatchStep(
     accepted = accepted.filter((op) => !failed.has(op))
   }
 
-  const tree = await applyOps(input.repoDir, input.baseCommit, accepted)
+  const tree = await applyOps(
+    input.repoDir,
+    input.baseCommit,
+    accepted,
+    rootPath,
+  )
   const acceptedPaths = new Set(accepted.map((op) => op.path))
-  const result = await listTree(input.repoDir, tree)
+  const result = await listTree(input.repoDir, tree, rootPath)
   for (const path of new Set([...result.keys(), ...baseEntries.keys()])) {
     if (result.get(path) !== baseEntries.get(path) && !acceptedPaths.has(path))
       throw new Error(
@@ -1815,18 +1827,33 @@ async function readStagedFiles(
   return files
 }
 
+/**
+ * The blobs of `commit` below `rootPath`, keyed by the path relative to it.
+ * Paths outside the root folder are not in the map.
+ */
 async function listTree(
   repoDir: string,
   commit: string,
+  rootPath: string,
 ): Promise<Map<string, string>> {
-  const out = await git(repoDir, ["ls-tree", "-r", "-z", "--full-tree", commit])
+  const out = await git(repoDir, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--full-tree",
+    commit,
+    ...(rootPath ? ["--", `${rootPath}/`] : []),
+  ])
   const entries = new Map<string, string>()
   for (const record of out.toString("utf8").split("\0")) {
     if (!record) continue
     const tab = record.indexOf("\t")
     const [mode, type, sha] = record.slice(0, tab).split(" ")
     if (type === "blob" && mode !== "120000" && sha)
-      entries.set(record.slice(tab + 1), sha)
+      entries.set(
+        record.slice(tab + 1 + (rootPath ? rootPath.length + 1 : 0)),
+        sha,
+      )
   }
   return entries
 }
@@ -1862,7 +1889,9 @@ async function applyOps(
   repoDir: string,
   baseCommit: string,
   ops: readonly Candidate[],
+  rootPath: string,
 ): Promise<string> {
+  const prefix = rootPath ? `${rootPath}/` : ""
   const env = {
     GIT_INDEX_FILE: join(
       tmpdir(),
@@ -1874,7 +1903,7 @@ async function applyOps(
     const lines: string[] = []
     for (const op of ops) {
       if (op.op === "delete") {
-        lines.push(`0 ${"0".repeat(40)}\t${op.path}`)
+        lines.push(`0 ${"0".repeat(40)}\t${prefix}${op.path}`)
         continue
       }
       const sha = (
@@ -1884,7 +1913,7 @@ async function applyOps(
       )
         .toString()
         .trim()
-      lines.push(`100644 ${sha}\t${op.path}`)
+      lines.push(`100644 ${sha}\t${prefix}${op.path}`)
     }
     if (lines.length)
       await git(repoDir, ["update-index", "--index-info"], {

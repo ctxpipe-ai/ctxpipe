@@ -116,6 +116,7 @@ export type PublishErrorCode =
   | "other_branch"
   | "nothing_committed"
   | "no_changes"
+  | "outside_root"
   | "no_write_access"
   | "no_pr_access"
   | "pr_refused"
@@ -150,6 +151,8 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
     "The sandbox is on another branch. Ask the agent to switch back to the conversation branch.",
   nothing_committed: "There are no commits yet. Use Sync to commit the files.",
   no_changes: "There are no changes to publish.",
+  outside_root:
+    "The agent changed files outside the Workspace folder. Ask it to undo those changes.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
   no_pr_access:
     "The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",

@@ -39,6 +39,7 @@ vi.mock("../../../openworkflow/enqueue-confluence-push-sync.js", () => ({
 
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: compareCommitsTouchesPathMock,
+  workspaceRootPathOfRepository: async () => "",
 }))
 
 import { listConfluenceSyncTargetsWithRepoByRepositoryId } from "../../../models/confluence-sync-target.js"

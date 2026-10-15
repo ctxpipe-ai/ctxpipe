@@ -59,6 +59,8 @@ export type NativeHydrationOptions = {
         }) => { text: string } | { tool: string; args: Record<string, unknown> }
       }
   count?: number
+  /** The Workspace root folder (CTX-709); the repository root when absent. */
+  rootPath?: string
   traceGitCommands?: boolean
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -800,6 +802,7 @@ async function createNativeHydrationFixture(
         desiredDefaultBranch: "main",
         indexedSha: sha,
         writeStatus: writeStatus ?? "unknown",
+        rootPath: options.rootPath ?? "",
       }),
     )
     const resolveRevision = async (refresh = false) => {
