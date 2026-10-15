@@ -277,7 +277,10 @@ export function embeddingModelId(): string {
   return modelSpecBase(modelEnvSchema.parse(process.env).MODEL_EMBEDDING_NAME)
 }
 
-export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
+export async function generateEmbeddings(
+  texts: string[],
+  signal?: AbortSignal,
+): Promise<number[][]> {
   if (texts.length === 0) return []
   assertNotInOrgDbContext()
 
@@ -328,7 +331,7 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
       if (providerResult.embed) {
         const embedOne = providerResult.embed
         return mapPool(texts, EMBEDDING_SINGLE_CONCURRENCY, async (text) =>
-          assertEmbeddingDims(await embedOne(text)),
+          assertEmbeddingDims(await embedOne(text, signal)),
         )
       }
 
@@ -340,7 +343,9 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
         EMBEDDING_BATCH_SIZE,
       ).entries()) {
         const baseIndex = chunkOffset * EMBEDDING_BATCH_SIZE
+        signal?.throwIfAborted()
         const res = await doFetch(embedUrl, {
+          signal,
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({
@@ -391,8 +396,11 @@ export async function generateEmbeddings(texts: string[]): Promise<number[][]> {
  * Generates a 2000-dimensional embedding for text using an OpenAI-compatible
  * embeddings API (OpenRouter, OpenAI, Vertex, Bedrock, Ollama /v1/embeddings, etc.).
  */
-export async function generateEmbedding(text: string): Promise<number[]> {
-  const [embedding] = await generateEmbeddings([text])
+export async function generateEmbedding(
+  text: string,
+  signal?: AbortSignal,
+): Promise<number[]> {
+  const [embedding] = await generateEmbeddings([text], signal)
   if (!embedding) {
     throw new Error("Expected 1 embedding, got 0")
   }

@@ -724,7 +724,20 @@ export function rankRelated(input: {
           ? nodePpr
           : nodePpr ** (1 - effectiveQueryWeight) *
             (QUERY_MATCH_BASE + queryMatch) ** effectiveQueryWeight
-      return { node, index, ppr: nodePpr, queryMatch, score }
+      // General has a soft kind preference; query relevance can exceed it.
+      const preference =
+        (options.intent ?? "general") === "general" &&
+        diversity > 0 &&
+        isAnswerKind("general", node.kind)
+          ? 2
+          : 1
+      return {
+        node,
+        index,
+        ppr: nodePpr,
+        queryMatch,
+        score: score * preference,
+      }
     })
     .filter(
       (candidate) =>
@@ -734,26 +747,36 @@ export function rankRelated(input: {
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
-  // The answers first, each group with its own MMR. The groups share no
-  // kind, so `maxPerKind` counts each kind in one group only.
   const limit = options.limit ?? 100
   const intent = options.intent ?? "general"
+  const selection = {
+    diversity,
+    maxPerKind: options.maxPerKind,
+    limit,
+    neighbors,
+  }
+  // General uses one MMR selection. Named intents keep their answers first.
   const answers = selectDiverse(
-    candidates.filter((candidate) => isAnswerKind(intent, candidate.node.kind)),
-    { diversity, maxPerKind: options.maxPerKind, limit, neighbors },
+    intent === "general"
+      ? candidates
+      : candidates.filter((candidate) =>
+          isAnswerKind(intent, candidate.node.kind),
+        ),
+    selection,
   )
-  const others = selectDiverse(
-    candidates.filter(
-      (candidate) => !isAnswerKind(intent, candidate.node.kind),
-    ),
-    {
-      diversity,
-      maxPerKind: options.maxPerKind,
-      limit: limit - answers.length,
-      neighbors,
-    },
-  )
-  return [...answers, ...others].map((candidate) => ({
+  const selected =
+    intent === "general"
+      ? answers
+      : [
+          ...answers,
+          ...selectDiverse(
+            candidates.filter(
+              (candidate) => !isAnswerKind(intent, candidate.node.kind),
+            ),
+            { ...selection, limit: limit - answers.length },
+          ),
+        ]
+  return selected.map((candidate) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
     score: candidate.score,

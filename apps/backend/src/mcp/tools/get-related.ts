@@ -74,7 +74,7 @@ export const getRelatedInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges when that finds fewer than limit results (all edges for general).",
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general).",
     ),
   predicateWeights: z
     .record(name, z.number().min(0))
@@ -353,6 +353,10 @@ export async function rankWorkspaceRelated(
     )
   const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
+  const total = { ...defaultCaps, ...options.caps }
+  const startedAt = performance.now()
+  const deadline = startedAt + total.totalTimeoutMs
+  let searchTimedOut = false
   // Walk the graph and rank what the walk found. No `predicates` walks all
   // edges.
   const walk = async (
@@ -374,7 +378,10 @@ export async function rankWorkspaceRelated(
         ? undefined
         : (input.validAt ?? now.toISOString()),
       validBetween: input.validBetween,
-      caps,
+      caps: {
+        ...caps,
+        totalTimeoutMs: Math.max(0, Math.floor(deadline - performance.now())),
+      },
     }).catch((error: unknown) => {
       if (error instanceof WorkspaceGraphBuildingError) {
         throw notReady("being built")
@@ -392,6 +399,17 @@ export async function rankWorkspaceRelated(
             query: input.query,
             unitIds: expansion.nodes.map((node) => node.id),
             limit: 50,
+            deadline,
+          }).catch((error: unknown) => {
+            if (
+              !(
+                error instanceof DOMException && error.name === "TimeoutError"
+              ) &&
+              performance.now() < deadline
+            )
+              throw error
+            searchTimedOut = true
+            return []
           })
         ).map((hit) => ({ id: hit.unitId, score: hit.score }))
       : []
@@ -424,16 +442,13 @@ export async function rankWorkspaceRelated(
   }
   // The graph stores predicates in upper case, and the ranking does the same.
   // Explicit predicates are the whole walk. With none, the walk follows the
-  // edges of the intent. When that finds fewer than `limit` results of an
-  // answer kind of the intent, a walk over all edges follows: claims have
-  // free-form predicates, so the edges of the intent can miss the answer,
-  // and link edges alone can fill `limit`.
+  // edges of the intent. Add all edges only for a short result list or a
+  // list with no answer kind. Free-form claims can be outside the preset.
   const answers = (results: readonly { kind: string | null }[]) =>
     results.filter((result) => isAnswerKind(input.intent, result.kind))
   const defaultWalk = input.predicates
     ? undefined
     : INTENT_PRESETS[input.intent].walk
-  const startedAt = performance.now()
   const walks = [
     await walk(
       input.predicates?.map((predicate) => predicate.toUpperCase()) ??
@@ -443,9 +458,12 @@ export async function rankWorkspaceRelated(
   // The edges of the walk of all edges are not the edges of the intent, so
   // its results spread over kinds as for `general`.
   // The call keeps its caps as a whole: this walk gets what the first walk left.
-  if (defaultWalk && answers(walks[0]?.ranked ?? []).length < input.limit) {
+  const firstRanked = walks[0]?.ranked ?? []
+  if (
+    defaultWalk &&
+    (firstRanked.length < input.limit || answers(firstRanked).length === 0)
+  ) {
     const first = walks[0]?.expansion
-    const total = { ...defaultCaps, ...options.caps }
     const left = {
       maxNodes: total.maxNodes - (first?.nodes.length ?? 0),
       maxEdges: total.maxEdges - (first?.edges.length ?? 0),
@@ -474,14 +492,24 @@ export async function rankWorkspaceRelated(
   }
   const refOf = (id: string) => nodes.get(id)?.path ?? id
   const rankedIds = new Set<string>()
-  const merged = walks
-    .flatMap((step) => step.ranked)
+  const ordered =
+    input.intent === "general"
+      ? walks.flatMap((step) => step.ranked)
+      : [
+          ...walks.flatMap((step) =>
+            step.ranked.filter((result) =>
+              isAnswerKind(input.intent, result.kind),
+            ),
+          ),
+          ...walks.flatMap((step) =>
+            step.ranked.filter(
+              (result) => !isAnswerKind(input.intent, result.kind),
+            ),
+          ),
+        ]
+  const ranked = ordered
     .filter((result) => !rankedIds.has(result.id) && rankedIds.add(result.id))
-  const answerIds = new Set(answers(merged).map((result) => result.id))
-  const ranked = [
-    ...merged.filter((result) => answerIds.has(result.id)),
-    ...merged.filter((result) => !answerIds.has(result.id)),
-  ].slice(0, RANKED_LIMIT)
+    .slice(0, RANKED_LIMIT)
   const units = ranked.length
     ? await withOrgDbContext(org.id, (db) =>
         db
@@ -532,12 +560,14 @@ export async function rankWorkspaceRelated(
       },
     ]
   })
-  const partialReason = walks.find(({ expansion }) => expansion.partialReason)
-    ?.expansion.partialReason
+  const partialReason = searchTimedOut
+    ? "total_timeout"
+    : walks.find(({ expansion }) => expansion.partialReason)?.expansion
+        .partialReason
   return {
     results,
     explored: { nodes: nodes.size, edges: edgeIds.size },
-    partial: walks.some(({ expansion }) => expansion.partial),
+    partial: searchTimedOut || walks.some(({ expansion }) => expansion.partial),
     ...(partialReason ? { partialReason } : {}),
     cappedHubs: [
       ...new Set(walks.flatMap(({ expansion }) => expansion.cappedHubs)),
@@ -552,7 +582,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results of the kinds that answer the intent, results from all edges follow. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first; with no intent, the units of all of them come first. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results or no answer kind, a second walk follows all edges. The units of those kinds (ownership: teams and people; why: decisions and incidents; change: pull requests and commits; dependencies: libraries, databases, services and APIs) come first: intent-walk answers, then all-edges answers, then other results. With no intent, these kinds get a soft score boost that query relevance can exceed. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

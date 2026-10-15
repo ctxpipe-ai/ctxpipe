@@ -1,6 +1,7 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { eq } from "drizzle-orm"
+import { delay, HttpResponse, http } from "msw"
 import {
   afterAll,
   afterEach,
@@ -16,7 +17,10 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { hasWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import { closeGraphDb } from "../../platform/graph/client.js"
-import { embeddingModelServer } from "../../test/knowledge-search-fixture.js"
+import {
+  embeddingModelServer,
+  embedText,
+} from "../../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -256,6 +260,7 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     client = await connectToolClient(seed, getRelatedTool)
   }, 60_000)
   afterEach(() => {
+    modelServer.resetHandlers()
     vi.useRealTimers()
   })
   afterAll(async () => {
@@ -404,6 +409,81 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     })
     expect(result.isError).not.toBe(true)
     expect(refs(result)).toEqual(["knowledge/teams/payments.md"])
+  })
+
+  it("returns the connection saturation runbook first without an intent", async () => {
+    await seedRelatedWorkspace({
+      seed,
+      slug: "runbook-query",
+      sha: sha("d"),
+      chunks: true,
+      units: [
+        {
+          path: "seed.md",
+          kind: "Service",
+          links: ["runbook.md", "team.md", "service.md", "decision.md"],
+        },
+        {
+          path: "runbook.md",
+          kind: "Runbook",
+          title: "Connection saturation runbook",
+          body: "# Connection saturation runbook\n\nResolve connection saturation with this runbook.",
+        },
+        { path: "team.md", kind: "Team", body: "# Team\n\nThe support team." },
+        {
+          path: "service.md",
+          kind: "Service",
+          body: "# Service\n\nThe billing service.",
+        },
+        {
+          path: "decision.md",
+          kind: "Decision",
+          body: "# Decision\n\nUse a queue.",
+        },
+      ],
+    })
+    const result = await related({
+      workspace: "runbook-query",
+      seeds: ["seed.md"],
+      query: "connection saturation runbook",
+    })
+    expect(refs(result)[0]).toBe("runbook.md")
+  })
+
+  it("does not repeat a full intent walk that already has an answer", async () => {
+    const result = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      intent: "dependencies",
+      limit: 2,
+    })
+    expect(result.isError).not.toBe(true)
+    // The intent walk reaches the three services and the linked doc.
+    // A second walk would also reach their teams.
+    expect(result.structuredContent?.explored).toEqual({ nodes: 5, edges: 4 })
+  })
+
+  it("keeps intent-walk answers ahead of owners found only by the fallback", async () => {
+    await seedRelatedWorkspace({
+      seed,
+      slug: "owner-order",
+      sha: sha("d"),
+      units: [
+        { path: "seed.md", kind: "Service", links: ["owner.md"] },
+        { path: "owner.md", kind: "Team" },
+        {
+          path: "other.md",
+          kind: "Team",
+          claims: [{ to: "seed.md", predicate: "MAINTAINS", confidence: 1 }],
+        },
+      ],
+    })
+    const result = await related({
+      workspace: "owner-order",
+      seeds: ["seed.md"],
+      intent: "ownership",
+    })
+    expect(refs(result)).toEqual(["owner.md", "other.md"])
   })
 
   it("filters the results by kind but walks through the other kinds", async () => {
@@ -627,6 +707,55 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       new Date(),
     )
     expect(ranking.results.length).toBeGreaterThan(0)
+  })
+
+  it.each([
+    1, 2,
+  ])("bounds slow query search %i by the shared total budget", async (slowAt) => {
+    let requests = 0
+    modelServer.use(
+      http.post(
+        "https://search-model.test/v1/embeddings",
+        async ({ request }) => {
+          const body = (await request.json()) as { input: string[] }
+          requests += 1
+          if (requests === slowAt) await delay(1500)
+          return HttpResponse.json({
+            data: body.input.map((text, index) => ({
+              index,
+              embedding: embedText(text),
+            })),
+          })
+        },
+      ),
+    )
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, "platform")),
+    )
+    const input = z.object(getRelatedInputShape).parse({
+      workspace: "platform",
+      seeds: ["knowledge/services/gateway.md"],
+      query: "connection saturation runbook",
+      intent: "ownership",
+    })
+    const start = performance.now()
+    const ranking = await rankWorkspaceRelated(
+      { id: seed.orgId, slug: seed.orgSlug },
+      { id: row?.id as string, slug: "platform" },
+      sha("a"),
+      input,
+      new Date(),
+      { caps: { totalTimeoutMs: 500 } },
+    )
+    expect(performance.now() - start).toBeLessThan(1200)
+    expect(requests).toBe(slowAt)
+    expect(ranking).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
   })
 
   it("gives the walk of all edges only the budget that the intent walk left", async () => {

@@ -1,5 +1,7 @@
-import { describe, expect, it } from "vitest"
-import { vectorScanSettings } from "./knowledge-search.js"
+import { http } from "msw"
+import { describe, expect, it, vi } from "vitest"
+import { useMswServer } from "../../../test/msw.js"
+import { searchKnowledge, vectorScanSettings } from "./knowledge-search.js"
 
 describe("vectorScanSettings", () => {
   it("uses iterative scan from pgvector 0.8", () => {
@@ -27,5 +29,59 @@ describe("vectorScanSettings", () => {
       iterativeScan: false,
       efSearch: 1000,
     })
+  })
+})
+
+// biome-ignore lint/correctness/useHookAtTopLevel: Vitest file-scope MSW setup, not a React hook.
+const server = useMswServer()
+
+describe("searchKnowledge deadline", () => {
+  it("refuses an expired budget before it starts any search", async () => {
+    await expect(
+      searchKnowledge({
+        orgId: "org_fixture",
+        workspaceIds: ["ws_fixture"],
+        query: "runbook",
+        deadline: performance.now() - 1,
+      }),
+    ).rejects.toMatchObject({ name: "TimeoutError" })
+  })
+
+  it("aborts a slow embedding request and does not start SQL after the deadline", async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+    vi.stubEnv("MODEL_PROVIDER_URL", "https://deadline-model.test/v1")
+    let aborted = false
+    server.use(
+      http.post(
+        "https://deadline-model.test/v1/embeddings",
+        async ({ request }) => {
+          await new Promise<void>((resolve) => {
+            request.signal.addEventListener(
+              "abort",
+              () => {
+                aborted = true
+                resolve()
+              },
+              { once: true },
+            )
+          })
+          return new Response(null, { status: 408 })
+        },
+      ),
+    )
+    try {
+      await expect(
+        searchKnowledge({
+          orgId: "org_fixture",
+          workspaceIds: ["ws_fixture"],
+          query: "runbook",
+          deadline: performance.now() + 100,
+        }),
+      ).rejects.toMatchObject({ name: "TimeoutError" })
+      expect(aborted).toBe(true)
+    } finally {
+      vi.unstubAllEnvs()
+    }
   })
 })

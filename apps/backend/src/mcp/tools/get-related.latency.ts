@@ -68,16 +68,17 @@ describe("get_related latency on a 50,000-edge graph", () => {
     await closeGraphDb()
   })
 
-  it(
-    "answers a depth 2 call with a p95 under 300 ms",
+  it.each(["general", "ownership", "dependencies"] as const)(
+    "answers a depth 2 %s call with a p95 under 300 ms",
     { timeout: 120_000 },
-    async () => {
+    async (intent) => {
       const call = (index: number) =>
         callTool(client, "get_related", {
           org: seed.orgSlug,
           workspace: "large",
           seeds: [`graph/n${index * 37}.md`, `graph/n${index * 37 + 1}.md`],
           maxDepth: 2,
+          intent,
           // A new restart for each call gives a new cache key: every call walks the graph.
           restart: 0.1 + index / 1_000,
         })

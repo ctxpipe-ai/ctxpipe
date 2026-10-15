@@ -39,6 +39,7 @@ export async function invokeBedrockEmbedding(
   text: string,
   modelId: string,
   env: ProviderCallEnv,
+  signal?: AbortSignal,
 ): Promise<number[]> {
   const region = resolveBedrockRegion(env)
   const client = new BedrockRuntimeClient({ region })
@@ -60,6 +61,7 @@ export async function invokeBedrockEmbedding(
       accept: "application/json",
       body: JSON.stringify(requestBody),
     }),
+    { abortSignal: signal },
   )
 
   const raw = response.body

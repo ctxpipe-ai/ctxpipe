@@ -1027,14 +1027,15 @@ describe("rankRelated answer kinds of the intent", () => {
     expect(ranked.slice(1, 9).every((id) => id.startsWith("rule"))).toBe(true)
   })
 
-  it("puts the answers of every intent first when the call has no intent", () => {
-    const ranked = ids({ intent: "general", diversity: 0.5 })
-    expect(ranked.slice(0, 4).sort()).toEqual([
-      "change",
-      "decision",
-      "library",
-      "owner",
-    ])
+  it("lets the connection saturation runbook query outrank answer kinds with no intent", () => {
+    const result = rankRelated({
+      ...input,
+      nodes: [...input.nodes, node("runbook", "Runbook", { degree: 1 })],
+      signals: [...input.signals, signal("s", "runbook", 0.9)],
+      queryHits: [{ id: "runbook", score: 1 }],
+      options: { now: NOW, limit: 5 },
+    })
+    expect(result[0]?.id).toBe("runbook")
   })
 
   it("does not reorder an intent with no answer kinds", () => {
