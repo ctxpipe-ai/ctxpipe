@@ -88,6 +88,12 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 **`@storybook/addon-a11y`** for Storybook accessibility verification. The MCP
 **`run-story-tests`** tool applies when that integration exists.
 
+## Play timing
+
+- Before a play measures layout (sizes or positions), run `await document.fonts.ready`.
+- Assert visibility or style inside `waitFor(() => expect(...))`. Do not assert right after `findBy...`. A fade or a re-render can then not fail the check.
+- With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.
+
 ## Quick reference (commands)
 
 | Action | Command |
