@@ -1,4 +1,5 @@
 import { explorerBlobPath } from "./git-explorer.js"
+import { isHostOnlyPath } from "./host-only.js"
 
 export type WorkspaceFileJobRequest =
   | { op: "save"; path: string; content: string }
@@ -93,7 +94,33 @@ function isInside(parent: string, child: string): boolean {
   return child === parent || child.startsWith(`${parent}/`)
 }
 
+/**
+ * Plans a file job from the Workspace UI or API. The job commits to the
+ * default branch without a pull request, so it refuses host-only paths
+ * (CTX-722): they change only through the sources service or a pull request.
+ */
 export async function planWorkspaceFileJob(input: {
+  request: WorkspaceFileJobRequest
+  treePaths: readonly string[]
+  readBlob: (path: string) => Promise<string | null>
+}): Promise<WorkspaceFileJobResult> {
+  const planned = await planFileJobPaths(input)
+  if (!planned.ok) return planned
+  const { mergeFiles, mergeDeletePaths } = planned.plan
+  const hostOnly = [
+    ...mergeFiles.map((file) => file.path),
+    ...mergeDeletePaths,
+  ].find(isHostOnlyPath)
+  if (hostOnly) {
+    return {
+      ok: false,
+      error: `${hostOnly} is host-only. Change it through a pull request.`,
+    }
+  }
+  return planned
+}
+
+async function planFileJobPaths(input: {
   request: WorkspaceFileJobRequest
   treePaths: readonly string[]
   readBlob: (path: string) => Promise<string | null>
