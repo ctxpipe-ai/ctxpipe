@@ -314,6 +314,20 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         path: FRONT_MATTER_UNIT.path,
         body: FRONT_MATTER_UNIT.body,
         projectionSha: sha2,
+        kind: "Standard",
+        title: "Rate limits",
+        source: "authored",
+        updatedAt: new Date("2026-09-01T00:00:00Z"),
+        claims: [
+          {
+            to: "knowledge/services/gateway.md",
+            predicate: "APPLIES_TO",
+            confidence: 0.9,
+            validFrom: null,
+            validTo: null,
+            source: null,
+          },
+        ],
       })
       await db.insert(workspaceKnowledgeChunks).values(
         knowledgeChunkRows(
@@ -423,6 +437,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(result.structuredContent).toEqual({
         ref: "knowledge/services/payments-api.md",
         served: { branch: "main", sha: sha1 },
+        frontMatter: { source: "authored", updatedAt: expect.any(String) },
         content: "# Payments API\n\nOwns card charges.\nCalls the ledger.",
         startLine: 1,
         endLine: 4,
@@ -614,6 +629,20 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         ref: FRONT_MATTER_UNIT.path,
         // The row of the unit, not the Workspace, states the revision.
         served: { branch: "main", sha: sha2 },
+        // The front matter is its own field, not lines of content.
+        frontMatter: {
+          kind: "Standard",
+          title: "Rate limits",
+          source: "authored",
+          updatedAt: "2026-09-01T00:00:00.000Z",
+          claims: [
+            {
+              to: "knowledge/services/gateway.md",
+              predicate: "APPLIES_TO",
+              confidence: 0.9,
+            },
+          ],
+        },
         content: "# Rate limits\n\nThe gateway allows 100 calls.",
         startLine: chunk?.startLine,
         endLine: 6,
@@ -632,6 +661,8 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         startLine: 6,
         endLine: 6,
       })
+      // A later page does not repeat the front matter.
+      expect(range.structuredContent).not.toHaveProperty("frontMatter")
       expect(
         errorCode(
           await call("read_file", {
