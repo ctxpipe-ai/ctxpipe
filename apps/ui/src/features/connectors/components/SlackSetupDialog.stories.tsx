@@ -214,10 +214,14 @@ export const CaptureWorkspace: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByText(/saves the thread to each Workspace with that/),
-    ).toBeVisible()
-    await expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible()
+    // The dialog fades in, so wait until its text is visible.
+    const saves = await body.findByText(
+      /saves the thread to each Workspace with that/,
+    )
+    await waitFor(() => expect(saves).toBeVisible())
+    await waitFor(() =>
+      expect(body.getByText(/\/invite @ctxpipe/)).toBeVisible(),
+    )
     await expect(
       body.queryByRole("button", { name: /capture Workspace/ }),
     ).toBeNull()

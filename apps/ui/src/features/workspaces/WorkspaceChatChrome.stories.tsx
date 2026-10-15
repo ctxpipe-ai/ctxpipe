@@ -85,7 +85,7 @@ export const PendingProbe: Story = {
   },
 }
 
-/** Uncommitted changes: Sync (cloud-upload icon) and Create PR. */
+/** Uncommitted changes: Sync (cloud-upload icon) only. Create PR waits until the branch is synced. */
 export const DirtyCommitPush: Story = {
   args: {
     title: "Repo layout",
@@ -118,7 +118,7 @@ export const DirtyCommitPush: Story = {
     )
     // The tooltip fades in, so wait for it to become visible.
     await waitFor(() => expect(tooltip).toBeVisible())
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
+    expect(canvas.queryByRole("button", { name: "Create PR" })).toBeNull()
   },
 }
 

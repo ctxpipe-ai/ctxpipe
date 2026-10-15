@@ -5,11 +5,11 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { describe, expect, it } from "vitest"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import { GIT_REMOTE_ACCESS_MESSAGES } from "../../services/git/clone-tree.js"
@@ -266,6 +266,152 @@ it(
           hydrateStatus: "failed",
           hydrateError: GIT_REMOTE_ACCESS_MESSAGES.denied,
         })
+      },
+    )
+  },
+)
+
+/** The hydrate runs that the tip check queued for one Workspace tip. */
+async function tipHydrateRuns(f: NativeHydrationFixture, sha: string) {
+  const backend = await BackendPostgres.connect(f.databaseUrl, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
+  try {
+    return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
+      (run) => {
+        const input = run.input as {
+          workspaceId?: string
+          revision?: { sha?: string }
+        }
+        return (
+          run.workflowName === "workspace-hydrate" &&
+          input?.workspaceId === f.workspaceId &&
+          input.revision?.sha === sha
+        )
+      },
+    )
+  } finally {
+    await backend.stop()
+  }
+}
+
+async function runTipCheck(f: NativeHydrationFixture) {
+  const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
+    orgId: f.org.id,
+  })
+  return handle.result({ timeoutMs: 30_000 })
+}
+
+it(
+  "cron hydrates a tip that an earlier failed run stored but did not queue",
+  { timeout: 90_000 },
+  async () => {
+    // Writable, with no completed migration export: the export-gated cron
+    // fallback does not apply.
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The failed run stored the tip in `desired_sha`, then stopped.
+        expect((await f.resolveRevision(true)).sha).toBe(sha)
+
+        expect(await runTipCheck(f)).toMatchObject({ updated: 0 })
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
+  "cron queues one hydrate for a read-only Workspace tip across runs during an in-flight hydrate",
+  { timeout: 90_000 },
+  async () => {
+    // Read-only skips the export wait, so the earlier fallback queued a
+    // hydrate on each run while the Workspace was building.
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+
+        expect(await runTipCheck(f)).toMatchObject({ updated: 1 })
+        // No worker serves this queue, so the hydrate stays pending.
+        expect(await tipHydrateRuns(f, sha)).toEqual([
+          expect.objectContaining({ status: "pending" }),
+        ])
+        expect(await runTipCheck(f)).toMatchObject({ updated: 0 })
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+      },
+    )
+  },
+)
+
+it(
+  "cron queues a failed hydrate of the tip again in the next hour, not before",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The key holds the UTC hour. Start well before the hour ends.
+        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
+        if (leftInHour < 30_000)
+          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
+        await runTipCheck(f)
+        const [first] = await tipHydrateRuns(f, sha)
+        if (!first?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
+        )
+
+        await runTipCheck(f)
+        expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
+
+        // Move the failed run to the hour before, as if it started then.
+        const hour = first.idempotencyKey.slice(-13)
+        const earlier = new Date(
+          new Date(`${hour}:00:00Z`).getTime() - 3_600_000,
+        )
+          .toISOString()
+          .slice(0, 13)
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set idempotency_key = ${`${first.idempotencyKey.slice(0, -13)}${earlier}`} where id = ${first.id}`,
+        )
+        await runTipCheck(f)
+        expect(
+          (await tipHydrateRuns(f, sha)).map((run) => run.status).sort(),
+        ).toEqual(["failed", "pending"])
+      },
+    )
+  },
+)
+
+it(
+  "cron queues a hydrate again when the unfinished one is older than 3 hours",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "missing" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        await runTipCheck(f)
+        const [stuck] = await tipHydrateRuns(f, sha)
+        if (!stuck?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        // The run stays pending, as if it started 4 hours ago, with the key
+        // of that hour.
+        const earlier = new Date(Date.now() - 4 * 3_600_000)
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set created_at = ${earlier.toISOString()}::timestamptz, idempotency_key = ${`${stuck.idempotencyKey.slice(0, -13)}${earlier.toISOString().slice(0, 13)}`} where id = ${stuck.id}`,
+        )
+        await runTipCheck(f)
+        expect((await tipHydrateRuns(f, sha)).map((run) => run.status)).toEqual(
+          ["pending", "pending"],
+        )
       },
     )
   },

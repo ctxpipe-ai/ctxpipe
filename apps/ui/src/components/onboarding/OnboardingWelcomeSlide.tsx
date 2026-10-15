@@ -18,6 +18,13 @@ export function OnboardingWelcomeSlide({
 
   useEffect(() => {
     const target = "ctx|"
+    // Reduced motion shows the full text at once: no timer, no typing.
+    if (window.matchMedia("(prefers-reduced-motion: reduce)").matches) {
+      setTypedCount(target.length)
+      setShowDetails(true)
+      onWelcomeDetailsVisible?.()
+      return
+    }
     let index = 0
     const typeTimer = window.setInterval(() => {
       index += 1

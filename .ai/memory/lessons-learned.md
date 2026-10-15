@@ -582,3 +582,10 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** product
 - **Date:** 2026-10-10
 - **Source:** team lead decision for the PR 280 ingestion performance work; it applies to ingestion v2 (ADR-052) too
+
+
+### Do not use git stash in parallel worktrees
+- **Rule:** All linked worktrees of this repository share one git stash stack. When several agents or people work in parallel worktrees, do not use `git stash` or `git stash pop`. A pop can apply the work of another worktree, and the result is a conflict on the wrong branch. Use a temporary WIP commit. If a stash entry is necessary, apply it by its commit hash (`git stash apply <sha>`), never by its position.
+- **Category:** tooling
+- **Date:** 2026-10-15
+- **Source:** PR 280 parallel agent work: a stash pop applied the work of one agent to the branch of another agent

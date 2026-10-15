@@ -56,6 +56,34 @@ describe("readSliceTarget", () => {
       ).fresh,
     ).toBe(false)
   })
+
+  it("reads the sources file and the paths below the Workspace root folder", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-slice-target-"))
+    await git("git", ["init", "-b", "main", dir])
+    await git("git", ["-C", dir, "config", "user.email", "dev@example.com"])
+    await git("git", ["-C", dir, "config", "user.name", "Dev"])
+    const rows = await commit({
+      ".ctxpipe/sources.yaml": "version: 1\nsources: [{id: outside}]\n",
+      "docs/context/.ctxpipe/sources.yaml": "version: 1\nsources: []\n",
+      "docs/context/confluence/ENG/home.md": "# ENG\n",
+      "src/app.ts": "export {}\n",
+    })
+    const outsideOnly = await commit({
+      ".ctxpipe/sources.yaml": "version: 1\nsources: [{id: other}]\n",
+    })
+    const target = await readSliceTarget({
+      url: dir,
+      headSha: outsideOnly,
+      rowsRevision: rows,
+      root: "docs/context",
+    })
+    expect(target.fresh).toBe(true)
+    expect(target.paths.sort()).toEqual([
+      ".ctxpipe/sources.yaml",
+      "confluence/ENG/home.md",
+    ])
+  })
+
   it("fences a cleanup on its removed targets, not on the whole sources file", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-slice-target-"))
     await git("git", ["init", "-b", "main", dir])

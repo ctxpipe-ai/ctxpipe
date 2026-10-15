@@ -109,6 +109,13 @@ export function conversationBranchPushTool(input: {
           // the sandbox's read credential to fetch.
           next: `The branch on GitHub has commits you do not have. Fetch them with \`${SANDBOX_READ_GIT} fetch origin "$(git branch --show-current)"\`, then run \`git rebase FETCH_HEAD\` on the session branch, resolve any conflicts, and push again.`,
         }
+      if (outcome.status === "skipped" && outcome.reason === "outside_root")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Your commits change files outside the Workspace root folder. Undo those changes in new commits or rebase them out, keep only files below the root folder, and push again.",
+        }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
   }

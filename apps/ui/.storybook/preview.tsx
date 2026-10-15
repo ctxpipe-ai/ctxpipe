@@ -7,6 +7,7 @@ import {
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "../src/mocks/handlers"
+import { storyRouteLoader } from "./decorators/with-story-route"
 import "../src/styles.css"
 
 initialize({ onUnhandledRequest: "bypass" })
@@ -23,28 +24,32 @@ const storybookDefaultMswHandlers = {
 }
 
 function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
-  const client = useMemo(
-    () =>
-      new QueryClient({
-        defaultOptions: {
-          queries: {
-            staleTime: 0,
-            gcTime: 0,
-            /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
-            retry: false,
-          },
-          mutations: {
-            retry: false,
-          },
+  const client = useMemo(() => {
+    const client = new QueryClient({
+      defaultOptions: {
+        queries: {
+          staleTime: 0,
+          gcTime: 0,
+          /** MSW error stories should reflect `delay()` timing, not exponential backoff (≈1s+2s+4s). */
+          retry: false,
         },
-      }),
-    [],
-  )
+        mutations: {
+          retry: false,
+        },
+      },
+    })
+    // The first message of a new conversation waits in the cache until its
+    // session mounts. A zero gcTime would drop it first; production keeps the default.
+    client.setQueryDefaults(["conversation-start"], {
+      gcTime: Number.POSITIVE_INFINITY,
+    })
+    return client
+  }, [])
   return <QueryClientProvider client={client}>{children}</QueryClientProvider>
 }
 
 const preview: Preview = {
-  loaders: [mswLoader],
+  loaders: [mswLoader, storyRouteLoader],
   decorators: [
     (Story, { id }): ReactElement => (
       <div className="min-h-screen bg-background font-sans text-foreground antialiased">

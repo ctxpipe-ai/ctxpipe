@@ -16,6 +16,7 @@ import { installMemorySessionStorage } from "./session-storage-test"
 import {
   newUiConversationId,
   openWorkspaceConversation,
+  scheduleFirstMessage,
   seedWorkspaceConversation,
   seedWorkspaceDetailFromList,
   takeFirstMessage,
@@ -140,5 +141,27 @@ describe("openWorkspaceConversation", () => {
       "What is hydrate status?",
     )
     expect(takeFirstMessage(queryClient, "acme", opened)).toBeUndefined()
+  })
+
+  it("sends the first message once when Strict Mode runs the effect twice", () => {
+    vi.useFakeTimers()
+    try {
+      const queryClient = new QueryClient()
+      queryClient.setQueryData(
+        workspaceKeys.conversationStart("acme", "conv_1"),
+        "Hello",
+      )
+      const send = vi.fn()
+      // Effect, cleanup, effect: the order Strict Mode uses.
+      const cancel = scheduleFirstMessage(queryClient, "acme", "conv_1", send)
+      cancel()
+      scheduleFirstMessage(queryClient, "acme", "conv_1", send)
+      vi.runAllTimers()
+      expect(send).toHaveBeenCalledTimes(1)
+      expect(send).toHaveBeenCalledWith("Hello")
+      expect(takeFirstMessage(queryClient, "acme", "conv_1")).toBeUndefined()
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })

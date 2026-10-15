@@ -7,6 +7,7 @@ import { readGitPackFromRemote } from "../../services/git/pack.js"
 import type { WorkspaceExtraction } from "./extraction.js"
 import { captureExtractionSourceDeclaration } from "./extraction-source.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
@@ -40,6 +41,7 @@ export async function captureRepositoryExtractionTarget(input: {
       url: resolved.revision.remote.url,
       sha: resolved.revision.sha,
       token: resolved.token,
+      root: workspaceRootPath(resolved.revision),
     })
     const declaration = await captureExtractionSourceDeclaration(
       pack,

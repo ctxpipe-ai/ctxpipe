@@ -17,6 +17,7 @@ import {
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   getWorkspaceBySlug,
@@ -314,6 +315,7 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
       workspaceId: workspace.id,
       repositoryId: repository.id,
       sha: published.sha,
+      rootPath: workspaceRootPath(published),
     },
   }
 }
