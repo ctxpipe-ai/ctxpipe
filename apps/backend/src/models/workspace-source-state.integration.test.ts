@@ -8,6 +8,9 @@ import type { PlannedSourceRow } from "../domain/workspace-sources/projection-pl
 import { workspaceGithubReadScope } from "../domain/workspaces/docker-run-vault.js"
 import { seedSourcesOrg } from "../test/workspace-sources-fixture.js"
 import {
+  clearLinkedRepositoryShas,
+  githubPins,
+  lastGoodTarget,
   listLinkedRepositoryPins,
   listServedRepositoryPins,
   updateLinkedRepositoryPin,
@@ -253,6 +256,57 @@ describe("workspace source state (Postgres)", () => {
         (row) => row.gitUrl,
       ),
     ).toEqual(["https://github.com/acme/web"])
+  })
+
+  it("keeps the pins and the last good target of a source while the file cannot be read", async () => {
+    const connection = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace("unreadable")
+    const web = `acme/web-${seed.suffix}`
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [github("code", connection, [web])],
+    })
+    const [before] = await withOrgDbContext(seed.orgId, (db) =>
+      listLinkedRepositoryPins(db, { workspaceId }),
+    )
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        {
+          sourceKey: ".file",
+          provider: null,
+          connectionId: null,
+          scope: {},
+          status: "invalid",
+          statusDetail: "The YAML is not valid",
+        },
+      ],
+    })
+    await withOrgDbContext(seed.orgId, (db) =>
+      clearLinkedRepositoryShas(
+        db,
+        new Set([`https://github.com/${web}`]),
+        (url) => url,
+      ),
+    )
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select()
+        .from(workspaceSources)
+        .where(eq(workspaceSources.sourceKey, "code")),
+    )
+    if (!row) throw new Error("the code row is gone")
+    expect(row.status).toBe("invalid")
+    expect(lastGoodTarget(row)).toEqual({
+      provider: "github",
+      connectionId: connection,
+      scope: { repositories: [web] },
+    })
+    expect(githubPins(row).map((pin) => pin.id)).toEqual([before?.id])
   })
 
   it("serves only the pins of ok rows, and keeps the pins of an out_of_access row", async () => {

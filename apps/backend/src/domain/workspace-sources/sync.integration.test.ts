@@ -269,6 +269,51 @@ describe("Workspace source sync frame (Postgres)", () => {
     ])
   })
 
+  it("keeps the files of a remaining source whose entry is invalid for now", async () => {
+    const forge = await seed.addConnection("forge")
+    const workspaceId = await seed.addWorkspace("held")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [source("eng-docs", forge, ["ENG"])],
+    })
+    // An entry without a readable id can be `eng-docs`, so its row stays as
+    // `invalid` with its last good scope.
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      rows: [
+        {
+          ...source(".entry-1", forge, []),
+          scope: {},
+          status: "invalid",
+          statusDetail: "The id is not valid",
+        },
+      ],
+    })
+    const { adapter } = fakeSourceAdapter({})
+    const writes: WorkspaceSliceWrite[] = []
+    await cleanupRemovedSources({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "b".repeat(40),
+      removed: [
+        {
+          provider: "confluence",
+          connectionId: forge,
+          scope: { spaces: ["ENG", "HR"] },
+        },
+      ],
+      adapters: { confluence: adapter },
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    expect(writes).toMatchObject([{ ownedPrefixes: ["confluence/HR/"] }])
+  })
+
   it("refuses managed paths that leave the provider root", async () => {
     const forge = await seed.addConnection("forge")
     const workspaceId = await seed.addWorkspace("guard")

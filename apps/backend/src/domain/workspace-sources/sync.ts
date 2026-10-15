@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { lastGoodTarget } from "../../models/workspace-source-state.js"
 import {
   listConnectionSourceRows,
   listWorkspaceSourceRows,
@@ -256,12 +257,16 @@ export async function cleanupRemovedSources(input: {
   adapters: Partial<Record<SourceProvider, SourceAdapter>>
   write: SliceWriter
 }): Promise<WorkspaceSliceWrite[]> {
+  // A remaining source keeps the files of its last good target, also when
+  // its connection is gone or its entry is invalid for now.
   const remaining = (
     await listWorkspaceSourceRows({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
     })
-  ).filter((row) => row.status === "ok")
+  )
+    .map(lastGoodTarget)
+    .filter((target) => target !== null)
   const writes: WorkspaceSliceWrite[] = []
   const byProvider = new Map<
     SourceProvider,
