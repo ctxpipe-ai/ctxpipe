@@ -6,6 +6,7 @@ import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
@@ -726,6 +727,91 @@ it.each([
           }
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it.each(["agent", "host"] as const)(
+  "%s-origin semantic merge of a non-conflicting .ctxpipe file",
+  { timeout: 60_000 },
+  async (origin) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "knowledge/guide.md", body: "# Guide\n" }],
+      },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceSemanticMerge, workspaceSemanticMergeInputSchema } =
+          await import(
+            "../../openworkflow/workflows/workspace-semantic-merge.js"
+          )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const extraction =
+            origin === "agent"
+              ? await storeTestExtraction(f.org.id, {
+                  repositoryId: "repo_captured",
+                  repositoryUrl: f.workspaceUrl,
+                  sourceSha: f.sha,
+                  objects: [],
+                  claims: [],
+                })
+              : undefined
+          const run = await runner.runWorkflow(
+            workspaceSemanticMerge.spec,
+            workspaceSemanticMergeInputSchema.parse({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_${origin}`,
+              revision: {
+                ...(await f.resolveRevision()),
+                access: "write-default",
+              },
+              previousSha: f.sha,
+              files: [
+                { path: ".ctxpipe/sources.yaml", content: "sources: []\n" },
+              ],
+              deletePaths: [],
+              ...(extraction ? { extraction } : {}),
+            }),
+          )
+          if (origin === "agent") {
+            await expect(run.result({ timeoutMs: 30_000 })).rejects.toThrow()
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+          } else {
+            expect(await run.result({ timeoutMs: 30_000 })).toMatchObject({
+              committed: true,
+            })
+            expect(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                "main:.ctxpipe/sources.yaml",
+              ),
+            ).toBe("sources: []")
+          }
+        } finally {
+          await worker.stop()
+          await backend.stop()
         }
       },
     )
