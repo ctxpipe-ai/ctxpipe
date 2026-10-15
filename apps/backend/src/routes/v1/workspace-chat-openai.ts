@@ -1,5 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { startIngestModelCall } from "../../domain/ingestion/ingest-telemetry.js"
 import {
   observeWorkspaceChatCompletionStream,
   recordWorkspaceChatProxyCompletion,
@@ -209,8 +210,22 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
     const markTtfb = () => {
       if (ttfbMs == null) ttfbMs = Date.now() - startedAt
     }
+    // An ingest step has a model call in the Langfuse session of its run.
+    const ingestCall = token.ingest
+      ? startIngestModelCall(token.ingest, contract.modelBase)
+      : undefined
+    let recorded = false
     const record = (status: number) => {
+      if (recorded) return
+      recorded = true
       observer.end()
+      ingestCall?.finish({
+        status,
+        durationMs: Date.now() - startedAt,
+        finishReason: observer.finishReason,
+        responseModel: observer.responseModel,
+        usage: observer.usage,
+      })
       recordWorkspaceChatProxyCompletion(turnId, {
         ttfbMs: ttfbMs ?? Date.now() - startedAt,
         durationMs: Date.now() - startedAt,
@@ -236,8 +251,14 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       const response = await handleNativeBedrockResponse(
         c,
         handleBedrockChatCompletion(env, forwarded),
+        {
+          observe: (chunk) => {
+            markTtfb()
+            observer.push(chunk)
+          },
+          onObservedComplete: record,
+        },
       )
-      record(response.status)
       return response
     }
     return forwardToUpstream(c, "/v1/chat/completions", forwarded, {
@@ -248,6 +269,6 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
         markTtfb()
         observer.push(chunk)
       },
-      onObservedComplete: () => record(200),
+      onObservedComplete: record,
     })
   })

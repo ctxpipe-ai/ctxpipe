@@ -80,7 +80,7 @@ export async function forwardToUpstream(
     step?: string
     origin?: string
     observe?: (chunk: Uint8Array) => void
-    onObservedComplete?: () => void
+    onObservedComplete?: (status: number) => void
   },
 ) {
   const env = c.var.env
@@ -92,6 +92,7 @@ export async function forwardToUpstream(
   })
   if (!fetched.ok) {
     if (fetched.reason === "no-upstream-key") {
+      options?.onObservedComplete?.(503)
       return c.json(
         unavailableResponse(
           "no-upstream-key",
@@ -106,6 +107,7 @@ export async function forwardToUpstream(
       orgId: c.get("orgId"),
       conversationId: options?.conversationId,
     })
+    options?.onObservedComplete?.(502)
     return c.json({ error: "upstream unreachable" }, 502)
   }
   const { upstream, target, startedAt } = fetched
@@ -122,29 +124,75 @@ export async function forwardToUpstream(
   const contentType = upstream.headers.get("content-type")
   if (contentType) headers.set("content-type", contentType)
   const status = upstream.status as 200 | 400 | 401 | 404 | 429 | 503
-  if (!options?.observe || !upstream.body) {
-    options?.onObservedComplete?.()
-    return upstream.body
-      ? c.body(upstream.body, status, Object.fromEntries(headers))
-      : c.body(null, status, Object.fromEntries(headers))
-  }
-  const observed = upstream.body.pipeThrough(
-    new TransformStream<Uint8Array, Uint8Array>({
-      transform(chunk, controller) {
-        options.observe?.(chunk)
-        controller.enqueue(chunk)
-      },
-      flush() {
-        options.onObservedComplete?.()
-      },
-    }),
+  return c.body(
+    observedBody(upstream, options, c.req.raw.signal),
+    status,
+    Object.fromEntries(headers),
   )
-  return c.body(observed, status, Object.fromEntries(headers))
+}
+
+type CompletionObserver = {
+  observe?: (chunk: Uint8Array) => void
+  onObservedComplete?: (status: number) => void
+}
+
+/** Close the observation on EOF, upstream failure, or client cancellation. */
+function observedBody(
+  response: Response,
+  observer?: CompletionObserver,
+  signal?: AbortSignal,
+): ReadableStream<Uint8Array> {
+  if (!observer?.observe || !response.body) {
+    observer?.onObservedComplete?.(response.status)
+    // No upstream body sends an empty body.
+    return (
+      response.body ??
+      new ReadableStream<Uint8Array>({
+        start: (controller) => controller.close(),
+      })
+    )
+  }
+  const reader = response.body.getReader()
+  let ended = false
+  const finish = (status: number) => {
+    if (ended) return
+    ended = true
+    signal?.removeEventListener("abort", abort)
+    observer.onObservedComplete?.(status)
+  }
+  const abort = () => {
+    finish(499)
+    void reader.cancel().catch(() => {})
+  }
+  signal?.addEventListener("abort", abort, { once: true })
+  if (signal?.aborted) abort()
+  return new ReadableStream<Uint8Array>({
+    async pull(controller) {
+      try {
+        const { value, done } = await reader.read()
+        if (done) {
+          finish(response.status)
+          controller.close()
+        } else {
+          observer.observe?.(value)
+          controller.enqueue(value)
+        }
+      } catch (error) {
+        finish(502)
+        controller.error(error)
+      }
+    },
+    async cancel(reason) {
+      finish(499)
+      await reader.cancel(reason)
+    },
+  })
 }
 
 export async function handleNativeBedrockResponse(
   c: OpenAiProxyContext,
   responsePromise: Promise<Response>,
+  observer?: CompletionObserver,
 ) {
   const started = Date.now()
   try {
@@ -167,16 +215,21 @@ export async function handleNativeBedrockResponse(
       const errorBody = await response.json().catch(() => ({
         error: "bedrock request failed",
       }))
+      observer?.onObservedComplete?.(response.status)
       return c.json(errorBody, response.status as 400 | 401 | 404 | 429 | 503)
     }
 
     if (contentType?.includes("text/event-stream")) {
-      return response.body
-        ? c.body(response.body, 200, Object.fromEntries(headers))
-        : c.body(null, 200, Object.fromEntries(headers))
+      return c.body(
+        observedBody(response, observer, c.req.raw.signal),
+        200,
+        Object.fromEntries(headers),
+      )
     }
 
     const json = await response.json()
+    observer?.observe?.(new TextEncoder().encode(JSON.stringify(json)))
+    observer?.onObservedComplete?.(response.status)
     return c.json(json, 200)
   } catch (err) {
     getLogger().error(err instanceof Error ? err : new Error(String(err)), {
@@ -185,6 +238,7 @@ export async function handleNativeBedrockResponse(
       orgId: c.get("orgId"),
       userId: c.get("user")?.id,
     })
+    observer?.onObservedComplete?.(502)
     return c.json({ error: "bedrock request failed" }, 502)
   }
 }

@@ -150,6 +150,7 @@ export async function pushIngestStep(
       runId: input.job.runId,
       ...input.commit,
       more: validation.more,
+      rejects: validation.rejections.length,
     })
     await pushWithLease(repoDir, input.remote, input.ref, input.oldTip, sha)
     return { sha, validation, more: validation.more }
@@ -328,7 +329,12 @@ export async function findStepCommit(input: {
   ref: string
   runId: string
   step: string
-}): Promise<{ sha: string; ops: number; more: boolean } | null> {
+}): Promise<{
+  sha: string
+  ops: number
+  rejects: number
+  more: boolean
+} | null> {
   return withScratchRepository(async (repoDir) => {
     const tip = await remoteTip(repoDir, input.remote, input.ref)
     if (!tip) return null
@@ -354,6 +360,7 @@ export async function findStepCommit(input: {
       sha: tip,
       ops: (await diffTree(repoDir, `${tip}^`, tip)).length,
       more: trailers.more,
+      rejects: trailers.rejects,
     }
   })
 }
@@ -879,14 +886,19 @@ async function diffTree(
 
 async function commitStep(
   repoDir: string,
-  input: IngestStepCommit & { tree: string; parents: string[]; runId: string },
+  input: IngestStepCommit & {
+    tree: string
+    parents: string[]
+    runId: string
+    rejects?: number
+  },
 ): Promise<string> {
   for (const value of [input.runId, input.step, input.bundle])
     if (!/^[\x21-\x7e]{1,200}$/.test(value))
       throw new Error("A step trailer value must be printable ASCII")
   const date = `@${Math.floor(input.authorTime.getTime() / 1000)} +0000`
   // `Ctxpipe-More` only when true, so a step with no next page keeps its SHA.
-  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n${input.more ? "Ctxpipe-More: true\n" : ""}`
+  const message = `Ingest step ${input.step}\n\nCtxpipe-Run: ${input.runId}\nCtxpipe-Step: ${input.step}\nCtxpipe-Bundle: ${input.bundle}\n${input.more ? "Ctxpipe-More: true\n" : ""}${input.rejects ? `Ctxpipe-Rejects: ${input.rejects}\n` : ""}`
   const out = await runGit(
     repoDir,
     [
@@ -913,7 +925,7 @@ async function commitStep(
 async function stepTrailers(
   repoDir: string,
   sha: string,
-): Promise<{ run: string; step: string; more: boolean }> {
+): Promise<{ run: string; step: string; more: boolean; rejects: number }> {
   const read = async (key: string) =>
     (
       await runGit(repoDir, [
@@ -929,6 +941,7 @@ async function stepTrailers(
     run: await read("Ctxpipe-Run"),
     step: await read("Ctxpipe-Step"),
     more: (await read("Ctxpipe-More")) === "true",
+    rejects: Number(await read("Ctxpipe-Rejects")) || 0,
   }
 }
 
