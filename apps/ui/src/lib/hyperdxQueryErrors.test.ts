@@ -169,74 +169,65 @@ describe("createHyperDxQueryClient", () => {
 })
 
 describe("expected states", () => {
-  it("records a 409 not-ready answer as an action, not an Error span", async () => {
+  async function failQuery(
+    queryKey: string[],
+    message: string,
+    status: number,
+  ) {
     const client = createHyperDxQueryClient()
-    const error = Object.assign(
-      new Error("Conversation sandbox is not ready"),
-      {
-        status: 409,
-      },
-    )
+    const error = Object.assign(new Error(message), { status })
     await expect(
       client.fetchQuery({
-        queryKey: ["conversation-git-status", "acme", "conv_1"],
+        queryKey,
         retry: false,
         queryFn: () => {
           throw error
         },
       }),
     ).rejects.toThrow(error)
+  }
 
+  it.each([
+    ["turn_running", ["conversation-turn-changes", "acme", "conv_1"]],
+    ["missing_sandbox", ["conversation-git-status", "acme", "conv_1"]],
+    [
+      "Conversation sandbox is not ready",
+      ["conversation-git-status", "acme", "conv_1"],
+    ],
+  ])("records the 409 %s of a query as an action, not an Error span", async (message, key) => {
+    await failQuery(key, message, 409)
     expect(recordException).not.toHaveBeenCalled()
     expect(addAction).toHaveBeenCalledWith("ui_expected_state", {
       "ctxpipe.ui.source": "query",
-      "ctxpipe.ui.key": "conversation-git-status",
+      "ctxpipe.ui.key": key[0],
       "ctxpipe.ui.http_status": "409",
     })
   })
 
-  it("records a 404 on the turn changes of a new conversation as an action", async () => {
-    const client = createHyperDxQueryClient()
-    const error = Object.assign(new Error("Not found"), { status: 404 })
-    await expect(
-      client.fetchQuery({
-        queryKey: ["conversation-turn-changes", "acme", "conv_new"],
-        retry: false,
-        queryFn: () => {
-          throw error
-        },
-      }),
-    ).rejects.toThrow(error)
-
-    expect(recordException).not.toHaveBeenCalled()
-    expect(addAction).toHaveBeenCalledTimes(1)
-  })
-
-  it("still records a 404 on another query and a 500 on turn changes", async () => {
-    const client = createHyperDxQueryClient()
-    const notFound = Object.assign(new Error("Not found"), { status: 404 })
-    const failed = Object.assign(new Error("boom"), { status: 500 })
-    await expect(
-      client.fetchQuery({
-        queryKey: ["conversation-git-blob"],
-        retry: false,
-        queryFn: () => {
-          throw notFound
-        },
-      }),
-    ).rejects.toThrow(notFound)
-    await expect(
-      client.fetchQuery({
-        queryKey: ["conversation-turn-changes"],
-        retry: false,
-        queryFn: () => {
-          throw failed
-        },
-      }),
-    ).rejects.toThrow(failed)
-
+  it("still records a stale_worktree 409 and a slug conflict 409", async () => {
+    await failQuery(["conversation-git-tree"], "stale_worktree", 409)
+    await failQuery(["workspaces"], "Workspace slug already exists", 409)
     expect(recordException).toHaveBeenCalledTimes(2)
     expect(addAction).not.toHaveBeenCalled()
+  })
+
+  it("still records a turn_running 409 of a mutation", async () => {
+    const client = createHyperDxQueryClient()
+    const error = Object.assign(new Error("turn_running"), { status: 409 })
+    const mutation = client.getMutationCache().build(client, {
+      mutationKey: ["conversation-file-save"],
+      mutationFn: async () => {
+        throw error
+      },
+    })
+    await expect(mutation.execute(undefined)).rejects.toThrow(error)
+    expect(recordException).toHaveBeenCalledTimes(1)
+    expect(addAction).not.toHaveBeenCalled()
+  })
+
+  it("still records a 404 on the turn changes", async () => {
+    await failQuery(["conversation-turn-changes"], "Not found", 404)
+    expect(recordException).toHaveBeenCalledTimes(1)
   })
 })
 

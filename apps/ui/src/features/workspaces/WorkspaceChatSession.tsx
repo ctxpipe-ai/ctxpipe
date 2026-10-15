@@ -108,8 +108,10 @@ export function WorkspaceChatSession(props: {
   publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
+  // A new conversation has no server row until its first turn runs.
+  const [started, setStarted] = useState((initialMessages?.length ?? 0) > 0)
   const turnChanges = useQuery(
-    conversationTurnChangesOptions(orgSlug, conversationId),
+    conversationTurnChangesOptions(orgSlug, conversationId, started),
   )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
@@ -216,6 +218,7 @@ export function WorkspaceChatSession(props: {
           setSendError(new Error(message))
         }
         if (chunk.type === "RUN_FINISHED") {
+          setStarted(true)
           void refreshConversationAfterTurn(
             queryClient,
             orgSlug,

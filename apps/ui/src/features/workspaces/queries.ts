@@ -960,8 +960,11 @@ export async function fetchConversationTurnChanges(
 export function conversationTurnChangesOptions(
   orgSlug: string,
   conversationId: string,
+  /** False while the conversation has no server row: the route answers 404. */
+  enabled = true,
 ) {
   return queryOptions({
+    enabled,
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
     queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
     // A turn records its changes just before it ends, and the backend answers

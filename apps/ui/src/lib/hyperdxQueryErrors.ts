@@ -25,14 +25,20 @@ function isCancellation(error: unknown): boolean {
 }
 
 /**
- * A state the product expects: a 409 while a sandbox starts or a turn runs,
- * and a 404 on the turn changes of a new conversation that has no turns yet.
+ * A 409 that polling queries get while a turn runs or a sandbox starts. Other
+ * 409 answers (a stale worktree, a name conflict) are real failures.
  */
-function isExpectedState(error: unknown, keyName: string | undefined): boolean {
-  if (!error || typeof error !== "object") return false
-  const status = httpStatus(error)
-  if (status === "409") return true
-  return status === "404" && keyName === "conversation-turn-changes"
+function isExpectedState(
+  source: "query" | "mutation",
+  error: unknown,
+): boolean {
+  if (source !== "query" || !(error instanceof Error)) return false
+  if (httpStatus(error) !== "409") return false
+  return (
+    error.message === "turn_running" ||
+    error.message === "missing_sandbox" ||
+    error.message === "Conversation sandbox is not ready"
+  )
 }
 
 function recordUiException(
@@ -53,7 +59,7 @@ function recordUiException(
     }
   }
   // An expected state is an action, not an Error span.
-  if (isExpectedState(error, keyName)) {
+  if (isExpectedState(source, error)) {
     HyperDX.addAction("ui_expected_state", attributes)
     return
   }
