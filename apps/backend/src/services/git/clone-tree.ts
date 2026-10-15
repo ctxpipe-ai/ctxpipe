@@ -185,12 +185,18 @@ async function withFetchedGitSha<T>(
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
-    if (input.treesOnly)
-      for (const [key, value] of [
-        ["remote.origin.promisor", "true"],
-        ["remote.origin.partialclonefilter", "blob:none"],
-      ])
-        await gitExec(["-C", dir, "config", key, value], { timeout: 15_000 })
+    if (input.treesOnly) {
+      const config = ["-C", dir, "config"]
+      await gitExec([...config, "remote.origin.promisor", "true"], {
+        timeout: 15_000,
+      })
+      await gitExec(
+        [...config, "remote.origin.partialclonefilter", "blob:none"],
+        {
+          timeout: 15_000,
+        },
+      )
+    }
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
     await gitExec(

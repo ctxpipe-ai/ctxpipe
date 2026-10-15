@@ -79,10 +79,8 @@ export const WorkspaceSourceListResponseSchema = z
     /** A file-level error of the legacy .ctxpipe/sources.yaml file, or null. */
     fileError: z.string().nullable(),
     items: z.array(WorkspaceSourceSchema),
-    /** The user can change this Workspace's sources (by PR at least). */
+    /** The user can change this Workspace's sources (each change is a PR). */
     canEdit: z.boolean(),
-    /** The Workspace accepts a direct commit of the change (delivery `commit`). */
-    directCommitAllowed: z.boolean(),
     /** Open PRs that change a source file ("awaiting merge"). Join on `path`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
     /** Repository link edits that cannot be made, newest first. */
@@ -103,14 +101,6 @@ export const WorkspaceSourceInputSchema = z
   })
   .openapi("WorkspaceSourceInput")
 
-const DeliverySchema = z
-  .enum(["pull_request", "commit"])
-  .default("pull_request")
-  .openapi("WorkspaceSourceDelivery", {
-    description:
-      "pull_request opens a PR against the default branch (awaiting merge). commit queues a direct commit to the default branch through the Workspace write queue.",
-  })
-
 export const CreateWorkspaceSourceRequestSchema = z
   .object({
     /**
@@ -119,7 +109,6 @@ export const CreateWorkspaceSourceRequestSchema = z
      */
     path: z.string().optional(),
     source: WorkspaceSourceInputSchema,
-    delivery: DeliverySchema,
   })
   .openapi("CreateWorkspaceSourceRequest")
 
@@ -136,11 +125,9 @@ export const BatchCreateWorkspaceSourcesRequestSchema = z
       )
       .min(1)
       .max(20),
-    delivery: DeliverySchema,
   })
   .openapi("BatchCreateWorkspaceSourcesRequest", {
-    description:
-      "Add several sources in one pull request or one direct commit.",
+    description: "Add several sources in one pull request.",
   })
 
 export const UpdateWorkspaceSourceRequestSchema = z
@@ -148,7 +135,6 @@ export const UpdateWorkspaceSourceRequestSchema = z
     /** The path of the source file to change. */
     path: z.string().min(1),
     source: WorkspaceSourceInputSchema,
-    delivery: DeliverySchema,
   })
   .openapi("UpdateWorkspaceSourceRequest")
 
@@ -157,7 +143,6 @@ export const RenameWorkspaceSourceRequestSchema = z
     path: z.string().min(1),
     /** The new path. The provider folder stays the same. */
     newPath: z.string().min(1),
-    delivery: DeliverySchema,
   })
   .openapi("RenameWorkspaceSourceRequest", {
     description:
@@ -165,38 +150,26 @@ export const RenameWorkspaceSourceRequestSchema = z
   })
 
 export const DeleteWorkspaceSourceQuerySchema = z
-  .object({ path: z.string().min(1), delivery: DeliverySchema })
+  .object({ path: z.string().min(1) })
   .openapi("DeleteWorkspaceSourceQuery")
 
+/** A source changes only by a pull request against the default branch. */
 export const WorkspaceSourceChangeResultSchema = z
-  .discriminatedUnion("outcome", [
-    z.object({
-      outcome: z.literal("pull_request"),
-      /** The path of the changed file (the new path for a rename). */
-      path: z.string(),
-      pullRequestUrl: z.string().url(),
-    }),
-    z.object({
-      // The durable Workspace write queue commits to the default branch.
-      outcome: z.literal("commit_queued"),
-      path: z.string(),
-    }),
-  ])
+  .object({
+    outcome: z.literal("pull_request"),
+    /** The path of the changed file (the new path for a rename). */
+    path: z.string(),
+    pullRequestUrl: z.string().url(),
+  })
   .openapi("WorkspaceSourceChangeResult")
 
 export const WorkspaceSourceBatchResultSchema = z
-  .discriminatedUnion("outcome", [
-    z.object({
-      outcome: z.literal("pull_request"),
-      /** The path of each added file, in request order. */
-      paths: z.array(z.string()),
-      pullRequestUrl: z.string().url(),
-    }),
-    z.object({
-      outcome: z.literal("commit_queued"),
-      paths: z.array(z.string()),
-    }),
-  ])
+  .object({
+    outcome: z.literal("pull_request"),
+    /** The path of each added file, in request order. */
+    paths: z.array(z.string()),
+    pullRequestUrl: z.string().url(),
+  })
   .openapi("WorkspaceSourceBatchResult")
 
 const errors = {
@@ -224,7 +197,7 @@ const changeOk = {
     content: {
       "application/json": { schema: WorkspaceSourceChangeResultSchema },
     },
-    description: "The file change: a PR (awaiting merge) or a queued commit",
+    description: "The pull request of the change (awaiting merge)",
   },
 } as const
 
@@ -277,8 +250,7 @@ export const batchCreateWorkspaceSourcesRoute = createRoute({
       content: {
         "application/json": { schema: WorkspaceSourceBatchResultSchema },
       },
-      description:
-        "The file change: one PR (awaiting merge) or one queued commit",
+      description: "The one pull request of the new sources (awaiting merge)",
     },
     ...errors,
   },
