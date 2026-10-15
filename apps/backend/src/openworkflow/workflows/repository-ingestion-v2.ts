@@ -564,7 +564,8 @@ export function defineRepositoryIngestionV2Workflow(
                   getLogger().warn("ingestion-v2.partial", {
                     step: `publish:${workspaceId}`,
                     workspaceId,
-                    reason: published.refused,
+                    // A fixed code: the cause text can hold model or customer text.
+                    reason: published.reason,
                   })
                 }
               } else {

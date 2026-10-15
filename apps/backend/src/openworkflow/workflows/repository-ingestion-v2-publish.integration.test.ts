@@ -10,6 +10,7 @@ import {
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { and, eq, sql } from "drizzle-orm"
+import { initLogger } from "evlog"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
@@ -349,7 +350,17 @@ function wrapGit(dir: string, before: string): string {
   return bin
 }
 
+/** Events that the run logger drained, for the check of a logged cause. */
+const loggedEvents: Record<string, unknown>[] = []
+
 beforeAll(async () => {
+  initLogger({
+    pretty: false,
+    silent: true,
+    drain: (ctx) => {
+      loggedEvents.push(ctx.event)
+    },
+  })
   const databaseUrl = process.env.DATABASE_URL
   if (!databaseUrl)
     throw new Error("DATABASE_URL is required for the ingestion v2 publish")
@@ -787,6 +798,18 @@ describe("ingestion v2 publish", () => {
       const runId = handle.workflowRun.id
       const entry = expectOnlyContextBPublished(result, runId)
       expect(entry?.refused).toMatch(/default branch kept changing/)
+      // The partial log names a fixed cause, not model or customer text.
+      const partialLogs = loggedEvents.filter(
+        (event) =>
+          event.level === "warn" &&
+          event.ingestionRunId === runId &&
+          event.workspaceId === workspaceIds[0] &&
+          String(event.step).startsWith("publish:"),
+      )
+      expect(partialLogs).not.toEqual([])
+      expect(partialLogs.map((event) => event.reason)).toEqual(
+        partialLogs.map(() => "failed"),
+      )
       expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
         `Ctxpipe-Run: ${runId}`,
       )
