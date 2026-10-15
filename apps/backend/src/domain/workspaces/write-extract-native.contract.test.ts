@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -31,6 +33,10 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [
+          {
+            path: ".ctxpipe/billing.md",
+            body: "---\nimport_key: legacy:billing\n---\n\n# Host-only config\n",
+          },
           {
             path: knowledgePath,
             body: "---\nimport_key: legacy:billing\ncustom: Finance\n---\n\n# Billing\nOwner notes.\n",
@@ -788,6 +794,76 @@ it(
         } finally {
           await worker.stop()
           await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "hands raced extraction output to a semantic merge with the extraction origin",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "knowledge/guide.md", body: "# Guide\n" }],
+      },
+      async (f) => {
+        await f.handle.cancel()
+        // A person pushes after the job bound its revision, so the job's
+        // push loses the race and hands off to a semantic merge.
+        f.git("reset", "--hard", f.sha)
+        writeFileSync(join(f.directory, "knowledge/guide.md"), "# Guide\nNew\n")
+        f.git("add", "knowledge/guide.md")
+        f.git("commit", "-m", "Human knowledge update")
+        f.git("push", f.remote, "HEAD:main")
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        const jobId = `wjob_${f.id}_raced_extract`
+        try {
+          await worker.start()
+          await f.runner.runWorkflow(workspaceExtractIngest.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            extraction: await storeTestExtraction(f.org.id, {
+              repositoryId: "repo_captured",
+              repositoryUrl: f.workspaceUrl,
+              sourceSha: f.sha,
+              objects: [
+                {
+                  kind: "Service",
+                  deduplicationKey: "svc:ledger",
+                  name: "Ledger",
+                  summary: "Captured ledger",
+                },
+              ],
+              claims: [],
+            }),
+          })
+          await expect
+            .poll(
+              async () =>
+                (await f.backend.listWorkflowRuns({ limit: 100 })).data.find(
+                  (run) =>
+                    run.workflowName === "workspace-write-semantic-merge" &&
+                    (run.input as { jobId?: string })?.jobId === jobId,
+                )?.input,
+              { timeout: 30_000 },
+            )
+            .toMatchObject({ origin: "extraction" })
+        } finally {
+          await worker.stop()
         }
       },
     )
