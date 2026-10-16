@@ -28,9 +28,10 @@ export async function listUpgradePullRequests(
 
 /**
  * The branch to push for the upgrade pull request: the branch of our own open
- * pull request, else the first name from `base`, `base-2`, `base-3`, ... that
+ * pull request, else the first name from `base`, `base-2`, ... `base-11` that
  * no pull request of another person or App uses. ctx| never pushes over the
- * branch of a pull request it does not own.
+ * branch of a pull request it does not own. When all of these names are
+ * taken, the function throws, and the upgrade fails with that reason.
  */
 export function chooseUpgradeBranch(
   pulls: Array<{ branch: string; ours: boolean }>,
@@ -40,7 +41,9 @@ export function chooseUpgradeBranch(
   if (own) return own.branch
   const taken = new Set(pulls.map((pull) => pull.branch))
   if (!taken.has(base)) return base
-  let n = 2
-  while (taken.has(`${base}-${n}`)) n++
-  return `${base}-${n}`
+  for (let n = 2; n <= 11; n++)
+    if (!taken.has(`${base}-${n}`)) return `${base}-${n}`
+  throw new Error(
+    `Pull requests that ctx| did not open use the upgrade branch ${base} and its next 10 suffixed names. Close some of them, then start the upgrade again.`,
+  )
 }

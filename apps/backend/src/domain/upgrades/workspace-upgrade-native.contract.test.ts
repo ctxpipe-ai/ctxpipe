@@ -325,9 +325,12 @@ it(
       created_at: "2026-10-15T00:00:00Z",
     })
     // A person and another GitHub App each hold the base upgrade branch name.
+    // Our pull request on `format-30` belongs to another upgrade: the scan of
+    // `format-3` must not adopt it.
     const foreignPulls = [
       pull(8, BRANCH, { type: "User", login: "someone" }),
       pull(9, BRANCH, { type: "Bot", login: "other-app[bot]" }),
+      pull(50, `${BRANCH}0`, { type: "Bot", login: "ctxpipe-fixture[bot]" }),
     ]
     let openPulls: Array<ReturnType<typeof pull>> = foreignPulls
     await withNativeHydrationFixture(
@@ -413,7 +416,9 @@ it(
           expect(hasBranch(`${BRANCH}-2`)).toBe(true)
           expect(opened).toHaveLength(1)
           expect(opened[0]).toMatchObject({ head: `${BRANCH}-2`, base: "main" })
-          expect(await row()).toMatchObject({ upgrade: { prNumber: 41 } })
+          expect(await row()).toMatchObject({
+            upgrade: { prNumber: 41, branch: `${BRANCH}-2` },
+          })
 
           // The next click and the next scan find our pull request on the
           // suffixed branch: no third branch, no second pull request.
@@ -427,9 +432,10 @@ it(
             trigger: "second",
           })
           await again.result({ timeoutMs: 30_000 })
+          // The scan stores the real branch of our pull request.
           expect(await row()).toMatchObject({
             status: "pr_open",
-            upgrade: { prNumber: 41 },
+            upgrade: { prNumber: 41, branch: `${BRANCH}-2` },
           })
           expect(opened).toHaveLength(1)
           expect(hasBranch(`${BRANCH}-3`)).toBe(false)

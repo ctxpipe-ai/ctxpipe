@@ -346,6 +346,7 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
               return finish(UPGRADE_STATUSES.pr_open, {
                 desiredSha: built.revision.sha,
                 upgrade: {
+                  branch: built.branch,
                   fromFormat: built.fromFormat,
                   prNumber: pull.prNumber,
                   prUrl: pull.prUrl,

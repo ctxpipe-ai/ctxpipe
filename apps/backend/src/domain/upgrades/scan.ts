@@ -181,6 +181,7 @@ export async function scanWorkspaceUpgrade(input: {
       UPGRADE_STATUSES.pr_open,
       [...SCAN_OWNED, UPGRADE_STATUSES.pr_open],
       {
+        branch: open.branch,
         prUrl: open.pullUrl,
         prNumber: parseGithubPullNumberFromUrl(open.pullUrl),
         note: undefined,
