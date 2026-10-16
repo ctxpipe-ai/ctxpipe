@@ -218,7 +218,9 @@ export async function runIngestShardStep(
     remote: string
     /** The source repository URL that the step's files cite. */
     sourceUrl: string
-    /** The source file of the repository in the step's Workspace (`sources`). */
+    /**
+     * The source file of the repository in the step's Workspace (`sources`).
+     */
     sourcePath: string
     index?: string
     /** `ctxpipe/<model>` for a model step. */

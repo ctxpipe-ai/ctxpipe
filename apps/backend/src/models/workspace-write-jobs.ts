@@ -510,7 +510,7 @@ export async function persistBoundWriteJob(input: {
   publishPipeline?: "legacy" | "v2"
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
-  /** The removed source file of that repository (ADR-050 revision 2026-10-16). */
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
   retractSourcePath?: string
   displayName?: string
   previousSha?: string

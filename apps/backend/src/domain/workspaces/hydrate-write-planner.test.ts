@@ -28,6 +28,7 @@ function plan(files: Array<{ path: string; content: string }>) {
     displayName: "Knowledge",
     files: [...bootstrapped, ...files],
     sourceFiles: [],
+    sourceRows: [],
     publishPipeline: "legacy",
   })
 }
@@ -92,6 +93,7 @@ function ownershipRemainder(
     displayName: "Context",
     files: migrationFiles,
     sourceFiles,
+    sourceRows: [],
     publishPipeline,
   }).find((write) => write.kind === "ownership_migration")
 }

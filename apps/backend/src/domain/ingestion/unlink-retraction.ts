@@ -238,7 +238,7 @@ function withoutSharedSource(
     let marked = front.body
     for (const [i, block] of blocks.entries())
       marked = marked.replace(block, () => marker(i))
-    const edited = withoutAreaSource(marked, source, sourceIdentity)
+    const edited = withoutAreaSource(marked, source)
     if (
       (edited.match(markers()) ?? []).join("") !==
       blocks.map((_, i) => marker(i)).join("")
@@ -248,8 +248,8 @@ function withoutSharedSource(
       )
     // The validator reads an area body with no human sections.
     const unmarked = (body: string) => body.replace(markers(), "")
-    const beforeArea = parseAreaBody(unmarked(marked), sourceIdentity)
-    const afterArea = parseAreaBody(unmarked(edited), sourceIdentity)
+    const beforeArea = parseAreaBody(unmarked(marked))
+    const afterArea = parseAreaBody(unmarked(edited))
     if ("error" in beforeArea || "error" in afterArea)
       throw new Error(
         `The area file ${path} has a form that the host cannot read`,

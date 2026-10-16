@@ -282,6 +282,10 @@ export function defineWorkspaceHydrateWorkflow(
                       displayName: workspace.displayName,
                       files,
                       sourceFiles,
+                      sourceRows: await listWorkspaceSourceRows({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                      }),
                       publishPipeline,
                     })
                     if (await getMigrationExportSha(workspace.id, revision)) {
@@ -443,6 +447,7 @@ export function defineWorkspaceHydrateWorkflow(
                         connectionId: row.connectionId,
                         scope: row.scope,
                         status: row.status,
+                        state: row.state,
                       })),
                   )
                 : []

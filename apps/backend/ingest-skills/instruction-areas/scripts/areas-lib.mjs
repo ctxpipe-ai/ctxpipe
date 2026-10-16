@@ -81,15 +81,10 @@ export function cleanText(text, max) {
 
 /**
  * The normal form of a source in an area file: the source file path of the
- * Workspace (ADR-050 revision 2026-10-16), trimmed. A GitHub URL gets the
- * host's URL form, so the script can still read an older file.
+ * Workspace (ADR-050 revision 2026-10-16), trimmed, as the host reads it.
  */
 export function normalizeSource(url) {
-  const text = String(url)
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\.git$/i, "")
-  return /^https?:\/\/github\.com\//i.test(text) ? text.toLowerCase() : text
+  return String(url).trim()
 }
 
 export function nameKey(text) {

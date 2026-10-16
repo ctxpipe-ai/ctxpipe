@@ -87,12 +87,16 @@ export function defineKnowledgeRewriteWorkflow(options: {
    * each push goes through this check (no semantic merge).
    */
   publishPipeline?: { committed: () => IngestionPublishPipeline }
-  /** `sourceFiles` are the blobs under `sources/` at the same revision. */
+  /**
+   * `sourceFiles` are the blobs under `sources/` at the same revision;
+   * `orgId` is the org of the job.
+   */
   transform: (
     files: KnowledgeFile[],
     revision: WorkspaceRevision,
     sourceFiles: SourceFileBlob[],
-  ) => KnowledgeFile[]
+    orgId: string,
+  ) => KnowledgeFile[] | Promise<KnowledgeFile[]>
 }) {
   return defineWorkflow(
     { name: options.name, schema: inputSchema },
@@ -173,6 +177,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
                 ),
                 revision,
                 (await readSourcesTree(acquired.pack)).sourceFiles,
+                input.orgId,
               ),
           )
           if (!files.length) {

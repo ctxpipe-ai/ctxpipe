@@ -263,9 +263,10 @@ export async function enqueueSourceProjectionFollowUps(input: {
  * the source file that declared it, only while ingestion v2 publishes. The
  * files of the repository list that source path in `sources` (ADR-050
  * revision 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
- * path, and ingestion v2 owns no file of it, so it gets no job. A stored source row that still names the
- * repository in any form keeps it (`sourceRowsNameRepository`): also an
- * entry that became invalid, as it keeps its files (the CTX-710 rule above).
+ * path, and ingestion v2 owns no file of it, so it gets no job. A stored
+ * source row that still names the repository in any form keeps it
+ * (`sourceRowsNameRepository`): also an entry that became invalid, as it
+ * keeps its files (the CTX-710 rule above).
  * The job checks the sources at the tip again. The job id is fixed for the
  * revision, so a retry queues no second job. A job that does not start makes
  * this call fail, so the step that runs it retries; the retraction is not

@@ -75,21 +75,54 @@ export function githubSourceRepositories(
 }
 
 /**
- * The source file path of each repository that a GitHub source file under
- * `sources/` declares, by normalized repository URL (ADR-050 revision
- * 2026-10-16). It reads only the files, as the projection does once the
- * folder exists; an entry of `.ctxpipe/sources.yaml` has no source path.
- * Ingestion v2 writes this path into `sources` (ADR-052 section 3).
+ * The source file path of each repository that an `ok` GitHub source file
+ * row names, by normalized repository URL (ADR-050 decision 6). The rows are
+ * the rows of the projection (stored, or from {@link resolveSourceRows}), so
+ * the winner of a repository that two files name is the winner of the
+ * projection. A row of `.ctxpipe/sources.yaml` has no source path. Ingestion
+ * v2 writes this path into `sources` (ADR-052 section 3).
+ */
+export function githubSourcePaths(
+  rows: ReadonlyArray<{
+    sourceKey: string
+    provider: string | null
+    status: string
+    scope: unknown
+  }>,
+): Map<string, string> {
+  const paths = new Map<string, string>()
+  for (const row of rows) {
+    if (
+      row.provider !== "github" ||
+      row.status !== "ok" ||
+      !checkSourcePath(row.sourceKey).ok
+    )
+      continue
+    for (const { name } of githubSourceScopeRepositories(row.scope)) {
+      const gitUrl = normalizeWorkspaceRepositoryUrl(
+        `https://github.com/${name}`,
+      )
+      if (!paths.has(gitUrl)) paths.set(gitUrl, row.sourceKey)
+    }
+  }
+  return paths
+}
+
+/**
+ * {@link githubSourcePaths} of the source files at a revision, with the
+ * stored rows of the Workspace as the previous rows of the projection.
  */
 export function githubSourcePathsByRepository(
   sourceFiles: ReadonlyArray<SourceFileBlob>,
+  previousRows: ReadonlyArray<PreviousSourceRow>,
 ): Map<string, string> {
-  return new Map(
-    githubSourceRepositories(null, null, sourceFiles).flatMap((declared) =>
-      declared.path.startsWith(SOURCES_FOLDER_PREFIX)
-        ? [[declared.gitUrl, declared.path] as const]
-        : [],
-    ),
+  return githubSourcePaths(
+    resolveSourceRows({
+      text: null,
+      files: sourceFiles,
+      connections: null,
+      previousRows,
+    }),
   )
 }
 

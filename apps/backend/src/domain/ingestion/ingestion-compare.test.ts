@@ -104,7 +104,6 @@ describe("projectExtractedTree", () => {
   it("names a v2 unit from `name`, keys a claim by its target unit, and reads the evidence kind", () => {
     const { units } = projectExtractedTree({
       generatedBy: "ctxpipe-extract",
-      sourcePath: SOURCE_PATH,
       files: [
         {
           path: "knowledge/services/checkout-api.md",
@@ -117,17 +116,6 @@ describe("projectExtractedTree", () => {
         {
           path: "knowledge/libraries/http.md",
           content: v2File("Library", "HTTP Client"),
-        },
-        {
-          path: "knowledge/libraries/other.md",
-          content: v2File("Library", "Other", "", [
-            "sources/github/example-org/billing.md",
-          ]),
-        },
-        // A URL in `sources` is not the source file path.
-        {
-          path: "knowledge/libraries/by-url.md",
-          content: v2File("Library", "By URL", "", [SOURCE]),
         },
       ],
     })

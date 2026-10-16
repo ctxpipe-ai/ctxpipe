@@ -24,8 +24,9 @@ const V2_KEYS = new Set([
  * `source` URL in its source repository. This write gives the file to
  * ingestion v2: `generated_by: ctxpipe-extract` and, in `sources`, the path
  * of the source file that declares that repository in the Workspace
- * (`sourcePaths`, ADR-050 revision 2026-10-16). The front matter gets the shape that the ingestion v2 validator
- * accepts, so a later v2 edit that keeps it passes:
+ * (`sourcePaths`, ADR-050 revision 2026-10-16). The front matter gets the
+ * shape that the ingestion v2 validator accepts, so a later v2 edit that
+ * keeps it passes:
  *
  * - It removes each key that ingestion v2 does not know (`import_key`,
  *   `source`, `confidence`, and others).

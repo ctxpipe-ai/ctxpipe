@@ -21,7 +21,10 @@ import type { PatchRule } from "./patch-validator.js"
 export const FIXTURE_SOURCE_URL = "https://github.com/example-org/checkout-api"
 export const FIXTURE_OTHER_SOURCE_URL =
   "https://github.com/example-org/ledger-api"
-/** The source files of the two repositories in the Workspace (`sources`, ADR-050). */
+/**
+ * The source files of the two repositories in the Workspace (`sources`,
+ * ADR-050).
+ */
 export const FIXTURE_SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 export const FIXTURE_OTHER_SOURCE_PATH =
   "sources/github/example-org/ledger-api.md"

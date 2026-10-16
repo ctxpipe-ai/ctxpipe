@@ -5,8 +5,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
-import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
-import { checkSourcePath } from "../workspace-sources/source-file.js"
+import { githubSourcePaths } from "../workspace-sources/github-sources.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
@@ -36,8 +35,8 @@ export async function resolveIngestionV2Run(
   input: Pick<IngestionV2Input, "orgId" | "source">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
-  const fullName = githubRepoFullNameFromWorkspaceUrl(sourceUrl)?.toLowerCase()
-  if (!fullName) return { skipped: "not_github" }
+  if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))
+    return { skipped: "not_github" }
   const orgWorkspaces = await withOrgDbContext(input.orgId, () =>
     listOrgWorkspaces(input.orgId),
   )
@@ -57,6 +56,8 @@ export async function resolveIngestionV2Run(
           .select({
             workspaceId: workspaceSources.workspaceId,
             sourceKey: workspaceSources.sourceKey,
+            provider: workspaceSources.provider,
+            status: workspaceSources.status,
             scope: workspaceSources.scope,
           })
           .from(workspaceSources)
@@ -71,21 +72,10 @@ export async function resolveIngestionV2Run(
           .from(repositories),
       ]),
   )
-  // The projection makes a second file of one repository invalid, so each
-  // Workspace has at most one such row. Byte order keeps the choice stable.
-  const sourcePaths = new Map<string, string>()
-  for (const row of [...sourceRows].sort((a, b) =>
-    a.sourceKey < b.sourceKey ? -1 : a.sourceKey > b.sourceKey ? 1 : 0,
-  )) {
-    if (sourcePaths.has(row.workspaceId)) continue
-    if (!checkSourcePath(row.sourceKey).ok) continue
-    if (
-      githubSourceScopeRepositories(row.scope).some(
-        ({ name }) => name.toLowerCase() === fullName,
-      )
-    )
-      sourcePaths.set(row.workspaceId, row.sourceKey)
-  }
+  const sourcePath = (workspaceId: string) =>
+    githubSourcePaths(
+      sourceRows.filter((row) => row.workspaceId === workspaceId),
+    ).get(sourceUrl)
   const repositoryId = (url: string) =>
     repositoryRows.find(
       (row) =>
@@ -93,8 +83,8 @@ export async function resolveIngestionV2Run(
         normalizeWorkspaceRepositoryUrl(url),
     )?.id ?? null
   const candidates = orgWorkspaces.flatMap((row) => {
-    const sourcePath = sourcePaths.get(row.id)
-    return sourcePath ? [{ row, sourcePath }] : []
+    const path = sourcePath(row.id)
+    return path ? [{ row, sourcePath: path }] : []
   })
   if (!candidates.length) return { skipped: "no_destination" }
   const destinations: IngestDestination[] = candidates

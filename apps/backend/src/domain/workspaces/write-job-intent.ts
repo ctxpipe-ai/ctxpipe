@@ -60,7 +60,7 @@ export type WorkspaceWriteJobPayload = {
   publishPipeline?: IngestionPublishPipeline
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
-  /** The removed source file of that repository (ADR-050 revision 2026-10-16). */
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
   retractSourcePath?: string
   /** Why the job failed, when it failed for a known reason. */
   failureReason?: string

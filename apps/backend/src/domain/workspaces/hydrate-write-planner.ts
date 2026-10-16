@@ -1,7 +1,10 @@
 import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { ownershipMigrationFiles } from "../ingestion/ownership-migration.js"
 import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
-import type { SourceFileBlob } from "../workspace-sources/projection-plan.js"
+import type {
+  PreviousSourceRow,
+  SourceFileBlob,
+} from "../workspace-sources/projection-plan.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { removeFolderMapMarkers } from "./folder-list.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
@@ -35,8 +38,10 @@ export function planHydrateWrites(input: {
   revision: WorkspaceRevision
   displayName: string
   files: Array<{ path: string; content: string }>
-  /** The blobs under `sources/`: they give the source path of each repository. */
+  /** The blobs under `sources/`: the source path of each repository. */
   sourceFiles: ReadonlyArray<SourceFileBlob>
+  /** The stored source rows: they decide the winner of a repository. */
+  sourceRows: ReadonlyArray<PreviousSourceRow>
   publishPipeline: IngestionPublishPipeline
 }): HydrateWriteRequirement[] {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
@@ -60,7 +65,10 @@ export function planHydrateWrites(input: {
       input.publishPipeline === "v2"
         ? ownershipMigrationFiles({
             workspaceRepositoryUrl: input.revision.remote.url,
-            sourcePaths: githubSourcePathsByRepository(input.sourceFiles),
+            sourcePaths: githubSourcePathsByRepository(
+              input.sourceFiles,
+              input.sourceRows,
+            ),
             files: input.files,
           }).length
         : 0,

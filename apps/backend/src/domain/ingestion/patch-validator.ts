@@ -259,7 +259,10 @@ export function fileOwnership(raw: string, sourcePath: string): FileOwnership {
   return new Set(sources).size === 1 ? "sole" : "shared"
 }
 
-/** The source paths a generated file lists; empty for a file ctxpipe does not generate. */
+/**
+ * The source paths a generated file lists; empty for a file ctxpipe does not
+ * generate.
+ */
 export function fileSources(raw: string): string[] {
   const front = splitFrontMatter(raw)
   const attributes = front ? parseYamlObject(front.yaml) : null
@@ -898,11 +901,11 @@ async function checkAreaWrite(
     )
 
   const withoutHuman = (body: string) => body.replace(HUMAN_BLOCK, "")
-  const after = parseAreaBody(withoutHuman(front.body), sourceIdentity)
+  const after = parseAreaBody(withoutHuman(front.body))
   if ("error" in after) return shared(after.error)
   let beforeArea: AreaFile | null = null
   if (before && baseFront) {
-    const read = parseAreaBody(withoutHuman(baseFront.body), sourceIdentity)
+    const read = parseAreaBody(withoutHuman(baseFront.body))
     beforeArea = "error" in read ? null : read
   }
   const change = checkAreaChange({

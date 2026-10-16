@@ -32,7 +32,8 @@ const MAX_RELATED_LINES = 200
  * inputs --source <checkout>, --source-url <url>, --source-path <path> (the
  * source file of the repository in the Workspace, the value of `sources`),
  * --roots <file>, and --path <root> in a root step only. --root <dir>
- * moves the step folder (default /ctxpipe). `value(name)` reads a further option of the script.
+ * moves the step folder (default /ctxpipe). `value(name)` reads a further
+ * option of the script.
  * A script that needs no step folder uses this; `scriptStep` adds the step.
  */
 export function stepArgs(argv = process.argv.slice(2)) {
@@ -85,7 +86,8 @@ const SOURCE_PATH =
 /**
  * Arguments (ADR-052 section 6, the same for each skill): --source
  * <checkout> --source-url <url> --source-path <path> --roots <file>, and
- * --path <root> in a root step only. --root <dir> moves the step folder (default /ctxpipe).
+ * --path <root> in a root step only. --root <dir> moves the step folder
+ * (default /ctxpipe).
  *
  * The roots file is the host's root-to-file map (ADR-052 section 6):
  *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
@@ -154,7 +156,10 @@ export function scriptStep(argv = process.argv.slice(2)) {
   }
 }
 
-/** { path, kind } of a context file at the base commit whose sources hold `sourcePath`, or null. */
+/**
+ * { path, kind } of a context file at the base commit whose sources hold
+ * `sourcePath`, or null.
+ */
 function sourceFile(step, path, sourcePath) {
   if (
     !safePath(path) ||

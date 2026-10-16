@@ -25,7 +25,10 @@ export type ContextIndexEntry = {
   summary: string | null
   /** Paths of other units in the projection that this unit links to. */
   links: string[]
-  /** Source file paths (`sources`) of a generated file (ADR-050 revision 2026-10-16). */
+  /**
+   * Source file paths (`sources`) of a generated file (ADR-050 revision
+   * 2026-10-16).
+   */
   sources: string[]
   /** True when the run's source owns the file. */
   owned: boolean

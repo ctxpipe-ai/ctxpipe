@@ -8,6 +8,7 @@ import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js
 import { ownershipMigrationFiles } from "../../domain/ingestion/ownership-migration.js"
 import { githubSourcePathsByRepository } from "../../domain/workspace-sources/github-sources.js"
 import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js"
@@ -30,10 +31,16 @@ export function defineWorkspaceOwnershipMigrationWorkflow(
     publishPipeline: {
       committed: deps.committedPipeline ?? ingestionPublishPipeline,
     },
-    transform: (files, revision, sourceFiles) =>
+    transform: async (files, revision, sourceFiles, orgId) =>
       ownershipMigrationFiles({
         workspaceRepositoryUrl: revision.remote.url,
-        sourcePaths: githubSourcePathsByRepository(sourceFiles),
+        sourcePaths: githubSourcePathsByRepository(
+          sourceFiles,
+          await listWorkspaceSourceRows({
+            orgId,
+            workspaceId: revision.workspaceId,
+          }),
+        ),
         files,
         onDroppedClaim: (drop) =>
           log.warn({
