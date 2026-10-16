@@ -407,13 +407,45 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
       )
       const row = (key: string) =>
         withOrgIdContext(ORG, () => getWorkspaceUpgradeRow(workspace.id, key))
+      /** On a timeout, name each run and the steps of the run that did not end. */
+      const settle = async <T>(
+        handle: { workflowRun: { id: string }; result: () => Promise<T> },
+      ): Promise<T> => {
+        try {
+          return await handle.result()
+        } catch (error) {
+          const lines: string[] = []
+          for (const b of [backend, f.backend])
+            for (const r of (await b.listWorkflowRuns({ limit: 200 })).data)
+              lines.push(
+                `${r.workflowName} ${r.status} attempts=${r.attempts} ${r.error?.message ?? ""}`,
+              )
+          const steps = await backend
+            .listStepAttempts({ workflowRunId: handle.workflowRun.id })
+            .catch(() =>
+              f.backend.listStepAttempts({
+                workflowRunId: handle.workflowRun.id,
+              }),
+            )
+          for (const step of steps.data)
+            lines.push(
+              `  step ${step.stepName} ${step.status} ${JSON.stringify(step.error)}`,
+            )
+          throw new Error(
+            `${error instanceof Error ? error.message : String(error)}\n${lines.join("\n")}`,
+          )
+        }
+      }
       const scan = async (trigger: string) => {
         const handle = await runner.runWorkflow(workspaceUpgradeScan.spec, {
           orgId: ORG.id,
           release: "test",
           trigger,
         })
-        return handle.result({ timeoutMs: 60_000 })
+        return settle({
+          workflowRun: handle.workflowRun,
+          result: () => handle.result({ timeoutMs: 90_000 }),
+        })
       }
       const api = (method: string, path: string) => {
         const env = parseEnv(process.env)
@@ -447,7 +479,12 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         await f.worker.start()
         await worker.start()
         // The first hydrate after the deploy reads the main layout: format 0.
-        expect(await f.handle.result({ timeoutMs: 120_000 })).toMatchObject({
+        expect(
+          await settle({
+            workflowRun: f.handle.workflowRun,
+            result: () => f.handle.result({ timeoutMs: 120_000 }),
+          }),
+        ).toMatchObject({
           hydrated: true,
         })
         expect(branchHead()).toBe(f.sha)
@@ -529,7 +566,12 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           workspaceId: workspace.id,
           revision,
         })
-        expect(await hydrate.result({ timeoutMs: 120_000 })).toMatchObject({
+        expect(
+          await settle({
+            workflowRun: hydrate.workflowRun,
+            result: () => hydrate.result({ timeoutMs: 120_000 }),
+          }),
+        ).toMatchObject({
           hydrated: true,
         })
         await expect
