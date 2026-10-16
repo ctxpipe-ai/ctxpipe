@@ -3,9 +3,23 @@ import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
-import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
-import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
-import { withFormatWriteGate } from "../domain/workspaces/workspace-format.js"
+import {
+  resolveRepositoryReadCredential,
+  resolveWorkspaceReadRevision,
+} from "../domain/workspaces/resolve-revision.js"
+import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../domain/workspaces/root-path.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  readWorkspaceFormat,
+  WORKSPACE_FORMAT_PATH,
+  withFormatWriteGate,
+  workspaceFormatAtLeast,
+  workspaceFormatCacheValue,
+} from "../domain/workspaces/workspace-format.js"
 import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
@@ -24,6 +38,7 @@ import {
   persistWriteStatus,
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
+import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
@@ -131,6 +146,27 @@ async function storeProbedWriteStatus(input: {
 }
 
 export type EnqueueWorkspaceWriteCommitInput = EnqueueWriteJobInput
+
+/** The format in the tree of `revision` (0 with no format file). */
+async function tipWorkspaceFormat(
+  orgId: string,
+  revision: WorkspaceRevision,
+): Promise<number> {
+  const [file] = await listMarkdownFilesAtGitSha({
+    url: revision.remote.url,
+    sha: revision.sha,
+    token: await resolveRepositoryReadCredential({
+      orgId,
+      env: parseEnv(process.env),
+      remote: revision.remote,
+    }),
+    root: workspaceRootPath(revision),
+    // Fetch only the blobs of `.ctxpipe/`.
+    prefix: ".ctxpipe/",
+    extraPaths: [WORKSPACE_FORMAT_PATH],
+  }).then((files) => files.filter((f) => f.path === WORKSPACE_FORMAT_PATH))
+  return workspaceFormatCacheValue(readWorkspaceFormat(file?.content ?? null))
+}
 
 export async function enqueueWriteJob(
   input: EnqueueWriteJobInput,
@@ -341,6 +377,26 @@ export async function enqueueWriteJob(
         jobDesiredSha = stored.desiredSha
         admissionStatus =
           stored.writeStatus === "writable" ? "queued" : "paused"
+      }
+      // A bind or rebind writes the bootstrap files directly only at format
+      // 3 or more. Below 3 the upgrade pull request carries them (ADR-053
+      // section 7), so the scan offers the upgrade instead. An empty
+      // repository took the root commit path above.
+      if (
+        rebindsTip &&
+        !workspaceFormatAtLeast(
+          await tipWorkspaceFormat(input.orgId, revision),
+          INGESTION_V2_PUBLISH_FORMAT,
+        )
+      ) {
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workflows/workspace-upgrade-scan.js"
+        )
+        await enqueueWorkspaceUpgradeScan({
+          orgId: input.orgId,
+          trigger: `bind:${input.workspaceId}:${revision.sha}`,
+        })
+        return { started: false }
       }
       if (input.kind === "extract_ingest") {
         const command = workspaceExtractIngestInputSchema.parse({

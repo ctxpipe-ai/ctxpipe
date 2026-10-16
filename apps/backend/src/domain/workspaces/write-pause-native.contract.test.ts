@@ -327,7 +327,12 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
       "../../models/workspaces.js"
     )
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
@@ -547,7 +552,12 @@ it(
   { timeout: 100_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
