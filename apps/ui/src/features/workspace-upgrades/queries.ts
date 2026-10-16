@@ -43,6 +43,32 @@ export type WorkspaceUpgrades = {
   items: WorkspaceUpgradeItem[]
 }
 
+type UpgradeParams = { orgSlug: string; workspaceSlug: string }
+
+/**
+ * The upgrade routes as the Hono client calls them. The backend route type
+ * does not reach the client type yet, so this type stands in for it.
+ */
+type UpgradeRoutes = {
+  upgrades: {
+    $get(args: { param: UpgradeParams }): Promise<Response>
+    [":key"]: {
+      start: {
+        $post(args: {
+          param: UpgradeParams & { key: string }
+        }): Promise<Response>
+      }
+    }
+  }
+}
+
+async function upgradeRoutes() {
+  const client = await getApiClient()
+  return client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ] as unknown as UpgradeRoutes
+}
+
 export const workspaceUpgradeKeys = {
   list: (orgSlug: string, workspaceSlug: string) =>
     ["workspace-upgrades", orgSlug, workspaceSlug] as const,
@@ -60,10 +86,10 @@ export function workspaceUpgradesOptions(
   return queryOptions({
     queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
     queryFn: async (): Promise<WorkspaceUpgrades> => {
-      const client = await getApiClient()
-      const res = await client[":orgSlug"].api.v1.workspaces[
-        ":workspaceSlug"
-      ].upgrades.$get({ param: { orgSlug, workspaceSlug } })
+      const routes = await upgradeRoutes()
+      const res = await routes.upgrades.$get({
+        param: { orgSlug, workspaceSlug },
+      })
       return readApiJson<WorkspaceUpgrades>(res, {
         message: "Failed to load the upgrades",
       })
@@ -82,10 +108,10 @@ export async function startWorkspaceUpgrade(
   workspaceSlug: string,
   key: string,
 ): Promise<WorkspaceUpgradeItem> {
-  const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.workspaces[
-    ":workspaceSlug"
-  ].upgrades[":key"].start.$post({ param: { orgSlug, workspaceSlug, key } })
+  const routes = await upgradeRoutes()
+  const res = await routes.upgrades[":key"].start.$post({
+    param: { orgSlug, workspaceSlug, key },
+  })
   return readApiJson<WorkspaceUpgradeItem>(res, {
     message: "Failed to start the upgrade",
   })
