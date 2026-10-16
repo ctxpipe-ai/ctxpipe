@@ -35,6 +35,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -159,6 +160,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
                 const none: Awaited<ReturnType<typeof planUnlinkRetraction>> = {
                   files: [],
                   deletePaths: [],
+                  skipped: [],
                 }
                 if (pipeline !== "v2") return none
                 // The CTX-710 fence: a repository that a source names again
@@ -179,12 +181,24 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
                   )
                 )
                   return none
-                return planUnlinkRetraction({
+                const plan = await planUnlinkRetraction({
                   pack: acquired.pack,
                   sourceUrl: input.retractRepositoryUrl,
                   workspaceRepositoryUrl: revision.remote.url,
                   observedAt: new Date(run.createdAt).toISOString(),
                 })
+                // A file that the validator cannot delete stays. The job
+                // result lists it, so the retraction does not fail forever.
+                if (plan.skipped.length)
+                  getLogger().warn(
+                    "The unlink retraction left files outside the allowed knowledge folders unchanged",
+                    {
+                      workspaceId: input.workspaceId,
+                      jobId: input.jobId,
+                      skipped: plan.skipped,
+                    },
+                  )
+                return plan
               },
             )
             const changedPaths = [
@@ -206,6 +220,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
               return {
                 committed: false as const,
                 reason: "no_changes" as const,
+                skipped: changes.skipped,
               }
             }
             const staged = await step.run({ name: "stage" }, () =>
@@ -293,7 +308,11 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
             await step.run({ name: "complete" }, () =>
               persistWriteJobCommitSha(input.jobId, committed.sha),
             )
-            return { committed: true as const, commitSha: committed.sha }
+            return {
+              committed: true as const,
+              commitSha: committed.sha,
+              skipped: changes.skipped,
+            }
           }
           throw new Error(
             "Default branch kept changing during no-op validation",
