@@ -32,9 +32,11 @@ import { changeLinkedRepository } from "../workspaces/link-declarations.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import {
-  formatBelow,
+  readWorkspaceFormat,
   SOURCE_FILES_FORMAT,
   UPGRADE_FIRST_MESSAGE,
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatAtLeast,
 } from "../workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
@@ -319,8 +321,13 @@ async function assertConnection(
     )
 }
 
-/** The connected repository, after the read-only check. */
-function assertCanEdit(workspace: WorkspaceRecord) {
+/**
+ * The connected repository, after the read-only check and the format check.
+ * The format check reads the format file on the default branch, the commit
+ * that the writer reads and changes: the cached format can be behind git or
+ * not read yet. No file is format 0, so the write is refused.
+ */
+async function assertCanEdit(workspace: WorkspaceRecord) {
   const repository = workspaceGithubRepository(workspace)
   if (!repository)
     throw new SourceChangeError(
@@ -330,7 +337,16 @@ function assertCanEdit(workspace: WorkspaceRecord) {
   if (!canEditSources(workspace))
     throw new SourceChangeError(409, "This Workspace is read-only")
   // Each writer of the files under `sources/` calls this check.
-  if (formatBelow(workspace.formatVersion, SOURCE_FILES_FORMAT))
+  const format = readWorkspaceFormat(
+    (await getFileContent({ ...repository, path: WORKSPACE_FORMAT_PATH })) ??
+      null,
+  )
+  if (
+    !workspaceFormatAtLeast(
+      format.kind === "format" ? format.format : null,
+      SOURCE_FILES_FORMAT,
+    )
+  )
     throw new SourceChangeError(409, UPGRADE_FIRST_MESSAGE)
   return repository
 }
@@ -434,7 +450,7 @@ export async function changeWorkspaceSource(input: {
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
   assertSourceChangeShape(change)
-  const repository = assertCanEdit(workspace)
+  const repository = await assertCanEdit(workspace)
   if (change.action === "add" || change.action === "edit")
     await assertConnection(
       workspace.orgId,
@@ -496,7 +512,7 @@ export async function addWorkspaceSources(input: {
   if (!changes.length)
     throw new SourceChangeError(400, "Add at least one source")
   for (const change of changes) assertSourceChangeShape(change)
-  const repository = assertCanEdit(workspace)
+  const repository = await assertCanEdit(workspace)
   for (const change of changes)
     await assertConnection(
       workspace.orgId,
@@ -570,7 +586,7 @@ export async function unlinkWorkspaceRepository(input: {
   gitUrl: string
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, gitUrl } = input
-  const repository = assertCanEdit(workspace)
+  const repository = await assertCanEdit(workspace)
   const { branch, ...target } = repository
   const paths = (await listFilesInTree({ ...target, branch }))
     .map((file) => file.path)

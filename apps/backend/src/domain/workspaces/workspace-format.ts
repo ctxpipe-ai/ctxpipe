@@ -144,18 +144,17 @@ export function withFormatWriteGate<
 }
 
 /**
- * True when the cached format is known and older than `minimum`. A format
- * that is not read yet (null) is not below: hydrate has not run, so nothing
- * is known. A format file that is not valid has its own read-only gate.
- * This is the one format reader for each "needs the upgrade" check.
+ * True when `format` is known and is `min` or more. A format that is not
+ * known (null: not read yet) is not at least `min`, so a caller that needs a
+ * format waits or refuses. A format file that is not valid
+ * ({@link WORKSPACE_FORMAT_INVALID}) is also not at least `min`. This is the
+ * one format check for each "has the upgrade" and "needs the upgrade" rule.
  */
-export function formatBelow(
-  formatVersion: number | null | undefined,
-  minimum: number,
+export function workspaceFormatAtLeast(
+  format: number | null,
+  min: number,
 ): boolean {
-  return typeof formatVersion === "number" && formatVersion >= 0
-    ? formatVersion < minimum
-    : false
+  return format !== null && format >= 0 && format >= min
 }
 
 /** The error text of a source writer on a Workspace below format 2. */

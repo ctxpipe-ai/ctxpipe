@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { otelDeploymentEnvironment } from "../../observability/otel.js"
-import { INGESTION_V2_PUBLISH_FORMAT } from "../workspaces/workspace-format.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  workspaceFormatAtLeast,
+} from "../workspaces/workspace-format.js"
 
 /**
  * Shadow mode of ingestion v2 (ADR-052 phase 2). After the old pipeline
@@ -73,8 +76,8 @@ export function publishPipelineStopped(input: {
 export function ingestionV2EnabledFor(workspace: {
   formatVersion: number | null | undefined
 }): boolean {
-  return (
-    typeof workspace.formatVersion === "number" &&
-    workspace.formatVersion >= INGESTION_V2_PUBLISH_FORMAT
+  return workspaceFormatAtLeast(
+    workspace.formatVersion ?? null,
+    INGESTION_V2_PUBLISH_FORMAT,
   )
 }
