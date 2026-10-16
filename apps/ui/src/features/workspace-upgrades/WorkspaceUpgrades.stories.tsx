@@ -376,7 +376,13 @@ export const EstimateFromItem: Story = {
           key: "reingest",
           title: "Ingest the Workspace sources again",
           steps: [],
-          estimate: "Estimated cost: about 4 USD for 120 files.",
+          kind: "reingest",
+          estimate: {
+            repositories: 1,
+            costUsd: { low: 1.2, high: 4.8 },
+            minutes: { low: 10, high: 30 },
+            perRepository: [],
+          },
         }),
       ]),
     ),
@@ -385,7 +391,9 @@ export const EstimateFromItem: Story = {
     const canvas = within(canvasElement)
     await waitFor(async () =>
       expect(
-        await canvas.findByText("Estimated cost: about 4 USD for 120 files."),
+        await canvas.findByText(
+          "Estimated cost: $1.20 to $4.80 for 1 repository, about 10 to 30 minutes.",
+        ),
       ).toBeVisible(),
     )
   },

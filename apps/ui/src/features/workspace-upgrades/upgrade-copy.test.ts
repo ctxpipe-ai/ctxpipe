@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
+  formatUpgradeEstimate,
   upgradeAlertLines,
   upgradeCanStart,
   upgradeIsPending,
@@ -56,5 +57,18 @@ describe("upgrade copy", () => {
         true,
       )[0],
     ).toMatch(/cannot write to the repository/)
+  })
+
+  it("words the estimate of a re-ingestion as a range", () => {
+    expect(
+      formatUpgradeEstimate({
+        repositories: 2,
+        costUsd: { low: 1.2, high: 4.8 },
+        minutes: { low: 10, high: 30 },
+        perRepository: [],
+      }),
+    ).toBe(
+      "Estimated cost: $1.20 to $4.80 for 2 repositories, about 10 to 30 minutes.",
+    )
   })
 })

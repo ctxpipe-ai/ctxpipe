@@ -1,4 +1,8 @@
-import type { UpgradeStatus, WorkspaceUpgradeItem } from "./queries"
+import type {
+  UpgradeEstimate,
+  UpgradeStatus,
+  WorkspaceUpgradeItem,
+} from "./queries"
 
 /** An item that still needs work. Only `completed` is done. */
 export function upgradeIsPending(item: WorkspaceUpgradeItem): boolean {
@@ -49,6 +53,16 @@ export const UPGRADE_STATUS_TAG: Record<
 export const UPGRADE_BLOCKED_COPY: Record<string, string> = {
   write_access:
     "ctx| cannot write to the repository. Give the GitHub App write access, then check the Workspace again.",
+}
+
+/** The estimate of a re-ingestion, from the p50 to the p90 value. */
+export function formatUpgradeEstimate(estimate: UpgradeEstimate): string {
+  const usd = (value: number) => `$${value.toFixed(2)}`
+  const repositories =
+    estimate.repositories === 1
+      ? "1 repository"
+      : `${estimate.repositories} repositories`
+  return `Estimated cost: ${usd(estimate.costUsd.low)} to ${usd(estimate.costUsd.high)} for ${repositories}, about ${estimate.minutes.low} to ${estimate.minutes.high} minutes.`
 }
 
 /** The health line: the format of the repository against the format ctx| reads. */
