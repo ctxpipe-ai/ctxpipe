@@ -7,10 +7,7 @@ import {
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
 import { sourcesHaveNoRepository } from "../../domain/workspace-sources/projection-plan.js"
-import {
-  isSourcesTreePath,
-  splitSourcesTree,
-} from "../../domain/workspace-sources/source-tree.js"
+import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
@@ -27,6 +24,8 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
+import { sourceRowsNameRepository } from "../../models/workspace-source-state.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
@@ -36,7 +35,6 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -158,19 +156,27 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
             const changes = await step.run(
               { name: "transform-unlink-retraction" },
               async () => {
-                const none: Awaited<ReturnType<typeof planUnlinkRetraction>> =
-                  { files: [], deletePaths: [] }
+                const none: Awaited<ReturnType<typeof planUnlinkRetraction>> = {
+                  files: [],
+                  deletePaths: [],
+                }
                 if (pipeline !== "v2") return none
                 // The CTX-710 fence: a repository that a source names again
                 // keeps its files, also when that entry is invalid for now.
-                const { sourcesFile, sourceFiles } = splitSourcesTree(
-                  await readGitFiles(acquired.pack, isSourcesTreePath),
+                // The tip text gives an invalid entry no scope, so a stored
+                // row that still holds the repository also keeps it.
+                const { sourcesFile, sourceFiles } = await readSourcesTree(
+                  acquired.pack,
                 )
                 if (
                   !(await sourcesHaveNoRepository(
                     { text: sourcesFile, sourceFiles },
                     input.retractRepositoryUrl,
-                  ))
+                  )) ||
+                  sourceRowsNameRepository(
+                    await listWorkspaceSourceRows(input),
+                    input.retractRepositoryUrl,
+                  )
                 )
                   return none
                 return planUnlinkRetraction({

@@ -4,10 +4,12 @@ import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
   lastGoodTarget,
   type SourceTarget,
+  sourceRowsNameRepository,
 } from "../../models/workspace-source-state.js"
 import {
   listConnectionSourceRows,
   listConnectionsWithOkSources,
+  listWorkspaceSourceRows,
   sameSource,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
@@ -16,11 +18,10 @@ import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
 import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
-import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
-import { githubSourceScopeRepositories } from "./providers/github.js"
+import { githubRepositoryUrls } from "./providers/github.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -194,10 +195,6 @@ export async function enqueueSourceProjectionFollowUps(input: {
     revision: input.revision,
     publishPipeline: input.publishPipeline,
     left,
-    kept: [
-      ...input.projected.added,
-      ...input.projected.changed.map((change) => change.after),
-    ],
   })
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
@@ -247,24 +244,16 @@ export async function enqueueSourceProjectionFollowUps(input: {
   }
 }
 
-/** The normalized repository URLs of a GitHub target or row. */
-function githubRepositoryUrls(source: {
-  provider: string | null
-  scope: unknown
-}): string[] {
-  if (source.provider !== "github") return []
-  return githubSourceScopeRepositories(source.scope).map(({ name }) =>
-    normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`),
-  )
-}
-
 /**
  * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
  * ingestion v2 extracted from it. One host write job for each repository,
- * only while ingestion v2 publishes. A source entry that became invalid
- * keeps its repository, as it keeps its files (the CTX-710 rule above). A source that names the repository
- * after the projection keeps it; the job checks the sources at the tip again.
- * The job id is fixed for the revision, so a retry queues no second job.
+ * only while ingestion v2 publishes. A stored source row that still names the
+ * repository in any form keeps it (`sourceRowsNameRepository`): also an
+ * entry that became invalid, as it keeps its files (the CTX-710 rule above).
+ * The job checks the sources at the tip again. The job id is fixed for the
+ * revision, so a retry queues no second job. A job that does not start makes
+ * this call fail, so the step that runs it retries; the retraction is not
+ * lost.
  */
 async function enqueueRepositoryRetractions(input: {
   orgId: string
@@ -272,13 +261,17 @@ async function enqueueRepositoryRetractions(input: {
   revision: string
   publishPipeline: IngestionPublishPipeline
   left: ReadonlyArray<SourceTarget>
-  kept: ReadonlyArray<PlannedSourceRow>
 }): Promise<void> {
-  const kept = new Set(input.kept.flatMap(githubRepositoryUrls))
-  const repositories = [
-    ...new Set(input.left.flatMap(githubRepositoryUrls)),
-  ].filter((url) => !kept.has(url))
-  if (!repositories.length || input.publishPipeline !== "v2") return
+  const left = [...new Set(input.left.flatMap(githubRepositoryUrls))]
+  if (!left.length || input.publishPipeline !== "v2") return
+  const rows = await listWorkspaceSourceRows({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+  })
+  const repositories = left.filter(
+    (url) => !sourceRowsNameRepository(rows, url),
+  )
+  if (!repositories.length) return
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: input.orgId } },
   })
@@ -288,8 +281,15 @@ async function enqueueRepositoryRetractions(input: {
       .update(`${input.workspaceId}\0${input.revision}\0${url}`)
       .digest("hex")
       .slice(0, 32)}`
+    const logError = (error: Error) =>
+      log.error({
+        step: "workspace_sources.enqueue_retraction",
+        workspaceId: input.workspaceId,
+        jobId,
+        message: error.message,
+      })
     // Admission reads the Workspace in the org context.
-    await withOrgIdContext(org, () =>
+    const { started } = await withOrgIdContext(org, () =>
       enqueueWriteJob(
         {
           orgId: input.orgId,
@@ -299,15 +299,15 @@ async function enqueueRepositoryRetractions(input: {
           retractRepositoryUrl: url,
           publishPipeline: "v2",
         },
-        {
-          error: (error) =>
-            log.error({
-              step: "workspace_sources.enqueue_retraction",
-              workspaceId: input.workspaceId,
-              message: error.message,
-            }),
-        },
+        { error: logError },
       ),
     )
+    if (!started) {
+      const error = new Error(
+        "The unlink retraction did not start; the follow-ups retry it",
+      )
+      logError(error)
+      throw error
+    }
   }
 }

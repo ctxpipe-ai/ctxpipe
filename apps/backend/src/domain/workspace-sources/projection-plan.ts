@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { githubSourceScopeRepositories } from "./providers/github.js"
+import {
+  githubRepositoryUrls,
+  githubSourceScopeRepositories,
+} from "./providers/github.js"
 import {
   checkSourcePath,
   SOURCE_FILE_MAX_BYTES,
@@ -591,15 +594,8 @@ export async function sourcesHaveNoRepository(
   gitUrl: string,
 ): Promise<boolean> {
   const target = normalizeWorkspaceRepositoryUrl(gitUrl)
-  return sourcesHoldNo(
-    sources,
-    (row) =>
-      row.provider === "github" &&
-      githubSourceScopeRepositories(row.scope).some(
-        ({ name }) =>
-          normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`) ===
-          target,
-      ),
+  return sourcesHoldNo(sources, (row) =>
+    githubRepositoryUrls(row).includes(target),
   )
 }
 

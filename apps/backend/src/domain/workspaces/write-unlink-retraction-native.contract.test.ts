@@ -18,6 +18,7 @@ const UNLINKED = "https://github.com/fixture/billing"
 const OTHER = "https://github.com/fixture/ledger"
 const ROOT = "context"
 const UNLINKED_SOURCE = "sources/github/fixture/billing.md"
+const SOURCES_YAML = ".ctxpipe/sources.yaml"
 const HUMAN =
   "<!-- ctxpipe:human -->\nA note that a human wrote.\n<!-- /ctxpipe:human -->\n"
 
@@ -180,11 +181,15 @@ function humanPush(f: Fixture, files: Record<string, string | null>): string {
 
 /**
  * Project the sources at the tip of the remote and run the follow-ups, as
- * hydrate does for a merged revision while ingestion v2 publishes.
+ * hydrate does for a merged revision while ingestion v2 publishes. Gives a
+ * replay of the follow-ups of this projection.
  */
-async function projectTip(f: Fixture): Promise<string> {
+async function projectTip(
+  f: Fixture,
+  at?: string,
+): Promise<() => Promise<void>> {
   const git = (...args: string[]) => f.git("--git-dir", f.remote, ...args)
-  const sha = git("rev-parse", "refs/heads/main")
+  const sha = at ?? git("rev-parse", "refs/heads/main")
   const paths = git("ls-tree", "-r", "--name-only", sha, `${ROOT}/sources/`)
     .split("\n")
     .filter(Boolean)
@@ -192,35 +197,49 @@ async function projectTip(f: Fixture): Promise<string> {
     path: path.slice(ROOT.length + 1),
     text: `${git("show", `${sha}:${path}`)}\n`,
   }))
+  const yaml = git("ls-tree", "--name-only", sha, `${ROOT}/${SOURCES_YAML}`)
+    ? `${git("show", `${sha}:${ROOT}/${SOURCES_YAML}`)}\n`
+    : null
   const projected = await withOrgIdContext(f.org, () =>
     projectWorkspaceSources({
       orgId: f.org.id,
       workspaceId: f.workspaceId,
       revision: sha,
-      text: null,
+      text: yaml,
       files,
       env: parseEnv(process.env),
     }),
   )
-  await enqueueSourceProjectionFollowUps({
-    orgId: f.org.id,
-    workspaceId: f.workspaceId,
-    revision: sha,
-    projected,
-    publishPipeline: "v2",
-  })
-  return sha
+  const followUps = () =>
+    enqueueSourceProjectionFollowUps({
+      orgId: f.org.id,
+      workspaceId: f.workspaceId,
+      revision: sha,
+      projected,
+      publishPipeline: "v2",
+    })
+  await followUps()
+  return followUps
 }
 
 /**
- * Link both repositories, then merge `merge` and project it. `committed` is
- * the switch value that the push step of the retraction reads.
+ * Link both repositories, then merge `unlink` and project it. `committed` is
+ * the switch value that the push step of the retraction reads. The worker
+ * starts after the projection of the unlink.
  */
 async function mergeThenRetract(
   options: {
     committed: (f: Fixture) => IngestionPublishPipeline
-    /** Merged before the unlink; the projection must not retract for it. */
-    before?: Record<string, string | null>
+    /** Merged one by one before the unlink; none of them retracts. */
+    before?: Array<Record<string, string | null>>
+    /** The unlink pull request. Default: delete the source file. */
+    unlink?: Record<string, string | null>
+    /** Runs after the projection of the unlink, before the worker starts. */
+    afterUnlink?: (f: Fixture) => void
+    /** Project the unlink by a hydrate run, not by a direct call. */
+    hydrate?: true
+    /** The unlink queues no retraction. */
+    keeps?: true
   },
   check: (input: {
     f: Fixture
@@ -228,6 +247,8 @@ async function mergeThenRetract(
     show: (path: string) => string
     merged: string
     jobs: () => Promise<Array<{ id: string; status: string | undefined }>>
+    /** Run the follow-ups of the projection of the unlink again. */
+    replay: () => Promise<void>
   }) => Promise<void> | void,
 ) {
   await withNativeHydrationFixture(
@@ -278,24 +299,51 @@ async function mergeThenRetract(
           committedPipeline: () => options.committed(f),
         })
         runner.implementWorkflow(workflow.spec, workflow.fn)
-        worker = runner.newWorker({ concurrency: 1 })
-        await worker.start()
+        const { defineWorkspaceHydrateWorkflow } = await import(
+          "../../openworkflow/workflows/workspace-hydrate.js"
+        )
+        const hydrate = defineWorkspaceHydrateWorkflow({
+          committedPipeline: () => "v2",
+        })
+        runner.implementWorkflow(hydrate.spec, hydrate.fn)
 
         await projectTip(f)
-        if (options.before) {
-          humanPush(f, options.before)
+        for (const push of options.before ?? []) {
+          humanPush(f, push)
           await projectTip(f)
         }
         // Both repositories stay named, so nothing retracts.
         expect(await jobs()).toEqual([])
 
         // The unlink pull request deletes the source file, and merges.
-        const merged = humanPush(f, { [UNLINKED_SOURCE]: null })
-        await projectTip(f)
-        await expect
-          .poll(jobs, { timeout: 60_000 })
-          .toEqual([{ id: expect.any(String), status: "completed" }])
-        await check({ f, git, show, merged, jobs })
+        const merged = humanPush(
+          f,
+          options.unlink ?? { [UNLINKED_SOURCE]: null },
+        )
+        let replay = async () => {}
+        if (options.hydrate) {
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+          const run = await runner.runWorkflow(hydrate.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision: await f.resolveRevision(true),
+          })
+          expect(await run.result({ timeoutMs: 60_000 })).toMatchObject({
+            hydrated: true,
+          })
+        } else replay = await projectTip(f)
+        if (options.keeps) expect(await jobs()).toEqual([])
+        else options.afterUnlink?.(f)
+        if (!worker) {
+          worker = runner.newWorker({ concurrency: 1 })
+          await worker.start()
+        }
+        if (!options.keeps)
+          await expect
+            .poll(jobs, { timeout: 60_000 })
+            .toEqual([{ id: expect.any(String), status: "completed" }])
+        await check({ f, git, show, merged, jobs, replay })
       } finally {
         await worker?.stop()
         await backend.stop()
@@ -352,10 +400,12 @@ it(
       {
         committed: () => "v2",
         // CTX-710: an entry that became invalid keeps the files.
-        before: {
-          [UNLINKED_SOURCE]:
-            '---\nprovider: github\nconnection: "{{connectionId}}"\nrepository: 5\n---\n',
-        },
+        before: [
+          {
+            [UNLINKED_SOURCE]:
+              '---\nprovider: github\nconnection: "{{connectionId}}"\nrepository: 5\n---\n',
+          },
+        ],
       },
       ({ git, show, merged }) => {
         // One host commit after the merge.
@@ -430,6 +480,137 @@ it(
             `${ROOT}/knowledge/services/`,
           ),
         ).not.toContain("payments.md")
+      },
+    )
+  },
+)
+
+it(
+  "keeps a repository whose source file moves to another path",
+  { timeout: 150_000 },
+  async () => {
+    await mergeThenRetract(
+      {
+        committed: () => "v2",
+        unlink: {
+          [UNLINKED_SOURCE]: null,
+          "sources/github/team/billing.md": sourceFile("fixture/billing"),
+        },
+        keeps: true,
+      },
+      ({ git, merged }) => {
+        expect(git("rev-parse", "refs/heads/main")).toBe(merged)
+      },
+    )
+  },
+)
+
+it(
+  "retracts nothing when a source names the repository again at the tip before the job plans",
+  { timeout: 150_000 },
+  async () => {
+    let named = ""
+    await mergeThenRetract(
+      {
+        committed: () => "v2",
+        afterUnlink: (f) => {
+          named = humanPush(f, {
+            [UNLINKED_SOURCE]: sourceFile("fixture/billing"),
+          })
+        },
+      },
+      ({ git }) => {
+        expect(named).not.toBe("")
+        expect(git("rev-parse", "refs/heads/main")).toBe(named)
+      },
+    )
+  },
+)
+
+it(
+  "queues no second job for a second projection or a replay of the same revision",
+  { timeout: 150_000 },
+  async () => {
+    await mergeThenRetract(
+      { committed: () => "v2" },
+      async ({ f, git, show, merged, jobs, replay }) => {
+        expectRetraction({ git, show, from: merged })
+        const [job] = await jobs()
+        // A second projection of the merged revision finds no change.
+        await projectTip(f, merged)
+        // A replay of the follow-ups (a retried hydrate step) keeps the job id.
+        await replay()
+        expect(await jobs()).toEqual([job])
+      },
+    )
+  },
+)
+
+it(
+  "keeps a repository that a sources.yaml entry still holds after the entry became invalid",
+  { timeout: 150_000 },
+  async () => {
+    const yaml = (repositories: string) =>
+      [
+        "version: 1",
+        "sources:",
+        "  - id: web",
+        "    provider: github",
+        '    connection: "{{connectionId}}"',
+        `    repositories: ${repositories}`,
+        "",
+      ].join("\n")
+    await mergeThenRetract(
+      {
+        committed: () => "v2",
+        before: [
+          { [SOURCES_YAML]: yaml("[fixture/billing]") },
+          // The entry keeps its id, but it no longer parses.
+          { [SOURCES_YAML]: yaml("[5]") },
+        ],
+        keeps: true,
+      },
+      async ({ f, git, merged, jobs }) => {
+        expect(git("rev-parse", "refs/heads/main")).toBe(merged)
+        // A job that a person or an older projection queued also keeps it.
+        const { enqueueWriteJob } = await import(
+          "../../openworkflow/enqueue-workspace-write-commit.js"
+        )
+        const started = await withOrgIdContext(f.org, () =>
+          enqueueWriteJob(
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind: "unlink_retraction",
+              jobId: `wjob_retract_direct_${f.id}`,
+              retractRepositoryUrl: UNLINKED,
+              publishPipeline: "v2",
+            },
+            {
+              error: (error) => {
+                throw error
+              },
+            },
+          ),
+        )
+        expect(started).toEqual({ started: true })
+        await expect
+          .poll(jobs, { timeout: 60_000 })
+          .toEqual([{ id: `wjob_retract_direct_${f.id}`, status: "completed" }])
+        expect(git("rev-parse", "refs/heads/main")).toBe(merged)
+      },
+    )
+  },
+)
+
+it(
+  "queues the retraction from the projection step of a hydrate run",
+  { timeout: 150_000 },
+  async () => {
+    await mergeThenRetract(
+      { committed: () => "v2", hydrate: true },
+      ({ git, show, merged }) => {
+        expectRetraction({ git, show, from: merged })
       },
     )
   },

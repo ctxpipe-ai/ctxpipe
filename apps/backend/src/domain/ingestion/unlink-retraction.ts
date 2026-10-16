@@ -9,7 +9,11 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import type { GitFileChange } from "../../services/git/write-tree.js"
+import {
+  commitGitTree,
+  type GitFileChange,
+  stageGitFiles,
+} from "../../services/git/write-tree.js"
 import {
   editableMetadataNode,
   updateKnowledgeMetadata,
@@ -66,7 +70,8 @@ const HOST_FIELDS = [
  *   retracted as the migration would give it: a `generated_by: ctxpipe` file
  *   whose absolute `source` URL is the repository (`legacySourceUrl`) is the
  *   repository's file. Else a later migration would give it to ingestion v2
- *   with only the unlinked repository in `sources`.
+ *   with only the unlinked repository in `sources`. Its delete goes through
+ *   the same validator, on a local commit with the migrated text.
  *
  * Human sections stay byte for byte. Each edit gets the checks of a staged
  * write: the same human sections, and front matter that is a YAML map. An
@@ -87,9 +92,9 @@ export async function planUnlinkRetraction(input: {
     input.workspaceRepositoryUrl,
   )
   const deletePaths: string[] = []
-  // Old pipeline files: the patch validator reads ownership at the pack, where
-  // they are not migrated, so the plan checks them itself (below).
-  const legacyDeletePaths: string[] = []
+  // Old pipeline files: the patch validator reads ownership at its base
+  // commit, so it checks these deletes on a commit with the migrated text.
+  const legacyDeletes: Array<{ path: string; content: string }> = []
   const kept: Array<{ path: string; content: string }> = []
   for (const file of before) {
     const legacy = legacySourceUrl(file.content, workspaceUrl)
@@ -102,9 +107,10 @@ export async function planUnlinkRetraction(input: {
         : undefined
     const content = migrated?.content ?? file.content
     const ownership = fileOwnership(content, source)
-    if (ownership === "sole" && humanBlocks(content).length === 0)
-      (migrated ? legacyDeletePaths : deletePaths).push(file.path)
-    else if (ownership === "sole")
+    if (ownership === "sole" && humanBlocks(content).length === 0) {
+      if (migrated) legacyDeletes.push(migrated)
+      else deletePaths.push(file.path)
+    } else if (ownership === "sole")
       kept.push({ path: file.path, content: toHumanFile(content) })
     else if (ownership === "shared")
       kept.push({
@@ -131,6 +137,17 @@ export async function planUnlinkRetraction(input: {
     checkRetractionEdit(file.path, original.get(file.path) ?? "", file.content)
   if (deletePaths.length)
     await validateDeletes(input.pack, input.sourceUrl, deletePaths)
+  const legacyDeletePaths = legacyDeletes.map((file) => file.path)
+  if (legacyDeletes.length)
+    await validateDeletes(
+      // A local commit that only the validator reads; it is never pushed.
+      await commitGitTree(await stageGitFiles(input.pack, legacyDeletes), {
+        subject: "Migrate the old pipeline files that the retraction deletes",
+        createdAt: input.observedAt,
+      }),
+      input.sourceUrl,
+      legacyDeletePaths,
+    )
   return { files, deletePaths: [...deletePaths, ...legacyDeletePaths].sort() }
 }
 

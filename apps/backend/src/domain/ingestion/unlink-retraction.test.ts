@@ -271,6 +271,23 @@ describe("planUnlinkRetraction", () => {
     expect(content.endsWith(body)).toBe(true)
   })
 
+  it("puts the delete of an old pipeline file through the patch validator, on the migrated text", async () => {
+    const pack = await workspace({
+      // Not a knowledge folder of the allowlist: the validator refuses it.
+      "knowledge/topics/billing.md": doc(
+        {
+          kind: "Topic",
+          generated_by: "ctxpipe",
+          source: `${UNLINKED}.git#src/index.ts`,
+        },
+        "# Billing\n",
+      ),
+    })
+    await expect(plan(pack)).rejects.toThrow(
+      "fails the patch validator: knowledge/topics/billing.md: path",
+    )
+  })
+
   it("removes the evidence of the repository also after a human section in the middle of a shared area file", async () => {
     const human =
       "<!-- ctxpipe:human -->\nRun the slow tests at night.\n<!-- /ctxpipe:human -->"
