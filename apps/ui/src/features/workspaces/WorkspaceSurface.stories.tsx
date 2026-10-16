@@ -904,9 +904,16 @@ export const DiffTriggerPaneClosed: Story = {
     expect(diff.className).toBe(files.className)
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
     await userEvent.click(diff)
-    const tab = await page.findByRole("tab", { name: "Diff", selected: true })
-    // The tab fades in for 100 ms when the pane mounts.
-    await waitFor(() => expect(tab).toBeVisible())
+    // The pane mounts after the click, and the tab fades in for 100 ms. Look
+    // the tab up again on each try: the default one second of findByRole ended
+    // before a slow runner mounted the pane.
+    await waitFor(
+      () =>
+        expect(
+          page.getByRole("tab", { name: "Diff", selected: true }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
   },
 }
 
