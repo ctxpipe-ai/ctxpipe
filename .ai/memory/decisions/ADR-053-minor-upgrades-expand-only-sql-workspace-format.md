@@ -35,6 +35,7 @@ The design is the Linear document [PR 280 minor upgrade and workspace migrations
 - In this release:
   - `chunky_shocker` keeps the `DELETE` of orphan rows (rows with no org) in `claim_evidence`, `confluence_spaces` and `repository_checkouts`. The delete runs in the same transaction as the migration, so a failed migration keeps the rows. There is no copy of these rows (G3).
   - `chunky_shocker` does not set `NOT NULL` on `org_id` of main tables. RLS stays enabled, so the app role does not see rows with a NULL `org_id`. The next major sets `NOT NULL`.
+  - After a rollback, the main image writes rows with no `org_id` into `claim_evidence`, `confluence_spaces` and `repository_checkouts`. `chunky_shocker` adds a `BEFORE INSERT` trigger on each of these tables. The trigger copies `org_id` from the parent row when it is NULL. It runs with the rights of the caller, so RLS on the parent applies. The function `backfillNullOrgIds` repairs the other rows with no `org_id`. It is idempotent, and every deploy path runs it after the migrations. The next major drops the triggers.
   - The folder `drop_langgraph_checkpoint_tables` goes out of this release. The next major drops the LangGraph tables.
   - The only new column is the nullable cache column `workspaces.format_version` (G7).
 - No PR 280 migration ran in production, so the team edits the branch migrations in place. The Drizzle migrator selects migrations by folder name, so the branch folders still run on a main database. Preview and dev databases must be reset.
