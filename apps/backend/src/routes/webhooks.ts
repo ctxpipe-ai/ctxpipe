@@ -7,6 +7,7 @@ import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
 import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
+import { registerZendeskWebhookRoute } from "./webhooks/zendesk/zendesk.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   app.use("/api/v1/webhook/*", async (_c, next) => {
@@ -19,4 +20,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
+  registerZendeskWebhookRoute(app)
 }

@@ -89,6 +89,16 @@ locals {
       value = var.pagerduty_redirect_uri
     }] : [],
   )
+  zendesk_shared_env = concat(
+    length(var.zendesk_client_id) > 0 ? [{
+      name  = "ZENDESK_CLIENT_ID"
+      value = var.zendesk_client_id
+    }] : [],
+    length(var.zendesk_client_secret) > 0 ? [{
+      name  = "ZENDESK_CLIENT_SECRET"
+      value = var.zendesk_client_secret
+    }] : [],
+  )
   shared_backend_env_variables = concat([
     {
       name  = "AUTH_SECRET"
@@ -187,7 +197,7 @@ locals {
       name  = "VERCEL_PROJECT_ID"
       value = "ctxpipe"
     },
-  ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
+  ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env, local.zendesk_shared_env)
 }
 
 resource "railway_service" "ui" {

@@ -201,6 +201,30 @@ describe("SecretsConstruct connector secrets", () => {
     }
   });
 
+  it("injects Zendesk OAuth secrets into service tasks", () => {
+    const template = synthCtxPipe({
+      zendeskClientId: cdk.SecretValue.unsafePlainText("zendesk-client-id"),
+      zendeskClientSecret: cdk.SecretValue.unsafePlainText(
+        "zendesk-client-secret",
+      ),
+    });
+
+    for (const name of ["ZENDESK_CLIENT_ID", "ZENDESK_CLIENT_SECRET"]) {
+      template.hasResourceProperties("AWS::ECS::TaskDefinition", {
+        ContainerDefinitions: Match.arrayWith([
+          Match.objectLike({
+            Secrets: Match.arrayWith([
+              Match.objectLike({
+                Name: name,
+                ValueFrom: Match.anyValue(),
+              }),
+            ]),
+          }),
+        ]),
+      });
+    }
+  });
+
   it("injects PagerDuty OAuth secrets into service tasks", () => {
     const template = synthCtxPipe({
       pagerdutyClientId: cdk.SecretValue.unsafePlainText("pagerduty-client-id"),

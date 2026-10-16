@@ -144,6 +144,20 @@ variable "pagerduty_redirect_uri" {
   default     = ""
 }
 
+variable "zendesk_client_id" {
+  type        = string
+  description = "value for ZENDESK_CLIENT_ID (the hosted Zendesk global OAuth client); leave empty to disable the shared Zendesk client"
+  default     = ""
+  sensitive   = true
+}
+
+variable "zendesk_client_secret" {
+  type        = string
+  description = "value for ZENDESK_CLIENT_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
 variable "falkordb_password" {
   type        = string
   description = "value for FALKORDB_PASSWORD"

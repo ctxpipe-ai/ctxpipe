@@ -60,5 +60,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-050](ADR-050-workspace-sources-config-file.md) | Workspace sources as node files (`sources/*.md`); connections hold auth only | Accepted (revised 2026-10-16: one Markdown file per source, `Source` nodes, `FROM_SOURCE` provenance) |
 | [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs, parallel chat claims, answers-first ranking with strong query hits, and shared fallback budgets; amended by ADR-050: `provenance` intent) 
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths) |
+| [ADR-054](ADR-054-zendesk-connector-sources-only.md) | Zendesk connector, Workspace sources only | Proposed |
 
 Numbers 035 and 036 are unused. The next new ADR is 053.

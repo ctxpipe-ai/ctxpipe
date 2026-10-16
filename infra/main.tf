@@ -49,6 +49,8 @@ module "ctxpipe" {
   pagerduty_client_id     = var.pagerduty_client_id
   pagerduty_client_secret = var.pagerduty_client_secret
   pagerduty_redirect_uri  = var.pagerduty_redirect_uri
+  zendesk_client_id       = var.zendesk_client_id
+  zendesk_client_secret   = var.zendesk_client_secret
   falkordb_password       = var.falkordb_password
   otel_otlp_headers       = var.otel_otlp_headers
   vercel_access_token     = var.vercel_access_token

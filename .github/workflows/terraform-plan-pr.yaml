@@ -57,6 +57,8 @@ jobs:
       TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
       TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
+      TF_VAR_zendesk_client_id: ${{ secrets.ZENDESK_CLIENT_ID }}
+      TF_VAR_zendesk_client_secret: ${{ secrets.ZENDESK_CLIENT_SECRET }}
       TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
       TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
       # A pull request must not get the production Vercel token, and only the

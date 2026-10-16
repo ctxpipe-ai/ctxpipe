@@ -199,6 +199,20 @@ variable "pagerduty_redirect_uri" {
   default     = ""
 }
 
+variable "zendesk_client_id" {
+  type        = string
+  description = "value for ZENDESK_CLIENT_ID (the hosted Zendesk global OAuth client); leave empty to disable the shared Zendesk client"
+  default     = ""
+  sensitive   = true
+}
+
+variable "zendesk_client_secret" {
+  type        = string
+  description = "value for ZENDESK_CLIENT_SECRET"
+  default     = ""
+  sensitive   = true
+}
+
 variable "github_webhook_secret" {
   type        = string
   description = "value for GITHUB_WEBHOOK_SECRET"

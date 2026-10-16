@@ -1,0 +1,85 @@
+---
+title: Zendesk
+description: Register a local Zendesk OAuth client for a self-hosted ctxpipe, or set the deployment client.
+---
+
+## Overview
+
+Zendesk requires a **global** OAuth client for a product that many Zendesk
+customers use, such as hosted ctxpipe. A self-hosted deployment is internal
+use, so an admin registers a **local** OAuth client in the Zendesk account and
+saves it in the ctx| setup. ctxpipe encrypts the client secret, the tokens,
+and the webhook signing secret on the connection.
+
+You do not need to restart Compose, Railway, or CDK for the local client.
+
+## What you need
+
+- A public HTTPS `AUTH_BASE_URL` for the OAuth callback and the Help Center
+  webhook.
+- A Zendesk admin, to register the OAuth client and to let ctx| add the
+  webhook.
+- A ctx| GitHub App connection with write access to each Workspace
+  repository that syncs Zendesk.
+- The backend and worker able to reach `{subdomain}.zendesk.com` over HTTPS.
+
+## 1. Register the local OAuth client
+
+1. Open **Connectors → Add connection → Zendesk** and type the subdomain.
+2. In Zendesk **Admin Center → Apps and integrations → APIs → OAuth clients**,
+   add an OAuth client of the **Confidential** kind.
+3. Add this redirect URL exactly (the setup copies it for you):
+
+```text
+{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback
+```
+
+4. Save the client. Copy its unique identifier and its secret; Zendesk shows
+   the secret one time.
+5. Paste both values in **Register an OAuth client**, then select
+   **Connect Zendesk**.
+
+ctx| asks for these scopes: `hc:read`, `tickets:read`, `ticket_views:read`,
+`users:read`, `webhooks:read`, and `webhooks:write`.
+
+## 2. Optional: a deployment client
+
+To use one client for every connection of the deployment, set
+**`ZENDESK_CLIENT_ID`** and **`ZENDESK_CLIENT_SECRET`** on the backend and the
+worker. The worker needs them to refresh tokens. The setup then skips the
+local client step. A client saved on a connection takes priority over the
+deployment client. Hosted ctxpipe uses these variables for its global client.
+
+- **Docker Compose:** add the values to the root `.env`, then run `pnpm start`.
+- **Railway:** the Terraform inputs are `TF_VAR_zendesk_client_id` and
+  `TF_VAR_zendesk_client_secret`.
+- **AWS CDK:** pass `zendeskClientId` and `zendeskClientSecret` in
+  `connectorSecrets`.
+
+## 3. Webhook URL
+
+After OAuth, ctxpipe adds one Zendesk webhook for Help Center article events.
+Each connection has its own URL:
+
+```text
+{AUTH_BASE_URL}/api/v1/webhook/zendesk/{connectionId}
+```
+
+ctxpipe verifies `X-Zendesk-Webhook-Signature` (base64 HMAC-SHA256 of the
+`X-Zendesk-Webhook-Signature-Timestamp` value and the raw body) and refuses a
+signature older than five minutes. All traffic stays on your deployment.
+
+## Verify the connector
+
+1. Complete the setup and confirm the connector card shows **Connected**.
+2. In **Add Zendesk to Workspaces**, select a category and a view. Merge the
+   pull request that adds the source to `.ctxpipe/sources.yaml`.
+3. Confirm the files appear under `zendesk/help-center/` and
+   `zendesk/tickets/`.
+4. Publish an article in a selected category. Confirm that
+   `POST /api/v1/webhook/zendesk/{connectionId}` returns `200`, and that the
+   article file appears after the 10-minute window. An edit of a published
+   article may not send an event; **Sync now** gets it.
+
+See [Zendesk connector](/docs/connections/source-connectors/zendesk) for the
+files, the sync, and product troubleshooting.

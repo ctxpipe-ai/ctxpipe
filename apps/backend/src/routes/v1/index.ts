@@ -30,6 +30,10 @@ import {
   slackConnectorRoutes,
   slackOAuthCallbackRoutes,
 } from "./connectors-slack.js"
+import {
+  zendeskConnectorRoutes,
+  zendeskOauthCallbackRoutes,
+} from "./connectors-zendesk.js"
 import { conversationRoutes } from "./conversations.js"
 import {
   githubInstallationReadRoutes,
@@ -77,6 +81,10 @@ const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
   .use("*", requireOrgAdminOrOwner)
   .route("/", pagerdutyConnectorRoutes)
 
+const zendeskConnectorScoped = new OpenAPIHono<AppEnv>()
+  .use("*", requireOrgAdminOrOwner)
+  .route("/", zendeskConnectorRoutes)
+
 // Only the sync path: this app mounts on "/connectors" beside other routes.
 const connectionSyncScoped = new OpenAPIHono<AppEnv>()
   .use("/:connectionId/sync", requireOrgAdminOrOwner)
@@ -103,6 +111,7 @@ function createOrgScopedV1<BasePath extends string>(
     .route("/connectors/notion", notionOauthAppReadRoutes)
     .route("/connectors/notion", notionConnectorScoped)
     .route("/connectors/pagerduty", pagerdutyConnectorScoped)
+    .route("/connectors/zendesk", zendeskConnectorScoped)
     .route("/connectors/atlassian/pending-claim", pendingAtlassianClaimRoutes)
     .route("/connectors/slack", slackConnectorScoped)
     .route("/org/atlassian-oauth", orgAtlassianOauthReadRoutes)
@@ -152,6 +161,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .route("/connectors/slack", slackOAuthCallbackRoutes)
     .route("/integrations/linear", linearOauthCallbackRoutes)
     .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
+    .route("/integrations/zendesk", zendeskOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/me/connected-apps", meConnectedAppsRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
