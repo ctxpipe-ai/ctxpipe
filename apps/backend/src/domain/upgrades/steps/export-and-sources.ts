@@ -286,6 +286,51 @@ async function connectorSources(input: {
  * writes nothing. A plan on its own output changes nothing: the import key
  * finds each exported file, and the sources file already has each entry.
  */
+/**
+ * The GitHub repositories that step 1 links in `.ctxpipe/sources.yaml`: the
+ * org repositories (only in the first Workspace of the org, each under its
+ * own GitHub connection) and the `repositories/*.md` files (under the
+ * connection of the Workspace). The re-ingestion scan uses it too, so that a
+ * Workspace below format 3 shows the repositories that the upgrade gives.
+ * Call it in the org context.
+ */
+export async function formatOneLinkedRepositories(input: {
+  workspaceId: string
+  /** The GitHub connection of the Workspace. */
+  connectionId: string | null
+  /** The text of `.ctxpipe/sources.yaml`, or null when it is absent. */
+  sourcesFile: string | null
+  repositoryFiles: ReadonlyArray<{ path: string; content: string }>
+}) {
+  const source = await loadKnowledgeProjectionSource()
+  const linkedUrls = migrationLinkedRepositoryUrls({
+    workspaceId: input.workspaceId,
+    firstWorkspaceId: source.firstWorkspaceId,
+    repositories: [...source.repositoryGitUrlById].map(([id, gitUrl]) => ({
+      id,
+      gitUrl,
+    })),
+    workspaceByRepositoryId: source.workspaceByRepositoryId,
+  })
+  const connectionByUrl = new Map<string, string | null>()
+  for (const [id, gitUrl] of source.repositoryGitUrlById)
+    if (!connectionByUrl.has(gitUrl))
+      connectionByUrl.set(
+        gitUrl,
+        source.repositoryConnectionById.get(id) ?? null,
+      )
+  const linkedRepositories = upgradeLinkedRepositories({
+    sourcesFile: input.sourcesFile,
+    connectionId: input.connectionId,
+    files: input.repositoryFiles,
+    repositories: linkedUrls.map((gitUrl) => ({
+      gitUrl,
+      connectionId: connectionByUrl.get(gitUrl) ?? null,
+    })),
+  })
+  return { source, linkedUrls, linkedRepositories }
+}
+
 export function exportAndSourcesStep(
   hooks: Partial<
     Record<SourceProvider, SourceMigrationHook>
@@ -320,23 +365,13 @@ export function exportAndSourcesStep(
             content: (await tree.read(path)) ?? "",
           })),
       )
-      const source = await loadKnowledgeProjectionSource()
-      const linkedUrls = migrationLinkedRepositoryUrls({
-        workspaceId: ctx.workspaceId,
-        firstWorkspaceId: source.firstWorkspaceId,
-        repositories: [...source.repositoryGitUrlById].map(([id, gitUrl]) => ({
-          id,
-          gitUrl,
-        })),
-        workspaceByRepositoryId: source.workspaceByRepositoryId,
-      })
-      const connectionByUrl = new Map<string, string | null>()
-      for (const [id, gitUrl] of source.repositoryGitUrlById)
-        if (!connectionByUrl.has(gitUrl))
-          connectionByUrl.set(
-            gitUrl,
-            source.repositoryConnectionById.get(id) ?? null,
-          )
+      const { source, linkedUrls, linkedRepositories } =
+        await formatOneLinkedRepositories({
+          workspaceId: ctx.workspaceId,
+          connectionId,
+          sourcesFile,
+          repositoryFiles,
+        })
       const report: string[] = []
       const label = (object: ExportObjectRow) =>
         `"${objectTitleFromPayload(object.payload)}" (${object.deduplicationKey ?? object.id})`
@@ -366,15 +401,6 @@ export function exportAndSourcesStep(
       // 1. GitHub repositories: the org repositories under their own GitHub
       //    connection, and `repositories/*.md` under the connection of the
       //    Workspace.
-      const linkedRepositories = upgradeLinkedRepositories({
-        sourcesFile,
-        connectionId,
-        files: repositoryFiles,
-        repositories: linkedUrls.map((gitUrl) => ({
-          gitUrl,
-          connectionId: connectionByUrl.get(gitUrl) ?? null,
-        })),
-      })
       if (linkedRepositories.sourcesFile)
         report.push(
           `Linked the GitHub repositories of this Workspace in \`${SOURCES_FILE_PATH}\`. Fresh ingestion reads them from there.`,

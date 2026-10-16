@@ -96,6 +96,7 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
                   workspace,
                   bundle: await readBundle(),
                   format: await readFormat(),
+                  env,
                 }),
             }
             for (const [upgrade, scan] of Object.entries(scans) as Array<

@@ -17,6 +17,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
+import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { KNOWLEDGE_SKILL_PATH } from "../workspaces/layout.js"
 import { WORKSPACE_FORMAT_PATH } from "../workspaces/workspace-format.js"
@@ -26,6 +27,7 @@ import {
   UPGRADE_JOB_KIND,
   upgradeBranch,
 } from "./registry.js"
+import { reingestUpgradeKey } from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
 
 const KEY = "format-3"
@@ -274,6 +276,28 @@ it(
             status: "awaiting_operator",
             upgrade: { fromFormat: 0, targetFormat: 3, branch: BRANCH },
           })
+          // The Workspace has no source rows yet. The re-ingestion shows the
+          // GitHub repositories that step 1 links (the org repository and
+          // the repository file, not the GitLab ones), blocked on the format.
+          const reingest = await withOrgIdContext(f.org, async () =>
+            getWorkspaceUpgradeRow(
+              f.workspaceId,
+              reingestUpgradeKey((await readIngestSkillBundle()).name),
+            ),
+          )
+          expect(reingest).toMatchObject({
+            status: "blocked",
+            upgrade: {
+              blockedReason: "needs_format",
+              fromFormat: 0,
+              targetFormat: 3,
+            },
+          })
+          expect(
+            reingest?.upgrade.estimate?.perRepository.map(
+              (entry) => entry.repository,
+            ),
+          ).toEqual(["existing/api", "team-a/api"])
 
           // The click of an owner or admin.
           expect(

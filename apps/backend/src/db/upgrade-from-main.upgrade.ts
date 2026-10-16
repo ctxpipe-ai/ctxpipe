@@ -564,11 +564,17 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           },
         })
         // The re-ingestion item shows too, blocked until the format upgrade
-        // merges. A soft check: the test goes on, and still fails at the end.
-        expect.soft(await row(reingestKey)).toMatchObject({
+        // merges, with the repositories that the upgrade links.
+        const waiting = await row(reingestKey)
+        expect(waiting).toMatchObject({
           status: "blocked",
-          upgrade: { blockedReason: "needs_format" },
+          upgrade: { blockedReason: "needs_format", fromFormat: 0 },
         })
+        expect(
+          waiting?.upgrade.estimate?.perRepository.map(
+            (entry) => entry.repository,
+          ),
+        ).toEqual(["team-a/api"])
         expect(opened).toEqual([])
         const listed = await api("GET", "/upgrades")
         expect(listed.status).toBe(200)
@@ -581,7 +587,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
             }),
           ]),
         )
-        expect.soft(items).toEqual(
+        expect(items).toEqual(
           expect.arrayContaining([
             expect.objectContaining({
               key: reingestKey,
@@ -701,12 +707,10 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
               )
             ).rows,
         )
-        expect
-          .soft(await row(reingestKey), JSON.stringify(sources))
-          .toMatchObject({
-            status: "awaiting_operator",
-            upgrade: { targetFormat: 3 },
-          })
+        expect(await row(reingestKey), JSON.stringify(sources)).toMatchObject({
+          status: "awaiting_operator",
+          upgrade: { targetFormat: 3 },
+        })
       } finally {
         await worker.stop()
         await backend.stop()

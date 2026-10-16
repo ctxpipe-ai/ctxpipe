@@ -7,14 +7,21 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import type { listOrgWorkspaces } from "../../models/workspaces.js"
-import { readFileAtGitSha } from "../../services/git/clone-tree.js"
+import {
+  listMarkdownFilesAtGitSha,
+  readFileAtGitSha,
+} from "../../services/git/clone-tree.js"
 import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import {
   getPullRequestState,
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   CODE_FORMAT,
   readWorkspaceFormat,
@@ -35,10 +42,12 @@ import {
 import {
   estimateReingest,
   REINGEST_REQUIRES_FORMAT,
+  type ReingestRepository,
   reingestBlock,
   reingestUpgradeKey,
   workspaceSourceRepositories,
 } from "./reingest.js"
+import { formatOneLinkedRepositories } from "./steps/export-and-sources.js"
 import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
@@ -257,18 +266,83 @@ export async function scanWorkspaceUpgrade(input: {
  * leaves the row as it is, and a format that is newer than this code gets no
  * re-ingestion.
  */
+/**
+ * The source repositories of a re-ingestion. A Workspace below format 3 that
+ * has no source rows (the layout of main) gets the GitHub repositories that
+ * step 1 of the format upgrade links, so the scan can show the re-ingestion
+ * as blocked with an estimate before the format upgrade merges.
+ */
+async function reingestRepositories(input: {
+  orgId: string
+  workspace: ScannedWorkspace
+  format: number | null
+  env: Env
+}): Promise<ReingestRepository[]> {
+  const { workspace, format } = input
+  const rows = await workspaceSourceRepositories(input.orgId, workspace.id)
+  if (
+    rows.length ||
+    format === null ||
+    format >= REINGEST_REQUIRES_FORMAT ||
+    !workspace.desiredSha
+  )
+    return rows
+  const remote = {
+    url: workspace.workspaceRepositoryUrl,
+    sha: workspace.desiredSha,
+    token: await resolveRepositoryReadCredential({
+      orgId: input.orgId,
+      env: input.env,
+      remote: {
+        url: workspace.workspaceRepositoryUrl,
+        connectionId: workspace.githubConnectionId,
+      },
+    }),
+  }
+  const root = workspaceRootPath(workspace)
+  const repositoryFiles = (
+    await listMarkdownFilesAtGitSha({
+      ...remote,
+      prefix: "repositories/",
+      ...(root ? { root } : {}),
+    })
+  ).filter((file) => isLinkedRepositoryDeclaration(file.path))
+  const file = await readFileAtGitSha({
+    ...remote,
+    path: workspaceRepositoryPath(root, SOURCES_FILE_PATH),
+  })
+  const sourcesFile =
+    file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : null
+  const { linkedRepositories } = await formatOneLinkedRepositories({
+    workspaceId: workspace.id,
+    connectionId: workspace.githubConnectionId,
+    sourcesFile,
+    repositoryFiles,
+  })
+  const own = normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl)
+  return githubSourceRepositories(
+    linkedRepositories.sourcesFile ?? sourcesFile,
+    null,
+  )
+    .flatMap(({ gitUrl, connectionId }) => {
+      const repository = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+      return repository && gitUrl !== own
+        ? [{ repository, url: gitUrl, githubConnectionId: connectionId }]
+        : []
+    })
+    .sort((a, b) => (a.repository < b.repository ? -1 : 1))
+}
+
 export async function scanWorkspaceReingest(input: {
   orgId: string
   workspace: ScannedWorkspace
   bundle: { name: string; skills: readonly string[] }
   /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
   format: number | null
+  env: Env
 }): Promise<WorkspaceUpgradeScanResult> {
   const { workspace, format } = input
-  const repositories = await workspaceSourceRepositories(
-    input.orgId,
-    workspace.id,
-  )
+  const repositories = await reingestRepositories(input)
   if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
   if (format === null) return { kind: "none", reason: "unknown_format" }
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
