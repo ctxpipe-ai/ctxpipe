@@ -1,9 +1,8 @@
-import { RequestError } from "octokit"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import { resolveRepoReadCoverage } from "../../models/github-installation.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   bindUnboundWorkspace,
@@ -52,12 +51,15 @@ export async function createWorkspaceLifecycle(input: {
   githubConnectionId?: string | null
   source?: WorkspaceAddSource
   rootPath?: string
+  env: Env
   log: WorkspaceLog
 }): Promise<WorkspaceRecord> {
   const githubConnectionId = await resolveWorkspaceGithubConnectionId({
     orgId: input.orgId,
     requested: input.githubConnectionId,
     source: input.source,
+    gitUrl: input.gitUrl,
+    env: input.env,
   })
   const write = writeStatusFromClassification({
     workspaceRepositoryUrl: input.gitUrl,
@@ -188,6 +190,8 @@ export async function rebindUnboundWorkspaces(input: {
   connectionId: string
   env: Env
   log: WorkspaceLog
+  /** Check only these `owner/name` repositories (an access change names them). */
+  repoFullNames?: string[]
 }): Promise<void> {
   const logError = (error: unknown) =>
     input.log.error(error instanceof Error ? error : new Error(String(error)))
@@ -202,20 +206,19 @@ export async function rebindUnboundWorkspaces(input: {
           workspace.workspaceRepositoryUrl,
         )
         if (!repoFullName) continue
-        try {
-          await getRepoReadCloneToken(input.orgId, input.env, {
-            githubConnectionId: input.connectionId,
-            repoFullName,
-          })
-        } catch (error) {
-          // GitHub refuses a token for a repository outside the installation.
-          if (
-            !(error instanceof RequestError) ||
-            (error.status !== 404 && error.status !== 422)
+        if (
+          input.repoFullNames &&
+          !input.repoFullNames.some(
+            (name) => name.toLowerCase() === repoFullName.toLowerCase(),
           )
-            logError(error)
+        )
           continue
-        }
+        // `unknown` (a GitHub error) leaves the workspace unbound.
+        const coverage = await resolveRepoReadCoverage(input.orgId, input.env, {
+          githubConnectionId: input.connectionId,
+          repoFullName,
+        })
+        if (coverage !== "covers") continue
         const updated = await bindUnboundWorkspace({
           workspace,
           githubConnectionId: input.connectionId,
