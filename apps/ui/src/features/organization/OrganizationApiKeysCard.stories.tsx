@@ -117,9 +117,12 @@ export const CreateNamedKey: Story = {
     const nameField = within(dialog).getByLabelText("Name")
     await userEvent.type(nameField, "ci-mcp")
     // The select also renders a hidden native option, so query the visible button.
-    await expect(
-      within(dialog).getByRole("button", { name: /30 days/ }),
-    ).toBeVisible()
+    // The dialog fades in, so wait for the button to show.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: /30 days/ }),
+      ).toBeVisible(),
+    )
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Create API key" }),
     )
