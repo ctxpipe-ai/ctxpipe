@@ -366,6 +366,9 @@ jobs:
           APP_DB_URL_POOLED: ${{ steps.neon_app_role.outputs.db_url_pooled }}
           APP_PASSWORD: ${{ steps.neon_app_role.outputs.password }}
           APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
+          # The backfills read OpenWorkflow runs of the namespace that the
+          # preview services use, not the production runs on the copied branch.
+          OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
         run: |
           set -euo pipefail
           if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
