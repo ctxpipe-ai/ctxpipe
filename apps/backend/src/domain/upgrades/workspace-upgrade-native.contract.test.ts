@@ -65,10 +65,11 @@ it(
       title: string
       body: string
     }> = []
-    // Two pull requests of other people on the upgrade branch name: one from
-    // a fork, and one in the repository from a person. ctx| ignores both: it
-    // does not record them, it does not change their text (the fixture
-    // refuses a pull request update), and it opens its own pull request.
+    // Three pull requests of others on the upgrade branch name: one from a
+    // fork, one in the repository from a person, and one in the repository
+    // from another GitHub App. ctx| ignores all three: it does not record
+    // them, it does not change their text (the fixture refuses a pull
+    // request update), and it opens its own pull request.
     const foreignPulls = [
       {
         number: 7,
@@ -77,7 +78,7 @@ it(
           ref: BRANCH,
           repo: { full_name: "someone/hydration-contract" },
         },
-        user: { type: "Bot" },
+        user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
         created_at: "2026-10-15T00:00:00Z",
       },
       {
@@ -87,7 +88,17 @@ it(
           ref: BRANCH,
           repo: { full_name: "fixture/hydration-contract" },
         },
-        user: { type: "User" },
+        user: { type: "User", login: "someone" },
+        created_at: "2026-10-15T00:00:00Z",
+      },
+      {
+        number: 9,
+        html_url: "https://github.com/fixture/hydration-contract/pull/9",
+        head: {
+          ref: BRANCH,
+          repo: { full_name: "fixture/hydration-contract" },
+        },
+        user: { type: "Bot", login: "other-app[bot]" },
         created_at: "2026-10-15T00:00:00Z",
       },
     ]
@@ -114,7 +125,7 @@ it(
                 ref: pull.head,
                 repo: { full_name: "fixture/hydration-contract" },
               },
-              user: { type: "Bot" },
+              user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
               created_at: "2026-10-16T00:00:00Z",
             },
           ]

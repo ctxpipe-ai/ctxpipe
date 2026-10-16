@@ -34,7 +34,7 @@ function pull(number: number, branch: string) {
     html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
     head: { ref: branch, repo: { full_name: "fixture/hydration-contract" } },
     // ctx| opens each pull request as its GitHub App.
-    user: { type: "Bot" },
+    user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
     created_at: "2026-10-13T10:00:00Z",
   }
 }

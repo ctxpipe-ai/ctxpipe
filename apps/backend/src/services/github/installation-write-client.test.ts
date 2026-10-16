@@ -326,7 +326,7 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
   function pull(
     number: number,
     ref: string,
-    options: { repo?: string | null; user?: string } = {},
+    options: { repo?: string | null; user?: string; login?: string } = {},
   ) {
     return {
       number,
@@ -338,7 +338,10 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
             ? null
             : { full_name: options.repo ?? "acme/context" },
       },
-      user: { type: options.user ?? "Bot" },
+      user: {
+        type: options.user ?? "Bot",
+        login: options.login ?? "ctxpipe[bot]",
+      },
       created_at: "2026-10-11T00:00:00Z",
     }
   }
@@ -350,6 +353,7 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
         auth: "test-token",
         throttle: { enabled: false },
       }),
+      appBotLogin: async () => "ctxpipe[bot]",
     })
   })
 
@@ -375,6 +379,10 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
             pull(7, "ctxpipe/sources/add/notion/wiki", { repo: null }),
             // The same branch name in this repository, from a person.
             pull(8, "ctxpipe/sources/add/notion/wiki", { user: "User" }),
+            // The same branch name in this repository, from another App.
+            pull(13, "ctxpipe/sources/add/notion/wiki", {
+              login: "other-app[bot]",
+            }),
           ],
           {
             headers: {
@@ -405,6 +413,7 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
         return HttpResponse.json([
           pull(9, branch, { repo: "someone/context" }),
           pull(10, branch, { user: "User" }),
+          pull(14, branch, { login: "other-app[bot]" }),
           pull(11, `${branch}-later`),
           pull(12, branch),
         ])
