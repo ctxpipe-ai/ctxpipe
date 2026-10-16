@@ -1,4 +1,5 @@
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
+import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
 
 /**
  * The upgrades of a Workspace repository, in code (ADR-053 section 4).
@@ -57,6 +58,16 @@ export type GitUpgradeStep = {
  * whose layout change did not run.
  */
 export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = []
+
+/**
+ * Steps 2 and 3 (CTX-744), in format order. They go into
+ * {@link GIT_UPGRADE_STEPS} after step 1 (CTX-743). The steps must be
+ * contiguous from 1, so a list without step 1 makes the scan throw.
+ */
+export const GIT_UPGRADE_STEPS_AFTER_EXPORT: readonly GitUpgradeStep[] = [
+  sourcesConversionStep,
+  ownershipMigrationStep,
+]
 
 /** The prefix of every upgrade branch. Only the upgrade workflow pushes to it. */
 export const UPGRADE_BRANCH_PREFIX = "ctxpipe/upgrade/"
