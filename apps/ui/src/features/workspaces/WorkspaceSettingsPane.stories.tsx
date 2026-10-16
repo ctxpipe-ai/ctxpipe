@@ -198,9 +198,11 @@ export const ReadOnlyWithoutConnection: Story = {
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")
-    await expect(
-      within(dialog).getByRole("heading", { name: "Main repository" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("heading", { name: "Main repository" }),
+      ).toBeVisible(),
+    )
   },
 }
 
