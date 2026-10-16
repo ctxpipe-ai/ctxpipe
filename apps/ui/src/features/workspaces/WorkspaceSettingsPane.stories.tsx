@@ -176,6 +176,34 @@ export const ReadOnly: Story = {
   },
 }
 
+/**
+ * A Paste Workspace that no GitHub connection reads. "Select the repository
+ * again" opens the main repository dialog, where Select GitHub binds it.
+ */
+export const ReadOnlyWithoutConnection: Story = {
+  args: {
+    workspace: {
+      ...readOnlyWorkspaceDetail,
+      githubConnectionId: null,
+      readOnlyReason:
+        "GitHub is not connected for this organization. An owner or admin must install the GitHub App and add this repository to the installation.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Select the repository again",
+      }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog")
+    await expect(
+      within(dialog).getByRole("heading", { name: "Main repository" }),
+    ).toBeVisible()
+  },
+}
+
 export const ProjectionLag: Story = {
   args: {
     workspace: projectionLagWorkspaceDetail,

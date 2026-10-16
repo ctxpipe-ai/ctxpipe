@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, fn, userEvent, within } from "storybook/test"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
+import { githubInstallationLinkedHandler } from "@/mocks/handlers"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -163,13 +164,118 @@ export const SelectGitHubAllAccess: Story = {
   },
 }
 
+/**
+ * The app sees only selected repositories. The steps prefill the owner on
+ * GitHub, link to giving the app access, and "Select the repository" goes
+ * back to the list.
+ */
 export const CreateOnGitHub: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
+          githubInstallationReposHandler(),
+          githubInstallationLinkedHandler,
+        ],
+      },
+    },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await canvas.findByRole("list", { name: /repositories/i })
     await userEvent.click(
       canvas.getByRole("tab", { name: /create on github/i }),
     )
-    await canvas.findByRole("button", { name: /open github/i })
+    const create = await canvas.findByRole("link", {
+      name: /create the repository on github/i,
+    })
+    const createUrl = new URL(create.getAttribute("href") ?? "")
+    await expect(createUrl.origin + createUrl.pathname).toBe(
+      "https://github.com/new",
+    )
+    await expect(createUrl.searchParams.get("owner")).toBe("acme")
+    await expect(
+      canvas.getByRole("link", { name: /give the ctxpipe github app access/i }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/apps/ctxpipe/installations/new",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Select the repository" }),
+    )
+    await expect(
+      canvas.getByRole("tab", { name: /select github/i }),
+    ).toHaveAttribute("aria-selected", "true")
+  },
+}
+
+/** The app sees every repository, so no access step shows. */
+export const CreateOnGitHubAllAccess: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
+          githubInstallationReposHandler(undefined, {
+            repositorySelection: "all",
+          }),
+          githubInstallationLinkedHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("list", { name: /repositories/i })
+    await userEvent.click(
+      canvas.getByRole("tab", { name: /create on github/i }),
+    )
+    await canvas.findByRole("link", {
+      name: /create the repository on github/i,
+    })
+    await expect(
+      canvas.queryByRole("link", {
+        name: /give the ctxpipe github app access/i,
+      }),
+    ).toBeNull()
+  },
+}
+
+/** No GitHub connection: step 2 connects GitHub in place. */
+export const CreateOnGitHubNoConnection: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler([]),
+          githubConnectorBootstrapHandler({
+            orgSlug: "acme",
+            hostedDefaultAppInstallUrl:
+              "https://github.com/apps/ctxpipe/installations/new",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("heading", { name: "Connect GitHub" })
+    await userEvent.click(
+      canvas.getByRole("tab", { name: /create on github/i }),
+    )
+    const create = await canvas.findByRole("link", {
+      name: /create the repository on github/i,
+    })
+    await expect(
+      new URL(create.getAttribute("href") ?? "").searchParams.has("owner"),
+    ).toBe(false)
+    await expect(
+      canvas.getByRole("button", { name: "Connect GitHub" }),
+    ).toBeVisible()
   },
 }
 
