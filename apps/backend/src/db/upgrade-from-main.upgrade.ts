@@ -623,10 +623,21 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
 
         // The re-ingestion is now ready for the click of an admin.
         await scan("after-merge")
-        expect(await row(reingestKey)).toMatchObject({
-          status: "awaiting_operator",
-          upgrade: { targetFormat: 3 },
-        })
+        const sources = await owner(
+          async (db) =>
+            (
+              await db.query(
+                `SELECT source_key, provider, status, status_detail, scope FROM workspace_sources WHERE workspace_id = $1 ORDER BY source_key`,
+                [workspace.id],
+              )
+            ).rows,
+        )
+        expect
+          .soft(await row(reingestKey), JSON.stringify(sources))
+          .toMatchObject({
+            status: "awaiting_operator",
+            upgrade: { targetFormat: 3 },
+          })
       } finally {
         await worker.stop()
         await backend.stop()
