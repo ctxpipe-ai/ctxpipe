@@ -8,6 +8,7 @@ import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-
 import { enqueueWorkspaceUpgradeReingest } from "../../openworkflow/workflows/workspace-upgrade-reingest.js"
 import { UPGRADE_STATUSES } from "./registry.js"
 import { isReingestUpgradeKey } from "./reingest.js"
+import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 export type StartUpgradeResult =
   | { kind: "queued"; row: WorkspaceUpgradeRow }
@@ -35,6 +36,7 @@ export async function startWorkspaceUpgrade(input: {
   // A run that stopped without its result must not keep the row: then this
   // click starts a new run.
   await failStoppedUpgradeRun(input.workspaceId, input.key)
+  await stopOrphanedReingestRuns()
   const row = await getWorkspaceUpgradeRow(input.workspaceId, input.key)
   if (!row) return { kind: "missing" }
   if (row.status === UPGRADE_STATUSES.blocked) return { kind: "blocked", row }

@@ -11,6 +11,7 @@ import {
 } from "../../domain/upgrades/registry.js"
 import { isReingestUpgradeKey } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
+import { stopOrphanedReingestRuns } from "../../domain/upgrades/stop-orphans.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import {
   failStoppedUpgradeRun,
@@ -257,6 +258,7 @@ const routes = new OpenAPIHono<AppEnv>()
     if (!workspace) return c.json({ error: "Not found" }, 404)
     // Show a run that stopped without its result as `failed`.
     await failStoppedUpgradeRun(workspace.id)
+    await stopOrphanedReingestRuns()
     const rows = await listWorkspaceUpgradeRows(workspace.id)
     return c.json(
       {

@@ -321,11 +321,24 @@ export function reingestRunKey(input: {
   upgradeRunId: string
   repository: string
 }): string {
-  return `${RUN_KEY_PREFIX}${input.orgId}:${input.workspaceId}:${input.upgradeRunId}:${input.repository.toLowerCase()}`
+  return `${reingestRunKeyPrefix(input)}${input.repository.toLowerCase()}`
+}
+
+/** The idempotency key prefix of the ingestion v2 runs of one upgrade run. */
+export function reingestRunKeyPrefix(input: {
+  orgId: string
+  workspaceId: string
+  upgradeRunId: string
+}): string {
+  return `${RUN_KEY_PREFIX}${input.orgId}:${input.workspaceId}:${input.upgradeRunId}:`
 }
 
 /** The name of the upgrade workflow that holds a throttle slot. */
 const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
+
+/** The name of the child workflow that runs one repository of a re-ingestion. */
+export const REINGEST_REPOSITORY_WORKFLOW_NAME =
+  "workspace-upgrade-reingest-repository"
 
 /**
  * Whether it is the turn of the upgrade run `upgradeRunId` (ADR-052). The
@@ -334,7 +347,9 @@ const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
  * `runsPerInstance` heads run. A run holds its slot until it ends, so one
  * Workspace of an org runs at a time, and its repositories run one after the
  * other. Two runs that start in the same millisecond keep the id order, so
- * the same run gets the slot at each ask. The answer comes only from the run
+ * the same run gets the slot at each ask. A repository run of an earlier
+ * upgrade run of the org that is still active also holds the slot, so a run
+ * that ended early frees no slot while its children spend. The answer comes only from the run
  * rows, so two runs cannot both take the same slot, and a run that ended
  * frees its slot.
  */
@@ -346,6 +361,7 @@ export async function reingestSlotTurn(input: {
   const result = await getSystemDb().execute<{
     org_head: string | null
     ahead: string
+    open_children: string
   }>(sql`
     with heads as (
       select distinct on (input->>'orgId') id, input->>'orgId' as org_id, created_at
@@ -359,12 +375,24 @@ export async function reingestSlotTurn(input: {
       (select id from heads where org_id = ${input.orgId}) as org_head,
       (select count(*) from heads h, heads me
         where me.id = ${input.upgradeRunId}
-          and (h.created_at, h.id) < (me.created_at, me.id)) as ahead
+          and (h.created_at, h.id) < (me.created_at, me.id)) as ahead,
+      (select count(*) from openworkflow.workflow_runs child
+        where child.namespace_id = ${openWorkflowNamespaceId()}
+          and child.workflow_name = ${REINGEST_REPOSITORY_WORKFLOW_NAME}
+          and child.status in ('pending', 'running', 'sleeping')
+          and child.input->>'orgId' = ${input.orgId}
+          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children
   `)
   const row = result.rows[0]
   if (row?.org_head !== input.upgradeRunId)
     return {
       wait: "A re-ingestion of another Workspace of this organization runs.",
+    }
+  // A repository run of an upgrade run that ended (failed or canceled) can
+  // still spend. Its slot stays taken until that run ends too.
+  if (Number(row.open_children) > 0)
+    return {
+      wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
     }
   if (Number(row.ahead) >= input.runsPerInstance)
     return { wait: "The re-ingestion slots of this instance are full." }

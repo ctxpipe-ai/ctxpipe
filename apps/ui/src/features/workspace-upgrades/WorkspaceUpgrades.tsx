@@ -25,6 +25,7 @@ import {
   UPGRADE_BLOCKED_COPY,
   UPGRADE_STATUS_TAG,
   upgradeCanStart,
+  upgradeStartedMessage,
 } from "./upgrade-copy"
 
 /**
@@ -165,7 +166,7 @@ function UpgradeItemRow(props: {
   const startMutation = useMutation({
     mutationFn: () => startWorkspaceUpgrade(orgSlug, workspaceSlug, item.key),
     onSuccess: () => {
-      toast.success("The upgrade is queued. ctx| prepares a pull request.")
+      toast.success(upgradeStartedMessage(item))
     },
     onError: (error: Error) => {
       toast.error(error.message)
