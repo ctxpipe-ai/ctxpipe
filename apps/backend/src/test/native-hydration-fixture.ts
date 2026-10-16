@@ -909,6 +909,17 @@ async function createNativeHydrationFixture(
         invalidateGithubAppCacheForConnection(connectionId)
         failGithubTokens = status
       },
+      /**
+       * Cache a Workspace format for the fixture binding, as hydrate does
+       * after it reads `.ctxpipe/workspace.yaml` (ADR-053).
+       */
+      cacheFormat: (format: number) =>
+        withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ activeRevision: revision, formatVersion: format })
+            .where(eq(workspaces.id, workspaceId)),
+        ),
       repairWriteAccess: () => {
         githubWriteView = "writable"
       },

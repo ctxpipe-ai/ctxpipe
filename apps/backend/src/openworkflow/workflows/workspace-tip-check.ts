@@ -42,8 +42,6 @@ import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
   getWorkspaceProjection,
-  listMigrationExportJobWorkspaceIds,
-  listMigrationExportShas,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
@@ -230,33 +228,13 @@ export const workspaceTipCheck = defineWorkflow(
             revision: resolved.revision,
           })
       }
-      const [exportShas, exportJobWorkspaceIds] = await withOrgDbContext(
-        input.orgId,
-        () =>
-          Promise.all([
-            listMigrationExportShas(),
-            listMigrationExportJobWorkspaceIds(),
-          ]),
-      )
       const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
       const hour = input.hour ?? startedAt.toISOString().slice(0, 13)
+      // The knowledge export of main-era data is upgrade step 1. It goes
+      // only through the upgrade pull request that an owner or admin opens
+      // (ADR-053), so the tip check never writes it to the default branch.
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
-        const writeStatus = writeStatusById.get(workspace.id)
-        if (
-          writeStatus === "writable" &&
-          !exportShas.has(workspace.id) &&
-          !exportJobWorkspaceIds.has(workspace.id)
-        ) {
-          await enqueueWorkspaceWriteCommit(
-            {
-              orgId: input.orgId,
-              workspaceId: workspace.id,
-              kind: "migration_export",
-            },
-            quietLog,
-          )
-        }
         const projection = await getWorkspaceProjection(workspace.id)
         const desired = desiredProjectionRevision(projection)
         // An earlier run can store the tip in `desired_sha` and then fail
@@ -269,11 +247,7 @@ export const workspaceTipCheck = defineWorkflow(
           desired &&
           !unfinishedHydrates.has(`${workspace.id}:${desired.sha}`) &&
           (servedSha(projection, desired) !== desired.sha ||
-            shouldEnqueueCronHydrate({
-              migrationExportSha: exportShas.get(workspace.id) ?? null,
-              projection,
-              writeStatus: writeStatusById.get(workspace.id),
-            }))
+            shouldEnqueueCronHydrate({ projection }))
         ) {
           // A run can also fail after it stores the tip and before it queues
           // the index job below. Queue it again with the same rule and hour

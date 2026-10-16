@@ -1,4 +1,8 @@
 import {
+  type GitFileMode,
+  gitFileModeSchema,
+} from "../../services/git/file-change.js"
+import {
   type GitPack,
   nativeGit,
   packRootTree,
@@ -18,6 +22,7 @@ import {
   pendingUpgradeSteps,
   type UpgradeStepContext,
   type UpgradeStepPlan,
+  type UpgradeTreeReader,
 } from "./registry.js"
 
 export type UpgradeStepResult = {
@@ -31,39 +36,42 @@ export type UpgradeStepResult = {
 /** Run `operation` with a reader of the pack's tree below its root folder. */
 async function withTreeReader<T>(
   pack: GitPack,
-  operation: (tree: {
-    paths(): readonly string[]
-    read(path: string): Promise<string | null>
-  }) => Promise<T>,
+  operation: (tree: UpgradeTreeReader) => Promise<T>,
 ): Promise<T> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
       const tree = await packRootTree(directory, pack)
-      const paths = tree
-        ? (
-            await nativeGit(directory, [
-              "ls-tree",
-              "-r",
-              "--name-only",
-              "-z",
-              tree,
-            ])
-          )
-            .toString()
-            .split("\0")
-            .filter(Boolean)
-            .sort()
-        : []
-      const known = new Set(paths)
+      // Each entry is "<mode> blob <sha>\t<path>".
+      const modes = new Map<string, GitFileMode>()
+      const blobs = new Map(
+        tree
+          ? (await nativeGit(directory, ["ls-tree", "-r", "-z", tree]))
+              .toString()
+              .split("\0")
+              .filter(Boolean)
+              .flatMap((entry) => {
+                const tab = entry.indexOf("\t")
+                const [mode, type, sha] = entry.slice(0, tab).split(" ")
+                const path = entry.slice(tab + 1)
+                const fileMode = gitFileModeSchema.safeParse(mode)
+                if (type !== "blob" || !sha) return []
+                if (fileMode.success) modes.set(path, fileMode.data)
+                return [[path, sha] as const]
+              })
+          : [],
+      )
+      const paths = [...blobs.keys()].sort()
+      const readBytes = async (path: string) => {
+        const sha = blobs.get(path)
+        return sha ? nativeGit(directory, ["cat-file", "blob", sha]) : null
+      }
       return operation({
         paths: () => paths,
-        read: async (path) =>
-          tree && known.has(path)
-            ? (
-                await nativeGit(directory, ["show", `${tree}:${path}`])
-              ).toString()
-            : null,
+        blobSha: (path) => blobs.get(path) ?? null,
+        read: async (path) => (await readBytes(path))?.toString() ?? null,
+        readBytes,
+        mode: (path) => modes.get(path) ?? null,
       })
     },
     pack,
@@ -89,8 +97,18 @@ async function effectiveChange(
         `Upgrade step ${step.format} changes the same path two times`,
       )
     const writes: UpgradeStepPlan["writes"] = []
-    for (const write of plan.writes)
-      if ((await tree.read(write.path)) !== write.content) writes.push(write)
+    for (const write of plan.writes) {
+      const current = await tree.readBytes(write.path)
+      const content =
+        write.encoding === "base64"
+          ? current?.toString("base64")
+          : current?.toString()
+      if (
+        content !== write.content ||
+        (write.mode !== undefined && write.mode !== tree.mode(write.path))
+      )
+        writes.push(write)
+    }
     const existing = new Set(tree.paths())
     return {
       writes,

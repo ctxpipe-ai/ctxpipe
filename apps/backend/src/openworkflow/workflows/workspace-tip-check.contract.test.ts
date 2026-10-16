@@ -5,7 +5,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { and, eq, sql } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { describe, expect, it } from "vitest"
@@ -22,7 +22,7 @@ import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
-  "cron queues a missing migration export through real OpenWorkflow outside SQL",
+  "cron queues no knowledge export for a writable Workspace that has none (ADR-053: only the upgrade pull request writes it)",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -49,18 +49,8 @@ it(
                 f.workspaceId &&
               run.workflowName === "workspace-write-migration-export",
           )
-          expect(queued).toEqual([
-            expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
-              input: expect.objectContaining({
-                workspaceId: f.workspaceId,
-                revision: expect.objectContaining({
-                  sha: f.sha,
-                  access: "write-default",
-                }),
-              }),
-            }),
-          ])
+          expect(queued).toEqual([])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }
@@ -70,7 +60,7 @@ it(
 )
 
 it(
-  "cron resumes a paused write job through the native workflow queue",
+  "cron resumes a paused write job through the native workflow queue, but never a direct knowledge export",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -78,17 +68,20 @@ it(
       async (f) => {
         await f.publish()
         const jobId = `wjob_${f.id}`
+        const exportJobId = `wjob_${f.id}_export`
         await withOrgDbContext(f.org.id, (db) =>
-          db.insert(workspaceWriteJobs).values({
-            id: jobId,
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-            kind: "migration_export",
-            generation: 1,
-            desiredSha: f.sha,
-            status: "paused",
-            payload: { jobWorkspaceUrl: f.workspaceUrl },
-          }),
+          db.insert(workspaceWriteJobs).values(
+            (["claims_upgrade", "migration_export"] as const).map((kind) => ({
+              id: kind === "claims_upgrade" ? jobId : exportJobId,
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind,
+              generation: 1,
+              desiredSha: f.sha,
+              status: "paused",
+              payload: { jobWorkspaceUrl: f.workspaceUrl },
+            })),
+          ),
         )
         const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
           orgId: f.org.id,
@@ -99,14 +92,14 @@ it(
           runMigrations: false,
         })
         try {
-          const queued = (
-            await backend.listWorkflowRuns({ limit: 100 })
-          ).data.filter(
-            (run) => (run.input as { jobId?: string })?.jobId === jobId,
-          )
-          expect(queued).toEqual([
+          const runs = (await backend.listWorkflowRuns({ limit: 100 })).data
+          expect(
+            runs.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toEqual([
             expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
+              workflowName: "workspace-write-claims-upgrade",
               input: expect.objectContaining({
                 jobId,
                 revision: expect.objectContaining({
@@ -116,6 +109,22 @@ it(
               }),
             }),
           ])
+          // The export goes only through the upgrade pull request
+          // (ADR-053): the tip check neither resumes an old paused export
+          // nor queues a new one.
+          expect(
+            runs.filter(
+              (run) => run.workflowName === "workspace-write-migration-export",
+            ),
+          ).toEqual([])
+          const exportRow = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ status: workspaceWriteJobs.status })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.id, exportJobId)),
+          )
+          expect(exportRow).toEqual([{ status: "paused" }])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }
@@ -518,17 +527,23 @@ describe("cron write probe on a GitHub error", () => {
           { message: "You have exceeded a secondary rate limit." },
           { status: 429, headers: { "retry-after": "1" } },
         ),
+      // One try, then one wait of `retry-after`. No backoff on top of it.
+      requests: 2,
     },
   ])(
     "records that it could not check write access after $name",
     { timeout: 60_000 },
-    async ({ response }) => {
+    async ({ response, requests }) => {
       await withNativeHydrationFixture(
         { github: true, githubWriteView: "writable" },
         async (f) => {
           await f.publish()
+          let githubRequests = 0
           f.server.use(
-            http.get("https://api.github.com/repos/fixture/:repo", response),
+            http.get("https://api.github.com/repos/fixture/:repo", () => {
+              githubRequests += 1
+              return response()
+            }),
           )
           const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
             orgId: f.org.id,
@@ -548,6 +563,7 @@ describe("cron write probe on a GitHub error", () => {
             writeStatus: "unknown",
             readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
           })
+          if (requests !== undefined) expect(githubRequests).toBe(requests)
         },
       )
     },
@@ -605,7 +621,7 @@ it(
             id: jobId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
-            kind: "migration_export",
+            kind: "claims_upgrade",
             generation: 1,
             desiredSha: f.sha,
             status: "queued",
@@ -616,7 +632,7 @@ it(
 
         await runTipCheck(f)
         expect(
-          await workspaceRuns(f, "workspace-write-migration-export"),
+          await workspaceRuns(f, "workspace-write-claims-upgrade"),
         ).toEqual([
           expect.objectContaining({
             input: expect.objectContaining({ jobId }),
@@ -667,97 +683,6 @@ it(
         expect(await workspaceRuns(f, "workspace-write-ui-file-edit")).toEqual(
           [],
         )
-      },
-    )
-  },
-)
-
-it(
-  "cron records the failed run of a stale migration export and queues a new export",
-  { timeout: 60_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable" },
-      async (f) => {
-        await f.publish()
-        await runTipCheck(f)
-        const [first] = await workspaceRuns(
-          f,
-          "workspace-write-migration-export",
-        )
-        if (!first) throw new Error("Expected a migration export run")
-        const firstJobId = (first.input as { jobId: string }).jobId
-        // The run failed before its claim step, so the job stays `queued`.
-        await getSystemDb().execute(
-          sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
-        )
-        await ageWriteJobs(f)
-
-        await runTipCheck(f)
-        const [job] = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select({ status: workspaceWriteJobs.status })
-            .from(workspaceWriteJobs)
-            .where(eq(workspaceWriteJobs.id, firstJobId)),
-        )
-        expect(job).toEqual({ status: "failed" })
-        const runs = await workspaceRuns(f, "workspace-write-migration-export")
-        expect(runs.map((run) => run.status).sort()).toEqual([
-          "failed",
-          "pending",
-        ])
-
-        // The new export is live, so a third run queues no other export.
-        await runTipCheck(f)
-        expect(
-          await workspaceRuns(f, "workspace-write-migration-export"),
-        ).toHaveLength(2)
-      },
-    )
-  },
-)
-
-it(
-  "cron waits twice as long before it queues a migration export again after each failure",
-  { timeout: 90_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable" },
-      async (f) => {
-        await f.publish()
-        const exports = () =>
-          workspaceRuns(f, "workspace-write-migration-export")
-        // Each export job failed, and the newest one started this long ago.
-        const failExports = (minutesAgo: number) =>
-          withOrgDbContext(f.org.id, (db) =>
-            db
-              .update(workspaceWriteJobs)
-              .set({
-                status: "failed",
-                createdAt: sql`now() - make_interval(mins => ${minutesAgo})`,
-              })
-              .where(
-                and(
-                  eq(workspaceWriteJobs.workspaceId, f.workspaceId),
-                  eq(workspaceWriteJobs.kind, "migration_export"),
-                ),
-              ),
-          )
-        await runTipCheck(f)
-        expect(await exports()).toHaveLength(1)
-
-        // One failure: the next export waits 1 hour.
-        await failExports(90)
-        await runTipCheck(f)
-        expect(await exports()).toHaveLength(2)
-
-        // Two failures: the next export waits 2 hours.
-        await failExports(90)
-        await runTipCheck(f)
-        expect(await exports()).toHaveLength(2)
-        await failExports(150)
-        await runTipCheck(f)
-        expect(await exports()).toHaveLength(3)
       },
     )
   },

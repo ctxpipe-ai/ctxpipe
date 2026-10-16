@@ -7,7 +7,6 @@ import {
   hydrateKnowledgeTree,
   hydrateUnitsToProjectionClaims,
   servingIdForKnowledgePath,
-  shouldHydrateBeforeMigrationExport,
 } from "./hydrate.js"
 import {
   computeWorkspaceGraphQuality,
@@ -244,11 +243,6 @@ describe("hydrateKnowledgeTree", () => {
       "KnowledgeUnit",
     ])
   })
-})
-
-it("does not treat a missing export SHA as a hydrate blocker", () => {
-  expect(shouldHydrateBeforeMigrationExport(null)).toBe(true)
-  expect(shouldHydrateBeforeMigrationExport("export")).toBe(false)
 })
 
 describe("applyEffectiveValidFromToUnits", () => {

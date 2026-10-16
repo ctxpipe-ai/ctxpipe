@@ -20,7 +20,7 @@ import {
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 export type WorkspaceWriteCommand = {
   orgId: string
@@ -60,7 +60,7 @@ export function withWorkspaceWriteContext<T>(
 
 export async function completedWorkspaceWrite(
   input: WorkspaceWriteCommand,
-  kind: WorkspaceWriteKind,
+  kind: WorkspaceWriteJobKind,
   workflowRunId: string,
 ) {
   const recorded = await reconcileWorkspaceWriteJob(input.jobId)

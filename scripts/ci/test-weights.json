@@ -42,7 +42,6 @@
     "src/domain/workspaces/workspace-chat-prepare-native.contract.test.ts": 58,
     "src/domain/workspaces/workspace-sandbox-base-native.contract.test.ts": 78,
     "src/domain/workspaces/workspace-unborn-bootstrap-native.contract.test.ts": 17,
-    "src/domain/workspaces/write-export-native.contract.test.ts": 28,
     "src/domain/workspaces/write-extract-native.contract.test.ts": 22,
     "src/domain/workspaces/write-maintenance-native.contract.test.ts": 9,
     "src/domain/workspaces/write-merge-native.contract.test.ts": 52,

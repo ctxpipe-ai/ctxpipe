@@ -19,7 +19,6 @@ export type Workspace = {
   hydrateError: string | null
   readOnlyReason: string | null
   mostRecentConversationId: string | null
-  migrationExportSha: string | null
   createdAt: string
   updatedAt: string
 }
