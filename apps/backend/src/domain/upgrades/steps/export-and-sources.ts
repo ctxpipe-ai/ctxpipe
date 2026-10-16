@@ -62,6 +62,9 @@ import type {
  *   issues and teams, Slack threads). Hydrate makes an item again from its
  *   mirror file, and fresh ingestion of its connector source, which step 1
  *   moves into the sources file, fetches it again.
+ * - `deleted_repository`: the key names a repository id (`repo_`) that the
+ *   org does not have any more. No source reads that repository, so step 1
+ *   does not export its knowledge.
  */
 export type LegacyKnowledgeOrigin =
   | {
@@ -73,6 +76,7 @@ export type LegacyKnowledgeOrigin =
   | { kind: "github" }
   | { kind: "workspace" }
   | { kind: "no_repository" }
+  | { kind: "deleted_repository" }
 
 export function legacyKnowledgeOrigin(input: {
   object: Pick<ExportObjectRow, "deduplicationKey">
@@ -98,7 +102,10 @@ export function legacyKnowledgeOrigin(input: {
           from: gitUrl ?? "the Workspace repository",
           reason: "workspace_repository",
         }
-  if (!gitUrl) return { kind: "no_repository" }
+  if (!gitUrl)
+    return repositoryId?.startsWith("repo_")
+      ? { kind: "deleted_repository" }
+      : { kind: "no_repository" }
   if (!githubRepoFullNameFromWorkspaceUrl(gitUrl))
     return { kind: "kept", from: gitUrl, reason: "not_github" }
   return input.linkedGitUrls.has(normalizeWorkspaceRepositoryUrl(gitUrl))
@@ -421,7 +428,13 @@ export function exportAndSourcesStep(
         path.toLowerCase().endsWith(".md") &&
         treePaths.has(path) &&
         (connectors.moves.has(path) || !deleted.has(path))
-      const counts = { kept: 0, github: 0, workspace: 0, no_repository: 0 }
+      const counts = {
+        kept: 0,
+        github: 0,
+        workspace: 0,
+        no_repository: 0,
+        deleted_repository: 0,
+      }
       const keptByRepository = new Map<
         string,
         { count: number; reason: string }
@@ -508,6 +521,11 @@ export function exportAndSourcesStep(
       report.push(
         `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
       )
+
+      if (counts.deleted_repository)
+        report.push(
+          `Not exported: ${counts.deleted_repository} item(s) from a deleted repository. The org does not have the repository any more, so no source reads it.`,
+        )
 
       const writes: UpgradeStepPlan["writes"] = [...knowledge.files]
       if (sourcesText !== null && sourcesText !== sourcesFile)

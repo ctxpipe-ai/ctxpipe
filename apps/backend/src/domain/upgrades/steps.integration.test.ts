@@ -3,6 +3,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   type GitPack,
   readGitPackFromRemote,
@@ -14,18 +15,7 @@ import {
   WORKSPACE_FORMAT_PATH,
 } from "../workspaces/workspace-format.js"
 import { buildUpgradeCommits } from "./build-commits.js"
-import {
-  GIT_UPGRADE_STEPS_AFTER_EXPORT,
-  type GitUpgradeStep,
-  upgradeTargetFormat,
-} from "./registry.js"
-
-/** Stands in for step 1 (CTX-743), which is built at the same time. It changes nothing. */
-const STEP_1: GitUpgradeStep = {
-  format: 1,
-  title: "Export (stand-in)",
-  plan: async () => ({ writes: [], deletes: [], report: [] }),
-}
+import { GIT_UPGRADE_STEPS, upgradeTargetFormat } from "./registry.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 const directories: string[] = []
@@ -87,20 +77,24 @@ async function readCommits(pack: GitPack) {
 }
 
 describe("upgrade steps 2 and 3 (Postgres + git)", () => {
-  it("reach the code format with no gap after step 1", () => {
-    const steps = [STEP_1, ...GIT_UPGRADE_STEPS_AFTER_EXPORT]
-    expect(GIT_UPGRADE_STEPS_AFTER_EXPORT.map((step) => step.format)).toEqual([
-      2, 3,
-    ])
-    expect(upgradeTargetFormat(steps)).toBe(CODE_FORMAT)
+  it("reach the code format with no gap", () => {
+    expect(GIT_UPGRADE_STEPS.map((step) => step.format)).toEqual([1, 2, 3])
+    expect(upgradeTargetFormat(GIT_UPGRADE_STEPS)).toBe(CODE_FORMAT)
   })
 
   it("convert the sources and move the old extracted files in one commit each, and a second run changes nothing", async () => {
     const workspaceName = `acme/context-${seed.suffix.replaceAll("_", "-")}`
     const workspaceUrl = `https://github.com/${workspaceName}.git`
     const workspaceId = await seed.addWorkspace("steps", workspaceUrl)
-    const ctx = { orgId: seed.orgId, workspaceId, baseSha: "" }
-    const steps = [STEP_1, ...GIT_UPGRADE_STEPS_AFTER_EXPORT]
+    const ctx = {
+      orgId: seed.orgId,
+      workspaceId,
+      baseSha: "",
+      remote: { url: workspaceUrl, connectionId: null },
+    }
+    const steps = GIT_UPGRADE_STEPS
+    const inOrg = <T>(fn: () => Promise<T>) =>
+      withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, fn)
     const base = await fixturePack({
       ".ctxpipe/sources.yaml": `version: 1
 sources:
@@ -116,14 +110,16 @@ sources:
       "knowledge/services/orphan.md":
         "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/orphan.git#src/index.ts\n---\n\n# Orphan\n",
     })
-    const built = await buildUpgradeCommits({
-      pack: { ...base },
-      steps,
-      fromFormat: 0,
-      targetFormat: CODE_FORMAT,
-      ctx: { ...ctx, baseSha: base.sha },
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
+    const built = await inOrg(() =>
+      buildUpgradeCommits({
+        pack: { ...base },
+        steps,
+        fromFormat: 0,
+        targetFormat: CODE_FORMAT,
+        ctx: { ...ctx, baseSha: base.sha },
+        createdAt: "2026-10-16T00:00:00.000Z",
+      }),
+    )
     expect(built.steps.map((step) => [step.format, step.sha !== null])).toEqual(
       [
         [1, false],
@@ -161,14 +157,16 @@ sources:
     expect(head.show(WORKSPACE_FORMAT_PATH)).toContain("format: 3")
 
     // Each step on its own output changes nothing.
-    const again = await buildUpgradeCommits({
-      pack: built.pack,
-      steps,
-      fromFormat: 0,
-      targetFormat: CODE_FORMAT,
-      ctx: { ...ctx, baseSha: built.pack.sha },
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
+    const again = await inOrg(() =>
+      buildUpgradeCommits({
+        pack: built.pack,
+        steps,
+        fromFormat: 0,
+        targetFormat: CODE_FORMAT,
+        ctx: { ...ctx, baseSha: built.pack.sha },
+        createdAt: "2026-10-16T00:00:00.000Z",
+      }),
+    )
     expect(again.pack.sha).toBe(built.pack.sha)
     expect(again.steps.every((step) => step.sha === null)).toBe(true)
   })
