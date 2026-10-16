@@ -6,16 +6,29 @@ import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import {
+  formatBelow,
+  INGESTION_V2_PUBLISH_FORMAT,
+} from "../workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
 import type { IngestionV2Input } from "./ingestion-run.js"
 
 export type IngestionV2Resolution =
-  | { skipped: "source_is_workspace" | "not_github" | "no_destination" }
+  | {
+      skipped:
+        | "source_is_workspace"
+        | "not_github"
+        | "no_destination"
+        // Each destination is below format 3: the run publishes nothing.
+        | "upgrade_needed"
+    }
   | {
       skipped?: undefined
       sourceRepositoryId: string | null
       destinations: IngestDestination[]
+      /** Destinations that a publish run left out: below format 3. Empty in shadow mode. */
+      needsUpgrade: string[]
     }
 
 /**
@@ -27,7 +40,7 @@ export type IngestionV2Resolution =
  * org. A Workspace that is not writable, or has no commit yet, gets no refs.
  */
 export async function resolveIngestionV2Run(
-  input: Pick<IngestionV2Input, "orgId" | "source">,
+  input: Pick<IngestionV2Input, "orgId" | "source" | "shadow">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
   const fullName = githubRepoFullNameFromWorkspaceUrl(sourceUrl)?.toLowerCase()
@@ -84,8 +97,19 @@ export async function resolveIngestionV2Run(
         normalizeWorkspaceRepositoryUrl(row.gitUrl) ===
         normalizeWorkspaceRepositoryUrl(url),
     )?.id ?? null
-  const candidates = orgWorkspaces.filter((row) => declaring.has(row.id))
-  if (!candidates.length) return { skipped: "no_destination" }
+  const declared = orgWorkspaces.filter((row) => declaring.has(row.id))
+  if (!declared.length) return { skipped: "no_destination" }
+  // A publish run writes ownership front matter (format 3). A Workspace
+  // below it waits for the upgrade; a shadow run publishes nothing, so it
+  // runs for each Workspace.
+  const needsUpgrade = input.shadow
+    ? []
+    : declared.filter((row) =>
+        formatBelow(row.formatVersion, INGESTION_V2_PUBLISH_FORMAT),
+      )
+  if (needsUpgrade.length === declared.length)
+    return { skipped: "upgrade_needed" }
+  const candidates = declared.filter((row) => !needsUpgrade.includes(row))
   const destinations: IngestDestination[] = candidates
     .flatMap((row) =>
       row.writeStatus === "writable" && row.desiredSha && row.githubConnectionId
@@ -106,6 +130,7 @@ export async function resolveIngestionV2Run(
   return {
     sourceRepositoryId: repositoryId(sourceUrl),
     destinations,
+    needsUpgrade: needsUpgrade.map((row) => row.id),
   }
 }
 

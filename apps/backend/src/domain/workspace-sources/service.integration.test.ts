@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
@@ -20,6 +22,7 @@ import {
   findOpenAddPullRequest,
   listConnectionUsage,
   listWorkspaceSources,
+  unlinkWorkspaceRepository,
 } from "./service.js"
 
 beforeAll(() => {
@@ -187,6 +190,64 @@ it(
             ),
           }),
         ])
+      },
+    )
+  },
+)
+
+it(
+  "refuses each source writer on a Workspace below format 2 and writes nothing",
+  { timeout: 60_000 },
+  async () => {
+    const gitWrites: Array<{ method: string; path: string; body: unknown }> = []
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40), gitWrites),
+        )
+        const linear = await addLinearConnection(f)
+        const add: SourceChange = {
+          action: "add",
+          path: "sources/linear/eng.md",
+          provider: "linear",
+          connectionId: linear,
+          scope: { teams: ["ENG"] },
+        }
+        for (const formatVersion of [0, 1]) {
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(workspaces)
+              .set({ formatVersion })
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+          await withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            const refused = expect.objectContaining({
+              status: 409,
+              message: expect.stringContaining("Upgrade this Workspace first"),
+            })
+            await expect(
+              changeWorkspaceSource({ workspace, change: add }),
+            ).rejects.toEqual(refused)
+            await expect(
+              addWorkspaceSources({ workspace, changes: [add] }),
+            ).rejects.toEqual(refused)
+            await expect(
+              unlinkWorkspaceRepository({
+                workspace,
+                gitUrl: "https://github.com/acme/web",
+              }),
+            ).rejects.toEqual(refused)
+          })
+        }
+        expect(gitWrites).toEqual([])
       },
     )
   },
