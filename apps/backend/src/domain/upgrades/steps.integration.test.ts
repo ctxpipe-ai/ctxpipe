@@ -111,6 +111,9 @@ sources:
       "knowledge/services/billing.md":
         "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\n---\n\n# Billing\n",
       "knowledge/notes.md": "---\nkind: Note\n---\n\nA human note.\n",
+      // No source file names this repository, so no source path can own it.
+      "knowledge/services/orphan.md":
+        "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/orphan.git#src/index.ts\n---\n\n# Orphan\n",
     })
     const built = await buildUpgradeCommits({
       pack: { ...base },
@@ -140,6 +143,12 @@ sources:
     )
     expect(head.show("knowledge/services/billing.md")).toContain(
       "generated_by: ctxpipe-extract",
+    )
+    expect(head.show("knowledge/services/billing.md")).toContain(
+      "sources/github/acme/billing.md",
+    )
+    expect(head.show("knowledge/services/orphan.md")).toContain(
+      "generated_by: ctxpipe\n",
     )
     expect(head.show("knowledge/notes.md")).toBe(
       "---\nkind: Note\n---\n\nA human note.",
