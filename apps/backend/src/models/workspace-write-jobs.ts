@@ -439,8 +439,6 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
-  /** Stored for a later resume; not part of the command identity. */
-  publishPipeline?: "legacy" | "v2"
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
   /** The removed source file of that repository (ADR-050, 2026-10-16). */
@@ -463,9 +461,6 @@ export async function persistBoundWriteJob(input: {
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
-      ...(input.publishPipeline
-        ? { publishPipeline: input.publishPipeline }
-        : {}),
       ...(input.retractRepositoryUrl
         ? { retractRepositoryUrl: input.retractRepositoryUrl }
         : {}),
