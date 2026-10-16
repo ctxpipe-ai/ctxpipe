@@ -10,6 +10,7 @@ import {
 } from "../ingestion/ingestion-plan.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import { ingestionV2EnabledFor } from "../ingestion/ingestion-v2-config.js"
+import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -134,10 +135,10 @@ export async function workspaceSourceRepositories(
   )
   const found = new Map<string, ReingestRepository>()
   for (const row of rows) {
-    const names = (row.scope as { repositories?: unknown }).repositories
-    if (!row.connectionId || !Array.isArray(names)) continue
-    for (const name of names) {
-      if (typeof name !== "string") continue
+    if (!row.connectionId) continue
+    // A source file (`sources/github/...`, format 2 and up) has one
+    // `repository`; a `.ctxpipe/sources.yaml` entry has `repositories`.
+    for (const { name } of githubSourceScopeRepositories(row.scope)) {
       const url = normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)
       const repository = githubRepoFullNameFromWorkspaceUrl(url)
       if (!repository || found.has(repository.toLowerCase())) continue
