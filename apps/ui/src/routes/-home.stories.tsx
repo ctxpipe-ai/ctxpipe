@@ -110,7 +110,12 @@ export const WorkspacesLoading: Story = {
   },
 }
 
-export const Empty: Story = {
+/**
+ * An org with no Workspace is a new user. Home does not stay empty: it goes
+ * to the Create Workspace form (CTX-745, G2). The story router shows a stub
+ * there, so the home content leaves the page.
+ */
+export const EmptyOrgLeavesHome: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
   play: async ({ canvasElement }) => {
@@ -123,10 +128,13 @@ export const Empty: Story = {
         { timeout: 15_000 },
       ),
     ).toBeVisible()
-    expect(
-      await canvas.findByRole("button", { name: "Create Workspace" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.queryByLabelText("Select workspace")).toBeNull(),
+    )
     expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
+    expect(
+      canvas.queryByRole("button", { name: "Create Workspace" }),
+    ).not.toBeInTheDocument()
   },
   parameters: {
     storyRoute: homeRoute,

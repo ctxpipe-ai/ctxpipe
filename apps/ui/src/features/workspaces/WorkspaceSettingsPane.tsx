@@ -14,6 +14,7 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { writeCheckInFlight } from "./projection"
@@ -536,6 +537,13 @@ export function WorkspaceSettingsPane(props: {
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
               workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Upgrades">
+            <WorkspaceUpgrades
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
             />
           </SettingsGroup>
 

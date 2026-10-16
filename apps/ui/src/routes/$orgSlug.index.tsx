@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { Button } from "@/components/ui/Button"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
@@ -13,6 +12,7 @@ import {
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
+import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -36,7 +36,6 @@ function OrgHomePage() {
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
-  const navigate = useNavigate()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const listQuery = useQuery(workspaceListOptions(orgSlug))
@@ -89,11 +88,12 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
-  // the guide (an established user), keep the composer and the create button.
+  // the guide, the user goes to the Create Workspace form.
   const guideShows =
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (
     <>
+      <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}
       {guideCard}
       <WorkspaceActivity
@@ -105,20 +105,9 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   ) : guideShows ? (
     guideCard
   ) : (
-    <>
-      {composer}
-      <Button
-        variant="primary"
-        onPress={() => {
-          void navigate({
-            to: "/$orgSlug/workspaces/new",
-            params: { orgSlug },
-          })
-        }}
-      >
-        Create Workspace
-      </Button>
-    </>
+    // An org with no Workspace is a new user: it goes to onboarding, where
+    // it creates the first Workspace. Home is never empty (CTX-745, G2).
+    <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />
   )
 
   return (
