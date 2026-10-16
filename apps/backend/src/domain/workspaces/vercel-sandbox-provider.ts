@@ -452,12 +452,14 @@ async function refreshGitAccess(
  * Wait until the system CA bundle is whole. The firewall adds its CA to
  * `/etc/ssl/certs/ca-certificates.crt` after the sandbox starts, and a git
  * command that reads the file during the write fails with "error adding trust
- * anchors". A whole bundle is not empty and ends with a complete certificate.
- * After the wait the call goes on, so a missing bundle never blocks a start.
+ * anchors". A whole bundle is not empty, ends with a complete certificate, and has as
+ * many END lines as BEGIN lines. The wait is bounded (about 15 seconds). On a
+ * timeout the call logs a warning and goes on, so an image without a bundle
+ * never blocks a start.
  */
 async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
   const bundle = "/etc/ssl/certs/ca-certificates.crt"
-  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----'`
+  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
   for (let attempt = 0; attempt < 20; attempt++) {
     const result = await handle.process.exec(check).catch(() => undefined)
     if (result?.exitCode === 0) {
@@ -468,6 +470,10 @@ async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
   }
+  log.warn({
+    step: "workspace-ca-bundle-wait",
+    message: `The CA bundle was not whole after the wait; git may fail to load it`,
+  })
 }
 
 /** The stock handle, with the agent port behind the OpenCode password and kill enabled. */
@@ -830,9 +836,11 @@ export async function startVercelWorkspaceBase(input: {
     await finish()
     throw error
   }
+  const handle = new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
+  await waitForCaBundle(handle)
   return {
     builderId: sandbox.name,
-    handle: new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] }),
+    handle,
     capture: async () =>
       (await sandbox.snapshot({ expiration: input.expiration })).snapshotId,
     finish,
