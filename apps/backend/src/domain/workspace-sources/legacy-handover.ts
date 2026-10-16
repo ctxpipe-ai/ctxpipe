@@ -4,7 +4,7 @@ import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { getLogger } from "../../observability/logger.js"
+import { getLogger, log } from "../../observability/logger.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import type { SourceMigrationHook } from "./migration-plan.js"
 import type { SourceProvider } from "./sources-file.js"
@@ -45,7 +45,8 @@ export async function isLegacyBindingHandedOver(
 
 /**
  * The legacy sync gate. A failed lookup logs a warning and lets the legacy
- * sync run, so a database problem never stops the mirror.
+ * sync run, so a database problem never stops the mirror. The warning uses
+ * the global logger, because some callers have no logger in their context.
  */
 export async function legacyBindingHandedOver(
   provider: SourceProvider,
@@ -55,8 +56,9 @@ export async function legacyBindingHandedOver(
   try {
     return await check(provider, input)
   } catch (error) {
-    getLogger().warn("The legacy handover check failed; the legacy sync runs", {
+    log.warn({
       step: "workspace_sources.legacy_handover",
+      message: "The legacy handover check failed; the legacy sync runs",
       provider,
       connectionId: input.connectionId,
       error: error instanceof Error ? error.message : String(error),

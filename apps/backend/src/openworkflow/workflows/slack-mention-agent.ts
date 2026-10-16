@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import {
   readWorkspaceBlobs,
   writeWorkspaceSlice,
@@ -61,25 +62,33 @@ export const slackMentionAgent = defineWorkflow(
               throw new Error("Slack connector is not live for this connection")
             // The repository binding from before ADR-050. The migration
             // turns it off, and then only the Workspace sources get captures.
+            // An `ok` Slack source of this connection on the same repository
+            // stops it before that, so the two do not both write.
             const target = await getSlackBindingWithRepoByConnectionId(
               input.orgId,
               input.connectionId,
             )
-            const legacy = target?.enabled
-              ? {
-                  captured: await captureConnectorMirrorTarget({
-                    orgId: input.orgId,
-                    env,
-                    repositoryGitUrl: target.repositoryGitUrl,
-                    mirror: {
-                      provider: "slack",
-                      connectionId: input.connectionId,
-                      repositoryId: target.repositoryId,
-                    },
-                  }),
-                  repositoryName: target.repositoryName,
-                }
-              : null
+            const legacy =
+              target?.enabled &&
+              !(await legacyBindingHandedOver("slack", {
+                orgId: input.orgId,
+                connectionId: input.connectionId,
+                repositoryGitUrl: target.repositoryGitUrl,
+              }))
+                ? {
+                    captured: await captureConnectorMirrorTarget({
+                      orgId: input.orgId,
+                      env,
+                      repositoryGitUrl: target.repositoryGitUrl,
+                      mirror: {
+                        provider: "slack",
+                        connectionId: input.connectionId,
+                        repositoryId: target.repositoryId,
+                      },
+                    }),
+                    repositoryName: target.repositoryName,
+                  }
+                : null
             return { teamId: connection.teamId, legacy }
           },
         )

@@ -11,7 +11,9 @@ import {
 } from "vitest"
 import {
   assertWriteOriginAllowed,
+  resolveIngestConflicts,
   resolveSemanticConflicts,
+  SemanticResolveError,
   writeOriginSchema,
 } from "./semantic-merge.js"
 
@@ -241,6 +243,35 @@ it("treats a missing or unknown origin as an agent write", () => {
   for (const origin of [undefined, "person"])
     expect(writeOriginSchema.parse(origin)).toBe("agent")
 })
+
+const ingestConflicts = [
+  {
+    path: "knowledge/services/checkout.md",
+    base: HUMAN,
+    current: `${HUMAN}\nCurrent.\n`,
+    incoming: `${HUMAN}\nIncoming.\n`,
+  },
+]
+
+it("lets an invalid provider setting of an ingest merge propagate as itself", async () => {
+  vi.stubEnv("MODEL_PROVIDER", "not-a-provider")
+  const error = await resolveIngestConflicts(ingestConflicts).catch(
+    (e: unknown) => e,
+  )
+  expect(error).toBeInstanceOf(Error)
+  expect(error).not.toBeInstanceOf(SemanticResolveError)
+})
+
+it("wraps a failed model call of an ingest merge in a SemanticResolveError", async () => {
+  server.use(
+    http.post("https://semantic-merge.test/v1/chat/completions", () =>
+      HttpResponse.json({ error: { message: "unavailable" } }, { status: 400 }),
+    ),
+  )
+  await expect(resolveIngestConflicts(ingestConflicts)).rejects.toBeInstanceOf(
+    SemanticResolveError,
+  )
+}, 60_000)
 
 // CTX-721: each file under sources/ is one source. Only the host writes it
 // without a pull request.

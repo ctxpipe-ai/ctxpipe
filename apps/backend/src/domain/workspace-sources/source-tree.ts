@@ -3,6 +3,7 @@ import {
   type GitPack,
   nativeGit,
   packRootTree,
+  readGitFiles,
 } from "../../services/git/pack.js"
 import type { SourceFileBlob } from "./projection-plan.js"
 import { SOURCE_FILE_MAX_BYTES, SOURCE_FILES_FOLDER } from "./source-file.js"
@@ -67,6 +68,20 @@ export function splitSourcesTree<
         ...(file.omitted ? { omitted: file.omitted } : {}),
       })),
   }
+}
+
+/**
+ * Read the sources of a Workspace from a captured pack, with the limits of
+ * the hydrate read ({@link SOURCES_TREE_READ}): a blob under `sources/` that
+ * is too large or not text gets no content, so that it gets an invalid row.
+ */
+export async function readSourcesTree(pack: GitPack) {
+  return splitSourcesTree(
+    await readGitFiles(pack, isSourcesTreePath, {
+      maxBytes: SOURCE_FILE_MAX_BYTES,
+      applies: (path) => path.startsWith(SOURCES_FOLDER_PREFIX),
+    }),
+  )
 }
 
 /**

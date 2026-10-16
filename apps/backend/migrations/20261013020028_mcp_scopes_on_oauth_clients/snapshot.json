@@ -1,8 +1,7 @@
 {
   "id": "6b869e36-92ce-4569-96fe-94a9a56ec28a",
   "prevIds": [
-    "049acf5a-defd-4adc-81ce-3aac63714233",
-    "d3e6a01d-fb02-4a44-88e4-2a60ba572d7d"
+    "049acf5a-defd-4adc-81ce-3aac63714233"
   ],
   "version": "8",
   "dialect": "postgres",
@@ -2842,7 +2841,7 @@
       "table": "claim_evidence",
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -3193,7 +3192,7 @@
       "table": "confluence_spaces",
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -4714,7 +4713,7 @@
       "table": "repository_checkouts",
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,

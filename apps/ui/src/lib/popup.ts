@@ -306,6 +306,10 @@ export async function handleGithubSetupPopupResult(
               throw e
             // Its not-linked view links GitHub, then registers again.
             status = "redirected"
+            // End the flow first. The navigation unloads this page before the
+            // clear below runs, and a live flow makes /.github/setup act as
+            // the popup and close itself.
+            clearGithubPopupFlow()
             window.location.assign(
               `/.github/setup?${new URLSearchParams({
                 installation_id: String(installationId),
