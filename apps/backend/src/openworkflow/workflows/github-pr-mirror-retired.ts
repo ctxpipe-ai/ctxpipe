@@ -19,3 +19,14 @@ export const githubSyncContentRetired = defineWorkflow(
   { name: "github-sync-content", schema: anyInput },
   async () => ({ status: "retired" as const }),
 )
+
+/*
+ * Retired with the connector-sync repository model (PR 280). A version before
+ * the upgrade can leave a queued run of this workflow in the database. End it
+ * as retired, so the worker does not retry it forever. Delete this stub one
+ * minor release after the upgrade ships.
+ */
+export const syncGithubRepositoriesRetired = defineWorkflow(
+  { name: "sync-github-repositories", schema: anyInput },
+  async () => ({ status: "retired" as const }),
+)

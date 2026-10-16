@@ -2413,7 +2413,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -2764,7 +2764,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,
@@ -4493,7 +4493,7 @@
     {
       "type": "text",
       "typeSchema": null,
-      "notNull": true,
+      "notNull": false,
       "dimensions": 0,
       "default": null,
       "generated": null,

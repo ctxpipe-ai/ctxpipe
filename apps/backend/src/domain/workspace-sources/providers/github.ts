@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { normalizeWorkspaceRepositoryUrl } from "../../workspaces/slug.js"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /** One GitHub repository as `owner/name`. */
@@ -110,4 +111,18 @@ export function githubSourceScopeRepositories(
     return [{ name: file.data.repository, ref: file.data.ref ?? null }]
   const entry = githubScopeSchema.safeParse(scope)
   return entry.success ? githubScopeRepositories(entry.data) : []
+}
+
+/**
+ * The normalized repository URLs of a GitHub source or target. A source of
+ * another provider, or a scope that does not parse, gives none.
+ */
+export function githubRepositoryUrls(source: {
+  provider: string | null
+  scope: unknown
+}): string[] {
+  if (source.provider !== "github") return []
+  return githubSourceScopeRepositories(source.scope).map(({ name }) =>
+    normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`),
+  )
 }

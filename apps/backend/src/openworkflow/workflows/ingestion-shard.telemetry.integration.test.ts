@@ -138,6 +138,7 @@ async function runStep(
     ops: 0,
     rejects: 0,
     partial: 0,
+    partialRoots: [],
   }
   await withLogger(createLogger({ workflow: "test" }), () =>
     runSkillPages({

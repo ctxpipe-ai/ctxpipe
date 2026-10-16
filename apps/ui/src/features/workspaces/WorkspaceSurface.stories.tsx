@@ -389,7 +389,8 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     await canvas.findByPlaceholderText(
       "What should ctxpipe do in this Workspace?",
     )
-    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
+    // The files pane mounts after the composer shows.
+    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
     // The conversation list loads after the composer shows.
     await userEvent.click(
       await canvas.findByRole("link", { name: "Repo layout" }),
@@ -397,7 +398,7 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
-    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
+    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
   },
 }
 
