@@ -1,0 +1,133 @@
+---
+title: Plain connector
+description: Connect Plain with a machine-user API key, and sync Help Center articles and the threads of selected labels into a Workspace.
+---
+
+The **Plain connector** writes Help Center articles and support threads from
+[Plain](https://www.plain.com) into a [Workspace's](/docs/workspaces) GitHub
+repository. ctx| then indexes them like other knowledge files. Agents can read
+your support documentation and see what customers report.
+
+ctx| only reads from Plain. It does not change threads, articles, or
+customers. The one write is a webhook target for thread activity, which ctx|
+adds and removes.
+
+## What ctx| syncs
+
+You select Help Centers, thread labels, or both, for each Workspace.
+
+- **Help Center:** one file for each published article, with its group and
+  its body as Markdown. Images are text stubs in this version.
+- **Threads:** one file for each of the 100 newest threads with a label. A
+  thread file has the ref, status, priority, labels, the customer name, and
+  the first 50 messages in order, each as a quote. Internal notes are marked.
+  A longer thread says that Plain has more messages.
+
+ctx| writes people by name only. In thread text, ctx| removes email addresses,
+phone numbers in common formats, and links that carry a credential. Other
+personal data in the text can remain.
+
+<Callout type="warn" title="Thread messages are personal data">
+  Thread messages are text from your customers, and they can hold personal
+  data. Git keeps every version of a file, so a removed thread stays in the
+  history of the repository. Select labels that hold the threads your
+  Workspace needs, and keep the repository private.
+</Callout>
+
+## Prerequisites
+
+- A Plain admin who can add a machine user and an API key.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can
+  write to.
+
+## Setup flow
+
+<Steps>
+  <Step>
+    ### Create a machine user and an API key
+
+    In Plain, open **Settings → Machine Users** and add a machine user for
+    ctx|. Add an API key with only these permissions:
+    `helpCenter:read`, `labelType:read`, `thread:read`, `timeline:read`,
+    `customer:read`, `user:read`, `webhookTarget:create`, and
+    `webhookTarget:delete`. Copy the key: Plain shows it one time.
+  </Step>
+
+  <Step>
+    ### Connect Plain
+
+    In ctx|, open **Connectors**, select **Add connection**, then select
+    **Plain**. Paste the key and select **Connect Plain**. ctx| checks the key
+    and its permissions, keeps it encrypted, and adds one webhook target for
+    thread activity.
+  </Step>
+
+  <Step>
+    ### Add Plain to Workspaces
+
+    Select the Workspaces, and the Help Centers and labels for each. ctx| adds
+    a source to `.ctxpipe/sources.yaml` in each Workspace repository, with a
+    pull request. Merge the pull request to start the sync.
+  </Step>
+</Steps>
+
+## Files in the repository
+
+```text
+plain/help-centers/<help-center-id>/<slug>--<article-id>.md
+plain/threads/labels/<label-id>/<thread-id>.md
+```
+
+Do not edit these files. ctx| writes them again on each sync. When an article
+is unpublished, or a thread leaves the newest 100 of its label, ctx| deletes
+its file in the same commit.
+
+## Keeping content current
+
+- **Thread webhook:** a new message, a note, or a label change on a thread
+  starts a sync of the labels at the end of a 10-minute window. More events in
+  the same window start no more syncs.
+- **Daily sync:** ctx| syncs each connection once a day. Help Center articles
+  use this sync, because Plain sends no article events.
+- **Sync now:** an org admin can select **Sync now** in the menu of the
+  connector card.
+
+## Troubleshooting
+
+### The setup names missing permissions
+
+The key does not have every permission in the list. Create a new key on the
+machine user with all of them, and paste it.
+
+### The card says that threads sync once a day
+
+Plain did not accept the webhook target. Plain sends webhooks only to a
+public HTTPS address, and a workspace can have at most 25 targets. Select
+**Reconnect Plain** on the card and paste the key again to try again, or use
+the daily sync and **Sync now**. A reconnect replaces the target, so it also
+helps when someone deleted the target in Plain.
+
+### The card shows “Needs reconnect”
+
+Plain refused the saved key, for example because someone deleted it or
+removed a permission. ctx| keeps the files and stops the sync. Select
+**Reconnect Plain** on the card and paste a new key.
+
+### A source shows “Out of access”
+
+A selected Help Center or label was deleted or archived. ctx| tries it in
+three sync cycles and keeps its files. Then it marks the source. Remove it
+from the source.
+
+### Removing the connector
+
+Removing the connector deletes the webhook target in Plain while the key
+works, then the saved key. The Workspace sources that use it stop syncing.
+Files in GitHub stay. When the key no longer works, delete the target in
+**Settings → Webhooks** in Plain.
+
+### More than one ctx| target in Plain
+
+A failed request can leave an extra ctx| webhook target in Plain. ctx|
+refuses its events. Delete each ctx| target in **Settings → Webhooks** in
+Plain except the newest, or delete all of them and select **Reconnect Plain**.

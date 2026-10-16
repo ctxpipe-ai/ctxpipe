@@ -8,6 +8,10 @@ import {
 import { linearRootPath } from "../../services/linear/source-adapter.js"
 import { pagerdutyIncidentMirrorFiles } from "../../services/pagerduty/converter.js"
 import {
+  plainArticleFile,
+  plainThreadFile,
+} from "../../services/plain/converter.js"
+import {
   toSlackChannelIndexFile,
   toSlackThreadMarkdownFile,
 } from "../../services/slack/converter.js"
@@ -438,5 +442,42 @@ describe("Slack, PagerDuty, and Linear project-root mirror units", () => {
     expect(unit(projectIssue.path).kind).toBe("Issue")
     expect(unit(projectPage.path).kind).toBe("Project")
     expect(edges).toContainEqual({ from: projectIssue.path, to: thread.path })
+  })
+})
+
+describe("Plain mirror units", () => {
+  const article = plainArticleFile({
+    helpCenterId: "hc_1",
+    article: {
+      id: "hca_1",
+      title: "Reset a password",
+      slug: "reset-a-password",
+      contentHtml: "<p>Steps</p>",
+      groupName: null,
+      createdAt: null,
+      updatedAt: null,
+    },
+  })
+  const thread = plainThreadFile({
+    labelTypeId: "lt_1",
+    thread: {
+      id: "th_1",
+      ref: "T-1",
+      title: "Export fails",
+      status: "TODO",
+      priority: 2,
+      customerName: null,
+      labels: [],
+      createdAt: null,
+      updatedAt: null,
+      messages: [],
+      moreMessages: false,
+    },
+  })
+
+  it("gives articles and threads their kinds", () => {
+    const { unit } = hydrate([article, thread])
+    expect(unit(article.path).kind).toBe("Article")
+    expect(unit(thread.path).kind).toBe("Ticket")
   })
 })

@@ -6,6 +6,7 @@ import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
 import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
+import { registerPlainWebhookRoute } from "./webhooks/plain/plain.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
@@ -19,4 +20,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
+  registerPlainWebhookRoute(app)
 }
