@@ -21,6 +21,11 @@ import {
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
 import { WORKSPACE_CHAT_VERCEL_SETUP } from "./chat-runtime.js"
+import {
+  GITHUB_RATE_LIMIT_COMMAND,
+  isOutsideFault,
+  parseGithubCoreLimit,
+} from "./github-rate-limit-reply.js"
 import { stopEarlierTurnProcesses } from "./sandbox-process-guards.js"
 import {
   agentSnapshotTags,
@@ -435,12 +440,17 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     } as Parameters<typeof provider.create>[0])
     created.push(handle.id)
     const coreLimit = async (sandboxHandle: typeof handle) => {
-      const result = await sandboxHandle.process.exec(
-        "curl -sS https://api.github.com/rate_limit",
-      )
-      return (
-        JSON.parse(result.stdout) as { resources: { core: { limit: number } } }
-      ).resources.core.limit
+      // An outside fault gets three tries; a firewall fault fails at once.
+      for (let attempt = 1; ; attempt += 1) {
+        try {
+          return parseGithubCoreLimit(
+            await sandboxHandle.process.exec(GITHUB_RATE_LIMIT_COMMAND),
+          )
+        } catch (error) {
+          if (attempt >= 3 || !isOutsideFault(error)) throw error
+          await new Promise((resolve) => setTimeout(resolve, 5_000))
+        }
+      }
     }
     // Unauthenticated callers get 60 requests an hour.
     expect(await coreLimit(handle)).toBeGreaterThan(60)
