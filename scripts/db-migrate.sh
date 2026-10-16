@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
-# One owner-migration command: Drizzle, OpenWorkflow,
-# GitHub-secret backfill, PagerDuty directory backfill, then GRANT DML / app-role URL.
+# Local dev migrate: the same entry point as hosted, Compose and CDK
+# (apps/backend/src/db/migrate.ts), on the owner URL.
 # Runtime DATABASE_URL (ctxpipe_app) stays in .env.local; this shell uses the owner URL.
 set -euo pipefail
 
@@ -13,11 +13,5 @@ source "$root/scripts/worktree-db.sh"
 
 DATABASE_URL="$(pnpm exec tsx src/db/print-owner-migrate-url.ts)"
 export DATABASE_URL
-
-pnpm exec drizzle-kit migrate
-pnpm exec tsx src/db/migrate-openworkflow.ts
-pnpm exec tsx src/db/backfill-github-secrets-cli.ts
-pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
-
 export DATABASE_APP_PASSWORD="${DATABASE_APP_PASSWORD:-ctxpipe}"
-pnpm exec tsx src/db/provision-app-role-cli.ts
+pnpm exec tsx src/db/migrate.ts
