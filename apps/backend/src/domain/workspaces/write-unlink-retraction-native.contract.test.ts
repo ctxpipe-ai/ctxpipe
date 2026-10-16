@@ -247,6 +247,8 @@ async function mergeThenRetract(
     show: (path: string) => string
     merged: string
     jobs: () => Promise<Array<{ id: string; status: string | undefined }>>
+    /** The results of the finished retraction runs. */
+    results: () => Promise<unknown[]>
     /** Run the follow-ups of the projection of the unlink again. */
     replay: () => Promise<void>
   }) => Promise<void> | void,
@@ -291,6 +293,15 @@ async function mergeThenRetract(
             }),
         )
       }
+      const results = async () =>
+        (await backend.listWorkflowRuns({ limit: 1000 })).data
+          .filter(
+            (run) =>
+              run.workflowName === "workspace-write-unlink-retraction" &&
+              (run.input as { workspaceId?: string }).workspaceId ===
+                f.workspaceId,
+          )
+          .map((run) => run.output)
       try {
         const { defineWorkspaceUnlinkRetractionWorkflow } = await import(
           "../../openworkflow/workflows/workspace-unlink-retraction.js"
@@ -343,7 +354,7 @@ async function mergeThenRetract(
           await expect
             .poll(jobs, { timeout: 60_000 })
             .toEqual([{ id: expect.any(String), status: "completed" }])
-        await check({ f, git, show, merged, jobs, replay })
+        await check({ f, git, show, merged, jobs, results, replay })
       } finally {
         await worker?.stop()
         await backend.stop()
@@ -611,6 +622,44 @@ it(
       { committed: () => "v2", hydrate: true },
       ({ git, show, merged }) => {
         expectRetraction({ git, show, from: merged })
+      },
+    )
+  },
+)
+
+it(
+  "leaves an old file outside the allowed knowledge folders unchanged, lists it in the job result, and finishes the rest",
+  { timeout: 150_000 },
+  async () => {
+    const oldFile = doc(
+      {
+        kind: "Topic",
+        generated_by: "ctxpipe",
+        source: `${UNLINKED}.git#src/index.ts`,
+      },
+      "# Billing patterns\n",
+    )
+    await mergeThenRetract(
+      {
+        committed: () => "v2",
+        before: [{ "knowledge/patterns/billing.md": oldFile }],
+      },
+      async ({ git, show, merged, results }) => {
+        // The rest of the retraction is done, and the old file is not touched.
+        expectRetraction({ git, show, from: merged })
+        expect(show("knowledge/patterns/billing.md")).toBe(oldFile.trimEnd())
+        expect(await results()).toEqual([
+          expect.objectContaining({
+            committed: true,
+            skipped: [
+              {
+                path: "knowledge/patterns/billing.md",
+                reason:
+                  "Only the knowledge folders of the allowlist are allowed",
+              },
+            ],
+          }),
+        ])
       },
     )
   },
