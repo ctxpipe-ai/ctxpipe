@@ -162,10 +162,12 @@ async function seedMainOrg(db: pg.Client) {
       }),
     ],
   )
+  // main names a GitHub repository by its full name (owner/repo), and a
+  // repository that an operator added by URL by the name that they gave.
   await q(
     `INSERT INTO repositories (id, org_id, name, git_url, github_connection_id, index_ready, created_at, updated_at) VALUES
-      ($1, $2, 'hydration-contract', 'https://github.com/fixture/hydration-contract.git', $3, true, '2026-01-01T00:00:00Z', now()),
-      ('repo_main_api', $2, 'api', 'https://github.com/team-a/api.git', $3, true, '2026-02-01T00:00:00Z', now()),
+      ($1, $2, 'fixture/hydration-contract', 'https://github.com/fixture/hydration-contract.git', $3, true, '2026-01-01T00:00:00Z', now()),
+      ('repo_main_api', $2, 'team-a/api', 'https://github.com/team-a/api.git', $3, true, '2026-02-01T00:00:00Z', now()),
       ('repo_main_tools', $2, 'tools', 'https://gitlab.com/team-c/tools.git', NULL, true, '2026-03-01T00:00:00Z', now())`,
     [WORKSPACE_REPO, ORG.id, GITHUB_CONNECTION],
   )
@@ -337,7 +339,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   expect(migrated.workspaces).toEqual([
     {
       id: expect.stringMatching(/^ws_/),
-      slug: "hydration-contract",
+      slug: "fixture-hydration-contract",
       workspace_repository_url: WORKSPACE_URL,
       github_connection_id: GITHUB_CONNECTION,
       write_status: "unknown",
