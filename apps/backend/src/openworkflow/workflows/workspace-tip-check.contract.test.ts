@@ -296,9 +296,11 @@ async function tipHydrateRuns(f: NativeHydrationFixture, sha: string) {
   }
 }
 
-async function runTipCheck(f: NativeHydrationFixture) {
+/** Run one tip check. `hour` fixes the UTC hour that its retry keys hold. */
+async function runTipCheck(f: NativeHydrationFixture, hour?: string) {
   const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
     orgId: f.org.id,
+    ...(hour ? { hour } : {}),
   })
   return handle.result({ timeoutMs: 30_000 })
 }
@@ -357,31 +359,20 @@ it(
       async (f) => {
         await f.publish()
         const sha = pushSourcesFile(f)
-        // The key holds the UTC hour. Start well before the hour ends.
-        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
-        if (leftInHour < 30_000)
-          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
-        await runTipCheck(f)
+        // The key holds the UTC hour. Each check gets its hour, so the
+        // result does not depend on the clock.
+        await runTipCheck(f, "2026-01-01T09")
         const [first] = await tipHydrateRuns(f, sha)
         if (!first?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        expect(first.idempotencyKey.endsWith(":2026-01-01T09")).toBe(true)
         await getSystemDb().execute(
           sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
         )
 
-        await runTipCheck(f)
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
 
-        // Move the failed run to the hour before, as if it started then.
-        const hour = first.idempotencyKey.slice(-13)
-        const earlier = new Date(
-          new Date(`${hour}:00:00Z`).getTime() - 3_600_000,
-        )
-          .toISOString()
-          .slice(0, 13)
-        await getSystemDb().execute(
-          sql`update openworkflow.workflow_runs set idempotency_key = ${`${first.idempotencyKey.slice(0, -13)}${earlier}`} where id = ${first.id}`,
-        )
-        await runTipCheck(f)
+        await runTipCheck(f, "2026-01-01T10")
         expect(
           (await tipHydrateRuns(f, sha)).map((run) => run.status).sort(),
         ).toEqual(["failed", "pending"])
@@ -734,17 +725,15 @@ it(
       async (f) => {
         await f.publish()
         const sha = pushSourcesFile(f)
-        // The keys hold the UTC hour. Start well before the hour ends.
-        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
-        if (leftInHour < 30_000)
-          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
         // The failed run stored the tip in `desired_sha`, then stopped.
         expect((await f.resolveRevision(true)).sha).toBe(sha)
         const tipJobs = async () => ({
+          // The hydrate also queues an index when it publishes. Count only
+          // the jobs of the tip check.
           index: (await workspaceRuns(f, "workspace-index")).filter(
             (run) =>
               (run.input as { revision?: { sha?: string } }).revision?.sha ===
-              sha,
+                sha && run.idempotencyKey?.startsWith("workspace-tip-index:"),
           ).length,
           commits: (
             await workspaceRuns(f, "workspace-commit-projection")
@@ -753,10 +742,11 @@ it(
           ).length,
         })
 
-        await runTipCheck(f)
+        // The keys hold the UTC hour that each check gets.
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
-        // The hydrate is in flight, and the keys hold the hour.
-        await runTipCheck(f)
+        // The hydrate is in flight, and the keys hold the same hour.
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
       },
     )

@@ -90,6 +90,15 @@ function remoteHost(url: string): string {
 
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
+  /**
+   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The cron does not
+   * give it, so the check uses the current hour. A test gives it, so that its
+   * keys do not depend on the clock.
+   */
+  hour: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}$/)
+    .optional(),
 })
 
 export const workspaceTipCheck = defineWorkflow(
@@ -224,7 +233,7 @@ export const workspaceTipCheck = defineWorkflow(
           ]),
       )
       const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
-      const hour = startedAt.toISOString().slice(0, 13)
+      const hour = input.hour ?? startedAt.toISOString().slice(0, 13)
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
         const writeStatus = writeStatusById.get(workspace.id)
