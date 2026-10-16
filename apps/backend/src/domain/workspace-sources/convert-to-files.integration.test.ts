@@ -201,7 +201,7 @@ sources:
         workspaceId,
         revision: sha,
         projected,
-        publishPipeline: "v2",
+        format: 3,
       })
     }
     const cleanups = async () =>
