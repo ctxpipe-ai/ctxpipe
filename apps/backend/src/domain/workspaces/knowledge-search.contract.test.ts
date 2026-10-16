@@ -145,11 +145,20 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
       AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
     const plan = await withOrgDbContext(orgId, async (db) => {
       await db.execute(sql`ANALYZE workspace_knowledge_chunks`)
+      // The row estimate for the org filter depends on the other orgs in the
+      // shared test database, so the planner may pick the org index on a cost
+      // tie. Without a sort, only the HNSW index can give the distance order.
       await db.execute(sql`SET LOCAL enable_seqscan = off`)
+      await db.execute(sql`SET LOCAL enable_sort = off`)
+      await db.execute(sql`SET LOCAL enable_incremental_sort = off`)
       const explained = await db.execute<{ "QUERY PLAN": unknown }>(
         sql`EXPLAIN (FORMAT JSON) ${hnswCandidates(vector, where)}`,
       )
-      return JSON.stringify(explained.rows[0]?.["QUERY PLAN"])
+      // The vector literal would fill the failure message, so keep the nodes.
+      return JSON.stringify(explained.rows[0]?.["QUERY PLAN"]).replace(
+        /'\[[^\]]*\]'::vector/g,
+        "<vector>",
+      )
     })
     expect(plan).toContain("workspace_knowledge_chunks_embedding_idx")
     expect(plan).not.toMatch(
