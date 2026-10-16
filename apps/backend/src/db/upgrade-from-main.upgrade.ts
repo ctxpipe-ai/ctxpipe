@@ -105,6 +105,12 @@ scope:
 `
 
 let admin: pg.Client
+const testStart = Date.now()
+/** A progress line in the CI log, so that a hang names its phase. */
+const phase = (name: string) =>
+  process.stderr.write(
+    `[upgrade-from-main] +${Math.round((Date.now() - testStart) / 1000)}s ${name}\n`,
+  )
 let mainTree = ""
 
 function run(
@@ -113,6 +119,7 @@ function run(
   cwd: string,
   databaseUrl: string,
 ) {
+  phase(`${command} ${args.join(" ")}`)
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
@@ -121,7 +128,7 @@ function run(
       DATABASE_URL: databaseUrl,
       DATABASE_APP_PASSWORD: appPassword,
     },
-    timeout: 300_000,
+    timeout: 180_000,
   })
   if (result.status !== 0)
     throw new Error(
@@ -540,6 +547,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
       const branchHead = () =>
         f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main")
       try {
+        phase("start workers and the first hydrate")
         await f.worker.start()
         await worker.start()
         // The first hydrate after the deploy reads the main layout: format 0.
@@ -554,6 +562,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         expect(branchHead()).toBe(f.sha)
 
         // The scan records each upgrade item and starts nothing.
+        phase("first scan")
         await scan("deploy")
         expect(await row("format-3")).toMatchObject({
           status: "awaiting_operator",
@@ -576,6 +585,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           ),
         ).toEqual(["team-a/api"])
         expect(opened).toEqual([])
+        phase("list upgrades through the API")
         const listed = await api("GET", "/upgrades")
         expect(listed.status).toBe(200)
         const items = ((await listed.json()) as { items: unknown[] }).items
@@ -598,6 +608,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         )
 
         // The click of the admin, through the API.
+        phase("start the format upgrade through the API")
         const started = await api("POST", "/upgrades/format-3/start")
         expect(started.status).toBe(202)
         await expect
@@ -659,6 +670,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           head,
           f.sha,
         )
+        phase("merge and hydrate")
         const revision = await f.resolveRevision(true)
         expect(revision.sha).toBe(head)
         const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
@@ -697,6 +709,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         expect(branchHead()).toBe(head)
 
         // The re-ingestion is now ready for the click of an admin.
+        phase("scan after the merge")
         await scan("after-merge")
         const sources = await owner(
           async (db) =>
@@ -718,6 +731,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
     },
   )
 
+  phase("read with main after the upgrade")
   // 4. Rollback: the code of main reads the upgraded database as it read
   // the database of main.
   expect(readWithMain()).toEqual(mainRead)
