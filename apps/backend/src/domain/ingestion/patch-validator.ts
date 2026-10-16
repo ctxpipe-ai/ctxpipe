@@ -72,6 +72,13 @@ export type PatchStepInput = {
   /** Step output directory: `files/<path>` and `patch.json`. */
   stagedDir: string
   source: { url: string; sha: string }
+  /**
+   * The path of the run's source file in this Workspace, relative to the
+   * Workspace root folder (`sources/github/<owner>/<name>.md`, ADR-050
+   * revision 2026-10-16). Ownership compares it with `sources`, and the host
+   * writes it as `sources` of each file that the step owns.
+   */
+  sourcePath: string
   skill: string
   bundle: string
   /** True when `path` exists in the source repository at `source.sha`. */
@@ -232,21 +239,30 @@ const PatchJsonSchema = z.object({
 /** Ownership of a file at the base commit, from the host-only fields. */
 export type FileOwnership = "sole" | "shared" | "foreign"
 
-/** Shared ownership predicate (concept section 4.3). */
-export function fileOwnership(raw: string, sourceUrl: string): FileOwnership {
-  const front = splitFrontMatter(raw)
-  if (!front) return "foreign"
-  const attributes = parseYamlObject(front.yaml)
-  if (!attributes || attributes.generated_by !== GENERATED_BY) return "foreign"
-  const sources = Array.isArray(attributes.sources)
-    ? attributes.sources.filter((s): s is string => typeof s === "string")
-    : []
-  const normalized = sources.map(normalizeSourceUrl)
-  if (!normalized.includes(normalizeSourceUrl(sourceUrl))) return "foreign"
-  return new Set(normalized).size === 1 ? "sole" : "shared"
+/**
+ * The text of one `sources` value as ownership compares it: a source file
+ * path relative to the Workspace root folder (ADR-050 revision 2026-10-16,
+ * ADR-052 section 3). Only white space at the ends goes.
+ */
+export function sourceIdentity(value: string): string {
+  return value.trim()
 }
 
-/** Normalized source URLs a generated file lists; empty for a file ctxpipe does not generate. */
+/**
+ * Shared ownership predicate (concept section 4.3). `sourcePath` is the path
+ * of the run's source file in this Workspace. A file is owned when it has
+ * `generated_by: ctxpipe-extract` and its `sources` list holds that path.
+ */
+export function fileOwnership(raw: string, sourcePath: string): FileOwnership {
+  const sources = fileSources(raw)
+  if (!sources.includes(sourceIdentity(sourcePath))) return "foreign"
+  return new Set(sources).size === 1 ? "sole" : "shared"
+}
+
+/**
+ * The source paths a generated file lists; empty for a file ctxpipe does not
+ * generate.
+ */
 export function fileSources(raw: string): string[] {
   const front = splitFrontMatter(raw)
   const attributes = front ? parseYamlObject(front.yaml) : null
@@ -254,7 +270,7 @@ export function fileSources(raw: string): string[] {
   return Array.isArray(attributes.sources)
     ? attributes.sources
         .filter((s): s is string => typeof s === "string")
-        .map(normalizeSourceUrl)
+        .map(sourceIdentity)
     : []
 }
 
@@ -362,6 +378,7 @@ export async function validatePatchStep(
     rejections.push({ path, rule, reason })
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
+  const sourcePath = sourceIdentity(input.sourcePath)
 
   const rootPath = input.rootPath ?? ""
   const baseEntries = await listTree(input.repoDir, input.baseCommit, rootPath)
@@ -512,7 +529,7 @@ export async function validatePatchStep(
     return text.includes(part)
   }
   const context: CheckContext = {
-    sourceUrl,
+    sourcePath,
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
@@ -591,7 +608,7 @@ export async function validatePatchStep(
     }
     const before = baseText(op.path)
     if (op.op === "delete") {
-      if (fileOwnership(before ?? "", sourceUrl) !== "sole") {
+      if (fileOwnership(before ?? "", sourcePath) !== "sole") {
         reject(
           op.path,
           "ownership",
@@ -652,7 +669,7 @@ export async function validatePatchStep(
   const ownedCount = [...baseEntries.keys()].filter(
     (path) =>
       disallowedPathReason(path) === null &&
-      fileOwnership(baseText(path) ?? "", sourceUrl) === "sole",
+      fileOwnership(baseText(path) ?? "", sourcePath) === "sole",
   ).length
   const deleteLimit = Math.floor(ownedCount * MAX_DELETE_SHARE)
   let accepted = candidates
@@ -714,7 +731,8 @@ export async function validatePatchStep(
 }
 
 type CheckContext = {
-  sourceUrl: string
+  /** The path of the run's source file in this Workspace (`sources`). */
+  sourcePath: string
   source: { url: string; sha: string }
   skill: string
   bundle: string
@@ -747,7 +765,9 @@ async function checkWrite(
     return { rule: "content", reason: "The file is not valid UTF-8" }
   }
   const ownership =
-    op.op === "create" ? "sole" : fileOwnership(before ?? "", context.sourceUrl)
+    op.op === "create"
+      ? "sole"
+      : fileOwnership(before ?? "", context.sourcePath)
   // A generated area file is shared: its own rules (area-file.ts) apply to
   // each source, also to one that the file does not list yet.
   if (op.path.startsWith("knowledge/instructions/") && !AREA_PATH.test(op.path))
@@ -872,7 +892,7 @@ async function checkAreaWrite(
   if (injection) return injection
 
   const beforeSources = fileSources(before ?? "")
-  const others = beforeSources.filter((s) => s !== context.sourceUrl)
+  const others = beforeSources.filter((s) => s !== context.sourcePath)
   if (others.length > 0 && attributes.name !== baseAttributes.name)
     return shared("Only the source that owns the file alone can rename it")
   if (others.length > 0 && attributes.summary !== baseAttributes.summary)
@@ -881,17 +901,17 @@ async function checkAreaWrite(
     )
 
   const withoutHuman = (body: string) => body.replace(HUMAN_BLOCK, "")
-  const after = parseAreaBody(withoutHuman(front.body), normalizeSourceUrl)
+  const after = parseAreaBody(withoutHuman(front.body))
   if ("error" in after) return shared(after.error)
   let beforeArea: AreaFile | null = null
   if (before && baseFront) {
-    const read = parseAreaBody(withoutHuman(baseFront.body), normalizeSourceUrl)
+    const read = parseAreaBody(withoutHuman(baseFront.body))
     beforeArea = "error" in read ? null : read
   }
   const change = checkAreaChange({
     before: beforeArea,
     after,
-    source: context.sourceUrl,
+    source: context.sourcePath,
     beforeSources,
   })
   if ("error" in change) return shared(change.error)
@@ -1045,7 +1065,7 @@ async function checkFullWrite(
       : { summary: attributes.summary }),
     ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
-    sources: [context.sourceUrl],
+    sources: [context.sourcePath],
     ...(root === undefined ? {} : { root }),
     source_sha: context.source.sha,
     skill: context.skill,

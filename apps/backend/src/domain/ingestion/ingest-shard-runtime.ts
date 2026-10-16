@@ -26,6 +26,12 @@ export type IngestDestination = {
   repositoryId: string | null
   /** The Workspace root folder; absent or `""` is the repository root. */
   rootPath?: string
+  /**
+   * The path of the GitHub source file that declares the run's repository in
+   * this Workspace (`sources/github/<owner>/<name>.md`, ADR-050 revision
+   * 2026-10-16). Each file that the run owns lists it in `sources`.
+   */
+  sourcePath: string
 }
 
 export type IngestShardSpec = {

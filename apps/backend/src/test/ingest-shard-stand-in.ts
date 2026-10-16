@@ -87,7 +87,7 @@ export function standInIngestShardRuntime(options: {
           workspaceId: step.workspaceId,
           sha: destination.pinnedRevision,
           base: step.baseCommit,
-          sourceUrl: spec.source.url,
+          sourcePath: destination.sourcePath,
           repoDir: context,
         })
         await writeFile(
@@ -102,6 +102,8 @@ export function standInIngestShardRuntime(options: {
           sourceDir,
           "--source-url",
           spec.source.url,
+          "--source-path",
+          destination.sourcePath,
           "--roots",
           rootsFile,
           ...(step.root === null ? [] : ["--path", step.root]),

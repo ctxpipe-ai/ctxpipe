@@ -5,6 +5,8 @@ import {
   ingestionPublishPipelineSchema,
   publishPipelineStopped,
 } from "../../domain/ingestion/ingestion-v2-config.js"
+import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
+import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
@@ -85,10 +87,16 @@ export function defineKnowledgeRewriteWorkflow(options: {
    * each push goes through this check (no semantic merge).
    */
   publishPipeline?: { committed: () => IngestionPublishPipeline }
+  /**
+   * `sourceFiles` are the blobs under `sources/` at the same revision;
+   * `orgId` is the org of the job.
+   */
   transform: (
     files: KnowledgeFile[],
     revision: WorkspaceRevision,
-  ) => KnowledgeFile[]
+    sourceFiles: SourceFileBlob[],
+    orgId: string,
+  ) => KnowledgeFile[] | Promise<KnowledgeFile[]>
 }) {
   return defineWorkflow(
     { name: options.name, schema: inputSchema },
@@ -168,6 +176,8 @@ export function defineKnowledgeRewriteWorkflow(options: {
                     path.startsWith("knowledge/") && path.endsWith(".md"),
                 ),
                 revision,
+                (await readSourcesTree(acquired.pack)).sourceFiles,
+                input.orgId,
               ),
           )
           if (!files.length) {

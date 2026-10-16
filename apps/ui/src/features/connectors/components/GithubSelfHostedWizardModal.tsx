@@ -20,7 +20,7 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
-  type GithubSetupPopupResult,
+  type GithubSetupRegistrationStatus,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
@@ -34,7 +34,9 @@ type GithubSelfHostedWizardModalProps = {
   onOpenChange: (open: boolean) => void
   onInstallFlowStarted?: () => void
   onDraftCreated?: (args: { connectionId: string }) => void
-  onInstallPopupSettled?: (result: GithubSetupPopupResult) => void
+  onInstallPopupSettled?: (payload: {
+    status: GithubSetupRegistrationStatus
+  }) => void
   /**
    * Hide the modal when jumping to the GitHub install popup. Prefer this over
    * `onOpenChange(false)` so parents don’t treat the handoff as a user dismiss/cancel.
@@ -150,15 +152,15 @@ export function GithubSelfHostedWizardModal({
       if (popup) {
         watchPopupClose(popup, () => {
           void (async () => {
-            const result = await handleGithubSetupPopupResult(
+            const { status } = await handleGithubSetupPopupResult(
               orgSlug,
               queryClient,
             )
-            if (result.status === "registered") {
+            if (status === "registered") {
               HyperDX.addAction("connector_connect", { connector: "github" })
               toast.success("GitHub installation linked.")
             }
-            onInstallPopupSettled?.(result)
+            onInstallPopupSettled?.({ status })
             localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
             reset()
           })()

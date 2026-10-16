@@ -53,6 +53,8 @@ afterAll(async () => {
 async function upgradeRun(orgId: string): Promise<string> {
   const handle = await runner.runWorkflow(upgradeSpec, { orgId })
   queued.push(handle.workflowRun.id)
+  // A later run gets a later created_at, so the queue order is the call order.
+  await new Promise((resolve) => setTimeout(resolve, 20))
   return handle.workflowRun.id
 }
 

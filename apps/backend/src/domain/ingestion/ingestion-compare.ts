@@ -190,8 +190,8 @@ function sourceMarker(value: string): string {
 /**
  * The extracted units of one tree, as hydrate reads them. `generatedBy`
  * picks the pipeline. `changedPaths` selects run output regardless of ownership.
- * With `sourceUrl`, a v2 unit must list the source in `sources`. An old unit
- * must name the source in `source` or a claim. Each old claim must name it.
+ * With `sourceUrl`, an old unit must name the source in `source` or a claim,
+ * and each old claim must name it.
  */
 export function projectExtractedTree(input: {
   files: ReadonlyArray<{ path: string; content: string }>
@@ -232,21 +232,11 @@ export function projectExtractedTree(input: {
           (c): c is Record<string, unknown> => !!c && typeof c === "object",
         )
       : []
-    if (source) {
-      if (input.generatedBy === SHADOW_GENERATED_BY) {
-        const sources = Array.isArray(attrs.sources) ? attrs.sources : []
-        if (
-          !sources.some(
-            (s) => typeof s === "string" && sourceMarker(s) === source,
-          )
-        )
-          continue
-      } else {
-        const markers = [attrs.source, ...rawClaims.map((c) => c.source)]
-          .map(text)
-          .filter((m): m is string => m !== null)
-        if (!markers.some((m) => sourceMarker(m) === source)) continue
-      }
+    if (source && input.generatedBy !== SHADOW_GENERATED_BY) {
+      const markers = [attrs.source, ...rawClaims.map((c) => c.source)]
+        .map(text)
+        .filter((m): m is string => m !== null)
+      if (!markers.some((m) => sourceMarker(m) === source)) continue
     }
     const kind = unit.kind ?? ""
     const name = nameOf(unit.path, unit.title)

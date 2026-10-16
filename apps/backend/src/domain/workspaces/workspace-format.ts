@@ -144,20 +144,6 @@ export function withFormatWriteGate<
 }
 
 /**
- * True when hydrate must queue an upgrade scan after it cached `next` over
- * `previous`. A changed format can complete an upgrade pull request, and it
- * can lift the format gate, so the write jobs that the gate held must
- * resume. The first read of a repository with no file (null to 0) changes
- * nothing: a null cache gives no gate, and no upgrade ends at format 0.
- */
-export function formatChangeNeedsScan(
-  previous: number | null,
-  next: number,
-): boolean {
-  return previous !== next && !(previous === null && next === 0)
-}
-
-/**
  * True when the cached format is known and older than `minimum`. A format
  * that is not read yet (null) is not below: hydrate has not run, so nothing
  * is known. A format file that is not valid has its own read-only gate.
@@ -175,3 +161,17 @@ export function formatBelow(
 /** The error text of a source writer on a Workspace below format 2. */
 export const UPGRADE_FIRST_MESSAGE =
   "Upgrade this Workspace first. Its repository does not use one file for each source yet. Run the Workspace upgrade, then try again."
+
+/**
+ * True when hydrate must queue an upgrade scan after it cached `next` over
+ * `previous`. A changed format can complete an upgrade pull request, and it
+ * can lift the format gate, so the write jobs that the gate held must
+ * resume. The first read of a repository with no file (null to 0) changes
+ * nothing: a null cache gives no gate, and no upgrade ends at format 0.
+ */
+export function formatChangeNeedsScan(
+  previous: number | null,
+  next: number,
+): boolean {
+  return previous !== next && !(previous === null && next === 0)
+}

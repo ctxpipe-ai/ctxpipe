@@ -20,6 +20,8 @@ import {
 } from "./ingest-refs.js"
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 const RUN = "run_ingest_1"
 const WORKSPACE = "ws_alpha"
 const AUTHOR_TIME = new Date("2026-10-01T08:00:00Z")
@@ -61,7 +63,7 @@ const RUNBOOK = `---\n${stringify({
   kind: "Service",
   name: "Runbook",
   generated_by: "ctxpipe-extract",
-  sources: [SOURCE_URL],
+  sources: [SOURCE_PATH],
   source_sha: "1".repeat(40),
   skill: "apis",
   bundle: "bundle-1",
@@ -160,6 +162,7 @@ function step(
         input.more,
       ),
       source: { url: SOURCE_URL, sha: "1".repeat(40) },
+      sourcePath: SOURCE_PATH,
       skill: "apis",
       sourcePathExists: async () => true,
       ...(input.rootPath === undefined ? {} : { rootPath: input.rootPath }),
@@ -656,6 +659,7 @@ describe("pushIngestAssemble", () => {
   const ASSEMBLED = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
   const MERGE_CHECK = {
     source: { url: SOURCE_URL, sha: "1".repeat(40) },
+    sourcePath: SOURCE_PATH,
     sourcePathExists: async () => true,
     readSourceFile: async () => null,
   }
@@ -1080,6 +1084,7 @@ describe("mergeIngestPublish", () => {
   const ASSEMBLED = ingestRefName({ runId: RUN, workspaceId: WORKSPACE })
   const MERGE_CHECK = {
     source: { url: SOURCE_URL, sha: "1".repeat(40) },
+    sourcePath: SOURCE_PATH,
     sourcePathExists: async () => true,
     readSourceFile: async () => null,
   }

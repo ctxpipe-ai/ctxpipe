@@ -14,9 +14,13 @@ import { isDeepStrictEqual } from "node:util"
  *   ## Summary          one paragraph
  *   ## Rules            - <rule text>
  *                         - topic: `<key>` = `<value>` (core)
- *                         - source `<url>`, documented: `<path>`, ...
- *                         - source `<url>`, inferred from `<pattern>`: `<path>`, ...
- *   ## Repository notes - `<url>`: <text>
+ *                         - source `<source>`, documented: `<path>`, ...
+ *                         - source `<source>`, inferred from `<pattern>`: `<path>`, ...
+ *   ## Repository notes - `<source>`: <text>
+ *
+ * `<source>` is the path of the source file in the Workspace
+ * (`sources/github/<owner>/<name>.md`, ADR-050 revision 2026-10-16), the
+ * same value as in the `sources` front matter.
  *   ## Being replaced   rules, in the same form as Rules
  */
 
@@ -67,10 +71,7 @@ const NOTE = /^- `([^`\s]{1,300})`: (\S.{0,299})$/
 const RULE = /^- (\S.{0,299})$/
 
 /** The area file body (after the front matter, human blocks removed) as data, or a reason. */
-export function parseAreaBody(
-  body: string,
-  normalize: (url: string) => string,
-): AreaFile | { error: string } {
+export function parseAreaBody(body: string): AreaFile | { error: string } {
   if (body.includes("\r")) return { error: "The body has a carriage return" }
   const lines = body.split("\n")
   let at = 0
@@ -156,7 +157,7 @@ export function parseAreaBody(
       }
       const source = SOURCE.exec(line)
       if (source) {
-        const url = normalize(source[1] ?? "")
+        const url = (source[1] ?? "").trim()
         const paths = [...(source[4] ?? "").matchAll(/`([^`\n]+)`/g)].map(
           (m) => m[1] ?? "",
         )
@@ -191,7 +192,7 @@ export function parseAreaBody(
     const note = NOTE.exec(line)
     if (!note)
       return { error: "A repository note does not match the note format" }
-    notes.push({ source: normalize(note[1] ?? ""), text: note[2] ?? "" })
+    notes.push({ source: (note[1] ?? "").trim(), text: note[2] ?? "" })
   }
   if (notes.length > MAX_NOTES)
     return { error: `An area file has at most ${MAX_NOTES} notes` }
@@ -201,13 +202,9 @@ export function parseAreaBody(
 /**
  * The area body (no human blocks) without the evidence lines and notes of
  * `source`. A rule that has no other source line goes too. Each other line
- * stays as it is. `source` is a normalized URL.
+ * stays as it is. `source` is a trimmed source path.
  */
-export function withoutAreaSource(
-  body: string,
-  source: string,
-  normalize: (url: string) => string,
-): string {
+export function withoutAreaSource(body: string, source: string): string {
   const out: string[] = []
   // The lines of the open rule; a rule with no source line left goes.
   let rule: string[] = []
@@ -235,7 +232,7 @@ export function withoutAreaSource(
       if (rule.length > 0 && line.startsWith("  - ")) {
         const evidence = SOURCE.exec(line)
         if (evidence) {
-          if (normalize(evidence[1] ?? "") === source) continue
+          if ((evidence[1] ?? "").trim() === source) continue
           ruleSources++
         }
         rule.push(line)
@@ -247,7 +244,7 @@ export function withoutAreaSource(
     }
     if (section === "Repository notes") {
       const note = NOTE.exec(line)
-      if (note && normalize(note[1] ?? "") === source) continue
+      if (note && (note[1] ?? "").trim() === source) continue
     }
     out.push(line)
   }
@@ -277,7 +274,7 @@ export type AreaChange =
 
 /**
  * Shared-file rules (concept section 5.3). `before` is null for a new file.
- * `source` and `beforeSources` are normalized URLs.
+ * `source` and `beforeSources` are normalized source paths.
  *
  * With other sources in the file, the update:
  * - keeps the title and the summary;

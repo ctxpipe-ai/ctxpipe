@@ -42,6 +42,7 @@ import {
   type IngestSkillBundle,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
+import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { workspaceRootPathSchema } from "../../domain/workspaces/root-path.js"
 import {
   findWorkspaceStepCommit,
@@ -79,6 +80,10 @@ export const ingestionDestinationSchema = z.object({
   pinnedRevision: sha,
   repositoryId: z.string().nullable(),
   rootPath: workspaceRootPathSchema.optional(),
+  /** The source file of the run's repository in this Workspace (ADR-050). */
+  sourcePath: z
+    .string()
+    .refine((path) => checkSourcePath(path).ok, "Use a source file path"),
 })
 
 /** A planned root, as `resolveDiscoveredRoots` gave it. */
@@ -627,6 +632,7 @@ async function attemptSkillStep(
           patch: {
             stagedDir,
             source: { url: run.source.url, sha: run.source.sha },
+            sourcePath: destination.sourcePath,
             skill: ctx.skill.name,
             sourcePathExists: (path) => broker.sourcePathExists(path),
             readSourceFile: (path) => broker.readSourceFile(path),
