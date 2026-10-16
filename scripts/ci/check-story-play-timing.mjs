@@ -3,6 +3,9 @@
 //   1. `expect(await …findBy…)` outside a `waitFor` callback.
 //   2. A variable that holds an element from `findBy…` / `getBy…`, then is used in
 //      `expect(x)` or `userEvent.*(x)` after a later `await`, outside a `waitFor` callback.
+//   3. An absence check (`expect(…queryBy…/querySelector…).not.toBeInTheDocument()`, `.toBeNull()`,
+//      or `queryAllBy…` with `toHaveLength(0)`) with no earlier settled wait in the same play.
+//      A settled wait is `findBy…`, `getBy…` (it throws when the element is missing), an awaited helper named `expect…`, `wait…` or `find…` (for example `expectWorkspaceFiles`), or a `waitFor` whose callback holds no absence check.
 // A line that ends with `// play-timing: ok <reason>` is exempt.
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -90,6 +93,53 @@ for (const file of files) {
           `${file}:${line}: "${name}" holds an element from line ${lineOf(m.index)} and is used after an interaction. Query it again inside waitFor.`,
         )
     }
+  }
+
+  // Absence checks. The scope of a play runs from the last top-level declaration before the check.
+  const absenceArg = /\.(?:queryAllBy|queryBy)\w*\(|\bquerySelector(?:All)?\(/
+  const absenceMatcher =
+    /^\s*\.(?:not\.toBeInTheDocument\(\)|toBeNull\(\)|toHaveLength\(0\))/
+  const absenceAt = (offset) => {
+    const m = /expect\(/y
+    m.lastIndex = offset
+    if (!m.test(text)) return false
+    const end = matchParen(text, offset + 6)
+    return (
+      end > 0 &&
+      absenceArg.test(text.slice(offset, end)) &&
+      absenceMatcher.test(text.slice(end + 1))
+    )
+  }
+  const checks = [...text.matchAll(/expect\(/g)]
+    .map((m) => m.index)
+    .filter(absenceAt)
+  for (const at of checks) {
+    const line = lineOf(at)
+    if (exempt(line)) continue
+    let scopeStart = 0
+    for (const d of text
+      .slice(0, at)
+      .matchAll(/\n(?:export\s+)?(?:async\s+)?(?:const|let|function)\s/g))
+      scopeStart = d.index
+    const before = text.slice(scopeStart, at)
+    // An interaction can start new requests, so a wait counts only after the last one.
+    let from = 0
+    for (const i of before.matchAll(/\buserEvent\.\w+\(|\bfireEvent\.\w+\(/g))
+      from = i.index
+    // A check inside waitFor retries, so it may follow an interaction (a dialog that closes).
+    if (inWaitFor(at)) from = 0
+    const hasFind =
+      /\.(?:find|get)(?:All)?By\w*\(|\bawait\s+(?:expect|wait|find)[A-Z]\w*\(/.test(
+        before.slice(from),
+      )
+    const hasWait = spans.some(([a, b]) => {
+      if (a < scopeStart + from || b > at) return false
+      return !checks.some((c) => c > a && c < b)
+    })
+    if (!hasFind && !hasWait)
+      problems.push(
+        `${file}:${line}: absence check with no earlier settled wait in this play. First wait for a positive sign (findBy… or waitFor on a loaded element or an answered request), then assert absence.`,
+      )
   }
 }
 

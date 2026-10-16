@@ -98,7 +98,7 @@ export const AddWorkspaceHint: Story = {
     await userEvent.keyboard("{Escape}")
     const body = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
-      expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull(),
+      expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull(),  // play-timing: ok findHint above waited for the hint; Escape closes it
     )
     expect(storedHintsSeen()).toContain("add-workspace")
   },
