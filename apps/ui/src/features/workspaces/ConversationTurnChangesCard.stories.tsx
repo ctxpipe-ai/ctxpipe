@@ -68,7 +68,7 @@ export const TurnCardCollapsed: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Show changed files" }),
     )
-    await expect(await canvas.findByText("apps/ui/src")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("apps/ui/src")).toBeVisible())
     await expect(canvas.getByText("scripts/ci")).toBeVisible()
     await expect(
       canvas.getByText(".ai/scratchpad/release/issues"),
@@ -89,7 +89,11 @@ export const TurnCardExpanded: Story = {
     // The folder adds up its files.
     await expect(canvas.getByText("78 added, 7 removed")).toBeInTheDocument()
     await userEvent.click(folder)
-    await expect(folder).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /apps\/ui\/src/ }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    )
     await expect(
       canvas.getByRole("button", { name: "Open diff of apps/ui/src/Diff.tsx" }),
     ).toBeVisible()

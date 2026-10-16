@@ -52,6 +52,8 @@ jobs:
         run: node scripts/ci/check-test-policy.mjs
       - name: Reject slow UI motion
         run: node scripts/ci/check-ui-motion.mjs
+      - name: Reject racy Storybook play checks
+        run: node scripts/ci/check-story-play-timing.mjs
       - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
       - name: CI command regression tests

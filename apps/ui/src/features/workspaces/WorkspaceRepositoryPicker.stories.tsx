@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import { githubInstallationLinkedHandler } from "@/mocks/handlers"
 import {
@@ -84,9 +84,11 @@ export const SelectGitHub: Story = {
     const [firstRadio] = canvas.getAllByRole("radio")
     if (!firstRadio) throw new Error("No repository radios rendered")
     await userEvent.click(firstRadio)
-    expect(
-      await canvas.findByRole("button", { name: /create workspace/i }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /create workspace/i }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -139,7 +141,7 @@ export const NoGithubConnection: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Paste a git URL" }),
     )
-    await expect(await canvas.findByLabelText(/git url/i)).toBeVisible()
+    await waitFor(() => expect(canvas.getByLabelText(/git url/i)).toBeVisible())
   },
 }
 

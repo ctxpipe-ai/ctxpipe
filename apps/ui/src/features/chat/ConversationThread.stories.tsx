@@ -237,9 +237,17 @@ export const ChatProgressLogExpanded: Story = {
     const canvas = within(canvasElement)
     const log = canvas.getByRole("button", { name: progressCounters })
     await userEvent.click(log)
-    await expect(log).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: progressCounters }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    )
     const region = canvas.getByRole("region", { name: "Activity log" })
-    await expect(log).toHaveAttribute("aria-controls", region.id)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: progressCounters }),
+      ).toHaveAttribute("aria-controls", region.id),
+    )
     await expect(log).not.toContainElement(region)
     const entries = within(region).getAllByRole("listitem")
     const texts = entries.map((entry) => entry.textContent ?? "")
@@ -342,7 +350,11 @@ export const OpeningLogKeepsScroll: Story = {
     })
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
-    await expect(log).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: progressCounters }),
+      ).toHaveAttribute("aria-expanded", "true"),
+    )
     // The stick to the bottom scrolls in a smooth animation; wait past it.
     await new Promise((resolve) => setTimeout(resolve, 800))
     await expect(Math.round(log.getBoundingClientRect().top)).toBe(

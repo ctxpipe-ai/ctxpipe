@@ -75,9 +75,9 @@ export const DiffPaneEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("No changes on this branch"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("No changes on this branch")).toBeVisible(),
+    )
     await expect(
       canvas.getByText("This conversation has no changes against main."),
     ).toBeVisible()
@@ -186,7 +186,13 @@ export const DiffPaneExpandedFile: Story = {
     ).toHaveAttribute("aria-pressed", "true")
 
     await userEvent.click(focused)
-    await expect(focused).toHaveAttribute("aria-expanded", "false")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: /ADR-021-decision\.md, Modified/,
+        }),
+      ).toHaveAttribute("aria-expanded", "false"),
+    )
   },
 }
 
@@ -287,23 +293,25 @@ export const DiffPaneRenamedAndOmitted: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("button", {
-        name: "docs/moved.md, Renamed from docs/old.md",
-      }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "docs/moved.md, Renamed from docs/old.md",
+        }),
+      ).toBeVisible(),
+    )
     // A binary file is modified, not deleted, and shows no diff.
     const binary = canvas.getByRole("button", {
       name: "assets/logo.png, Modified",
     })
     await userEvent.click(binary)
-    await expect(await canvas.findByText("Binary file")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Binary file")).toBeVisible())
     await userEvent.click(
       canvas.getByRole("button", { name: "data/dump.sql, Added" }),
     )
-    await expect(
-      await canvas.findByText("File too large to show"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("File too large to show")).toBeVisible(),
+    )
     await expect(
       canvas.getByText("Total: 40000 added, 0 removed"),
     ).toBeInTheDocument()
@@ -326,9 +334,11 @@ export const DiffPaneTurnGone: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("This turn's diff is no longer available."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("This turn's diff is no longer available."),
+      ).toBeVisible(),
+    )
     await expect(canvas.queryByRole("toolbar")).not.toBeInTheDocument()
   },
 }

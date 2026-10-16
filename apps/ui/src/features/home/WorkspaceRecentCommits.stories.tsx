@@ -90,7 +90,13 @@ export const OpensInNewTab: Story = {
     // The time comes first in the tab order, then the hash.
     await userEvent.tab()
     await userEvent.tab()
-    expect(hash).toHaveFocus()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", {
+          name: "Commit abc123d (opens in a new tab)",
+        }),
+      ).toHaveFocus(),
+    )
     await iconOpacity("on keyboard focus", "1")
     expect(getComputedStyle(hash).outlineStyle).toBe("solid")
     expect(getComputedStyle(hash).outlineWidth).toBe("2px")

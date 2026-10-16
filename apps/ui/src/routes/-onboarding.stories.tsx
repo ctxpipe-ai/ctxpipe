@@ -361,7 +361,13 @@ export const AdminFinishFailureContinues: Story = {
     await body.findByText("Could not finish onboarding. Try again.")
     const proceed = await canvas.findByRole("button", { name: "Continue" })
     await waitFor(() => expect(proceed).toBeEnabled())
-    await expect(name).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("textbox", {
+          name: "Organization name",
+        }),
+      ).toBeDisabled(),
+    )
     await userEvent.click(proceed)
     await canvas.findByText("Landed on /acme")
     expect(retryCreate).toHaveBeenCalledTimes(1)

@@ -200,9 +200,11 @@ export const PaletteNoResults: Story = {
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     await userEvent.type(await searchField(), "zzzz-no-match")
-    await expect(
-      await screen.findByText(/No results for/, { selector: "p" }),
-    ).toHaveTextContent("No results for “zzzz-no-match”")
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No results for/, { selector: "p" }),
+      ).toHaveTextContent("No results for “zzzz-no-match”"),
+    )
     await expect(liveStatus()).toHaveTextContent(
       "No results for “zzzz-no-match”",
     )

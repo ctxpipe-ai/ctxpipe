@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { confluenceTreeHandlers } from "@/mocks/confluence-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -62,7 +62,7 @@ export const SelectAllPagesOfASpace: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The auth decorator renders the story after the session loads.
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(canvas.getByText(/Select at least one space/)).toBeVisible()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: /Engineering/ }),
@@ -82,9 +82,11 @@ export const EditsASavedPageList: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("region", { name: "Spaces and pages for Docs" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("region", { name: "Spaces and pages for Docs" }),
+      ).toBeVisible(),
+    )
     const operations = await canvas.findByRole("checkbox", {
       name: /Operations/,
     })

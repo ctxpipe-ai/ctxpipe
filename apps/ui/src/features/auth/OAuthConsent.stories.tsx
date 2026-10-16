@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { OAuthConsent } from "./OAuthConsent"
@@ -95,9 +95,9 @@ export const ConsentReadOnly: Story = {
   args: { scopes: ["ctxpipe:read"] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("button", { name: "Allow" }),
-    ).toBeEnabled()
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Allow" })).toBeEnabled(),
+    )
     await expect(
       canvas.queryByRole("checkbox", { name: /Also allow changes/ }),
     ).toBeNull()
@@ -113,7 +113,9 @@ export const ConsentWriteOnly: Story = {
     await userEvent.click(
       canvas.getByRole("checkbox", { name: /Also allow changes/ }),
     )
-    await expect(allow).toBeEnabled()
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Allow" })).toBeEnabled(),
+    )
     await userEvent.click(allow)
     await expect(args.onAllow).toHaveBeenCalledWith(
       ["ctxpipe:write"],
@@ -126,11 +128,11 @@ export const ConsentOrgsUnavailable: Story = {
   args: { organizations: [], defaultOrganizationIds: [] },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Organizations unavailable"),
-    ).toBeVisible()
-    await expect(
-      await canvas.findByRole("button", { name: "Allow" }),
-    ).toBeDisabled()
+    await waitFor(() =>
+      expect(canvas.getByText("Organizations unavailable")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Allow" })).toBeDisabled(),
+    )
   },
 }

@@ -49,13 +49,13 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
   },
   parameters: {

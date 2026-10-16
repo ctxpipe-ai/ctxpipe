@@ -143,7 +143,9 @@ export const SyncDisabled: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByRole("button", { name: syncName })).toBeDisabled()
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: syncName })).toBeDisabled(),
+    )
   },
 }
 

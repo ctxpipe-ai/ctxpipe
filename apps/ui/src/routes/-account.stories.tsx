@@ -44,9 +44,11 @@ export const ApiKeysEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText(/For your own scripts and agents\./),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/For your own scripts and agents\./),
+      ).toBeVisible(),
+    )
     await expect(
       canvas.getByRole("link", { name: "Use an organization key instead." }),
     ).toBeVisible()
@@ -161,7 +163,7 @@ export const ConnectedAppsEditOrgs: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Example Agent")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Example Agent")).toBeVisible())
     await expect(canvas.getByText("north-labs")).toBeVisible()
     // The legacy consent offers a reconnect hint in place of Edit.
     await expect(
@@ -245,9 +247,11 @@ export const ConnectedAppsRevokeError: Story = {
     const dialog = within(await body.findByRole("alertdialog"))
     await userEvent.click(dialog.getByRole("button", { name: "Revoke app" }))
     // The dialog stays open and shows the error.
-    await expect(
-      await dialog.findByText("The server could not revoke the app"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        dialog.getByText("The server could not revoke the app"),
+      ).toBeVisible(),
+    )
     await expect(body.getByRole("alertdialog")).toBeVisible()
     await expect(canvas.getByText("Example Agent")).toBeVisible()
   },
@@ -272,7 +276,9 @@ export const ConnectedAppsEmpty: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(await canvas.findByText("No connected apps")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("No connected apps")).toBeVisible(),
+    )
     await expect(
       canvas.getByRole("link", { name: "Connected apps" }),
     ).toBeVisible()

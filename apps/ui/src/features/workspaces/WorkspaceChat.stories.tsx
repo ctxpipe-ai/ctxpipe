@@ -91,9 +91,11 @@ export const ConversationMissing: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("heading", { name: "Conversation not found" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Conversation not found" }),
+      ).toBeVisible(),
+    )
     expect(
       canvas.queryByPlaceholderText(
         /what should ctxpipe do in this workspace/i,
@@ -119,9 +121,11 @@ export const ConversationForeignWorkspace: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("heading", { name: "Conversation not found" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Conversation not found" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -313,15 +317,13 @@ export const RenameBeatsAutomaticTitle: Story = {
       )
       const readsBeforeSend = renameStory.turnReads
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      expect(
-        await canvas.findByText(
-          "The ledger package holds billing.",
-          undefined,
-          {
-            timeout: SEND_WAIT_MS,
-          },
-        ),
-      ).toBeVisible()
+      await waitFor(
+        () =>
+          expect(
+            canvas.getByText("The ledger package holds billing."),
+          ).toBeVisible(),
+        { timeout: SEND_WAIT_MS },
+      )
       // The turn end reads the turn changes again. The rename chunk is before
       // the turn end, so the session has handled it now.
       await waitFor(
@@ -509,9 +511,11 @@ export const ReloadReconnects: Story = {
     })
     window.WebSocket = TrackingWebSocket as unknown as typeof WebSocket
     try {
-      expect(
-        await canvas.findByPlaceholderText(/continue the conversation/i),
-      ).toBeVisible()
+      await waitFor(() =>
+        expect(
+          canvas.getByPlaceholderText(/continue the conversation/i),
+        ).toBeVisible(),
+      )
       await waitFor(() => {
         expect(openCount).toBeGreaterThan(0)
       })
@@ -519,12 +523,14 @@ export const ReloadReconnects: Story = {
       await userEvent.click(
         canvas.getByRole("button", { name: "Reload conversation" }),
       )
-      expect(
-        await canvas.findByPlaceholderText(/continue the conversation/i),
-      ).toBeVisible()
-      expect(
-        await canvas.findByText(/How is billing structured/i),
-      ).toBeVisible()
+      await waitFor(() =>
+        expect(
+          canvas.getByPlaceholderText(/continue the conversation/i),
+        ).toBeVisible(),
+      )
+      await waitFor(() =>
+        expect(canvas.getByText(/How is billing structured/i)).toBeVisible(),
+      )
       await waitFor(() => {
         expect(openCount).toBeGreaterThan(openedBeforeReload)
       })
@@ -642,22 +648,28 @@ export const RapidRouteChanges: Story = {
       await canvas.findByRole("button", { name: "Open missing" }),
     )
     await userEvent.click(canvas.getByRole("button", { name: "Open foreign" }))
-    expect(
-      await canvas.findByRole("heading", { name: "Conversation not found" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Conversation not found" }),
+      ).toBeVisible(),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Open missing" }))
-    expect(
-      await canvas.findByRole("heading", { name: "Conversation not found" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Conversation not found" }),
+      ).toBeVisible(),
+    )
     expect(
       canvas.queryByPlaceholderText(
         /what should ctxpipe do in this workspace/i,
       ),
     ).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Open ready" }))
-    expect(
-      await canvas.findByPlaceholderText(/continue the conversation/i),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(/continue the conversation/i),
+      ).toBeVisible(),
+    )
     expect(
       canvas.queryByRole("heading", { name: "Conversation not found" }),
     ).toBeNull()
@@ -772,11 +784,10 @@ export const LateErrorDoesNotClobberSuccess: Story = {
         "What is in this Workspace?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      expect(
-        await canvas.findByText(lateErrorFirstAnswer, undefined, {
-          timeout: SEND_WAIT_MS,
-        }),
-      ).toBeVisible()
+      await waitFor(
+        () => expect(canvas.getByText(lateErrorFirstAnswer)).toBeVisible(),
+        { timeout: SEND_WAIT_MS },
+      )
       const followUp = await canvas.findByPlaceholderText(
         /continue the conversation/i,
         undefined,
@@ -927,11 +938,10 @@ export const FirstTurnStreamsLive: Story = {
       })
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
       try {
-        expect(
-          await canvas.findByText(firstTurnAnswer, undefined, {
-            timeout: SEND_WAIT_MS,
-          }),
-        ).toBeVisible()
+        await waitFor(
+          () => expect(canvas.getByText(firstTurnAnswer)).toBeVisible(),
+          { timeout: SEND_WAIT_MS },
+        )
       } finally {
         observer.disconnect()
       }
@@ -1032,11 +1042,10 @@ export const FollowUpShowsSandboxSetupFirst: Story = {
       const status = recordStatusLabels(canvasElement)
       await userEvent.click(canvas.getByRole("button", { name: /^send$/i }))
       try {
-        expect(
-          await canvas.findByText(followUpAnswer, undefined, {
-            timeout: SEND_WAIT_MS,
-          }),
-        ).toBeVisible()
+        await waitFor(
+          () => expect(canvas.getByText(followUpAnswer)).toBeVisible(),
+          { timeout: SEND_WAIT_MS },
+        )
       } finally {
         status.stop()
       }
@@ -1161,11 +1170,10 @@ export const FirstTurnFailureRestoresDraft: Story = {
         "Where is the billing service?",
       )
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
-      expect(
-        await canvas.findByText(/at capacity/, undefined, {
-          timeout: SEND_WAIT_MS,
-        }),
-      ).toBeVisible()
+      await waitFor(
+        () => expect(canvas.getByText(/at capacity/)).toBeVisible(),
+        { timeout: SEND_WAIT_MS },
+      )
       const composer = await canvas.findByPlaceholderText(
         /continue the conversation/i,
       )
