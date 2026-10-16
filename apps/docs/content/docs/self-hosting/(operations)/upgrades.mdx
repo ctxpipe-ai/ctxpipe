@@ -151,7 +151,9 @@ instance that meets the sandbox needs. See
 [the sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host) for
 the larger sizes.
 
-{/* TODO(CTX-747): the prop that turns the host off is not in the CDK code yet. Name it here and in aws.mdx when the CDK change lands. When the host is off, chat stops. */}
+To turn the host off, set `sandboxHost: { enabled: false }` on `CtxPipe`. The
+deploy then adds no EC2 host and gives the services no sandbox host settings.
+Chat is off without the host: it answers "sandbox unavailable" (503).
 
 ## AWS CDK flow
 

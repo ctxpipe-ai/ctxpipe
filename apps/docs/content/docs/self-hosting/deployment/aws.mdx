@@ -281,11 +281,12 @@ through backend routing.
 ## Chat sandbox host
 
 Workspace chat runs each conversation's agent (OpenCode) in its own Docker
-container. `CtxPipe` always creates one EC2 host for those containers. There is
-no opt-out: the sandbox keeps the agent's commands away from the backend and
-your data stores.
+container. `CtxPipe` creates one EC2 host for those containers by default. The
+sandbox keeps the agent's commands away from the backend and your data stores.
 
-{/* TODO(CTX-747): when the CDK prop that turns the host off lands, document it here and fix "always created" above. */}
+To create no host, set `sandboxHost: { enabled: false }`. Without the host,
+Workspace chat is off: the product answers chat requests with a "sandbox
+unavailable" error (503). The rest of the product keeps working.
 
 ### Sizes and cost
 
