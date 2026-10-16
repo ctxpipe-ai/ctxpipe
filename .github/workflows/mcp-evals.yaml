@@ -60,10 +60,10 @@ jobs:
         ports:
           - 6379:6379
         options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
+          --health-cmd "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'"
+          --health-interval 5s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 12
     # Local values only. Secrets stay on the eval steps that need them.
     env:
       MCPJAM_TELEMETRY_DISABLED: "1"
@@ -166,6 +166,21 @@ jobs:
             --iterations 3 \
             --out "$RUNNER_TEMP/mcp-eval-results.json" \
             "${EXTRA[@]}"
+      - name: FalkorDB diagnostics
+        if: failure()
+        continue-on-error: true
+        run: |
+          # The server log alone shows nothing when the main thread stalls, so
+          # also record what the server process and the runner were doing.
+          id=$(docker ps -q --filter publish=6379 | head -n 1)
+          docker ps -a
+          docker stats --no-stream
+          uptime
+          free -m
+          docker exec "$id" sh -c 'cat /proc/sys/vm/overcommit_memory; ps -eLo pid,tid,stat,wchan:30,pcpu,comm | head -40'
+          timeout 5 docker exec "$id" redis-cli INFO server clients memory cpu || echo "INFO did not answer"
+          timeout 5 docker exec "$id" redis-cli GRAPH.LIST || echo "GRAPH.LIST did not answer"
+          timeout 5 docker exec "$id" redis-cli GRAPH.INFO || echo "GRAPH.INFO did not answer"
       - name: Summary
         if: always()
         run: |

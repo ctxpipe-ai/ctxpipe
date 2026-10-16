@@ -257,7 +257,7 @@ export async function enqueueWorkspaceFileJob(
   orgSlug: string,
   workspaceSlug: string,
   input: WorkspaceFileJobRequest,
-): Promise<void> {
+): Promise<{ jobId: string }> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
@@ -265,7 +265,9 @@ export async function enqueueWorkspaceFileJob(
     param: { orgSlug, workspaceSlug },
     json: input,
   })
-  await readApiJson<void>(res, { message: "Failed to save file changes" })
+  return readApiJson<{ jobId: string }>(res, {
+    message: "Failed to save file changes",
+  })
 }
 
 /** The graph route answers `building` while the graph of the active revision builds. */

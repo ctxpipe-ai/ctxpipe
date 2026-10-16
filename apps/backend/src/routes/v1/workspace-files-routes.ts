@@ -20,6 +20,12 @@ import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
+  WRITE_JOB_STATUSES,
+  type WriteJobStatus,
+} from "../../domain/workspaces/write-job-intent.js"
+import { generateObjectId } from "../../lib/id.js"
+import { getWorkspaceFileJobStatus } from "../../models/workspace-write-jobs.js"
+import {
   getWorkspaceBySlug,
   getWorkspaceSearchProjection,
   listWorkspaceKnowledgeFiles,
@@ -234,8 +240,59 @@ const WorkspaceFileJobRequestSchema = z
   .openapi("WorkspaceFileJobRequest")
 
 const WorkspaceFileJobQueuedSchema = z
-  .object({ queued: z.literal(true) })
+  .object({
+    queued: z.literal(true),
+    jobId: z.string().openapi({
+      description: "Read its status at `GET …/files/jobs/{jobId}`.",
+    }),
+  })
   .openapi("WorkspaceFileJobQueued")
+
+const WorkspaceFileJobParamsSchema = WorkspaceSlugParamsSchema.extend({
+  jobId: z.string().min(1),
+}).openapi("WorkspaceFileJobParams")
+
+const WorkspaceFileJobStatusSchema = z
+  .object({
+    status: z
+      .enum(
+        Object.values(WRITE_JOB_STATUSES) as [
+          WriteJobStatus,
+          ...WriteJobStatus[],
+        ],
+      )
+      .openapi({
+        description:
+          "`queued`, `running` and `paused`: the write is not done. `completed`: the write is on the default branch. `failed`: the write is lost and does not retry; send the edit again as a new job.",
+      }),
+    failureReason: z.string().nullable().openapi({
+      description:
+        "Why the job failed, when the reason is known. For example `superseded`: the Workspace repository changed before the write.",
+    }),
+  })
+  .openapi("WorkspaceFileJobStatus")
+
+const getWorkspaceFileJobRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/files/jobs/{jobId}",
+  request: { params: WorkspaceFileJobParamsSchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceFileJobStatusSchema },
+      },
+      description: "Status of a Files pane write job",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+  },
+})
 
 const enqueueWorkspaceFileJobRoute = createRoute(
   directWriteRoute({
@@ -418,8 +475,10 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       ) {
         return c.json({ error: "Nothing to write." }, 400)
       }
+      const jobId = generateObjectId("wjob")
       const admitted = await enqueueWorkspaceWriteCommit(
         {
+          jobId,
           orgId: loaded.workspace.orgId,
           workspaceId: loaded.workspace.id,
           kind: "ui_file_edit",
@@ -436,7 +495,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           },
           409,
         )
-      return c.json({ queued: true as const }, 202)
+      return c.json({ queued: true as const, jobId }, 202)
     } catch (error) {
       const failure = gitExplorerReadFailure(
         error,
@@ -444,6 +503,25 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json({ error: failure.error }, failure.status)
     }
+  })
+  .openapi(getWorkspaceFileJobRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug, jobId } = WorkspaceFileJobParamsSchema.parse(
+      c.req.param(),
+    )
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const job = await getWorkspaceFileJobStatus(workspace.id, jobId)
+    if (!job) return c.json({ error: "Not found" }, 404)
+    return c.json(
+      {
+        status: job.status as WriteJobStatus,
+        failureReason: job.failureReason,
+      },
+      200,
+    )
   })
   .openapi(listWorkspaceFilesRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

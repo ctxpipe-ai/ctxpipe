@@ -8,10 +8,10 @@ import {
   upgradeJobId,
 } from "../../domain/upgrades/registry.js"
 import {
-  activeIngestionRunTree,
   ingestionRunSpend,
   ingestionRunState,
   isReingestUpgradeKey,
+  REINGEST_REPOSITORY_WORKFLOW_NAME,
   REINGEST_THROTTLE,
   reingestBlock,
   reingestPollSeconds,
@@ -19,6 +19,10 @@ import {
   reingestSlotTurn,
   workspaceSourceRepositories,
 } from "../../domain/upgrades/reingest.js"
+import {
+  cancelIngestionRun,
+  stopOrphanedReingestRuns,
+} from "../../domain/upgrades/stop-orphans.js"
 import { resolveRepositoryReadTip } from "../../domain/workspaces/resolve-revision.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import { withWorkspaceWriteContext } from "../../domain/workspaces/write-command.js"
@@ -27,7 +31,7 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
-import { ow, runWorkflowWithWorkerWake } from "../client.js"
+import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
@@ -114,12 +118,6 @@ function runReport(
   }
 }
 
-/** Cancel an ingestion v2 run and its child runs, so that they spend no more. */
-async function cancelIngestionRun(runId: string): Promise<void> {
-  for (const id of await activeIngestionRunTree(runId))
-    await ow.cancelWorkflowRun(id).catch(() => undefined)
-}
-
 const usd = (value: number) => `$${value.toFixed(2)}`
 
 /**
@@ -137,7 +135,7 @@ export function defineWorkspaceUpgradeReingestRepository(
   const maxPolls = pollBudget(options.stepBudget ?? WORKFLOW_STEP_LIMIT, 2)
   return defineWorkflow(
     {
-      name: "workspace-upgrade-reingest-repository",
+      name: REINGEST_REPOSITORY_WORKFLOW_NAME,
       schema: repositoryInputSchema,
     },
     async ({ input: queuedInput, step }): Promise<RepositoryResult> => {
@@ -323,6 +321,7 @@ export function defineWorkspaceUpgradeReingest(
   const stepBudget = options.stepBudget ?? WORKFLOW_STEP_LIMIT
   const repositoryWorkflow =
     options.repository ?? workspaceUpgradeReingestRepository
+  const maxRepositories = Math.max(0, Math.floor((stepBudget - 5 - 2) / 2))
   return defineWorkflow(
     {
       name: "workspace-upgrade-reingest",
@@ -389,6 +388,12 @@ export function defineWorkspaceUpgradeReingest(
                   note: planned.note,
                 },
               })
+            // Refuse at the start, not halfway: the run has 5 fixed steps
+            // and 2 for each repository, and it needs one slot poll (2 steps).
+            if (planned.repositories.length > maxRepositories)
+              throw new Error(
+                `The Workspace has ${planned.repositories.length} source repositories. One re-ingestion run handles at most ${maxRepositories}. Remove some source repositories, then start it again.`,
+              )
             const reports: ReingestRepositoryReport[] =
               planned.repositories.map((r) => ({
                 repository: r.repository,
@@ -424,12 +429,16 @@ export function defineWorkspaceUpgradeReingest(
               5 + 2 * planned.repositories.length,
             )
             for (let poll = 0; ; poll++) {
-              const slot = await step.run({ name: `slot:${poll}` }, () =>
-                reingestSlotTurn({
-                  orgId,
-                  upgradeRunId: run.id,
-                  runsPerInstance: throttle.runsPerInstance,
-                }),
+              const slot = await step.run(
+                { name: `slot:${poll}` },
+                async () => {
+                  await stopOrphanedReingestRuns()
+                  return reingestSlotTurn({
+                    orgId,
+                    upgradeRunId: run.id,
+                    runsPerInstance: throttle.runsPerInstance,
+                  })
+                },
               )
               if ("turn" in slot) break
               if (poll >= maxSlotPolls)

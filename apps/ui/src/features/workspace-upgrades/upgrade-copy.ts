@@ -55,6 +55,13 @@ export const UPGRADE_BLOCKED_COPY: Record<string, string> = {
     "ctx| cannot write to the repository. Give the GitHub App write access, then check the Workspace again.",
 }
 
+/** The toast after the start of an item. A re-ingestion opens no pull request on start. */
+export function upgradeStartedMessage(item: { kind: string }): string {
+  return item.kind === "reingest"
+    ? "The re-ingestion is queued. ctx| reads each source repository again."
+    : "The upgrade is queued. ctx| prepares a pull request."
+}
+
 /** The estimate of a re-ingestion, from the p50 to the p90 value. */
 export function formatUpgradeEstimate(estimate: UpgradeEstimate): string {
   const usd = (value: number) => `$${value.toFixed(2)}`

@@ -93,8 +93,9 @@ const sourceName = `acme/billing-api-${suffix}`
 const otherSource = `acme/ledger-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const capSources = [`acme/cap-a-${suffix}`, `acme/cap-b-${suffix}`]
-contexts.push(`acme/context-c-${suffix}`)
-const [ready, behind, capped] = [
+contexts.push(`acme/context-c-${suffix}`, `acme/context-d-${suffix}`)
+const [ready, behind, capped, wide] = [
+  generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -229,10 +230,17 @@ beforeAll(async () => {
     installationId: 446,
     accountSlug: "acme",
   })
+  // `ready`, `capped` and `wide` are at format 3. `wide` has more source
+  // repositories than the step budget of this file holds.
   // `ready` and `capped` are at format 3. `behind` is at format 2, so it
   // must merge the format upgrade first (G5).
-  const sourcesOf = [[sourceName], [otherSource], capSources]
-  for (const [i, workspaceId] of [ready, behind, capped].entries()) {
+  const sourcesOf = [
+    [sourceName],
+    [otherSource],
+    capSources,
+    [sourceName, otherSource, capSources[0] ?? ""],
+  ]
+  for (const [i, workspaceId] of [ready, behind, capped, wide].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
         id: workspaceId,
@@ -286,7 +294,13 @@ beforeAll(async () => {
     maxRunPollSeconds: 1,
   }
   const repository = defineWorkspaceUpgradeReingestRepository({ throttle })
-  reingest = defineWorkspaceUpgradeReingest({ throttle, repository })
+  // 11 step attempts hold 2 repositories: 5 fixed, 2 for each repository, and
+  // one slot poll of 2.
+  reingest = defineWorkspaceUpgradeReingest({
+    throttle,
+    repository,
+    stepBudget: 11,
+  })
   runner.implementWorkflow(shard.spec, shard.fn)
   runner.implementWorkflow(parent.spec, parent.fn)
   runner.implementWorkflow(extract.spec, extract.fn)
@@ -595,6 +609,25 @@ it(
     ).toBeGreaterThanOrEqual(1_000)
     // The second repository started no ingestion run.
     expect(await reingestRuns(capped)).toHaveLength(1)
+  },
+)
+
+it(
+  "refuses to start above the repositories that the step budget holds, with a clear reason",
+  { timeout: 120_000 },
+  async () => {
+    expect(await row(wide)).toMatchObject({ status: "awaiting_operator" })
+    const callsBefore = modelCalls.length
+    expect(await start(wide)).toMatchObject({ kind: "queued" })
+    expect(await settled(wide)).toMatchObject({
+      status: "failed",
+      failureReason: expect.stringMatching(
+        /3 source repositories.*at most 2.*Remove some source repositories/,
+      ),
+    })
+    // Nothing ran: no ingestion run and no model call.
+    expect(await reingestRuns(wide)).toEqual([])
+    expect(modelCalls).toHaveLength(callsBefore)
   },
 )
 

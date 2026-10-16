@@ -10,6 +10,7 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { defineWorkspaceUpgradeReingestRepository } from "../../openworkflow/workflows/workspace-upgrade-reingest.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
 import { ingestionRunState, reingestSlotTurn } from "./reingest.js"
+import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 /*
  * The re-ingestion throttle and the step budget of a long run, with real
@@ -163,6 +164,126 @@ describe("step budget", () => {
         expect(
           await ingestionRunState(ingestion.rows[0]?.id ?? ""),
         ).toMatchObject({ done: true, status: "canceled" })
+      } finally {
+        await worker.stop()
+      }
+    },
+  )
+})
+
+describe("a parent run that ends before its repository runs", () => {
+  it(
+    "cancels the repository run and its ingestion runs, and keeps the slot until they ended",
+    { timeout: 90_000 },
+    async () => {
+      const fleet = new OpenWorkflow({ backend })
+      const repository = defineWorkspaceUpgradeReingestRepository({
+        throttle: { firstPollSeconds: 1, maxRunPollSeconds: 1 },
+      })
+      // A parent that does what the real one does for its children: it runs
+      // one repository run with `step.runWorkflow`, then waits for it.
+      const parent = {
+        spec: upgradeSpec,
+        fn: async ({
+          input,
+          step,
+          run,
+        }: {
+          input: { orgId: string }
+          step: {
+            runWorkflow: (
+              spec: typeof repository.spec,
+              input: unknown,
+              options: { name: string },
+            ) => Promise<unknown>
+          }
+          run: { id: string }
+        }) =>
+          step.runWorkflow(
+            repository.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: generateObjectId("ws"),
+              upgradeRunId: run.id,
+              repository: "acme/orphan",
+              url: "https://github.com/acme/orphan",
+              githubConnectionId: generateObjectId("con"),
+              sha: "0".repeat(40),
+              authorTime: new Date().toISOString(),
+              capUsd: null,
+            },
+            { name: "repository:0" },
+          ),
+      }
+      fleet.implementWorkflow(repository.spec, repository.fn)
+      fleet.implementWorkflow(parent.spec, parent.fn as never)
+      const worker = fleet.newWorker({ concurrency: 4 })
+      await worker.start()
+      const orgId = generateObjectId("org")
+      const statusOf = async (workflowName: string) => {
+        const result = await getSystemDb().execute<{
+          id: string
+          status: string
+        }>(sql`
+          select id, status from openworkflow.workflow_runs
+          where namespace_id = ${openWorkflowNamespaceId()}
+            and workflow_name = ${workflowName}
+            and input->>'orgId' = ${orgId}
+        `)
+        return result.rows[0]
+      }
+      try {
+        const handle = await fleet.runWorkflow(parent.spec, { orgId })
+        queued.push(handle.workflowRun.id)
+        const parentId = handle.workflowRun.id
+        // The repository run has started its ingestion run.
+        let child: { id: string; status: string } | undefined
+        for (let i = 0; i < 60; i++) {
+          child = await statusOf("workspace-upgrade-reingest-repository")
+          const started = await getSystemDb().execute(sql`
+            select 1 from openworkflow.workflow_runs
+            where namespace_id = ${openWorkflowNamespaceId()}
+              and workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+              and idempotency_key like ${`upgrade-reingest:${orgId}:%`}
+          `)
+          if (child && started.rows.length) break
+          await new Promise((resolve) => setTimeout(resolve, 500))
+        }
+        expect(child?.status).toMatch(/running|sleeping|pending/)
+
+        // The parent is canceled. Its child keeps running.
+        await fleet.cancelWorkflowRun(parentId)
+        expect((await statusOf("workspace-upgrade-reingest"))?.status).toBe(
+          "canceled",
+        )
+        expect(
+          (await statusOf("workspace-upgrade-reingest-repository"))?.status,
+        ).toMatch(/running|sleeping|pending/)
+        // The next run of the org waits: the slot is not free yet.
+        const next = await upgradeRun(orgId)
+        expect(
+          await reingestSlotTurn({
+            orgId,
+            upgradeRunId: next,
+            runsPerInstance: 4,
+          }),
+        ).toEqual({
+          wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
+        })
+
+        await stopOrphanedReingestRuns()
+        expect(
+          (await statusOf("workspace-upgrade-reingest-repository"))?.status,
+        ).toBe("canceled")
+        const ingestion = await statusOf(INGESTION_V2_WORKFLOW_NAME)
+        expect(ingestion?.status).toBe("canceled")
+        expect(
+          await reingestSlotTurn({
+            orgId,
+            upgradeRunId: next,
+            runsPerInstance: 4,
+          }),
+        ).toEqual({ turn: true })
       } finally {
         await worker.stop()
       }

@@ -6,6 +6,7 @@ import {
   upgradeAlertLines,
   upgradeCanStart,
   upgradeIsPending,
+  upgradeStartedMessage,
 } from "./upgrade-copy"
 
 const item = (status: WorkspaceUpgradeItem["status"]) =>
@@ -17,6 +18,13 @@ describe("upgrade copy", () => {
     expect(upgradeIsPending(item("awaiting_operator"))).toBe(true)
     expect(upgradeIsPending(item("pr_open"))).toBe(true)
     expect(upgradeIsPending(item("blocked"))).toBe(true)
+  })
+
+  it("words the start toast for each item kind", () => {
+    expect(upgradeStartedMessage({ kind: "format" })).toMatch(/pull request/)
+    expect(upgradeStartedMessage({ kind: "reingest" })).not.toMatch(
+      /pull request/,
+    )
   })
 
   it("starts only a waiting or failed item", () => {
