@@ -15,15 +15,14 @@ describe("removed org routes", () => {
     const router = getRouter()
     const matches = router.matchRoutes(path)
     const leaf = matches.at(-1)
-    const route = (
-      router.routesById as Record<
-        string,
-        { options: { beforeLoad?: (c: never) => void } }
-      >
-    )[leaf?.routeId ?? ""]
+    const route = Object.entries(router.routesById).find(
+      ([id]) => id === leaf?.routeId,
+    )?.[1]
     let thrown: unknown
     try {
-      route?.options.beforeLoad?.({ params: { orgSlug: "acme" } } as never)
+      ;(route?.options.beforeLoad as ((c: never) => void) | undefined)?.({
+        params: { orgSlug: "acme" },
+      } as never)
     } catch (error) {
       thrown = error
     }
