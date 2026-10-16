@@ -24,7 +24,10 @@ type GitWrite = { method: string; path: string; body: unknown }
  */
 function github(given: Record<string, string>, writes: GitWrite[]) {
   // The source writers read the format file on the default branch.
-  const files = { ".ctxpipe/workspace.yaml": "format: 3\n", ...given }
+  const files: Record<string, string> = {
+    ".ctxpipe/workspace.yaml": "format: 3\n",
+    ...given,
+  }
   const repo = "https://api.github.com/repos/fixture/hydration-contract"
   return [
     http.get(`${repo}/pulls`, () => HttpResponse.json([])),
