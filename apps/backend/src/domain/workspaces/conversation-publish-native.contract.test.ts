@@ -469,16 +469,46 @@ it.each([
     edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam remove`,
     reason: "host_only_field",
   },
+  {
+    name: "changes the Workspace format file",
+    format: 2,
+    edit: "printf 'format: 3\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds the Workspace format file",
+    edit: "printf 'format: 2\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds a source file below format 2",
+    format: 1,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "adds a source file with no format file",
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "adds a source file at format 2",
+    format: 2,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: null,
+  },
 ] as Array<{
   name: string
   first?: string
   sessionIsDefault?: boolean
+  /** The Workspace format file at the base, when there is one. */
+  format?: number
   edit: string
   reason: string | null
 }>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
-  async ({ first, edit, sessionIsDefault, reason }) => {
+  async ({ first, edit, sessionIsDefault, format, reason }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -488,6 +518,14 @@ it.each([
           { path: ".ctxpipe/sources.yaml", body: "sources: []\n" },
           { path: "knowledge/services/checkout.md", body: HUMAN_UNIT },
           { path: "knowledge/services/billing.md", body: GENERATED_UNIT },
+          ...(format === undefined
+            ? []
+            : [
+                {
+                  path: ".ctxpipe/workspace.yaml",
+                  body: `format: ${format}\n`,
+                },
+              ]),
         ],
       },
       async (f) => {

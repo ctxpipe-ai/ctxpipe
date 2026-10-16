@@ -100,7 +100,7 @@ export function checkSourcePath(
 }
 
 /** Make one path segment from free text, or "" when nothing is left. */
-function toSegment(text: string): string {
+export function toSegment(text: string): string {
   return text
     .normalize("NFKD")
     .toLowerCase()

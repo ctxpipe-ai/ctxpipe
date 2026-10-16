@@ -11,6 +11,7 @@ import {
   SOURCE_FILE_MAX_BYTES,
   SOURCE_FILES_FOLDER,
   type SourceFile,
+  toSegment,
 } from "./source-file.js"
 import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
@@ -98,12 +99,47 @@ export function planSourcesConversion(
   }
 }
 
+/**
+ * The `.ctxpipe/sources.yaml` id of each file under
+ * {@link UNCONVERTED_SOURCES_FOLDER} whose front matter keeps one, by path.
+ * The row of such a file takes the held target of the entry row, so the
+ * files of the entry stay in git when the conversion merges.
+ */
+export function unconvertedEntryIds(
+  files: ReadonlyArray<{ path: string; text: string }>,
+): Map<string, string> {
+  const ids = new Map<string, string>()
+  for (const file of files) {
+    if (!file.path.startsWith(`${UNCONVERTED_SOURCES_FOLDER}/`)) continue
+    const match = /^---\r?\n((?:.*\n)*?)---/.exec(file.text)
+    if (!match) continue
+    let data: unknown
+    try {
+      data = YAML.parse(match[1] ?? "", { maxAliasCount: 50 })
+    } catch {
+      continue
+    }
+    const id =
+      data && typeof data === "object" && !Array.isArray(data)
+        ? (data as Record<string, unknown>).id
+        : undefined
+    if (typeof id === "string") ids.set(file.path, id)
+  }
+  return ids
+}
+
 /** The sources that exist or that the plan writes, and the plan itself. */
 class ConversionPlan {
   readonly writes = new Map<string, { path: string; content: string }>()
   readonly report: string[] = []
-  /** Every path under `sources/` that a file has or that the plan writes. */
+  /**
+   * Every path under `sources/` that a file has or that the plan writes, in
+   * lowercase: two paths that differ only in case are one file on a
+   * case-insensitive checkout.
+   */
   private readonly taken: Set<string>
+  /** The text of each existing file under {@link UNCONVERTED_SOURCES_FOLDER}, by path. */
+  private readonly unconverted = new Map<string, string>()
   /** The valid sources: existing files, then the files that the plan writes. */
   private readonly sources: SourceFile[] = []
 
@@ -111,7 +147,10 @@ class ConversionPlan {
     files: SourcesConversionTree["sourceFiles"],
     readonly workspaceUrl: string | null,
   ) {
-    this.taken = new Set(files.map((file) => file.path))
+    this.taken = new Set(files.map((file) => file.path.toLowerCase()))
+    for (const file of files)
+      if (file.path.startsWith(`${UNCONVERTED_SOURCES_FOLDER}/`))
+        this.unconverted.set(file.path, file.text)
     for (const file of [...files].sort((a, b) =>
       compareBytes(a.path, b.path),
     )) {
@@ -143,9 +182,11 @@ class ConversionPlan {
   /** `path` when it is free, else the first free path with a suffix `-2`, `-3`, … */
   free(path: string): string {
     const stem = path.slice(0, -".md".length)
-    if (!this.taken.has(path)) return path
+    const isFree = (candidate: string) =>
+      !this.taken.has(candidate.toLowerCase())
+    if (isFree(path)) return path
     for (let n = 2; ; n++)
-      if (!this.taken.has(`${stem}-${n}.md`)) return `${stem}-${n}.md`
+      if (isFree(`${stem}-${n}.md`)) return `${stem}-${n}.md`
   }
 
   writeSource(
@@ -156,9 +197,24 @@ class ConversionPlan {
   ): void {
     const path = this.free(wantedPath)
     const content = renderSourceFile({ ...source, path }, body)
-    this.write(path, content)
+    const tooLarge = Buffer.byteLength(content, "utf8") > SOURCE_FILE_MAX_BYTES
+    // A source file over the limit is invalid, and its row holds no target.
+    // Thus the source file gets no body, so that it stays valid and keeps
+    // its synced files. The body goes to a file that does not sync.
+    this.write(
+      path,
+      tooLarge && body ? renderSourceFile({ ...source, path }, "") : content,
+    )
     this.sources.push({ ...source, path })
-    if (Buffer.byteLength(content, "utf8") > SOURCE_FILE_MAX_BYTES)
+    if (tooLarge && body)
+      this.writeUnconverted(
+        `${path.slice(`${SOURCE_FILES_FOLDER}/`.length, -".md".length)}-description`,
+        undefined,
+        `The description makes ${path} larger than ${SOURCE_FILE_MAX_BYTES / 1024} KiB, so ${path} has no description`,
+        `the description of ${origin}`,
+        `\nThe description:\n${body}`,
+      )
+    else if (tooLarge)
       this.report.push(
         `${path} (from ${origin}) is larger than ${SOURCE_FILE_MAX_BYTES / 1024} KiB, so it is invalid. Split it into smaller sources.`,
       )
@@ -171,22 +227,25 @@ class ConversionPlan {
     origin: string,
     extra = "",
   ): void {
-    const path = this.free(
-      `${UNCONVERTED_SOURCES_FOLDER}/${toSegment(name) || "entry"}.md`,
-    )
     const yaml =
       frontMatter === undefined
         ? ""
         : YAML.stringify(frontMatter, { lineWidth: 0 })
-    this.write(
-      path,
-      `---\n${yaml}---\n\nctx| did not convert ${origin} of ${SOURCES_FILE_PATH}: ${reason}\n\nTo use it, move it to ${SOURCE_FILES_FOLDER}/<provider>/<name>.md, remove the id key, and correct the error. Else, remove this file.\n${extra}`,
-    )
+    const content = `---\n${yaml}---\n\nctx| did not convert ${origin} of ${SOURCES_FILE_PATH}: ${reason}\n\nTo use it, move it to ${SOURCE_FILES_FOLDER}/<provider>/<name>.md, remove the id key, and correct the error. Else, remove this file.\n${extra}`
+    // An old pull request can bring `sources.yaml` back. The same input then
+    // gives the same text, and the file that has it stays the only copy.
+    const existing = [...this.unconverted].find(([, text]) => text === content)
+    const path =
+      existing?.[0] ??
+      this.free(
+        `${UNCONVERTED_SOURCES_FOLDER}/${toSegment(name) || "entry"}.md`,
+      )
+    if (!existing) this.write(path, content)
     this.report.push(`${origin} went to ${path}: ${reason}`)
   }
 
   private write(path: string, content: string): void {
-    this.taken.add(path)
+    this.taken.add(path.toLowerCase())
     this.writes.set(path, { path, content })
   }
 }
@@ -437,16 +496,6 @@ function commentText(comment: string): string {
     .map((line) => line.replace(/^ /, ""))
     .join("\n")
     .trim()
-}
-
-/** One path segment from free text, or "" when nothing is left. */
-function toSegment(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9_-]+/g, "-")
-    .replace(/^[^a-z0-9]+/, "")
-    .slice(0, 90)
-    .replace(/-+$/, "")
 }
 
 function compareBytes(a: string, b: string): number {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isDeepStrictEqual } from "node:util"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
@@ -180,7 +181,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
   // target. A status change (a removed connection), an entry that became
   // invalid, and a file that cannot be read keep the committed files, as the
   // remove-connector dialog says.
-  const leftSources = [
+  const candidates = [
     ...input.projected.removed.map((row) => ({
       sourceKey: row.sourceKey,
       target: lastGoodTarget(row),
@@ -198,6 +199,19 @@ export async function enqueueSourceProjectionFollowUps(input: {
   ].filter(
     (source): source is { sourceKey: string; target: SourceTarget } =>
       source.target !== null,
+  )
+  // A target that a row still holds did not leave: the conversion of
+  // `.ctxpipe/sources.yaml` moves each entry to a file with the same target.
+  const held = candidates.length
+    ? (
+        await listWorkspaceSourceRows({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        })
+      ).flatMap((row) => lastGoodTarget(row) ?? [])
+    : []
+  const leftSources = candidates.filter(
+    ({ target }) => !held.some((other) => isDeepStrictEqual(other, target)),
   )
   const removed = leftSources
     .map((source) => source.target)
