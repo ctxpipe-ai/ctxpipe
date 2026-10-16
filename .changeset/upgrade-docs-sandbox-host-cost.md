@@ -1,0 +1,5 @@
+---
+"@ctxpipe/aws-cdk": minor
+---
+
+This release adds the chat sandbox host. It is on by default. The default size (`size: "small"`) is one `t4g.medium` instance, which costs about $28 a month in us-east-1. The `medium` and `large` sizes cost about $54 and $107 a month. The first `cdk deploy` adds the host and replaces nothing that holds data. The migrate task now runs the single migrate entry point, which makes `ctxpipe_app` ready, applies the expand-only SQL, and runs the backfills. Before you upgrade, take a database snapshot. To roll back, restore the previous package version and the owner `DATABASE_URL` secret. See the Upgrades page.

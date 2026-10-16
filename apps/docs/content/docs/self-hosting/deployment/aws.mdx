@@ -285,6 +285,8 @@ container. `CtxPipe` always creates one EC2 host for those containers. There is
 no opt-out: the sandbox keeps the agent's commands away from the backend and
 your data stores.
 
+{/* TODO(CTX-747): when the CDK prop that turns the host off lands, document it here and fix "always created" above. */}
+
 ### Sizes and cost
 
 The host mostly holds idle sandboxes, so it uses burstable Graviton (ARM)
