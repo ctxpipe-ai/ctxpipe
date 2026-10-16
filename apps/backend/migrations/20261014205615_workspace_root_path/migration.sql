@@ -1,1 +1,0 @@
-ALTER TABLE "workspaces" ADD COLUMN "root_path" text DEFAULT '' NOT NULL;

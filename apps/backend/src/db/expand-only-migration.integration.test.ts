@@ -142,6 +142,10 @@ describe("expand-only SQL migrations from a main database (Postgres)", () => {
     await admin.query(`CREATE DATABASE "${database}"`)
     ownerUrl.pathname = `/${database}`
     pool = new pg.Pool({ connectionString: ownerUrl.toString() })
+    // DROP DATABASE ... WITH (FORCE) can end a connection that pool.end() is
+    // still closing. That FATAL 57P01 has no listener once the pool lets go
+    // of the client, and vitest reports it as an unhandled error.
+    pool.on("connect", (client) => client.on("error", () => {}))
     scratch = mkdtempSync(join(tmpdir(), "ctxpipe-expand-only-"))
   }, 60_000)
 

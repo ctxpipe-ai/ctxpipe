@@ -190,7 +190,8 @@ export interface TaskDefinitionsConstructProps {
   readonly defaultImageTag: string;
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly otel?: CtxPipeOtelProps;
-  readonly sandboxHost: SandboxHostResources;
+  /** Absent when the host is turned off. */
+  readonly sandboxHost?: SandboxHostResources;
 }
 
 export interface ServicesConstructProps {
@@ -199,7 +200,8 @@ export interface ServicesConstructProps {
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
   readonly codesearchEfsMountDependency?: IDependable;
-  readonly sandboxHost: SandboxHostResources;
+  /** Absent when the host is turned off. */
+  readonly sandboxHost?: SandboxHostResources;
 }
 
 export interface IngressConstructProps {
@@ -222,5 +224,5 @@ export interface OutputsConstructProps {
   readonly modelProviderSecretArn?: string;
   readonly smtpSecretArn: string;
   readonly connectorSecretArn?: string;
-  readonly sandboxHostAutoScalingGroupName: string;
+  readonly sandboxHostAutoScalingGroupName?: string;
 }
