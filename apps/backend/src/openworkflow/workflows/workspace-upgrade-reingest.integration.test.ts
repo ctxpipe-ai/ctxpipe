@@ -650,8 +650,33 @@ it(
     })
 
     stepCostUsd.delete(capped)
+    // An earlier run did the first repository and spent more than the cap.
+    // The new run skips it and does not count that spend again.
+    const [first, ...rest] = (await row(capped))?.upgrade.repositories ?? []
+    expect(first?.sha).toEqual(expect.any(String))
+    await setRow(capped, {
+      to: "failed",
+      upgrade: {
+        repositories: [
+          {
+            ...(first as NonNullable<typeof first>),
+            status: "done",
+            spendUsd: 1_000,
+          },
+          ...rest,
+        ],
+      },
+    })
     expect(await start(capped)).toMatchObject({ kind: "queued" })
-    expect(await settled(capped)).toMatchObject({ status: "completed" })
+    expect(await settled(capped)).toMatchObject({
+      status: "completed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({ status: "done", spendUsd: 1_000 }),
+          expect.objectContaining({ status: "done" }),
+        ],
+      },
+    })
   },
 )
 

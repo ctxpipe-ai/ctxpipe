@@ -449,7 +449,10 @@ export function defineWorkspaceUpgradeReingest(
                 ),
               )
             }
-            let spent = reports.reduce((sum, r) => sum + (r.spendUsd ?? 0), 0)
+            // The cap counts the spend of this run. A repository that an
+            // earlier run did keeps its spend in the report, but it does not
+            // count again: else a start after a cost cap stops at once.
+            let spent = 0
             let capped = false
             for (const [index, source] of planned.repositories.entries()) {
               const report = reports[index]
