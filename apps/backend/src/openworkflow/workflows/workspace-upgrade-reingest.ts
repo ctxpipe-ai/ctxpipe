@@ -148,7 +148,6 @@ export function defineWorkspaceUpgradeReingestRepository(
           {
             orgId: input.orgId,
             shadow: false,
-            publishPipeline: "v2",
             source: {
               url: input.url,
               githubConnectionId: input.githubConnectionId,

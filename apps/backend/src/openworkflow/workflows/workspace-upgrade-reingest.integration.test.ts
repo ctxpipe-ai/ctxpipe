@@ -22,7 +22,6 @@ import {
   workspaces,
   workspaceWriteJobs,
 } from "../../db/schema/workspaces.js"
-import type { IngestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import {
   UPGRADE_STATUSES,
@@ -35,6 +34,7 @@ import {
 } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
+import { workspaceFormatFile } from "../../domain/workspaces/workspace-format.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
@@ -56,7 +56,7 @@ import { openWorkflowNamespaceId } from "../namespace.js"
 import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
 import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.js"
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
-import { defineWorkspaceOwnershipMigrationWorkflow } from "./workspace-ownership-migration.js"
+import { workspaceOwnershipMigration } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 import {
   defineWorkspaceUpgradeReingest,
@@ -141,7 +141,6 @@ let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let scan: ReturnType<typeof defineWorkspaceUpgradeScan>
 let reingest: ReturnType<typeof defineWorkspaceUpgradeReingest>
-const committed: { pipeline: IngestionPublishPipeline } = { pipeline: "v2" }
 
 function git(cwd: string, ...args: string[]): string {
   return execFileSync("git", args, {
@@ -189,9 +188,15 @@ beforeAll(async () => {
   remote(otherSource, { "README.md": "# Ledger\n" })
   for (const name of capSources)
     remote(name, { "package.json": '{ "name": "cap" }\n' })
-  const pinned = contexts.map((name) =>
-    remote(name, { "README.md": "# Context\n" }),
-  )
+  // The tree of each Workspace has the format of its row: ingestion v2
+  // reads the format at the pinned commit before it publishes (G5).
+  const pinned = contexts.map((name, i) => {
+    const format = workspaceFormatFile(i === 1 ? 2 : 3)
+    return remote(name, {
+      "README.md": "# Context\n",
+      [format.path]: format.content,
+    })
+  })
 
   // The real stage helpers and script skills, and one fixture model skill.
   const real = await readIngestSkillBundle()
@@ -273,12 +278,7 @@ beforeAll(async () => {
   }
   const shard = defineIngestionShardWorkflow(deps)
   const parent = defineRepositoryIngestionV2Workflow({ ...deps, shard })
-  const extract = defineWorkspaceExtractIngestWorkflow({
-    committedPipeline: () => committed.pipeline,
-  })
-  const ownership = defineWorkspaceOwnershipMigrationWorkflow({
-    committedPipeline: () => committed.pipeline,
-  })
+  const extract = defineWorkspaceExtractIngestWorkflow()
   scan = defineWorkspaceUpgradeScan([])
   const throttle = {
     firstPollSeconds: 1,
@@ -290,7 +290,10 @@ beforeAll(async () => {
   runner.implementWorkflow(shard.spec, shard.fn)
   runner.implementWorkflow(parent.spec, parent.fn)
   runner.implementWorkflow(extract.spec, extract.fn)
-  runner.implementWorkflow(ownership.spec, ownership.fn)
+  runner.implementWorkflow(
+    workspaceOwnershipMigration.spec,
+    workspaceOwnershipMigration.fn,
+  )
   runner.implementWorkflow(
     workspaceSemanticMerge.spec,
     workspaceSemanticMerge.fn,
