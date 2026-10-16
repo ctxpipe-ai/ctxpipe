@@ -12,6 +12,7 @@ import {
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import {
+  failStoppedUpgradeRun,
   listWorkspaceUpgradeRows,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
@@ -191,6 +192,8 @@ const routes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = c.req.valid("param")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
+    // Show a run that stopped without its result as `failed`.
+    await failStoppedUpgradeRun(workspace.id)
     const rows = await listWorkspaceUpgradeRows(workspace.id)
     return c.json(
       {

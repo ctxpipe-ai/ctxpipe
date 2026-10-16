@@ -744,21 +744,43 @@ export async function getPullRequestHeadBranch(
   return data.head.ref || undefined
 }
 
-/** The open pull requests whose head branch starts with `branchPrefix` (first 100). */
+/**
+ * The open pull requests that ctx| opened on a branch that starts with
+ * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ *
+ * Other people can open a pull request with the same head branch name: from
+ * a fork, or from the repository itself. This function ignores them. It
+ * keeps only a pull request whose head is in this repository and whose
+ * author is a GitHub App (ctx| opens each pull request with the installation
+ * token). Thus, ctx| opens its own pull request when someone else took the
+ * branch name in a fork, and it never shows or relabels the pull request of
+ * another person as its own.
+ */
 export async function listOpenPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string },
+  input: BaseInput & { branchPrefix: string; exactBranch?: string },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
   const context = await getInstallationContext(input, { pull_requests: "read" })
-  const { data } = await withTransientGitHubRetry(() =>
-    context.octokit.rest.pulls.list({
+  const repository = `${context.owner}/${context.repo}`.toLowerCase()
+  const pulls = await withTransientGitHubRetry(() =>
+    context.octokit.paginate(context.octokit.rest.pulls.list, {
       owner: context.owner,
       repo: context.repo,
       state: "open",
       per_page: 100,
+      ...(input.exactBranch
+        ? { head: `${context.owner}:${input.exactBranch}` }
+        : {}),
     }),
   )
-  return data
-    .filter((pull) => pull.head.ref.startsWith(input.branchPrefix))
+  return pulls
+    .filter(
+      (pull) =>
+        pull.head.ref.startsWith(input.branchPrefix) &&
+        (input.exactBranch === undefined ||
+          pull.head.ref === input.exactBranch) &&
+        pull.head.repo?.full_name.toLowerCase() === repository &&
+        pull.user?.type === "Bot",
+    )
     .map((pull) => ({
       pullUrl: pull.html_url,
       branch: pull.head.ref,
