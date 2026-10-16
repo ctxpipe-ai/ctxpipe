@@ -4,12 +4,20 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import {
+  type IngestionPublishPipeline,
+  ingestionPublishPipeline,
+} from "../../domain/ingestion/ingestion-v2-config.js"
+import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
   upgradeRelease,
   upgradeTargetFormat,
 } from "../../domain/upgrades/registry.js"
-import { scanWorkspaceUpgrade } from "../../domain/upgrades/scan.js"
+import {
+  scanWorkspaceReingest,
+  scanWorkspaceUpgrade,
+} from "../../domain/upgrades/scan.js"
 import {
   ensureOrgFirstWorkspace,
   listOrgWorkspaces,
@@ -40,7 +48,14 @@ export const workspaceUpgradeScanInputSchema = z
  * waited for it (also the jobs that the format gate held), and queues the
  * hydrate of a new commit, which records the format again.
  */
-export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
+export function defineWorkspaceUpgradeScan(
+  steps: readonly GitUpgradeStep[],
+  options: {
+    /** The committed publish pipeline; a test gives `v2`. */
+    publishPipeline?: () => IngestionPublishPipeline
+  } = {},
+) {
+  const publishPipeline = options.publishPipeline ?? ingestionPublishPipeline
   return defineWorkflow(
     {
       name: "workspace-upgrade-scan",
@@ -52,37 +67,65 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },
         })
-        if (!org) return []
+        if (!org) return { workspaces: [], reingest: [] }
         return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
           await withOrgDbContext(input.orgId, () =>
             ensureOrgFirstWorkspace(input.orgId),
           )
           const env = parseEnv(process.env)
-          const results = []
+          // A bundle that cannot be read fails only the re-ingestion scans.
+          let bundle: ReturnType<typeof readIngestSkillBundle> | undefined
+          const readBundle = () => {
+            bundle ??= readIngestSkillBundle()
+            return bundle
+          }
+          const pipeline = publishPipeline()
+          const results: Record<
+            "workspaces" | "reingest",
+            Array<{ workspaceId: string; kind: string }>
+          > = { workspaces: [], reingest: [] }
           for (const workspace of await withOrgDbContext(input.orgId, () =>
             listOrgWorkspaces(input.orgId),
           )) {
-            // One Workspace that GitHub cannot read must not stop the others.
-            try {
-              results.push({
-                workspaceId: workspace.id,
-                ...(await scanWorkspaceUpgrade({
+            const scans = {
+              workspaces: () =>
+                scanWorkspaceUpgrade({
                   orgId: input.orgId,
                   workspace,
                   steps,
                   env,
-                })),
-              })
-            } catch (error) {
-              log.warn({
-                event: "workspace_upgrade_scan_failed",
-                workspaceId: workspace.id,
-                message: error instanceof Error ? error.message : String(error),
-              })
-              results.push({
-                workspaceId: workspace.id,
-                kind: "error" as const,
-              })
+                }),
+              reingest: async () =>
+                scanWorkspaceReingest({
+                  orgId: input.orgId,
+                  workspace,
+                  bundle: await readBundle(),
+                  publishPipeline: pipeline,
+                  env,
+                }),
+            }
+            for (const [upgrade, scan] of Object.entries(scans) as Array<
+              [keyof typeof scans, () => Promise<{ kind: string }>]
+            >) {
+              // One Workspace that GitHub cannot read must not stop the others.
+              try {
+                results[upgrade].push({
+                  workspaceId: workspace.id,
+                  ...(await scan()),
+                })
+              } catch (error) {
+                log.warn({
+                  event: "workspace_upgrade_scan_failed",
+                  workspaceId: workspace.id,
+                  upgrade,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                })
+                results[upgrade].push({
+                  workspaceId: workspace.id,
+                  kind: "error",
+                })
+              }
             }
           }
           return results
@@ -101,7 +144,7 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
           },
         ),
       )
-      return { workspaces: scanned }
+      return scanned
     },
   )
 }

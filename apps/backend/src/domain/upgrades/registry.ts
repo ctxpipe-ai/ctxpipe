@@ -82,6 +82,12 @@ export type UpgradeStatus =
 export const UPGRADE_BLOCKED_REASONS = {
   /** ctx| cannot push a branch or open a pull request on the repository. */
   writeAccess: "write_access",
+  /** The re-ingestion needs format 3 or higher (G5). Merge the format upgrade first. */
+  needsFormat: "needs_format",
+  /** This deployment has no ingest sandbox runtime. */
+  sandboxUnavailable: "sandbox_unavailable",
+  /** The committed publish pipeline is not ingestion v2, so a re-ingestion cannot publish. */
+  ingestionV2Off: "ingestion_v2_off",
 } as const
 
 export type UpgradeBlockedReason =
@@ -162,8 +168,10 @@ export function upgradeRelease(
 export type WorkspaceUpgradePayload = {
   key: string
   fromFormat: number
+  /** The format that the upgrade gives; on a re-ingestion, the format that it needs. */
   targetFormat: number
-  branch: string
+  /** Only on a git upgrade: the pull request branch. */
+  branch?: string
   prNumber?: number
   prUrl?: string
   /** The user id of the owner or admin who started the upgrade. */
@@ -179,4 +187,41 @@ export type WorkspaceUpgradePayload = {
     sha: string | null
     report: string[]
   }>
+  /** Only on a re-ingestion: the estimate that the operator saw before the click. */
+  estimate?: ReingestEstimate
+  /** Only on a re-ingestion: one entry for each source repository, in run order. */
+  repositories?: ReingestRepositoryReport[]
+}
+
+/** A range from the p50 to the p90 value. */
+export type EstimateRange = { low: number; high: number }
+
+/**
+ * The cost and time estimate of a re-ingestion (ADR-053 section 5). The UI
+ * shows it before the click.
+ */
+export type ReingestEstimate = {
+  repositories: number
+  /** USD for the model calls. */
+  costUsd: EstimateRange
+  /** Wall time when the repositories run one after the other. */
+  minutes: EstimateRange
+  perRepository: Array<{
+    repository: string
+    roots: EstimateRange
+    costUsd: EstimateRange
+    minutes: EstimateRange
+    /** `history`: from the last finished ingestion v2 run of the repository. */
+    basis: "history" | "heuristic"
+  }>
+}
+
+export type ReingestRepositoryReport = {
+  /** `owner/name` on GitHub. */
+  repository: string
+  sha: string | null
+  /** The ingestion v2 run, when it started. */
+  runId: string | null
+  status: "pending" | "done" | "partial" | "skipped" | "failed"
+  report: string[]
 }

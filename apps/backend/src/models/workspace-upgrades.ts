@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, like, ne, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaceWriteJobs } from "../db/schema/workspaces.js"
@@ -176,15 +176,17 @@ export async function transitionWorkspaceUpgradeRow(input: {
 }
 
 /**
- * Remove the rows of other upgrade keys that wait for a click or cannot
- * start: a newer release replaced them. A row with an open pull request or
- * a run stays.
+ * Remove the rows of other upgrade keys of the same family (`format-` or
+ * `reingest-`, the prefix of `key`) that wait for a click or cannot start:
+ * a newer release replaced them. A row with an open pull request or a run
+ * stays.
  */
 export async function deleteSupersededUpgradeRows(input: {
   workspaceId: string
   key: string
   statuses: readonly UpgradeStatus[]
 }): Promise<void> {
+  const family = `${upgradeJobId(input.workspaceId, input.key.split("-")[0] ?? input.key)}-`
   await orgSql(async () => {
     await getOrgDb()
       .delete(workspaceWriteJobs)
@@ -193,6 +195,7 @@ export async function deleteSupersededUpgradeRows(input: {
           eq(workspaceWriteJobs.workspaceId, input.workspaceId),
           eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
           ne(workspaceWriteJobs.id, upgradeJobId(input.workspaceId, input.key)),
+          like(workspaceWriteJobs.id, `${family.replace(/[\\%_]/g, "\\$&")}%`),
           inArray(workspaceWriteJobs.status, [...input.statuses]),
         ),
       )
@@ -208,6 +211,7 @@ export async function deleteSupersededUpgradeRows(input: {
 export async function failStoppedUpgradeRun(
   workspaceId: string,
   key: string,
+  workflowName: "workspace-upgrade" | "workspace-upgrade-reingest",
 ): Promise<void> {
   await orgSql(async () => {
     await getOrgDb()
@@ -224,7 +228,7 @@ export async function failStoppedUpgradeRun(
           eq(workspaceWriteJobs.status, "running"),
           sql`exists (select 1 from openworkflow.workflow_runs owner
             where owner.id = ${workspaceWriteJobs.payload}->>'workflowRunId'
-              and owner.workflow_name = 'workspace-upgrade'
+              and owner.workflow_name = ${workflowName}
               and owner.status in ('completed', 'failed', 'canceled'))`,
         ),
       )

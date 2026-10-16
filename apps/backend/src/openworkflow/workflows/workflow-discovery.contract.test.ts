@@ -62,6 +62,7 @@ it(
         "github-sync-pull-request",
         "workspace-upgrade-scan",
         "workspace-upgrade",
+        "workspace-upgrade-reingest",
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",

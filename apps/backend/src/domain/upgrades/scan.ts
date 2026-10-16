@@ -14,6 +14,7 @@ import {
   listOpenPullRequestsByBranchPrefix,
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
+import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import {
@@ -30,7 +31,15 @@ import {
   type UpgradeStatus,
   upgradeBranch,
   upgradeTargetFormat,
+  type WorkspaceUpgradePayload,
 } from "./registry.js"
+import {
+  estimateReingest,
+  ingestSandboxUnavailable,
+  REINGEST_REQUIRES_FORMAT,
+  reingestUpgradeKey,
+  workspaceSourceRepositories,
+} from "./reingest.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
@@ -52,7 +61,7 @@ const SCAN_OWNED: readonly UpgradeStatus[] = [
  * means "read the file now", not format 0. Null comes back when git cannot
  * give the file now.
  */
-async function currentFormat(
+export async function currentWorkspaceFormat(
   orgId: string,
   workspace: ScannedWorkspace,
   env: Env,
@@ -98,14 +107,14 @@ export async function scanWorkspaceUpgrade(input: {
   const { workspace } = input
   const targetFormat = upgradeTargetFormat(input.steps)
   if (targetFormat === 0) return { kind: "none", reason: "no_steps" }
-  const format = await currentFormat(input.orgId, workspace, input.env)
+  const format = await currentWorkspaceFormat(input.orgId, workspace, input.env)
   if (format === null) return { kind: "none", reason: "unknown_format" }
   // A file that is not valid, or a format that is newer than this code,
   // gets no upgrade (ADR-053 section 3).
   if (format < 0 || format > CODE_FORMAT)
     return { kind: "none", reason: "not_upgradable" }
   const key = formatUpgradeKey(targetFormat)
-  await failStoppedUpgradeRun(workspace.id, key)
+  await failStoppedUpgradeRun(workspace.id, key, "workspace-upgrade")
   const existing = await getWorkspaceUpgradeRow(workspace.id, key)
   if (format >= targetFormat) {
     if (existing && existing.status !== UPGRADE_STATUSES.completed)
@@ -239,4 +248,113 @@ export async function scanWorkspaceUpgrade(input: {
       note: undefined,
     },
   )
+}
+
+/**
+ * Find the fresh re-ingestion of one Workspace and record it (ADR-053
+ * section 5, G1). Every Workspace with a GitHub source repository needs it
+ * once for each skill bundle: the key names the bundle, so a completed row
+ * keeps it done until a release ships a new bundle. The scan never starts
+ * it. It records `awaiting_operator` with the estimate, or `blocked` with
+ * the reason: a format below 3 (G5), a committed publish pipeline that is
+ * not ingestion v2, no ingest sandbox, or no write access.
+ */
+export async function scanWorkspaceReingest(input: {
+  orgId: string
+  workspace: ScannedWorkspace
+  bundle: { name: string; skills: readonly string[] }
+  publishPipeline: IngestionPublishPipeline
+  env: Env
+}): Promise<WorkspaceUpgradeScanResult> {
+  const { workspace } = input
+  const repositories = await workspaceSourceRepositories(
+    input.orgId,
+    workspace.id,
+  )
+  if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
+  const key = reingestUpgradeKey(input.bundle.name)
+  await failStoppedUpgradeRun(workspace.id, key, "workspace-upgrade-reingest")
+  await deleteSupersededUpgradeRows({
+    workspaceId: workspace.id,
+    key,
+    statuses: SCAN_OWNED,
+  })
+  const existing = await getWorkspaceUpgradeRow(workspace.id, key)
+  if (existing && !SCAN_OWNED.includes(existing.status))
+    return { kind: "pending", key, status: existing.status }
+  const format = await currentWorkspaceFormat(input.orgId, workspace, input.env)
+  const sandbox = ingestSandboxUnavailable()
+  const blocked =
+    format === null || format < REINGEST_REQUIRES_FORMAT || format > CODE_FORMAT
+      ? {
+          blockedReason: UPGRADE_BLOCKED_REASONS.needsFormat,
+          note: `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
+        }
+      : input.publishPipeline !== "v2"
+        ? {
+            blockedReason: UPGRADE_BLOCKED_REASONS.ingestionV2Off,
+            note: "This ctx| version does not publish with ingestion v2, so a re-ingestion cannot publish.",
+          }
+        : sandbox
+          ? {
+              blockedReason: UPGRADE_BLOCKED_REASONS.sandboxUnavailable,
+              note: sandbox,
+            }
+          : workspace.writeStatus === "read_only" ||
+              !workspace.githubConnectionId
+            ? {
+                blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
+                note:
+                  workspace.readOnlyReason ??
+                  "Connect the Workspace repository with the GitHub App, so that ctx| can publish the re-ingestion.",
+              }
+            : null
+  const estimate = await estimateReingest({
+    orgId: input.orgId,
+    repositories,
+    bundleSkills: input.bundle.skills,
+  })
+  const fields = {
+    estimate,
+    fromFormat: format ?? 0,
+    blockedReason: blocked?.blockedReason,
+    // A failed run keeps its note; a block replaces it.
+    ...(blocked
+      ? { note: blocked.note }
+      : existing?.status === UPGRADE_STATUSES.blocked
+        ? { note: undefined }
+        : {}),
+  }
+  // A failed run waits for the operator to start it again, unless it is
+  // now blocked.
+  const status = blocked
+    ? UPGRADE_STATUSES.blocked
+    : existing?.status === UPGRADE_STATUSES.failed
+      ? UPGRADE_STATUSES.failed
+      : UPGRADE_STATUSES.awaiting_operator
+  if (!existing)
+    await insertWorkspaceUpgradeRow({
+      workspaceId: workspace.id,
+      generation: workspace.desiredGeneration,
+      status,
+      upgrade: {
+        key,
+        targetFormat: REINGEST_REQUIRES_FORMAT,
+        ...fields,
+      } satisfies WorkspaceUpgradePayload,
+    })
+  else
+    await transitionWorkspaceUpgradeRow({
+      workspaceId: workspace.id,
+      key,
+      from: SCAN_OWNED,
+      to: status,
+      generation: workspace.desiredGeneration,
+      upgrade: fields,
+    })
+  return {
+    kind: "pending",
+    key,
+    status: (await getWorkspaceUpgradeRow(workspace.id, key))?.status ?? status,
+  }
 }
