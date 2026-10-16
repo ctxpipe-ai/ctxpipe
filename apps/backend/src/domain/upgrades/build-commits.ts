@@ -144,14 +144,21 @@ export async function buildUpgradeCommits(input: {
       results.push({ ...step, sha: pack.sha, report: change.report })
     } else results.push({ ...step, sha: null, report: change.report })
   }
-  pack = await commitChange(
-    pack,
-    { writes: [workspaceFormatFile(input.targetFormat)], deletes: [] },
-    {
-      subject: `ctx| upgrade: set the Workspace format to ${input.targetFormat}`,
-      createdAt: input.createdAt,
-    },
+  const formatFile = workspaceFormatFile(input.targetFormat)
+  const currentFormatFile = await withTreeReader(pack, (tree) =>
+    tree.read(WORKSPACE_FORMAT_PATH),
   )
+  // A run on a tree that has the target format (a check of idempotency)
+  // makes no format commit.
+  if (currentFormatFile !== formatFile.content)
+    pack = await commitChange(
+      pack,
+      { writes: [formatFile], deletes: [] },
+      {
+        subject: `ctx| upgrade: set the Workspace format to ${input.targetFormat}`,
+        createdAt: input.createdAt,
+      },
+    )
   return {
     pack,
     steps: results.map(({ format, title, sha, report }) => ({

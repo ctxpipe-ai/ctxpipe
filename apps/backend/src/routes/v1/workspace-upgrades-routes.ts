@@ -9,15 +9,13 @@ import {
   UPGRADE_STATUSES,
   type UpgradeStatus,
 } from "../../domain/upgrades/registry.js"
+import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import {
-  getWorkspaceUpgradeRow,
   listWorkspaceUpgradeRows,
-  transitionWorkspaceUpgradeRow,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
-import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -211,49 +209,27 @@ const routes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug, key } = c.req.valid("param")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    const row = await getWorkspaceUpgradeRow(workspace.id, key)
-    if (!row) return c.json({ error: "Not found" }, 404)
-    if (row.status === UPGRADE_STATUSES.blocked)
-      return c.json(
-        { error: row.upgrade.note ?? "The upgrade cannot start now" },
-        409,
-      )
-    if (row.status === UPGRADE_STATUSES.completed)
-      return c.json({ error: "The upgrade is already applied" }, 409)
-    const approvedAt = new Date().toISOString()
-    // Compare and set: of two clicks, only one queues a run.
-    const started = await transitionWorkspaceUpgradeRow({
+    const result = await startWorkspaceUpgrade({
+      orgId,
       workspaceId: workspace.id,
       key,
-      from: [UPGRADE_STATUSES.awaiting_operator, UPGRADE_STATUSES.failed],
-      to: UPGRADE_STATUSES.queued,
-      upgrade: { approvedBy: user.id, approvedAt, note: undefined },
-      workflowRunId: null,
-      failureReason: null,
+      userId: user.id,
     })
-    if (!started) {
-      const current = await getWorkspaceUpgradeRow(workspace.id, key)
-      if (!current) return c.json({ error: "Not found" }, 404)
-      return c.json(serializeUpgrade(current), 200)
+    switch (result.kind) {
+      case "missing":
+        return c.json({ error: "Not found" }, 404)
+      case "blocked":
+        return c.json(
+          { error: result.row.upgrade.note ?? "The upgrade cannot start now" },
+          409,
+        )
+      case "completed":
+        return c.json({ error: "The upgrade is already applied" }, 409)
+      case "existing":
+        return c.json(serializeUpgrade(result.row), 200)
+      case "queued":
+        return c.json(serializeUpgrade(result.row), 202)
     }
-    try {
-      await enqueueWorkspaceUpgrade({
-        orgId,
-        workspaceId: workspace.id,
-        key,
-        approvedAt,
-      })
-    } catch (error) {
-      await transitionWorkspaceUpgradeRow({
-        workspaceId: workspace.id,
-        key,
-        from: [UPGRADE_STATUSES.queued],
-        to: UPGRADE_STATUSES.failed,
-        failureReason: "ctx| could not queue the upgrade. Start it again.",
-      })
-      throw error
-    }
-    return c.json(serializeUpgrade(started), 202)
   })
 
 /**

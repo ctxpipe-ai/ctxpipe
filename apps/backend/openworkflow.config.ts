@@ -34,8 +34,9 @@ void scheduleDailySourcesSync(new Date()).catch((error: unknown) =>
   }),
 )
 // Find the pending Workspace upgrades of each org after a deploy (ADR-053).
-// The key is per org and release, so a restart queues no second scan. The
-// scans only record the upgrades; each one waits for an owner or admin.
+// The key is per org and release, so a restart on the same day queues no
+// second scan. The scans only record the upgrades; each one waits for an
+// owner or admin.
 void scheduleUpgradeScansForAllOrgs().catch((error: unknown) =>
   log.error({
     step: "workspace-upgrade-scan-backstop",
