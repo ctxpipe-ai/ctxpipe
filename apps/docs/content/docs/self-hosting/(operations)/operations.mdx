@@ -33,8 +33,24 @@ App processes use the app-role `DATABASE_URL`. The migrate container runs:
 bun run apps/backend/src/db/migrate.ts
 ```
 
+The AWS CDK migrate task and the hosted deploy run the same command. It does
+these steps in this order: it makes the `ctxpipe_app` role ready, applies the
+Drizzle and OpenWorkflow migrations, runs every data backfill, and then grants
+`ctxpipe_app` access to the tables.
+
 Migrations are idempotent. Drizzle tracks applied migrations in the
-`drizzle_migrations` table and skips migrations that already ran.
+`drizzle_migrations` table and skips migrations that already ran. A second run
+changes nothing.
+
+Migrate reads the `ctxpipe_app` password from `DATABASE_APP_PASSWORD`:
+
+- When the password is set, migrate creates the role if it is missing and sets
+  its password.
+- When the password is not set and the role exists, migrate only grants access.
+- When the password is not set and the role does not exist, migrate stops with
+  exit code 1 before it changes the database. The error tells you how to fix it
+  for each deployment path. Compose sends `POSTGRES_PASSWORD`, and the CDK
+  migrate task sends the app database credentials secret.
 
 For non-Compose deployments:
 

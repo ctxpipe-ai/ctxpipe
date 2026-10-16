@@ -201,10 +201,7 @@ jobs:
           DATABASE_APP_PASSWORD: ctxpipe
         working-directory: apps/backend
         run: |
-          pnpm exec drizzle-kit migrate
-          pnpm exec tsx src/db/migrate-openworkflow.ts
-          pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
-          pnpm exec tsx src/db/provision-app-role-cli.ts
+          pnpm exec tsx src/db/migrate.ts
       - uses: docker/setup-buildx-action@v3
       - name: Required chat sandbox image
         uses: docker/build-push-action@v6
@@ -542,9 +539,7 @@ jobs:
           DATABASE_APP_PASSWORD: ctxpipe
         working-directory: apps/backend
         run: |
-          pnpm exec drizzle-kit migrate
-          pnpm exec tsx src/db/migrate-openworkflow.ts
-          pnpm exec tsx src/db/provision-app-role-cli.ts
+          pnpm exec tsx src/db/migrate.ts
       - name: Required real Vercel sandbox contracts
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
@@ -627,6 +622,7 @@ jobs:
           DATABASE_APP_PASSWORD: ctxpipe
         working-directory: apps/backend
         run: |
-          pnpm exec tsx src/db/provision-app-role-cli.ts
+          # The one migrate entry point on a database that drizzle-kit migrated.
+          pnpm exec tsx src/db/migrate.ts
           DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe_migrate_fresh \
             pnpm exec vitest run src/db/rls-isolation.test.ts
