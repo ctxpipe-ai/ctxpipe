@@ -9,7 +9,6 @@ import { objects } from "../../db/schema/objects.js"
 import { repositoryExtractionCaptures } from "../../db/schema/repository_extraction_captures.js"
 import {
   persistBoundWriteJob,
-  persistMigrationExportNoOp,
   persistWriteJobKnowledgePaths,
   persistWriteJobStatus,
   reconcileWorkspaceWriteJob,
@@ -25,7 +24,7 @@ import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import type { CapturedExtraction } from "./extraction.js"
 
 it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
-  "preserves extraction identity at %s and a same-name collision after migration cutover",
+  "preserves extraction identity at %s and a same-name collision at Workspace format 1",
   { timeout: 60_000 },
   async (knowledgePath) => {
     const secondPath = knowledgePath.replace(/\.md$/, "-2.md")
@@ -101,12 +100,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
               gitUrl: "https://github.com/linked/api",
             },
           ])
-          await persistBoundWriteJob({
-            id: `wjob_${f.id}_cutover`,
-            kind: "migration_export",
-            revision: { ...f.revision, access: "write-default" },
-          })
-          await persistMigrationExportNoOp(`wjob_${f.id}_cutover`, f.sha)
+          await f.cacheFormat(1)
           await withOrgDbContext(f.org.id, () =>
             seedLegacyExtractionObject(f.org.id, {
               kind: "Service",
@@ -329,7 +323,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
   },
 )
 
-it.each(["migration_export", "extract_ingest"] as const)(
+it.each(["extract_ingest"] as const)(
   "durably queues an unwritable %s command to its typed workflow",
   { timeout: 30_000 },
   async (kind) => {
@@ -383,10 +377,7 @@ it.each(["migration_export", "extract_ingest"] as const)(
           )
           expect(owners).toHaveLength(1)
           expect(owners[0]).toMatchObject({
-            workflowName:
-              kind === "migration_export"
-                ? "workspace-write-migration-export"
-                : "workspace-write-extract-ingest",
+            workflowName: "workspace-write-extract-ingest",
             input: { jobId, revision: { sha: f.sha, access: "write-default" } },
           })
         } finally {
@@ -439,12 +430,7 @@ it(
             workspaceId: f.workspaceId,
             sourceRepositoryId: repo.id,
           })
-          await persistBoundWriteJob({
-            id: `wjob_${f.id}_cutover`,
-            kind: "migration_export",
-            revision: { ...f.revision, access: "write-default" },
-          })
-          await persistMigrationExportNoOp(`wjob_${f.id}_cutover`, f.sha)
+          await f.cacheFormat(1)
           // An earlier run recorded a host-only path for the key.
           await persistBoundWriteJob({
             id: `wjob_${f.id}_known`,
@@ -695,41 +681,27 @@ it(
 )
 
 it(
-  "does not reuse migration cutover after the workspace binding generation changes",
+  "stamps import keys only below Workspace format 1 of the same binding",
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
-      const { eq } = await import("drizzle-orm")
-      const { withOrgDbContext } = await import("../../db/client.js")
-      const { workspaces } = await import("../../db/schema/workspaces.js")
-      const {
-        getMigrationExportSha,
-        listMigrationExportShas,
-        listMigrationExportJobWorkspaceIds,
-      } = await import("../../models/workspace-write-jobs.js")
       const { loadExtractionPathIdentity } = await import(
         "../../models/workspace-export.js"
       )
       await withOrgIdContext(f.org, async () => {
-        const id = `wjob_${f.id}_previous_binding_export`
-        await persistBoundWriteJob({
-          id,
-          kind: "migration_export",
-          revision: { ...f.revision, access: "write-default" },
+        // No cached format is format 0.
+        expect(await loadExtractionPathIdentity(f.revision)).toMatchObject({
+          stampImportKey: true,
         })
-        await persistMigrationExportNoOp(id, f.sha)
-        expect(await getMigrationExportSha(f.workspaceId)).toBe(f.sha)
-        await withOrgDbContext(f.org.id, (db) =>
-          db
-            .update(workspaces)
-            .set({ desiredGeneration: f.revision.generation + 1 })
-            .where(eq(workspaces.id, f.workspaceId)),
-        )
-        expect(await getMigrationExportSha(f.workspaceId)).toBeNull()
-        expect((await listMigrationExportShas()).has(f.workspaceId)).toBe(false)
-        expect(
-          (await listMigrationExportJobWorkspaceIds()).has(f.workspaceId),
-        ).toBe(false)
+        await f.cacheFormat(0)
+        expect(await loadExtractionPathIdentity(f.revision)).toMatchObject({
+          stampImportKey: true,
+        })
+        await f.cacheFormat(1)
+        expect(await loadExtractionPathIdentity(f.revision)).toMatchObject({
+          stampImportKey: false,
+        })
+        // The cached format belongs to the binding of the active projection.
         expect(
           await loadExtractionPathIdentity({
             ...f.revision,
@@ -987,6 +959,118 @@ it(
         } finally {
           await worker.stop()
         }
+      },
+    )
+  },
+)
+
+it.each([
+  { format: 2, published: true },
+  { format: 3, published: false },
+])(
+  "lets the old pipeline publish only to a tree below format 3 (format $format)",
+  { timeout: 60_000 },
+  async ({ format, published }) => {
+    const { workspaceFormatFile } = await import("./workspace-format.js")
+    const formatFile = workspaceFormatFile(format)
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: formatFile.path, body: formatFile.content }],
+      },
+      async (f) => {
+        await f.handle.cancel()
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_format_${format}`,
+              revision: { ...f.revision, access: "write-default" },
+              extraction: await storeTestExtraction(f.org.id, {
+                repositoryId: "repo_captured",
+                repositoryUrl: f.workspaceUrl,
+                sourceSha: f.sha,
+                objects: [
+                  {
+                    kind: "Service",
+                    deduplicationKey: "svc:ledger",
+                    name: "Ledger",
+                    summary: "Captured ledger",
+                  },
+                ],
+                claims: [],
+              }),
+            },
+          )
+          expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject(
+            published
+              ? { committed: true }
+              : { committed: false, reason: "publish_pipeline_v2" },
+          )
+          const main = f.git("--git-dir", f.remote, "rev-parse", "main")
+          if (published) expect(main).not.toBe(f.sha)
+          else expect(main).toBe(f.sha)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "refuses an old extract ingest at admission when the cached format is 3",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        const { workspaces } = await import("../../db/schema/workspaces.js")
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ formatVersion: 3 })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const extraction = await storeTestExtraction(f.org.id, {
+          repositoryId: "repo_captured",
+          repositoryUrl: f.workspaceUrl,
+          sourceSha: f.sha,
+          objects: [{ kind: "Service", deduplicationKey: "svc:ledger" }],
+          claims: [],
+        })
+        const errors: Error[] = []
+        expect(
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId: `wjob_${f.id}_refused`,
+                kind: "extract_ingest",
+                extraction,
+              },
+              { error: (error) => errors.push(error) },
+            ),
+          ),
+        ).toEqual({ started: false })
+        expect(errors.map((error) => error.message)).toEqual([
+          "The Workspace format selects the v2 publish pipeline. It refuses the extract_ingest write.",
+        ])
       },
     )
   },

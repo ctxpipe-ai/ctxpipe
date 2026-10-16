@@ -88,7 +88,6 @@ describe("ensureWorkspaceRouteData", () => {
             ...docsWorkspaceDetail,
             writeStatus: "writable",
             activeProjectionSha: "abc123def456",
-            migrationExportSha: null,
           }),
       ),
     )

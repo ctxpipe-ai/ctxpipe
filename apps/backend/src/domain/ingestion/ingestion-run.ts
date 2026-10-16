@@ -1,5 +1,4 @@
 import { z } from "zod"
-import { ingestionPublishPipelineSchema } from "./ingestion-v2-config.js"
 
 /**
  * The ingestion v2 parent workflow (ADR-052, T09). Its run id is the
@@ -30,11 +29,6 @@ const sha = z.string().regex(/^[0-9a-f]{40}$/)
 export const ingestionV2InputSchema = z.object({
   orgId: z.string().min(1),
   shadow: z.boolean(),
-  /**
-   * The publish pipeline when the run was queued. A run outside shadow mode
-   * needs `v2`. A run queued before this field is `legacy`.
-   */
-  publishPipeline: ingestionPublishPipelineSchema.default("legacy"),
   /** The source repository: a GitHub URL and the connection that reads it. */
   source: z.object({
     url: z.string().url(),

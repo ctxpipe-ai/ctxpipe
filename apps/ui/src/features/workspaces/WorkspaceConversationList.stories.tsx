@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import {
   expectBoxUnchanged,
   responseGate,
@@ -148,9 +148,11 @@ export const ConversationListSkeletonMatches: Story = {
     if (!list) throw new Error("No conversation list")
     await expectBoxUnchanged(list, async () => {
       await conversationsGate.release()
-      expect(
-        await canvas.findByRole("link", { name: "Conversation 3" }),
-      ).toBeVisible()
+      await waitFor(() =>
+        expect(
+          canvas.getByRole("link", { name: "Conversation 3" }),
+        ).toBeVisible(),
+      )
     })
   },
 }

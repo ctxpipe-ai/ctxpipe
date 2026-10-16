@@ -1,11 +1,25 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
-import { ingestionPublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
+import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
-import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
-import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
-import { withFormatWriteGate } from "../domain/workspaces/workspace-format.js"
+import {
+  resolveRepositoryReadCredential,
+  resolveWorkspaceReadRevision,
+} from "../domain/workspaces/resolve-revision.js"
+import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../domain/workspaces/root-path.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  readWorkspaceFormat,
+  WORKSPACE_FORMAT_PATH,
+  withFormatWriteGate,
+  workspaceFormatAtLeast,
+  workspaceFormatCacheValue,
+} from "../domain/workspaces/workspace-format.js"
 import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
@@ -24,6 +38,7 @@ import {
   persistWriteStatus,
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
+import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
@@ -41,7 +56,6 @@ import {
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
-import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
 import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
@@ -133,6 +147,27 @@ async function storeProbedWriteStatus(input: {
 
 export type EnqueueWorkspaceWriteCommitInput = EnqueueWriteJobInput
 
+/** The format in the tree of `revision` (0 with no format file). */
+async function tipWorkspaceFormat(
+  orgId: string,
+  revision: WorkspaceRevision,
+): Promise<number> {
+  const [file] = await listMarkdownFilesAtGitSha({
+    url: revision.remote.url,
+    sha: revision.sha,
+    token: await resolveRepositoryReadCredential({
+      orgId,
+      env: parseEnv(process.env),
+      remote: revision.remote,
+    }),
+    root: workspaceRootPath(revision),
+    // Fetch only the blobs of `.ctxpipe/`.
+    prefix: ".ctxpipe/",
+    extraPaths: [WORKSPACE_FORMAT_PATH],
+  }).then((files) => files.filter((f) => f.path === WORKSPACE_FORMAT_PATH))
+  return workspaceFormatCacheValue(readWorkspaceFormat(file?.content ?? null))
+}
+
 export async function enqueueWriteJob(
   input: EnqueueWriteJobInput,
   log: { error: (err: Error) => void },
@@ -143,6 +178,7 @@ export async function enqueueWriteJob(
   let jobWorkspaceUrl = input.jobWorkspaceUrl
   let jobDesiredSha = input.jobDesiredSha
   let writeStatus: string | null = null
+  let formatVersion: number | null = null
   // A new bootstrap binds the current tip, so a moved tip does not refuse it.
   const rebindsTip =
     input.kind === "bootstrap" && input.jobDesiredSha === undefined
@@ -186,6 +222,7 @@ export async function enqueueWriteJob(
         retry: rebindsTip,
       })
       writeStatus = stored?.writeStatus ?? null
+      formatVersion = workspace.formatVersion
       if (jobDesiredSha === undefined)
         jobDesiredSha = stored ? stored.desiredSha : workspace.desiredSha
     }
@@ -197,16 +234,31 @@ export async function enqueueWriteJob(
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
   }
+  // The Workspace format selects the publish pipeline (ADR-052 phase 4, G5).
+  // An old extract ingest is legacy; an unlink retraction and an ownership
+  // migration are ingestion v2. Admission reads the cached format; the job
+  // reads it again from the tree that it pushes on.
+  const pipeline = workspacePublishPipeline(formatVersion)
+  if (
+    (input.kind === "extract_ingest" && pipeline !== "legacy") ||
+    ((input.kind === "unlink_retraction" ||
+      input.kind === "ownership_migration") &&
+      pipeline !== "v2")
+  ) {
+    log.error(
+      new Error(
+        `The Workspace format selects the ${pipeline} publish pipeline. It refuses the ${input.kind} write.`,
+      ),
+    )
+    return { started: false }
+  }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
     Record<
       EnqueueWriteJobInput["kind"],
-      | typeof workspaceClaimsUpgrade
-      | typeof workspaceMigrationExport
-      | typeof workspaceOwnershipMigration
+      typeof workspaceClaimsUpgrade | typeof workspaceOwnershipMigration
     >
   > = {
-    migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
@@ -326,6 +378,26 @@ export async function enqueueWriteJob(
         admissionStatus =
           stored.writeStatus === "writable" ? "queued" : "paused"
       }
+      // A bind or rebind writes the bootstrap files directly only at format
+      // 3 or more. Below 3 the upgrade pull request carries them (ADR-053
+      // section 7), so the scan offers the upgrade instead. An empty
+      // repository took the root commit path above.
+      if (
+        rebindsTip &&
+        !workspaceFormatAtLeast(
+          await tipWorkspaceFormat(input.orgId, revision),
+          INGESTION_V2_PUBLISH_FORMAT,
+        )
+      ) {
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workflows/workspace-upgrade-scan.js"
+        )
+        await enqueueWorkspaceUpgradeScan({
+          orgId: input.orgId,
+          trigger: `bind:${input.workspaceId}:${revision.sha}`,
+        })
+        return { started: false }
+      }
       if (input.kind === "extract_ingest") {
         const command = workspaceExtractIngestInputSchema.parse({
           orgId: input.orgId,
@@ -333,7 +405,6 @@ export async function enqueueWriteJob(
           jobId,
           revision,
           extraction: input.extraction,
-          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -341,7 +412,6 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           extraction: command.extraction,
-          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
@@ -433,7 +503,6 @@ export async function enqueueWriteJob(
           revision,
           retractRepositoryUrl: input.retractRepositoryUrl,
           retractSourcePath: input.retractSourcePath,
-          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -442,7 +511,6 @@ export async function enqueueWriteJob(
           revision,
           retractRepositoryUrl: command.retractRepositoryUrl,
           retractSourcePath: command.retractSourcePath,
-          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(
@@ -488,13 +556,6 @@ export async function enqueueWriteJob(
         ...(input.kind === "ops_folder_map" && input.previousSha
           ? { previousSha: input.previousSha }
           : {}),
-        // The ownership migration is an ingestion v2 publish (ADR-052).
-        ...(input.kind === "ownership_migration"
-          ? {
-              publishPipeline:
-                input.publishPipeline ?? ingestionPublishPipeline(),
-            }
-          : {}),
       }
       await persistBoundWriteJob({
         admissionStatus,
@@ -503,7 +564,6 @@ export async function enqueueWriteJob(
         revision,
         displayName: command.displayName,
         previousSha: command.previousSha,
-        publishPipeline: command.publishPipeline,
       })
       bound = true
       if (input.kind === "bootstrap")

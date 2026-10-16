@@ -1,10 +1,6 @@
 import { z } from "zod"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { gitFileChangeSchema } from "../../services/git/file-change.js"
-import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipelineSchema,
-} from "../ingestion/ingestion-v2-config.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
@@ -14,7 +10,7 @@ import {
 } from "./extraction.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -51,13 +47,10 @@ export type WorkspaceWriteJobPayload = {
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
   semanticHandoff?: WorkspaceSemanticHandoff
-  exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string
   mirror?: ConnectorMirrorSource
   displayName?: string
-  /** The publish pipeline when the job was queued (ADR-052 phase 4). */
-  publishPipeline?: IngestionPublishPipeline
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
   /** The removed source file of that repository (ADR-050, 2026-10-16). */
@@ -83,7 +76,6 @@ const writeJobBaseSchema = z.object({
 })
 
 const writeJobKindSchema = z.enum([
-  "migration_export",
   "extract_ingest",
   "connector_mirror",
   "claims_upgrade",
@@ -108,8 +100,6 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .optional(),
   displayName: z.string().trim().min(1).optional(),
-  /** Empty: the enqueue reads the committed switch. */
-  publishPipeline: ingestionPublishPipelineSchema.optional(),
   retractRepositoryUrl: z.string().min(1).optional(),
   retractSourcePath: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
@@ -128,7 +118,6 @@ export type WriteJobEnqueueFields = Pick<
   | "mirror"
   | "displayName"
   | "defaultBranch"
-  | "publishPipeline"
   | "retractRepositoryUrl"
   | "retractSourcePath"
   | "jobWorkspaceUrl"
@@ -146,7 +135,6 @@ export function writeJobIntentPayload(
   if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
-  if (input.publishPipeline) payload.publishPipeline = input.publishPipeline
   if (input.retractRepositoryUrl)
     payload.retractRepositoryUrl = input.retractRepositoryUrl
   if (input.retractSourcePath)
@@ -199,19 +187,12 @@ export function shouldResumePausedWriteJob(input: {
   )
 }
 
-/** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
-const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
-  "extract_ingest",
-  "ownership_migration",
-  "unlink_retraction",
-])
-
 export function enqueueInputFromPausedJob(input: {
   orgId: string
   workspaceId: string
   job: {
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     payload: WorkspaceWriteJobPayload | null
@@ -240,11 +221,6 @@ export function enqueueInputFromPausedJob(input: {
       : {}),
     ...(payload.retractSourcePath
       ? { retractSourcePath: payload.retractSourcePath }
-      : {}),
-    // A publish job that was stored before the pipeline field was queued
-    // under `legacy`. It does not get the switch value at resume time.
-    ...(PUBLISH_PIPELINE_KINDS.has(input.job.kind)
-      ? { publishPipeline: payload.publishPipeline ?? "legacy" }
       : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }

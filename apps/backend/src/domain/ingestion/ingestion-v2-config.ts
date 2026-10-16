@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { otelDeploymentEnvironment } from "../../observability/otel.js"
-import { INGESTION_V2_PUBLISH_FORMAT } from "../workspaces/workspace-format.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  workspaceFormatAtLeast,
+} from "../workspaces/workspace-format.js"
 
 /**
  * Shadow mode of ingestion v2 (ADR-052 phase 2). After the old pipeline
@@ -23,45 +26,34 @@ export function ingestionV2ShadowEnabled(): boolean {
 }
 
 /**
- * The pipeline that publishes extracted knowledge to Workspaces (ADR-052
- * phase 4). `legacy` is the old pipeline. `v2` is ingestion v2: hydrate then
- * moves the old extracted files to ingestion v2 ownership
- * (`ownership_migration`), and the old pipeline stops its publish.
- *
- * This is committed config, not an env var: change `committed` below. To
- * roll back within one release, set it to `legacy` again: the old pipeline
- * publishes again and writes `generated_by: ctxpipe` on each file it
- * changes. When it goes back to `v2`, the migration moves those files again.
+ * The pipeline that publishes extracted knowledge to one Workspace (ADR-052
+ * phase 4, G5). `legacy` is the old pipeline. `v2` is ingestion v2. The
+ * Workspace format is the one switch: format 3 or more is `v2`, and a lower
+ * or unknown format is `legacy`. No Workspace gets both. Each publish path
+ * reads the format from the tree that it pushes on, not from the cache, so
+ * a revert of the upgrade pull request takes the Workspace back to `legacy`.
  */
 export const ingestionPublishPipelineSchema = z.enum(["legacy", "v2"])
 export type IngestionPublishPipeline = z.infer<
   typeof ingestionPublishPipelineSchema
 >
 
-/**
- * A trigger reads the committed value and puts it in the run input of the
- * workflow (and in the write job payload). Each step that checks the switch
- * reads the input. The push step also compares the input with the committed
- * value at push time: a job that was queued before a switch stops
- * (`publishPipelineStopped`).
- */
-
-export function ingestionPublishPipeline(): IngestionPublishPipeline {
-  return "legacy"
+/** The publish pipeline of a Workspace at `format`. */
+export function workspacePublishPipeline(
+  format: number | null,
+): IngestionPublishPipeline {
+  return workspaceFormatAtLeast(format, INGESTION_V2_PUBLISH_FORMAT)
+    ? "v2"
+    : "legacy"
 }
 
 /**
- * True when a publish job must not push: the pipeline of the job (`legacy`
- * for an old extract ingest, `v2` for an ingestion v2 publish), the
- * pipeline when the job was queued, and the committed value now must agree.
+ * A field that a run input or a write job payload held before the format
+ * became the switch. A queued run that still holds it must parse. No code
+ * reads it.
  */
-export function publishPipelineStopped(input: {
-  job: IngestionPublishPipeline
-  queued: IngestionPublishPipeline
-  committed: IngestionPublishPipeline
-}): boolean {
-  return input.queued !== input.job || input.committed !== input.job
-}
+export const retiredPublishPipelineField =
+  ingestionPublishPipelineSchema.optional()
 
 /**
  * The G5 gate: ingestion v2 publishes to a destination Workspace when the
@@ -73,8 +65,8 @@ export function publishPipelineStopped(input: {
 export function ingestionV2EnabledFor(workspace: {
   formatVersion: number | null | undefined
 }): boolean {
-  return (
-    typeof workspace.formatVersion === "number" &&
-    workspace.formatVersion >= INGESTION_V2_PUBLISH_FORMAT
+  return workspaceFormatAtLeast(
+    workspace.formatVersion ?? null,
+    INGESTION_V2_PUBLISH_FORMAT,
   )
 }

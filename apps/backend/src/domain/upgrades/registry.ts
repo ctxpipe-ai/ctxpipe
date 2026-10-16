@@ -1,4 +1,7 @@
+import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
+import { exportAndSourcesStep } from "./steps/export-and-sources.js"
+import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
 
 /**
  * The upgrades of a Workspace repository, in code (ADR-053 section 4).
@@ -15,8 +18,14 @@ import { CODE_FORMAT } from "../workspaces/workspace-format.js"
 export type UpgradeTreeReader = {
   /** Every file path of the tree, sorted. */
   paths(): readonly string[]
+  /** The blob SHA of a file, or null when the tree has no such file. */
+  blobSha(path: string): string | null
   /** The UTF-8 text of a file, or null when the tree has no such file. */
   read(path: string): Promise<string | null>
+  /** The bytes of a file, or null when the tree has no such file. */
+  readBytes(path: string): Promise<Buffer | null>
+  /** The git mode of a file (`100644`, `100755` or `120000`), or null when the tree has no such file. */
+  mode(path: string): GitFileMode | null
 }
 
 export type UpgradeStepContext = {
@@ -24,11 +33,28 @@ export type UpgradeStepContext = {
   workspaceId: string
   /** The commit of the default branch that the pull request starts from. */
   baseSha: string
+  /** The Workspace repository and its GitHub connection. */
+  remote: { url: string; connectionId: string | null }
+  /**
+   * The time of the commit that added each Markdown file of the base tree,
+   * by path. A step reads it only when a claim needs a `valid_from`. With
+   * no reader, a step writes no `valid_from`.
+   */
+  introducedAt?: () => Promise<ReadonlyMap<string, string>>
 }
 
 /** The change that one step makes. Paths are relative to the Workspace root folder. */
 export type UpgradeStepPlan = {
-  writes: Array<{ path: string; content: string }>
+  /**
+   * A binary file has `encoding: "base64"`; other content is UTF-8 text. A
+   * write with no `mode` keeps the mode of the file it replaces.
+   */
+  writes: Array<{
+    path: string
+    content: string
+    encoding?: "base64"
+    mode?: GitFileMode
+  }>
   deletes: string[]
   /** Lines for the pull request body, for example an entry that the step could not move. */
   report: string[]
@@ -51,12 +77,17 @@ export type GitUpgradeStep = {
 }
 
 /**
- * The registered git upgrade steps. CTX-743 adds step 1 (export and
- * sources); CTX-744 adds steps 2 and 3. Until a step is registered, the scan
- * offers no upgrade to its format, so no pull request can claim a format
- * whose layout change did not run.
+ * The registered git upgrade steps. Step 1 exports the knowledge that fresh
+ * ingestion cannot make again and moves the sources into
+ * `.ctxpipe/sources.yaml`. Step 2 converts the sources to the new layout,
+ * and step 3 moves the ownership of the files. Until a step is registered, the scan offers no upgrade to its format, so no pull
+ * request can claim a format whose layout change did not run.
  */
-export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = []
+export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = [
+  exportAndSourcesStep(),
+  sourcesConversionStep,
+  ownershipMigrationStep,
+]
 
 /** The prefix of every upgrade branch. Only the upgrade workflow pushes to it. */
 export const UPGRADE_BRANCH_PREFIX = "ctxpipe/upgrade/"

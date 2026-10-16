@@ -18,10 +18,11 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
+import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
-  "cron queues a missing migration export through real OpenWorkflow outside SQL",
+  "cron queues no knowledge export for a writable Workspace that has none (ADR-053: only the upgrade pull request writes it)",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -48,18 +49,8 @@ it(
                 f.workspaceId &&
               run.workflowName === "workspace-write-migration-export",
           )
-          expect(queued).toEqual([
-            expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
-              input: expect.objectContaining({
-                workspaceId: f.workspaceId,
-                revision: expect.objectContaining({
-                  sha: f.sha,
-                  access: "write-default",
-                }),
-              }),
-            }),
-          ])
+          expect(queued).toEqual([])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }
@@ -69,7 +60,7 @@ it(
 )
 
 it(
-  "cron resumes a paused write job through the native workflow queue",
+  "cron resumes a paused write job through the native workflow queue, but never a direct knowledge export",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -77,17 +68,20 @@ it(
       async (f) => {
         await f.publish()
         const jobId = `wjob_${f.id}`
+        const exportJobId = `wjob_${f.id}_export`
         await withOrgDbContext(f.org.id, (db) =>
-          db.insert(workspaceWriteJobs).values({
-            id: jobId,
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-            kind: "migration_export",
-            generation: 1,
-            desiredSha: f.sha,
-            status: "paused",
-            payload: { jobWorkspaceUrl: f.workspaceUrl },
-          }),
+          db.insert(workspaceWriteJobs).values(
+            (["claims_upgrade", "migration_export"] as const).map((kind) => ({
+              id: kind === "claims_upgrade" ? jobId : exportJobId,
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind,
+              generation: 1,
+              desiredSha: f.sha,
+              status: "paused",
+              payload: { jobWorkspaceUrl: f.workspaceUrl },
+            })),
+          ),
         )
         const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
           orgId: f.org.id,
@@ -98,14 +92,14 @@ it(
           runMigrations: false,
         })
         try {
-          const queued = (
-            await backend.listWorkflowRuns({ limit: 100 })
-          ).data.filter(
-            (run) => (run.input as { jobId?: string })?.jobId === jobId,
-          )
-          expect(queued).toEqual([
+          const runs = (await backend.listWorkflowRuns({ limit: 100 })).data
+          expect(
+            runs.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toEqual([
             expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
+              workflowName: "workspace-write-claims-upgrade",
               input: expect.objectContaining({
                 jobId,
                 revision: expect.objectContaining({
@@ -115,6 +109,22 @@ it(
               }),
             }),
           ])
+          // The export goes only through the upgrade pull request
+          // (ADR-053): the tip check neither resumes an old paused export
+          // nor queues a new one.
+          expect(
+            runs.filter(
+              (run) => run.workflowName === "workspace-write-migration-export",
+            ),
+          ).toEqual([])
+          const exportRow = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ status: workspaceWriteJobs.status })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.id, exportJobId)),
+          )
+          expect(exportRow).toEqual([{ status: "paused" }])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }
@@ -128,7 +138,13 @@ it(
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "missing", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "missing",
+        writeStatus: "writable",
+        // Format 3: hydrate plans a write, so the cron checks write access.
+        format: 3,
+      },
       async (f) => {
         await f.publish()
         const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
@@ -296,9 +312,11 @@ async function tipHydrateRuns(f: NativeHydrationFixture, sha: string) {
   }
 }
 
-async function runTipCheck(f: NativeHydrationFixture) {
+/** Run one tip check. `hour` fixes the UTC hour that its retry keys hold. */
+async function runTipCheck(f: NativeHydrationFixture, hour?: string) {
   const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
     orgId: f.org.id,
+    ...(hour ? { hour } : {}),
   })
   return handle.result({ timeoutMs: 30_000 })
 }
@@ -357,31 +375,20 @@ it(
       async (f) => {
         await f.publish()
         const sha = pushSourcesFile(f)
-        // The key holds the UTC hour. Start well before the hour ends.
-        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
-        if (leftInHour < 30_000)
-          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
-        await runTipCheck(f)
+        // The key holds the UTC hour. Each check gets its hour, so the
+        // result does not depend on the clock.
+        await runTipCheck(f, "2026-01-01T09")
         const [first] = await tipHydrateRuns(f, sha)
         if (!first?.idempotencyKey) throw new Error("Expected a keyed hydrate")
+        expect(first.idempotencyKey.endsWith(":2026-01-01T09")).toBe(true)
         await getSystemDb().execute(
           sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
         )
 
-        await runTipCheck(f)
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipHydrateRuns(f, sha)).toHaveLength(1)
 
-        // Move the failed run to the hour before, as if it started then.
-        const hour = first.idempotencyKey.slice(-13)
-        const earlier = new Date(
-          new Date(`${hour}:00:00Z`).getTime() - 3_600_000,
-        )
-          .toISOString()
-          .slice(0, 13)
-        await getSystemDb().execute(
-          sql`update openworkflow.workflow_runs set idempotency_key = ${`${first.idempotencyKey.slice(0, -13)}${earlier}`} where id = ${first.id}`,
-        )
-        await runTipCheck(f)
+        await runTipCheck(f, "2026-01-01T10")
         expect(
           (await tipHydrateRuns(f, sha)).map((run) => run.status).sort(),
         ).toEqual(["failed", "pending"])
@@ -526,17 +533,23 @@ describe("cron write probe on a GitHub error", () => {
           { message: "You have exceeded a secondary rate limit." },
           { status: 429, headers: { "retry-after": "1" } },
         ),
+      // One try, then one wait of `retry-after`. No backoff on top of it.
+      requests: 2,
     },
   ])(
     "records that it could not check write access after $name",
     { timeout: 60_000 },
-    async ({ response }) => {
+    async ({ response, requests }) => {
       await withNativeHydrationFixture(
         { github: true, githubWriteView: "writable" },
         async (f) => {
           await f.publish()
+          let githubRequests = 0
           f.server.use(
-            http.get("https://api.github.com/repos/fixture/:repo", response),
+            http.get("https://api.github.com/repos/fixture/:repo", () => {
+              githubRequests += 1
+              return response()
+            }),
           )
           const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
             orgId: f.org.id,
@@ -556,6 +569,7 @@ describe("cron write probe on a GitHub error", () => {
             writeStatus: "unknown",
             readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
           })
+          if (requests !== undefined) expect(githubRequests).toBe(requests)
         },
       )
     },
@@ -613,7 +627,7 @@ it(
             id: jobId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
-            kind: "migration_export",
+            kind: "claims_upgrade",
             generation: 1,
             desiredSha: f.sha,
             status: "queued",
@@ -624,7 +638,7 @@ it(
 
         await runTipCheck(f)
         expect(
-          await workspaceRuns(f, "workspace-write-migration-export"),
+          await workspaceRuns(f, "workspace-write-claims-upgrade"),
         ).toEqual([
           expect.objectContaining({
             input: expect.objectContaining({ jobId }),
@@ -681,51 +695,6 @@ it(
 )
 
 it(
-  "cron records the failed run of a stale migration export and queues a new export",
-  { timeout: 60_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable" },
-      async (f) => {
-        await f.publish()
-        await runTipCheck(f)
-        const [first] = await workspaceRuns(
-          f,
-          "workspace-write-migration-export",
-        )
-        if (!first) throw new Error("Expected a migration export run")
-        const firstJobId = (first.input as { jobId: string }).jobId
-        // The run failed before its claim step, so the job stays `queued`.
-        await getSystemDb().execute(
-          sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
-        )
-        await ageWriteJobs(f)
-
-        await runTipCheck(f)
-        const [job] = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select({ status: workspaceWriteJobs.status })
-            .from(workspaceWriteJobs)
-            .where(eq(workspaceWriteJobs.id, firstJobId)),
-        )
-        expect(job).toEqual({ status: "failed" })
-        const runs = await workspaceRuns(f, "workspace-write-migration-export")
-        expect(runs.map((run) => run.status).sort()).toEqual([
-          "failed",
-          "pending",
-        ])
-
-        // The new export is live, so a third run queues no other export.
-        await runTipCheck(f)
-        expect(
-          await workspaceRuns(f, "workspace-write-migration-export"),
-        ).toHaveLength(2)
-      },
-    )
-  },
-)
-
-it(
   "cron queues the index and commit projection jobs of a tip that an earlier failed run stored",
   { timeout: 90_000 },
   async () => {
@@ -734,17 +703,15 @@ it(
       async (f) => {
         await f.publish()
         const sha = pushSourcesFile(f)
-        // The keys hold the UTC hour. Start well before the hour ends.
-        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
-        if (leftInHour < 30_000)
-          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
         // The failed run stored the tip in `desired_sha`, then stopped.
         expect((await f.resolveRevision(true)).sha).toBe(sha)
         const tipJobs = async () => ({
+          // The hydrate also queues an index when it publishes. Count only
+          // the jobs of the tip check.
           index: (await workspaceRuns(f, "workspace-index")).filter(
             (run) =>
               (run.input as { revision?: { sha?: string } }).revision?.sha ===
-              sha,
+                sha && run.idempotencyKey?.startsWith("workspace-tip-index:"),
           ).length,
           commits: (
             await workspaceRuns(f, "workspace-commit-projection")
@@ -753,11 +720,55 @@ it(
           ).length,
         })
 
-        await runTipCheck(f)
+        // The keys hold the UTC hour that each check gets.
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
-        // The hydrate is in flight, and the keys hold the hour.
-        await runTipCheck(f)
+        // The hydrate is in flight, and the keys hold the same hour.
+        await runTipCheck(f, "2026-01-01T09")
         expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
+      },
+    )
+  },
+)
+
+it(
+  "cron queues the commit projection job of a tip that a hydrate published after the run that queued it stopped",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The stopped run stored the tip and queued its hydrate. Then it
+        // stopped before it queued the index and commit projection jobs.
+        const revision = await f.resolveRevision(true)
+        expect(revision.sha).toBe(sha)
+        const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision,
+        })
+        expect(await hydrate.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+        })
+
+        await runTipCheck(f, "2026-01-01T09")
+        // The hydrate queued the index of the tip when it published it.
+        expect(
+          (await workspaceRuns(f, "workspace-index")).filter(
+            (run) =>
+              (run.input as { revision?: { sha?: string } }).revision?.sha ===
+              sha,
+          ),
+        ).toHaveLength(1)
+        expect(
+          (await workspaceRuns(f, "workspace-commit-projection")).map(
+            (run) => run.idempotencyKey,
+          ),
+        ).toEqual([
+          `workspace-tip-commits:${f.workspaceId}:${revision.generation}:${revision.defaultBranch}:${sha}:2026-01-01T09`,
+        ])
       },
     )
   },

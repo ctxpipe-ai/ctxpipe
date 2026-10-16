@@ -2,10 +2,6 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipeline,
-} from "../../domain/ingestion/ingestion-v2-config.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import {
@@ -19,7 +15,6 @@ import {
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
-import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
@@ -43,7 +38,6 @@ import {
 } from "../../domain/workspaces/workspace-format.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
-import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
@@ -66,7 +60,7 @@ import {
   generateEmbeddings,
 } from "../../retrieval/services/modelProvider.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
-import { readGitPackFromRemote } from "../../services/git/pack.js"
+import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceIndex } from "../enqueue-workspace-index.js"
 
@@ -112,14 +106,7 @@ async function enqueueLaggingIndex(input: {
   }
 }
 
-/**
- * `committedPipeline` reads the committed publish switch; a test gives the
- * value that it checks.
- */
-export function defineWorkspaceHydrateWorkflow(
-  deps: { committedPipeline?: () => IngestionPublishPipeline } = {},
-) {
-  const committedPipeline = deps.committedPipeline ?? ingestionPublishPipeline
+export function defineWorkspaceHydrateWorkflow() {
   return defineWorkflow(
     {
       name: "workspace-hydrate",
@@ -204,13 +191,9 @@ export function defineWorkspaceHydrateWorkflow(
               const planning = await step.run(
                 { name: "capture-planning-target" },
                 async () => ({
-                  // A completed export may share the already-active SHA. Its cleanup
-                  // still belongs after this successful hydrate, including replay.
-                  needed:
-                    pending.postgres ||
-                    Boolean(
-                      await getMigrationExportSha(workspace.id, revision),
-                    ),
+                  // An upgrade pull request always makes a new SHA, so the
+                  // writes that a format change needs come with that SHA.
+                  needed: pending.postgres,
                   previousSha:
                     projection?.kind === "active" &&
                     sameWorkspaceRevision(
@@ -267,17 +250,11 @@ export function defineWorkspaceHydrateWorkflow(
               }
               const enqueueRemainingWrites = async () => {
                 if (!planning.needed) return
-                // The switch value goes in the plan and in each job it queues,
-                // so the ownership migration job carries its pipeline.
-                const publishPipeline = await step.run(
-                  { name: "read-publish-pipeline" },
-                  () => committedPipeline(),
-                )
                 const plan = await step.run(
                   { name: "plan-remaining-writes" },
                   async () => {
-                    const { files, sourceFiles } = await readTree()
-                    const remaining = planHydrateWrites({
+                    const { files, sourceFiles, formatFile } = await readTree()
+                    return planHydrateWrites({
                       revision,
                       displayName: workspace.displayName,
                       files,
@@ -286,61 +263,47 @@ export function defineWorkspaceHydrateWorkflow(
                         orgId: input.orgId,
                         workspaceId: workspace.id,
                       }),
-                      publishPipeline,
-                    })
-                    if (await getMigrationExportSha(workspace.id, revision)) {
-                      remaining.push({
-                        kind: "import_key_cleanup",
-                        remainder: importKeyCleanupRemainder(files),
-                      })
-                    }
-                    if (
-                      planning.previousSha &&
-                      planning.previousSha !== revision.sha
-                    ) {
-                      const pack = await readGitPackFromRemote({
-                        url: revision.remote.url,
-                        sha: revision.sha,
-                        additionalShas: [planning.previousSha],
-                        root: workspaceRootPath(revision),
-                        token:
-                          token ??
-                          (await resolveRepositoryReadCredential({
-                            orgId: input.orgId,
-                            env,
-                            remote: revision.remote,
-                          })),
-                      })
-                      const changes = await nativeRenameRewriteFiles(
-                        pack,
-                        planning.previousSha,
-                      )
-                      if (changes.length)
-                        remaining.push({
-                          kind: "rename_rewrite",
-                          previousSha: planning.previousSha,
-                          remainder: changes.length,
+                      format: workspaceFormatCacheValue(
+                        readWorkspaceFormat(formatFile),
+                      ),
+                      history: async () => {
+                        const previousSha = planning.previousSha
+                        if (!previousSha || previousSha === revision.sha)
+                          return null
+                        const pack = await readGitPackFromRemote({
+                          url: revision.remote.url,
+                          sha: revision.sha,
+                          additionalShas: [previousSha],
+                          root: workspaceRootPath(revision),
+                          token:
+                            token ??
+                            (await resolveRepositoryReadCredential({
+                              orgId: input.orgId,
+                              env,
+                              remote: revision.remote,
+                            })),
                         })
-                      if (
-                        await nativeFolderSetChanged(pack, planning.previousSha)
-                      ) {
-                        // One job both removes old markers and updates the list.
-                        const planned = remaining.find(
-                          (requirement) =>
-                            requirement.kind === "ops_folder_map",
+                        const [previousFormatFile] = await readGitFiles(
+                          { ...pack, sha: previousSha },
+                          (path) => path === WORKSPACE_FORMAT_PATH,
                         )
-                        if (planned?.kind === "ops_folder_map") {
-                          planned.previousSha = planning.previousSha
-                          planned.remainder += 1
-                        } else
-                          remaining.push({
-                            kind: "ops_folder_map",
-                            previousSha: planning.previousSha,
-                            remainder: 1,
-                          })
-                      }
-                    }
-                    return remaining
+                        return {
+                          previousSha,
+                          previousFormat: workspaceFormatCacheValue(
+                            readWorkspaceFormat(
+                              previousFormatFile?.content ?? null,
+                            ),
+                          ),
+                          renameRewrites: (
+                            await nativeRenameRewriteFiles(pack, previousSha)
+                          ).length,
+                          folderSetChanged: await nativeFolderSetChanged(
+                            pack,
+                            previousSha,
+                          ),
+                        }
+                      },
+                    })
                   },
                 )
                 // Import at the admission boundary: typed writers themselves enqueue hydrate.
@@ -366,7 +329,6 @@ export function defineWorkspaceHydrateWorkflow(
                           jobWorkspaceUrl: revision.remote.url,
                           jobDesiredSha: revision.sha,
                           defaultBranch: revision.defaultBranch,
-                          publishPipeline,
                         },
                         {
                           error: (error) => {
@@ -584,7 +546,9 @@ export function defineWorkspaceHydrateWorkflow(
                       workspaceId: workspace.id,
                       revision: revision.sha,
                       projected,
-                      publishPipeline: committedPipeline(),
+                      format: workspaceFormatCacheValue(
+                        readWorkspaceFormat(formatFile),
+                      ),
                     })
                   },
                 )

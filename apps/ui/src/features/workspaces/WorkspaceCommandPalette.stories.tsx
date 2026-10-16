@@ -200,9 +200,11 @@ export const PaletteNoResults: Story = {
   play: async () => {
     await screen.findByRole("menuitem", { name: /Handbook/ })
     await userEvent.type(await searchField(), "zzzz-no-match")
-    await expect(
-      await screen.findByText(/No results for/, { selector: "p" }),
-    ).toHaveTextContent("No results for “zzzz-no-match”")
+    await waitFor(() =>
+      expect(
+        screen.getByText(/No results for/, { selector: "p" }),
+      ).toHaveTextContent("No results for “zzzz-no-match”"),
+    )
     await expect(liveStatus()).toHaveTextContent(
       "No results for “zzzz-no-match”",
     )
@@ -260,7 +262,7 @@ export const PaletteLoadingKeepsPages: Story = {
     // The empty state waits for the workspace list.
     await userEvent.clear(await searchField())
     await userEvent.type(await searchField(), "zzzz")
-    await expect(
+    await expect(  // play-timing: ok the handler holds the list pending, so absence is the state under test
       screen.queryByText(/No results for/, { selector: "p" }),
     ).not.toBeInTheDocument()
     await expect(

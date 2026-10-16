@@ -1,22 +1,38 @@
 import { and, eq } from "drizzle-orm"
+import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import { githubPins } from "../../models/workspace-source-state.js"
+import {
+  githubPins,
+  lastGoodTarget,
+} from "../../models/workspace-source-state.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { planSourcesConversion } from "./convert-to-files.js"
+import { enqueueSourceProjectionFollowUps } from "./enqueue.js"
 import { projectWorkspaceSources } from "./project.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
+let backend: BackendPostgres
 
 describe("planSourcesConversion (Postgres + git round trip)", () => {
   beforeAll(async () => {
+    if (!process.env.DATABASE_URL)
+      throw new Error("DATABASE_URL is required: run pnpm dev:infra")
     seed = await seedSourcesOrg("wsrc_convert")
+    backend = await BackendPostgres.connect(process.env.DATABASE_URL, {
+      runMigrations: false,
+      namespaceId: openWorkflowNamespaceId(),
+    })
   })
   afterAll(async () => {
+    await closeOpenWorkflowClient()
+    await backend?.stop()
     await seed.cleanup()
   })
 
@@ -143,5 +159,114 @@ sources:
         sourceFiles: again.sourceFiles,
       }),
     ).toEqual({ writes: [], deletes: [], report: [] })
+  })
+  it("queues no cleanup and no retraction when the conversion moves a broken entry and a large description", async () => {
+    const env = parseEnv(process.env)
+    const linear = await seed.addConnection("linear", {
+      status: "installed",
+      workspaceId: "linear-org",
+      workspaceName: "Example",
+    })
+    const workspaceId = await seed.addWorkspace("convert-held")
+    const repo = await seed.gitRepository()
+    const project = async (sha: string) => {
+      const tree = await repo.sourcesTree(sha)
+      const projected = await withOrgIdContext(
+        { id: seed.orgId, slug: seed.orgId },
+        () =>
+          projectWorkspaceSources({
+            orgId: seed.orgId,
+            workspaceId,
+            revision: sha,
+            text: tree.sourcesFile,
+            files: tree.sourceFiles,
+            env,
+            // No access check: the Linear API is not part of this test.
+            adapters: {
+              linear: {
+                provider: "linear",
+                managedPaths: (scope) =>
+                  ((scope as { teams?: string[] }).teams ?? []).map(
+                    (team) => `linear/${team.toLowerCase()}/`,
+                  ),
+                fetch: async () => [],
+              },
+            },
+          }),
+      )
+      // A queued retraction needs a writable Workspace, so a retraction
+      // makes this call fail.
+      await enqueueSourceProjectionFollowUps({
+        orgId: seed.orgId,
+        workspaceId,
+        revision: sha,
+        projected,
+        format: 3,
+      })
+    }
+    const cleanups = async () =>
+      (await backend.listWorkflowRuns({ limit: 1000 })).data
+        .map((run) => run.input as Record<string, unknown>)
+        .filter(
+          (input) =>
+            input.kind === "cleanup" && input.workspaceId === workspaceId,
+        )
+    const rows = () =>
+      listWorkspaceSourceRows({ orgId: seed.orgId, workspaceId })
+    const description = "Release work. ".repeat(5 * 1024)
+    const yaml = (engTeams: string) => `version: 1
+sources:
+  - id: eng
+    provider: linear
+    connection: ${linear}
+    teams: ${engTeams}
+  - id: ops
+    provider: linear
+    connection: ${linear}
+    description: ${description}
+    teams: [OPS]
+`
+    // The synced files of both sources are in git.
+    await project(
+      await repo.commit({
+        ".ctxpipe/sources.yaml": yaml("[ENG]"),
+        "linear/eng/ENG-1.md": "# ENG-1\n",
+        "linear/ops/OPS-1.md": "# OPS-1\n",
+      }),
+    )
+    // The entry breaks; its row keeps the last good target.
+    const broken = await repo.commit({ ".ctxpipe/sources.yaml": yaml("ENG") })
+    await project(broken)
+    expect(await cleanups()).toEqual([])
+
+    const tree = await repo.sourcesTree(broken)
+    const plan = planSourcesConversion({
+      sourcesYaml: tree.sourcesFile,
+      sourceFiles: tree.sourceFiles,
+    })
+    await project(
+      await repo.commit({
+        ...Object.fromEntries(plan.writes.map((w) => [w.path, w.content])),
+        ...Object.fromEntries(plan.deletes.map((path) => [path, null])),
+      }),
+    )
+
+    expect(await cleanups()).toEqual([])
+    const after = await rows()
+    expect(
+      after.map((row) => [row.sourceKey, row.status, lastGoodTarget(row)]),
+    ).toEqual([
+      [
+        "sources/linear/ops.md",
+        "ok",
+        { provider: "linear", connectionId: linear, scope: { teams: ["OPS"] } },
+      ],
+      [
+        "sources/unconverted/eng.md",
+        "invalid",
+        { provider: "linear", connectionId: linear, scope: { teams: ["ENG"] } },
+      ],
+      ["sources/unconverted/linear-ops-description.md", "invalid", null],
+    ])
   })
 })

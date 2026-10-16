@@ -2,10 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import {
-  HYDRATE_SKIP_REASONS,
-  shouldHydrateBeforeMigrationExport,
-} from "../../domain/workspaces/hydrate.js"
+import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
   type DerivedStoreResult,
   type ProjectionState,
@@ -16,8 +13,9 @@ import {
   workspaceRootPathSchema,
 } from "../../domain/workspaces/root-path.js"
 import {
-  formatBelow,
   INGESTION_V2_PUBLISH_FORMAT,
+  WORKSPACE_FORMAT_INVALID,
+  workspaceFormatAtLeast,
 } from "../../domain/workspaces/workspace-format.js"
 import {
   createWorkspaceLifecycle,
@@ -28,10 +26,8 @@ import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspa
 import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
 import {
   deleteWorkspace,
-  getMigrationExportSha,
   getWorkspaceBySlug,
   listLinkedRepositories,
-  listMigrationExportShas,
   listWorkspaces,
   persistHydrateRetry,
   persistWriteCheckRetry,
@@ -40,7 +36,6 @@ import {
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
-import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
@@ -89,11 +84,10 @@ const WorkspaceSchema = z
     conversationWritable: z.boolean(),
     hydrateStatus: z.string(),
     hydrateError: z.string().nullable(),
-    migrationExportSha: z.string().nullable(),
     readOnlyReason: z.string().nullable(),
     upgradeNeeded: z.boolean().openapi({
       description:
-        "True when the Workspace format is below 3. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
+        "True when the Workspace format is below 3, or is not read yet. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
     }),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
@@ -171,31 +165,28 @@ function hydratePhasesView(state: ProjectionState): {
   return { graph: { kind: state.kind === "failed" ? "failed" : "pending" } }
 }
 
-function serializeWorkspace(
-  row: {
-    id: string
-    orgId: string
-    slug: string
-    displayName: string
-    workspaceRepositoryUrl: string
-    rootPath: string
-    githubConnectionId: string | null
-    desiredGeneration: number
-    desiredSha: string | null
-    activeProjectionUrl: string | null
-    activeProjectionSha: string | null
-    indexedSha: string | null
-    writeStatus: string
-    hydrateStatus: string
-    hydrateError?: string | null
-    readOnlyReason: string | null
-    formatVersion?: number | null
-    mostRecentConversationId?: string | null
-    createdAt: Date
-    updatedAt: Date
-  },
-  migrationExportSha: string | null = null,
-) {
+function serializeWorkspace(row: {
+  id: string
+  orgId: string
+  slug: string
+  displayName: string
+  workspaceRepositoryUrl: string
+  rootPath: string
+  githubConnectionId: string | null
+  desiredGeneration: number
+  desiredSha: string | null
+  activeProjectionUrl: string | null
+  activeProjectionSha: string | null
+  indexedSha: string | null
+  writeStatus: string
+  hydrateStatus: string
+  hydrateError?: string | null
+  readOnlyReason: string | null
+  formatVersion?: number | null
+  mostRecentConversationId?: string | null
+  createdAt: Date
+  updatedAt: Date
+}) {
   return {
     id: row.id,
     orgId: row.orgId,
@@ -216,9 +207,15 @@ function serializeWorkspace(
     ),
     hydrateStatus: row.hydrateStatus,
     hydrateError: row.hydrateError ?? null,
-    migrationExportSha,
     readOnlyReason: row.readOnlyReason,
-    upgradeNeeded: formatBelow(row.formatVersion, INGESTION_V2_PUBLISH_FORMAT),
+    // A format that is not read yet (null) is not known, so the UI shows the
+    // upgrade. A format file that is not valid has its own read-only gate.
+    upgradeNeeded:
+      row.formatVersion !== WORKSPACE_FORMAT_INVALID &&
+      !workspaceFormatAtLeast(
+        row.formatVersion ?? null,
+        INGESTION_V2_PUBLISH_FORMAT,
+      ),
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -434,13 +431,10 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "Unauthorized" }, 401)
     }
     const { items, lastUsedWorkspaceId } = await listWorkspaces()
-    const exportShas = await listMigrationExportShas()
     return c.json(
       {
         lastUsedWorkspaceId,
-        items: items.map((row) =>
-          serializeWorkspace(row, exportShas.get(row.id) ?? null),
-        ),
+        items: items.map((row) => serializeWorkspace(row)),
       },
       200,
     )
@@ -463,7 +457,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       env: c.var.env,
       log: c.get("log"),
     })
-    return c.json(serializeWorkspace(created, null), 201)
+    return c.json(serializeWorkspace(created), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -490,10 +484,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const linked = await listLinkedRepositories(workspace.id)
     return c.json(
       {
-        ...serializeWorkspace(
-          workspace,
-          await getMigrationExportSha(workspace.id),
-        ),
+        ...serializeWorkspace(workspace),
         linkedRepositories: linked.map((row) => ({
           ...row,
           createdAt: row.createdAt.toISOString(),
@@ -573,10 +564,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       log: c.get("log"),
     })
     if (!updated) return c.json({ error: "Not found" }, 404)
-    return c.json(
-      serializeWorkspace(updated, await getMigrationExportSha(updated.id)),
-      200,
-    )
+    return c.json(serializeWorkspace(updated), 200)
   })
   .openapi(deleteWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -639,22 +627,11 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     if (!workspace) return c.json({ error: "Not found" }, 404)
     const retried = await persistHydrateRetry(workspace.id)
     if (!retried) return c.json({ error: "Not found" }, 404)
-    const exportSha = await getMigrationExportSha(retried.id)
     void enqueueWorkspaceHydrate(
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),
     )
-    if (shouldHydrateBeforeMigrationExport(exportSha)) {
-      void enqueueWorkspaceWriteCommit(
-        {
-          orgId: retried.orgId,
-          workspaceId: retried.id,
-          kind: "migration_export",
-        },
-        c.get("log"),
-      )
-    }
-    return c.json(serializeWorkspace(retried, exportSha), 200)
+    return c.json(serializeWorkspace(retried), 200)
   })
   .openapi(checkWriteAccessWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -675,10 +652,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
     const current = started
       ? ((await persistWriteCheckRetry(workspace.id)) ?? workspace)
       : workspace
-    return c.json(
-      serializeWorkspace(current, await getMigrationExportSha(current.id)),
-      200,
-    )
+    return c.json(serializeWorkspace(current), 200)
   })
   .route("/", workspaceActivityRoutes)
   .route("/", workspaceFilesRoutes)

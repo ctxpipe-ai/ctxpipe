@@ -201,10 +201,18 @@ export const PrefilledFromWorkEmail: Story = {
     await expect(name).toHaveValue("Initech")
     await expect(slug).toHaveValue("initech")
     await userEvent.type(name, " Labs")
-    await expect(slug).toHaveValue("initech-labs")
+    await waitFor(() =>
+      expect(canvas.getByRole("textbox", { name: /slug url/i })).toHaveValue(
+        "initech-labs",
+      ),
+    )
     await userEvent.clear(slug)
     await userEvent.type(slug, "initech-hq")
     await userEvent.type(name, " East")
-    await expect(slug).toHaveValue("initech-hq")
+    await waitFor(() =>
+      expect(canvas.getByRole("textbox", { name: /slug url/i })).toHaveValue(
+        "initech-hq",
+      ),
+    )
   },
 }

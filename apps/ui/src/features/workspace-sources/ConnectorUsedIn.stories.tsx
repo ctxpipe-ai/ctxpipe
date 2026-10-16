@@ -49,9 +49,11 @@ export const Loading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("list", { name: "Loading Workspaces" }),
-    ).toHaveAttribute("aria-busy", "true")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("list", { name: "Loading Workspaces" }),
+      ).toHaveAttribute("aria-busy", "true"),
+    )
   },
 }
 
@@ -156,9 +158,9 @@ export const PullRequestAwaitingMerge: Story = {
     const canvas = within(canvasElement)
     // A Workspace with only an open pull request is a waiting step, not
     // "No Workspaces yet", so the user does not add the source again.
-    await expect(
-      await canvas.findByRole("link", { name: "Docs" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Docs" })).toBeVisible(),
+    )
     await expect(canvas.queryByText("No Workspaces yet")).toBeNull()
     await expect(
       canvas.getByText("Pull request open. The sync starts after the merge."),

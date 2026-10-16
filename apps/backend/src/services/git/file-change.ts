@@ -19,11 +19,16 @@ export const repositoryFilePathSchema = z
     "A repository-relative file path is required",
   )
 
+export const gitFileModeSchema = z.enum(["100644", "100755", "120000"])
+export type GitFileMode = z.infer<typeof gitFileModeSchema>
+
 export const gitFileChangeSchema = z
   .object({
     path: repositoryFilePathSchema,
     content: z.string(),
     encoding: z.enum(["utf-8", "base64"]).optional(),
+    /** The git mode of the new file. With no mode, the file keeps the mode of the file it replaces. */
+    mode: gitFileModeSchema.optional(),
   })
   .strict()
   .refine(

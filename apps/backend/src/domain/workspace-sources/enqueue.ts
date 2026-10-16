@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { isDeepStrictEqual } from "node:util"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
@@ -17,7 +18,7 @@ import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
-import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
+import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
@@ -169,10 +170,10 @@ export async function enqueueSourceProjectionFollowUps(input: {
     removed: WorkspaceSourceRow[]
   }
   /**
-   * The committed publish pipeline. Only ingestion v2 retracts a repository
-   * that left the sources (CTX-720).
+   * The format in the tree of the projected revision. Only ingestion v2
+   * (format 3 or more) retracts a repository that left the sources (CTX-720).
    */
-  publishPipeline: IngestionPublishPipeline
+  format: number
 }): Promise<void> {
   assertNotInOrgDbContext()
   // Clean up only what left the file: the last good target of a removed
@@ -180,7 +181,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
   // target. A status change (a removed connection), an entry that became
   // invalid, and a file that cannot be read keep the committed files, as the
   // remove-connector dialog says.
-  const leftSources = [
+  const candidates = [
     ...input.projected.removed.map((row) => ({
       sourceKey: row.sourceKey,
       target: lastGoodTarget(row),
@@ -199,6 +200,19 @@ export async function enqueueSourceProjectionFollowUps(input: {
     (source): source is { sourceKey: string; target: SourceTarget } =>
       source.target !== null,
   )
+  // A target that a row still holds did not leave: the conversion of
+  // `.ctxpipe/sources.yaml` moves each entry to a file with the same target.
+  const held = candidates.length
+    ? (
+        await listWorkspaceSourceRows({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        })
+      ).flatMap((row) => lastGoodTarget(row) ?? [])
+    : []
+  const leftSources = candidates.filter(
+    ({ target }) => !held.some((other) => isDeepStrictEqual(other, target)),
+  )
   const removed = leftSources
     .map((source) => source.target)
     .filter((target) => hasAdapter(target.provider))
@@ -206,7 +220,7 @@ export async function enqueueSourceProjectionFollowUps(input: {
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     revision: input.revision,
-    publishPipeline: input.publishPipeline,
+    format: input.format,
     left: leftSources,
   })
   if (removed.length)
@@ -260,9 +274,10 @@ export async function enqueueSourceProjectionFollowUps(input: {
 /**
  * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
  * ingestion v2 extracted from it. One host write job for each repository and
- * the source file that declared it, only while ingestion v2 publishes. The
- * files of the repository list that source path in `sources` (ADR-050
- * revision 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
+ * the source file that declared it, only when the projected tree is at
+ * format 3 or more, where ingestion v2 publishes. The files of the
+ * repository list that source path in `sources` (ADR-050 revision
+ * 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
  * path, and ingestion v2 owns no file of it, so it gets no job. A stored
  * source row that still names the repository in any form keeps it
  * (`sourceRowsNameRepository`): also an entry that became invalid, as it
@@ -276,7 +291,7 @@ async function enqueueRepositoryRetractions(input: {
   orgId: string
   workspaceId: string
   revision: string
-  publishPipeline: IngestionPublishPipeline
+  format: number
   left: ReadonlyArray<{ sourceKey: string; target: SourceTarget }>
 }): Promise<void> {
   const pairs = new Map<string, { url: string; sourcePath: string }>()
@@ -285,7 +300,7 @@ async function enqueueRepositoryRetractions(input: {
     for (const url of githubRepositoryUrls(target))
       pairs.set(`${url}\0${sourceKey}`, { url, sourcePath: sourceKey })
   }
-  if (!pairs.size || input.publishPipeline !== "v2") return
+  if (!pairs.size || workspacePublishPipeline(input.format) !== "v2") return
   const rows = await listWorkspaceSourceRows({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
@@ -320,7 +335,6 @@ async function enqueueRepositoryRetractions(input: {
           jobId,
           retractRepositoryUrl: url,
           retractSourcePath: sourcePath,
-          publishPipeline: "v2",
         },
         { error: logError },
       ),

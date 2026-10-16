@@ -2,16 +2,22 @@ import { execFileSync } from "node:child_process"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
+import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { parse, stringify } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { enqueueSourceProjectionFollowUps } from "../workspace-sources/enqueue.js"
 import { projectWorkspaceSources } from "../workspace-sources/project.js"
+import {
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatFile,
+} from "./workspace-format.js"
 
 // The fixture answers GitHub for each repository of the `fixture` owner.
 const UNLINKED = "https://github.com/fixture/billing"
@@ -84,8 +90,9 @@ const areaBody = [
 const ledgerBody = `# Ledger\n\nText.\n\n${HUMAN}`
 
 // Two linked repositories, and the published ingestion v2 output of both,
-// below the Workspace root folder.
+// below the Workspace root folder of a Workspace at format 3.
 const published = [
+  { path: WORKSPACE_FORMAT_PATH, body: workspaceFormatFile(3).content },
   { path: UNLINKED_SOURCE, body: sourceFile("fixture/billing") },
   {
     path: OTHER_SOURCE,
@@ -221,20 +228,20 @@ async function projectTip(
       workspaceId: f.workspaceId,
       revision: sha,
       projected,
-      publishPipeline: "v2",
+      format: 3,
     })
   await followUps()
   return followUps
 }
 
 /**
- * Link both repositories, then merge `unlink` and project it. `committed` is
- * the switch value that the push step of the retraction reads. The worker
+ * Link both repositories, then merge `unlink` and project it. The worker
  * starts after the projection of the unlink.
  */
 async function mergeThenRetract(
   options: {
-    committed: (f: Fixture) => IngestionPublishPipeline
+    /** Runs when the retraction asks for its push credential. */
+    beforePush?: (f: Fixture) => void
     /** Merged one by one before the unlink; none of them retracts. */
     before?: Array<Record<string, string | null>>
     /** The unlink pull request. Default: delete the source file. */
@@ -268,6 +275,15 @@ async function mergeThenRetract(
     },
     async (f) => {
       await f.handle.cancel()
+      // The cache that hydrate writes; the admission of a retraction reads it.
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ formatVersion: 3 })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const { beforePush } = options
+      if (beforePush) f.onWriteCredentialRequest(async () => beforePush(f))
       const { BackendPostgres } = await import("openworkflow/postgres")
       const { OpenWorkflow } = await import("openworkflow")
       const backend = await BackendPostgres.connect(f.databaseUrl, {
@@ -311,16 +327,12 @@ async function mergeThenRetract(
         const { defineWorkspaceUnlinkRetractionWorkflow } = await import(
           "../../openworkflow/workflows/workspace-unlink-retraction.js"
         )
-        const workflow = defineWorkspaceUnlinkRetractionWorkflow({
-          committedPipeline: () => options.committed(f),
-        })
+        const workflow = defineWorkspaceUnlinkRetractionWorkflow()
         runner.implementWorkflow(workflow.spec, workflow.fn)
         const { defineWorkspaceHydrateWorkflow } = await import(
           "../../openworkflow/workflows/workspace-hydrate.js"
         )
-        const hydrate = defineWorkspaceHydrateWorkflow({
-          committedPipeline: () => "v2",
-        })
+        const hydrate = defineWorkspaceHydrateWorkflow()
         runner.implementWorkflow(hydrate.spec, hydrate.fn)
 
         await projectTip(f)
@@ -414,7 +426,6 @@ it(
   async () => {
     await mergeThenRetract(
       {
-        committed: () => "v2",
         // CTX-710: an entry that became invalid keeps the files.
         before: [
           {
@@ -438,21 +449,22 @@ it(
 )
 
 it(
-  "plans the retraction again when the switch flips to legacy before the push, and pushes nothing",
+  "retracts nothing when the upgrade pull request is reverted before the job plans",
   { timeout: 150_000 },
   async () => {
-    let reads = 0
+    let reverted = ""
     await mergeThenRetract(
       {
-        committed: () => {
-          reads++
-          return "legacy"
+        // The tree goes back to format 2: the old pipeline owns it again.
+        afterUnlink: (f) => {
+          reverted = humanPush(f, {
+            [WORKSPACE_FORMAT_PATH]: workspaceFormatFile(2).content,
+          })
         },
       },
-      ({ git, merged }) => {
-        // The push step read the flip once; the plan under legacy is empty.
-        expect(reads).toBe(1)
-        expect(git("rev-parse", "refs/heads/main")).toBe(merged)
+      ({ git }) => {
+        expect(reverted).not.toBe("")
+        expect(git("rev-parse", "refs/heads/main")).toBe(reverted)
       },
     )
   },
@@ -465,9 +477,9 @@ it(
     let raced = ""
     await mergeThenRetract(
       {
-        // The first push step reads the switch, and then a person pushes a
-        // new file of the repository before the push.
-        committed: (f) => {
+        // A person pushes a new file of the repository before the first
+        // push.
+        beforePush: (f) => {
           if (!raced)
             raced = humanPush(f, {
               "knowledge/services/payments.md": doc(
@@ -480,7 +492,6 @@ it(
                 "# Payments\n",
               ),
             })
-          return "v2"
         },
       },
       ({ git, show }) => {
@@ -507,7 +518,6 @@ it(
   async () => {
     await mergeThenRetract(
       {
-        committed: () => "v2",
         unlink: {
           [UNLINKED_SOURCE]: null,
           "sources/github/team/billing.md": sourceFile("fixture/billing"),
@@ -528,7 +538,6 @@ it(
     let named = ""
     await mergeThenRetract(
       {
-        committed: () => "v2",
         afterUnlink: (f) => {
           named = humanPush(f, {
             [UNLINKED_SOURCE]: sourceFile("fixture/billing"),
@@ -548,7 +557,7 @@ it(
   { timeout: 150_000 },
   async () => {
     await mergeThenRetract(
-      { committed: () => "v2" },
+      {},
       async ({ f, git, show, merged, jobs, replay }) => {
         expectRetraction({ git, show, from: merged })
         const [job] = await jobs()
@@ -578,7 +587,6 @@ it(
       ].join("\n")
     await mergeThenRetract(
       {
-        committed: () => "v2",
         before: [
           { [SOURCES_YAML]: yaml("[fixture/billing]") },
           // The entry keeps its id, but it no longer parses.
@@ -601,7 +609,6 @@ it(
               jobId: `wjob_retract_direct_${f.id}`,
               retractRepositoryUrl: UNLINKED,
               retractSourcePath: UNLINKED_SOURCE,
-              publishPipeline: "v2",
             },
             {
               error: (error) => {
@@ -624,12 +631,9 @@ it(
   "queues the retraction from the projection step of a hydrate run",
   { timeout: 150_000 },
   async () => {
-    await mergeThenRetract(
-      { committed: () => "v2", hydrate: true },
-      ({ git, show, merged }) => {
-        expectRetraction({ git, show, from: merged })
-      },
-    )
+    await mergeThenRetract({ hydrate: true }, ({ git, show, merged }) => {
+      expectRetraction({ git, show, from: merged })
+    })
   },
 )
 
@@ -647,7 +651,6 @@ it(
     )
     await mergeThenRetract(
       {
-        committed: () => "v2",
         before: [{ "knowledge/patterns/billing.md": oldFile }],
       },
       async ({ git, show, merged, results }) => {

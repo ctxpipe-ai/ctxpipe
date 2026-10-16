@@ -40,6 +40,7 @@ import {
   type ProjectionState,
   type PublishedProjection,
   publishedProjection,
+  sameWorkspaceBinding,
   sameWorkspaceRevision,
   type WorkspaceRevision,
   workspaceRevisionSchema,
@@ -1193,6 +1194,31 @@ export async function listKnowledgeUnitPaths(
       .from(workspaceKnowledgeUnits)
       .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
     return rows.map((row) => row.path)
+  })
+}
+
+/**
+ * The Workspace format (ADR-053) that hydrate cached for the binding of
+ * `revision`, or 0. The cache belongs to the active projection, so a
+ * projection of another binding (or no projection) gives 0. Only an upgrade
+ * pull request changes the format, so a newer SHA of the same binding has
+ * the same format until hydrate reads that SHA.
+ */
+export async function getBindingWorkspaceFormat(
+  revision: WorkspaceRevision,
+): Promise<number> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        activeRevision: workspaces.activeRevision,
+        formatVersion: workspaces.formatVersion,
+      })
+      .from(workspaces)
+      .where(eq(workspaces.id, revision.workspaceId))
+      .limit(1)
+    return row && sameWorkspaceBinding(row.activeRevision, revision)
+      ? (row.formatVersion ?? 0)
+      : 0
   })
 }
 

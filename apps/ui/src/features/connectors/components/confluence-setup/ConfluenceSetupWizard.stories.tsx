@@ -478,12 +478,14 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeChecked()
-    await expect(
-      await body.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /Engineering/ })).toBeChecked(),
+    )
     await expect(
       body.getByRole("button", { name: "Save changes" }),
     ).toBeDisabled()
@@ -518,9 +520,11 @@ export const ReplacedSetup: Story = {
     await expect(
       body.getByRole("link", { name: "configuration pull request" }),
     ).toHaveAttribute("href", "https://github.com/acme/wiki/pull/12")
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeVisible(),
+    )
   },
 }
 

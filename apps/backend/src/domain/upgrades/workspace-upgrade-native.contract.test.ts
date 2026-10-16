@@ -65,11 +65,10 @@ it(
       title: string
       body: string
     }> = []
-    // Three pull requests of others on the upgrade branch name: one from a
-    // fork, one in the repository from a person, and one in the repository
-    // from another GitHub App. ctx| ignores all three: it does not record
-    // them, it does not change their text (the fixture refuses a pull
-    // request update), and it opens its own pull request.
+    // A pull request of someone else from a fork uses the upgrade branch
+    // name. ctx| ignores it: it does not record it, it does not change its
+    // text (the fixture refuses a pull request update), and it opens its own
+    // pull request on the same branch name.
     const foreignPulls = [
       {
         number: 7,
@@ -79,26 +78,6 @@ it(
           repo: { full_name: "someone/hydration-contract" },
         },
         user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
-        created_at: "2026-10-15T00:00:00Z",
-      },
-      {
-        number: 8,
-        html_url: "https://github.com/fixture/hydration-contract/pull/8",
-        head: {
-          ref: BRANCH,
-          repo: { full_name: "fixture/hydration-contract" },
-        },
-        user: { type: "User", login: "someone" },
-        created_at: "2026-10-15T00:00:00Z",
-      },
-      {
-        number: 9,
-        html_url: "https://github.com/fixture/hydration-contract/pull/9",
-        head: {
-          ref: BRANCH,
-          repo: { full_name: "fixture/hydration-contract" },
-        },
-        user: { type: "Bot", login: "other-app[bot]" },
         created_at: "2026-10-15T00:00:00Z",
       },
     ]
@@ -334,6 +313,142 @@ it(
 )
 
 it(
+  "does not push over the branch of a pull request that ctx| does not own, and adopts its own pull request on the suffixed branch",
+  { timeout: 150_000 },
+  async () => {
+    const opened: Array<{ head: string; base: string }> = []
+    const pull = (number: number, ref: string, user: object) => ({
+      number,
+      html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
+      head: { ref, repo: { full_name: "fixture/hydration-contract" } },
+      user,
+      created_at: "2026-10-15T00:00:00Z",
+    })
+    // A person and another GitHub App each hold the base upgrade branch name.
+    // Our pull request on `format-30` belongs to another upgrade: the scan of
+    // `format-3` must not adopt it.
+    const foreignPulls = [
+      pull(8, BRANCH, { type: "User", login: "someone" }),
+      pull(9, BRANCH, { type: "Bot", login: "other-app[bot]" }),
+      pull(50, `${BRANCH}0`, { type: "Bot", login: "ctxpipe-fixture[bot]" }),
+    ]
+    let openPulls: Array<ReturnType<typeof pull>> = foreignPulls
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "README.md", body: "# Readme\n" },
+          { path: "old.md", body: "Old\n" },
+        ],
+        onGithubPullRequest: (body) => {
+          const created = body as (typeof opened)[number]
+          opened.push(created)
+          openPulls = [
+            ...foreignPulls,
+            pull(41, created.head, {
+              type: "Bot",
+              login: "ctxpipe-fixture[bot]",
+            }),
+          ]
+        },
+      },
+      async (f) => {
+        f.server.use(http.get(PULLS, () => HttpResponse.json(openPulls)))
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { defineWorkspaceUpgradeScan } = await import(
+          "../../openworkflow/workflows/workspace-upgrade-scan.js"
+        )
+        const { defineWorkspaceUpgrade } = await import(
+          "../../openworkflow/workflows/workspace-upgrade.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        const scan = defineWorkspaceUpgradeScan(STEPS)
+        const upgrade = defineWorkspaceUpgrade(STEPS)
+        runner.implementWorkflow(scan.spec, scan.fn)
+        runner.implementWorkflow(upgrade.spec, upgrade.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const row = () =>
+          withOrgIdContext(f.org, () =>
+            getWorkspaceUpgradeRow(f.workspaceId, KEY),
+          )
+        const start = () =>
+          withOrgIdContext(f.org, () =>
+            startWorkspaceUpgrade({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              key: KEY,
+              userId: "user_admin",
+            }),
+          )
+        const hasBranch = (branch: string) => {
+          try {
+            f.git("--git-dir", f.remote, "rev-parse", `refs/heads/${branch}`)
+            return true
+          } catch {
+            return false
+          }
+        }
+        try {
+          await worker.start()
+          const first = await runner.runWorkflow(scan.spec, {
+            orgId: f.org.id,
+            release: "test",
+            trigger: "first",
+          })
+          await first.result({ timeoutMs: 30_000 })
+          // The pull requests of others do not count as ours.
+          expect(await row()).toMatchObject({ status: "awaiting_operator" })
+
+          expect(await start()).toMatchObject({ kind: "queued" })
+          await expect
+            .poll(async () => (await row())?.status, { timeout: 60_000 })
+            .toBe("pr_open")
+          // ctx| left the branch of the others alone and used the next free
+          // name.
+          expect(hasBranch(BRANCH)).toBe(false)
+          expect(hasBranch(`${BRANCH}-2`)).toBe(true)
+          expect(opened).toHaveLength(1)
+          expect(opened[0]).toMatchObject({ head: `${BRANCH}-2`, base: "main" })
+          expect(await row()).toMatchObject({
+            upgrade: { prNumber: 41, branch: `${BRANCH}-2` },
+          })
+
+          // The next click and the next scan find our pull request on the
+          // suffixed branch: no third branch, no second pull request.
+          expect(await start()).toMatchObject({
+            kind: "existing",
+            row: { status: "pr_open" },
+          })
+          const again = await runner.runWorkflow(scan.spec, {
+            orgId: f.org.id,
+            release: "test",
+            trigger: "second",
+          })
+          await again.result({ timeoutMs: 30_000 })
+          // The scan stores the real branch of our pull request.
+          expect(await row()).toMatchObject({
+            status: "pr_open",
+            upgrade: { prNumber: 41, branch: `${BRANCH}-2` },
+          })
+          expect(opened).toHaveLength(1)
+          expect(hasBranch(`${BRANCH}-3`)).toBe(false)
+        } finally {
+          await worker.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
   "completes the upgrade when hydrate reads the merged format, and queues the tip check that resumes held writes",
   { timeout: 150_000 },
   async () =>
@@ -414,20 +529,17 @@ it(
             .toBe("completed")
           // The scan of the format change queues one tip check. The tip
           // check resumes the write jobs that the format gate held. The scan
-          // queues it in a step after the row changes, so wait for it.
-          await expect
-            .poll(
-              async () =>
-                (await backend.listWorkflowRuns({ limit: 200 })).data
-                  .map((run) => run.idempotencyKey)
-                  .filter(
-                    (key) =>
-                      key?.startsWith(`upgrade-scan-tip:${f.org.id}:`) &&
-                      key.endsWith(`:format:${f.workspaceId}:${merged}`),
-                  ),
-              { timeout: 30_000 },
-            )
-            .toHaveLength(1)
+          // run records the upgrade row before its last step queues the tip
+          // check, so wait for the tip check instead of reading it once.
+          const tipKeys = async () =>
+            (await backend.listWorkflowRuns({ limit: 200 })).data
+              .map((run) => run.idempotencyKey)
+              .filter(
+                (key) =>
+                  key?.startsWith(`upgrade-scan-tip:${f.org.id}:`) &&
+                  key.endsWith(`:format:${f.workspaceId}:${merged}`),
+              )
+          await expect.poll(tipKeys, { timeout: 30_000 }).toHaveLength(1)
         } finally {
           await worker.stop()
           await backend.stop()

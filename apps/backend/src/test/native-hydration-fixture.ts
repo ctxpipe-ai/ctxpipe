@@ -26,6 +26,7 @@ import { connectionDirectory, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
+import { workspaceFormatFile } from "../domain/workspaces/workspace-format.js"
 import type { GithubRepoPermissionBits } from "../domain/workspaces/write-status.js"
 import { invalidateGithubAppCacheForConnection } from "../models/github-installation.js"
 import {
@@ -114,6 +115,11 @@ export type NativeHydrationOptions = {
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
+  /**
+   * Commit `.ctxpipe/workspace.yaml` at this format. Hydrate plans a direct
+   * write to the default branch only at format 3 or more (ADR-053 section 7).
+   */
+  format?: number
 }
 
 async function createNativeHydrationFixture(
@@ -733,6 +739,11 @@ async function createNativeHydrationFixture(
         file.body.replaceAll("{{connectionId}}", connectionId),
       )
     }
+    if (options.format !== undefined) {
+      const formatFile = workspaceFormatFile(options.format)
+      mkdirSync(dirname(join(directory, formatFile.path)), { recursive: true })
+      writeFileSync(join(directory, formatFile.path), formatFile.content)
+    }
     git("add", ".")
     for (const file of options.files ?? []) {
       if (file.mode) {
@@ -909,6 +920,17 @@ async function createNativeHydrationFixture(
         invalidateGithubAppCacheForConnection(connectionId)
         failGithubTokens = status
       },
+      /**
+       * Cache a Workspace format for the fixture binding, as hydrate does
+       * after it reads `.ctxpipe/workspace.yaml` (ADR-053).
+       */
+      cacheFormat: (format: number) =>
+        withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ activeRevision: revision, formatVersion: format })
+            .where(eq(workspaces.id, workspaceId)),
+        ),
       repairWriteAccess: () => {
         githubWriteView = "writable"
       },

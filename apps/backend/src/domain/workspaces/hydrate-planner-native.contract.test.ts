@@ -18,6 +18,7 @@ it(
     await withNativeHydrationFixture(
       {
         github: true,
+        format: 3,
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [
@@ -71,6 +72,57 @@ it(
   },
 )
 
+it.each([
+  { format: 0, cleanup: false },
+  { format: 2, cleanup: false },
+  { format: 3, cleanup: true },
+])(
+  "hydration at Workspace format $format admits the import-key cleanup: $cleanup",
+  { timeout: 60_000 },
+  async ({ format, cleanup }) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format,
+        files: [
+          {
+            path: "knowledge/a.md",
+            body: "---\nimport_key: legacy:a\n---\n# A\n",
+          },
+        ],
+      },
+      async (f) => {
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
+        })
+        try {
+          await f.publish()
+          const names = (await backend.listWorkflowRuns({ limit: 100 })).data
+            .filter(
+              (run) =>
+                (run.input as { workspaceId?: string }).workspaceId ===
+                f.workspaceId,
+            )
+            .map((run) => run.workflowName)
+          expect(names.includes("workspace-write-import-key-cleanup")).toBe(
+            cleanup,
+          )
+          // Below format 3 hydrate commits nothing to the default branch.
+          if (format < 3)
+            expect(
+              names.filter((name) => name.startsWith("workspace-write-")),
+            ).toEqual([])
+        } finally {
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
 it(
   "queued maintenance jobs retain their work when an earlier job advances default",
   { timeout: 90_000 },
@@ -78,6 +130,7 @@ it(
     await withNativeHydrationFixture(
       {
         github: true,
+        format: 3,
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [
@@ -205,6 +258,7 @@ it.each([
     await withNativeHydrationFixture(
       {
         github: true,
+        format: 3,
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [
@@ -277,7 +331,7 @@ it(
       "../../models/workspace-write-jobs.js"
     )
     await withNativeHydrationFixture(
-      { github: true, writeStatus: "writable" },
+      { github: true, writeStatus: "writable", format: 3 },
       async (f) => {
         await f.publish()
         const paused = await withOrgIdContext(f.org, () =>
@@ -303,6 +357,7 @@ it(
     await withNativeHydrationFixture(
       {
         github: true,
+        format: 3,
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [
@@ -394,6 +449,7 @@ it(
     await withNativeHydrationFixture(
       {
         github: true,
+        format: 3,
         githubWriteView: "writable",
         writeStatus: "writable",
         files: [{ path: "knowledge/a.md", body: "# A\n" }],

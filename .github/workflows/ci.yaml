@@ -52,6 +52,8 @@ jobs:
         run: node scripts/ci/check-test-policy.mjs
       - name: Reject slow UI motion
         run: node scripts/ci/check-ui-motion.mjs
+      - name: Reject racy Storybook play checks
+        run: node scripts/ci/check-story-play-timing.mjs
       - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
       - name: CI command regression tests
@@ -202,7 +204,7 @@ jobs:
         working-directory: apps/backend
         run: |
           pnpm exec tsx src/db/migrate.ts
-      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/setup-buildx
       - name: Required chat sandbox image
         uses: docker/build-push-action@v6
         with:
@@ -329,7 +331,7 @@ jobs:
             dockerfile: apps/docs/Dockerfile
     steps:
       - uses: actions/checkout@v6
-      - uses: docker/setup-buildx-action@v3
+      - uses: ./.github/actions/setup-buildx
       # Only codesearch keeps a layer cache: its toolchain stages are the slow
       # part, and the repository GHA cache cannot hold all five images.
       - uses: docker/build-push-action@v6
@@ -489,6 +491,19 @@ jobs:
       - uses: actions/setup-node@v6
         with:
           node-version: 22
+      # The download script must fail fast when its source stalls.
+      - name: Download script timeout proof
+        run: node --test apps/codesearch/scripts/fetch-releases.test.mjs
+      - name: Restore pinned release files
+        uses: actions/cache@v4
+        with:
+          path: .release-cache
+          key: codesearch-releases-${{ hashFiles('apps/codesearch/release-assets.txt') }}
+      # Fills the cache with checksum-verified files. When GitHub stays down,
+      # this step fails in minutes with "Outside service unavailable".
+      - name: Download pinned release files
+        timeout-minutes: 10
+        run: bash apps/codesearch/scripts/fetch-releases.sh apps/codesearch/release-assets.txt "$RUNNER_TEMP/releases" .release-cache
       - run: pnpm --filter @ctxpipe/codesearch test
 
   vercel-sandbox:

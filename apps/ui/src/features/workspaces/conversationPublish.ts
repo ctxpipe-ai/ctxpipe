@@ -117,6 +117,8 @@ export type PublishErrorCode =
   | "nothing_committed"
   | "no_changes"
   | "outside_root"
+  | "format_file"
+  | "upgrade_needed"
   | "no_write_access"
   | "host_only_field"
   | "no_pr_access"
@@ -154,6 +156,10 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
   no_changes: "There are no changes to publish.",
   outside_root:
     "The agent changed files outside the Workspace folder. Ask it to undo those changes.",
+  format_file:
+    "Only a ctx| upgrade can change .ctxpipe/workspace.yaml. Ask the agent to undo that change.",
+  upgrade_needed:
+    "This Workspace needs an upgrade before it can use files under sources/. Ask the agent to undo those changes, or upgrade the Workspace first.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
   host_only_field:
     "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",

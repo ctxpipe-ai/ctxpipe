@@ -61,6 +61,11 @@ export async function replaceWorkspaceSourceRows(input: {
   workspaceId: string
   revision: string
   rows: readonly PlannedSourceRow[]
+  /**
+   * The old key of a row whose source moved to a new key, by new key: the
+   * conversion moves an entry of `.ctxpipe/sources.yaml` to a file.
+   */
+  movedFrom?: ReadonlyMap<string, string>
 }): Promise<{
   removed: WorkspaceSourceRow[]
   changed: Array<{ before: WorkspaceSourceRow; after: PlannedSourceRow }>
@@ -100,6 +105,7 @@ export async function replaceWorkspaceSourceRows(input: {
         existing,
         planned: plan,
         workspaceUrl: workspace?.url ?? null,
+        movedFrom: input.movedFrom,
       })
       const byKey = new Map(existing.map((row) => [row.sourceKey, row]))
       if (removed.length)

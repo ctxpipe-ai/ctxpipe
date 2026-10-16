@@ -11,7 +11,6 @@ import { readFileAtGitSha } from "../../services/git/clone-tree.js"
 import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import {
   getPullRequestState,
-  listOpenPullRequestsByBranchPrefix,
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
@@ -22,6 +21,7 @@ import {
   WORKSPACE_FORMAT_PATH,
 } from "../workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
+import { listUpgradePullRequests } from "./branch.js"
 import {
   formatUpgradeKey,
   type GitUpgradeStep,
@@ -182,18 +182,15 @@ export async function scanWorkspaceUpgrade(input: {
     existing?.status === UPGRADE_STATUSES.running
   )
     return { kind: "pending", key, status: existing.status }
-  const [open] = github
-    ? await listOpenPullRequestsByBranchPrefix({
-        ...github,
-        branchPrefix: branch,
-        exactBranch: branch,
-      })
-    : []
+  const open = github
+    ? (await listUpgradePullRequests(github, branch)).find((pull) => pull.ours)
+    : undefined
   if (open)
     return record(
       UPGRADE_STATUSES.pr_open,
       [...SCAN_OWNED, UPGRADE_STATUSES.pr_open],
       {
+        branch: open.branch,
         prUrl: open.pullUrl,
         prNumber: parseGithubPullNumberFromUrl(open.pullUrl),
         note: undefined,

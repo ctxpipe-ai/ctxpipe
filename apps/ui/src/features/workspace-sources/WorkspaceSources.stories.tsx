@@ -606,9 +606,11 @@ export const EditSendsChange: Story = {
     )
     const dialog = within(await within(document.body).findByRole("dialog"))
     await dialog.findByRole("heading", { name: "Edit Linear source" })
-    await expect(
-      await dialog.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("checkbox", { name: /Engineering/ }),
+      ).toBeChecked(),
+    )
     await userEvent.click(dialog.getByRole("checkbox", { name: /Operations/ }))
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
@@ -1042,11 +1044,11 @@ export const RefusedRepositoryFile: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The repository file shows its error, but a remove cannot name it.
-    await expect(
-      await canvas.findByText(
-        /repositories\/tools\.md: ctx\| links only GitHub/,
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+      ).toBeVisible(),
+    )
     await expect(
       canvas.queryByRole("button", { name: "Remove repositories/tools.md" }),
     ).toBeNull()
@@ -1314,16 +1316,20 @@ export const GithubManyRepositories: Story = {
     toggle.focus()
     await expect(toggle).toHaveFocus()
     await userEvent.keyboard("{Enter}")
-    await expect(toggle).toHaveAttribute("aria-expanded", "true")
-    await expect(toggle).toHaveAttribute("aria-controls", listElement.id)
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"))
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("aria-controls", listElement.id),
+    )
     await expect(list.getAllByRole("listitem")).toHaveLength(312)
     await expect(listElement.scrollHeight).toBeGreaterThan(
       listElement.clientHeight,
     )
     await expect(toggle).toHaveAccessibleName("Show fewer")
-    await expect(toggle).toHaveFocus()
+    await waitFor(() => expect(toggle).toHaveFocus())
     await userEvent.keyboard(" ")
-    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("aria-expanded", "false"),
+    )
     await expect(list.getAllByRole("listitem")).toHaveLength(5)
 
     const filter = canvas.getByRole("searchbox", {
@@ -1334,9 +1340,11 @@ export const GithubManyRepositories: Story = {
     await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
     await userEvent.clear(filter)
     await userEvent.type(filter, "no-such-repository")
-    await expect(
-      await list.findByText("No repositories match that filter."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        list.getByText("No repositories match that filter."),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -1409,9 +1417,11 @@ export const PendingRename: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("link", { name: "Rename awaiting merge" }),
-    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/8")
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", { name: "Rename awaiting merge" }),
+      ).toHaveAttribute("href", "https://github.com/acme/docs/pull/8"),
+    )
     await expect(
       canvas.getByText("1 change awaiting merge", { exact: false }),
     ).toBeVisible()

@@ -266,6 +266,78 @@ sources:
     expect(rowsOf(after)).toHaveLength(6)
   })
 
+  it("writes no second unconverted file when an old pull request adds sources.yaml again", () => {
+    const sourcesYaml = `version: 1
+sources:
+  - id: wrong
+    provider: notion
+    connection: con_a
+  - id: gh
+    provider: github
+    connection: con_d
+    description: Not a key of a GitHub entry.
+    repositories: [acme/api]
+`
+    const after = apply({ sourcesYaml, sourceFiles: [] })
+    expect(after.sourceFiles.map((file) => file.path)).toEqual([
+      "sources/unconverted/gh.md",
+      "sources/unconverted/wrong.md",
+    ])
+    const again = planSourcesConversion({ ...after, sourcesYaml })
+    expect(again.writes).toEqual([])
+    expect(again.deletes).toEqual([".ctxpipe/sources.yaml"])
+  })
+
+  it("gives a free path when a file has the same path in another case", () => {
+    const plan = planSourcesConversion({
+      sourcesYaml: `version: 1
+sources:
+  - id: wrong
+    provider: notion
+    connection: con_a
+  - id: eng
+    provider: linear
+    connection: con_b
+    teams: [ENG]
+`,
+      sourceFiles: [
+        { path: "sources/unconverted/Wrong.md", text: "A person wrote this." },
+        { path: "sources/linear/ENG.md", text: "A person wrote this." },
+      ],
+    })
+    expect(plan.writes.map((write) => write.path)).toEqual([
+      "sources/linear/eng-2.md",
+      "sources/unconverted/wrong-2.md",
+    ])
+  })
+
+  it("keeps a converted file under 64 KiB: a description that is too large goes to an unconverted file", () => {
+    const description = "x".repeat(70 * 1024)
+    const tree = {
+      sourcesYaml: `version: 1
+sources:
+  - id: eng
+    provider: linear
+    connection: con_b
+    description: ${description}
+    teams: [ENG]
+`,
+      sourceFiles: [],
+    }
+    const plan = planSourcesConversion(tree)
+    expect(plan.writes.map((write) => write.path)).toEqual([
+      "sources/linear/eng.md",
+      "sources/unconverted/linear-eng-description.md",
+    ])
+    expect(plan.writes[0]?.content).toBe(
+      "---\nprovider: linear\nconnection: con_b\nteams:\n  - ENG\n---\n",
+    )
+    expect(plan.writes[1]?.content).toContain(description)
+    expect(okNonGithub(apply(tree))).toEqual([
+      { provider: "linear", connectionId: "con_b", scope: { teams: ["ENG"] } },
+    ])
+  })
+
   it("keeps a sources file that cannot be read as text in one unconverted file", () => {
     const text = "version: [\n  ~~~ text\n"
     const plan = planSourcesConversion({ sourcesYaml: text, sourceFiles: [] })

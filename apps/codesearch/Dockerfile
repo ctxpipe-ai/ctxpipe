@@ -51,51 +51,29 @@ ENV PUB_CACHE=/opt/pub-cache
 RUN dart pub global activate scip_dart "${SCIP_DART_VERSION}"
 
 # ── Stage 6: Official SCIP release binaries ─────────────────────────────────
+FROM scratch AS releases
+
 FROM debian:bookworm-slim AS release-tools
 ARG TARGETARCH=amd64
-ARG SCIP_GO_VERSION=0.2.7
-ARG SCIP_GO_SHA256=5bfe39016ca04f5b3b1cce41d1b63ea120a7d7e93b55407bfb17a6b02d18135a
-ARG SCIP_VERSION=0.9.0
-ARG SCIP_SHA256=fc2e7273e110be9f35924da1066000183791e8bfdb0391355de6eaaa070fec75
-ARG SCIP_JAVA_VERSION=0.13.1
-ARG SCIP_JAVA_SHA256=a694cae143c32c5b6226362fb4bd268a8d13d3cd9b482819b3b0029a9a97b8fe
-ARG SCIP_CLANG_VERSION=0.4.0
-ARG SCIP_CLANG_SHA256=06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784
-ARG SCIP_RUBY_VERSION=0.4.7
-ARG SCIP_RUBY_SHA256=a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd
-ARG RUST_ANALYZER_VERSION=2026-07-27
-ARG RUST_ANALYZER_SHA256=ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115
 RUN test "${TARGETARCH}" = "amd64" || \
     (echo "The full SCIP matrix requires linux/amd64 (scip-clang/scip-ruby upstream limitation)." >&2; exit 1)
-# Each file has a pinned checksum, so only the files themselves come from
-# GitHub. A download retries with a growing delay (about 1 minute in total);
-# when GitHub still fails, the build names the URL.
-RUN apt-get update && apt-get install -y --no-install-recommends \
+# Versions and checksums live in release-assets.txt. fetch-releases.sh bounds
+# each download (connect, stall and total timeouts, 3 attempts) and fails with
+# "Outside service unavailable" when GitHub stays down. CI can pass verified
+# files as the `releases` build context (see run-vitest-docker.sh).
+RUN --mount=type=bind,source=apps/codesearch/release-assets.txt,target=/release-assets.txt \
+    --mount=type=bind,source=apps/codesearch/scripts/fetch-releases.sh,target=/fetch-releases.sh \
+    --mount=type=bind,from=releases,target=/releases \
+    apt-get update && apt-get install -y --no-install-recommends \
     ca-certificates \
     curl \
   && rm -rf /var/lib/apt/lists/* \
   && mkdir -p /out /tmp/releases \
+  && bash /fetch-releases.sh /release-assets.txt /tmp/releases /releases \
   && cd /tmp/releases \
-  && fetch() { \
-    curl -fsSL --retry 6 --retry-all-errors --retry-max-time 300 \
-      --connect-timeout 15 --max-time 600 -o "$2" "$1" \
-      || { echo "Outside service unavailable: cannot download $1" >&2; return 1; }; \
-    echo "$3  $2" | sha256sum -c -; \
-  } \
-  && fetch "https://github.com/sourcegraph/scip-go/releases/download/v${SCIP_GO_VERSION}/scip-go-linux-amd64.tar.gz" \
-    scip-go.tar.gz "${SCIP_GO_SHA256}" \
   && tar -xzf scip-go.tar.gz -C /out scip-go \
-  && fetch "https://github.com/scip-code/scip/releases/download/v${SCIP_VERSION}/scip-linux-amd64.tar.gz" \
-    scip.tar.gz "${SCIP_SHA256}" \
   && tar -xzf scip.tar.gz -C /out scip \
-  && fetch "https://github.com/scip-code/scip-java/releases/download/v${SCIP_JAVA_VERSION}/scip-java-v${SCIP_JAVA_VERSION}" \
-    /out/scip-java "${SCIP_JAVA_SHA256}" \
-  && fetch "https://github.com/sourcegraph/scip-clang/releases/download/v${SCIP_CLANG_VERSION}/scip-clang-x86_64-linux" \
-    /out/scip-clang "${SCIP_CLANG_SHA256}" \
-  && fetch "https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v${SCIP_RUBY_VERSION}/scip-ruby-x86_64-linux" \
-    /out/scip-ruby "${SCIP_RUBY_SHA256}" \
-  && fetch "https://github.com/rust-lang/rust-analyzer/releases/download/${RUST_ANALYZER_VERSION}/rust-analyzer-x86_64-unknown-linux-gnu.gz" \
-    rust-analyzer.gz "${RUST_ANALYZER_SHA256}" \
+  && cp scip-java scip-clang scip-ruby /out/ \
   && gzip -dc rust-analyzer.gz > /out/rust-analyzer \
   && chmod +x /out/*
 

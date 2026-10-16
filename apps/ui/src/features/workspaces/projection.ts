@@ -9,11 +9,9 @@ export type WorkspaceHydrateView =
 export function workspaceProjectionReady(input: {
   hydrateStatus: string
   activeProjectionSha: string | null
-  migrationExportSha?: string | null
   writeStatus?: string | null
 }): boolean {
   void input.hydrateStatus
-  void input.migrationExportSha
   void input.writeStatus
   return Boolean(input.activeProjectionSha)
 }
@@ -55,7 +53,6 @@ export function workspacePrepareNeedsPoll(input: {
   desiredSha?: string | null
   hydrateError?: string | null
   activeProjectionSha?: string | null
-  migrationExportSha?: string | null
   writeStatus?: string | null
   readOnlyReason?: string | null
   hydratePhases?: { graph: WorkspaceStorePhase }
@@ -64,7 +61,6 @@ export function workspacePrepareNeedsPoll(input: {
     workspaceProjectionReady({
       hydrateStatus: input.hydrateStatus,
       activeProjectionSha: input.activeProjectionSha ?? null,
-      migrationExportSha: input.migrationExportSha,
       writeStatus: input.writeStatus,
     })
   ) {

@@ -287,7 +287,7 @@ export const GuideAdminAfterFirstQuestion: Story = {
     const hiddenRow = guide.queryByText("Invite your team")
     if (hiddenRow) expect(hiddenRow).not.toBeVisible()
     await userEvent.click(toggle)
-    expect(toggle).toHaveAttribute("aria-expanded", "true")
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"))
     expect(guide.getByText("Invite your team")).toBeVisible()
     // The user's choice is kept for the next visit.
     const stored = JSON.parse(
@@ -420,7 +420,7 @@ export const GuideSignalFailureKeepsHome: Story = {
     expect(guide.getByText("3 of 6 done")).toBeVisible()
     const canvas = within(canvasElement)
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
-    expect(await canvas.findByText("Activity")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
   },
 }
 
@@ -518,7 +518,7 @@ export const GuideRoleFailureHidesIt: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Activity")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
     await waitFor(() =>
       expect(canvas.queryByText("Loading the setup guide")).toBeNull(),
     )
@@ -541,7 +541,7 @@ export const GuideEstablishedUserHidden: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Activity")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
     // An established user gets no skeleton either.
     expect(canvas.queryByText("Loading the setup guide")).toBeNull()
     // Give the guide signals time to settle before the check.
