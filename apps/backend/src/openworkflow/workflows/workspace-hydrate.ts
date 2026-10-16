@@ -276,11 +276,16 @@ export function defineWorkspaceHydrateWorkflow(
                 const plan = await step.run(
                   { name: "plan-remaining-writes" },
                   async () => {
-                    const { files } = await readTree()
+                    const { files, sourceFiles } = await readTree()
                     const remaining = planHydrateWrites({
                       revision,
                       displayName: workspace.displayName,
                       files,
+                      sourceFiles,
+                      sourceRows: await listWorkspaceSourceRows({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                      }),
                       publishPipeline,
                     })
                     if (await getMigrationExportSha(workspace.id, revision)) {
@@ -442,6 +447,7 @@ export function defineWorkspaceHydrateWorkflow(
                         connectionId: row.connectionId,
                         scope: row.scope,
                         status: row.status,
+                        state: row.state,
                       })),
                   )
                 : []

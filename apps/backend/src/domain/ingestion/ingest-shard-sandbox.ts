@@ -87,7 +87,7 @@ function heldStepIndex(input: {
   url: string
   githubConnectionId: string
   pinnedRevision: string
-  sourceUrl: string
+  sourcePath: string
   rootPath: string | undefined
 }) {
   return holdScratch(
@@ -105,7 +105,7 @@ function heldStepIndex(input: {
         index: stepContextIndex({
           workspaceId: input.workspaceId,
           pinnedRevision: input.pinnedRevision,
-          sourceUrl: input.sourceUrl,
+          sourcePath: input.sourcePath,
           repoDir: dir,
           rootPath: input.rootPath,
           projection: () =>
@@ -313,7 +313,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       url: destination.url,
       githubConnectionId: destination.githubConnectionId,
       pinnedRevision: destination.pinnedRevision,
-      sourceUrl: spec.source.url,
+      sourcePath: destination.sourcePath,
       rootPath: destination.rootPath,
     })
     return (await held.index.at(step.baseCommit, step.fetchRef)).json
@@ -390,13 +390,17 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
         step.name,
         async ({ handle, root, agentEnv, signal }) => {
           const models = step.run === "model" ? ingestModels() : undefined
+          const destination = spec.destinations.find(
+            (d) => d.workspaceId === step.workspaceId,
+          )
+          if (!destination)
+            throw new Error("The step's Workspace is not in the shard")
           await runIngestShardStep(root, {
             step: { ...step, signal },
             agentEnv,
-            remote:
-              spec.destinations.find((d) => d.workspaceId === step.workspaceId)
-                ?.url ?? "",
+            remote: destination.url,
             sourceUrl: spec.source.url,
+            sourcePath: destination.sourcePath,
             index: await indexOf(step),
             ...(models
               ? {

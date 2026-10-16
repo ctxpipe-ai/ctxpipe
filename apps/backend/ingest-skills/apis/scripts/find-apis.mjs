@@ -4,7 +4,7 @@
 // tracked files at HEAD. The result is evidence for the model; the model
 // groups the operations into APIs and the writer script writes the files.
 //
-// node find-apis.mjs --source /ctxpipe/source/<handle> --source-url <url> \
+// node find-apis.mjs --source /ctxpipe/source/<handle> --source-url <url> --source-path <path> \
 //   --roots <root-to-file map> --path <root path>
 //
 // The root-to-file map lists each root of the run; the script leaves out the

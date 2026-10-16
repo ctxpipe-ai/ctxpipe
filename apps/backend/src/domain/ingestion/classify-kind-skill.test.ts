@@ -22,6 +22,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const SCRIPT = join(
   INGEST_SKILLS_DIR,
@@ -113,7 +115,7 @@ async function step(
       workspaceId: WORKSPACE_ID,
       contextDir,
       base,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
     })
   }
   await reset()
@@ -129,6 +131,8 @@ async function step(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
         "--path",
@@ -152,6 +156,7 @@ async function step(
       baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
+      sourcePath: SOURCE_PATH,
       skill: "classify-kind",
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
@@ -174,6 +179,8 @@ async function step(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
       ],
@@ -400,7 +407,7 @@ describe("classify-kind ambiguous packages", () => {
           kind: "Repository",
           name: "shop",
           generated_by: "ctxpipe-extract",
-          sources: [SOURCE_URL],
+          sources: [SOURCE_PATH],
         },
         "# shop\n",
       ),
@@ -489,7 +496,7 @@ describe("classify-kind existing context", () => {
         kind: "Service",
         name: "api",
         generated_by: "ctxpipe-extract",
-        sources: ["https://github.com/example-org/billing"],
+        sources: ["sources/github/example-org/billing.md"],
       },
       "# api\n",
     )
