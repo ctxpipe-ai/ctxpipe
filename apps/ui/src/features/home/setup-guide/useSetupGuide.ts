@@ -19,7 +19,7 @@ import {
   type GuideView,
   guideRows,
   guideView,
-  isWithinGuideWindow,
+  isGuideRecent,
 } from "./guide-state"
 
 /** When this app load started. The complete line shows on one load only. */
@@ -52,8 +52,8 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
   const { data: session, isPending: sessionPending } = useSession()
   const user = sessionUser(session)
   const { data: organizations } = useListOrganizations()
-  const organizationId =
-    organizations?.find((org) => org.slug === orgSlug)?.id ?? ""
+  const organization = organizations?.find((org) => org.slug === orgSlug)
+  const organizationId = organization?.id ?? ""
   const [guidePrefs, updateGuide, prefsLoaded] = useOrgGuide(orgSlug)
 
   const roleQuery = useQuery({
@@ -156,6 +156,8 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           rows,
           prefs: guidePrefs,
           onboardingCompletedAt: user.onboardingCompletedAt,
+          orgCreatedAt: organization?.createdAt,
+          workspaceCount: workspaces.length,
           now: Date.now(),
           appBootAt: APP_BOOT_AT,
         })
@@ -177,7 +179,12 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
       mayShow:
         prefsLoaded &&
         !guidePrefs.dismissedAt &&
-        isWithinGuideWindow(user?.onboardingCompletedAt, Date.now()),
+        (listQuery.data?.items.length === 0 ||
+          isGuideRecent({
+            onboardingCompletedAt: user?.onboardingCompletedAt,
+            orgCreatedAt: organization?.createdAt,
+            now: Date.now(),
+          })),
       collapsed: guidePrefs.collapsed ?? asked,
     }
   }

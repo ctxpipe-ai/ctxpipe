@@ -8,14 +8,22 @@ import { useUserPreferences } from "@/lib/user-preferences"
 import { orgNameFromEmail, orgSlugError, orgSlugFromName } from "./org-name"
 
 type OnboardingCreateOrgSlideProps = {
-  onOrgCreated: (newOrgSlug: string) => void
+  /**
+   * Completes onboarding for the new organization. The slide calls it after
+   * the organization exists. If onboarding does not complete, "Continue"
+   * calls it again.
+   */
+  onFinish: (newOrgSlug: string) => void
   /** A work email domain gives the first organization name. */
   userEmail?: string | null
+  /** True while onboarding completes for the new organization. */
+  finishing?: boolean
 }
 
 export function OnboardingCreateOrgSlide({
-  onOrgCreated,
+  onFinish,
   userEmail,
+  finishing,
 }: OnboardingCreateOrgSlideProps) {
   const orgNameFieldId = useId()
   const orgSlugFieldId = useId()
@@ -47,7 +55,7 @@ export function OnboardingCreateOrgSlide({
         ...prev,
         selectedOrganizationSlug: org.slug,
       }))
-      onOrgCreated(org.slug)
+      onFinish(org.slug)
       void queryClient.invalidateQueries({
         queryKey: ["organizations"],
         refetchType: "active",
@@ -55,6 +63,9 @@ export function OnboardingCreateOrgSlide({
     },
   })
 
+  // The organization exists. Do not send it again: the slug is in use now.
+  const createdSlug = createOrg.data?.slug ?? null
+  const fieldsLocked = createOrg.isPending || createdSlug !== null
   const slugError = orgSlugError(orgSlug)
   const slugInvalid = orgSlug.trim() !== "" && slugError !== null
   const orgError =
@@ -103,14 +114,14 @@ export function OnboardingCreateOrgSlide({
             id={orgNameFieldId}
             type="text"
             value={orgName}
-            disabled={createOrg.isPending}
+            disabled={fieldsLocked}
             onChange={(e) => {
               setOrgName(e.target.value)
               setValidationError(null)
               createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateOrg()
+              if (e.key === "Enter" && !fieldsLocked) handleCreateOrg()
             }}
             placeholder="Acme Engineering"
             className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -135,7 +146,7 @@ export function OnboardingCreateOrgSlide({
             id={orgSlugFieldId}
             type="text"
             value={orgSlug}
-            disabled={createOrg.isPending}
+            disabled={fieldsLocked}
             aria-invalid={slugInvalid}
             onChange={(e) => {
               setOrgSlug(e.target.value)
@@ -143,7 +154,7 @@ export function OnboardingCreateOrgSlide({
               createOrg.reset()
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") handleCreateOrg()
+              if (e.key === "Enter" && !fieldsLocked) handleCreateOrg()
             }}
             placeholder="acme-engineering"
             className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60"
@@ -155,11 +166,13 @@ export function OnboardingCreateOrgSlide({
             {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
             <button
               type="button"
-              disabled={createOrg.isPending || slugInvalid}
+              disabled={createOrg.isPending || finishing || slugInvalid}
               className={`${focusVisibleClassName} inline-flex h-10 items-center justify-center rounded-md border border-border bg-zinc-100 px-5 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
-              onClick={handleCreateOrg}
+              onClick={() =>
+                createdSlug ? onFinish(createdSlug) : handleCreateOrg()
+              }
             >
-              Create organization
+              {createdSlug && !finishing ? "Continue" : "Create organization"}
             </button>
           </div>
         </div>

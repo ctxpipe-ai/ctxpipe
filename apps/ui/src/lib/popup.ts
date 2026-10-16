@@ -27,6 +27,11 @@ type GithubPopupFlowState = {
   startedAtMs: number
 }
 
+export type GithubSetupPopupResult =
+  | { status: GithubSetupRegistrationStatus }
+  /** The popup could not link the user's GitHub account. */
+  | { status: "link_failed"; linkError: string }
+
 export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
@@ -132,6 +137,42 @@ export function peekGithubDraftConnectionHint(): string | null {
 }
 
 /**
+ * True for a GitHub App install page on github.com. The link page goes on
+ * only to such a page, so its `next` parameter cannot send the user
+ * elsewhere.
+ */
+export function isGithubAppInstallUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.origin === "https://github.com" &&
+      /^\/apps\/[^/]+\/installations\/(new|select_target)$/.test(
+        parsed.pathname,
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The popup address that links the user's GitHub account first, then opens
+ * `installUrl`. The backend attaches an installation only for a user whose
+ * linked GitHub account can see it.
+ */
+export function githubLinkPopupUrl(installUrl: string) {
+  return `/.github/link?${new URLSearchParams({ next: installUrl })}`
+}
+
+/** The message for an error code of a failed GitHub account link. */
+export function githubLinkErrorMessage(code: string | undefined) {
+  if (code === "account_already_linked_to_different_user") {
+    return "This GitHub account is linked to another ctx| user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
+  }
+  return "Could not link your GitHub account. Try again."
+}
+
+/**
  * GitHub preserves `state` when it redirects to a GitHub App setup URL. Use
  * the popup nonce so the callback can identify this flow even when the
  * cross-origin navigation strips `window.opener` and `window.name`.
@@ -147,6 +188,8 @@ type PopupOptions = {
   name?: string
   width?: number
   height?: number
+  /** Where this window goes when the browser blocks the popup (default: `url`). */
+  fallbackUrl?: string
 }
 
 export function openCenteredPopup(url: string, options?: PopupOptions) {
@@ -172,7 +215,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
   )
 
   if (!popup) {
-    window.location.assign(url)
+    window.location.assign(options?.fallbackUrl ?? url)
     return null
   }
 
@@ -267,7 +310,7 @@ export function useWatchPopupClose() {
 export async function handleGithubSetupPopupResult(
   orgSlug: string,
   queryClient: QueryClient,
-): Promise<{ status: GithubSetupRegistrationStatus }> {
+): Promise<GithubSetupPopupResult> {
   const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
   localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
   const activePopupFlow = getActiveGithubPopupFlowState()
@@ -280,8 +323,19 @@ export async function handleGithubSetupPopupResult(
         installationId: number
         connectionId?: string
         popupFlowNonce?: string
+        linkError?: string
       }
-      const { installationId, connectionId, popupFlowNonce } = parsed
+      const { installationId, connectionId, popupFlowNonce, linkError } = parsed
+      // The link page stopped before the install. Only the popup of this
+      // flow can report that, so a stale or planted value does nothing.
+      if (
+        typeof linkError === "string" &&
+        activePopupFlow &&
+        popupFlowNonce === activePopupFlow.nonce
+      ) {
+        clearGithubPopupFlow()
+        return { status: "link_failed", linkError }
+      }
       const nonceMatches =
         !activePopupFlow ||
         (typeof popupFlowNonce === "string" &&

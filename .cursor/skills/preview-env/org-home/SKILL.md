@@ -9,7 +9,7 @@ disable-model-invocation: true
 Shell and Home for the run's org. [Harness](../harness.md) is `PASS`; [onboarding](../onboarding/SKILL.md) created the org and Workspace 1. Flow format: [run-setup](../run-setup.md#flow-format). Home is `/{orgSlug}/` (a page); sign-in lands on a Workspace composer, not Home.
 
 ### HOME-1 SideNav regions
-**Requires** ONB-5.
+**Requires** ONB-4.
 **Steps**
 1. On `/{orgSlug}/` or a Workspace, expand the rail if collapsed.
 
@@ -19,11 +19,11 @@ Shell and Home for the run's org. [Harness](../harness.md) is `PASS`; [onboardin
 **Evidence** `HOME-1-1.png`.
 
 ### HOME-2 Home dashboard
-**Requires** ONB-5.
+**Requires** ONB-4.
 **Steps**
 1. Open **Home** (`/{orgSlug}/`, no extra segment).
 
-**Expect (UI)** a Workspace picker (`aria-label` "Select workspace") showing Workspace 1, the composer (placeholder **What should ctxpipe do in this Workspace?**), and the activity region (heatmap and recent commits, or **No commits on the default branch yet.**). In an org with no Workspace, the body is a **Create a workspace** button instead.
+**Expect (UI)** a Workspace picker (`aria-label` "Select workspace") showing Workspace 1, the composer (placeholder **What should ctxpipe do in this Workspace?**), and the activity region (heatmap and recent commits, or **No commits on the default branch yet.**). In an org with no Workspace, the **Get started** guide (or, after the guide, a **Create Workspace** button) takes the composer's place, and the activity region shows empty.
 **Expect (backend)** `GET /{orgSlug}/api/v1/workspaces/{slug}/activity` returns 200.
 **Budget** 3 s / 10 s, navigation to composer visible.
 **Evidence** `HOME-2-1.png`; trace of the activity request.

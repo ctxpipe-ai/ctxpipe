@@ -15,7 +15,10 @@ import {
   beginGithubPopupFlow,
   GITHUB_SETUP_RESULT_KEY,
   getActiveGithubPopupFlowState,
+  githubLinkErrorMessage,
+  githubLinkPopupUrl,
   handleGithubSetupPopupResult,
+  isGithubAppInstallUrl,
 } from "./popup"
 
 const server = setupServer()
@@ -115,5 +118,84 @@ describe("handleGithubSetupPopupResult", () => {
 
     expect(status).toBe("registration_failed")
     expect(assign).not.toHaveBeenCalled()
+  })
+
+  it("reports the link error that the popup of this flow relays, and registers nothing", async () => {
+    const nonce = beginGithubPopupFlow()
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({
+        linkError: "account_already_linked_to_different_user",
+        popupFlowNonce: nonce,
+      }),
+    )
+    // No registration handler: an unexpected request fails the test.
+
+    const result = await handleGithubSetupPopupResult("acme", new QueryClient())
+
+    expect(result).toEqual({
+      status: "link_failed",
+      linkError: "account_already_linked_to_different_user",
+    })
+  })
+
+  it("ignores a link error from another flow", async () => {
+    beginGithubPopupFlow()
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({
+        linkError: "account_already_linked_to_different_user",
+        popupFlowNonce: "another-flow",
+      }),
+    )
+    server.use(
+      http.get("*/acme/api/v1/github/installation", () =>
+        HttpResponse.json(null),
+      ),
+    )
+
+    const result = await handleGithubSetupPopupResult("acme", new QueryClient())
+
+    expect(result).toEqual({ status: "no_result" })
+  })
+})
+
+describe("the GitHub link popup", () => {
+  it("goes on only to a GitHub App install page on github.com", () => {
+    for (const url of [
+      "https://github.com/apps/ctxpipe/installations/new?state=abc",
+      "https://github.com/apps/ctxpipe/installations/select_target?state=abc",
+    ]) {
+      expect(isGithubAppInstallUrl(url)).toBe(true)
+    }
+    for (const url of [
+      "https://github.com/login/oauth/authorize?client_id=other",
+      "https://github.com/apps/ctxpipe",
+      "https://github.com.evil.test/apps/x/installations/new",
+      "https://github.com@evil.test/apps/x/installations/new",
+      "https://evil.test/https://github.com/apps/x/installations/new",
+      "http://github.com/apps/x/installations/new",
+      "//github.com/apps/x/installations/new",
+      "javascript:alert(1)",
+      "/acme/connectors",
+      "",
+    ]) {
+      expect(isGithubAppInstallUrl(url)).toBe(false)
+    }
+  })
+
+  it("carries the install address to the link page", () => {
+    const install = "https://github.com/apps/ctxpipe/installations/new?state=n1"
+    const url = new URL(githubLinkPopupUrl(install), "http://app.test")
+    expect(url.pathname).toBe("/.github/link")
+    expect(url.searchParams.get("next")).toBe(install)
+  })
+
+  it("names GitHub, not another provider, when the account belongs to another user", () => {
+    const message = githubLinkErrorMessage(
+      "account_already_linked_to_different_user",
+    )
+    expect(message).toMatch(/GitHub account/)
+    expect(message).not.toMatch(/Atlassian/)
   })
 })
