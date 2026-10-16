@@ -4,6 +4,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
+import { shouldSkipCommitProjection } from "../../domain/workspaces/commit-activity.js"
 import {
   collectInactiveWorkspaceGraphKeys,
   loadWorkspaceGraphKeysInUse,
@@ -35,6 +36,7 @@ import {
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
+import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
 import {
   claimPausedWriteJob,
@@ -86,6 +88,10 @@ function inNoAccessBackoff(
 
 function remoteHost(url: string): string {
   return URL.canParse(url) ? new URL(url).host : "local"
+}
+
+function tipJobKey(revision: WorkspaceRevision, hour: string): string {
+  return `${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${revision.sha}:${hour}`
 }
 
 const workspaceTipCheckInputSchema = z.object({
@@ -270,22 +276,19 @@ export const workspaceTipCheck = defineWorkflow(
             }))
         ) {
           // A run can also fail after it stores the tip and before it queues
-          // the index and commit projection jobs below. Queue them again with
-          // the same rule and hour as the hydrate.
+          // the index job below. Queue it again with the same rule and hour
+          // as the hydrate. When the hydrate publishes, it queues the index
+          // itself.
           if (
             servedSha(projection, desired) !== desired.sha &&
             !updated.some((item) => item.workspaceId === workspace.id)
           ) {
-            const key = `${desired.workspaceId}:${desired.generation}:${desired.defaultBranch}:${desired.sha}:${hour}`
             await enqueueWorkspaceIndex(
               { orgId: input.orgId, revision: { ...desired, access: "read" } },
               quietLog,
-              { idempotencyKey: `workspace-tip-index:${key}` },
-            )
-            await enqueueWorkspaceCommitProjection(
-              { orgId: input.orgId, workspaceId: workspace.id },
-              quietLog,
-              { idempotencyKey: `workspace-tip-commits:${key}` },
+              {
+                idempotencyKey: `workspace-tip-index:${tipJobKey(desired, hour)}`,
+              },
             )
           }
           await enqueueWorkspaceHydrate(
@@ -296,6 +299,31 @@ export const workspaceTipCheck = defineWorkflow(
                 `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${servedSha(projection, revision) ?? "none"}:${revision.sha}:${hour}`,
             },
           )
+        }
+        // A run can also fail after it stores the tip and before it queues
+        // the commit projection job below. A hydrate that it queued can then
+        // publish the tip, so the check above does not apply. Thus compare
+        // the commit projection with `desired_sha`, and queue it again at
+        // most once an hour.
+        if (
+          desired &&
+          !updated.some((item) => item.workspaceId === workspace.id)
+        ) {
+          const commits = await getWorkspaceCommitProjection(workspace.id)
+          if (
+            !shouldSkipCommitProjection({
+              headSha: commits?.headSha ?? null,
+              desiredSha: desired.sha,
+              status: commits?.backfillStatus ?? "pending",
+            })
+          )
+            await enqueueWorkspaceCommitProjection(
+              { orgId: input.orgId, workspaceId: workspace.id },
+              quietLog,
+              {
+                idempotencyKey: `workspace-tip-commits:${tipJobKey(desired, hour)}`,
+              },
+            )
         }
       }
       for (const item of updated) {

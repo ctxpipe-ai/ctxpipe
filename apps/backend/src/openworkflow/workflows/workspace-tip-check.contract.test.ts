@@ -18,6 +18,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
+import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
@@ -798,3 +799,47 @@ it(
     )
   },
 )
+
+it(
+  "cron queues the commit projection job of a tip that a hydrate published after the run that queued it stopped",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The stopped run stored the tip and queued its hydrate. Then it
+        // stopped before it queued the index and commit projection jobs.
+        const revision = await f.resolveRevision(true)
+        expect(revision.sha).toBe(sha)
+        const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision,
+        })
+        expect(await hydrate.result({ timeoutMs: 30_000 })).toMatchObject({
+          hydrated: true,
+        })
+
+        await runTipCheck(f, "2026-01-01T09")
+        // The hydrate queued the index of the tip when it published it.
+        expect(
+          (await workspaceRuns(f, "workspace-index")).filter(
+            (run) =>
+              (run.input as { revision?: { sha?: string } }).revision?.sha ===
+              sha,
+          ),
+        ).toHaveLength(1)
+        expect(
+          (await workspaceRuns(f, "workspace-commit-projection")).map(
+            (run) => run.idempotencyKey,
+          ),
+        ).toEqual([
+          `workspace-tip-commits:${f.workspaceId}:${revision.generation}:${revision.defaultBranch}:${sha}:2026-01-01T09`,
+        ])
+      },
+    )
+  },
+)
+
