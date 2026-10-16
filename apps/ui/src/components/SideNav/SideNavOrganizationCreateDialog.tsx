@@ -1,6 +1,5 @@
 "use client"
 
-import HyperDX from "@hyperdx/browser"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
@@ -15,8 +14,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
-import { completeOnboarding } from "../onboarding/complete-onboarding"
-import { orgSlugError } from "../onboarding/org-name"
+import { orgSlugError, orgSlugFromName } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {
   isOpen: boolean
@@ -33,12 +31,15 @@ export function SideNavOrganizationCreateDialog({
   const queryClient = useQueryClient()
   const [, setPreferences] = useUserPreferences()
   const [orgName, setOrgName] = useState("")
-  const [orgSlug, setOrgSlug] = useState("")
+  // `null` means the user has not edited the slug. Until then it follows the
+  // name.
+  const [typedOrgSlug, setOrgSlug] = useState<string | null>(null)
+  const orgSlug = typedOrgSlug ?? orgSlugFromName(orgName)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const resetForm = () => {
     setOrgName("")
-    setOrgSlug("")
+    setOrgSlug(null)
     setValidationError(null)
   }
 
@@ -71,11 +72,7 @@ export function SideNavOrganizationCreateDialog({
         ...prev,
         selectedOrganizationSlug: organization.slug,
       }))
-      // Home shows the Get started guide for the new organization. The user
-      // completed onboarding before, so a failure here only hides the guide.
-      await completeOnboarding(organization.slug, queryClient).catch((error) =>
-        HyperDX.recordException(error),
-      )
+      // Home shows the Get started guide: the organization is new.
       resetForm()
       onOpenChange(false)
       await router.navigate({

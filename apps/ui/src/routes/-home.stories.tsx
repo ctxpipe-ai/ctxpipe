@@ -112,12 +112,23 @@ export const WorkspacesLoading: Story = {
 }
 
 /**
- * An established user with no Workspace: the Create Workspace button, then
- * the empty activity.
+ * No Workspace, and the user dismissed the guide: the Create Workspace
+ * button, then the empty activity.
  */
 export const Empty: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  beforeEach: () => {
+    window.localStorage.setItem(
+      "ctxpipe:userPreferences",
+      JSON.stringify({
+        orgGuides: {
+          "user_storybook:acme": { dismissedAt: "2026-01-01T00:00:00.000Z" },
+        },
+      }),
+    )
+    return () => window.localStorage.removeItem("ctxpipe:userPreferences")
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.

@@ -83,8 +83,12 @@ export function IndexRoutePage() {
     )
   }
 
-  // A new user lands on Home, where the setup guide is (CTX-552).
-  if (isWithinGuideWindow(user.onboardingCompletedAt, Date.now())) {
+  // A new user, or a new organization, lands on Home, where the setup guide
+  // is (CTX-552). An organization with no Workspace gets Home below.
+  if (
+    isWithinGuideWindow(user.onboardingCompletedAt, Date.now()) ||
+    isWithinGuideWindow(selected.createdAt, Date.now())
+  ) {
     return (
       <Navigate to="/$orgSlug" params={{ orgSlug: selected.slug }} replace />
     )

@@ -92,7 +92,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
-  // the guide (an established user), keep the composer and the create button.
+  // the guide (the user dismissed it), keep the composer and the create button.
   const guideShows =
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (

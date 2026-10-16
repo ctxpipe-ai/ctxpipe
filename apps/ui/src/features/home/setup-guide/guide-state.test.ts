@@ -79,6 +79,8 @@ describe("guideView", () => {
   const base = {
     prefs: {},
     onboardingCompletedAt: newUser,
+    orgCreatedAt: "2026-01-01T00:00:00.000Z",
+    workspaceCount: 0,
     now,
     appBootAt,
   }
@@ -135,34 +137,65 @@ describe("guideView", () => {
     expect(view).toEqual({ kind: "hidden" })
   })
 
-  it("is hidden when onboarding finished more than 14 days ago, or is unknown", () => {
+  it("is hidden in an older organization with a Workspace when onboarding finished more than 14 days ago, or is unknown", () => {
+    const rows = guideRows({ ...noSignals, workspaceCount: 1 })
+    const established = { ...base, rows, workspaceCount: 1 }
     expect(
       guideView({
-        ...base,
-        rows: guideRows(noSignals),
+        ...established,
         onboardingCompletedAt: new Date("2026-10-10T12:00:00.000Z"),
       }),
     ).toMatchObject({ kind: "open" })
-    const rows = guideRows(noSignals)
     expect(
       guideView({
-        ...base,
-        rows,
+        ...established,
         onboardingCompletedAt: "2026-09-27T11:59:00.000Z",
       }),
     ).toEqual({ kind: "hidden" })
     expect(
       guideView({
-        ...base,
-        rows,
+        ...established,
         onboardingCompletedAt: "2026-09-28T12:01:00.000Z",
       }),
     ).toMatchObject({ kind: "open" })
-    expect(guideView({ ...base, rows, onboardingCompletedAt: null })).toEqual({
+    expect(guideView({ ...established, onboardingCompletedAt: null })).toEqual({
       kind: "hidden",
     })
     expect(
-      guideView({ ...base, rows, onboardingCompletedAt: undefined }),
+      guideView({ ...established, onboardingCompletedAt: undefined }),
+    ).toEqual({ kind: "hidden" })
+  })
+
+  it("is open for any user in an organization created in the last 14 days", () => {
+    const rows = guideRows({ ...noSignals, workspaceCount: 1 })
+    const oldUser = { ...base, rows, workspaceCount: 1 }
+    expect(
+      guideView({
+        ...oldUser,
+        onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+        orgCreatedAt: "2026-09-28T12:01:00.000Z",
+      }),
+    ).toMatchObject({ kind: "open" })
+    expect(
+      guideView({
+        ...oldUser,
+        onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+        orgCreatedAt: "2026-09-27T11:59:00.000Z",
+      }),
+    ).toEqual({ kind: "hidden" })
+  })
+
+  it("is open in an organization with no Workspace, at any age, until a dismiss", () => {
+    const old = {
+      ...base,
+      rows: guideRows(noSignals),
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      orgCreatedAt: "2026-01-01T00:00:00.000Z",
+      workspaceCount: 0,
+    }
+    expect(guideView(old)).toMatchObject({ kind: "open", next: "github" })
+    expect(
+      guideView({ ...old, prefs: { dismissedAt: "2026-10-11T00:00:00.000Z" } }),
     ).toEqual({ kind: "hidden" })
   })
 

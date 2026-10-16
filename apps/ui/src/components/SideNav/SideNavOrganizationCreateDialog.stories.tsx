@@ -4,7 +4,6 @@ import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, within } from "storybook/test"
 import { organizationCreateSuccessHandler } from "@/mocks/handlers"
-import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { SideNavOrganizationCreateDialog } from "./SideNavOrganizationCreateDialog"
@@ -39,18 +38,18 @@ function CreateOrganizationPage() {
   )
 }
 
-const completed = { org: false, user: false }
+const userOnboardingCompleted = { value: false }
 
 /**
- * A signed-in user creates another organization. The new organization opens
- * on Home, where the Get started guide is. There is no separate setup page.
+ * A signed-in user creates another organization. The slug follows the name
+ * until the user edits it. The new organization opens on Home, where the
+ * Get started guide is. There is no separate setup page.
  */
 export const CreateOpensHome: Story = {
   tags: ["workspace-golden"],
   render: () => <CreateOrganizationPage />,
   beforeEach: () => {
-    completed.org = false
-    completed.user = false
+    userOnboardingCompleted.value = false
   },
   parameters: {
     msw: {
@@ -60,13 +59,8 @@ export const CreateOpensHome: Story = {
           http.post("*/.auth/api/v1/auth/organization/set-active", () =>
             HttpResponse.json({}),
           ),
-          activeMemberRoleHandler("owner"),
-          http.post("*/beta/api/v1/onboarding/complete", () => {
-            completed.org = true
-            return HttpResponse.json({ completedAt: new Date().toISOString() })
-          }),
           http.post("*/api/v1/onboarding/user/complete", () => {
-            completed.user = true
+            userOnboardingCompleted.value = true
             return HttpResponse.json({ completedAt: new Date().toISOString() })
           }),
         ],
@@ -79,17 +73,18 @@ export const CreateOpensHome: Story = {
     await canvas.findByText("At /acme")
     await userEvent.type(
       await body.findByRole("textbox", { name: "Organization name" }),
-      "Beta",
+      "Beta Team",
     )
-    await userEvent.type(
-      body.getByRole("textbox", { name: "Slug URL" }),
-      "beta",
-    )
+    const slug = body.getByRole("textbox", { name: "Slug URL" })
+    await expect(slug).toHaveValue("beta-team")
+    await userEvent.clear(slug)
+    await userEvent.type(slug, "beta")
     await userEvent.click(
       body.getByRole("button", { name: "Create organization" }),
     )
     await canvas.findByText("At /beta")
-    // The owner completes the organization and keeps the guide on Home.
-    await expect(completed).toEqual({ org: true, user: true })
+    // The guide of the new organization counts from its creation, so the
+    // user's own onboarding date stays as it is.
+    expect(userOnboardingCompleted.value).toBe(false)
   },
 }

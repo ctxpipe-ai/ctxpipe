@@ -44,7 +44,12 @@ export function sessionSignedInHandler(user: {
 
 /** Organization plugin client path (see better-auth proxy path builder). */
 export function organizationListHandler(
-  organizations: { id: string; name: string; slug: string }[],
+  organizations: {
+    id: string
+    name: string
+    slug: string
+    createdAt?: string
+  }[],
 ) {
   return http.get(`${authBase}/organization/list`, () =>
     HttpResponse.json(organizations),

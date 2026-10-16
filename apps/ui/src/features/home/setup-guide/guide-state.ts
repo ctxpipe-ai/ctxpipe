@@ -67,13 +67,32 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
 /** The guide and the hints are for users who finished onboarding recently. */
 const GUIDE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
+/** True when `startedAt` (onboarding, or an organization's creation) is in the last 14 days. */
 export function isWithinGuideWindow(
-  onboardingCompletedAt: Date | string | null | undefined,
+  startedAt: Date | string | null | undefined,
   now: number,
 ): boolean {
-  if (!onboardingCompletedAt) return false
-  const at = new Date(onboardingCompletedAt).getTime()
+  if (!startedAt) return false
+  const at = new Date(startedAt).getTime()
   return !Number.isNaN(at) && now - at <= GUIDE_WINDOW_MS
+}
+
+/**
+ * The guide is for a start: the 14 days after the user's onboarding, the 14
+ * days after the organization's creation, and an organization with no
+ * Workspace at any age.
+ */
+export function isGuideWindowOpen(input: {
+  onboardingCompletedAt: Date | string | null | undefined
+  orgCreatedAt: Date | string | null | undefined
+  workspaceCount: number
+  now: number
+}): boolean {
+  return (
+    input.workspaceCount === 0 ||
+    isWithinGuideWindow(input.onboardingCompletedAt, input.now) ||
+    isWithinGuideWindow(input.orgCreatedAt, input.now)
+  )
 }
 
 export type GuideView =
@@ -91,20 +110,22 @@ export type GuideView =
 /**
  * Lifecycle: expanded until the user asks a first question, then collapsed.
  * The user's own toggle wins. Removed after a dismiss, after the load that
- * first showed the complete line, and 14 days after onboarding.
+ * first showed the complete line, and when the window closes
+ * (`isGuideWindowOpen`).
  */
 export function guideView(input: {
   rows: GuideRow[]
   prefs: OrgGuidePreferences
   onboardingCompletedAt: Date | string | null | undefined
+  orgCreatedAt: Date | string | null | undefined
+  workspaceCount: number
   now: number
   /** When this app load started. */
   appBootAt: number
 }): GuideView {
   const { rows, prefs } = input
   if (prefs.dismissedAt) return { kind: "hidden" }
-  if (!isWithinGuideWindow(input.onboardingCompletedAt, input.now))
-    return { kind: "hidden" }
+  if (!isGuideWindowOpen(input)) return { kind: "hidden" }
   const next = rows.find((row) => !row.done)
   if (!next) {
     if (!prefs.completedAt) return { kind: "complete", record: true }
