@@ -228,6 +228,7 @@ const fresh = (): IngestionShardWorkspace => ({
   ops: 0,
   rejects: 0,
   partial: 0,
+  partialRoots: [],
 })
 /** The assembled ref: the repository step, then assemble and the repository-wide steps. */
 const assembled = fresh()
