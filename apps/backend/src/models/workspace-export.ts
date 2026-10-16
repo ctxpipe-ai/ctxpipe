@@ -29,6 +29,8 @@ export async function loadKnowledgeProjectionSource(): Promise<{
   firstWorkspaceId: string | null
   workspaceByRepositoryId: Map<string, string>
   repositoryGitUrlById: Map<string, string>
+  /** The GitHub connection of each org repository, or null when it has none. */
+  repositoryConnectionById: Map<string, string | null>
   objects: ExportObjectRow[]
   claims: ExportClaimRow[]
 }> {
@@ -73,7 +75,11 @@ export async function loadKnowledgeProjectionSource(): Promise<{
         })
         .from(claimEvidence),
       db
-        .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+        .select({
+          id: repositories.id,
+          gitUrl: repositories.gitUrl,
+          githubConnectionId: repositories.githubConnectionId,
+        })
         .from(repositories)
         .where(eq(repositories.orgId, orgId)),
       db
@@ -118,6 +124,9 @@ export async function loadKnowledgeProjectionSource(): Promise<{
       }),
       repositoryGitUrlById: new Map(
         repoRows.map((row) => [row.id, row.gitUrl]),
+      ),
+      repositoryConnectionById: new Map(
+        repoRows.map((row) => [row.id, row.githubConnectionId]),
       ),
       objects: objectRows.map((row) => ({
         id: row.id,

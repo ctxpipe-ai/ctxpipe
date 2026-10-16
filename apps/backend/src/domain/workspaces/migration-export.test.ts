@@ -1,14 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { parse } from "yaml"
 import {
-  completedNoOpExportSha,
   importedObjectMarkdown,
   importKeyForExportedObject,
   importKeyFromDedup,
   isoDate,
   migrationLinkedRepositoryUrls,
   migrationSourcesFile,
-  noOpExportUsesResolvedTip,
   objectTitleFromPayload,
   planKnowledgeProjection,
   repositoryIdFromDedup,
@@ -112,8 +110,8 @@ describe("migration export", () => {
         { path: "repositories/bad.md", content: "---\nname: no git\n" },
       ],
       repositories: [
-        { gitUrl: "https://github.com/acme/ops" },
-        { gitUrl: "https://bitbucket.org/acme/legacy" },
+        { gitUrl: "https://github.com/acme/ops", connectionId: "con_gh" },
+        { gitUrl: "https://bitbucket.org/acme/legacy", connectionId: "con_gh" },
       ],
     })
     expect(parse(result.sourcesFile ?? "").sources[0].repositories).toEqual([
@@ -150,9 +148,74 @@ describe("migration export", () => {
         sourcesFile: result.sourcesFile,
         connectionId: "con_gh",
         files: [],
-        repositories: [{ gitUrl: "https://github.com/acme/ops" }],
+        repositories: [
+          { gitUrl: "https://github.com/acme/ops", connectionId: "con_gh" },
+        ],
       }),
-    ).toEqual({ sourcesFile: null, deletePaths: [], skipped: [] })
+    ).toEqual({
+      sourcesFile: null,
+      deletePaths: [],
+      skipped: [],
+      invalid: false,
+    })
+  })
+
+  it("links each org repository under its own GitHub connection, and names each item when the sources file is not valid", () => {
+    const result = upgradeLinkedRepositories({
+      sourcesFile: null,
+      connectionId: "con_workspace",
+      files: [
+        {
+          path: "repositories/web.md",
+          content: "---\ngit: https://github.com/acme/web\n---\n",
+        },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/other/api", connectionId: "con_other" },
+        { gitUrl: "https://github.com/acme/lost", connectionId: null },
+      ],
+    })
+    const sources = parse(result.sourcesFile ?? "").sources
+    expect(
+      sources.map((entry: { connection: string; repositories: unknown }) => [
+        entry.connection,
+        entry.repositories,
+      ]),
+    ).toEqual([
+      ["con_workspace", ["acme/web"]],
+      ["con_other", ["other/api"]],
+    ])
+    expect(result.skipped).toEqual([
+      {
+        item: "https://github.com/acme/lost",
+        reason: "The repository has no GitHub connection",
+      },
+    ])
+
+    const invalid = upgradeLinkedRepositories({
+      sourcesFile: "version: 2\n",
+      connectionId: "con_workspace",
+      files: [
+        {
+          path: "repositories/web.md",
+          content: "---\ngit: https://github.com/acme/web\n---\n",
+        },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/other/api", connectionId: "con_other" },
+      ],
+    })
+    expect(invalid).toMatchObject({
+      invalid: true,
+      sourcesFile: null,
+      deletePaths: [],
+    })
+    expect(invalid.skipped.map(({ item }) => item)).toEqual([
+      "repositories/web.md",
+      "https://github.com/other/api",
+    ])
+    for (const { reason } of invalid.skipped)
+      expect(reason).toContain("not a valid version 1 file")
   })
 
   it("adds only the repositories that no GitHub source of the file links", () => {
@@ -231,23 +294,6 @@ describe("migration export", () => {
       "2026-01-01T12:30:00.000Z",
     )
     expect(isoDate("2026-01-01T12:30:00.000Z")).toBe("2026-01-01T12:30:00.000Z")
-  })
-
-  it("treats a no-op export as the current resolved tip", () => {
-    expect(noOpExportUsesResolvedTip(false, "tip")).toEqual({
-      commit: false,
-      exportSha: "tip",
-    })
-    expect(noOpExportUsesResolvedTip(true, "tip")).toEqual({ commit: true })
-    expect(
-      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "tip")),
-    ).toBe("tip")
-    expect(completedNoOpExportSha(noOpExportUsesResolvedTip(true, "tip"))).toBe(
-      null,
-    )
-    expect(
-      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "  ")),
-    ).toBeNull()
   })
 
   it("extracts a repository id from ingest dedup keys", () => {

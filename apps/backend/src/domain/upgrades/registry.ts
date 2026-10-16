@@ -1,3 +1,4 @@
+import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
 import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
@@ -22,6 +23,8 @@ export type UpgradeTreeReader = {
   read(path: string): Promise<string | null>
   /** The bytes of a file, or null when the tree has no such file. */
   readBytes(path: string): Promise<Buffer | null>
+  /** The git mode of a file (`100644`, `100755` or `120000`), or null when the tree has no such file. */
+  mode(path: string): GitFileMode | null
 }
 
 export type UpgradeStepContext = {
@@ -35,8 +38,16 @@ export type UpgradeStepContext = {
 
 /** The change that one step makes. Paths are relative to the Workspace root folder. */
 export type UpgradeStepPlan = {
-  /** A binary file has `encoding: "base64"`; other content is UTF-8 text. */
-  writes: Array<{ path: string; content: string; encoding?: "base64" }>
+  /**
+   * A binary file has `encoding: "base64"`; other content is UTF-8 text. A
+   * write with no `mode` keeps the mode of the file it replaces.
+   */
+  writes: Array<{
+    path: string
+    content: string
+    encoding?: "base64"
+    mode?: GitFileMode
+  }>
   deletes: string[]
   /** Lines for the pull request body, for example an entry that the step could not move. */
   report: string[]

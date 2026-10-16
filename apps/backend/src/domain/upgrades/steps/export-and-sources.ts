@@ -3,6 +3,7 @@ import { loadKnowledgeProjectionSource } from "../../../models/workspace-export.
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
 import { SourceChangeError } from "../../workspace-sources/edit.js"
+import { githubSourceRepositories } from "../../workspace-sources/github-sources.js"
 import {
   planSourceMigration,
   SOURCE_MIGRATION_HOOKS,
@@ -22,6 +23,8 @@ import { linkedRepositoryUrlSchema } from "../../workspaces/linked-repository-ur
 import {
   type ExportObjectRow,
   migrationLinkedRepositoryUrls,
+  objectPathFromPayload,
+  objectTitleFromPayload,
   planKnowledgeProjection,
   repositoryIdFromDedup,
   upgradeLinkedRepositories,
@@ -40,40 +43,66 @@ import type {
  * the org repositories and the connector sync repository with its mirror
  * files. People and MCP clients could not write knowledge on main.
  *
- * - `kept`: an org repository that is not on GitHub. Sources link only
- *   GitHub repositories, and fresh ingestion reads only GitHub sources, so
- *   nothing makes this knowledge again. Step 1 exports it.
- * - `github`: an org repository on GitHub. Step 1 links it as a source, and
- *   the re-ingestion upgrade makes its knowledge again (ADR-053 section 5).
- * - `workspace`: the repository of a Workspace (for example the old
- *   connector sync repository). Hydrate reads its files directly: the
- *   connector mirror files and the knowledge files.
+ * - `kept`: nothing makes this knowledge again, so step 1 exports it:
+ *   - `not_github`: an org repository that is not on GitHub. Fresh ingestion
+ *     reads only GitHub sources.
+ *   - `not_linked`: a GitHub repository that the final sources file does
+ *     not link.
+ *   - `workspace_code`: the code knowledge (`inu:`, `svc:` and `dec:` keys)
+ *     of the repository of a Workspace. Ingestion v2 does not ingest the
+ *     Workspace repository.
+ * - `github`: a GitHub repository that the final sources file links. The
+ *   re-ingestion upgrade makes its knowledge again (ADR-053 section 5).
+ * - `workspace`: other knowledge of the repository of a Workspace. Hydrate
+ *   reads its files directly: the connector mirror files and the knowledge
+ *   files.
  * - `no_repository`: no org repository. These are connector nodes (Linear
  *   issues and teams, Slack threads, pull requests) that main made from the
  *   mirror files, which hydrate makes again from the same files, and rows of
  *   a repository that was deleted.
  */
 export type LegacyKnowledgeOrigin =
-  | { kind: "kept"; repositoryUrl: string }
+  | {
+      kind: "kept"
+      repositoryUrl: string
+      reason: "not_github" | "not_linked" | "workspace_code"
+    }
   | { kind: "github" }
   | { kind: "workspace" }
   | { kind: "no_repository" }
+
+const WORKSPACE_CODE_KEY = /^(?:inu|svc|dec):/
 
 export function legacyKnowledgeOrigin(input: {
   object: Pick<ExportObjectRow, "deduplicationKey">
   workspaceByRepositoryId: ReadonlyMap<string, string>
   repositoryGitUrlById: ReadonlyMap<string, string>
+  /** The normalized GitHub URLs that the final sources file links. */
+  linkedGitUrls: ReadonlySet<string>
 }): LegacyKnowledgeOrigin {
   const repositoryId = repositoryIdFromDedup(input.object.deduplicationKey)
   if (!repositoryId) return { kind: "no_repository" }
-  if (input.workspaceByRepositoryId.has(repositoryId))
-    return { kind: "workspace" }
   const gitUrl = input.repositoryGitUrlById.get(repositoryId)
+  if (input.workspaceByRepositoryId.has(repositoryId))
+    return gitUrl &&
+      WORKSPACE_CODE_KEY.test(input.object.deduplicationKey?.trim() ?? "")
+      ? { kind: "kept", repositoryUrl: gitUrl, reason: "workspace_code" }
+      : { kind: "workspace" }
   if (!gitUrl) return { kind: "no_repository" }
-  return githubRepoFullNameFromWorkspaceUrl(gitUrl)
+  if (!githubRepoFullNameFromWorkspaceUrl(gitUrl))
+    return { kind: "kept", repositoryUrl: gitUrl, reason: "not_github" }
+  return input.linkedGitUrls.has(normalizeWorkspaceRepositoryUrl(gitUrl))
     ? { kind: "github" }
-    : { kind: "kept", repositoryUrl: gitUrl }
+    : { kind: "kept", repositoryUrl: gitUrl, reason: "not_linked" }
 }
+
+const KEPT_REASONS = {
+  not_github:
+    "Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+  not_linked: `\`${SOURCES_FILE_PATH}\` does not link this repository, so fresh ingestion cannot make them again.`,
+  workspace_code:
+    "This is the Workspace repository. Ingestion v2 does not ingest it, so it cannot make them again.",
+} as const
 
 const PROVIDER_NAMES: Record<SourceProvider, string> = {
   github: "GitHub",
@@ -99,6 +128,7 @@ async function connectorSources(input: {
   sourcesFile: string | null
   writes: UpgradeStepPlan["writes"]
   deletes: string[]
+  moves: Map<string, string>
   report: string[]
 }> {
   const hooks = Object.values(input.hooks)
@@ -156,6 +186,7 @@ async function connectorSources(input: {
       sourcesFile: input.sourcesFile,
       writes: [],
       deletes: [],
+      moves: new Map(),
       report: [
         `Not moved: the connection settings. \`${SOURCES_FILE_PATH}\` is not a valid version 1 file (${error.message}). Fix the file, then start the upgrade again.`,
       ],
@@ -165,6 +196,7 @@ async function connectorSources(input: {
   // only in the repository that the connection synced to.
   const writes: UpgradeStepPlan["writes"] = []
   const deletes: string[] = []
+  const moves = new Map<string, string>()
   const workspaceUrl = normalizeWorkspaceRepositoryUrl(input.remote.url)
   const files = input.tree.paths().map((path) => ({
     path,
@@ -191,20 +223,32 @@ async function connectorSources(input: {
       read: (path) => input.tree.read(path),
     })) {
       const bytes = await input.tree.readBytes(move.from)
-      if (!bytes || deletes.includes(move.from)) continue
+      if (!bytes || moves.has(move.from)) continue
+      // A newer file at the managed path wins: the old file stays.
+      if (
+        input.tree.blobSha(move.to) !== null ||
+        writes.some((write) => write.path === move.to)
+      ) {
+        report.push(
+          `Not moved: \`${move.from}\`. The tree already has \`${move.to}\`, so the old file stays. Compare the two files, then delete the old file.`,
+        )
+        continue
+      }
       writes.push({
         path: move.to,
         content: bytes.toString("base64"),
         encoding: "base64",
+        mode: input.tree.mode(move.from) ?? undefined,
       })
       deletes.push(move.from)
+      moves.set(move.from, move.to)
     }
   }
   if (deletes.length)
     report.push(
       `Moved ${deletes.length} old connector file(s) to the paths that their sources manage. Git keeps their history.`,
     )
-  return { sourcesFile, writes, deletes, report }
+  return { sourcesFile, writes, deletes, moves, report }
 }
 
 /**
@@ -267,27 +311,51 @@ export function exportAndSourcesStep(
         })),
         workspaceByRepositoryId: source.workspaceByRepositoryId,
       })
+      const connectionByUrl = new Map<string, string | null>()
+      for (const [id, gitUrl] of source.repositoryGitUrlById)
+        if (!connectionByUrl.has(gitUrl))
+          connectionByUrl.set(
+            gitUrl,
+            source.repositoryConnectionById.get(id) ?? null,
+          )
       const report: string[] = []
+      const label = (object: ExportObjectRow) =>
+        `"${objectTitleFromPayload(object.payload)}" (${object.deduplicationKey ?? object.id})`
 
-      // 1. GitHub repositories: the org repositories and `repositories/*.md`.
-      const linkedRepositories = connectionId
-        ? upgradeLinkedRepositories({
-            sourcesFile,
-            connectionId,
-            files: repositoryFiles,
-            repositories: linkedUrls.map((gitUrl) => ({ gitUrl })),
-          })
-        : {
-            sourcesFile: null,
-            deletePaths: [],
-            skipped: [
-              ...repositoryFiles.map((file) => file.path),
-              ...linkedUrls,
-            ].map((item) => ({
-              item,
-              reason: "The Workspace has no GitHub connection",
-            })),
-          }
+      // With no first Workspace, no Workspace gets the org repositories and
+      // their knowledge. Each Workspace names them.
+      if (!source.firstWorkspaceId) {
+        for (const [id, gitUrl] of source.repositoryGitUrlById)
+          if (!source.workspaceByRepositoryId.has(id))
+            report.push(
+              `Not linked: ${gitUrl}. The org has no first Workspace, so no Workspace gets this repository.`,
+            )
+        for (const object of source.objects)
+          if (
+            "skip" in
+            assignImportedRepository({
+              repositoryId: repositoryIdFromDedup(object.deduplicationKey),
+              workspaceByRepositoryId: source.workspaceByRepositoryId,
+              firstWorkspaceId: null,
+            })
+          )
+            report.push(
+              `Not exported: ${label(object)}. The org has no first Workspace, so no Workspace gets this item.`,
+            )
+      }
+
+      // 1. GitHub repositories: the org repositories under their own GitHub
+      //    connection, and `repositories/*.md` under the connection of the
+      //    Workspace.
+      const linkedRepositories = upgradeLinkedRepositories({
+        sourcesFile,
+        connectionId,
+        files: repositoryFiles,
+        repositories: linkedUrls.map((gitUrl) => ({
+          gitUrl,
+          connectionId: connectionByUrl.get(gitUrl) ?? null,
+        })),
+      })
       if (linkedRepositories.sourcesFile)
         report.push(
           `Linked the GitHub repositories of this Workspace in \`${SOURCES_FILE_PATH}\`. Fresh ingestion reads them from there.`,
@@ -316,36 +384,57 @@ export function exportAndSourcesStep(
       })
       report.push(...connectors.report)
 
-      // 3. Only the knowledge that fresh ingestion cannot make again.
+      // 3. Only the knowledge that fresh ingestion cannot make again. An
+      //    object is `github` only when the final sources text links its
+      //    repository.
+      const sourcesText = connectors.sourcesFile
+      let linkedGitUrls = new Set<string>()
+      try {
+        linkedGitUrls = new Set(
+          githubSourceRepositories(sourcesText, null).map((linked) =>
+            normalizeWorkspaceRepositoryUrl(linked.gitUrl),
+          ),
+        )
+      } catch (error) {
+        if (!(error instanceof SourceChangeError)) throw error
+      }
       const counts = { kept: 0, github: 0, workspace: 0, no_repository: 0 }
-      const keptByRepository = new Map<string, number>()
+      const keptByRepository = new Map<
+        string,
+        { count: number; reason: string }
+      >()
+      const origins = new Map<string, LegacyKnowledgeOrigin>()
       // The objects that this Workspace gets: those of its own repository,
       // and in the first Workspace those of every other org repository.
-      const assigned = source.objects.filter((object) => {
+      const kept = new Set<string>()
+      for (const object of source.objects) {
         const assignment = assignImportedRepository({
           repositoryId: repositoryIdFromDedup(object.deduplicationKey),
           workspaceByRepositoryId: source.workspaceByRepositoryId,
           firstWorkspaceId: source.firstWorkspaceId,
         })
-        return (
-          "workspaceId" in assignment &&
-          assignment.workspaceId === ctx.workspaceId
+        if (
+          !("workspaceId" in assignment) ||
+          assignment.workspaceId !== ctx.workspaceId
         )
-      })
-      const kept = assigned.filter((object) => {
+          continue
         const origin = legacyKnowledgeOrigin({
           object,
           workspaceByRepositoryId: source.workspaceByRepositoryId,
           repositoryGitUrlById: source.repositoryGitUrlById,
+          linkedGitUrls,
         })
+        origins.set(object.id, origin)
         counts[origin.kind] += 1
-        if (origin.kind !== "kept") return false
-        keptByRepository.set(
-          origin.repositoryUrl,
-          (keptByRepository.get(origin.repositoryUrl) ?? 0) + 1,
-        )
-        return true
-      })
+        if (origin.kind !== "kept") continue
+        kept.add(object.id)
+        const current = keptByRepository.get(origin.repositoryUrl)
+        keptByRepository.set(origin.repositoryUrl, {
+          count: (current?.count ?? 0) + 1,
+          reason: KEPT_REASONS[origin.reason],
+        })
+      }
+      const treePaths = new Set(tree.paths())
       const knowledge = await planKnowledgeProjection({
         workspaceId: ctx.workspaceId,
         firstWorkspaceId: source.firstWorkspaceId,
@@ -356,7 +445,18 @@ export function exportAndSourcesStep(
             return safe.success ? [[id, safe.data] as const] : []
           }),
         ),
-        objects: kept,
+        objects: source.objects,
+        writeObjectIds: kept,
+        // A connector item keeps its links through its file in the tree,
+        // at the path that step 1 moves the file to.
+        resolveUnwritten: (object) => {
+          if (origins.get(object.id)?.kind !== "no_repository") return null
+          const path = objectPathFromPayload(object.payload)
+            ?.replace(/^\.?\/+/, "")
+            .trim()
+          if (!path || !treePaths.has(path)) return null
+          return connectors.moves.get(path) ?? path
+        },
         claims: source.claims,
         existingKnowledge,
         workspaceRepositoryUrl: ctx.remote.url,
@@ -366,16 +466,19 @@ export function exportAndSourcesStep(
         classifyUnkeyed: async () => "new_name",
       })
       if (knowledge.files.length)
-        for (const [url, count] of [...keptByRepository].sort())
+        for (const [url, { count, reason }] of [...keptByRepository].sort())
           report.push(
-            `Kept ${count} knowledge item(s) from ${url} in \`knowledge/\`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.`,
+            `Kept ${count} knowledge item(s) from ${url} in \`knowledge/\`. ${reason}`,
           )
+      for (const link of knowledge.droppedLinks)
+        report.push(
+          `Dropped a link: ${label(link.from)} ${link.predicate} ${link.to ? label(link.to) : "an item that this Workspace does not get"}. After the upgrade, no file of this Workspace holds the target.`,
+        )
       report.push(
         `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate reads the files of the Workspace).`,
       )
 
       const writes: UpgradeStepPlan["writes"] = [...knowledge.files]
-      const sourcesText = connectors.sourcesFile
       if (sourcesText !== null && sourcesText !== sourcesFile)
         writes.push({ path: SOURCES_FILE_PATH, content: sourcesText })
       writes.push(...connectors.writes)

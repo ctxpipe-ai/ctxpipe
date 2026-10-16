@@ -1,4 +1,8 @@
 import {
+  type GitFileMode,
+  gitFileModeSchema,
+} from "../../services/git/file-change.js"
+import {
   type GitPack,
   nativeGit,
   packRootTree,
@@ -39,6 +43,7 @@ async function withTreeReader<T>(
     async (directory) => {
       const tree = await packRootTree(directory, pack)
       // Each entry is "<mode> blob <sha>\t<path>".
+      const modes = new Map<string, GitFileMode>()
       const blobs = new Map(
         tree
           ? (await nativeGit(directory, ["ls-tree", "-r", "-z", tree]))
@@ -47,10 +52,12 @@ async function withTreeReader<T>(
               .filter(Boolean)
               .flatMap((entry) => {
                 const tab = entry.indexOf("\t")
-                const [, type, sha] = entry.slice(0, tab).split(" ")
-                return type === "blob" && sha
-                  ? [[entry.slice(tab + 1), sha] as const]
-                  : []
+                const [mode, type, sha] = entry.slice(0, tab).split(" ")
+                const path = entry.slice(tab + 1)
+                const fileMode = gitFileModeSchema.safeParse(mode)
+                if (type !== "blob" || !sha) return []
+                if (fileMode.success) modes.set(path, fileMode.data)
+                return [[path, sha] as const]
               })
           : [],
       )
@@ -64,6 +71,7 @@ async function withTreeReader<T>(
         blobSha: (path) => blobs.get(path) ?? null,
         read: async (path) => (await readBytes(path))?.toString() ?? null,
         readBytes,
+        mode: (path) => modes.get(path) ?? null,
       })
     },
     pack,
@@ -95,7 +103,11 @@ async function effectiveChange(
         write.encoding === "base64"
           ? current?.toString("base64")
           : current?.toString()
-      if (content !== write.content) writes.push(write)
+      if (
+        content !== write.content ||
+        (write.mode !== undefined && write.mode !== tree.mode(write.path))
+      )
+        writes.push(write)
     }
     const existing = new Set(tree.paths())
     return {

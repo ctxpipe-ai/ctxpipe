@@ -1,9 +1,11 @@
+import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
 import { connections } from "../../db/schema/connections.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -66,6 +68,13 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
     })
     if (!own || !github || !gitlab)
       throw new Error("The org repositories were not created")
+    // Main recorded the GitHub connection of each GitHub repository.
+    await withOrgDbContext(f.org.id, (db) =>
+      db
+        .update(repositories)
+        .set({ githubConnectionId: f.connectionId })
+        .where(eq(repositories.id, github.id)),
+    )
     await persistOrgFirstWorkspace({
       orgId: f.org.id,
       workspaceId: f.workspaceId,
@@ -112,7 +121,7 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
       name: "Public API",
       summary: "Old pipeline text.",
     })
-    // Not exported: hydrate reads the files of the Workspace repository.
+    // Kept: ingestion v2 does not ingest the Workspace repository.
     await seed("Service", `svc:${own.id}:context`, {
       name: "Context notes",
       summary: "Old pipeline text.",
@@ -305,9 +314,9 @@ it(
               path.startsWith("knowledge/") &&
               path !== "knowledge/services/tools-cli.md",
           )
-          expect(exported).toHaveLength(2)
+          expect(exported).toHaveLength(3)
           const toolsFile = exported.find((path) =>
-            path.startsWith("knowledge/services/"),
+            show(path).includes("The release tools."),
           )
           const parserFile = exported.find((path) =>
             path.startsWith("knowledge/libraries/"),
@@ -321,8 +330,10 @@ it(
           expect(toolsText).toContain(
             "https://gitlab.com/team-c/tools.git#cmd/tools/main.go",
           )
+          // The code knowledge of the Workspace repository is kept too.
+          expect(exported.map(show).join("\n")).toContain("Context notes")
           for (const path of exported)
-            expect(show(path)).not.toMatch(/Public API|Context notes|ENG-1/)
+            expect(show(path)).not.toMatch(/Public API|ENG-1/)
 
           // The pull request body has the list of kept and rebuilt content.
           expect(opened).toHaveLength(1)
@@ -332,7 +343,7 @@ it(
             "Kept 2 knowledge item(s) from https://gitlab.com/team-c/tools in `knowledge/`",
           )
           expect(body).toContain(
-            "Not exported, because ctx| makes it again: 1 item(s) from GitHub repositories (the re-ingestion upgrade), 1 item(s) from Workspace repositories and 1 connector item(s)",
+            "Not exported, because ctx| makes it again: 1 item(s) from GitHub repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
           )
           expect(body).toContain("Removed `repositories/api.md`")
           expect(body).toContain(
