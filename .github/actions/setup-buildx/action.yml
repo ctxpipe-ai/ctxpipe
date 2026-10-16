@@ -1,0 +1,29 @@
+name: Set up Buildx with a bounded buildkit wait
+description: >
+  Create a docker-container Buildx builder and wait for its buildkit socket.
+  docker/setup-buildx-action boots the builder once. On some Blacksmith
+  runners the socket (/run/buildkit/buildkitd.sock) does not exist yet after
+  15 seconds, and that single boot fails the job. This action retries the boot
+  with a fresh builder, at most 4 times.
+runs:
+  using: composite
+  steps:
+    - uses: docker/setup-buildx-action@v3
+      id: first
+      continue-on-error: true
+    - name: Boot the builder again when the buildkit socket was missing
+      if: steps.first.outcome == 'failure'
+      shell: bash
+      run: |
+        for attempt in 1 2 3 4; do
+          docker buildx rm --force ctxpipe-builder >/dev/null 2>&1 || true
+          docker buildx create --name ctxpipe-builder --driver docker-container \
+            --buildkitd-flags '--allow-insecure-entitlement security.insecure --allow-insecure-entitlement network.host' --use
+          if timeout 120 docker buildx inspect --bootstrap --builder ctxpipe-builder; then
+            exit 0
+          fi
+          echo "buildkit did not come up (attempt $attempt)"
+          sleep $((attempt * 5))
+        done
+        echo "::error::The buildkit socket never appeared on this runner after 4 attempts"
+        exit 1
