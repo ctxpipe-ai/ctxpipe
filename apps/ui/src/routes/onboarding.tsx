@@ -1,56 +1,39 @@
+import { useQueryClient } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
-import { useCallback, useEffect, useState } from "react"
+import { useEffect, useState } from "react"
 import { toast } from "sonner"
-import { ADMIN_SLIDES, JOINER_SLIDES } from "@/components/onboarding/constants"
+import { completeOnboarding } from "@/components/onboarding/complete-onboarding"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
-import { OnboardingGithubSlide } from "@/components/onboarding/OnboardingGithubSlide"
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
-import { OnboardingWelcomeSlide } from "@/components/onboarding/OnboardingWelcomeSlide"
-import { useOnboardingCarousel } from "@/components/onboarding/useOnboardingCarousel"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
-import { client } from "@/lib/api"
-import { apiFetch, readApiJson } from "@/lib/api-result"
-import {
-  authClient,
-  refetchSessionOnboardingComplete,
-  useListOrganizations,
-  useSession,
-} from "@/lib/auth-client"
-import { isAdminRole, sessionUser } from "@/lib/session-user"
-import { useUserPreferences } from "@/lib/user-preferences"
+import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import { sessionUser } from "@/lib/session-user"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
-  component: OnboardingPage,
-  validateSearch: (search: Record<string, unknown>) => ({
-    orgSlug: typeof search.orgSlug === "string" ? search.orgSlug : undefined,
-  }),
+  component: OnboardingPageContent,
 })
-
-function OnboardingPage() {
-  const search = Route.useSearch()
-  return <OnboardingPageContent urlOrgSlug={search.orgSlug ?? null} />
-}
 
 const FINISH_ERROR = "Could not finish onboarding. Try again."
 
-export function OnboardingPageContent({
-  urlOrgSlug,
-}: {
-  urlOrgSlug: string | null
-}) {
+/**
+ * A user with no organization reads How ctx| works, then creates one. A user
+ * who joined an organization reads How ctx| works only. Both then open Home,
+ * where the Get started guide has the next steps (GitHub, a Workspace).
+ */
+export function OnboardingPageContent() {
   const { data: session, isPending } = useSession()
   const router = useRouter()
+  const queryClient = useQueryClient()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
-  const [, setPreferences] = useUserPreferences()
-  const [createdOrgSlug, setCreatedOrgSlug] = useState<string | null>(null)
-  const orgSlug = urlOrgSlug ?? createdOrgSlug
+  const [step, setStep] = useState<"how-it-works" | "create-org">(
+    "how-it-works",
+  )
 
   const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
   const [sceneFailed, setSceneFailed] = useState(false)
   const [sceneReady, setSceneReady] = useState(false)
-  const [showWelcomeDotNav, setShowWelcomeDotNav] = useState(false)
   const [completing, setCompleting] = useState(false)
 
   useEffect(() => {
@@ -61,6 +44,8 @@ export function OnboardingPageContent({
     return () => window.clearTimeout(timer)
   }, [sceneReady, sceneFailed])
 
+  // Fixed on arrival: the organization that a user creates here must not
+  // make the user a joiner.
   useEffect(() => {
     if (orgsPending || organizations == null) return
     setIsJoinerLocked((prev) => {
@@ -69,28 +54,16 @@ export function OnboardingPageContent({
     })
   }, [organizations, orgsPending])
 
-  const slides = isJoinerLocked === true ? JOINER_SLIDES : ADMIN_SLIDES
-
-  const { currentSlide, goToSlide } = useOnboardingCarousel(slides.length)
-
-  const onWelcomeDetailsVisible = useCallback(() => {
-    setShowWelcomeDotNav(true)
-  }, [])
-
   // Signed out (e.g. an expired verification link landed here): the
   // organization data below never arrives, so do not wait for it.
   if (!isPending && !session) return <Navigate to="/.auth/sign-in" replace />
   if (isPending || orgsPending || isJoinerLocked === null) {
     return (
       <OnboardingPageShell
-        showDotNav={false}
         sceneReady={false}
-        currentSlide={0}
-        slideCount={1}
         sceneFailed={false}
         onSceneLoad={() => {}}
         onSceneError={() => {}}
-        onGoToSlide={() => {}}
       >
         <div className="mx-auto max-w-2xl">
           <PageBodySkeleton label="Preparing onboarding" />
@@ -101,77 +74,39 @@ export function OnboardingPageContent({
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = sessionUser(session)
-  if (user?.onboardingCompletedAt && orgSlug) {
-    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+  // Onboarding is complete already, for example when the user comes back
+  // through the browser history. While `finish` runs, it opens Home itself.
+  if (user?.onboardingCompletedAt && !completing && organizations?.length) {
+    return (
+      <Navigate
+        to="/"
+        search={{
+          error: undefined,
+          error_description: undefined,
+          pendingAccountClaim: undefined,
+        }}
+        replace
+      />
+    )
   }
-
-  if (organizations && organizations.length > 0) {
-    const fallbackOrgSlug =
-      createdOrgSlug ?? (organizations[0]?.slug as string | undefined)
-    const hasUrlOrgSlug = urlOrgSlug !== null
-    const urlOrgIsKnown = hasUrlOrgSlug
-      ? organizations.some((org: { slug: string }) => org.slug === urlOrgSlug)
-      : false
-    if (
-      fallbackOrgSlug &&
-      slides[currentSlide] !== "create-org" &&
-      (!hasUrlOrgSlug || !urlOrgIsKnown) &&
-      urlOrgSlug !== fallbackOrgSlug
-    ) {
-      return (
-        <Navigate
-          to="/onboarding"
-          search={{ orgSlug: fallbackOrgSlug }}
-          replace
-        />
-      )
-    }
-  }
-
-  const currentSlideName = slides[currentSlide]
-  const githubSlideIndexAdmin = ADMIN_SLIDES.indexOf("github")
 
   /**
    * Finish onboarding for both paths: make the org active, mark the user
    * (and, for an owner or admin, the org) complete, then open Home.
    */
-  const finish = async () => {
-    if (!orgSlug || completing) return
+  const finish = async (slug: string) => {
+    if (completing) return
     setCompleting(true)
-    const organization = organizations?.find((org) => org.slug === orgSlug)
+    const organization = organizations?.find((org) => org.slug === slug)
     try {
+      // The request that creates an organization also makes it active.
       if (organization) {
         await authClient.organization.setActive({
           organizationId: organization.id,
           fetchOptions: { throw: true },
         })
       }
-      // A failed role read must not block the finish. It only skips the
-      // org-complete call, which an owner or admin can make later.
-      const role = await authClient.organization
-        .getActiveMemberRole({
-          query: { organizationSlug: orgSlug },
-          fetchOptions: { throw: true },
-        })
-        .then((result) => result.role)
-        .catch(() => undefined)
-      await Promise.all([
-        apiFetch("/api/v1/onboarding/user/complete", {
-          method: "POST",
-          credentials: "include",
-        }).then((res) => readApiJson(res)),
-        isAdminRole(role)
-          ? client[":orgSlug"].api.v1.onboarding.complete
-              .$post({ param: { orgSlug } })
-              .then((res) => readApiJson(res))
-          : null,
-      ])
-      setPreferences((prev) => ({
-        ...prev,
-        selectedOrganizationSlug: orgSlug,
-      }))
-      if (!(await refetchSessionOnboardingComplete()))
-        throw new Error("The session does not show onboarding as complete")
+      await completeOnboarding(slug, queryClient)
     } catch {
       setCompleting(false)
       toast.error(FINISH_ERROR)
@@ -179,22 +114,16 @@ export function OnboardingPageContent({
     }
     void router.navigate({
       to: "/$orgSlug",
-      params: { orgSlug },
+      params: { orgSlug: slug },
       replace: true,
     })
   }
 
-  const showDotNav =
-    isJoinerLocked === true
-      ? true
-      : currentSlideName !== "welcome" || showWelcomeDotNav
+  const joinedSlug = organizations?.[0]?.slug
 
   return (
     <OnboardingPageShell
-      showDotNav={showDotNav}
       sceneReady={sceneReady}
-      currentSlide={currentSlide}
-      slideCount={slides.length}
       sceneFailed={sceneFailed}
       onSceneLoad={() => {
         setSceneReady(true)
@@ -204,51 +133,26 @@ export function OnboardingPageContent({
         setSceneReady(true)
         setSceneFailed(true)
       }}
-      onGoToSlide={(i) => goToSlide(i)}
     >
-      {currentSlideName === "welcome" ? (
-        <OnboardingWelcomeSlide
-          onWelcomeDetailsVisible={onWelcomeDetailsVisible}
-          onGetStarted={() => goToSlide(1)}
-        />
-      ) : null}
-
-      {currentSlideName === "how-it-works" ? (
+      {step === "how-it-works" ? (
         <OnboardingHowItWorksSlide
           actionLabel={isJoinerLocked ? "Get started" : "Next"}
           isPending={completing}
           onNext={() => {
-            if (isJoinerLocked) {
-              void finish()
+            if (!isJoinerLocked) {
+              setStep("create-org")
               return
             }
-            goToSlide(currentSlide + 1)
+            if (joinedSlug) void finish(joinedSlug)
           }}
         />
-      ) : null}
-
-      {currentSlideName === "create-org" ? (
+      ) : (
         <OnboardingCreateOrgSlide
           userEmail={user?.email}
-          onOrgCreated={(slug) => {
-            setCreatedOrgSlug(slug)
-            void router.navigate({
-              to: "/onboarding",
-              search: (prev) => ({ ...prev, orgSlug: slug }),
-              replace: true,
-            })
-            goToSlide(githubSlideIndexAdmin)
-          }}
-        />
-      ) : null}
-
-      {currentSlideName === "github" ? (
-        <OnboardingGithubSlide
-          orgSlug={orgSlug}
           finishing={completing}
-          onFinish={() => void finish()}
+          onFinish={(slug) => void finish(slug)}
         />
-      ) : null}
+      )}
     </OnboardingPageShell>
   )
 }
