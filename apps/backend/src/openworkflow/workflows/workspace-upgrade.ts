@@ -1,10 +1,13 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
+  chooseUpgradeBranch,
+  listUpgradePullRequests,
+} from "../../domain/upgrades/branch.js"
+import {
   buildUpgradeCommits,
   upgradePullRequestText,
 } from "../../domain/upgrades/build-commits.js"
-import { chooseUpgradeBranch, listUpgradePullRequests } from "../../domain/upgrades/branch.js"
 import {
   pushUpgradeBranch,
   UpgradeWriteAccessError,

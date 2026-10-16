@@ -807,8 +807,7 @@ export async function listOpenRepositoryPullRequestsByBranchPrefix(
     pullUrl: pull.html_url,
     branch: pull.head.ref,
     createdAt: pull.created_at,
-    ours:
-      pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
+    ours: pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
   }))
 }
 
