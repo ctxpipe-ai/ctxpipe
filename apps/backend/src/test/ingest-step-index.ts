@@ -16,7 +16,8 @@ export async function writeStepIndex(input: {
   workspaceId: string
   contextDir: string
   base: string
-  sourceUrl: string
+  /** The source file path of the run's repository (`sources`). */
+  sourcePath: string
   pinnedRevision?: string
 }): Promise<void> {
   const { json } = await contextIndexAtStepBase({
@@ -24,7 +25,7 @@ export async function writeStepIndex(input: {
     projection: [],
     pinnedRevision: input.pinnedRevision ?? EMPTY_TREE,
     base: input.base,
-    sourceUrl: input.sourceUrl,
+    sourcePath: input.sourcePath,
     repoDir: input.contextDir,
   })
   writeFileSync(

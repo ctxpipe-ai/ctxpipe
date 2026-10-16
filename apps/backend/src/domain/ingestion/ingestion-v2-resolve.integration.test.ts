@@ -1,107 +1,79 @@
 import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
-import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
+import { projectWorkspaceSources } from "../workspace-sources/project.js"
 import { resolveIngestionV2Run } from "./ingestion-v2-resolve.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 
-describe("resolveIngestionV2Run: the publish gate (format 3)", () => {
+describe("the source path of a repository (Postgres + git)", () => {
   beforeAll(async () => {
-    seed = await seedSourcesOrg("ingest_gate")
+    seed = await seedSourcesOrg("v2_resolve")
   })
   afterAll(async () => {
     await seed.cleanup()
   })
 
-  /** A writable Workspace that declares `repository`, at the cached `formatVersion`. */
-  async function addDeclaringWorkspace(input: {
-    slug: string
-    repository: string
-    formatVersion: number | null
-  }) {
+  it("gives the ownership migration and the ingestion v2 run the winner of the projection", async () => {
+    const env = parseEnv(process.env)
+    // No installation: the access check finds no coverage and asks no API.
     const github = await seed.addConnection("github")
-    const id = await seed.addWorkspace(input.slug)
+    const workspaceId = await seed.addWorkspace("resolve")
     await withOrgDbContext(seed.orgId, (db) =>
       db
         .update(workspaces)
         .set({
           githubConnectionId: github,
-          desiredSha: "a".repeat(40),
           writeStatus: "writable",
-          formatVersion: input.formatVersion,
+          desiredSha: "a".repeat(40),
         })
-        .where(eq(workspaces.id, id)),
+        .where(eq(workspaces.id, workspaceId)),
     )
-    await replaceWorkspaceSourceRows({
+    const repo = await seed.gitRepository()
+    const repository = `acme/billing-${seed.suffix.replaceAll("_", "-")}`
+    const text = `---\nprovider: github\nconnection: ${github}\nrepository: ${repository}\n---\n`
+    const project = async (files: Record<string, string>) => {
+      const revision = await repo.commit(files)
+      const tree = await repo.sourcesTree(revision)
+      await withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () =>
+        projectWorkspaceSources({
+          orgId: seed.orgId,
+          workspaceId,
+          revision,
+          text: tree.sourcesFile,
+          files: tree.sourceFiles,
+          env,
+        }),
+      )
+      return tree.sourceFiles
+    }
+
+    await project({ "sources/github/acme/b.md": text })
+    // `a.md` comes first in byte order, but `b.md` linked the repository.
+    const sourceFiles = await project({ "sources/github/acme/a.md": text })
+
+    const migration = githubSourcePathsByRepository(
+      sourceFiles,
+      await listWorkspaceSourceRows({ orgId: seed.orgId, workspaceId }),
+    )
+    expect(migration.get(`https://github.com/${repository}`)).toBe(
+      "sources/github/acme/b.md",
+    )
+    const run = await resolveIngestionV2Run({
       orgId: seed.orgId,
-      workspaceId: id,
-      revision: "a".repeat(40),
-      rows: [
-        {
-          sourceKey: "sources/github/acme/checkout.md",
-          provider: "github",
-          connectionId: github,
-          scope: { repositories: [input.repository] },
-          status: "ok",
-          statusDetail: null,
-        },
-      ],
+      source: {
+        url: `https://github.com/${repository}`,
+        githubConnectionId: github,
+      },
     })
-    return id
-  }
-
-  const resolve = (shadow: boolean, repository: string) =>
-    withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () =>
-      resolveIngestionV2Run({
-        orgId: seed.orgId,
-        shadow,
-        source: {
-          url: `https://github.com/${repository}`,
-          githubConnectionId: "con_unused",
-        },
-      }),
-    )
-
-  it("publishes only to a Workspace at format 3 or more, and names the one that waits", async () => {
-    const repository = `acme/api-${seed.suffix.replaceAll("_", "-")}`
-    const old = await addDeclaringWorkspace({
-      slug: "old",
-      repository,
-      formatVersion: 2,
-    })
-    const current = await addDeclaringWorkspace({
-      slug: "current",
-      repository,
-      formatVersion: 3,
-    })
-    const resolved = await resolve(false, repository)
-    if (resolved.skipped) throw new Error(`skipped: ${resolved.skipped}`)
-    expect(resolved.destinations.map((d) => d.workspaceId)).toEqual([current])
-    expect(resolved.needsUpgrade).toEqual([old])
-  })
-
-  it("skips with a reason when each declaring Workspace is below format 3", async () => {
-    const repository = `acme/solo-${seed.suffix.replaceAll("_", "-")}`
-    await addDeclaringWorkspace({ slug: "solo", repository, formatVersion: 0 })
-    expect(await resolve(false, repository)).toEqual({
-      skipped: "upgrade_needed",
-    })
-  })
-
-  it("lets a shadow run read each Workspace, because it publishes nothing", async () => {
-    const repository = `acme/shadow-${seed.suffix.replaceAll("_", "-")}`
-    const id = await addDeclaringWorkspace({
-      slug: "shadow",
-      repository,
-      formatVersion: 1,
-    })
-    const resolved = await resolve(true, repository)
-    if (resolved.skipped) throw new Error(`skipped: ${resolved.skipped}`)
-    expect(resolved.destinations.map((d) => d.workspaceId)).toEqual([id])
-    expect(resolved.needsUpgrade).toEqual([])
+    expect(
+      run.skipped ? run.skipped : run.destinations.map((d) => d.sourcePath),
+    ).toEqual(["sources/github/acme/b.md"])
   })
 })

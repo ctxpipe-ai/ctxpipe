@@ -59,6 +59,8 @@ import { readIngestSkillBundle } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_steps"
 const STUB_PORT = 47813
 const STUB_CALLS = "/tmp/stub-calls.json"
@@ -325,7 +327,11 @@ async function hostSkill(input: {
   )
   if (!plan)
     throw new Error(`The plan has no ${input.scope} step of ${input.skill}`)
-  const args = ingestSkillArguments({ root: input.root, sourceUrl: SOURCE_URL })
+  const args = ingestSkillArguments({
+    root: input.root,
+    sourceUrl: SOURCE_URL,
+    sourcePath: SOURCE_PATH,
+  })
   await handle.fs.write(
     STUB_CALLS,
     JSON.stringify(input.calls ? input.calls(args) : []),
@@ -425,6 +431,7 @@ beforeAll(async () => {
     generation: 1,
     pinnedRevision: pinned,
     repositoryId: null,
+    sourcePath: SOURCE_PATH,
   }
   const job = { runId: RUN_ID, workspaceId: WORKSPACE_ID }
   broker = {
@@ -452,7 +459,7 @@ beforeAll(async () => {
   const index = stepContextIndex({
     workspaceId: WORKSPACE_ID,
     pinnedRevision: pinned,
-    sourceUrl: SOURCE_URL,
+    sourcePath: SOURCE_PATH,
     repoDir: indexDir,
     projection: async () => projection,
     fetch: async (what, into) => {
@@ -472,6 +479,7 @@ beforeAll(async () => {
         agentEnv,
         remote: "/tmp/remotes/context.git",
         sourceUrl: SOURCE_URL,
+        sourcePath: SOURCE_PATH,
         index: (await index.at(step.baseCommit, step.fetchRef)).json,
       })
       return { tar: await collectIngestStep(handle, root) }

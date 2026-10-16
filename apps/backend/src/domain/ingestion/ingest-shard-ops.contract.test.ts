@@ -30,6 +30,8 @@ import { readIngestSkillBundle } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 const WORKSPACE_ID = "ws_contract"
 const GIT_ENV = {
   GIT_AUTHOR_NAME: "Fixture",
@@ -215,6 +217,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           agentEnv,
           remote: "/tmp/remotes/context.git",
           sourceUrl: SOURCE_URL,
+          sourcePath: SOURCE_PATH,
           index: '{"entries":[]}',
         })
         const tar = await collectIngestStep(handle, root)
@@ -224,6 +227,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
             baseCommit: contextSha,
             stagedDir,
             source: { url: SOURCE_URL, sha: sourceSha },
+            sourcePath: SOURCE_PATH,
             skill: "libraries",
             bundle: bundle.name,
             ...gitSource(hostSource.dir, hostSource.sha),
@@ -247,6 +251,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           agentEnv,
           remote: "/tmp/remotes/context.git",
           sourceUrl: SOURCE_URL,
+          sourcePath: SOURCE_PATH,
         })
         const at = await root(
           `git -C /ctxpipe/context/${WORKSPACE_ID} rev-parse HEAD && cat /ctxpipe/step.json`,
@@ -269,6 +274,7 @@ describe("ingest shard commands in a Docker sandbox", () => {
           agentEnv,
           remote: "/tmp/remotes/context.git",
           sourceUrl: SOURCE_URL,
+          sourcePath: SOURCE_PATH,
         })
         const written = await handle.fs.readBytes("/ctxpipe/roots.json")
         expect(Buffer.from(written).toString("utf8")).toBe(

@@ -34,6 +34,7 @@ import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { heldIngestSourceTrees } from "../../domain/ingestion/ingest-source-tree.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
@@ -72,6 +73,11 @@ const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const stallName = `acme/stall-api-${suffix}`
 /** A source with 21 roots: two shards. */
 const wideName = `acme/wide-monorepo-${suffix}`
+/** The source file of a repository `owner/name` in each Workspace. */
+const sourcePathOf = (repository: string) => {
+  const [owner = "", name = ""] = repository.split("/")
+  return githubSourcePath(owner, name)
+}
 /**
  * The two-shard case: the sandbox of shard 0 does not start, and shard 1
  * waits at its second step until `release` is called.
@@ -292,16 +298,16 @@ beforeAll(async () => {
       orgId,
       workspaceId,
       revision: pinned[i] ?? "",
-      rows: [
-        {
-          sourceKey: "checkout",
-          provider: "github",
-          connectionId,
-          scope: { repositories: [sourceName, wideName, stallName] },
-          status: "ok",
-          statusDetail: null,
-        },
-      ],
+      // One GitHub source file for each repository (ADR-050 revision
+      // 2026-10-16). Its path is the `sources` value of the run's files.
+      rows: [sourceName, wideName, stallName].map((repository) => ({
+        sourceKey: sourcePathOf(repository),
+        provider: "github" as const,
+        connectionId,
+        scope: { repository },
+        status: "ok" as const,
+        statusDetail: null,
+      })),
     })
   }
 
@@ -395,7 +401,12 @@ describe("ingestion v2 in shadow mode", () => {
       for (const call of modelCalls) {
         // One input shape: the root of a root step is `--path`.
         expect(call.args).toEqual(
-          expect.arrayContaining(["--source-url", "--roots", "--path"]),
+          expect.arrayContaining([
+            "--source-url",
+            "--source-path",
+            "--roots",
+            "--path",
+          ]),
         )
         expect(call.args.at(-1)).toBe(call.root)
         // The index is at the step base: the repository unit of the first
@@ -516,7 +527,7 @@ describe("ingestion v2 in shadow mode", () => {
         )
         expect(unit).toContain("kind: Repository")
         expect(unit).toContain("root: .")
-        expect(unit).toContain(`- https://github.com/${sourceName}`)
+        expect(unit).toContain(`- ${sourcePathOf(sourceName)}`)
         // Shadow mode publishes nothing: the default branch did not move.
         expect(git(join(remotes, name), "rev-parse", "main")).toBe(pinned[i])
       }

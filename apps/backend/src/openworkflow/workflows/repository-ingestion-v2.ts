@@ -488,6 +488,7 @@ export function defineRepositoryIngestionV2Workflow(
                       semanticMerge: {
                         resolve: resolveIngestConflicts,
                         source: { url: input.source.url, sha: input.sha },
+                        sourcePath: destination.sourcePath,
                         sourcePathExists: (path) =>
                           ingestSourceTree({
                             orgId: input.orgId,
@@ -648,6 +649,7 @@ export function defineRepositoryIngestionV2Workflow(
                       ].sort(),
                       bundle: scope.bundle,
                       source: input.source,
+                      sourcePath: destination.sourcePath,
                       sourceSha: input.sha,
                       authorTime: input.authorTime,
                     },

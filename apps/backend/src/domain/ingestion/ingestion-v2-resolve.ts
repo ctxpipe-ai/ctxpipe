@@ -5,6 +5,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
+import { githubSourcePaths } from "../workspace-sources/github-sources.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
@@ -31,17 +32,21 @@ export type IngestionV2Resolution =
 /**
  * The `resolve` step (concept sections 2 and 4.1): the destination Workspaces
  * of the source, each with the binding generation and the default-branch
- * commit that the run pins. A destination is a Workspace whose
- * `.ctxpipe/sources.yaml` declares the source repository (a valid GitHub
- * entry). The run skips a source that is the repository of a Workspace of the
- * org. A Workspace that is not writable, or has no commit yet, gets no refs.
+ * commit that the run pins. A destination is a Workspace with an `ok` GitHub
+ * source file under `sources/` that names the source repository (ADR-050
+ * revision 2026-10-16). The path of that file is the `sourcePath` of the
+ * destination: each file that the run owns lists it in `sources`. An entry
+ * of `.ctxpipe/sources.yaml` has no source path, so it makes no destination;
+ * the conversion (CTX-744) gives the Workspace its source files. The run
+ * skips a source that is the repository of a Workspace of the org. A
+ * Workspace that is not writable, or has no commit yet, gets no refs.
  */
 export async function resolveIngestionV2Run(
   input: Pick<IngestionV2Input, "orgId" | "source" | "shadow">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
-  const fullName = githubRepoFullNameFromWorkspaceUrl(sourceUrl)?.toLowerCase()
-  if (!fullName) return { skipped: "not_github" }
+  if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))
+    return { skipped: "not_github" }
   const orgWorkspaces = await withOrgDbContext(input.orgId, () =>
     listOrgWorkspaces(input.orgId),
   )
@@ -60,6 +65,9 @@ export async function resolveIngestionV2Run(
         db
           .select({
             workspaceId: workspaceSources.workspaceId,
+            sourceKey: workspaceSources.sourceKey,
+            provider: workspaceSources.provider,
+            status: workspaceSources.status,
             scope: workspaceSources.scope,
           })
           .from(workspaceSources)
@@ -74,39 +82,32 @@ export async function resolveIngestionV2Run(
           .from(repositories),
       ]),
   )
-  const declaring = new Set(
-    sourceRows
-      .filter((row) => {
-        const names = (row.scope as { repositories?: unknown }).repositories
-        return (
-          Array.isArray(names) &&
-          names.some(
-            (name) =>
-              typeof name === "string" && name.toLowerCase() === fullName,
-          )
-        )
-      })
-      .map((row) => row.workspaceId),
-  )
+  const sourcePath = (workspaceId: string) =>
+    githubSourcePaths(
+      sourceRows.filter((row) => row.workspaceId === workspaceId),
+    ).get(sourceUrl)
   const repositoryId = (url: string) =>
     repositoryRows.find(
       (row) =>
         normalizeWorkspaceRepositoryUrl(row.gitUrl) ===
         normalizeWorkspaceRepositoryUrl(url),
     )?.id ?? null
-  const declared = orgWorkspaces.filter((row) => declaring.has(row.id))
+  const declared = orgWorkspaces.flatMap((row) => {
+    const path = sourcePath(row.id)
+    return path ? [{ row, sourcePath: path }] : []
+  })
   if (!declared.length) return { skipped: "no_destination" }
   // A publish run writes ownership front matter (format 3). A Workspace
   // below it waits for the upgrade; a shadow run publishes nothing, so it
   // runs for each Workspace.
   const needsUpgrade = input.shadow
     ? []
-    : declared.filter((row) => !ingestionV2EnabledFor(row))
+    : declared.filter(({ row }) => !ingestionV2EnabledFor(row))
   if (needsUpgrade.length === declared.length)
     return { skipped: "upgrade_needed" }
-  const candidates = declared.filter((row) => !needsUpgrade.includes(row))
+  const candidates = declared.filter((entry) => !needsUpgrade.includes(entry))
   const destinations: IngestDestination[] = candidates
-    .flatMap((row) =>
+    .flatMap(({ row, sourcePath }) =>
       row.writeStatus === "writable" && row.desiredSha && row.githubConnectionId
         ? [
             {
@@ -117,6 +118,7 @@ export async function resolveIngestionV2Run(
               pinnedRevision: row.desiredSha,
               repositoryId: repositoryId(row.workspaceRepositoryUrl),
               ...(row.rootPath ? { rootPath: row.rootPath } : {}),
+              sourcePath,
             },
           ]
         : [],
@@ -125,7 +127,7 @@ export async function resolveIngestionV2Run(
   return {
     sourceRepositoryId: repositoryId(sourceUrl),
     destinations,
-    needsUpgrade: needsUpgrade.map((row) => row.id),
+    needsUpgrade: needsUpgrade.map(({ row }) => row.id),
   }
 }
 

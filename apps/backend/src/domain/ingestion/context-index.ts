@@ -25,7 +25,10 @@ export type ContextIndexEntry = {
   summary: string | null
   /** Paths of other units in the projection that this unit links to. */
   links: string[]
-  /** Normalized source URLs of a generated file. */
+  /**
+   * Source file paths (`sources`) of a generated file (ADR-050 revision
+   * 2026-10-16).
+   */
   sources: string[]
   /** True when the run's source owns the file. */
   owned: boolean
@@ -145,7 +148,7 @@ function titleOf(raw: string): string | null {
 function entryOf(
   unit: IndexUnit,
   raw: string,
-  sourceUrl: string,
+  sourcePath: string,
 ): ContextIndexEntry {
   const dir = unit.path.split("/").slice(0, -1).join("/")
   // A claim target is a link too: the agent finds an API's operations.
@@ -165,7 +168,7 @@ function entryOf(
     summary: summaryOf(raw),
     links,
     sources: fileSources(raw).slice(0, MAX_SOURCES),
-    owned: fileOwnership(raw, sourceUrl) !== "foreign",
+    owned: fileOwnership(raw, sourcePath) !== "foreign",
   }
 }
 
@@ -186,11 +189,11 @@ function linkedEntries(
 export function buildContextIndexEntries(input: {
   units: ReadonlyArray<{ path: string; kind: string | null; links: string[] }>
   raw: ReadonlyMap<string, string>
-  sourceUrl: string
+  sourcePath: string
 }): ContextIndexEntry[] {
   return linkedEntries(
     input.units.map((unit) =>
-      entryOf(unit, input.raw.get(unit.path) ?? "", input.sourceUrl),
+      entryOf(unit, input.raw.get(unit.path) ?? "", input.sourcePath),
     ),
   )
 }
@@ -256,7 +259,7 @@ async function changedFiles(
 export function stepContextIndex(source: {
   workspaceId: string
   pinnedRevision: string
-  sourceUrl: string
+  sourcePath: string
   repoDir: string
   /** Workspace root folder; unit paths are relative to it. */
   rootPath?: string
@@ -294,7 +297,7 @@ export function stepContextIndex(source: {
         entries: new Map(
           units.map((unit) => [
             unit.path,
-            entryOf(unit, raw.get(unit.path) ?? "", source.sourceUrl),
+            entryOf(unit, raw.get(unit.path) ?? "", source.sourcePath),
           ]),
         ),
       }
@@ -319,7 +322,7 @@ export function stepContextIndex(source: {
       for (const unit of parseUnits(source.workspaceId, written))
         state.entries.set(
           unit.path,
-          entryOf(unit, text.get(unit.path) ?? "", source.sourceUrl),
+          entryOf(unit, text.get(unit.path) ?? "", source.sourcePath),
         )
       state.base = base
     }
@@ -357,7 +360,7 @@ export async function contextIndexAtStepBase(input: {
   projection: readonly IndexUnit[]
   pinnedRevision: string
   base: string
-  sourceUrl: string
+  sourcePath: string
   repoDir: string
   rootPath?: string
 }): Promise<{ index: ContextIndex; json: string }> {
@@ -379,7 +382,7 @@ export async function buildContextIndex(input: {
   workspaceId: string
   sha: string
   base?: string
-  sourceUrl: string
+  sourcePath: string
   repoDir: string
   /** Workspace root folder; unit paths are relative to it. */
   rootPath?: string
@@ -392,7 +395,7 @@ export async function buildContextIndex(input: {
     ),
     pinnedRevision: input.sha,
     base: input.base ?? input.sha,
-    sourceUrl: input.sourceUrl,
+    sourcePath: input.sourcePath,
     repoDir: input.repoDir,
     rootPath: input.rootPath,
   })
