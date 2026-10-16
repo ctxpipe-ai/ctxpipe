@@ -69,6 +69,7 @@ describe("the source path of a repository (Postgres + git)", () => {
     )
     const run = await resolveIngestionV2Run({
       orgId: seed.orgId,
+      shadow: false,
       source: {
         url: `https://github.com/${repository}`,
         githubConnectionId: github,

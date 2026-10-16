@@ -34,6 +34,7 @@ import {
   workspaceSourceRepositories,
 } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
+import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
@@ -240,16 +241,18 @@ beforeAll(async () => {
       orgId: org.id,
       workspaceId,
       revision: pinned[i] ?? "",
-      rows: [
-        {
-          sourceKey: "code",
+      // One source file for each repository.
+      rows: (sourcesOf[i] ?? []).map((name) => {
+        const [owner = "", repo = ""] = name.split("/")
+        return {
+          sourceKey: githubSourcePath(owner, repo),
           provider: "github",
           connectionId,
-          scope: { repositories: sourcesOf[i] },
+          scope: { repositories: [name] },
           status: "ok",
           statusDetail: null,
-        },
-      ],
+        }
+      }),
     })
   }
 
