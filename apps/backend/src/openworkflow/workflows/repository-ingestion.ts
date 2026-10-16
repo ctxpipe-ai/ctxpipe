@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
   extractionRetraction,
@@ -645,17 +646,21 @@ export const repositoryIngestion = defineWorkflow(
                     roots,
                   },
                 })
-                await step.runWorkflow(
-                  workspaceExtractIngest.spec,
-                  {
-                    orgId: input.orgId,
-                    workspaceId: destination.workspaceId,
-                    revision: destination.revision,
-                    jobId: extractionWriteJobId(run.id),
-                    extraction,
-                  },
-                  { name: "publish-extracted-knowledge" },
-                )
+                // While ingestion v2 publishes (ADR-052 phase 4), the old
+                // pipeline does not write: its writes would take the files
+                // back from ingestion v2.
+                if (ingestionPublishPipeline() === "legacy")
+                  await step.runWorkflow(
+                    workspaceExtractIngest.spec,
+                    {
+                      orgId: input.orgId,
+                      workspaceId: destination.workspaceId,
+                      revision: destination.revision,
+                      jobId: extractionWriteJobId(run.id),
+                      extraction,
+                    },
+                    { name: "publish-extracted-knowledge" },
+                  )
                 await step.run({ name: "delete-extraction-capture" }, () =>
                   deleteRepositoryExtractionCaptures(captureKey, run.createdAt),
                 )

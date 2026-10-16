@@ -5,7 +5,10 @@ import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
-import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
+import {
+  githubRepositoryUrls,
+  githubSourceScopeRepositories,
+} from "../domain/workspace-sources/providers/github.js"
 import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
@@ -142,6 +145,30 @@ export function holdsTarget(row: SourceTargetRow): boolean {
   return row.status === "invalid"
     ? storedTarget(row.state) !== null
     : lastGoodTarget(row) !== null
+}
+
+/**
+ * Tell if a stored source row names the repository `gitUrl` in any form: its
+ * own scope, its last good target, or its GitHub pins. An `invalid` row whose
+ * stored target does not parse can hold any repository, so it names each one
+ * (the CTX-710 rule: an entry that became invalid keeps its repository).
+ */
+export function sourceRowsNameRepository(
+  rows: readonly SourceTargetRow[],
+  gitUrl: string,
+): boolean {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  return rows.some((row) => {
+    const good = lastGoodTarget(row)
+    if (holdsTarget(row) && !good) return true
+    return (
+      githubRepositoryUrls(row).includes(target) ||
+      (good !== null && githubRepositoryUrls(good).includes(target)) ||
+      githubPins(row).some(
+        (pin) => normalizeWorkspaceRepositoryUrl(pin.gitUrl) === target,
+      )
+    )
+  })
 }
 
 /** A GitHub state with `repositories` that keeps the target of `row`. */

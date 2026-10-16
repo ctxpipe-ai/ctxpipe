@@ -136,30 +136,55 @@ export async function withGitDirectory<T>(
   }
 }
 
-/** Read selected immutable blobs; the workflow owns the surrounding durable step. */
+/**
+ * Read selected immutable blobs; the workflow owns the surrounding durable
+ * step. With `limit`, a blob that `limit.applies` to and that is larger than
+ * `limit.maxBytes`, or that is not text (it has a NUL byte), comes back with
+ * empty content and the reason in `omitted`. The size check comes before the
+ * read, so a large blob is never in memory.
+ */
 export async function readGitFiles(
   pack: GitPack,
   include: (path: string) => boolean,
-): Promise<Array<{ path: string; content: string }>> {
+  limit?: { maxBytes: number; applies: (path: string) => boolean },
+): Promise<
+  Array<{ path: string; content: string; omitted?: "too_large" | "binary" }>
+> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
       const tree = await packRootTree(directory, pack)
       if (!tree) return []
-      const paths = (
-        await nativeGit(directory, ["ls-tree", "-r", "--name-only", "-z", tree])
+      const entries = (
+        await nativeGit(directory, ["ls-tree", "-r", "-l", "-z", tree])
       )
         .toString()
         .split("\0")
-        .filter((path) => path && include(path))
-      const files: Array<{ path: string; content: string }> = []
-      for (const path of paths)
-        files.push({
-          path,
-          content: (
-            await nativeGit(directory, ["show", `${tree}:${path}`])
-          ).toString(),
+        .flatMap((line) => {
+          const tab = line.indexOf("\t")
+          const path = line.slice(tab + 1)
+          if (tab < 0 || !path || !include(path)) return []
+          const [, type, , size] = line.slice(0, tab).split(/\s+/)
+          return type === "blob" ? [{ path, size: Number(size) }] : []
         })
+      const files: Array<{
+        path: string
+        content: string
+        omitted?: "too_large" | "binary"
+      }> = []
+      for (const { path, size } of entries) {
+        const limited = limit?.applies(path) ?? false
+        if (limited && size > (limit?.maxBytes ?? 0)) {
+          files.push({ path, content: "", omitted: "too_large" })
+          continue
+        }
+        const bytes = await nativeGit(directory, ["show", `${tree}:${path}`])
+        files.push(
+          limited && bytes.includes(0)
+            ? { path, content: "", omitted: "binary" }
+            : { path, content: bytes.toString() },
+        )
+      }
       return files
     },
     pack,

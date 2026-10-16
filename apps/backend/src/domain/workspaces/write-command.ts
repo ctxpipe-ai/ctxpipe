@@ -13,7 +13,10 @@ import {
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
 import type { WorkspaceExtraction } from "./extraction.js"
-import { assertExtractionSource } from "./extraction-source.js"
+import {
+  assertExtractionSource,
+  type IngestPublishSource,
+} from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
@@ -29,6 +32,7 @@ export type WorkspaceWriteCommand = {
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }
 
@@ -69,6 +73,7 @@ export async function completedWorkspaceWrite(
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
     !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
     !isDeepStrictEqual(recorded.payload?.extraction, input.extraction) ||
+    !isDeepStrictEqual(recorded.payload?.ingest, input.ingest) ||
     recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )
