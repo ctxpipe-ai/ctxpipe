@@ -543,8 +543,13 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           .poll(async () => (await row("format-3"))?.status, {
             timeout: 120_000,
           })
-          .toBe("pr_open")
-        expect((await row("format-3"))?.failureReason ?? null).toBeNull()
+          .toMatch(/^(pr_open|failed|blocked)$/)
+        const ran = await row("format-3")
+        expect({
+          status: ran?.status,
+          failureReason: ran?.failureReason ?? null,
+          note: ran?.upgrade.note ?? null,
+        }).toEqual({ status: "pr_open", failureReason: null, note: null })
         // One pull request: one commit for each step, then the format file.
         expect(opened).toHaveLength(1)
         expect(opened[0]).toMatchObject({
