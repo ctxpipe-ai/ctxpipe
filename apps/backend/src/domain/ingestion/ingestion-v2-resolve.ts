@@ -6,13 +6,10 @@ import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import {
-  formatBelow,
-  INGESTION_V2_PUBLISH_FORMAT,
-} from "../workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
 import type { IngestionV2Input } from "./ingestion-run.js"
+import { ingestionV2EnabledFor } from "./ingestion-v2-config.js"
 
 export type IngestionV2Resolution =
   | {
@@ -104,9 +101,7 @@ export async function resolveIngestionV2Run(
   // runs for each Workspace.
   const needsUpgrade = input.shadow
     ? []
-    : declared.filter((row) =>
-        formatBelow(row.formatVersion, INGESTION_V2_PUBLISH_FORMAT),
-      )
+    : declared.filter((row) => !ingestionV2EnabledFor(row))
   if (needsUpgrade.length === declared.length)
     return { skipped: "upgrade_needed" }
   const candidates = declared.filter((row) => !needsUpgrade.includes(row))
