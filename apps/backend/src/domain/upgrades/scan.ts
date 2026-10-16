@@ -174,12 +174,11 @@ export async function scanWorkspaceUpgrade(input: {
   )
     return { kind: "pending", key, status: existing.status }
   const [open] = github
-    ? (
-        await listOpenPullRequestsByBranchPrefix({
-          ...github,
-          branchPrefix: branch,
-        })
-      ).filter((pull) => pull.branch === branch)
+    ? await listOpenPullRequestsByBranchPrefix({
+        ...github,
+        branchPrefix: branch,
+        exactBranch: branch,
+      })
     : []
   if (open)
     return record(

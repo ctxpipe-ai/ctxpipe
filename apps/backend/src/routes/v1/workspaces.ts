@@ -16,6 +16,10 @@ import {
   workspaceRootPathSchema,
 } from "../../domain/workspaces/root-path.js"
 import {
+  formatBelow,
+  INGESTION_V2_PUBLISH_FORMAT,
+} from "../../domain/workspaces/workspace-format.js"
+import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
@@ -87,6 +91,10 @@ const WorkspaceSchema = z
     hydrateError: z.string().nullable(),
     migrationExportSha: z.string().nullable(),
     readOnlyReason: z.string().nullable(),
+    upgradeNeeded: z.boolean().openapi({
+      description:
+        "True when the Workspace format is below 3. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
+    }),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -181,6 +189,7 @@ function serializeWorkspace(
     hydrateStatus: string
     hydrateError?: string | null
     readOnlyReason: string | null
+    formatVersion?: number | null
     mostRecentConversationId?: string | null
     createdAt: Date
     updatedAt: Date
@@ -209,6 +218,7 @@ function serializeWorkspace(
     hydrateError: row.hydrateError ?? null,
     migrationExportSha,
     readOnlyReason: row.readOnlyReason,
+    upgradeNeeded: formatBelow(row.formatVersion, INGESTION_V2_PUBLISH_FORMAT),
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),

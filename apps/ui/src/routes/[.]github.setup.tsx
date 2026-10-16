@@ -38,6 +38,7 @@ export const Route = createFileRoute("/.github/setup")({
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
     state: typeof search.state === "string" ? search.state : undefined,
+    error: typeof search.error === "string" ? search.error : undefined,
   }),
 })
 
@@ -45,6 +46,8 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
+  /** The error code of a failed GitHub account link. */
+  linkError?: string
 }
 
 function MissingInstallationIdView() {
@@ -53,7 +56,7 @@ function MissingInstallationIdView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -76,7 +79,7 @@ function MissingPreferredOrgView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -160,6 +163,7 @@ export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
+  linkError,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -207,7 +211,7 @@ export function ConnectGithubView({
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <GithubNotLinkedNotice
@@ -217,6 +221,7 @@ export function ConnectGithubView({
               )?.providers?.includes("github") ?? true
             }
             orgSlug={selectedOrganizationSlug}
+            linkError={linkError}
           />
         </main>
       </AppShell>
@@ -228,7 +233,7 @@ export function ConnectGithubView({
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -336,7 +341,7 @@ function DirectSetupPage() {
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <section>
@@ -379,6 +384,7 @@ function DirectSetupPage() {
       installationId={search.installation_id}
       selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
+      linkError={search.error}
     />
   )
 }

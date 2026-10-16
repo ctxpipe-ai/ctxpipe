@@ -22,6 +22,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const GIT_ENV = {
   ...process.env,
@@ -141,7 +143,7 @@ async function fixture(
       workspaceId: WORKSPACE_ID,
       contextDir,
       base,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
     })
   }
   await reset()
@@ -155,6 +157,8 @@ async function fixture(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         ...(extra.includes("--roots") ? [] : ["--roots", rootsFile]),
         "--path",
         codeRoot,
@@ -178,6 +182,8 @@ async function fixture(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
         "--path",
@@ -201,6 +207,7 @@ async function fixture(
       baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
+      sourcePath: SOURCE_PATH,
       skill: "apis",
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
@@ -483,7 +490,7 @@ const SERVICE = front(
     name: "Billing service",
     summary: "Billing.",
     generated_by: "ctxpipe-extract",
-    sources: [SOURCE_URL],
+    sources: [SOURCE_PATH],
   },
   "# Billing service\n\nBills customers.\n",
 )
@@ -768,7 +775,7 @@ describe("write-apis", () => {
           kind: "Repository",
           name: "Shop",
           generated_by: "ctxpipe-extract",
-          sources: [SOURCE_URL],
+          sources: [SOURCE_PATH],
         },
         "# Shop\n",
       ),

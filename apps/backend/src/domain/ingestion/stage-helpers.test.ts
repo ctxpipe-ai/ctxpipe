@@ -21,6 +21,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 
 let root: string
 let contextDir: string
@@ -46,7 +48,7 @@ function owned(name: string, body = `# ${name}\n\nOwned prose.\n`) {
     kind: "Service",
     name,
     generated_by: "ctxpipe-extract",
-    sources: [SOURCE_URL],
+    sources: [SOURCE_PATH],
   })}---\n${body}`
 }
 
@@ -87,6 +89,7 @@ function validate() {
     baseCommit,
     stagedDir: stepDir,
     source: { url: SOURCE_URL, sha: "a".repeat(40) },
+    sourcePath: SOURCE_PATH,
     skill: "apis",
     bundle: "ingest-0000000000000000",
     sourcePathExists: async () => true,

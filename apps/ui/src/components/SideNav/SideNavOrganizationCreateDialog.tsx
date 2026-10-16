@@ -14,7 +14,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
-import { orgSlugError } from "../onboarding/org-name"
+import { orgSlugError, orgSlugFromName } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {
   isOpen: boolean
@@ -31,12 +31,15 @@ export function SideNavOrganizationCreateDialog({
   const queryClient = useQueryClient()
   const [, setPreferences] = useUserPreferences()
   const [orgName, setOrgName] = useState("")
-  const [orgSlug, setOrgSlug] = useState("")
+  // `null` means the user has not edited the slug. Until then it follows the
+  // name.
+  const [typedOrgSlug, setOrgSlug] = useState<string | null>(null)
+  const orgSlug = typedOrgSlug ?? orgSlugFromName(orgName)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const resetForm = () => {
     setOrgName("")
-    setOrgSlug("")
+    setOrgSlug(null)
     setValidationError(null)
   }
 
@@ -69,10 +72,11 @@ export function SideNavOrganizationCreateDialog({
         ...prev,
         selectedOrganizationSlug: organization.slug,
       }))
+      // Home shows the Get started guide: the organization is new.
       resetForm()
       onOpenChange(false)
       await router.navigate({
-        to: "/$orgSlug/setup",
+        to: "/$orgSlug",
         params: { orgSlug: organization.slug },
         replace: true,
       })

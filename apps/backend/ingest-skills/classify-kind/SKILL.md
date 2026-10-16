@@ -7,7 +7,7 @@ description: Find the kind of one code root (App, Service, or Library) and write
 
 The host runs the script first. You run only when the result has `ambiguous` set.
 
-1. Run `node /ctxpipe/skills/classify-kind/scripts/classify-kind.mjs <arguments>`. The step prompt gives the arguments: `--source`, `--source-url`, `--roots`, and `--path`. The source checkout is read-only.
+1. Run `node /ctxpipe/skills/classify-kind/scripts/classify-kind.mjs <arguments>`. The step prompt gives the arguments: `--source`, `--source-url`, `--source-path`, `--roots`, and `--path`. The source checkout is read-only.
 2. The script writes JSON that matches `schema.json` to stdout. When `kind` is set, the script found the kind with manifest and entrypoint rules. It wrote the file `knowledge/{apps,services,libraries}/<name>.md` and `/ctxpipe/out/patch.json`. Do nothing more.
 3. The file gets an `IMPLEMENTED_IN` claim to the repository unit (`knowledge/codebases/`, kind `Repository`), which the first step of the run wrote. When a context file already describes the same package (the same name, from this source or from a human), the script adds a line to the `## Related` section of that file. It does not add a second file.
 4. When `ambiguous` is set, the script wrote nothing. Read the files in `ambiguous.files`. Then choose one kind from `ambiguous.options`:

@@ -1,4 +1,5 @@
 import {
+  failStoppedUpgradeRun,
   getWorkspaceUpgradeRow,
   transitionWorkspaceUpgradeRow,
   type WorkspaceUpgradeRow,
@@ -27,6 +28,9 @@ export async function startWorkspaceUpgrade(input: {
   key: string
   userId: string
 }): Promise<StartUpgradeResult> {
+  // A run that stopped without its result must not keep the row: then this
+  // click starts a new run.
+  await failStoppedUpgradeRun(input.workspaceId, input.key)
   const row = await getWorkspaceUpgradeRow(input.workspaceId, input.key)
   if (!row) return { kind: "missing" }
   if (row.status === UPGRADE_STATUSES.blocked) return { kind: "blocked", row }

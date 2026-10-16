@@ -15,7 +15,6 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
-import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
@@ -67,11 +66,6 @@ const OrgSlugConnectorsRoute = OrgSlugConnectorsRouteImport.update({
 const OrgSlugKnowledgeGraphRoute = OrgSlugKnowledgeGraphRouteImport.update({
   id: '/knowledge-graph',
   path: '/knowledge-graph',
-  getParentRoute: () => OrgSlugRoute,
-} as any)
-const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
   getParentRoute: () => OrgSlugRoute,
 } as any)
 const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
@@ -198,7 +192,6 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -228,7 +221,6 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/device': typeof DotauthDeviceRoute
@@ -258,7 +250,6 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -291,7 +282,6 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -321,7 +311,6 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/consent'
     | '/.auth/device'
@@ -350,7 +339,6 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -436,13 +424,6 @@ declare module '@tanstack/react-router' {
       path: '/knowledge-graph'
       fullPath: '/$orgSlug/knowledge-graph'
       preLoaderRoute: typeof OrgSlugKnowledgeGraphRouteImport
-      parentRoute: typeof OrgSlugRoute
-    }
-    '/$orgSlug/setup': {
-      id: '/$orgSlug/setup'
-      path: '/setup'
-      fullPath: '/$orgSlug/setup'
-      preLoaderRoute: typeof OrgSlugSetupRouteImport
       parentRoute: typeof OrgSlugRoute
     }
     '/.auth/$authView': {
@@ -622,7 +603,6 @@ const OrgSlugWsWorkspaceSlugRouteWithChildren =
 interface OrgSlugRouteChildren {
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugKnowledgeGraphRoute: typeof OrgSlugKnowledgeGraphRoute
-  OrgSlugSetupRoute: typeof OrgSlugSetupRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
   OrgSlugChatSplatRoute: typeof OrgSlugChatSplatRoute
   OrgSlugGithubSetupRoute: typeof OrgSlugGithubSetupRoute
@@ -635,7 +615,6 @@ interface OrgSlugRouteChildren {
 const OrgSlugRouteChildren: OrgSlugRouteChildren = {
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugKnowledgeGraphRoute: OrgSlugKnowledgeGraphRoute,
-  OrgSlugSetupRoute: OrgSlugSetupRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
   OrgSlugChatSplatRoute: OrgSlugChatSplatRoute,
   OrgSlugGithubSetupRoute: OrgSlugGithubSetupRoute,

@@ -24,6 +24,12 @@ export const WORKSPACE_FORMAT_PATH = ".ctxpipe/workspace.yaml"
  */
 export const CODE_FORMAT = 3
 
+/** The first format with one file for each source under `sources/` (upgrade step 2). */
+export const SOURCE_FILES_FORMAT = 2
+
+/** The first format with ownership front matter (upgrade step 3). Ingestion v2 publishes from here. */
+export const INGESTION_V2_PUBLISH_FORMAT = 3
+
 /** The cache value for a format file that is not valid. */
 export const WORKSPACE_FORMAT_INVALID = -1
 
@@ -136,6 +142,25 @@ export function withFormatWriteGate<
       }
     : row
 }
+
+/**
+ * True when the cached format is known and older than `minimum`. A format
+ * that is not read yet (null) is not below: hydrate has not run, so nothing
+ * is known. A format file that is not valid has its own read-only gate.
+ * This is the one format reader for each "needs the upgrade" check.
+ */
+export function formatBelow(
+  formatVersion: number | null | undefined,
+  minimum: number,
+): boolean {
+  return typeof formatVersion === "number" && formatVersion >= 0
+    ? formatVersion < minimum
+    : false
+}
+
+/** The error text of a source writer on a Workspace below format 2. */
+export const UPGRADE_FIRST_MESSAGE =
+  "Upgrade this Workspace first. Its repository does not use one file for each source yet. Run the Workspace upgrade, then try again."
 
 /**
  * True when hydrate must queue an upgrade scan after it cached `next` over

@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 import YAML, { isNode, type Node, type YAMLSeq } from "yaml"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   githubScopeRepositories,
   githubScopeSchema,
@@ -29,6 +30,12 @@ export type SourcesConversionTree = {
   sourcesYaml: string | null
   /** Every blob under `sources/`. */
   sourceFiles: ReadonlyArray<{ path: string; text: string }>
+  /**
+   * The Workspace repository URL. A GitHub entry that names it is skipped
+   * and goes to the report, as before the source files: a source file for it
+   * would project as invalid.
+   */
+  workspaceUrl?: string | null
 }
 
 /** The change of the conversion. Each path is relative to the Workspace root folder. */
@@ -80,7 +87,7 @@ export function planSourcesConversion(
   tree: SourcesConversionTree,
 ): SourcesConversion {
   if (tree.sourcesYaml === null) return { writes: [], deletes: [], report: [] }
-  const plan = new ConversionPlan(tree.sourceFiles)
+  const plan = new ConversionPlan(tree.sourceFiles, tree.workspaceUrl ?? null)
   convertYaml(tree.sourcesYaml, plan)
   return {
     writes: [...plan.writes.values()]
@@ -100,7 +107,10 @@ class ConversionPlan {
   /** The valid sources: existing files, then the files that the plan writes. */
   private readonly sources: SourceFile[] = []
 
-  constructor(files: SourcesConversionTree["sourceFiles"]) {
+  constructor(
+    files: SourcesConversionTree["sourceFiles"],
+    readonly workspaceUrl: string | null,
+  ) {
     this.taken = new Set(files.map((file) => file.path))
     for (const file of [...files].sort((a, b) =>
       compareBytes(a.path, b.path),
@@ -311,6 +321,18 @@ function convertEntry(
       provider: "github" as const,
       connectionId: entry.connectionId,
       scope: ref === null ? { repository } : { repository, ref },
+    }
+    if (
+      plan.workspaceUrl &&
+      normalizeWorkspaceRepositoryUrl(plan.workspaceUrl).toLowerCase() ===
+        normalizeWorkspaceRepositoryUrl(
+          `https://github.com/${repository}`,
+        ).toLowerCase()
+    ) {
+      plan.report.push(
+        `${repository} in ${origin} is the Workspace repository, so it was skipped. A Workspace cannot link its own repository.`,
+      )
+      continue
     }
     const holder = plan.linking(repository)
     if (holder && plan.same(source)) continue

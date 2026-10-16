@@ -210,6 +210,14 @@ export function defineRepositoryIngestionV2Workflow(
         let resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )
+        if (!resolved.skipped)
+          for (const workspaceId of resolved.needsUpgrade)
+            logIngestEvent("warn", "ingestion-v2.upgrade-needed", {
+              ingestionRunId: run.id,
+              workspaceId,
+              reason:
+                "The Workspace is below format 3, so the run does not publish to it",
+            })
         // Before the first v2 publish to a Workspace, its old extracted files
         // move to ingestion v2 ownership (ADR-052 section 3). Then the run
         // reads the new revisions.
@@ -480,6 +488,7 @@ export function defineRepositoryIngestionV2Workflow(
                       semanticMerge: {
                         resolve: resolveIngestConflicts,
                         source: { url: input.source.url, sha: input.sha },
+                        sourcePath: destination.sourcePath,
                         sourcePathExists: (path) =>
                           ingestSourceTree({
                             orgId: input.orgId,
@@ -640,6 +649,7 @@ export function defineRepositoryIngestionV2Workflow(
                       ].sort(),
                       bundle: scope.bundle,
                       source: input.source,
+                      sourcePath: destination.sourcePath,
                       sourceSha: input.sha,
                       authorTime: input.authorTime,
                     },

@@ -28,6 +28,7 @@ import {
   docsWorkspaceGitTree,
   docsWorkspaceGraph,
   eligibleGithubRepos,
+  emptyWorkspaceActivity,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 
@@ -204,6 +205,16 @@ export function workspaceActivityHandler(
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(pathnameOf(request)),
+    () => HttpResponse.json(activity),
+  )
+}
+
+/** `GET /{orgSlug}/api/v1/activity`: the activity of every Workspace. */
+export function orgActivityHandler(
+  activity: WorkspaceActivityResponse = emptyWorkspaceActivity,
+) {
+  return http.get(
+    ({ request }) => /\/api\/v1\/activity$/.test(pathnameOf(request)),
     () => HttpResponse.json(activity),
   )
 }

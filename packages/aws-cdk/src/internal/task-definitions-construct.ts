@@ -199,8 +199,10 @@ export class TaskDefinitionsConstruct extends Construct {
       },
       logging: ecs.LogDrivers.awsLogs({ streamPrefix: "ctxpipe-worker" }),
     });
-    addSandboxHostClient(backendTask, backendContainer, backendImage, props.sandboxHost);
-    addSandboxHostClient(workerTask, workerContainer, workerImage, props.sandboxHost);
+    if (props.sandboxHost) {
+      addSandboxHostClient(backendTask, backendContainer, backendImage, props.sandboxHost);
+      addSandboxHostClient(workerTask, workerContainer, workerImage, props.sandboxHost);
+    }
 
     uiTask.addContainer("ui", {
       image: ecs.ContainerImage.fromRegistry(

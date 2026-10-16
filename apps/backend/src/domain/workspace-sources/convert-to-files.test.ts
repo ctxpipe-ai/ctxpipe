@@ -171,6 +171,30 @@ describe("planSourcesConversion", () => {
     expect(rowsOf(after).every((row) => row.status === "ok")).toBe(true)
   })
 
+  it("skips a YAML GitHub entry that names the Workspace repository and reports it", () => {
+    const tree = {
+      sourcesYaml: `version: 1
+sources:
+  - id: linked
+    provider: github
+    connection: con_example
+    repositories:
+      - acme/context
+      - acme/payments
+`,
+      sourceFiles: [],
+      workspaceUrl: "https://github.com/Acme/Context.git",
+    }
+    const plan = planSourcesConversion(tree)
+    expect(plan.writes.map((write) => write.path)).toEqual([
+      "sources/github/acme/payments.md",
+    ])
+    expect(plan.report).toEqual([
+      expect.stringContaining('acme/context in the entry "linked"'),
+    ])
+    expect(rowsOf(apply(tree)).every((row) => row.status === "ok")).toBe(true)
+  })
+
   it("is deterministic and idempotent, also when an old pull request adds sources.yaml again", () => {
     const tree = { sourcesYaml: ALL_PROVIDERS, sourceFiles: [] }
     expect(planSourcesConversion(tree)).toEqual(planSourcesConversion(tree))

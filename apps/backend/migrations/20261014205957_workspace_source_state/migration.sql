@@ -1,1 +1,0 @@
-ALTER TABLE "workspace_sources" ADD COLUMN "state" jsonb DEFAULT '{}' NOT NULL;

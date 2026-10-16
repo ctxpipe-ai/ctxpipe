@@ -41,6 +41,8 @@ import {
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_classify"
 const CONTEXT_DIR = `${INGEST_CONTEXT_ROOT}/${WORKSPACE_ID}`
 const SOURCE_DIR = `${INGEST_SOURCE_ROOT}/shop`
@@ -48,7 +50,7 @@ const STUB_PORT = 47812
 const STUB_LOG = "/tmp/model-requests.log"
 const STUB_CALLS = "/tmp/stub-calls.json"
 const ROOTS_FILE = "/ctxpipe/roots.json"
-const SCRIPT = `node ${INGEST_SKILLS_ROOT}/classify-kind/scripts/classify-kind.mjs --source ${SOURCE_DIR} --source-url ${SOURCE_URL} --roots ${ROOTS_FILE} --path packages/mixed`
+const SCRIPT = `node ${INGEST_SKILLS_ROOT}/classify-kind/scripts/classify-kind.mjs --source ${SOURCE_DIR} --source-url ${SOURCE_URL} --source-path ${SOURCE_PATH} --roots ${ROOTS_FILE} --path packages/mixed`
 const GIT_ENV = {
   GIT_AUTHOR_NAME: "Fixture",
   GIT_AUTHOR_EMAIL: "fixture@example.com",
@@ -196,7 +198,7 @@ describe("classify-kind skill in the sandbox", () => {
         projection: [],
         pinnedRevision: EMPTY_TREE,
         base: baseCommit,
-        sourceUrl: SOURCE_URL,
+        sourcePath: SOURCE_PATH,
         repoDir: repo,
       })
       await startIngestStep(root, {
@@ -286,6 +288,7 @@ describe("classify-kind skill in the sandbox", () => {
         baseCommit,
         stagedDir: dir,
         source: { url: SOURCE_URL, sha: "a".repeat(40) },
+        sourcePath: SOURCE_PATH,
         skill: "classify-kind",
         bundle: bundle.name,
         sourcePathExists: async () => true,

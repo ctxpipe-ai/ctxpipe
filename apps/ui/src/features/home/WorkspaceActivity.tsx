@@ -55,7 +55,7 @@ export const sectionHeadingClassName =
   "text-xs font-medium uppercase tracking-normal text-teal-400"
 
 /** The activity scope of every workspace. A workspace slug cannot have `*`. */
-const ALL_WORKSPACES = "*"
+export const ALL_WORKSPACES = "*"
 
 /** The workspace slug of a scope for `activityOptions` (`null`: all). */
 function scopeSlug(scope: string | null): string | null {

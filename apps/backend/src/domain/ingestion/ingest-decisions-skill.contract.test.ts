@@ -35,6 +35,8 @@ import {
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_contract"
 const CONTEXT_DIR = `${INGEST_CONTEXT_ROOT}/${WORKSPACE_ID}`
 const GIT_ENV = {
@@ -116,7 +118,7 @@ describe("decisions skill in the sandbox", () => {
       const source = `${INGEST_SOURCE_ROOT}/shop`
       await seal("context", WORKSPACE_ID, {
         "README.md": "# Context\n",
-        "knowledge/services/api.md": `---\nkind: Service\nname: API\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n---\n# API\n`,
+        "knowledge/services/api.md": `---\nkind: Service\nname: API\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_PATH}\n---\n# API\n`,
       })
       const baseCommit = (
         await sh(`git -C ${CONTEXT_DIR} rev-parse HEAD`)
@@ -132,7 +134,7 @@ describe("decisions skill in the sandbox", () => {
               title: "API",
               summary: null,
               links: [],
-              sources: [SOURCE_URL],
+              sources: [SOURCE_PATH],
               owned: true,
             },
           ],
@@ -155,7 +157,7 @@ describe("decisions skill in the sandbox", () => {
       await agent(
         `printf %s ${quote(Buffer.from(JSON.stringify(roots)).toString("base64"))} | base64 -d > ${INGEST_HOME}/roots.json`,
       )
-      const script = `node ${INGEST_SKILLS_ROOT}/decisions/scripts/decisions.mjs --source ${source} --source-url ${SOURCE_URL} --roots ${INGEST_HOME}/roots.json`
+      const script = `node ${INGEST_SKILLS_ROOT}/decisions/scripts/decisions.mjs --source ${source} --source-url ${SOURCE_URL} --source-path ${SOURCE_PATH} --roots ${INGEST_HOME}/roots.json`
       const listed = await run(script)
       expect(listed.code, listed.err).toBe(0)
       const result = JSON.parse(listed.out) as {
@@ -226,6 +228,7 @@ describe("decisions skill in the sandbox", () => {
         baseCommit,
         stagedDir: join(dir, "step"),
         source: { url: SOURCE_URL, sha: "a".repeat(40) },
+        sourcePath: SOURCE_PATH,
         skill: "decisions",
         bundle: bundle.name,
         sourcePathExists: async () => true,

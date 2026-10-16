@@ -31,6 +31,11 @@ import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { changeLinkedRepository } from "../workspaces/link-declarations.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
+import {
+  formatBelow,
+  SOURCE_FILES_FORMAT,
+  UPGRADE_FIRST_MESSAGE,
+} from "../workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import {
@@ -324,6 +329,9 @@ function assertCanEdit(workspace: WorkspaceRecord) {
     )
   if (!canEditSources(workspace))
     throw new SourceChangeError(409, "This Workspace is read-only")
+  // Each writer of the files under `sources/` calls this check.
+  if (formatBelow(workspace.formatVersion, SOURCE_FILES_FORMAT))
+    throw new SourceChangeError(409, UPGRADE_FIRST_MESSAGE)
   return repository
 }
 

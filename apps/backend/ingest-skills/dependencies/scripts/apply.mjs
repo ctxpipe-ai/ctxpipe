@@ -10,7 +10,7 @@
 // a file.
 //
 // node apply.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> [--path <root path>] \
+//   --source-url <url> --source-path <path> --roots <root-to-file map> [--path <root path>] \
 //   --resolutions /ctxpipe/out/resolutions.json
 //
 // With --path (a root step), the claims of that root; a stream resolves only

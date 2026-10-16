@@ -14,10 +14,11 @@ import {
   authConfigHandler,
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
-  organizationListWithOrgHandler,
+  organizationListHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
+  orgActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
   workspaceShellHandlers,
@@ -30,8 +31,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const userId = "user_storybook"
 const authBase = "*/.auth/api/v1/auth"
 
-/** A signed-in user who finished onboarding `daysAgo` days ago. */
-function sessionDefaults(daysAgo: number) {
+/**
+ * A signed-in user who finished onboarding `daysAgo` days ago, in an
+ * organization created `orgDaysAgo` days ago.
+ */
+function sessionDefaults(daysAgo: number, orgDaysAgo = 365) {
   return [
     authConfigHandler,
     sessionSignedInHandler({
@@ -40,7 +44,14 @@ function sessionDefaults(daysAgo: number) {
         Date.now() - daysAgo * DAY_MS,
       ).toISOString(),
     }),
-    organizationListWithOrgHandler,
+    organizationListHandler([
+      {
+        id: "org_storybook",
+        name: "Storybook Org",
+        slug: "acme",
+        createdAt: new Date(Date.now() - orgDaysAgo * DAY_MS).toISOString(),
+      },
+    ]),
   ]
 }
 
@@ -179,14 +190,21 @@ async function findGuide(canvasElement: HTMLElement) {
   )
 }
 
-/** A new admin with no Workspace: the guide takes the composer's place. */
+/**
+ * A new admin with no Workspace: the guide takes the composer's place, and
+ * the activity of the organization shows below it, empty.
+ */
 export const GuideAdminNewOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: [...adminGuide({}), workspaceListHandler([])],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
       },
     },
   },
@@ -198,6 +216,12 @@ export const GuideAdminNewOrg: Story = {
     expect(guide.getByRole("button", { name: "Connect GitHub" })).toBeVisible()
     const canvas = within(canvasElement)
     expect(canvas.queryByLabelText("Select workspace")).not.toBeInTheDocument()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -525,5 +549,57 @@ export const GuideEstablishedUserHidden: Story = {
     expect(
       canvas.queryByRole("region", { name: "Get started" }),
     ).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Onboarding finished long ago, but the organization is new: the guide shows
+ * for its first 14 days, also after the first Workspace.
+ */
+export const GuideEstablishedUserNewOrg: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30, 2),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+          }),
+          [quietWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+  },
+}
+
+/**
+ * An older organization with no Workspace is still at its start: the guide
+ * shows, with the empty activity below it.
+ */
+export const GuideEstablishedUserEmptyOrg: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30),
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
   },
 }
