@@ -614,7 +614,7 @@ it(
             id: jobId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
-            kind: "migration_export",
+            kind: "claims_upgrade",
             generation: 1,
             desiredSha: f.sha,
             status: "queued",
@@ -625,7 +625,7 @@ it(
 
         await runTipCheck(f)
         expect(
-          await workspaceRuns(f, "workspace-write-migration-export"),
+          await workspaceRuns(f, "workspace-write-claims-upgrade"),
         ).toEqual([
           expect.objectContaining({
             input: expect.objectContaining({ jobId }),
