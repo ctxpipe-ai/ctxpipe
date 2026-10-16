@@ -47,11 +47,14 @@ describe("admin-gated connector routes (Postgres)", () => {
     return app
   }
 
-  const del = (path: string) =>
-    createApp().request(`http://backend.test/${seed.orgSlug}/api/v1/${path}`, {
-      method: "DELETE",
-      headers: { cookie: seed.cookie },
-    })
+  // A route is "METHOD path".
+  const call = (route: string) => {
+    const [method, path] = route.split(" ")
+    return createApp().request(
+      `http://backend.test/${seed.orgSlug}/api/v1/${path}`,
+      { method, headers: { cookie: seed.cookie } },
+    )
+  }
 
   async function setRole(role: string) {
     await getSystemDb()
@@ -80,32 +83,30 @@ describe("admin-gated connector routes (Postgres)", () => {
     vi.unstubAllEnvs()
   })
 
-  // A DELETE with no connection never gives 403 from a handler, so a 403 here
-  // comes from the gate.
-  it.each([
-    "github/installation",
-    "connectors/atlassian",
-    "connectors/slack",
-    "connectors/linear",
-    "connectors/notion",
-    "connectors/pagerduty",
-  ])("%s refuses an org member who is not an admin", async (path) => {
+  // One real route of each admin group, with the success status an owner gets
+  // from an org with no connection. A 403 for a member comes from the gate. A
+  // 200 for an owner shows that the route is mounted.
+  const routes = [
+    "POST github/installation/draft/placeholder",
+    "GET connectors/atlassian/status",
+    "GET connectors/slack/status",
+    "GET connectors/linear/status",
+    "GET connectors/notion/status",
+    "GET connectors/pagerduty/status",
+  ]
+
+  it.each(
+    routes,
+  )("%s refuses an org member who is not an admin", async (path) => {
     await setRole("member")
     try {
-      expect((await del(path)).status).toBe(403)
+      expect((await call(path)).status).toBe(403)
     } finally {
       await setRole("owner")
     }
   })
 
-  it.each([
-    "github/installation",
-    "connectors/atlassian",
-    "connectors/slack",
-    "connectors/linear",
-    "connectors/notion",
-    "connectors/pagerduty",
-  ])("%s lets an owner through the gate", async (path) => {
-    expect((await del(path)).status).not.toBe(403)
+  it.each(routes)("%s answers 200 for an owner", async (path) => {
+    expect((await call(path)).status).toBe(200)
   })
 })
