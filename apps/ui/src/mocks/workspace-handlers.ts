@@ -163,7 +163,10 @@ export function workspaceFileJobHandler(
     async ({ request }) => {
       const body = (await request.json()) as WorkspaceFileJobRequest
       onJob?.(body)
-      return HttpResponse.json({ queued: true }, { status: 202 })
+      return HttpResponse.json(
+        { queued: true, jobId: "wjob_story" },
+        { status: 202 },
+      )
     },
   )
 }

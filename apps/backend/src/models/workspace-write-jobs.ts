@@ -42,6 +42,38 @@ export async function getWriteJobCommitSha(
   })
 }
 
+/**
+ * The status of one Files pane write job in a Workspace. Row-level security
+ * keeps the read in the org of the caller; the Workspace and kind filters keep
+ * it to Files pane jobs of that Workspace.
+ */
+export async function getWorkspaceFileJobStatus(
+  workspaceId: string,
+  jobId: string,
+): Promise<{ status: string; failureReason: string | null } | null> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        status: workspaceWriteJobs.status,
+        payload: workspaceWriteJobs.payload,
+      })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.workspaceId, workspaceId),
+          eq(workspaceWriteJobs.kind, "ui_file_edit"),
+        ),
+      )
+      .limit(1)
+    if (!row) return null
+    return {
+      status: row.status,
+      failureReason: row.payload?.failureReason ?? null,
+    }
+  })
+}
+
 /** Set the status of a job. `failureReason` records why a job failed. */
 export async function persistWriteJobStatus(
   jobId: string,

@@ -400,7 +400,11 @@ it.each(["writable", "read_only", "unknown"])(
             },
           )
           expect(response.status).toBe(202)
-          expect(await response.json()).toEqual({ queued: true })
+          const queued = (await response.json()) as { jobId: string }
+          expect(queued).toEqual({
+            queued: true,
+            jobId: expect.stringMatching(/^wjob_/),
+          })
           await expect
             .poll(
               async () => {
@@ -427,6 +431,7 @@ it.each(["writable", "read_only", "unknown"])(
             .toMatchObject({
               orgId,
               workspaceId,
+              jobId: queued.jobId,
               revision: { access: "write-default", workspaceId },
               files: [{ path: "AGENTS.md", content: "# Saved instructions\n" }],
               deletePaths: [],
