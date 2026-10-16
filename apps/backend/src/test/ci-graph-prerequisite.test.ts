@@ -9,7 +9,7 @@ it("CI graph prerequisite fails at its deadline when the server accepts but neve
   server.unref()
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
   const { port } = server.address() as net.AddressInfo
-  await expect(graphReady(`redis://127.0.0.1:${port}`, 500)).rejects.toThrow(
-    /did not answer within 500 ms/,
+  await expect(graphReady(`redis://127.0.0.1:${port}`, 300, 2)).rejects.toThrow(
+    /did not answer within 300 ms \(connect\)/,
   )
 })
