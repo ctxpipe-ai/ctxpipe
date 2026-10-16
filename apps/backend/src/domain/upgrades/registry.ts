@@ -1,5 +1,6 @@
 import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
+import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
 import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
 /**
@@ -72,12 +73,14 @@ export type GitUpgradeStep = {
 /**
  * The registered git upgrade steps. Step 1 exports the knowledge that fresh
  * ingestion cannot make again and moves the sources into
- * `.ctxpipe/sources.yaml` (CTX-743); CTX-744 adds steps 2 and 3. Until a
- * step is registered, the scan offers no upgrade to its format, so no pull
+ * `.ctxpipe/sources.yaml`. Step 2 converts the sources to the new layout,
+ * and step 3 moves the ownership of the files. Until a step is registered, the scan offers no upgrade to its format, so no pull
  * request can claim a format whose layout change did not run.
  */
 export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = [
   exportAndSourcesStep(),
+  sourcesConversionStep,
+  ownershipMigrationStep,
 ]
 
 /** The prefix of every upgrade branch. Only the upgrade workflow pushes to it. */

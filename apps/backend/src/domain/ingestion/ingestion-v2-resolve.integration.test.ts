@@ -32,6 +32,8 @@ describe("the source path of a repository (Postgres + git)", () => {
           githubConnectionId: github,
           writeStatus: "writable",
           desiredSha: "a".repeat(40),
+          // The publish gate: ingestion v2 publishes at format 3 or more.
+          formatVersion: 3,
         })
         .where(eq(workspaces.id, workspaceId)),
     )
@@ -67,6 +69,7 @@ describe("the source path of a repository (Postgres + git)", () => {
     )
     const run = await resolveIngestionV2Run({
       orgId: seed.orgId,
+      shadow: false,
       source: {
         url: `https://github.com/${repository}`,
         githubConnectionId: github,

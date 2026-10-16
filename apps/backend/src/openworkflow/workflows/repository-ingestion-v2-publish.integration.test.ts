@@ -444,6 +444,8 @@ beforeAll(async () => {
         desiredSha: pinned[i],
         desiredDefaultBranch: "main",
         writeStatus: "writable",
+        // The publish gate: ingestion v2 publishes at format 3 or more.
+        formatVersion: 3,
       }),
     )
     await replaceWorkspaceSourceRows({

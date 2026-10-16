@@ -254,6 +254,12 @@ export function planSourceStates(input: {
     scope: unknown
   }>
   workspaceUrl: string | null
+  /**
+   * The old key of a row whose source moved to a new key, by new key. The new
+   * row takes the pins and the held target of the old row, when no planned
+   * row has the old key.
+   */
+  movedFrom?: ReadonlyMap<string, string>
   now?: Date
 }): Map<string, StoredSourceState> {
   const byKey = new Map(
@@ -262,6 +268,15 @@ export function planSourceStates(input: {
       { row, pins: githubPins(row) },
     ]),
   )
+  const plannedKeys = new Set(input.planned.map((row) => row.sourceKey))
+  const rowOf = (sourceKey: string) => {
+    const own = byKey.get(sourceKey)
+    if (own) return own
+    const old = input.movedFrom?.get(sourceKey)
+    return old !== undefined && !plannedKeys.has(old)
+      ? byKey.get(old)
+      : undefined
+  }
   // A pin belongs to its repository URL and ref, not to a row or a path, so
   // a renamed source file keeps its pin (ADR-050, revision 2026-10-16).
   const pool = new Map<string, GithubRepositoryPin>()
@@ -305,7 +320,7 @@ export function planSourceStates(input: {
   // one row only. An `invalid` row also keeps the last good target.
   const kept = new Set<string>()
   for (const planned of input.planned) {
-    const current = byKey.get(planned.sourceKey)
+    const current = rowOf(planned.sourceKey)
     if (planned.provider === "github" && !linking(planned.status)) {
       const named = new Set(
         githubSourceScopeRepositories(planned.scope).map(

@@ -24,7 +24,12 @@ import {
 } from "../../services/git/clone-tree.js"
 import { parseNameStatus } from "../../services/git/name-status.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "../../services/git/root-folder.js"
 import { compareBranchChanges } from "../../services/github/installation-write-client.js"
+import { SOURCE_FILES_FOLDER } from "../workspace-sources/source-file.js"
 import {
   type ChatPublishBlock,
   conversationSessionBranch,
@@ -58,6 +63,12 @@ import {
   workspaceRootPath,
 } from "./root-path.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  readWorkspaceFormat,
+  SOURCE_FILES_FORMAT,
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatAtLeast,
+} from "./workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationSandboxBinding = {
@@ -125,6 +136,10 @@ export type SessionPublishSkip =
   | "host_only_field"
   /** The commits change a file outside the Workspace root folder. */
   | "outside_root"
+  /** The commits change `.ctxpipe/workspace.yaml`; only an upgrade pull request does. */
+  | "format_file"
+  /** The commits change `sources/` on a Workspace below format 2. */
+  | "upgrade_needed"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
@@ -560,11 +575,14 @@ async function brokerPush(input: {
       // sandbox, because the agent controls the sandbox. A change to a
       // host-only path such as `.ctxpipe/` is allowed: the push reaches only
       // the session branch, so the change reaches the default branch only
-      // through a pull request that a person merges.
+      // through a pull request that a person merges. The format file is the
+      // exception: only an upgrade pull request changes it.
       if (await addsOwnershipField(directory, packBase, sha))
         throw new PublishRefused("host_only_field")
       // The agent may change files only below the Workspace root folder.
       const rootPath = workspaceRootPath(revision)
+      const refusal = await formatRefusal(directory, packBase, sha, rootPath)
+      if (refusal) throw new PublishRefused(refusal)
       if (
         rootPath &&
         (
@@ -685,6 +703,67 @@ async function addsOwnershipField(
     }
   }
   return false
+}
+
+/**
+ * The refusal of a change that the Workspace format does not allow, or null.
+ * The commits must not change the format file. Below format 2, they must not
+ * change `sources/`, because the Workspace still reads `.ctxpipe/sources.yaml`.
+ * The format comes from the format file at `base`, in the broker's copy.
+ */
+async function formatRefusal(
+  directory: string,
+  base: string,
+  sha: string,
+  rootPath: string,
+): Promise<"format_file" | "upgrade_needed" | null> {
+  const changed = (
+    await nativeGit(directory, [
+      "diff-tree",
+      "-r",
+      "-z",
+      "--no-renames",
+      "--name-only",
+      base,
+      sha,
+    ])
+  )
+    .toString("utf8")
+    .split("\0")
+    .flatMap((path) => {
+      const relative = path ? workspaceRelativePath(rootPath, path) : null
+      return relative === null ? [] : [relative]
+    })
+  if (changed.includes(WORKSPACE_FORMAT_PATH)) return "format_file"
+  if (!changed.some((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`)))
+    return null
+  const formatPath = workspaceRepositoryPath(rootPath, WORKSPACE_FORMAT_PATH)
+  const text = (
+    await nativeGit(directory, [
+      "ls-tree",
+      "--name-only",
+      base,
+      "--",
+      formatPath,
+    ])
+  )
+    .toString("utf8")
+    .trim()
+    ? (
+        await nativeGit(directory, [
+          "cat-file",
+          "blob",
+          `${base}:${formatPath}`,
+        ])
+      ).toString("utf8")
+    : null
+  const format = readWorkspaceFormat(text)
+  return workspaceFormatAtLeast(
+    format.kind === "format" ? format.format : null,
+    SOURCE_FILES_FORMAT,
+  )
+    ? null
+    : "upgrade_needed"
 }
 
 function sanitizeCredentials(

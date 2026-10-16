@@ -1,5 +1,9 @@
 import { z } from "zod"
 import { otelDeploymentEnvironment } from "../../observability/otel.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  workspaceFormatAtLeast,
+} from "../workspaces/workspace-format.js"
 
 /**
  * Shadow mode of ingestion v2 (ADR-052 phase 2). After the old pipeline
@@ -60,4 +64,20 @@ export function publishPipelineStopped(input: {
   committed: IngestionPublishPipeline
 }): boolean {
   return input.queued !== input.job || input.committed !== input.job
+}
+
+/**
+ * The G5 gate: ingestion v2 publishes to a destination Workspace when the
+ * format of THAT Workspace is 3 or more. A Workspace below 3, or one whose
+ * format is not read yet (null), keeps the legacy path. The gate is per
+ * destination, because one v2 run publishes to each Workspace that declares
+ * the source. Read the format from the Workspace row (`formatVersion`).
+ */
+export function ingestionV2EnabledFor(workspace: {
+  formatVersion: number | null | undefined
+}): boolean {
+  return workspaceFormatAtLeast(
+    workspace.formatVersion ?? null,
+    INGESTION_V2_PUBLISH_FORMAT,
+  )
 }
