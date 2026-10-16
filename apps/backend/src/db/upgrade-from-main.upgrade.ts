@@ -24,8 +24,28 @@ import { withNativeHydrationFixture } from "../test/native-hydration-fixture.js"
 import { withOrgDbContext } from "./client.js"
 import { workspaces, workspaceWriteJobs } from "./schema/workspaces.js"
 
-// registerV1Routes loads the conversation graph, which builds its model at import time.
-vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
+/*
+ * Before the imports: the shared OpenWorkflow client reads DATABASE_URL when
+ * a module imports it, so DATABASE_URL names the upgraded database as the app
+ * role from the start. The client connects only at its first query.
+ */
+const urls = vi.hoisted(() => {
+  // registerV1Routes loads the conversation graph, which builds its model at import time.
+  vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
+  const serverUrl = process.env.DATABASE_URL ?? ""
+  const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
+  const database = `ctxpipe_upgrade_from_main_${suffix}`
+  const appPassword = process.env.DATABASE_APP_PASSWORD || "ctxpipe"
+  if (!serverUrl) return { serverUrl, suffix, database, appPassword, ownerUrl: "", appUrl: "" }
+  const url = new URL(serverUrl)
+  url.pathname = `/${database}`
+  const ownerUrl = url.toString()
+  url.username = "ctxpipe_app"
+  url.password = appPassword
+  const appUrl = url.toString()
+  process.env.DATABASE_URL = appUrl
+  return { serverUrl, suffix, database, appPassword, ownerUrl, appUrl }
+})
 
 /*
  * The minor upgrade from main, end to end (CTX-748). An operator on main
@@ -49,9 +69,7 @@ vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
  */
 
 const backendDir = fileURLToPath(new URL("../..", import.meta.url))
-const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-const database = `ctxpipe_upgrade_from_main_${suffix}`
-const appPassword = process.env.DATABASE_APP_PASSWORD || "ctxpipe"
+const { suffix, database, appPassword, ownerUrl, appUrl } = urls
 
 const ORG = { id: "org_main_era", slug: "main-era", name: "Main era" }
 const ADMIN_TOKEN = "main-era-admin-session-token"
@@ -79,8 +97,6 @@ scope:
 `
 
 let admin: pg.Client
-let ownerUrl = ""
-let appUrl = ""
 let mainTree = ""
 
 function run(command: string, args: string[], cwd: string, databaseUrl: string) {
@@ -233,7 +249,7 @@ async function snapshot(db: pg.Client) {
 }
 
 beforeAll(async () => {
-  const serverUrl = process.env.DATABASE_URL
+  const serverUrl = urls.serverUrl
   mainTree = process.env.MAIN_TREE ?? ""
   if (!serverUrl || !mainTree)
     throw new Error(
@@ -242,12 +258,6 @@ beforeAll(async () => {
   admin = new pg.Client({ connectionString: serverUrl })
   await admin.connect()
   await admin.query(`CREATE DATABASE "${database}"`)
-  const url = new URL(serverUrl)
-  url.pathname = `/${database}`
-  ownerUrl = url.toString()
-  url.username = "ctxpipe_app"
-  url.password = appPassword
-  appUrl = url.toString()
 }, 60_000)
 
 afterAll(async () => {
@@ -340,7 +350,6 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   ])
 
   // 3. The new code on the upgraded database, as the app role.
-  process.env.DATABASE_URL = appUrl
   vi.stubEnv("SANDBOX_PROVIDER", "docker")
   const opened: Array<{ head: string; base: string; body: string }> = []
   let openPulls: unknown[] = []
