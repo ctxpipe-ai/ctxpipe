@@ -1,6 +1,6 @@
 # ADR-046: Workspace revision and projection identity
 
-**Status:** Accepted (revised 2026-10-02) | **Date:** 2026-09-08 | **Tags:** workspace, git, postgres
+**Status:** Accepted (revised 2026-10-16) | **Date:** 2026-09-08 | **Tags:** workspace, git, postgres
 
 ## Context
 
@@ -39,3 +39,11 @@ A Workspace can live in one folder of its repository, for example `docs/context`
 ## Revision 2026-10-15: linked pins live in the source state
 
 The pinned ref and SHAs of each linked repository (`LinkedRevision`) move from `workspace_linked_repositories` to the `state` column of the GitHub row in `workspace_sources` ([ADR-050](ADR-050-workspace-sources-config-file.md)). The link id (`wlr_…`) stays stable. The sources projection of a revision replaces the linked membership in one transaction, right after the activation of that revision; activation itself no longer changes linked rows. The compare-and-set updates of `desiredSha` and `indexedSha` lock the source row, parse its state, check the same binding fields as before (link id, Workspace, URL, ref, SHA, owner revision, repository connection), and write the state back.
+
+## Revision 2026-10-16: the Workspace format of a revision ([ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md))
+
+- Hydrate reads `.ctxpipe/workspace.yaml` below the root folder, at the revision SHA, from the same pack. It records the format in the nullable cache column `workspaces.format_version`. Git stays the truth; a rebuilt database gets the value again at the next hydrate. No file means format 0.
+- Two new read-only reasons use the same gate as the other write refusals (`writeJobQueueHttpDecision`):
+  - `format_ahead`: the format is above the `CODE_FORMAT` of the running code (for example after a rollback). Hydrate and the read paths serve the Workspace. Every write path refuses. No upgrade is offered.
+  - `format_invalid`: the file does not parse. Hydrate serves the Workspace. Every write path refuses. The UI offers a "Repair" pull request.
+- The format file is host-only, as all of `.ctxpipe/` is.
