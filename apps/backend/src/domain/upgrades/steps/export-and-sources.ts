@@ -48,60 +48,72 @@ import type {
  *     reads only GitHub sources.
  *   - `not_linked`: a GitHub repository that the final sources file does
  *     not link.
- *   - `workspace_code`: the code knowledge (`inu:`, `svc:` and `dec:` keys)
- *     of the repository of a Workspace. Ingestion v2 does not ingest the
- *     Workspace repository.
+ *   - `workspace_repository`: an object of the repository of a Workspace
+ *     that no Markdown file of the Workspace backs, whatever its key prefix.
+ *     Ingestion v2 does not ingest the Workspace repository, and hydrate
+ *     makes objects only from Markdown files.
+ *   - `codeowners`: a team from a CODEOWNERS file (`team:github:` key).
+ *     Hydrate does not make it, and it has no org repository.
  * - `github`: a GitHub repository that the final sources file links. The
  *   re-ingestion upgrade makes its knowledge again (ADR-053 section 5).
- * - `workspace`: other knowledge of the repository of a Workspace. Hydrate
- *   reads its files directly: the connector mirror files and the knowledge
- *   files.
- * - `no_repository`: no org repository. These are connector nodes (Linear
- *   issues and teams, Slack threads, pull requests) that main made from the
- *   mirror files, which hydrate makes again from the same files, and rows of
- *   a repository that was deleted.
+ * - `workspace`: an object of the repository of a Workspace that a Markdown
+ *   file of the Workspace backs. Hydrate makes it again from that file.
+ * - `no_repository`: no org repository. These are connector items (Linear
+ *   issues and teams, Slack threads). Hydrate makes an item again from its
+ *   mirror file, and fresh ingestion of its connector source, which step 1
+ *   moves into the sources file, fetches it again.
  */
 export type LegacyKnowledgeOrigin =
   | {
       kind: "kept"
-      repositoryUrl: string
-      reason: "not_github" | "not_linked" | "workspace_code"
+      /** The repository URL, or the group name in the report. */
+      from: string
+      reason: keyof typeof KEPT_REASONS
     }
   | { kind: "github" }
   | { kind: "workspace" }
   | { kind: "no_repository" }
 
-const WORKSPACE_CODE_KEY = /^(?:inu|svc|dec):/
-
 export function legacyKnowledgeOrigin(input: {
   object: Pick<ExportObjectRow, "deduplicationKey">
+  /** True when a Markdown file that stays in the Workspace backs the object. */
+  markdownBacked: boolean
   workspaceByRepositoryId: ReadonlyMap<string, string>
   repositoryGitUrlById: ReadonlyMap<string, string>
   /** The normalized GitHub URLs that the final sources file links. */
   linkedGitUrls: ReadonlySet<string>
 }): LegacyKnowledgeOrigin {
-  const repositoryId = repositoryIdFromDedup(input.object.deduplicationKey)
-  if (!repositoryId) return { kind: "no_repository" }
-  const gitUrl = input.repositoryGitUrlById.get(repositoryId)
-  if (input.workspaceByRepositoryId.has(repositoryId))
-    return gitUrl &&
-      WORKSPACE_CODE_KEY.test(input.object.deduplicationKey?.trim() ?? "")
-      ? { kind: "kept", repositoryUrl: gitUrl, reason: "workspace_code" }
-      : { kind: "workspace" }
+  const key = input.object.deduplicationKey?.trim() ?? ""
+  if (key.startsWith("team:github:"))
+    return { kind: "kept", from: "CODEOWNERS files", reason: "codeowners" }
+  const repositoryId = repositoryIdFromDedup(key)
+  const gitUrl = repositoryId
+    ? input.repositoryGitUrlById.get(repositoryId)
+    : undefined
+  if (repositoryId && input.workspaceByRepositoryId.has(repositoryId))
+    return input.markdownBacked
+      ? { kind: "workspace" }
+      : {
+          kind: "kept",
+          from: gitUrl ?? "the Workspace repository",
+          reason: "workspace_repository",
+        }
   if (!gitUrl) return { kind: "no_repository" }
   if (!githubRepoFullNameFromWorkspaceUrl(gitUrl))
-    return { kind: "kept", repositoryUrl: gitUrl, reason: "not_github" }
+    return { kind: "kept", from: gitUrl, reason: "not_github" }
   return input.linkedGitUrls.has(normalizeWorkspaceRepositoryUrl(gitUrl))
     ? { kind: "github" }
-    : { kind: "kept", repositoryUrl: gitUrl, reason: "not_linked" }
+    : { kind: "kept", from: gitUrl, reason: "not_linked" }
 }
 
 const KEPT_REASONS = {
   not_github:
     "Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
   not_linked: `\`${SOURCES_FILE_PATH}\` does not link this repository, so fresh ingestion cannot make them again.`,
-  workspace_code:
-    "This is the Workspace repository. Ingestion v2 does not ingest it, so it cannot make them again.",
+  workspace_repository:
+    "This is the Workspace repository and no Markdown file of the Workspace holds them. Ingestion v2 does not ingest it, and hydrate makes items only from Markdown files, so nothing makes them again.",
+  codeowners:
+    "These are the teams of CODEOWNERS files. Hydrate does not make them, so nothing makes them again.",
 } as const
 
 const PROVIDER_NAMES: Record<SourceProvider, string> = {
@@ -398,6 +410,17 @@ export function exportAndSourcesStep(
       } catch (error) {
         if (!(error instanceof SourceChangeError)) throw error
       }
+      // Hydrate makes an object again only from a Markdown file that is in
+      // the tree after this step: a moved file stays, a deleted one does not.
+      const treePaths = new Set(tree.paths())
+      const deleted = new Set([
+        ...linkedRepositories.deletePaths,
+        ...connectors.deletes,
+      ])
+      const staysAsMarkdown = (path: string) =>
+        path.toLowerCase().endsWith(".md") &&
+        treePaths.has(path) &&
+        (connectors.moves.has(path) || !deleted.has(path))
       const counts = { kept: 0, github: 0, workspace: 0, no_repository: 0 }
       const keptByRepository = new Map<
         string,
@@ -418,8 +441,12 @@ export function exportAndSourcesStep(
           assignment.workspaceId !== ctx.workspaceId
         )
           continue
+        const path = objectPathFromPayload(object.payload)
+          ?.replace(/^\.?\/+/, "")
+          .trim()
         const origin = legacyKnowledgeOrigin({
           object,
+          markdownBacked: !!path && staysAsMarkdown(path),
           workspaceByRepositoryId: source.workspaceByRepositoryId,
           repositoryGitUrlById: source.repositoryGitUrlById,
           linkedGitUrls,
@@ -428,13 +455,12 @@ export function exportAndSourcesStep(
         counts[origin.kind] += 1
         if (origin.kind !== "kept") continue
         kept.add(object.id)
-        const current = keptByRepository.get(origin.repositoryUrl)
-        keptByRepository.set(origin.repositoryUrl, {
+        const current = keptByRepository.get(origin.from)
+        keptByRepository.set(origin.from, {
           count: (current?.count ?? 0) + 1,
           reason: KEPT_REASONS[origin.reason],
         })
       }
-      const treePaths = new Set(tree.paths())
       const knowledge = await planKnowledgeProjection({
         workspaceId: ctx.workspaceId,
         firstWorkspaceId: source.firstWorkspaceId,
@@ -447,14 +473,19 @@ export function exportAndSourcesStep(
         ),
         objects: source.objects,
         writeObjectIds: kept,
-        // A connector item keeps its links through its file in the tree,
+        // An item that hydrate makes again keeps its links through its file,
         // at the path that step 1 moves the file to.
         resolveUnwritten: (object) => {
-          if (origins.get(object.id)?.kind !== "no_repository") return null
+          const kind = origins.get(object.id)?.kind
+          if (kind !== "no_repository" && kind !== "workspace") return null
           const path = objectPathFromPayload(object.payload)
             ?.replace(/^\.?\/+/, "")
             .trim()
-          if (!path || !treePaths.has(path)) return null
+          if (!path) return null
+          if (
+            kind === "workspace" ? !staysAsMarkdown(path) : !treePaths.has(path)
+          )
+            return null
           return connectors.moves.get(path) ?? path
         },
         claims: source.claims,
@@ -475,7 +506,7 @@ export function exportAndSourcesStep(
           `Dropped a link: ${label(link.from)} ${link.predicate} ${link.to ? label(link.to) : "an item that this Workspace does not get"}. After the upgrade, no file of this Workspace holds the target.`,
         )
       report.push(
-        `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate reads the files of the Workspace).`,
+        `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
       )
 
       const writes: UpgradeStepPlan["writes"] = [...knowledge.files]

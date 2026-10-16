@@ -191,7 +191,7 @@ it(
             title: "ENG-1 Fix the build",
             path: "linear/issues/ENG-1.md",
           })
-          const team = await seed(f, "Team", "tem:codeowners:@acme/platform", {
+          const team = await seed(f, "Team", "team:github:acme/platform", {
             name: "Platform team",
           })
           await seed(f, "Service", `svc:${own.id}:context`, {
@@ -235,26 +235,32 @@ it(
           path.startsWith("knowledge/"),
         )
         const all = exported.map((path) => tree.text.get(path)).join("\n")
-        // Kept: the GitLab service, the code of the Workspace repository
-        // (item 3), and the GitHub repository that no source links.
+        // Kept: the GitLab service, each object of the Workspace repository
+        // that no Markdown file backs, whatever its key prefix, the
+        // CODEOWNERS team, and the GitHub repository that no source links.
         expect(all).toContain("Tools CLI")
         expect(all).toContain("Context service")
+        expect(all).toContain("Workspace helpers")
+        expect(all).toContain("Platform team")
         expect(all).toContain("Lost worker")
         expect(all).not.toContain("Parser library")
-        expect(all).not.toContain("Workspace helpers")
         expect(report).toEqual(
           expect.arrayContaining([
             expect.stringMatching(
               /^Kept 1 knowledge item\(s\) from https:\/\/github\.com\/team-b\/lost .*does not link this repository/,
             ),
             expect.stringMatching(
-              /^Kept 1 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
+              /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
+            ),
+            expect.stringMatching(
+              /^Kept 1 knowledge item\(s\) from CODEOWNERS files .*Hydrate does not make them/,
             ),
           ]),
         )
 
-        // Blocker 2: the link to the Linear issue goes to its file. The
-        // links to the GitHub library and the CODEOWNERS team are reported.
+        // Blocker 2: the link to the Linear issue goes to its file, and the
+        // link to the CODEOWNERS team goes to its exported file. The link to
+        // the GitHub library is reported.
         const toolsFile = exported.find((path) =>
           tree.text.get(path)?.includes("Tools CLI"),
         )
@@ -262,24 +268,82 @@ it(
         expect(toolsText).toContain("predicate: TRACKED_IN")
         expect(toolsText).toContain("to: ../../linear/issues/ENG-1.md")
         expect(toolsText).not.toContain("USES")
-        expect(toolsText).not.toContain("OWNED_BY")
+        expect(toolsText).toContain("predicate: OWNED_BY")
         expect(report).toEqual(
           expect.arrayContaining([
             expect.stringMatching(
               /^Dropped a link: "Tools CLI" \(svc:.*\) USES "Parser library" \(lib:/,
             ),
-            expect.stringMatching(
-              /^Dropped a link: "Tools CLI" \(svc:.*\) OWNED_BY "Platform team" \(tem:codeowners:@acme\/platform\)/,
-            ),
           ]),
         )
         expect(
           report.filter((line) => line.startsWith("Dropped")),
-        ).toHaveLength(2)
+        ).toHaveLength(1)
 
         // A second plan on the output changes nothing.
         const rerun = await runStep(f, {}, result.pack)
         expect(rerun.steps[0]?.sha).toBeNull()
+      },
+    ),
+)
+
+it(
+  "exports each object of the Workspace repository that no Markdown file backs, whatever its key prefix",
+  { timeout: 90_000 },
+  async () =>
+    withNativeHydrationFixture(
+      {
+        github: true,
+        files: [
+          { path: "README.md", body: "# Context\n" },
+          { path: "docs/adr/0001-use-git.md", body: "# Use git\n" },
+        ],
+      },
+      async (f) => {
+        await withOrgIdContext(f.org, async () => {
+          const own = await repository(f, f.workspaceUrl, f.connectionId)
+          await persistOrgFirstWorkspace({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            sourceRepositoryId: own.id,
+          })
+          // Code-only objects: no Markdown file of the Workspace backs them.
+          await seed(f, "Api", `api:${own.id}:./:public`, {
+            name: "Public API surface",
+            summary: "The HTTP routes.",
+          })
+          await seed(f, "Operation", `op:${own.id}:./:deploy`, {
+            name: "Deploy operation",
+            summary: "Ships the service.",
+            path: "scripts/deploy.ts",
+          })
+          // Hydrate makes this object again from its Markdown file.
+          await seed(f, "Decision", `dec:${own.id}:docs/adr/0001-use-git.md`, {
+            name: "Use git",
+            path: "docs/adr/0001-use-git.md",
+          })
+        })
+
+        const result = await runStep(f)
+        const report = result.steps[0]?.report ?? []
+        const tree = await readTree(result.pack)
+        const all = tree.paths
+          .filter((path) => path.startsWith("knowledge/"))
+          .map((path) => tree.text.get(path))
+          .join("\n")
+        expect(all).toContain("Public API surface")
+        expect(all).toContain("Deploy operation")
+        expect(all).not.toContain("Use git")
+        expect(report).toEqual(
+          expect.arrayContaining([
+            expect.stringMatching(
+              /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
+            ),
+            expect.stringMatching(
+              /^Not exported, because ctx\| makes it again: 0 item\(s\) from GitHub repositories .*, 1 item\(s\) from Workspace repositories /,
+            ),
+          ]),
+        )
       },
     ),
 )
