@@ -94,6 +94,8 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 - Assert visibility or style inside `waitFor(() => expect(...))`. Do not assert right after `findBy...`. A fade or a re-render can then not fail the check.
 - Never keep an element from `findBy...` or `getBy...` in a variable and check it after an `await userEvent...`. A re-render can replace the node. Query it again inside `waitFor`.
 - To close a dialog, press Close inside `waitFor` and wait until the dialog is gone. A press on a node that a re-render replaced is lost.
+- A story that depends on a smooth scroll or a spring gets the `reduced-motion` tag. The runner then turns on `prefers-reduced-motion`, and the thread scroll jumps at once. Do not raise a timeout to outwait a spring.
+- Raise a `waitFor` timeout only when you can name the slow step in a comment (for example, the story router loads a route after an async load).
 - Assert absence (`queryBy...` with `.not.toBeInTheDocument()`) inside `waitFor`, after the final state shows.
 - **Guard:** `node scripts/ci/check-story-play-timing.mjs` runs in CI (the lint job, next to the motion check). It fails on `expect(await ...findBy...)` with a state matcher (`toBeVisible`, `toBeChecked`, `toBeEnabled`, `toBeDisabled`, `toHaveStyle`, `toHaveValue`, and similar) outside `waitFor`. It also fails on a stored element that gets such a check after an `await userEvent...`. Add `// play-timing: ok <reason>` to a line to exempt it.
 - With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.

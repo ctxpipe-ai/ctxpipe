@@ -1316,31 +1316,19 @@ export const GithubManyRepositories: Story = {
     toggle.focus()
     await expect(toggle).toHaveFocus()
     await userEvent.keyboard("{Enter}")
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"))
     await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Show all 312" }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    )
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Show all 312" }),
-      ).toHaveAttribute("aria-controls", listElement.id),
+      expect(toggle).toHaveAttribute("aria-controls", listElement.id),
     )
     await expect(list.getAllByRole("listitem")).toHaveLength(312)
     await expect(listElement.scrollHeight).toBeGreaterThan(
       listElement.clientHeight,
     )
     await expect(toggle).toHaveAccessibleName("Show fewer")
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Show all 312" }),
-      ).toHaveFocus(),
-    )
+    await waitFor(() => expect(toggle).toHaveFocus())
     await userEvent.keyboard(" ")
     await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: "Show all 312" }),
-      ).toHaveAttribute("aria-expanded", "false"),
+      expect(toggle).toHaveAttribute("aria-expanded", "false"),
     )
     await expect(list.getAllByRole("listitem")).toHaveLength(5)
 

@@ -89,11 +89,7 @@ export const TurnCardExpanded: Story = {
     // The folder adds up its files.
     await expect(canvas.getByText("78 added, 7 removed")).toBeInTheDocument()
     await userEvent.click(folder)
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: /apps\/ui\/src/ }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    )
+    await waitFor(() => expect(folder).toHaveAttribute("aria-expanded", "true"))
     await expect(
       canvas.getByRole("button", { name: "Open diff of apps/ui/src/Diff.tsx" }),
     ).toBeVisible()

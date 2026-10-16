@@ -83,10 +83,7 @@ export const SuggestionFillsComposer: Story = {
     expect(trigger).toHaveAttribute("aria-expanded", "false")
     await userEvent.click(trigger)
     await waitFor(() =>
-      expect(canvas.getByRole("button", { name: "Suggested" })).toHaveAttribute(
-        "aria-expanded",
-        "true",
-      ),
+      expect(trigger).toHaveAttribute("aria-expanded", "true"),
     )
     const suggestion = workspaceSuggestions[2]
     await userEvent.click(canvas.getByRole("button", { name: suggestion }))

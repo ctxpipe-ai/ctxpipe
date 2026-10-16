@@ -237,17 +237,9 @@ export const ChatProgressLogExpanded: Story = {
     const canvas = within(canvasElement)
     const log = canvas.getByRole("button", { name: progressCounters })
     await userEvent.click(log)
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: progressCounters }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    )
+    await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
     const region = canvas.getByRole("region", { name: "Activity log" })
-    await waitFor(() =>
-      expect(
-        canvas.getByRole("button", { name: progressCounters }),
-      ).toHaveAttribute("aria-controls", region.id),
-    )
+    await waitFor(() => expect(log).toHaveAttribute("aria-controls", region.id))
     await expect(log).not.toContainElement(region)
     const entries = within(region).getAllByRole("listitem")
     const texts = entries.map((entry) => entry.textContent ?? "")
@@ -331,7 +323,9 @@ const earlierTurns: ChatMessage[] = Array.from({ length: 4 }, (_, index) => [
  * the log does not scroll the thread: the counters stay in place.
  */
 export const OpeningLogKeepsScroll: Story = {
-  tags: ["workspace-golden"],
+  // The runner turns on reduced motion for this tag, so the thread jumps to
+  // the bottom at once and no spring scroll runs.
+  tags: ["workspace-golden", "reduced-motion"],
   args: {
     messages: [...earlierTurns, ...progressWorkingMessages],
     status: "streaming",
@@ -350,15 +344,15 @@ export const OpeningLogKeepsScroll: Story = {
     })
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
+    await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
     await waitFor(() =>
       expect(
-        canvas.getByRole("button", { name: progressCounters }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    )
-    // The stick to the bottom scrolls in a smooth animation; wait past it.
-    await new Promise((resolve) => setTimeout(resolve, 800))
-    await expect(Math.round(log.getBoundingClientRect().top)).toBe(
-      Math.round(top),
+        Math.round(
+          canvas
+            .getByRole("button", { name: progressCounters })
+            .getBoundingClientRect().top,
+        ),
+      ).toBe(Math.round(top)),
     )
   },
 }

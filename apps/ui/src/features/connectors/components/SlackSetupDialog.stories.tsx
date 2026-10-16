@@ -431,6 +431,9 @@ export const ManageAgainShowsTheNewScope: Story = {
     })
 
     docsChannels = ["G0INC0001"]
+    // The open dialog hides the page from the accessibility tree, so this
+    // finds Manage only after the dialog has unmounted. A new dialog then
+    // starts from a new read.
     await userEvent.click(await body.findByRole("button", { name: "Manage" }))
     await waitFor(() =>
       expect(body.getByRole("checkbox", { name: /incidents/ })).toBeChecked(),

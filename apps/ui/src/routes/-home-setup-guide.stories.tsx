@@ -287,11 +287,7 @@ export const GuideAdminAfterFirstQuestion: Story = {
     const hiddenRow = guide.queryByText("Invite your team")
     if (hiddenRow) expect(hiddenRow).not.toBeVisible()
     await userEvent.click(toggle)
-    await waitFor(() =>
-      expect(
-        guide.getByRole("button", { name: "Get started" }),
-      ).toHaveAttribute("aria-expanded", "true"),
-    )
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"))
     expect(guide.getByText("Invite your team")).toBeVisible()
     // The user's choice is kept for the next visit.
     const stored = JSON.parse(

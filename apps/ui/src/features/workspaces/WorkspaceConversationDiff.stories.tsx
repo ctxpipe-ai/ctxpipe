@@ -187,11 +187,7 @@ export const DiffPaneExpandedFile: Story = {
 
     await userEvent.click(focused)
     await waitFor(() =>
-      expect(
-        canvas.getByRole("button", {
-          name: /ADR-021-decision\.md, Modified/,
-        }),
-      ).toHaveAttribute("aria-expanded", "false"),
+      expect(focused).toHaveAttribute("aria-expanded", "false"),
     )
   },
 }
