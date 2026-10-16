@@ -9,7 +9,9 @@ import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
  * file under `sources/` is one source. The patch validator, the ingest ref
  * broker and the semantic merge write without a pull request, so they refuse
  * these paths. Conversation publish pushes only to the session branch, so it
- * allows them. Each agent write path must call this one function.
+ * allows them. Each agent write path must call this one function. The
+ * Workspace format file `.ctxpipe/workspace.yaml` is in `.ctxpipe/`, so only
+ * bootstrap and an upgrade pull request change it.
  */
 const HOST_ONLY_FOLDERS = [".ctxpipe", "sources"] as const
 

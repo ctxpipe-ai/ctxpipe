@@ -23,6 +23,7 @@ import {
   servedSha,
   shouldEnqueueCronHydrate,
 } from "../../domain/workspaces/tip-resolve.js"
+import { withFormatWriteGate } from "../../domain/workspaces/workspace-format.js"
 import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
@@ -126,8 +127,13 @@ export const workspaceTipCheck = defineWorkflow(
         const claimed = await withOrgDbContext(input.orgId, async () => {
           if (!(await persistWriteStatus(workspace, write, input.orgId)))
             return []
-          writeStatusById.set(workspace.id, write.writeStatus)
-          if (write.writeStatus !== "writable") return []
+          // The format gate is on top of the stored probe result.
+          const gated = withFormatWriteGate({
+            ...write,
+            formatVersion: workspace.formatVersion,
+          })
+          writeStatusById.set(workspace.id, gated.writeStatus)
+          if (gated.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
           await resumePausedWriteJobs({
             orgId: input.orgId,
