@@ -335,11 +335,18 @@ export const OpeningLogKeepsScroll: Story = {
       '[role="log"] > div',
     ) as HTMLElement
     await expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight)
-    await waitFor(() => {
-      expect(
-        scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
-      ).toBeLessThan(2)
-    })
+    // The thread opens with `initial="smooth"`: a spring animation that runs
+    // one step for each animation frame, so its length depends on the frame
+    // rate of the runner, not on a fixed time. The default one second of
+    // waitFor ended the wait at 469 px from the bottom on a slow runner.
+    await waitFor(
+      () => {
+        expect(
+          scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
+        ).toBeLessThan(2)
+      },
+      { timeout: 10_000 },
+    )
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
     await expect(log).toHaveAttribute("aria-expanded", "true")

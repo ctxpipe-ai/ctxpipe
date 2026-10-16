@@ -528,17 +528,18 @@ it(
             .poll(async () => (await row())?.status, { timeout: 30_000 })
             .toBe("completed")
           // The scan of the format change queues one tip check. The tip
-          // check resumes the write jobs that the format gate held.
-          const keys = (
-            await backend.listWorkflowRuns({ limit: 200 })
-          ).data.map((run) => run.idempotencyKey)
-          expect(
-            keys.filter(
-              (key) =>
-                key?.startsWith(`upgrade-scan-tip:${f.org.id}:`) &&
-                key.endsWith(`:format:${f.workspaceId}:${merged}`),
-            ),
-          ).toHaveLength(1)
+          // check resumes the write jobs that the format gate held. The scan
+          // run records the upgrade row before its last step queues the tip
+          // check, so wait for the tip check instead of reading it once.
+          const tipKeys = async () =>
+            (await backend.listWorkflowRuns({ limit: 200 })).data
+              .map((run) => run.idempotencyKey)
+              .filter(
+                (key) =>
+                  key?.startsWith(`upgrade-scan-tip:${f.org.id}:`) &&
+                  key.endsWith(`:format:${f.workspaceId}:${merged}`),
+              )
+          await expect.poll(tipKeys, { timeout: 30_000 }).toHaveLength(1)
         } finally {
           await worker.stop()
           await backend.stop()

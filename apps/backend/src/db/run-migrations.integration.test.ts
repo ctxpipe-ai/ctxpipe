@@ -52,6 +52,10 @@ describe("runMigrations", () => {
     ownerUrl.pathname = `/${database}`
     databaseUrl = ownerUrl.toString()
     pool = new pg.Pool({ connectionString: databaseUrl })
+    // DROP DATABASE ... WITH (FORCE) in afterAll can end a socket that
+    // pool.end() has not closed yet. The pool re-emits that FATAL 57P01 as a
+    // pool "error" event, which throws when nothing listens.
+    pool.on("error", (error) => console.warn("Pool error at teardown", error))
   })
 
   afterAll(async () => {
