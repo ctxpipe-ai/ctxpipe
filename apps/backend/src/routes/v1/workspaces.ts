@@ -449,6 +449,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       githubConnectionId: body.githubConnectionId,
       source: body.source,
       rootPath: body.rootPath,
+      env: c.var.env,
       log: c.get("log"),
     })
     return c.json(serializeWorkspace(created, null), 201)

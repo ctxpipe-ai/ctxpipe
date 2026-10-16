@@ -155,8 +155,14 @@ export function ConnectedAppsCard() {
                   </div>
                   {/* The two buttons of a loaded row: Edit organizations, Revoke. */}
                   <div className="flex shrink-0 items-center gap-2">
-                    <Skeleton className="h-9 w-36 shrink-0 rounded-md" />
-                    <Skeleton className="h-9 w-[101px] shrink-0 rounded-md" />
+                    {/* The hidden labels give each bone the width of its button in any font. */}
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible">Edit organizations</span>
+                    </Skeleton>
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible size-4" />
+                      <span className="invisible">Revoke</span>
+                    </Skeleton>
                   </div>
                 </div>
               ))}

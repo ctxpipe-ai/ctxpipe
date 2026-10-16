@@ -373,6 +373,18 @@ export function WorkspaceSettingsPane(props: {
                   >
                     Check again
                   </Button>
+                ) : !workspace.githubConnectionId ? (
+                  // No connection reads the repository. Select it again
+                  // after GitHub can see it, and the Workspace binds.
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      setRelinkError(null)
+                      setRelinkOpen(true)
+                    }}
+                  >
+                    Select the repository again
+                  </Button>
                 ) : undefined
               }
             >

@@ -115,6 +115,28 @@ const chosenStories = (index) => {
 
 const playInitScript = () => {
   window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  // The headless browser keeps a real cursor over the page. After a layout
+  // change it sends real pointer-move events, which end a hover that a play set
+  // with synthetic events. Plays use synthetic events only, so drop real ones.
+  for (const type of [
+    "pointerover",
+    "pointerout",
+    "pointerenter",
+    "pointerleave",
+    "pointermove",
+    "mouseover",
+    "mouseout",
+    "mouseenter",
+    "mouseleave",
+    "mousemove",
+  ])
+    window.addEventListener(
+      type,
+      (event) => {
+        if (event.isTrusted) event.stopImmediatePropagation()
+      },
+      true,
+    )
   const record = (result) => {
     if (window.__CTXPIPE_GOLDEN__.result) return
     window.__CTXPIPE_GOLDEN__.result = result
