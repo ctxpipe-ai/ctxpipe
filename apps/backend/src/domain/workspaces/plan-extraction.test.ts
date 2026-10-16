@@ -63,6 +63,9 @@ describe("planCapturedExtraction", () => {
     const path = "knowledge/services/billing.md"
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths: new Map([
+        [repositoryUrl, "sources/github/example-org/billing.md"],
+      ]),
       files: [
         {
           path,

@@ -37,6 +37,7 @@ import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import type { IngestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -449,16 +450,19 @@ beforeAll(async () => {
       orgId,
       workspaceId,
       revision: pinned[i] ?? "",
-      rows: [
-        {
-          sourceKey: "billing",
-          provider: "github",
+      // One GitHub source file for each repository (ADR-050 revision
+      // 2026-10-16).
+      rows: [sourceName, wideName].map((repository) => {
+        const [owner = "", name = ""] = repository.split("/")
+        return {
+          sourceKey: githubSourcePath(owner, name),
+          provider: "github" as const,
           connectionId,
-          scope: { repositories: [sourceName, wideName] },
-          status: "ok",
+          scope: { repository },
+          status: "ok" as const,
           statusDetail: null,
-        },
-      ],
+        }
+      }),
     })
   }
 

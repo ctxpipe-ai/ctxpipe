@@ -23,6 +23,8 @@ import { INGEST_SKILLS_DIR, readIngestSkillBundle } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const GIT_ENV = {
   ...process.env,
@@ -66,7 +68,7 @@ const rootFile = (kind: string, name: string) =>
       kind,
       name,
       generated_by: "ctxpipe-extract",
-      sources: [SOURCE_URL],
+      sources: [SOURCE_PATH],
     },
     `# ${name}\n`,
   )
@@ -151,7 +153,7 @@ async function step(
       workspaceId: WORKSPACE_ID,
       contextDir,
       base,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
     })
   await index()
   writeFileSync(
@@ -173,6 +175,8 @@ async function step(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
         ...extra,
@@ -214,6 +218,7 @@ async function step(
       baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
+      sourcePath: SOURCE_PATH,
       skill: "decisions",
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
@@ -656,7 +661,7 @@ describe("decisions skill: existing files", () => {
         kind: "Decision",
         name: "ADR-8: Use typed JavaScript",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# ADR-8: Use typed JavaScript\n\n**Source:** `docs/adr/0008-use-typescript.md`\n",
     )
@@ -696,7 +701,7 @@ describe("decisions skill: existing files", () => {
         kind: "Decision",
         name: "Gone",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# Gone\n\n**Source:** `docs/adr/0099-gone.md`\n",
     )
@@ -705,7 +710,7 @@ describe("decisions skill: existing files", () => {
         kind: "Decision",
         name: "Legacy",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# Legacy\n",
     )
@@ -814,7 +819,7 @@ describe("decisions skill: staged trees and the check", () => {
         kind: "Decision",
         name: "ADR-8: Use TypeScript",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# ADR-8: Use TypeScript\n\n**Status:** Proposed\n**Source:** `docs/adr/0008-use-typescript.md`\n",
     )
@@ -916,7 +921,7 @@ describe("decisions skill: staged trees and the check", () => {
           kind: "Decision",
           name: "Keep",
           generated_by: "ctxpipe-extract",
-          sources: [SOURCE_URL],
+          sources: [SOURCE_PATH],
         },
         "# Keep\n\n**Source:** `docs/adr/0008-use-typescript.md`\n",
       ),

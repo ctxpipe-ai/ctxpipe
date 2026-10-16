@@ -8,7 +8,7 @@
 // result has `more: true`.
 //
 // node ownership.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map>
+//   --source-url <url> --source-path <path> --roots <root-to-file map>
 
 import { relativeTo, scriptStep, writeStep } from "../../bin/knowledge-lib.mjs"
 import {

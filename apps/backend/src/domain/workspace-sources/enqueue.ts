@@ -22,6 +22,7 @@ import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
 import { githubRepositoryUrls } from "./providers/github.js"
+import { checkSourcePath } from "./source-file.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -179,22 +180,34 @@ export async function enqueueSourceProjectionFollowUps(input: {
   // target. A status change (a removed connection), an entry that became
   // invalid, and a file that cannot be read keep the committed files, as the
   // remove-connector dialog says.
-  const left = [
-    ...input.projected.removed.map(lastGoodTarget),
+  const leftSources = [
+    ...input.projected.removed.map((row) => ({
+      sourceKey: row.sourceKey,
+      target: lastGoodTarget(row),
+    })),
     ...input.projected.changed.map(({ before, after }) => {
       const target = lastGoodTarget(before)
-      return after.status !== "invalid" && target && !sameSource(target, after)
-        ? target
-        : null
+      return {
+        sourceKey: before.sourceKey,
+        target:
+          after.status !== "invalid" && target && !sameSource(target, after)
+            ? target
+            : null,
+      }
     }),
-  ].filter((target): target is SourceTarget => target !== null)
-  const removed = left.filter((target) => hasAdapter(target.provider))
+  ].filter(
+    (source): source is { sourceKey: string; target: SourceTarget } =>
+      source.target !== null,
+  )
+  const removed = leftSources
+    .map((source) => source.target)
+    .filter((target) => hasAdapter(target.provider))
   await enqueueRepositoryRetractions({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     revision: input.revision,
     publishPipeline: input.publishPipeline,
-    left,
+    left: leftSources,
   })
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
@@ -246,10 +259,14 @@ export async function enqueueSourceProjectionFollowUps(input: {
 
 /**
  * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
- * ingestion v2 extracted from it. One host write job for each repository,
- * only while ingestion v2 publishes. A stored source row that still names the
- * repository in any form keeps it (`sourceRowsNameRepository`): also an
- * entry that became invalid, as it keeps its files (the CTX-710 rule above).
+ * ingestion v2 extracted from it. One host write job for each repository and
+ * the source file that declared it, only while ingestion v2 publishes. The
+ * files of the repository list that source path in `sources` (ADR-050
+ * revision 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
+ * path, and ingestion v2 owns no file of it, so it gets no job. A stored
+ * source row that still names the repository in any form keeps it
+ * (`sourceRowsNameRepository`): also an entry that became invalid, as it
+ * keeps its files (the CTX-710 rule above).
  * The job checks the sources at the tip again. The job id is fixed for the
  * revision, so a retry queues no second job. A job that does not start makes
  * this call fail, so the step that runs it retries; the retraction is not
@@ -260,25 +277,30 @@ async function enqueueRepositoryRetractions(input: {
   workspaceId: string
   revision: string
   publishPipeline: IngestionPublishPipeline
-  left: ReadonlyArray<SourceTarget>
+  left: ReadonlyArray<{ sourceKey: string; target: SourceTarget }>
 }): Promise<void> {
-  const left = [...new Set(input.left.flatMap(githubRepositoryUrls))]
-  if (!left.length || input.publishPipeline !== "v2") return
+  const pairs = new Map<string, { url: string; sourcePath: string }>()
+  for (const { sourceKey, target } of input.left) {
+    if (!checkSourcePath(sourceKey).ok) continue
+    for (const url of githubRepositoryUrls(target))
+      pairs.set(`${url}\0${sourceKey}`, { url, sourcePath: sourceKey })
+  }
+  if (!pairs.size || input.publishPipeline !== "v2") return
   const rows = await listWorkspaceSourceRows({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
   })
-  const repositories = left.filter(
-    (url) => !sourceRowsNameRepository(rows, url),
+  const repositories = [...pairs.values()].filter(
+    ({ url }) => !sourceRowsNameRepository(rows, url),
   )
   if (!repositories.length) return
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: input.orgId } },
   })
   if (!org) throw new Error("Organization not found")
-  for (const url of repositories) {
+  for (const { url, sourcePath } of repositories) {
     const jobId = `wjob_retract_${createHash("sha256")
-      .update(`${input.workspaceId}\0${input.revision}\0${url}`)
+      .update(`${input.workspaceId}\0${input.revision}\0${url}\0${sourcePath}`)
       .digest("hex")
       .slice(0, 32)}`
     const logError = (error: Error) =>
@@ -297,6 +319,7 @@ async function enqueueRepositoryRetractions(input: {
           kind: "unlink_retraction",
           jobId,
           retractRepositoryUrl: url,
+          retractSourcePath: sourcePath,
           publishPipeline: "v2",
         },
         { error: logError },

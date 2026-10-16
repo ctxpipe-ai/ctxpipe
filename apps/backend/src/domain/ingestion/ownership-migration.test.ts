@@ -4,6 +4,14 @@ import { ownershipMigrationFiles } from "./ownership-migration.js"
 import { fileOwnership } from "./patch-validator.js"
 
 const workspaceRepositoryUrl = "https://github.com/acme/context"
+// The source file of each repository in the Workspace (ADR-050 revision
+// 2026-10-16), by normalized repository URL.
+const sourcePaths = new Map(
+  ["api", "billing", "web", "worker"].map((name) => [
+    `https://github.com/acme/${name}`,
+    `sources/github/acme/${name}.md`,
+  ]),
+)
 
 function front(content: string): Record<string, unknown> {
   return parse(content.split("---")[1] ?? "") as Record<string, unknown>
@@ -15,6 +23,7 @@ describe("ownership migration of old extracted files", () => {
       "\n# Billing\n\nText.\n\n<!-- ctxpipe:human -->\nA human note.\n<!-- /ctxpipe:human -->\n"
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/services/billing.md",
@@ -27,17 +36,18 @@ describe("ownership migration of old extracted files", () => {
       kind: "Service",
       name: "Billing",
       generated_by: "ctxpipe-extract",
-      sources: ["https://github.com/acme/billing"],
+      sources: ["sources/github/acme/billing.md"],
     })
     expect(migrated?.content.endsWith(`---\n${body}`)).toBe(true)
     expect(
-      fileOwnership(migrated?.content ?? "", "https://github.com/acme/billing"),
+      fileOwnership(migrated?.content ?? "", "sources/github/acme/billing.md"),
     ).toBe("sole")
   })
 
   it("converts the old front matter to the shape that the ingestion v2 validator accepts", () => {
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/services/orders.md",
@@ -78,7 +88,7 @@ describe("ownership migration of old extracted files", () => {
       name: "Orders",
       summary: "Takes orders.",
       generated_by: "ctxpipe-extract",
-      sources: ["https://github.com/acme/api"],
+      sources: ["sources/github/acme/api.md"],
       claims: [
         {
           to: "./billing.md",
@@ -117,6 +127,7 @@ describe("ownership migration of old extracted files", () => {
     const dropped: unknown[] = []
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/services/odd.md",
@@ -163,6 +174,7 @@ describe("ownership migration of old extracted files", () => {
   it("names a file from its first heading, or else from its path", () => {
     const migrated = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/services/headed.md",
@@ -185,6 +197,7 @@ describe("ownership migration of old extracted files", () => {
   it("moves a file that the import-key cleanup already changed", () => {
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/libraries/zod.md",
@@ -194,31 +207,49 @@ describe("ownership migration of old extracted files", () => {
       ],
     })
     expect(front(migrated?.content ?? "").sources).toEqual([
-      "https://github.com/acme/web",
+      "sources/github/acme/web.md",
     ])
   })
 
-  it("adds the source to the sources that a file already lists", () => {
+  it("adds the source path to the source paths that a file already lists, and drops a URL", () => {
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/databases/orders.md",
           content:
-            "---\nkind: Database\ngenerated_by: ctxpipe\nsource: https://github.com/acme/api#db.sql\nsources:\n  - https://github.com/acme/worker\n---\n\n# Orders\n",
+            "---\nkind: Database\ngenerated_by: ctxpipe\nsource: https://github.com/acme/api#db.sql\nsources:\n  - sources/github/acme/worker.md\n  - https://github.com/acme/worker\n---\n\n# Orders\n",
         },
       ],
     })
     expect(front(migrated?.content ?? "").sources).toEqual([
-      "https://github.com/acme/worker",
-      "https://github.com/acme/api",
+      "sources/github/acme/worker.md",
+      "sources/github/acme/api.md",
     ])
+  })
+
+  it("does not change a file whose repository has no source file in the Workspace", () => {
+    expect(
+      ownershipMigrationFiles({
+        workspaceRepositoryUrl,
+        sourcePaths,
+        files: [
+          {
+            path: "knowledge/services/gone.md",
+            content:
+              "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/unlinked#a.ts\n---\n\n# Gone\n",
+          },
+        ],
+      }),
+    ).toEqual([])
   })
 
   it("does not change a file that a human, a connector, or ingestion v2 owns", () => {
     expect(
       ownershipMigrationFiles({
         workspaceRepositoryUrl,
+        sourcePaths,
         files: [
           {
             path: "knowledge/services/taken-over.md",
@@ -257,6 +288,7 @@ describe("ownership migration of old extracted files", () => {
     expect(
       ownershipMigrationFiles({
         workspaceRepositoryUrl,
+        sourcePaths,
         files: [
           {
             path: "knowledge/services/no-source.md",
@@ -281,6 +313,7 @@ describe("ownership migration of old extracted files", () => {
   it("makes no change on a second pass", () => {
     const once = ownershipMigrationFiles({
       workspaceRepositoryUrl,
+      sourcePaths,
       files: [
         {
           path: "knowledge/services/billing.md",
@@ -291,7 +324,11 @@ describe("ownership migration of old extracted files", () => {
     })
     expect(once).toHaveLength(1)
     expect(
-      ownershipMigrationFiles({ workspaceRepositoryUrl, files: once }),
+      ownershipMigrationFiles({
+        workspaceRepositoryUrl,
+        sourcePaths,
+        files: once,
+      }),
     ).toEqual([])
   })
 })

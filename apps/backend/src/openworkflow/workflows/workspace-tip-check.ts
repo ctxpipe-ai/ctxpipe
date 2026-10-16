@@ -44,6 +44,7 @@ import {
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
+  reconcileStaleWriteJobs,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -133,6 +134,14 @@ export const workspaceTipCheck = defineWorkflow(
           writeStatusById.set(workspace.id, gated.writeStatus)
           if (gated.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
+          // A job that stays `queued` or `running` for an hour lost its run,
+          // or its run ended and nothing recorded that. Record a failed run
+          // on the job, and pause a job that has no run, so that the resume
+          // step below queues it again with its own id.
+          await reconcileStaleWriteJobs(
+            workspace,
+            new Date(Date.now() - 60 * 60 * 1000),
+          )
           await resumePausedWriteJobs({
             orgId: input.orgId,
             workspaceId: workspace.id,
@@ -225,6 +234,25 @@ export const workspaceTipCheck = defineWorkflow(
           (servedSha(projection, desired) !== desired.sha ||
             shouldEnqueueCronHydrate({ projection }))
         ) {
+          // A run can also fail after it stores the tip and before it queues
+          // the index and commit projection jobs below. Queue them again with
+          // the same rule and hour as the hydrate.
+          if (
+            servedSha(projection, desired) !== desired.sha &&
+            !updated.some((item) => item.workspaceId === workspace.id)
+          ) {
+            const key = `${desired.workspaceId}:${desired.generation}:${desired.defaultBranch}:${desired.sha}:${hour}`
+            await enqueueWorkspaceIndex(
+              { orgId: input.orgId, revision: { ...desired, access: "read" } },
+              quietLog,
+              { idempotencyKey: `workspace-tip-index:${key}` },
+            )
+            await enqueueWorkspaceCommitProjection(
+              { orgId: input.orgId, workspaceId: workspace.id },
+              quietLog,
+              { idempotencyKey: `workspace-tip-commits:${key}` },
+            )
+          }
           await enqueueWorkspaceHydrate(
             { orgId: input.orgId, workspaceId: workspace.id },
             { error: () => undefined },

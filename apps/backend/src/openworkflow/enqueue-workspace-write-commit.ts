@@ -428,6 +428,7 @@ export async function enqueueWriteJob(
           jobId,
           revision,
           retractRepositoryUrl: input.retractRepositoryUrl,
+          retractSourcePath: input.retractSourcePath,
           publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
@@ -436,6 +437,7 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           retractRepositoryUrl: command.retractRepositoryUrl,
+          retractSourcePath: command.retractSourcePath,
           publishPipeline: command.publishPipeline,
         })
         bound = true
