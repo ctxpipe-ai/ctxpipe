@@ -51,14 +51,16 @@ UPDATE "confluence_spaces" AS s SET "org_id" = c."org_id" FROM "connections" AS 
 UPDATE "repository_checkouts" AS ch SET "org_id" = r."org_id" FROM "repositories" AS r WHERE ch."repository_id" = r."id" AND ch."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_write_jobs" AS j SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE j."workspace_id" = w."id" AND j."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_sandbox_instances" AS s SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE s."workspace_id" = w."id" AND s."org_id" IS NULL;--> statement-breakpoint
+-- Expand-only: "claim_evidence", "confluence_spaces" and "repository_checkouts"
+-- keep a nullable "org_id" in this minor release, so that the previous image can still
+-- write rows after a rollback. RLS hides rows with no org from the app role. The next
+-- major release sets NOT NULL. The DELETE of orphan rows runs in the migration
+-- transaction, so a failed migration deletes nothing.
 DELETE FROM "claim_evidence" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "confluence_spaces" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "repository_checkouts" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_write_jobs" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_sandbox_instances" WHERE "org_id" IS NULL;--> statement-breakpoint
-ALTER TABLE "claim_evidence" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "confluence_spaces" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "repository_checkouts" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_sandbox_instances" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "claim_evidence" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
