@@ -92,6 +92,7 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   stopEarlierTurnProcesses,
+  withOpencodeServeRetry,
   withOwnerWatchdog,
   withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
@@ -284,10 +285,12 @@ export function conversationSandboxProvider(
     return withSingleOpencodeServer(vercelConversationProvider(vercel))
   }
   if (isolation === "unsandboxed")
-    return withOwnerWatchdog(
-      localProcessSandbox({
-        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-      }),
+    return withOpencodeServeRetry(
+      withOwnerWatchdog(
+        localProcessSandbox({
+          scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+        }),
+      ),
     )
   return withSingleOpencodeServer(
     withProxyCa(
@@ -347,20 +350,6 @@ function withTurnSnapshotTimeout<T>(work: Promise<T>): Promise<T> {
       )
     }),
   ]).finally(() => clearTimeout(timer))
-}
-
-/** A free loopback port below the Linux ephemeral range (32768 and up). */
-async function freeLoopbackPort(): Promise<number> {
-  for (let attempt = 0; attempt < 50; attempt++) {
-    const port = 10_000 + Math.floor(Math.random() * 20_000)
-    const free = await new Promise<boolean>((resolve) => {
-      const server = createServer()
-      server.once("error", () => resolve(false))
-      server.listen(port, "127.0.0.1", () => server.close(() => resolve(true)))
-    })
-    if (free) return port
-  }
-  throw new Error("No free loopback port for OpenCode")
 }
 
 export async function* streamTanstackWorkspaceChat(
@@ -678,17 +667,27 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   })
   const { session, callbackHost, definition } = built
   // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
-  // claim distinct loopback ports before serve starts. The port comes from
-  // below the Linux ephemeral range: a port from bind(0) could be taken by an
-  // outgoing connection of another process before serve bound it, and serve
-  // then exited with a ServeError.
+  // claim distinct loopback ports before serve starts.
   let opencodeListen: { port: number; hostname?: "127.0.0.1" } = {
     port: WORKSPACE_CHAT_OPENCODE_PORT,
   }
   if (built.isolation === "unsandboxed") {
     opencodeListen = {
       hostname: "127.0.0.1",
-      port: await freeLoopbackPort(),
+      port: await new Promise<number>((resolve, reject) => {
+        const server = createServer()
+        server.once("error", reject)
+        server.listen(0, "127.0.0.1", () => {
+          const address = server.address()
+          if (!address || typeof address === "string") {
+            server.close()
+            reject(new Error("Unsandboxed OpenCode listen port missing"))
+            return
+          }
+          const allocated = address.port
+          server.close((error) => (error ? reject(error) : resolve(allocated)))
+        })
+      }),
     }
   }
   let revisionConflict: WorkspaceRevision | undefined

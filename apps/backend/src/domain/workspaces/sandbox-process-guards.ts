@@ -1,4 +1,5 @@
 import { type ChildProcessByStdio, spawn } from "node:child_process"
+import { createServer } from "node:net"
 import type { Writable } from "node:stream"
 import type {
   SandboxHandle,
@@ -214,3 +215,126 @@ while [ "$i" -lt 50 ]; do
 done
 echo "processes left: $(found)" >&2
 exit 1`
+
+/** A free loopback port that the OS assigns. */
+export function osLoopbackPort(): Promise<number> {
+  return new Promise<number>((resolve, reject) => {
+    const server = createServer()
+    server.once("error", reject)
+    server.listen(0, "127.0.0.1", () => {
+      const address = server.address()
+      if (!address || typeof address === "string") {
+        server.close()
+        reject(new Error("Unsandboxed OpenCode listen port missing"))
+        return
+      }
+      const allocated = address.port
+      server.close((error) => (error ? reject(error) : resolve(allocated)))
+    })
+  })
+}
+
+const OPENCODE_READY_MARKER = "opencode server listening"
+const OPENCODE_SERVE_ATTEMPTS = 3
+
+/** Copy an output stream into memory so two readers can both see it. */
+function teeOutput(source: AsyncIterable<string>) {
+  const chunks: string[] = []
+  let done = false
+  const listeners = new Set<() => void>()
+  const notify = () => {
+    for (const listener of [...listeners]) listener()
+    listeners.clear()
+  }
+  const waitForChange = () =>
+    new Promise<void>((resolve) => listeners.add(resolve))
+  const finished = (async () => {
+    try {
+      for await (const chunk of source) {
+        chunks.push(chunk)
+        notify()
+      }
+    } catch {
+      // A failed stream ends like a closed one.
+    }
+    done = true
+    notify()
+  })()
+  return {
+    finished,
+    isDone: () => done,
+    text: () => chunks.join(""),
+    waitForChange,
+    async *replay(): AsyncGenerator<string> {
+      let index = 0
+      for (;;) {
+        while (index < chunks.length) yield chunks[index++] as string
+        if (done) return
+        await waitForChange()
+      }
+    },
+  }
+}
+
+/**
+ * A local `opencode serve` can exit because its port was taken between the
+ * port pick and the bind. When it exits before it is ready and its output
+ * says the address is in use, start it again on a fresh OS port, up to 3
+ * attempts in all. Any other exit goes on unchanged: the caller reads the
+ * output of the dead process and reports it.
+ */
+export function withOpencodeServeRetry(
+  provider: SandboxProvider,
+  freePort: () => Promise<number> = osLoopbackPort,
+): SandboxProvider {
+  return wrapSandboxHandles(provider, (handle) => {
+    const ports = new Map<number, number>()
+    return {
+      ...handle,
+      ports: {
+        ...handle.ports,
+        connect: (port) => handle.ports.connect(ports.get(port) ?? port),
+      },
+      process: {
+        ...handle.process,
+        spawn: async (command, options) => {
+          const requested = /^opencode serve .*--port=(\d+)/.exec(command)?.[1]
+          if (!requested) return handle.process.spawn(command, options)
+          let port = Number(requested)
+          for (let attempt = 1; ; attempt++) {
+            const proc = await handle.process.spawn(
+              command.replace(`--port=${requested}`, `--port=${port}`),
+              options,
+            )
+            const stdout = teeOutput(proc.stdout)
+            const stderr = teeOutput(proc.stderr)
+            while (
+              !stdout.isDone() &&
+              !stdout.text().includes(OPENCODE_READY_MARKER)
+            )
+              await stdout.waitForChange()
+            if (!stdout.text().includes(OPENCODE_READY_MARKER))
+              await Promise.all([stdout.finished, stderr.finished])
+            const ready = stdout.text().includes(OPENCODE_READY_MARKER)
+            const taken = /EADDRINUSE|address already in use/i.test(
+              `${stdout.text()}\n${stderr.text()}`,
+            )
+            if (!ready && taken && attempt < OPENCODE_SERVE_ATTEMPTS) {
+              port = await freePort()
+              continue
+            }
+            ports.set(Number(requested), port)
+            return {
+              pid: proc.pid,
+              stdin: proc.stdin,
+              stdout: stdout.replay(),
+              stderr: stderr.replay(),
+              wait: () => proc.wait(),
+              kill: (signal) => proc.kill(signal),
+            }
+          }
+        },
+      },
+    }
+  })
+}
