@@ -1,4 +1,5 @@
 import assert from "node:assert/strict"
+import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { test } from "node:test"
 import { fileURLToPath } from "node:url"
@@ -380,6 +381,39 @@ test("CI runs every story with a play function in shards", () => {
   assert.match(workflow, /name: Storybook Playwright all plays/)
   assert.match(workflow, /STORYBOOK_PLAYS: all/)
   assert.match(workflow, /SKIP_STORYBOOK_BUILD: "1"/)
-  assert.match(workflow, /name: Storybook build\n(?:.*\n)*?    runs-on: blacksmith-4vcpu-ubuntu-2404/)
+  assert.match(
+    workflow,
+    /name: Storybook build\n(?:.*\n)*? {4}runs-on: blacksmith-4vcpu-ubuntu-2404/,
+  )
   assert.match(workflow, /STORYBOOK_SHARD: \$\{\{ matrix\.shard \}\}\/4/)
+})
+
+test("every required golden story is exported with the workspace-golden tag", () => {
+  const sources = execFileSync(
+    "git",
+    ["ls-files", "apps/ui/src/**/*.stories.tsx"],
+    { cwd: root, encoding: "utf8" },
+  )
+    .split("\n")
+    .filter(Boolean)
+    .map((file) =>
+      readFileSync(new URL(`../../${file}`, import.meta.url), "utf8"),
+    )
+  for (const name of requiredStories) {
+    const tagged = new RegExp(
+      `export const ${name}: Story = \\{[\\s\\S]*?tags: \\["workspace-golden"[\\],]`,
+    )
+    assert.ok(
+      sources.some((source) => tagged.test(source)),
+      `${name} is required but no story file exports it with workspace-golden`,
+    )
+  }
+})
+
+test("a failed run exits at once instead of waiting on the open server", () => {
+  const runner = readFileSync(
+    new URL("../ci/storybook-golden.mjs", import.meta.url),
+    "utf8",
+  )
+  assert.match(runner, /catch \(error\) \{[\s\S]*process\.exit\(1\)/)
 })
