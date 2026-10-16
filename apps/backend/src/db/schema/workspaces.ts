@@ -15,6 +15,7 @@ import {
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
+import type { IngestPublishSource } from "../../domain/workspaces/extraction-source.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
@@ -226,9 +227,12 @@ export const workspaceWriteJobs = pgTable.withRLS(
       knowledgePaths?: Record<string, string>
       previousSha?: string
       extraction?: WorkspaceExtraction
+      ingest?: IngestPublishSource
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      publishPipeline?: "legacy" | "v2"
+      retractRepositoryUrl?: string
       /** Why the job failed, when it failed for a known reason. */
       failureReason?: string
       displayName?: string

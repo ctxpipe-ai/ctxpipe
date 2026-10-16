@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { githubSourceScopeRepositories } from "./providers/github.js"
+import {
+  githubRepositoryUrls,
+  githubSourceScopeRepositories,
+} from "./providers/github.js"
 import {
   checkSourcePath,
   SOURCE_FILE_MAX_BYTES,
@@ -571,6 +574,35 @@ export async function sourcesHaveNone(
     scope: unknown
   }>,
 ): Promise<boolean> {
+  return sourcesHoldNo(sources, (row) =>
+    targets.some(
+      (target) =>
+        target.provider === row.provider &&
+        target.connectionId === row.connectionId &&
+        isDeepStrictEqual(target.scope, row.scope),
+    ),
+  )
+}
+
+/**
+ * Tell if no GitHub source names the repository `gitUrl`, with any
+ * connection or status. An invalid entry still names the repository that it
+ * names. As in {@link sourcesHaveNone}, a file that cannot be read gives false.
+ */
+export async function sourcesHaveNoRepository(
+  sources: { text: string | null; sourceFiles?: ReadonlyArray<SourceFileBlob> },
+  gitUrl: string,
+): Promise<boolean> {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  return sourcesHoldNo(sources, (row) =>
+    githubRepositoryUrls(row).includes(target),
+  )
+}
+
+async function sourcesHoldNo(
+  sources: { text: string | null; sourceFiles?: ReadonlyArray<SourceFileBlob> },
+  holds: (row: PlannedSourceRow) => boolean,
+): Promise<boolean> {
   const rows = await planSourceRows({
     text: sources.text,
     files: sources.sourceFiles,
@@ -585,13 +617,6 @@ export async function sourcesHaveNone(
         row.sourceKey.startsWith("sources/") &&
         Object.keys(row.scope).length === 0,
     ) &&
-    !rows.some((row) =>
-      targets.some(
-        (target) =>
-          target.provider === row.provider &&
-          target.connectionId === row.connectionId &&
-          isDeepStrictEqual(target.scope, row.scope),
-      ),
-    )
+    !rows.some(holds)
   )
 }

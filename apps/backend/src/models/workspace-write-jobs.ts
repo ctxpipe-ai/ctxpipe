@@ -10,6 +10,7 @@ import {
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
+import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -505,15 +506,21 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
+  /** Stored for a later resume; not part of the command identity. */
+  publishPipeline?: "legacy" | "v2"
+  /** The source repository that an `unlink_retraction` job retracts. */
+  retractRepositoryUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
       ...(input.extraction ? { extraction: input.extraction } : {}),
+      ...(input.ingest ? { ingest: input.ingest } : {}),
       ...(input.mirror ? { mirror: input.mirror } : {}),
       ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
@@ -521,6 +528,12 @@ export async function persistBoundWriteJob(input: {
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
+      ...(input.publishPipeline
+        ? { publishPipeline: input.publishPipeline }
+        : {}),
+      ...(input.retractRepositoryUrl
+        ? { retractRepositoryUrl: input.retractRepositoryUrl }
+        : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -564,8 +577,10 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
+      !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
-      row.payload?.displayName !== input.displayName
+      row.payload?.displayName !== input.displayName ||
+      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {
