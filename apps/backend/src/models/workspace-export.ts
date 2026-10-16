@@ -63,6 +63,7 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           aggregatedConfidence: claims.aggregatedConfidence,
           validFrom: claims.validFrom,
           validTo: claims.validTo,
+          firstObservedAt: claims.firstObservedAt,
           status: claims.status,
         })
         .from(claims)
@@ -142,7 +143,10 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           objectId: row.objectId,
           predicate: row.predicate,
           aggregatedConfidence: row.aggregatedConfidence,
-          validFrom: row.validFrom,
+          // A claim with no `valid_from` holds since ctx| first saw it. With
+          // a date in the file, hydrate has no `valid_from` to write after
+          // the upgrade.
+          validFrom: row.validFrom ?? row.firstObservedAt,
           validTo: row.validTo,
           evidenceKey: sourceByClaim.get(row.id) ?? null,
         })),

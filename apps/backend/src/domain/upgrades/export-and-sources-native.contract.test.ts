@@ -6,6 +6,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -15,14 +16,19 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { WORKSPACE_FORMAT_PATH } from "../workspaces/workspace-format.js"
 import { buildUpgradeCommits } from "./build-commits.js"
-import { GIT_UPGRADE_STEPS, upgradeBranch } from "./registry.js"
+import {
+  GIT_UPGRADE_STEPS,
+  UPGRADE_JOB_KIND,
+  upgradeBranch,
+} from "./registry.js"
 import { startWorkspaceUpgrade } from "./start.js"
 
-const KEY = "format-1"
-const BRANCH = upgradeBranch(1)
+const KEY = "format-3"
+const BRANCH = upgradeBranch(3)
 const PULLS = "https://api.github.com/repos/fixture/hydration-contract/pulls"
 const LINEAR_WORKSPACE = "5f0c1d2e-aaaa-4bbb-8ccc-000000000001"
 
@@ -127,6 +133,11 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
       summary: "Old pipeline text.",
     })
     await seed("Issue", "iss:linear:ENG-1", { title: "ENG-1 Fix the build" })
+    // Not exported: main deleted this repository, so no source reads it.
+    await seed("Service", "svc:repo_deletedexample:billing", {
+      name: "Old billing",
+      summary: "Old pipeline text.",
+    })
     const now = new Date("2026-01-01T00:00:00Z")
     await withOrgDbContext(f.org.id, (db) =>
       db.insert(claims).values({
@@ -145,8 +156,8 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
 }
 
 it(
-  "puts the sources and the kept knowledge of a main-era Workspace into the upgrade pull request, and never into the default branch",
-  { timeout: 150_000 },
+  "takes a format 0 main-era Workspace through the three upgrade steps in one pull request, and after the merge hydrate puts it on ingestion v2 with no cleanup write",
+  { timeout: 240_000 },
   async () => {
     const opened: Array<{ head: string; base: string; body: string }> = []
     let openPulls: unknown[] = []
@@ -171,6 +182,12 @@ it(
           {
             path: "knowledge/services/tools-cli.md",
             body: "# Tools CLI\nWritten by a person.\n",
+          },
+          // The old pipeline extracted this file. Step 3 moves it to
+          // ingestion v2 ownership.
+          {
+            path: "knowledge/services/api-gateway.md",
+            body: "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/team-a/api.git#src/index.ts\n---\n\n# API gateway\n",
           },
         ],
         onGithubPullRequest: (body) => {
@@ -212,6 +229,9 @@ it(
         runner.implementWorkflow(workspaceUpgrade.spec, workspaceUpgrade.fn)
         runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)
         const worker = runner.newWorker({ concurrency: 1 })
+        // The fixture queues a hydrate of the format 0 tree. This test
+        // hydrates only the merged upgrade.
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const row = () =>
           withOrgIdContext(f.org, () =>
             getWorkspaceUpgradeRow(f.workspaceId, KEY),
@@ -235,7 +255,8 @@ it(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
 
-          // The production registry offers step 1 to a format 0 Workspace.
+          // The production registry offers the three steps to a format 0
+          // Workspace, in one pull request.
           const scan = await runner.runWorkflow(workspaceUpgradeScan.spec, {
             orgId: f.org.id,
             release: "test",
@@ -244,7 +265,7 @@ it(
           await scan.result({ timeoutMs: 30_000 })
           expect(await row()).toMatchObject({
             status: "awaiting_operator",
-            upgrade: { fromFormat: 0, targetFormat: 1, branch: BRANCH },
+            upgrade: { fromFormat: 0, targetFormat: 3, branch: BRANCH },
           })
 
           // The click of an owner or admin.
@@ -274,23 +295,20 @@ it(
               )
               .split("\n"),
           ).toEqual([
-            "ctx| upgrade: set the Workspace format to 1",
+            "ctx| upgrade: set the Workspace format to 3",
+            "ctx| upgrade to format 3: Ingestion v2 ownership of extracted files",
+            "ctx| upgrade to format 2: One file for each source under sources/",
             "ctx| upgrade to format 1: Move the sources and keep the old knowledge",
             "Immutable fixture",
           ])
           expect(
             f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
           ).toBe(f.sha)
-          expect(show(WORKSPACE_FORMAT_PATH)).toContain("format: 1")
+          expect(show(WORKSPACE_FORMAT_PATH)).toContain("format: 3")
 
-          // Sources: the GitHub org repository, the GitHub repository file,
-          // and the Linear connection scope.
-          const sources = show(".ctxpipe/sources.yaml")
-          expect(sources).toContain("team-a/api")
-          expect(sources).toContain("existing/api")
-          expect(sources).not.toContain("gitlab.com")
-          expect(sources).toContain("provider: linear")
-          expect(sources).toContain("ENG")
+          // Sources: step 1 puts the GitHub org repository, the GitHub
+          // repository file and the Linear connection scope into
+          // `.ctxpipe/sources.yaml`. Step 2 makes one file for each source.
           const files = f
             .git(
               "--git-dir",
@@ -303,6 +321,23 @@ it(
             .split("\n")
           expect(files).not.toContain("repositories/api.md")
           expect(files).toContain("repositories/tools.md")
+          expect(files).not.toContain(".ctxpipe/sources.yaml")
+          const sourceFiles = files.filter((path) =>
+            path.startsWith("sources/"),
+          )
+          const sources = sourceFiles.map(show).join("\n")
+          expect(sourceFiles).toEqual(
+            expect.arrayContaining([
+              "sources/github/team-a/api.md",
+              "sources/github/existing/api.md",
+            ]),
+          )
+          expect(sources).not.toContain("gitlab.com")
+          expect(sources).toContain("provider: linear")
+          expect(sources).toContain("ENG")
+          const gateway = show("knowledge/services/api-gateway.md")
+          expect(gateway).toContain("generated_by: ctxpipe-extract")
+          expect(gateway).toContain("sources/github/team-a/api.md")
 
           // Knowledge: only the items of the repository that is not on
           // GitHub. The file of the person stays as it is.
@@ -312,7 +347,8 @@ it(
           const exported = files.filter(
             (path) =>
               path.startsWith("knowledge/") &&
-              path !== "knowledge/services/tools-cli.md",
+              path !== "knowledge/services/tools-cli.md" &&
+              path !== "knowledge/services/api-gateway.md",
           )
           expect(exported).toHaveLength(3)
           const toolsFile = exported.find((path) =>
@@ -324,7 +360,9 @@ it(
           expect(toolsFile).toBeDefined()
           expect(parserFile).toBeDefined()
           const toolsText = show(toolsFile ?? "")
-          expect(toolsText).toContain("import_key:")
+          // Step 3 removes the import key that step 1 wrote.
+          expect(toolsText).not.toContain("import_key:")
+          expect(toolsText).toContain("valid_from:")
           expect(toolsText).toContain("The release tools.")
           expect(toolsText).toContain("predicate: USES")
           expect(toolsText).toContain(
@@ -345,38 +383,113 @@ it(
           expect(body).toContain(
             "Not exported, because ctx| makes it again: 1 item(s) from GitHub repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
           )
+          expect(body).toContain(
+            "Not exported: 1 item(s) from a deleted repository.",
+          )
           expect(body).toContain("Removed `repositories/api.md`")
           expect(body).toContain(
             "Not linked: repositories/tools.md. ctx| links only GitHub repositories.",
           )
           expect(body).toContain("Added a Linear source")
 
-          // A second plan on the output of step 1 changes nothing.
+          // A second plan of each step, on the commit that it made, changes
+          // nothing.
           const head = f.git(
             "--git-dir",
             f.remote,
             "rev-parse",
             `refs/heads/${BRANCH}`,
           )
-          const rerun = await withOrgIdContext(f.org, async () =>
-            buildUpgradeCommits({
-              pack: await readGitPackFromRemote({ url: f.remote, sha: head }),
-              steps: GIT_UPGRADE_STEPS,
-              fromFormat: 0,
-              targetFormat: 1,
-              ctx: {
-                orgId: f.org.id,
-                workspaceId: f.workspaceId,
-                baseSha: head,
-                remote: { url: f.workspaceUrl, connectionId: f.connectionId },
-              },
-              createdAt: "2026-10-16T00:00:00.000Z",
-            }),
+          const stepCommits = f
+            .git(
+              "--git-dir",
+              f.remote,
+              "rev-list",
+              "--reverse",
+              `${f.sha}..${head}`,
+            )
+            .split("\n")
+          expect(stepCommits).toHaveLength(4)
+          for (const step of GIT_UPGRADE_STEPS) {
+            const at = stepCommits[step.format - 1] ?? ""
+            const again = await withOrgIdContext(f.org, async () =>
+              buildUpgradeCommits({
+                pack: await readGitPackFromRemote({ url: f.remote, sha: at }),
+                steps: GIT_UPGRADE_STEPS.slice(0, step.format),
+                fromFormat: step.format - 1,
+                targetFormat: step.format,
+                ctx: {
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  baseSha: at,
+                  remote: { url: f.workspaceUrl, connectionId: f.connectionId },
+                },
+                createdAt: "2026-10-16T00:00:00.000Z",
+              }),
+            )
+            expect(again.steps).toEqual([
+              expect.objectContaining({ format: step.format, sha: null }),
+            ])
+          }
+
+          // The pull request merges: the default branch gets its head.
+          f.git(
+            "--git-dir",
+            f.remote,
+            "update-ref",
+            "refs/heads/main",
+            head,
+            f.sha,
           )
-          expect(rerun.steps).toEqual([
-            expect.objectContaining({ format: 1, sha: null }),
-          ])
-          expect(rerun.pack.sha).toBe(head)
+          const revision = await f.resolveRevision(true)
+          expect(revision.sha).toBe(head)
+          const { workspaceHydrate } = await import(
+            "../../openworkflow/workflows/workspace-hydrate.js"
+          )
+          await f.worker.start()
+          const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            revision,
+          })
+          expect(await hydrate.result({ timeoutMs: 60_000 })).toMatchObject({
+            hydrated: true,
+          })
+          await expect
+            .poll(async () => (await row())?.status, { timeout: 60_000 })
+            .toBe("completed")
+          // Hydrate queues no cleanup write (`import_key_cleanup`,
+          // `valid_from_persist`, `ownership_migration`) and no retraction: the upgrade
+          // pull request made each layout change.
+          const writeJobs = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ kind: workspaceWriteJobs.kind })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
+          )
+          // The bootstrap files are new on this release, at each format.
+          // The first hydrate of a main-era Workspace writes them, and this
+          // test does not run that hydrate.
+          expect(writeJobs.map((job) => job.kind).sort()).toEqual(
+            ["bootstrap", UPGRADE_JOB_KIND].sort(),
+          )
+          const runNames = [
+            ...(await backend.listWorkflowRuns({ limit: 500 })).data,
+            ...(await f.backend.listWorkflowRuns({ limit: 500 })).data,
+          ].map((run) => run.workflowName)
+          expect(runNames).not.toContain("workspace-unlink-retraction")
+          expect(runNames).not.toContain("workspace-ownership-migration")
+          // The format is the one switch: the Workspace is on ingestion v2.
+          const [workspace] = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ formatVersion: workspaces.formatVersion })
+              .from(workspaces)
+              .where(eq(workspaces.id, f.workspaceId)),
+          )
+          expect(workspace?.formatVersion).toBe(3)
+          expect(
+            workspacePublishPipeline(workspace?.formatVersion ?? null),
+          ).toBe("v2")
         } finally {
           await worker.stop()
           await backend.stop()
@@ -429,7 +542,7 @@ it(
             ),
           ).toMatchObject({
             status: "blocked",
-            upgrade: { blockedReason: "write_access", targetFormat: 1 },
+            upgrade: { blockedReason: "write_access", targetFormat: 3 },
           })
           const runs = (await backend.listWorkflowRuns({ limit: 200 })).data
           expect(

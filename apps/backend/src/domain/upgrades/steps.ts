@@ -7,6 +7,7 @@ import { planSourcesConversion } from "../workspace-sources/convert-to-files.js"
 import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { importKeyCleanupFiles } from "../workspaces/hydrate-write-jobs.js"
 import type { GitUpgradeStep } from "./registry.js"
 
 type UpgradeTree = Parameters<GitUpgradeStep["plan"]>[0]
@@ -56,6 +57,11 @@ export const sourcesConversionStep: GitUpgradeStep = {
  * the old pipeline extracted to ingestion v2 (`generated_by:
  * ctxpipe-extract` and its repository in `sources`). It reads the Workspace
  * repository URL from the database.
+ *
+ * It also removes the `import_key` of each knowledge file. Step 1 writes the
+ * key so that a second plan of step 1 finds its own export. After this last
+ * step nothing needs the key, so hydrate has no key to remove after the
+ * merge.
  */
 export const ownershipMigrationStep: GitUpgradeStep = {
   format: 3,
@@ -73,7 +79,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
     )
     const sourceFiles = await readSourceFiles(tree)
     const report: string[] = []
-    const writes = ownershipMigrationFiles({
+    const owned = ownershipMigrationFiles({
       workspaceRepositoryUrl: url,
       // The projection decides which source file owns a repository.
       sourcePaths: githubSourcePathsByRepository(
@@ -87,6 +93,17 @@ export const ownershipMigrationStep: GitUpgradeStep = {
       onDroppedClaim: ({ path, index, reason }) =>
         report.push(`${path}: claim ${index + 1} is removed. ${reason}.`),
     })
-    return { writes, deletes: [], report }
+    const content = new Map(files.map((file) => [file.path, file.content]))
+    for (const file of owned) content.set(file.path, file.content)
+    const writes = new Map(owned.map((file) => [file.path, file]))
+    const unkeyed = importKeyCleanupFiles(
+      [...content].map(([path, text]) => ({ path, content: text })),
+    )
+    for (const file of unkeyed) writes.set(file.path, file)
+    if (unkeyed.length)
+      report.push(
+        `Removed the import key of ${unkeyed.length} knowledge file(s). ctx| does not need it after the upgrade.`,
+      )
+    return { writes: [...writes.values()], deletes: [], report }
   },
 }
