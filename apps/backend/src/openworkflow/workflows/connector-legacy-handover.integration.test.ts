@@ -94,7 +94,10 @@ describe("legacy connector workflows after the handover (Postgres)", () => {
       "linear",
       (repositoryId) =>
         seed.addConnection("linear", {
-          ...encodeLinearTokensForDb({ accessToken: "lin_fixture" }, env),
+          ...encodeLinearTokensForDb(
+            { accessToken: "lin_fixture", refreshToken: null },
+            env,
+          ),
           accessTokenExpiresAt: "2099-01-01T00:00:00.000Z",
           workspaceId: "lin_ws_fixture",
           status: "installed",
@@ -145,14 +148,14 @@ describe("legacy connector workflows after the handover (Postgres)", () => {
       namespaceId: openWorkflowNamespaceId(),
     })
     runner = new OpenWorkflow({ backend })
-    for (const workflow of [
-      linearSyncEntity,
-      linearSyncContent,
-      confluenceSyncSpace,
-      confluenceSyncContent,
-      slackMentionAgent,
-    ])
-      runner.implementWorkflow(workflow.spec, workflow.fn as never)
+    runner.implementWorkflow(linearSyncEntity.spec, linearSyncEntity.fn)
+    runner.implementWorkflow(linearSyncContent.spec, linearSyncContent.fn)
+    runner.implementWorkflow(confluenceSyncSpace.spec, confluenceSyncSpace.fn)
+    runner.implementWorkflow(
+      confluenceSyncContent.spec,
+      confluenceSyncContent.fn,
+    )
+    runner.implementWorkflow(slackMentionAgent.spec, slackMentionAgent.fn)
     worker = runner.newWorker({ concurrency: 1 })
     await worker.start()
   })
