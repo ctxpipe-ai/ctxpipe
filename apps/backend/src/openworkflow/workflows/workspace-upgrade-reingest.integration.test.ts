@@ -376,12 +376,12 @@ async function endedUpgradeRun(workspaceId: string, approvedAt?: string) {
   return handle.workflowRun.id
 }
 
-async function setFormat(workspaceId: string, formatVersion: number | null) {
+async function setWorkspace(
+  workspaceId: string,
+  fields: { formatVersion: number | null; desiredSha?: string | null },
+) {
   await withOrgDbContext(org.id, (db) =>
-    db
-      .update(workspaces)
-      .set({ formatVersion })
-      .where(eq(workspaces.id, workspaceId)),
+    db.update(workspaces).set(fields).where(eq(workspaces.id, workspaceId)),
   )
 }
 
@@ -578,13 +578,24 @@ it(
 
 it("keeps the row when the scan cannot read the format, or the format is newer than this code", async () => {
   expect(await row(capped)).toMatchObject({ status: "failed" })
-  for (const format of [null, 4]) {
-    await setFormat(capped, format)
+  const [workspace] = await withOrgDbContext(org.id, (db) =>
+    db.select().from(workspaces).where(eq(workspaces.id, capped)),
+  )
+  // No cached format and no commit: git cannot give the format file now.
+  // Then a format that is newer than this code.
+  for (const fields of [
+    { formatVersion: null, desiredSha: null },
+    { formatVersion: 4 },
+  ]) {
+    await setWorkspace(capped, fields)
     await runScan()
     expect(await row(capped)).toMatchObject({ status: "failed" })
     expect((await row(capped))?.upgrade.blockedReason).toBeUndefined()
   }
-  await setFormat(capped, 3)
+  await setWorkspace(capped, {
+    formatVersion: 3,
+    desiredSha: workspace?.desiredSha ?? null,
+  })
 })
 
 it(

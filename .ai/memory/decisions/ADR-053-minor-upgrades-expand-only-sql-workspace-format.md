@@ -54,7 +54,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 - It costs model money, so the operator sees an estimate before the start.
 - A knowledge export from the database keeps only the content that a fresh ingestion cannot rebuild.
 - Each Workspace with a GitHub source repository needs it once for each skill bundle. It needs format 3 or higher, so that the ingestion v2 publish is allowed.
-- A throttle in committed config, not in env vars, limits the load and the cost: one Workspace of an org runs at a time, and an instance runs only a few repositories at a time.
+- Re-ingestion is throttled for each org (see [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md), revision 2026-10-16).
 
 ### 6. Git holds the upgrade state
 
