@@ -34,7 +34,15 @@ it(
           ),
           http.get(
             "https://api.github.com/repos/fixture/hydration-contract/contents/*",
-            () => HttpResponse.json({ message: "Not found" }, { status: 404 }),
+            ({ params }) =>
+              // The source writers read the format file on the default branch.
+              String(params[0]) === ".ctxpipe/workspace.yaml"
+                ? HttpResponse.json({
+                    type: "file",
+                    encoding: "base64",
+                    content: Buffer.from("format: 3\n").toString("base64"),
+                  })
+                : HttpResponse.json({ message: "Not found" }, { status: 404 }),
           ),
           http.all(
             "https://api.github.com/repos/fixture/hydration-contract/git/*",

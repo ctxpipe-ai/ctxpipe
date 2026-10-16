@@ -34,10 +34,10 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
-import type { IngestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
+import { workspaceFormatFile } from "../../domain/workspaces/workspace-format.js"
 import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -55,7 +55,6 @@ import {
   type IngestionV2Output,
 } from "./repository-ingestion-v2.js"
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
-import { defineWorkspaceOwnershipMigrationWorkflow } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 /*
@@ -193,11 +192,7 @@ let backend: BackendPostgres
 let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
-// The committed switch that the publish push step reads.
-const committed: { pipeline: IngestionPublishPipeline } = { pipeline: "v2" }
-const workspaceExtractIngest = defineWorkspaceExtractIngestWorkflow({
-  committedPipeline: () => committed.pipeline,
-})
+const workspaceExtractIngest = defineWorkspaceExtractIngestWorkflow()
 let sourceSha: string
 let wideSha: string
 const pinned: string[] = []
@@ -237,6 +232,20 @@ function humanCommit(name: string): string {
   return git(work, "rev-parse", "HEAD")
 }
 
+/**
+ * A person sets the Workspace format of `name` on its default branch: an
+ * upgrade pull request, or the revert of one.
+ */
+function humanFormat(name: string, format: number): string {
+  const work = mkdtempSync(join(folder, "human-"))
+  git(work, "clone", "-q", join(remotes, name), ".")
+  const file = workspaceFormatFile(format)
+  writeFileSync(join(work, file.path), file.content)
+  git(work, "commit", "-q", "-am", `Set the Workspace format to ${format}`)
+  git(work, "push", "-q", "origin", "main")
+  return git(work, "rev-parse", "HEAD")
+}
+
 /** A person adds `addition` to `path` on the default branch of `name`. */
 function humanEdit(name: string, path: string, addition: string): string {
   const work = mkdtempSync(join(folder, "human-"))
@@ -270,7 +279,11 @@ async function resetContexts() {
     await withOrgDbContext(orgId, (db) =>
       db
         .update(workspaces)
-        .set({ desiredSha: pinned[i], writeStatus: "writable" })
+        .set({
+          desiredSha: pinned[i],
+          writeStatus: "writable",
+          formatVersion: 3,
+        })
         .where(eq(workspaces.id, workspaceIds[i] ?? "")),
     )
   }
@@ -325,7 +338,6 @@ function startRun(authorTime: string, source = sourceName, sha = sourceSha) {
   return runner.runWorkflow(parent.spec, {
     orgId,
     shadow: false,
-    publishPipeline: "v2",
     source: {
       url: `https://github.com/${source}`,
       githubConnectionId: connectionId,
@@ -389,8 +401,15 @@ beforeAll(async () => {
     "package.json": '{ "name": "billing-api" }\n',
     "README.md": "# Billing API\n",
   })
+  // Each Workspace is at format 3, where ingestion v2 publishes.
+  const format = workspaceFormatFile(3)
   for (const name of contexts)
-    pinned.push(remote(name, { "README.md": "# Context\n" }))
+    pinned.push(
+      remote(name, {
+        "README.md": "# Context\n",
+        [format.path]: format.content,
+      }),
+    )
   wideSha = remote(wideName, {
     "pnpm-workspace.yaml": 'packages:\n  - "packages/*"\n',
     ...Object.fromEntries(
@@ -444,6 +463,8 @@ beforeAll(async () => {
         desiredSha: pinned[i],
         desiredDefaultBranch: "main",
         writeStatus: "writable",
+        // The publish gate: ingestion v2 publishes at format 3 or more.
+        formatVersion: 3,
       }),
     )
     await replaceWorkspaceSourceRows({
@@ -486,14 +507,6 @@ beforeAll(async () => {
   runner.implementWorkflow(
     workspaceSemanticMerge.spec,
     workspaceSemanticMerge.fn,
-  )
-  // A run outside shadow mode runs the ownership migration first.
-  const workspaceOwnershipMigration = defineWorkspaceOwnershipMigrationWorkflow(
-    { committedPipeline: () => committed.pipeline },
-  )
-  runner.implementWorkflow(
-    workspaceOwnershipMigration.spec,
-    workspaceOwnershipMigration.fn,
   )
   worker = runner.newWorker({ concurrency: 4 })
   await worker.start()
@@ -566,7 +579,7 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
-    "makes the same commit when the publish is replayed, and stops it after a switch back to legacy",
+    "makes the same commit when the publish is replayed, and stops it after a revert of the upgrade",
     { timeout: 520_000 },
     async () => {
       const first = await startRun("2026-10-05T00:00:00.000Z")
@@ -630,8 +643,9 @@ describe("ingestion v2 publish", () => {
       )
       expect(jobs).toHaveLength(1)
 
-      // The job was queued while the switch was v2. After a switch back to
-      // legacy, the push step stops it, and the default branch stays.
+      // The job was queued at format 3. A revert of the upgrade pull request
+      // takes the tree back to format 2: the push step reads the tree that it
+      // pushes on and stops, and the default branch stays.
       await withOrgDbContext(orgId, (db) =>
         db
           .delete(workspaceWriteJobs)
@@ -643,20 +657,90 @@ describe("ingestion v2 publish", () => {
           ),
       )
       git(bare, "update-ref", "refs/heads/main", pinned[0] ?? "", before)
-      committed.pipeline = "legacy"
-      try {
-        const stopped = await runner.runWorkflow(
-          workspaceExtractIngest.spec,
-          rows.rows[0]?.input as never,
-        )
-        await expect(stopped.result({ timeoutMs: 100_000 })).resolves.toEqual({
-          committed: false,
-          reason: "publish_pipeline_legacy",
-        })
-      } finally {
-        committed.pipeline = "v2"
-      }
-      expect(git(bare, "rev-parse", "main")).toBe(pinned[0])
+      const reverted = humanFormat(contexts[0] ?? "", 2)
+      const stopped = await runner.runWorkflow(
+        workspaceExtractIngest.spec,
+        rows.rows[0]?.input as never,
+      )
+      await expect(stopped.result({ timeoutMs: 100_000 })).resolves.toEqual({
+        committed: false,
+        reason: "publish_pipeline_legacy",
+      })
+      expect(git(bare, "rev-parse", "main")).toBe(reverted)
+    },
+  )
+
+  it(
+    "publishes only to the Workspace at format 3 in a mixed run, and leaves the one at format 2 to the old pipeline",
+    { timeout: 420_000 },
+    async () => {
+      // Context B has no upgrade: its tree and its cache are at format 2.
+      const bareB = join(remotes, contexts[1] ?? "")
+      const below = humanFormat(contexts[1] ?? "", 2)
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: below, formatVersion: 2 })
+          .where(eq(workspaces.id, workspaceIds[1] ?? "")),
+      )
+      const handle = await startRun("2026-10-12T00:00:00.000Z")
+      const result = await handle.result({ timeoutMs: 400_000 })
+      const runId = handle.workflowRun.id
+      expect(result).toMatchObject({ status: "done" })
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      const bareA = join(remotes, contexts[0] ?? "")
+      expect(result.workspaces.map((w) => w.workspaceId)).toEqual([
+        workspaceIds[0],
+      ])
+      expect(git(bareA, "log", "-1", "--format=%B", "main")).toContain(
+        `Ctxpipe-Run: ${runId}`,
+      )
+      expect(git(bareB, "rev-parse", "main")).toBe(below)
+      expect(refsOf(contexts[1] ?? "", runId)).toEqual([])
+    },
+  )
+
+  it(
+    "does not publish to a Workspace whose upgrade was reverted before hydrate cached it",
+    { timeout: 420_000 },
+    async () => {
+      // The cache of context B still says format 3, but its pinned tree is
+      // the revert of the upgrade: format 2.
+      const bareB = join(remotes, contexts[1] ?? "")
+      const reverted = humanFormat(contexts[1] ?? "", 2)
+      await withOrgDbContext(orgId, (db) =>
+        db
+          .update(workspaces)
+          .set({ desiredSha: reverted })
+          .where(eq(workspaces.id, workspaceIds[1] ?? "")),
+      )
+      const handle = await startRun("2026-10-13T00:00:00.000Z")
+      const result = await handle.result({ timeoutMs: 400_000 })
+      const runId = handle.workflowRun.id
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      expect(
+        result.workspaces.find((w) => w.workspaceId === workspaceIds[1]),
+      ).toMatchObject({ published: null, partial: 0 })
+      expect(git(bareB, "rev-parse", "main")).toBe(reverted)
+      // The run reads the pinned tree before it publishes, so no publish job
+      // of context B starts.
+      const publishJobs = await getSystemDb().execute(sql`
+        select id from openworkflow.workflow_runs
+        where namespace_id = ${openWorkflowNamespaceId()}
+          and workflow_name = 'workspace-write-extract-ingest'
+          and input->>'workspaceId' = ${workspaceIds[1]}
+          and input->'ingest'->>'runId' = ${runId}
+      `)
+      expect(publishJobs.rows).toEqual([])
+      expect(
+        git(
+          join(remotes, contexts[0] ?? ""),
+          "log",
+          "-1",
+          "--format=%B",
+          "main",
+        ),
+      ).toContain(`Ctxpipe-Run: ${runId}`)
     },
   )
 
@@ -837,35 +921,20 @@ describe("ingestion v2 publish", () => {
     )
   }
 
-  /** The completed ownership migrations of one run. */
-  async function migrationsDone(runId: string): Promise<number> {
-    const rows = await getSystemDb().execute<{ n: number }>(sql`
-      select count(*)::int as n from openworkflow.workflow_runs
-      where namespace_id = ${openWorkflowNamespaceId()}
-        and workflow_name = 'workspace-write-ownership-migration'
-        and input->>'jobId' like ${`wjob_${runId}_%_ownership`}
-        and status = 'completed'
-    `)
-    return rows.rows[0]?.n ?? 0
-  }
-
   it(
     "marks a Workspace partial and keeps its refs when the default branch wins the push race three times",
     { timeout: 420_000 },
     async () => {
       const bare = join(remotes, contexts[0] ?? "")
-      // The race starts after the ownership migration of each Workspace.
+      // Each tip read of context A races a person's commit.
       const flag = join(folder, "race-publish")
+      writeFileSync(flag, "")
       const bin = raceContextA(flag)
       let result: IngestionV2Output
       let runId: string
       try {
         const handle = await startRun("2026-10-10T00:00:00.000Z")
         runId = handle.workflowRun.id
-        await expect
-          .poll(() => migrationsDone(runId), { timeout: 120_000 })
-          .toBe(contexts.length)
-        writeFileSync(flag, "")
         result = await handle.result({ timeoutMs: 400_000 })
       } finally {
         rmSync(flag, { force: true })
@@ -884,46 +953,6 @@ describe("ingestion v2 publish", () => {
       expect(partialLogs).not.toEqual([])
       expect(partialLogs.map((event) => event.reason)).toEqual(
         partialLogs.map(() => "failed"),
-      )
-      expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
-        `Ctxpipe-Run: ${runId}`,
-      )
-      expect(refsOf(contexts[0] ?? "", runId)).not.toEqual([])
-    },
-  )
-
-  it(
-    "marks a Workspace partial and keeps its refs when its ownership migration fails, and publishes the others",
-    { timeout: 420_000 },
-    async () => {
-      const bare = join(remotes, contexts[0] ?? "")
-      // The race runs from the start: the migration of context A fails.
-      const flag = join(folder, "race-migration")
-      writeFileSync(flag, "")
-      const bin = raceContextA(flag)
-      let result: IngestionV2Output
-      let runId: string
-      try {
-        const handle = await startRun("2026-10-11T00:00:00.000Z")
-        runId = handle.workflowRun.id
-        result = await handle.result({ timeoutMs: 400_000 })
-      } finally {
-        rmSync(flag, { force: true })
-        vi.stubEnv("PATH", process.env.PATH?.replace(`${bin}:`, "") ?? "")
-      }
-      const entry = expectOnlyContextBPublished(result, runId)
-      expect(entry?.refused).toBe("The ownership migration failed")
-      const partialLogs = loggedEvents.filter(
-        (event) =>
-          event.level === "warn" &&
-          event.ingestionRunId === runId &&
-          event.workspaceId === workspaceIds[0] &&
-          String(event.step).startsWith("ownership-migration:"),
-      )
-      // A replay of the run body can log it again.
-      expect(partialLogs).not.toEqual([])
-      expect(partialLogs.map((event) => event.reason)).toEqual(
-        partialLogs.map(() => "ownership_migration_failed"),
       )
       expect(git(bare, "log", "-1", "--format=%B", "main")).not.toContain(
         `Ctxpipe-Run: ${runId}`,

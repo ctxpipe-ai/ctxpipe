@@ -10,13 +10,23 @@ import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
 import type { IngestionV2Input } from "./ingestion-run.js"
+import { ingestionV2EnabledFor } from "./ingestion-v2-config.js"
 
 export type IngestionV2Resolution =
-  | { skipped: "source_is_workspace" | "not_github" | "no_destination" }
+  | {
+      skipped:
+        | "source_is_workspace"
+        | "not_github"
+        | "no_destination"
+        // Each destination is below format 3: the run publishes nothing.
+        | "upgrade_needed"
+    }
   | {
       skipped?: undefined
       sourceRepositoryId: string | null
       destinations: IngestDestination[]
+      /** Destinations that a publish run left out: below format 3. Empty in shadow mode. */
+      needsUpgrade: string[]
     }
 
 /**
@@ -32,7 +42,7 @@ export type IngestionV2Resolution =
  * Workspace that is not writable, or has no commit yet, gets no refs.
  */
 export async function resolveIngestionV2Run(
-  input: Pick<IngestionV2Input, "orgId" | "source">,
+  input: Pick<IngestionV2Input, "orgId" | "source" | "shadow">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
   if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))
@@ -82,11 +92,20 @@ export async function resolveIngestionV2Run(
         normalizeWorkspaceRepositoryUrl(row.gitUrl) ===
         normalizeWorkspaceRepositoryUrl(url),
     )?.id ?? null
-  const candidates = orgWorkspaces.flatMap((row) => {
+  const declared = orgWorkspaces.flatMap((row) => {
     const path = sourcePath(row.id)
     return path ? [{ row, sourcePath: path }] : []
   })
-  if (!candidates.length) return { skipped: "no_destination" }
+  if (!declared.length) return { skipped: "no_destination" }
+  // A publish run writes ownership front matter (format 3). A Workspace
+  // below it waits for the upgrade; a shadow run publishes nothing, so it
+  // runs for each Workspace.
+  const needsUpgrade = input.shadow
+    ? []
+    : declared.filter(({ row }) => !ingestionV2EnabledFor(row))
+  if (needsUpgrade.length === declared.length)
+    return { skipped: "upgrade_needed" }
+  const candidates = declared.filter((entry) => !needsUpgrade.includes(entry))
   const destinations: IngestDestination[] = candidates
     .flatMap(({ row, sourcePath }) =>
       row.writeStatus === "writable" && row.desiredSha && row.githubConnectionId
@@ -108,6 +127,7 @@ export async function resolveIngestionV2Run(
   return {
     sourceRepositoryId: repositoryId(sourceUrl),
     destinations,
+    needsUpgrade: needsUpgrade.map(({ row }) => row.id),
   }
 }
 

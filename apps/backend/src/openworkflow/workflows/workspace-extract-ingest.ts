@@ -7,10 +7,8 @@ import {
   releaseIngestSourceTree,
 } from "../../domain/ingestion/ingest-source-tree.js"
 import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipeline,
-  ingestionPublishPipelineSchema,
-  publishPipelineStopped,
+  retiredPublishPipelineField,
+  workspacePublishPipeline,
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
@@ -26,6 +24,7 @@ import {
   resolveIngestConflicts,
   SemanticResolveError,
 } from "../../domain/workspaces/semantic-merge.js"
+import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -50,7 +49,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
+import { type GitPack, readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -79,11 +78,8 @@ export const workspaceExtractIngestInputSchema = z
      * `revision.sha` is the run's pinned revision.
      */
     ingest: ingestPublishSourceSchema.optional(),
-    /**
-     * The publish pipeline when the job was queued (ADR-052 phase 4). A job
-     * queued before this field is `legacy`.
-     */
-    publishPipeline: ingestionPublishPipelineSchema.default("legacy"),
+    /** Retired: a job that was queued with it still parses. */
+    publishPipeline: retiredPublishPipelineField,
   })
   .strict()
   .refine(
@@ -99,13 +95,13 @@ export const workspaceExtractIngestInputSchema = z
   )
 
 /**
- * `committedPipeline` reads the committed switch at push time; a test gives
- * the value that it checks.
+ * The Workspace format is the switch (ADR-052 phase 4, G5): a job of the old
+ * pipeline (`extraction`) pushes only on a tree below format 3, and an
+ * ingestion v2 publish (`ingest`) only on a tree at 3 or more. The check
+ * reads the format file of the tree that the job pushes on, so a job that
+ * was queued before an upgrade, or before a revert of it, stops.
  */
-export function defineWorkspaceExtractIngestWorkflow(
-  deps: { committedPipeline?: () => IngestionPublishPipeline } = {},
-) {
-  const committedPipeline = deps.committedPipeline ?? ingestionPublishPipeline
+export function defineWorkspaceExtractIngestWorkflow() {
   return defineWorkflow(
     {
       name: "workspace-write-extract-ingest",
@@ -113,13 +109,9 @@ export function defineWorkspaceExtractIngestWorkflow(
     },
     async ({ input: queuedInput, step, run }) => {
       const input = workspaceExtractIngestInputSchema.parse(queuedInput)
-      // A job queued before a switch, or a job of the other pipeline, stops.
-      const pipelineStopped = () =>
-        publishPipelineStopped({
-          job: input.ingest ? "v2" : "legacy",
-          queued: input.publishPipeline,
-          committed: committedPipeline(),
-        })
+      const job = input.ingest ? "v2" : "legacy"
+      const pipelineStopped = async (pack: GitPack) =>
+        workspacePublishPipeline(await packWorkspaceFormat(pack)) !== job
       return withWorkspaceWriteContext(
         input,
         "workspace-write-extract-ingest",
@@ -148,7 +140,6 @@ export function defineWorkspaceExtractIngestWorkflow(
               workflowRunId: run.id,
               extraction: input.extraction,
               ingest: input.ingest,
-              publishPipeline: input.publishPipeline,
             }),
           )
           const identity = input.extraction
@@ -240,8 +231,9 @@ export function defineWorkspaceExtractIngestWorkflow(
                   }
                 }
                 // A job of the old pipeline that was queued or paused before
-                // the switch to ingestion v2 must not publish (ADR-052 phase 4).
-                if (pipelineStopped()) return { stopped: true as const }
+                // the upgrade to format 3 must not publish (ADR-052 phase 4).
+                if (await pipelineStopped(acquired.pack))
+                  return { stopped: true as const }
                 if (!input.extraction || !identity)
                   throw new Error("The extraction command has no capture")
                 const extraction = input.extraction
@@ -379,11 +371,11 @@ export function defineWorkspaceExtractIngestWorkflow(
               const attempt = await step.run(
                 { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
                 async () => {
-                  // The switch can change after the transform and while the
+                  // The format can change after the transform and while the
                   // push waits for write access. The step that pushes reads
-                  // it immediately before the push, so no step runs between.
-                  // Each pipeline pushes only while the switch selects it.
-                  if (pipelineStopped()) {
+                  // it from the tree that it pushes on: the push lands only
+                  // on that parent, so no other tree can get the commit.
+                  if (await pipelineStopped(committed)) {
                     // The job publishes nothing, so it keeps no commit.
                     await discardWriteJobPreparedCommit(
                       input.jobId,

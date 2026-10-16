@@ -963,3 +963,115 @@ it(
     )
   },
 )
+
+it.each([
+  { format: 2, published: true },
+  { format: 3, published: false },
+])(
+  "lets the old pipeline publish only to a tree below format 3 (format $format)",
+  { timeout: 60_000 },
+  async ({ format, published }) => {
+    const { workspaceFormatFile } = await import("./workspace-format.js")
+    const formatFile = workspaceFormatFile(format)
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: formatFile.path, body: formatFile.content }],
+      },
+      async (f) => {
+        await f.handle.cancel()
+        const { workspaceExtractIngest } = await import(
+          "../../openworkflow/workflows/workspace-extract-ingest.js"
+        )
+        f.runner.implementWorkflow(
+          workspaceExtractIngest.spec,
+          workspaceExtractIngest.fn,
+        )
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const handle = await f.runner.runWorkflow(
+            workspaceExtractIngest.spec,
+            {
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              jobId: `wjob_${f.id}_format_${format}`,
+              revision: { ...f.revision, access: "write-default" },
+              extraction: await storeTestExtraction(f.org.id, {
+                repositoryId: "repo_captured",
+                repositoryUrl: f.workspaceUrl,
+                sourceSha: f.sha,
+                objects: [
+                  {
+                    kind: "Service",
+                    deduplicationKey: "svc:ledger",
+                    name: "Ledger",
+                    summary: "Captured ledger",
+                  },
+                ],
+                claims: [],
+              }),
+            },
+          )
+          expect(await handle.result({ timeoutMs: 15_000 })).toMatchObject(
+            published
+              ? { committed: true }
+              : { committed: false, reason: "publish_pipeline_v2" },
+          )
+          const main = f.git("--git-dir", f.remote, "rev-parse", "main")
+          if (published) expect(main).not.toBe(f.sha)
+          else expect(main).toBe(f.sha)
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "refuses an old extract ingest at admission when the cached format is 3",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        const { workspaces } = await import("../../db/schema/workspaces.js")
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ formatVersion: 3 })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const extraction = await storeTestExtraction(f.org.id, {
+          repositoryId: "repo_captured",
+          repositoryUrl: f.workspaceUrl,
+          sourceSha: f.sha,
+          objects: [{ kind: "Service", deduplicationKey: "svc:ledger" }],
+          claims: [],
+        })
+        const errors: Error[] = []
+        expect(
+          await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId: `wjob_${f.id}_refused`,
+                kind: "extract_ingest",
+                extraction,
+              },
+              { error: (error) => errors.push(error) },
+            ),
+          ),
+        ).toEqual({ started: false })
+        expect(errors.map((error) => error.message)).toEqual([
+          "The Workspace format selects the v2 publish pipeline. It refuses the extract_ingest write.",
+        ])
+      },
+    )
+  },
+)

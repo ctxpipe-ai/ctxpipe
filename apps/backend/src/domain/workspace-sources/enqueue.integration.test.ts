@@ -52,7 +52,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
-        publishPipeline: "legacy",
+        format: 2,
       })
     }
     return cleanupRuns(workspaceId)
@@ -93,7 +93,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
-        publishPipeline: "legacy",
+        format: 2,
       })
     }
     return cleanupRuns(workspaceId)
@@ -294,7 +294,7 @@ sources:
         workspaceId,
         revision,
         projected,
-        publishPipeline: "v2",
+        format: 3,
       })
       const [row] = await listWorkspaceSourceRows({
         orgId: seed.orgId,

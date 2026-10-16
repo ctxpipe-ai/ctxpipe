@@ -373,7 +373,7 @@ describe("the production registry", () => {
   // The contract test of step 1 (export-and-sources-native) proves on a
   // real database that a second plan of each step changes nothing.
   it("is contiguous from format 1", () => {
-    expect(GIT_UPGRADE_STEPS.map((step) => step.format)).toEqual([1])
-    expect(upgradeTargetFormat(GIT_UPGRADE_STEPS)).toBe(1)
+    expect(GIT_UPGRADE_STEPS.map((step) => step.format)).toEqual([1, 2, 3])
+    expect(upgradeTargetFormat(GIT_UPGRADE_STEPS)).toBe(3)
   })
 })

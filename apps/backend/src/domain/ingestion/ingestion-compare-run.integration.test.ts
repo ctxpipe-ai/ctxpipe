@@ -113,7 +113,6 @@ async function seedRun(input: {
 const v2Input = (orgId: string): IngestionV2Input => ({
   orgId,
   shadow: true,
-  publishPipeline: "legacy",
   source: { url: SOURCE, githubConnectionId: "con_fixture" },
   sha: SHA,
   authorTime: "2026-10-01T00:00:00.000Z",
