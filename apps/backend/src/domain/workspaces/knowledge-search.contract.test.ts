@@ -10,7 +10,7 @@ import {
   seedKnowledgeUnits,
   seedKnowledgeWorkspace,
 } from "../../test/knowledge-search-fixture.js"
-import { searchKnowledge } from "./knowledge-search.js"
+import { hnswCandidates, searchKnowledge } from "./knowledge-search.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../../.env.local") })
@@ -31,7 +31,7 @@ const modelServer = embeddingModelServer()
 // a filtered HNSW scan visits (hnsw.max_scan_tuples). If the planner walks the
 // shared index, such a scan never reaches the small Workspace. The planner
 // picks that plan by table statistics, so these tests do not force it. They
-// prove the result: a small scope is scanned exactly, and a large one is fast.
+// prove the result: a small scope is scanned exactly, and a large one gets hits from both sides and reads the HNSW index.
 const paraphrase = "what to do in an outage"
 
 describe("searchKnowledge on a large shared index (Postgres)", () => {
@@ -123,25 +123,37 @@ describe("searchKnowledge on a large shared index (Postgres)", () => {
     expect(hits.map((hit) => hit.unitId)).toEqual([runbook, ledger])
   }, 60_000)
 
-  it("answers within the bound over 20,500 chunks, with hits from both sides", async () => {
-    const runs: number[] = []
-    for (let run = 0; run < 5; run++) {
-      const started = performance.now()
-      const hits = await searchKnowledge({
-        orgId,
-        workspaceIds: [small, bulk],
-        query: `ERR_LEDGER_7731 ${paraphrase}`,
-        limit: 10,
-      })
-      runs.push(performance.now() - started)
-      // Full text finds the ledger unit. The vector side gives the bulk units.
-      expect(hits.map((hit) => hit.unitId)).toContain(ledger)
-      expect(hits.some((hit) => hit.workspaceId === bulk)).toBe(true)
-    }
-    runs.sort((a, b) => a - b)
-    // A fresh fixture has no table statistics, so the planner scans all
-    // 20,500 vectors. That took 0.2 s on an idle laptop and 1.9 s on a busy
-    // one. The bound leaves room for a loaded CI host.
-    expect(runs[2]).toBeLessThan(3_000)
+  it("returns hits from both sides over 20,500 chunks", async () => {
+    const hits = await searchKnowledge({
+      orgId,
+      workspaceIds: [small, bulk],
+      query: `ERR_LEDGER_7731 ${paraphrase}`,
+      limit: 10,
+    })
+    // Full text finds the ledger unit. The vector side gives the bulk units.
+    expect(hits.map((hit) => hit.unitId)).toContain(ledger)
+    expect(hits.some((hit) => hit.workspaceId === bulk)).toBe(true)
+  }, 120_000)
+
+  it("reads the nearest chunks through the HNSW index, not a scan of every chunk", async () => {
+    // A wall-clock bound is not deterministic on a shared runner. The plan is.
+    // With sequential scans off, the planner must use the HNSW index for this
+    // query shape. A change that stops the index from serving the query, such
+    // as a second sort key, makes it fail the plan.
+    const vector = sql`${JSON.stringify(Array.from({ length: 2000 }, (_, d) => (d === 0 ? 1 : 0)))}::vector`
+    const where = sql`c.workspace_id = ANY(${sql.param([small, bulk])}::text[])
+      AND u.projection_sha = coalesce(w.active_revision->>'sha', w.active_projection_sha)`
+    const plan = await withOrgDbContext(orgId, async (db) => {
+      await db.execute(sql`ANALYZE workspace_knowledge_chunks`)
+      await db.execute(sql`SET LOCAL enable_seqscan = off`)
+      const explained = await db.execute<{ "QUERY PLAN": unknown }>(
+        sql`EXPLAIN (FORMAT JSON) ${hnswCandidates(vector, where)}`,
+      )
+      return JSON.stringify(explained.rows[0]?.["QUERY PLAN"])
+    })
+    expect(plan).toContain("workspace_knowledge_chunks_embedding_idx")
+    expect(plan).not.toMatch(
+      /"Node Type":"Seq Scan","[^}]*"Relation Name":"workspace_knowledge_chunks"/,
+    )
   }, 120_000)
 })
