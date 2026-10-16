@@ -32,6 +32,8 @@ describe("the source path of a repository (Postgres + git)", () => {
           githubConnectionId: github,
           writeStatus: "writable",
           desiredSha: "a".repeat(40),
+          // The publish gate: ingestion v2 publishes at format 3 or more.
+          formatVersion: 3,
         })
         .where(eq(workspaces.id, workspaceId)),
     )
