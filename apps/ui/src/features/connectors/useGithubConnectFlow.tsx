@@ -16,13 +16,16 @@ import {
   GITHUB_POPUP_NAME,
   GITHUB_SETUP_RESULT_KEY,
   GITHUB_SETUP_RESULT_MESSAGE,
-  type GithubSetupRegistrationStatus,
+  type GithubSetupPopupResult,
+  githubLinkErrorMessage,
+  githubLinkPopupUrl,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
   useWatchPopupClose,
   withGithubPopupState,
 } from "@/lib/popup"
+import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
 export type UseGithubConnectFlowOptions = {
@@ -64,6 +67,12 @@ export function useGithubConnectFlow({
     enabled: Boolean(orgSlug),
   })
 
+  // The backend attaches an installation through the deployment's App only
+  // for a user whose linked GitHub account can see it. With GitHub sign-in,
+  // the popup links the account first, then installs, in one flow. Wait for
+  // the config: without it, a click would skip the link step.
+  const githubSignIn = useGithubSignInEnabled()
+
   const hasHostedApp = bootstrapPending
     ? null
     : Boolean(bootstrap?.hostedDefaultAppInstallUrl)
@@ -81,7 +90,12 @@ export function useGithubConnectFlow({
   }, [])
 
   const handleInstallSettled = useCallback(
-    (status: GithubSetupRegistrationStatus) => {
+    (result: GithubSetupPopupResult) => {
+      if (result.status === "link_failed") {
+        onRegistrationFailed?.(githubLinkErrorMessage(result.linkError))
+        return
+      }
+      const { status } = result
       if (status === "redirected") return
       if (status === "registered") {
         HyperDX.addAction("connector_connect", { connector: "github" })
@@ -110,12 +124,15 @@ export function useGithubConnectFlow({
       setGithubSetupOrgHint(orgSlug)
       setInstallStarting(true)
       const popupFlowNonce = beginGithubPopupFlow()
+      const installUrl = withGithubPopupState(url, popupFlowNonce)
       const popup = openCenteredPopup(
-        withGithubPopupState(url, popupFlowNonce),
+        githubSignIn ? githubLinkPopupUrl(installUrl) : installUrl,
         {
           name: GITHUB_POPUP_NAME,
           width: 1120,
           height: 780,
+          // Without a popup, /.github/setup links the account after the install.
+          fallbackUrl: installUrl,
         },
       )
       if (!popup) {
@@ -129,12 +146,12 @@ export function useGithubConnectFlow({
           setInstallStarting(false)
           setIsSyncing(true)
           void (async () => {
-            const { status } = await handleGithubSetupPopupResult(
+            const result = await handleGithubSetupPopupResult(
               orgSlug,
               queryClient,
             )
             setIsSyncing(false)
-            handleInstallSettled(status)
+            handleInstallSettled(result)
           })()
         },
         {
@@ -149,12 +166,13 @@ export function useGithubConnectFlow({
       watchPopupClose,
       queryClient,
       handleInstallSettled,
+      githubSignIn,
     ],
   )
 
   const start = useCallback(
     (intent: "connect" | "manage_scope") => {
-      if (!orgSlug.trim()) return
+      if (!orgSlug.trim() || githubSignIn === undefined) return
       if (intent === "manage_scope" && installation?.appSlug?.trim()) {
         openManagedInstallPopup(
           `https://github.com/apps/${encodeURIComponent(
@@ -206,6 +224,7 @@ export function useGithubConnectFlow({
       onFlowStarted,
       delegateSelfHostedWizard,
       openManagedInstallPopup,
+      githubSignIn,
     ],
   )
 
@@ -213,7 +232,11 @@ export function useGithubConnectFlow({
 
   return {
     start,
-    isPending: installationPending || bootstrapPending || installStarting,
+    isPending:
+      installationPending ||
+      bootstrapPending ||
+      installStarting ||
+      githubSignIn === undefined,
     isSyncing,
     selfHostedWizard: {
       isOpen: selfHostedWizardOpen,
@@ -229,7 +252,7 @@ export function useGithubConnectFlow({
         onInstallFlowStarted={onFlowStarted}
         onDraftCreated={onDraftCreated}
         onHandoffClose={onHandoffClose}
-        onInstallPopupSettled={({ status }) => handleInstallSettled(status)}
+        onInstallPopupSettled={handleInstallSettled}
       />
     ) : null,
   }

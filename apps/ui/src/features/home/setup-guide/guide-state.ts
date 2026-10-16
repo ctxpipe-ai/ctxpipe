@@ -77,22 +77,28 @@ export function isWithinGuideWindow(
   return !Number.isNaN(at) && now - at <= GUIDE_WINDOW_MS
 }
 
-/**
- * The guide is for a start: the 14 days after the user's onboarding, the 14
- * days after the organization's creation, and an organization with no
- * Workspace at any age.
- */
-export function isGuideWindowOpen(input: {
+type GuideStart = {
   onboardingCompletedAt: Date | string | null | undefined
   orgCreatedAt: Date | string | null | undefined
-  workspaceCount: number
   now: number
-}): boolean {
+}
+
+/** The 14 days after the user's onboarding, or after the organization's creation. */
+export function isGuideRecent(input: GuideStart): boolean {
   return (
-    input.workspaceCount === 0 ||
     isWithinGuideWindow(input.onboardingCompletedAt, input.now) ||
     isWithinGuideWindow(input.orgCreatedAt, input.now)
   )
+}
+
+/**
+ * The guide is for a start: the recent days (`isGuideRecent`), and an
+ * organization with no Workspace at any age.
+ */
+export function isGuideWindowOpen(
+  input: GuideStart & { workspaceCount: number },
+): boolean {
+  return input.workspaceCount === 0 || isGuideRecent(input)
 }
 
 export type GuideView =

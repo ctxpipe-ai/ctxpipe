@@ -19,7 +19,7 @@ import {
   type GuideView,
   guideRows,
   guideView,
-  isGuideWindowOpen,
+  isGuideRecent,
 } from "./guide-state"
 
 /** When this app load started. The complete line shows on one load only. */
@@ -179,13 +179,12 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
       mayShow:
         prefsLoaded &&
         !guidePrefs.dismissedAt &&
-        isGuideWindowOpen({
-          onboardingCompletedAt: user?.onboardingCompletedAt,
-          orgCreatedAt: organization?.createdAt,
-          // Until the list loads, only the dates count.
-          workspaceCount: listQuery.data?.items.length ?? 1,
-          now: Date.now(),
-        }),
+        (listQuery.data?.items.length === 0 ||
+          isGuideRecent({
+            onboardingCompletedAt: user?.onboardingCompletedAt,
+            orgCreatedAt: organization?.createdAt,
+            now: Date.now(),
+          })),
       collapsed: guidePrefs.collapsed ?? asked,
     }
   }
