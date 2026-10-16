@@ -120,6 +120,18 @@ export type NativeHydrationOptions = {
    * write to the default branch only at format 3 or more (ADR-053 section 7).
    */
   format?: number
+  /**
+   * Use an org, a GitHub connection and a Workspace that are already in the
+   * database (for example rows that a migration made from older data). The
+   * fixture inserts and deletes no row of them, and the Workspace URL maps
+   * to the fixture remote.
+   */
+  adopt?: {
+    org: { id: string; slug: string; name: string }
+    workspaceId: string
+    connectionId: string
+    workspaceUrl: string
+  }
 }
 
 async function createNativeHydrationFixture(
@@ -134,9 +146,14 @@ async function createNativeHydrationFixture(
     throw new Error("DATABASE_URL is required for hydration proof")
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-hydration-contract-"))
   const id = `hydrate_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const org = { id: `org_${id}`, slug: id, name: "Hydration contract" }
-  const workspaceId = `ws_${id}`
-  const connectionId = `con_${id}`
+  const adopt = options.adopt
+  const org = adopt?.org ?? {
+    id: `org_${id}`,
+    slug: id,
+    name: "Hydration contract",
+  }
+  const workspaceId = adopt?.workspaceId ?? `ws_${id}`
+  const connectionId = adopt?.connectionId ?? `con_${id}`
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
   const savedEnv = {
@@ -679,6 +696,7 @@ async function createNativeHydrationFixture(
       await worker.stop()
       await backend.stop()
       try {
+        if (adopt) return
         await getSystemDb().execute(
           sql`delete from openworkflow.workflow_runs where namespace_id = ${id} or input->>'orgId' = ${org.id}`,
         )
@@ -781,7 +799,9 @@ async function createNativeHydrationFixture(
     const remote = join(directory, "remote.git")
     // A pack transfer, not a per-object copy, so background gc cannot race it.
     git("clone", "--bare", "--no-local", directory, remote)
-    const workspaceUrl = github
+    const workspaceUrl = adopt
+      ? adopt.workspaceUrl
+      : github
       ? "https://github.com/fixture/hydration-contract.git"
       : remote
     if (github) {
@@ -803,10 +823,11 @@ async function createNativeHydrationFixture(
     }
     for (const file of expected)
       writeFileSync(join(directory, file.path), "Uncommitted replacement\n")
-    await getSystemDb()
-      .insert(organizations)
-      .values({ ...org, createdAt: new Date() })
-    if (github) {
+    if (!adopt)
+      await getSystemDb()
+        .insert(organizations)
+        .values({ ...org, createdAt: new Date() })
+    if (github && !adopt) {
       await withOrgDbContext(org.id, (db) =>
         db.insert(connections).values({
           id: connectionId,
@@ -820,7 +841,8 @@ async function createNativeHydrationFixture(
         }),
       )
     }
-    await withOrgDbContext(org.id, (db) =>
+    if (!adopt)
+      await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
         id: workspaceId,
         orgId: org.id,

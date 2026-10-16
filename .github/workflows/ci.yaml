@@ -641,3 +641,93 @@ jobs:
           pnpm exec tsx src/db/migrate.ts
           DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe_migrate_fresh \
             pnpm exec vitest run src/db/rls-isolation.test.ts
+
+  upgrade-from-main:
+    # The minor upgrade promise (CTX-748): a main database, migrated and
+    # seeded by main, upgrades with the one migrate entry point; its
+    # Workspace upgrade waits for an admin and lands in one pull request; and
+    # main's code still reads the database after the upgrade (rollback).
+    name: Upgrade from main
+    timeout-minutes: 15
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d postgres"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      falkordb:
+        image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - name: Checkout of main with its dependencies
+        run: |
+          git worktree add --detach "$RUNNER_TEMP/main" origin/main
+          cd "$RUNNER_TEMP/main"
+          pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
+      - name: Restore native revision index tools
+        id: zoekt
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+      - uses: actions/setup-go@v5
+        if: steps.zoekt.outputs.cache-hit != 'true'
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Required native revision index tools
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            for tool in zoekt-index zoekt-webserver; do
+              n=0
+              until GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+              do
+                n=$((n + 1))
+                [ "$n" -lt 4 ] || exit 1
+                sleep $((n * 4))
+              done
+            done
+          fi
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
+      - name: Upgrade a main database and Workspace, then read it with main
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
+          DATABASE_APP_PASSWORD: ctxpipe
+          GRAPH_DB_URI: redis://127.0.0.1:6379
+          AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
+        working-directory: apps/backend
+        run: MAIN_TREE="$RUNNER_TEMP/main" pnpm test:upgrade-from-main
