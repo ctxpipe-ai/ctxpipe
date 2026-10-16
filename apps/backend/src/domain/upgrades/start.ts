@@ -5,7 +5,9 @@ import {
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { enqueueWorkspaceUpgrade } from "../../openworkflow/workflows/workspace-upgrade.js"
+import { enqueueWorkspaceUpgradeReingest } from "../../openworkflow/workflows/workspace-upgrade-reingest.js"
 import { UPGRADE_STATUSES } from "./registry.js"
+import { isReingestUpgradeKey } from "./reingest.js"
 
 export type StartUpgradeResult =
   | { kind: "queued"; row: WorkspaceUpgradeRow }
@@ -20,7 +22,9 @@ export type StartUpgradeResult =
  * caller checks the role. Only a row that waits for the operator, or that
  * failed, starts; of two clicks, only one queues a run. A started upgrade
  * returns its row again, so a second click opens no second pull request.
- * Call it inside the org context.
+ * A re-ingestion starts its own workflow; the estimate stays on the row,
+ * so the run log keeps what the operator saw. Call it inside the org
+ * context.
  */
 export async function startWorkspaceUpgrade(input: {
   orgId: string
@@ -51,7 +55,10 @@ export async function startWorkspaceUpgrade(input: {
     return current ? { kind: "existing", row: current } : { kind: "missing" }
   }
   try {
-    await enqueueWorkspaceUpgrade({
+    const enqueue = isReingestUpgradeKey(input.key)
+      ? enqueueWorkspaceUpgradeReingest
+      : enqueueWorkspaceUpgrade
+    await enqueue({
       orgId: input.orgId,
       workspaceId: input.workspaceId,
       key: input.key,

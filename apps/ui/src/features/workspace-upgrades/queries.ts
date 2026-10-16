@@ -12,11 +12,11 @@ type UpgradesResponse = InferResponseType<
 
 /**
  * One upgrade item, as `GET /workspaces/{slug}/upgrades` returns it. A
- * re-ingestion item can carry an `estimate` text (CTX-746).
+ * re-ingestion item carries its cost and time `estimate` (CTX-746).
  */
-export type WorkspaceUpgradeItem = UpgradesResponse["items"][number] & {
-  estimate?: string | null
-}
+export type WorkspaceUpgradeItem = UpgradesResponse["items"][number]
+
+export type UpgradeEstimate = NonNullable<WorkspaceUpgradeItem["estimate"]>
 
 export type UpgradeStatus = WorkspaceUpgradeItem["status"]
 

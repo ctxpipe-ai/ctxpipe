@@ -9,6 +9,7 @@ import {
   UPGRADE_STATUSES,
   type UpgradeStatus,
 } from "../../domain/upgrades/registry.js"
+import { isReingestUpgradeKey } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import {
@@ -26,20 +27,42 @@ const UpgradeStatusSchema = z.enum(
   Object.values(UPGRADE_STATUSES) as [UpgradeStatus, ...UpgradeStatus[]],
 )
 
+const RangeSchema = z.object({ low: z.number(), high: z.number() })
+
+const ReingestEstimateSchema = z
+  .object({
+    repositories: z.number().int(),
+    costUsd: RangeSchema,
+    minutes: RangeSchema,
+    perRepository: z.array(
+      z.object({
+        repository: z.string(),
+        roots: RangeSchema,
+        costUsd: RangeSchema,
+        minutes: RangeSchema,
+        basis: z.enum(["history", "heuristic"]),
+      }),
+    ),
+  })
+  .openapi("ReingestEstimate")
+
 const WorkspaceUpgradeItemSchema = z
   .object({
     key: z.string().openapi({
       description:
-        "`format-<N>`: the git upgrade of the Workspace repository to format N.",
+        "`format-<N>`: the git upgrade of the Workspace repository to format N. `reingest-<bundle>`: the fresh re-ingestion of the source repositories with that skill bundle.",
     }),
-    kind: z.literal("format"),
+    kind: z.enum(["format", "reingest"]),
     title: z.string(),
     status: UpgradeStatusSchema.openapi({
       description:
         "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctx| prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `blocked`: see `blockedReason` and `note`.",
     }),
     fromFormat: z.number().int(),
-    targetFormat: z.number().int(),
+    targetFormat: z.number().int().openapi({
+      description:
+        "The format that a git upgrade gives. On a re-ingestion: the format that it needs.",
+    }),
     steps: z
       .array(
         z.object({
@@ -56,9 +79,39 @@ const WorkspaceUpgradeItemSchema = z
     pullRequest: z
       .object({ number: z.number().int().nullable(), url: z.string() })
       .nullable(),
+    estimate: ReingestEstimateSchema.nullable().openapi({
+      description:
+        "Only on a re-ingestion: the cost and time estimate (p50 to p90) to show before the click.",
+    }),
+    repositories: z
+      .array(
+        z.object({
+          repository: z.string(),
+          sha: z.string().nullable(),
+          runId: z.string().nullable(),
+          status: z.enum(["pending", "done", "partial", "skipped", "failed"]),
+          report: z.array(z.string()),
+          spendUsd: z.number().nullable().openapi({
+            description:
+              "The model spend in USD of the ingestion run, from the usage that its steps report.",
+          }),
+          spendUnknown: z.boolean().openapi({
+            description:
+              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part, and the cost cap counts only that part.",
+          }),
+        }),
+      )
+      .openapi({
+        description:
+          "Only on a re-ingestion: one entry for each source repository of the last run, in run order.",
+      }),
     blockedReason: z
       .enum(Object.values(UPGRADE_BLOCKED_REASONS) as [string, ...string[]])
-      .nullable(),
+      .nullable()
+      .openapi({
+        description:
+          "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
+      }),
     note: z.string().nullable(),
     failureReason: z.string().nullable(),
     approvedBy: z.string().nullable().openapi({
@@ -93,17 +146,21 @@ function serializeUpgrade(
   row: WorkspaceUpgradeRow,
 ): z.infer<typeof WorkspaceUpgradeItemSchema> {
   const { upgrade } = row
-  const steps =
-    upgrade.steps ??
-    pendingUpgradeSteps(
-      GIT_UPGRADE_STEPS,
-      upgrade.fromFormat,
-      Math.min(upgrade.targetFormat, GIT_UPGRADE_STEPS.length),
-    ).map((step) => ({ ...step, sha: null, report: [] }))
+  const reingest = isReingestUpgradeKey(upgrade.key)
+  const steps = reingest
+    ? []
+    : (upgrade.steps ??
+      pendingUpgradeSteps(
+        GIT_UPGRADE_STEPS,
+        upgrade.fromFormat,
+        Math.min(upgrade.targetFormat, GIT_UPGRADE_STEPS.length),
+      ).map((step) => ({ ...step, sha: null, report: [] })))
   return {
     key: upgrade.key,
-    kind: "format",
-    title: `Upgrade to format ${upgrade.targetFormat}`,
+    kind: reingest ? "reingest" : "format",
+    title: reingest
+      ? "Fresh re-ingestion of the source repositories"
+      : `Upgrade to format ${upgrade.targetFormat}`,
     status: row.status,
     fromFormat: upgrade.fromFormat,
     targetFormat: upgrade.targetFormat,
@@ -116,6 +173,12 @@ function serializeUpgrade(
     pullRequest: upgrade.prUrl
       ? { number: upgrade.prNumber ?? null, url: upgrade.prUrl }
       : null,
+    estimate: upgrade.estimate ?? null,
+    repositories: (upgrade.repositories ?? []).map((r) => ({
+      ...r,
+      spendUsd: r.spendUsd ?? null,
+      spendUnknown: r.spendUnknown === true,
+    })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
     failureReason: row.failureReason,
@@ -165,7 +228,7 @@ const startUpgradeRoute = createRoute(
             "application/json": { schema: WorkspaceUpgradeItemSchema },
           },
           description:
-            "The upgrade is queued. ctx| opens a pull request on the branch `ctxpipe/upgrade/<key>`. ctx| never pushes to the default branch.",
+            "The upgrade is queued. A git upgrade opens a pull request on the branch `ctxpipe/upgrade/<key>`; ctx| never pushes to the default branch. A re-ingestion runs ingestion v2 for each source repository, one Workspace of the org at a time.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },

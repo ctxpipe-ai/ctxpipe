@@ -15,7 +15,10 @@ import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { GIT_UPGRADE_STEPS } from "../domain/upgrades/registry.js"
-import { scanWorkspaceUpgrade } from "../domain/upgrades/scan.js"
+import {
+  currentWorkspaceFormat,
+  scanWorkspaceUpgrade,
+} from "../domain/upgrades/scan.js"
 import { startWorkspaceUpgrade } from "../domain/upgrades/start.js"
 import { planOrgSourceMigration } from "../domain/workspace-sources/migration.js"
 import { listOrgWorkspaces } from "../models/workspaces.js"
@@ -47,6 +50,7 @@ try {
         orgId,
         workspace,
         steps: GIT_UPGRADE_STEPS,
+        format: await currentWorkspaceFormat(orgId, workspace, env),
         env,
       })
       upgrades.push({

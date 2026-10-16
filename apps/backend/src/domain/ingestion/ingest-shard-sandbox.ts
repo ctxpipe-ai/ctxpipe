@@ -395,7 +395,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
           )
           if (!destination)
             throw new Error("The step's Workspace is not in the shard")
-          await runIngestShardStep(root, {
+          const { usage } = await runIngestShardStep(root, {
             step: { ...step, signal },
             agentEnv,
             remote: destination.url,
@@ -408,7 +408,10 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
                 }
               : {}),
           })
-          return { tar: await collectIngestStep(handle, root) }
+          return {
+            tar: await collectIngestStep(handle, root),
+            ...(usage ? { usage } : {}),
+          }
         },
         step.signal,
       ),

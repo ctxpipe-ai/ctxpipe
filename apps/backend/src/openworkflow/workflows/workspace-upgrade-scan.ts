@@ -3,13 +3,17 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
+import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
   upgradeRelease,
-  upgradeTargetFormat,
 } from "../../domain/upgrades/registry.js"
-import { scanWorkspaceUpgrade } from "../../domain/upgrades/scan.js"
+import {
+  currentWorkspaceFormat,
+  scanWorkspaceReingest,
+  scanWorkspaceUpgrade,
+} from "../../domain/upgrades/scan.js"
 import {
   ensureOrgFirstWorkspace,
   listOrgWorkspaces,
@@ -52,37 +56,70 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },
         })
-        if (!org) return []
+        if (!org) return { workspaces: [], reingest: [] }
         return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
           await withOrgDbContext(input.orgId, () =>
             ensureOrgFirstWorkspace(input.orgId),
           )
           const env = parseEnv(process.env)
-          const results = []
+          // A bundle that cannot be read fails only the re-ingestion scans.
+          let bundle: ReturnType<typeof readIngestSkillBundle> | undefined
+          const readBundle = () => {
+            bundle ??= readIngestSkillBundle()
+            return bundle
+          }
+          const results: Record<
+            "workspaces" | "reingest",
+            Array<{ workspaceId: string; kind: string }>
+          > = { workspaces: [], reingest: [] }
           for (const workspace of await withOrgDbContext(input.orgId, () =>
             listOrgWorkspaces(input.orgId),
           )) {
-            // One Workspace that GitHub cannot read must not stop the others.
-            try {
-              results.push({
-                workspaceId: workspace.id,
-                ...(await scanWorkspaceUpgrade({
+            // Both scans use one read of the format, so GitHub gets one read.
+            let format: Promise<number | null> | undefined
+            const readFormat = () => {
+              format ??= currentWorkspaceFormat(input.orgId, workspace, env)
+              return format
+            }
+            const scans = {
+              workspaces: async () =>
+                scanWorkspaceUpgrade({
                   orgId: input.orgId,
                   workspace,
                   steps,
+                  format: await readFormat(),
                   env,
-                })),
-              })
-            } catch (error) {
-              log.warn({
-                event: "workspace_upgrade_scan_failed",
-                workspaceId: workspace.id,
-                message: error instanceof Error ? error.message : String(error),
-              })
-              results.push({
-                workspaceId: workspace.id,
-                kind: "error" as const,
-              })
+                }),
+              reingest: async () =>
+                scanWorkspaceReingest({
+                  orgId: input.orgId,
+                  workspace,
+                  bundle: await readBundle(),
+                  format: await readFormat(),
+                }),
+            }
+            for (const [upgrade, scan] of Object.entries(scans) as Array<
+              [keyof typeof scans, () => Promise<{ kind: string }>]
+            >) {
+              // One Workspace that GitHub cannot read must not stop the others.
+              try {
+                results[upgrade].push({
+                  workspaceId: workspace.id,
+                  ...(await scan()),
+                })
+              } catch (error) {
+                log.warn({
+                  event: "workspace_upgrade_scan_failed",
+                  workspaceId: workspace.id,
+                  upgrade,
+                  message:
+                    error instanceof Error ? error.message : String(error),
+                })
+                results[upgrade].push({
+                  workspaceId: workspace.id,
+                  kind: "error",
+                })
+              }
             }
           }
           return results
@@ -101,7 +138,7 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
           },
         ),
       )
-      return { workspaces: scanned }
+      return scanned
     },
   )
 }
@@ -119,7 +156,9 @@ export async function enqueueWorkspaceUpgradeScan(input: {
   availableAt?: Date
   release?: string
 }): Promise<void> {
-  const release = input.release ?? upgradeRelease()
+  const release =
+    input.release ??
+    upgradeRelease(GIT_UPGRADE_STEPS, (await readIngestSkillBundle()).name)
   await runWorkflowWithWorkerWake(
     workspaceUpgradeScan.spec,
     { orgId: input.orgId, release, trigger: input.trigger },
@@ -137,15 +176,21 @@ const SCAN_STAGGER_MS = 15_000
  * Backstop on worker start: queue one scan for each org that has a
  * Workspace, once for each release. The scans start one after the other, so
  * the tip checks and the first hydrates of a deploy do not all start at once.
- * With no registered step there is nothing to find, so nothing is queued.
+ * A release with no git step still scans: a new skill bundle offers a new
+ * re-ingestion.
  */
 export async function scheduleUpgradeScansForAllOrgs(
-  input: { now?: Date; steps?: readonly GitUpgradeStep[] } = {},
+  input: {
+    now?: Date
+    steps?: readonly GitUpgradeStep[]
+    bundleName?: string
+  } = {},
 ): Promise<number> {
-  const steps = input.steps ?? GIT_UPGRADE_STEPS
-  if (upgradeTargetFormat(steps) === 0) return 0
   const now = input.now ?? new Date()
-  const release = upgradeRelease(steps)
+  const release = upgradeRelease(
+    input.steps ?? GIT_UPGRADE_STEPS,
+    input.bundleName ?? (await readIngestSkillBundle()).name,
+  )
   const orgs = await getSystemDb()
     .select({ id: organizations.id })
     .from(organizations)

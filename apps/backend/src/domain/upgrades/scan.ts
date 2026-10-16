@@ -30,7 +30,15 @@ import {
   type UpgradeStatus,
   upgradeBranch,
   upgradeTargetFormat,
+  type WorkspaceUpgradePayload,
 } from "./registry.js"
+import {
+  estimateReingest,
+  REINGEST_REQUIRES_FORMAT,
+  reingestBlock,
+  reingestUpgradeKey,
+  workspaceSourceRepositories,
+} from "./reingest.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
@@ -52,7 +60,7 @@ const SCAN_OWNED: readonly UpgradeStatus[] = [
  * means "read the file now", not format 0. Null comes back when git cannot
  * give the file now.
  */
-async function currentFormat(
+export async function currentWorkspaceFormat(
   orgId: string,
   workspace: ScannedWorkspace,
   env: Env,
@@ -93,12 +101,13 @@ export async function scanWorkspaceUpgrade(input: {
   orgId: string
   workspace: ScannedWorkspace
   steps: readonly GitUpgradeStep[]
+  /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
+  format: number | null
   env: Env
 }): Promise<WorkspaceUpgradeScanResult> {
-  const { workspace } = input
+  const { workspace, format } = input
   const targetFormat = upgradeTargetFormat(input.steps)
   if (targetFormat === 0) return { kind: "none", reason: "no_steps" }
-  const format = await currentFormat(input.orgId, workspace, input.env)
   if (format === null) return { kind: "none", reason: "unknown_format" }
   // A file that is not valid, or a format that is newer than this code,
   // gets no upgrade (ADR-053 section 3).
@@ -235,4 +244,90 @@ export async function scanWorkspaceUpgrade(input: {
       note: undefined,
     },
   )
+}
+
+/**
+ * Find the fresh re-ingestion of one Workspace and record it (ADR-053
+ * section 5, G1). Every Workspace with a GitHub source repository needs it
+ * once for each skill bundle: the key names the bundle, so a completed row
+ * keeps it done until a release ships a new bundle. The scan never starts
+ * it. It records `awaiting_operator` with the estimate, or `blocked` with
+ * the reason of {@link reingestBlock}. A format that the scan cannot read now
+ * leaves the row as it is, and a format that is newer than this code gets no
+ * re-ingestion.
+ */
+export async function scanWorkspaceReingest(input: {
+  orgId: string
+  workspace: ScannedWorkspace
+  bundle: { name: string; skills: readonly string[] }
+  /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
+  format: number | null
+}): Promise<WorkspaceUpgradeScanResult> {
+  const { workspace, format } = input
+  const repositories = await workspaceSourceRepositories(
+    input.orgId,
+    workspace.id,
+  )
+  if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
+  if (format === null) return { kind: "none", reason: "unknown_format" }
+  if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
+  const key = reingestUpgradeKey(input.bundle.name)
+  await failStoppedUpgradeRun(workspace.id, key)
+  await deleteSupersededUpgradeRows({
+    workspaceId: workspace.id,
+    key,
+    statuses: SCAN_OWNED,
+  })
+  const existing = await getWorkspaceUpgradeRow(workspace.id, key)
+  if (existing && !SCAN_OWNED.includes(existing.status))
+    return { kind: "pending", key, status: existing.status }
+  const blocked = reingestBlock({ ...workspace, format })
+  const estimate = await estimateReingest({
+    orgId: input.orgId,
+    repositories,
+    bundleSkills: input.bundle.skills,
+  })
+  const fields = {
+    estimate,
+    fromFormat: Math.max(format, 0),
+    blockedReason: blocked?.blockedReason,
+    // A failed run keeps its note; a block replaces it.
+    ...(blocked
+      ? { note: blocked.note }
+      : existing?.status === UPGRADE_STATUSES.blocked
+        ? { note: undefined }
+        : {}),
+  }
+  // A failed run waits for the operator to start it again, unless it is
+  // now blocked.
+  const status = blocked
+    ? UPGRADE_STATUSES.blocked
+    : existing?.status === UPGRADE_STATUSES.failed
+      ? UPGRADE_STATUSES.failed
+      : UPGRADE_STATUSES.awaiting_operator
+  if (!existing)
+    await insertWorkspaceUpgradeRow({
+      workspaceId: workspace.id,
+      generation: workspace.desiredGeneration,
+      status,
+      upgrade: {
+        key,
+        targetFormat: REINGEST_REQUIRES_FORMAT,
+        ...fields,
+      } satisfies WorkspaceUpgradePayload,
+    })
+  else
+    await transitionWorkspaceUpgradeRow({
+      workspaceId: workspace.id,
+      key,
+      from: SCAN_OWNED,
+      to: status,
+      generation: workspace.desiredGeneration,
+      upgrade: fields,
+    })
+  return {
+    kind: "pending",
+    key,
+    status: (await getWorkspaceUpgradeRow(workspace.id, key))?.status ?? status,
+  }
 }
