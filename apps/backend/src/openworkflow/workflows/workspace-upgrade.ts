@@ -40,6 +40,7 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import {
   createPullRequestFromBranch,
@@ -136,6 +137,22 @@ async function buildAndPushUpgrade(input: {
         url: revision.remote.url,
         connectionId: revision.remote.connectionId ?? null,
       },
+      introducedAt: async () =>
+        new Map(
+          (
+            await listMarkdownFilesAtGitSha({
+              url: revision.remote.url,
+              sha: revision.sha,
+              token,
+              includeIntroducingCommits: true,
+              root: workspaceRootPath(revision),
+            })
+          ).flatMap((file) =>
+            file.introducingCommitTimestamp
+              ? [[file.path, file.introducingCommitTimestamp] as const]
+              : [],
+          ),
+        ),
     },
     createdAt: input.createdAt,
   })

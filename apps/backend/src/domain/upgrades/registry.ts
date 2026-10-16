@@ -35,6 +35,12 @@ export type UpgradeStepContext = {
   baseSha: string
   /** The Workspace repository and its GitHub connection. */
   remote: { url: string; connectionId: string | null }
+  /**
+   * The time of the commit that added each Markdown file of the base tree,
+   * by path. A step reads it only when a claim needs a `valid_from`. With
+   * no reader, a step writes no `valid_from`.
+   */
+  introducedAt?: () => Promise<ReadonlyMap<string, string>>
 }
 
 /** The change that one step makes. Paths are relative to the Workspace root folder. */

@@ -1,4 +1,3 @@
-import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { ownershipMigrationFiles } from "../ingestion/ownership-migration.js"
 import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
 import type {
@@ -10,9 +9,14 @@ import { removeFolderMapMarkers } from "./folder-list.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import {
   claimsUpgradeRemainder,
+  importKeyCleanupRemainder,
   validFromPersistRemainder,
 } from "./hydrate-write-jobs.js"
 import type { WorkspaceRevision } from "./revision.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  workspaceFormatAtLeast,
+} from "./workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type HydrateWriteRequirement =
@@ -33,8 +37,28 @@ export type HydrateWriteRequirement =
     }
   | { kind: "rename_rewrite"; remainder: number; previousSha: string }
 
-/** Plan from committed files, before hydrate supplies derived valid_from values. */
-export function planHydrateWrites(input: {
+/** The changes between the last hydrated revision and this one. */
+export type HydrateWriteHistory = {
+  previousSha: string
+  /** The format in the tree of `previousSha`. */
+  previousFormat: number
+  /** Files whose links a rename made stale. */
+  renameRewrites: number
+  /** True when the set of listed folders changed. */
+  folderSetChanged: boolean
+}
+
+/**
+ * Plan the direct writes of hydrate from committed files, before hydrate
+ * supplies derived valid_from values. Each planned job commits to the
+ * default branch with no pull request.
+ *
+ * Below format 3 hydrate plans no write (ADR-053 section 7): the upgrade
+ * pull request makes each layout change, also the bootstrap files and the
+ * claim and valid_from rewrites. At format 3 or more these are ctx|-managed
+ * files of a v2 Workspace, so hydrate keeps them current.
+ */
+export async function planHydrateWrites(input: {
   revision: WorkspaceRevision
   displayName: string
   files: Array<{ path: string; content: string }>
@@ -44,8 +68,13 @@ export function planHydrateWrites(input: {
   sourceRows: ReadonlyArray<PreviousSourceRow>
   /** The format in the tree of `revision` (0 for no file, -1 for an invalid one). */
   format: number
-}): HydrateWriteRequirement[] {
+  /** Read only when hydrate can write; null when no earlier revision differs. */
+  history?: () => Promise<HydrateWriteHistory | null>
+}): Promise<HydrateWriteRequirement[]> {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
+  const writable = (format: number) =>
+    workspaceFormatAtLeast(format, INGESTION_V2_PUBLISH_FORMAT)
+  if (!writable(input.format)) return []
   const { units } = hydrateKnowledgeTree({
     workspaceId: input.revision.workspaceId,
     files: input.files,
@@ -59,26 +88,48 @@ export function planHydrateWrites(input: {
     }).filter((file) => existing.get(file.path) !== file.content).length,
     claims_upgrade: claimsUpgradeRemainder(units),
     valid_from_persist: validFromPersistRemainder(units),
+    import_key_cleanup: importKeyCleanupRemainder(input.files),
     // Retired folder-map marker lines still in AGENTS.md: one cleanup write.
     ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,
-    // Old extracted files move to ingestion v2 only at format 3 or more.
-    // Below 3, upgrade step 3 moves them in the upgrade pull request: a
-    // direct write would change the layout outside it (ADR-053 section 7).
-    ownership_migration:
-      workspacePublishPipeline(input.format) === "v2"
-        ? ownershipMigrationFiles({
-            workspaceRepositoryUrl: input.revision.remote.url,
-            sourcePaths: githubSourcePathsByRepository(
-              input.sourceFiles,
-              input.sourceRows,
-            ),
-            files: input.files,
-          }).length
-        : 0,
+    ownership_migration: ownershipMigrationFiles({
+      workspaceRepositoryUrl: input.revision.remote.url,
+      sourcePaths: githubSourcePathsByRepository(
+        input.sourceFiles,
+        input.sourceRows,
+      ),
+      files: input.files,
+    }).length,
   }
-  // The `repositories/*.md` files of a Workspace that has no conversion yet
-  // stay as they are: the conversion of CTX-721 T10 moves them.
-  return (Object.keys(remaining) as Array<keyof typeof remaining>)
+  const plan: HydrateWriteRequirement[] = (
+    Object.keys(remaining) as Array<keyof typeof remaining>
+  )
     .filter((kind) => remaining[kind] > 0)
     .map((kind) => ({ kind, remainder: remaining[kind] }))
+  const history = await input.history?.()
+  // From a tree below format 3, the change is the upgrade pull request. Its
+  // moves are layout changes, not renames of a person, and its last step
+  // wrote AGENTS.md. Hydrate has no write to add.
+  if (!history || !writable(history.previousFormat)) return plan
+  if (history.renameRewrites > 0)
+    plan.push({
+      kind: "rename_rewrite",
+      previousSha: history.previousSha,
+      remainder: history.renameRewrites,
+    })
+  if (history.folderSetChanged) {
+    // One job both removes old markers and updates the list.
+    const planned = plan.find(
+      (requirement) => requirement.kind === "ops_folder_map",
+    )
+    if (planned?.kind === "ops_folder_map") {
+      planned.previousSha = history.previousSha
+      planned.remainder += 1
+    } else
+      plan.push({
+        kind: "ops_folder_map",
+        previousSha: history.previousSha,
+        remainder: 1,
+      })
+  }
+  return plan
 }

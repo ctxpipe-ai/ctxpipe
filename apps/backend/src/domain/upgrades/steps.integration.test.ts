@@ -6,10 +6,13 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
   type GitPack,
+  readGitFiles,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { planHydrateWrites } from "../workspaces/hydrate-write-planner.js"
+import { KNOWLEDGE_SKILL_PATH } from "../workspaces/layout.js"
 import {
   CODE_FORMAT,
   WORKSPACE_FORMAT_PATH,
@@ -91,6 +94,8 @@ describe("upgrade steps 2 and 3 (Postgres + git)", () => {
       workspaceId,
       baseSha: "",
       remote: { url: workspaceUrl, connectionId: null },
+      introducedAt: async () =>
+        new Map([["knowledge/guides/deploy.md", "2025-01-02T03:04:05.000Z"]]),
     }
     const steps = GIT_UPGRADE_STEPS
     const inOrg = <T>(fn: () => Promise<T>) =>
@@ -106,6 +111,13 @@ sources:
       "knowledge/services/billing.md":
         "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\n---\n\n# Billing\n",
       "knowledge/notes.md": "---\nkind: Note\n---\n\nA human note.\n",
+      // A link with no claim: hydrate at format 3 adds the claim and its
+      // valid_from, so the upgrade pull request adds them.
+      "knowledge/guides/deploy.md":
+        "---\nkind: Guide\n---\n\nDeploy [billing](../services/billing.md) first.\n",
+      // An AGENTS.md with no folder section and the retired markers.
+      "AGENTS.md":
+        "---\nname: Context\n---\n\nRead the guides.\n<!-- ctxpipe:folder-map -->\n<!-- /ctxpipe:folder-map -->\n",
       // No source file names this repository, so no source path can own it.
       "knowledge/services/orphan.md":
         "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/orphan.git#src/index.ts\n---\n\n# Orphan\n",
@@ -155,6 +167,38 @@ sources:
       "---\nkind: Note\n---\n\nA human note.",
     )
     expect(head.show(WORKSPACE_FORMAT_PATH)).toContain("format: 3")
+    const deploy = head.show("knowledge/guides/deploy.md") ?? ""
+    expect(deploy).toContain("to: ../services/billing.md")
+    expect(deploy).toContain("valid_from: 2025-01-02T03:04:05.000Z")
+    const agentsMd = head.show("AGENTS.md") ?? ""
+    expect(agentsMd).toContain("Read the guides.")
+    expect(agentsMd).toContain("## Folder Structure")
+    expect(agentsMd).not.toContain("ctxpipe:folder-map")
+    expect(head.files).toContain(KNOWLEDGE_SKILL_PATH)
+
+    // Hydrate on the merged tree plans no direct write.
+    const markdown = await readGitFiles(built.pack, (path) =>
+      path.endsWith(".md"),
+    )
+    expect(
+      await planHydrateWrites({
+        revision: {
+          workspaceId,
+          generation: 1,
+          remote: { url: workspaceUrl, connectionId: null },
+          defaultBranch: "main",
+          sha: built.pack.sha,
+          access: "read",
+        },
+        displayName: "steps",
+        files: markdown,
+        sourceFiles: markdown
+          .filter((file) => file.path.startsWith("sources/"))
+          .map((file) => ({ path: file.path, text: file.content })),
+        sourceRows: [],
+        format: 3,
+      }),
+    ).toEqual([])
 
     // Each step on its own output changes nothing.
     const again = await inOrg(() =>

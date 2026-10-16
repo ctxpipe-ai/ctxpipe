@@ -18,6 +18,7 @@ import {
 } from "../../test/native-hydration-fixture.js"
 import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
+import { KNOWLEDGE_SKILL_PATH } from "../workspaces/layout.js"
 import { WORKSPACE_FORMAT_PATH } from "../workspaces/workspace-format.js"
 import { buildUpgradeCommits } from "./build-commits.js"
 import {
@@ -156,7 +157,7 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
 }
 
 it(
-  "takes a format 0 main-era Workspace through the three upgrade steps in one pull request, and after the merge hydrate puts it on ingestion v2 with no cleanup write",
+  "takes a format 0 main-era Workspace through the three upgrade steps in one pull request, and after the merge hydrate puts it on ingestion v2 with no direct write to the default branch",
   { timeout: 240_000 },
   async () => {
     const opened: Array<{ head: string; base: string; body: string }> = []
@@ -182,6 +183,12 @@ it(
           {
             path: "knowledge/services/tools-cli.md",
             body: "# Tools CLI\nWritten by a person.\n",
+          },
+          // A person links to a unit with no claim. Below format 3 hydrate
+          // does not add the claim: step 3 adds it in the pull request.
+          {
+            path: "guides/release.md",
+            body: "# Release\nUse [the tools](../knowledge/services/tools-cli.md).\n",
           },
           // The old pipeline extracted this file. Step 3 moves it to
           // ingestion v2 ownership.
@@ -338,6 +345,14 @@ it(
           const gateway = show("knowledge/services/api-gateway.md")
           expect(gateway).toContain("generated_by: ctxpipe-extract")
           expect(gateway).toContain("sources/github/team-a/api.md")
+          // Step 3 makes the changes that hydrate makes at format 3: the
+          // claim of a link, its valid_from, and the bootstrap files.
+          const release = show("guides/release.md")
+          expect(release).toContain("to: ../knowledge/services/tools-cli.md")
+          expect(release).toMatch(/valid_from: "?\d{4}-\d{2}-\d{2}T/)
+          expect(files).toContain("AGENTS.md")
+          expect(files).toContain(KNOWLEDGE_SKILL_PATH)
+          expect(show("AGENTS.md")).toContain("## Folder Structure")
 
           // Knowledge: only the items of the repository that is not on
           // GitHub. The file of the person stays as it is.
@@ -458,21 +473,15 @@ it(
           await expect
             .poll(async () => (await row())?.status, { timeout: 60_000 })
             .toBe("completed")
-          // Hydrate queues no cleanup write (`import_key_cleanup`,
-          // `valid_from_persist`, `ownership_migration`) and no retraction: the upgrade
-          // pull request made each layout change.
+          // Hydrate queues no direct write to the default branch: the
+          // upgrade pull request made each change, also the bootstrap files.
           const writeJobs = await withOrgDbContext(f.org.id, (db) =>
             db
               .select({ kind: workspaceWriteJobs.kind })
               .from(workspaceWriteJobs)
               .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
           )
-          // The bootstrap files are new on this release, at each format.
-          // The first hydrate of a main-era Workspace writes them, and this
-          // test does not run that hydrate.
-          expect(writeJobs.map((job) => job.kind).sort()).toEqual(
-            ["bootstrap", UPGRADE_JOB_KIND].sort(),
-          )
+          expect(writeJobs.map((job) => job.kind)).toEqual([UPGRADE_JOB_KIND])
           const runNames = [
             ...(await backend.listWorkflowRuns({ limit: 500 })).data,
             ...(await f.backend.listWorkflowRuns({ limit: 500 })).data,
