@@ -481,7 +481,11 @@ it(
               .from(workspaceWriteJobs)
               .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
           )
-          expect(writeJobs.map((job) => job.kind)).toEqual([UPGRADE_JOB_KIND])
+          // Each row is an upgrade item: the format upgrade, and the
+          // re-ingestion that the scan offers after the merge.
+          expect(new Set(writeJobs.map((job) => job.kind))).toEqual(
+            new Set([UPGRADE_JOB_KIND]),
+          )
           const runNames = [
             ...(await backend.listWorkflowRuns({ limit: 500 })).data,
             ...(await f.backend.listWorkflowRuns({ limit: 500 })).data,
