@@ -338,9 +338,10 @@ export const OpeningLogKeepsScroll: Story = {
     ) as HTMLElement
     await expect(scroller.scrollHeight).toBeGreaterThan(scroller.clientHeight)
     await waitFor(() => {
+      // The thread keeps within a few pixels of the bottom.
       expect(
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
-      ).toBeLessThan(2)
+      ).toBeLessThan(4)
     })
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)

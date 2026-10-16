@@ -373,6 +373,10 @@ function ManageButton(props: ComponentProps<typeof SlackSetupDialog>) {
  * starts from the new channels, not from the channels of an earlier request.
  */
 export const ManageAgainShowsTheNewScope: Story = {
+  // The close fade and the open fade of the dialog overlap on a slow runner,
+  // and the step then keeps the scope of the first open. Reduced motion
+  // removes the fades, so the dialog unmounts at once.
+  tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
     msw: {
@@ -422,13 +426,12 @@ export const ManageAgainShowsTheNewScope: Story = {
     await waitFor(() =>
       expect(body.getByRole("checkbox", { name: /^#?\s*eng$/ })).toBeChecked(),
     )
-    // A press on a button that a re-render replaced is lost. Press Close
-    // again until the dialog is gone.
-    await waitFor(async () => {
-      const close = body.queryByRole("button", { name: "Close" })
-      if (close) await userEvent.click(close)
-      expect(body.queryByRole("dialog")).not.toBeInTheDocument()
-    })
+    await userEvent.click(body.getByRole("button", { name: "Close" }))
+    await waitFor(() =>
+      expect(
+        body.queryByRole("checkbox", { name: /^#?\s*eng$/ }),
+      ).not.toBeInTheDocument(),
+    )
 
     docsChannels = ["G0INC0001"]
     // The open dialog hides the page from the accessibility tree, so this
