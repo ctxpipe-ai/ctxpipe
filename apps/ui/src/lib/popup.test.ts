@@ -11,7 +11,12 @@ import {
   it,
   vi,
 } from "vitest"
-import { GITHUB_SETUP_RESULT_KEY, handleGithubSetupPopupResult } from "./popup"
+import {
+  beginGithubPopupFlow,
+  GITHUB_SETUP_RESULT_KEY,
+  getActiveGithubPopupFlowState,
+  handleGithubSetupPopupResult,
+} from "./popup"
 
 const server = setupServer()
 const assign = vi.fn()
@@ -74,6 +79,27 @@ describe("handleGithubSetupPopupResult", () => {
     expect(assign).toHaveBeenCalledWith(
       "/.github/setup?installation_id=42&orgSlug=acme&connectionId=con_draft",
     )
+  })
+
+  it("ends the popup flow before it leaves for /.github/setup", async () => {
+    // The opener started a popup flow; the popup relayed its nonce.
+    const nonce = beginGithubPopupFlow()
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 42, popupFlowNonce: nonce }),
+    )
+    refuseRegistration("github_not_linked")
+    // The browser leaves at the redirect: code after it may never run. A
+    // flow that is still active makes /.github/setup act as the popup, which
+    // renders nothing in a normal tab.
+    let flowAtRedirect: unknown = "not redirected"
+    assign.mockImplementation(() => {
+      flowAtRedirect = getActiveGithubPopupFlowState()
+    })
+
+    await handleGithubSetupPopupResult("acme", new QueryClient())
+
+    expect(flowAtRedirect).toBeNull()
   })
 
   it("reports a failed registration for any other refusal", async () => {
