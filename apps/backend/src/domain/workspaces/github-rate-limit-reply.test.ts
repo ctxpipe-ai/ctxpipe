@@ -4,6 +4,15 @@ import {
   parseGithubCoreLimit,
 } from "./github-rate-limit-reply.js"
 
+const caught = (run: () => unknown): unknown => {
+  try {
+    run()
+  } catch (e) {
+    return e
+  }
+  return undefined
+}
+
 const ok = (stdout: string) => ({ exitCode: 0, stdout, stderr: "" })
 
 describe("parseGithubCoreLimit", () => {
@@ -20,17 +29,13 @@ describe("parseGithubCoreLimit", () => {
   })
 
   it("names a dropped connection as an outside fault", () => {
-    const error = (() => {
-      try {
-        parseGithubCoreLimit({
-          exitCode: 52,
-          stdout: "",
-          stderr: "Empty reply",
-        })
-      } catch (e) {
-        return e
-      }
-    })()
+    const error = caught(() =>
+      parseGithubCoreLimit({
+        exitCode: 52,
+        stdout: "",
+        stderr: "Empty reply",
+      }),
+    )
     expect(String(error)).toMatch(/Outside fault.*exit 52/)
     expect(isOutsideFault(error)).toBe(true)
   })
@@ -46,17 +51,13 @@ describe("parseGithubCoreLimit", () => {
   })
 
   it("names an unresolved host as a firewall fault that is not retried", () => {
-    const error = (() => {
-      try {
-        parseGithubCoreLimit({
-          exitCode: 6,
-          stdout: "",
-          stderr: "Could not resolve host",
-        })
-      } catch (e) {
-        return e
-      }
-    })()
+    const error = caught(() =>
+      parseGithubCoreLimit({
+        exitCode: 6,
+        stdout: "",
+        stderr: "Could not resolve host",
+      }),
+    )
     expect(String(error)).toMatch(/Firewall fault/)
     expect(isOutsideFault(error)).toBe(false)
   })
