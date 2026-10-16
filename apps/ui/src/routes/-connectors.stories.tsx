@@ -373,23 +373,16 @@ export const Full: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Expand Notion" })
-    // A card can render again while its query settles and then starts
-    // collapsed. Click each collapsed card until none is left.
-    await waitFor(async () => {
-      for (const expander of canvas.queryAllByRole("button", {
-        name: /^Expand /,
-      }))
-        await userEvent.click(expander)
-      await expect(
-        canvas.queryAllByRole("button", { name: /^Expand / }),
-      ).toHaveLength(0)
+    // The main navigation has an "Expand navigation" button when an earlier
+    // story left it collapsed. Count the connector cards only.
+    const expanders = canvas.getAllByRole("button", {
+      name: /^Expand (?!navigation)/,
     })
+    for (const expander of expanders) await userEvent.click(expander)
     // A connection has no scope of its own: each Workspace has one, and
     // "Used in" lists it (ADR-050). The card shows the account only.
     await waitFor(() =>
-      expect(canvas.getAllByText("Account")).toHaveLength(
-        canvas.getAllByRole("button", { name: /^Collapse / }).length,
-      ),
+      expect(canvas.getAllByText("Account")).toHaveLength(expanders.length),
     )
     await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
   },
