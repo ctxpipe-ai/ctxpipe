@@ -934,10 +934,14 @@ export async function getRepoReadOctokit(
     // for `retry-after`, once, and only when that wait is short.
     retry: { doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451] },
     throttle: {
-      onRateLimit: (retryAfter, options) =>
-        options.request.retryCount === 0 && retryAfter <= 10,
-      onSecondaryRateLimit: (retryAfter, options) =>
-        options.request.retryCount === 0 && retryAfter <= 10,
+      onRateLimit: (
+        retryAfter: number,
+        options: { request: { retryCount: number } },
+      ) => options.request.retryCount === 0 && retryAfter <= 10,
+      onSecondaryRateLimit: (
+        retryAfter: number,
+        options: { request: { retryCount: number } },
+      ) => options.request.retryCount === 0 && retryAfter <= 10,
     },
   })
 }
