@@ -223,27 +223,6 @@ export const workspaceTipCheck = defineWorkflow(
             listMigrationExportJobWorkspaceIds(),
           ]),
       )
-      // Queue the index and commit projection jobs of a new tip before its
-      // hydrate. When a run stops after the hydrate, the hydrate can publish
-      // the tip, and then no later check queues these jobs again.
-      for (const item of updated) {
-        const row = workspaces.find(
-          (workspace) => workspace.id === item.workspaceId,
-        )
-        if (row) {
-          await enqueueWorkspaceIndex(
-            {
-              orgId: input.orgId,
-              revision: item.revision,
-            },
-            { error: () => undefined },
-          )
-          await enqueueWorkspaceCommitProjection(
-            { orgId: input.orgId, workspaceId: row.id },
-            { error: () => undefined },
-          )
-        }
-      }
       const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
       const hour = startedAt.toISOString().slice(0, 13)
       for (const workspace of workspaces) {
@@ -307,6 +286,24 @@ export const workspaceTipCheck = defineWorkflow(
               idempotencyKey: (revision) =>
                 `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${servedSha(projection, revision) ?? "none"}:${revision.sha}:${hour}`,
             },
+          )
+        }
+      }
+      for (const item of updated) {
+        const row = workspaces.find(
+          (workspace) => workspace.id === item.workspaceId,
+        )
+        if (row) {
+          await enqueueWorkspaceIndex(
+            {
+              orgId: input.orgId,
+              revision: item.revision,
+            },
+            { error: () => undefined },
+          )
+          await enqueueWorkspaceCommitProjection(
+            { orgId: input.orgId, workspaceId: row.id },
+            { error: () => undefined },
           )
         }
       }

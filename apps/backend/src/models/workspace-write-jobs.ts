@@ -536,7 +536,7 @@ export async function reconcileStaleWriteJobs(
     id: string
     desiredGeneration: number
     workspaceRepositoryUrl: string
-    desiredDefaultBranch: string | null
+    desiredDefaultBranch?: string | null
   },
   staleBefore: Date,
 ) {
@@ -554,7 +554,7 @@ export async function reconcileStaleWriteJobs(
     )
     const sameBinding = sql<boolean>`(${workspaceWriteJobs.generation} = ${workspace.desiredGeneration}
       and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl}
-      and coalesce(${workspaceWriteJobs.payload}->>'defaultBranch', ${workspaceWriteJobs.payload}->'revision'->>'defaultBranch', ${workspace.desiredDefaultBranch}) is not distinct from ${workspace.desiredDefaultBranch})`
+      and coalesce(${workspaceWriteJobs.payload}->>'defaultBranch', ${workspaceWriteJobs.payload}->'revision'->>'defaultBranch', ${workspace.desiredDefaultBranch ?? null}) is not distinct from ${workspace.desiredDefaultBranch ?? null})`
     await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
