@@ -9,6 +9,31 @@ import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import type { GitUpgradeStep } from "./registry.js"
 
+type UpgradeTree = Parameters<GitUpgradeStep["plan"]>[0]
+type UpgradeContext = Parameters<GitUpgradeStep["plan"]>[1]
+
+/** Every blob under `sources/` of the tree, with its text. */
+function readSourceFiles(tree: UpgradeTree) {
+  return Promise.all(
+    tree
+      .paths()
+      .filter((path) => path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map(async (path) => ({ path, text: (await tree.read(path)) ?? "" })),
+  )
+}
+
+/** The Workspace repository URL, from the database. */
+async function workspaceRepositoryUrl(ctx: UpgradeContext): Promise<string> {
+  const [workspace] = await withOrgDbContext(ctx.orgId, (db) =>
+    db
+      .select({ url: workspaces.workspaceRepositoryUrl })
+      .from(workspaces)
+      .where(eq(workspaces.id, ctx.workspaceId)),
+  )
+  if (!workspace) throw new Error("The Workspace does not exist")
+  return workspace.url
+}
+
 /**
  * Upgrade step 2 (ADR-053 section 4; ADR-050 decision 14): one Markdown file
  * for each source under `sources/`, in place of `.ctxpipe/sources.yaml`.
@@ -16,16 +41,12 @@ import type { GitUpgradeStep } from "./registry.js"
 export const sourcesConversionStep: GitUpgradeStep = {
   format: 2,
   title: "One file for each source under sources/",
-  async plan(tree) {
-    const sourceFiles = await Promise.all(
-      tree
-        .paths()
-        .filter((path) => path.startsWith(SOURCES_FOLDER_PREFIX))
-        .map(async (path) => ({ path, text: (await tree.read(path)) ?? "" })),
-    )
+  async plan(tree, ctx) {
     return planSourcesConversion({
       sourcesYaml: await tree.read(SOURCES_FILE_PATH),
-      sourceFiles,
+      sourceFiles: await readSourceFiles(tree),
+      // A GitHub entry that names the Workspace repository is skipped.
+      workspaceUrl: await workspaceRepositoryUrl(ctx),
     })
   },
 }
@@ -40,13 +61,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
   format: 3,
   title: "Ingestion v2 ownership of extracted files",
   async plan(tree, ctx) {
-    const [workspace] = await withOrgDbContext(ctx.orgId, (db) =>
-      db
-        .select({ url: workspaces.workspaceRepositoryUrl })
-        .from(workspaces)
-        .where(eq(workspaces.id, ctx.workspaceId)),
-    )
-    if (!workspace) throw new Error("The Workspace does not exist")
+    const url = await workspaceRepositoryUrl(ctx)
     const files = await Promise.all(
       tree
         .paths()
@@ -56,15 +71,10 @@ export const ownershipMigrationStep: GitUpgradeStep = {
           content: (await tree.read(path)) ?? "",
         })),
     )
-    const sourceFiles = await Promise.all(
-      tree
-        .paths()
-        .filter((path) => path.startsWith(SOURCES_FOLDER_PREFIX))
-        .map(async (path) => ({ path, text: (await tree.read(path)) ?? "" })),
-    )
+    const sourceFiles = await readSourceFiles(tree)
     const report: string[] = []
     const writes = ownershipMigrationFiles({
-      workspaceRepositoryUrl: workspace.url,
+      workspaceRepositoryUrl: url,
       // The projection decides which source file owns a repository.
       sourcePaths: githubSourcePathsByRepository(
         sourceFiles,

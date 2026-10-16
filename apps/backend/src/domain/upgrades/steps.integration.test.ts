@@ -96,7 +96,8 @@ describe("upgrade steps 2 and 3 (Postgres + git)", () => {
   })
 
   it("convert the sources and move the old extracted files in one commit each, and a second run changes nothing", async () => {
-    const workspaceUrl = `https://github.com/acme/context-${seed.suffix.replaceAll("_", "-")}.git`
+    const workspaceName = `acme/context-${seed.suffix.replaceAll("_", "-")}`
+    const workspaceUrl = `https://github.com/${workspaceName}.git`
     const workspaceId = await seed.addWorkspace("steps", workspaceUrl)
     const ctx = { orgId: seed.orgId, workspaceId, baseSha: "" }
     const steps = [STEP_1, ...GIT_UPGRADE_STEPS_AFTER_EXPORT]
@@ -106,7 +107,7 @@ sources:
   - id: linked-repositories
     provider: github
     connection: con_example
-    repositories: [acme/billing]
+    repositories: [acme/billing, ${workspaceName}]
 `,
       "knowledge/services/billing.md":
         "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\n---\n\n# Billing\n",
@@ -138,6 +139,10 @@ sources:
       "Base",
     ])
     expect(head.files).not.toContain(".ctxpipe/sources.yaml")
+    // Step 2 skips the entry of the Workspace repository.
+    expect(head.files.filter((path) => path.startsWith("sources/"))).toEqual([
+      "sources/github/acme/billing.md",
+    ])
     expect(head.show("sources/github/acme/billing.md")).toBe(
       "---\nprovider: github\nconnection: con_example\nrepository: acme/billing\n---",
     )
