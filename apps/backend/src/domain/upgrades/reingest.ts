@@ -3,15 +3,22 @@ import { and, eq, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import type { IngestStepUsage } from "../ingestion/ingest-shard-runtime.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   plannedIngestSkills,
 } from "../ingestion/ingestion-plan.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
+import { ingestionV2EnabledFor } from "../ingestion/ingestion-v2-config.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
-import type { EstimateRange, ReingestEstimate } from "./registry.js"
+import {
+  type EstimateRange,
+  type ReingestEstimate,
+  UPGRADE_BLOCKED_REASONS,
+  type UpgradeBlockedReason,
+} from "./registry.js"
 
 /*
  * The fresh re-ingestion upgrade (ADR-053 section 5, CTO decision G1). It
@@ -26,22 +33,29 @@ export const REINGEST_REQUIRES_FORMAT = 3
 const REINGEST_KEY_PREFIX = "reingest-"
 
 /**
- * The throttle of re-ingestion runs. This is committed config, not an env
- * var. One Workspace of an org runs at a time, and it runs one source
- * repository at a time, so an org runs at most one repository. This is in
- * the ADR-053 limit of 2 repositories for each org, and in the ADR-052 limit
- * of 40 ingest sandboxes for each org.
+ * The throttle of re-ingestion (ADR-052): one upgrade run of an org at a
+ * time, with its repositories one after the other, and a cap of upgrade runs
+ * on the instance. The polls back off from `firstPoll`, so a long wait
+ * spends few workflow steps.
  */
 export const REINGEST_THROTTLE = {
-  /** Re-ingestion runs (one source repository each) on this instance at a time. */
+  /** Upgrade runs (each one org) that run their repositories at a time on this instance. */
   runsPerInstance: 4,
-  /** How long a run waits before it looks for a free slot again. */
-  slotPoll: "1 minute" as "1 second" | "1 minute",
-  /** How long a run waits before it reads the state of its ingestion run again. */
-  runPoll: "1 minute" as "1 second" | "1 minute",
-  /** The polls of one ingestion run before the upgrade stops with a failure (24 hours). */
-  maxRunPolls: 1440,
-} as const
+  firstPollSeconds: 60,
+  /** The longest wait of the upgrade run for its turn. */
+  maxSlotPollSeconds: 15 * 60,
+  /** The longest wait of a repository run between two reads of its ingestion run and spend. */
+  maxRunPollSeconds: 5 * 60,
+}
+
+/** The wait before poll `poll` (from 0): it doubles from `first` up to `max`. */
+export function reingestPollSeconds(
+  poll: number,
+  first: number,
+  max: number,
+): number {
+  return Math.min(max, first * 2 ** Math.min(poll, 30))
+}
 
 /**
  * The calibration of the estimate when a repository has no ingestion v2
@@ -56,6 +70,11 @@ const ESTIMATE = {
   setupMinutes: { low: 3, high: 8 },
   /** Shards that run at the same time (`SHARD_BATCH` of the v2 workflow). */
   parallelShards: 4,
+  /**
+   * USD for one million tokens of the medium tier. The cost cap converts
+   * the reported tokens of a step with it, when the gateway reports no cost.
+   */
+  usdPerMillionTokens: { input: 3, output: 15 },
 } as const
 
 /** The key of the re-ingestion with a skill bundle (`ingest-<hash>`). */
@@ -305,64 +324,156 @@ export function reingestRunKey(input: {
   return `${RUN_KEY_PREFIX}${input.orgId}:${input.workspaceId}:${input.upgradeRunId}:${input.repository.toLowerCase()}`
 }
 
+/** The name of the upgrade workflow that holds a throttle slot. */
+const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
+
 /**
- * Take a slot for one ingestion v2 run, and start the run with `start` while
- * the slot lock is held. The slot is free when (1) no ingestion v2 run of a
- * re-ingestion of another Workspace of the org is active, (2) no other run of
- * this Workspace is active, and (3) fewer than
- * {@link REINGEST_THROTTLE.runsPerInstance} such runs are active on the
- * instance. One advisory lock makes the check and the start one action, so
- * two Workspaces cannot both take the last slot. The OpenWorkflow insert
- * commits on its own connection before the lock goes. A run that started
- * before (the same key) is returned again, also when no slot is free.
+ * Whether it is the turn of the upgrade run `upgradeRunId` (ADR-052). The
+ * active upgrade runs keep their queue order (created first, then id): the
+ * first run of each org is the head of that org, and the first
+ * `runsPerInstance` heads run. A run holds its slot until it ends, so one
+ * Workspace of an org runs at a time, and its repositories run one after the
+ * other. The answer comes only from the run rows, so two runs cannot both
+ * take the same slot, and a run that ended frees its slot.
  */
-export async function takeReingestSlot(input: {
+export async function reingestSlotTurn(input: {
   orgId: string
-  workspaceId: string
-  key: string
-  start: () => Promise<string>
-  runsPerInstance?: number
-}): Promise<{ runId: string } | { wait: string }> {
-  const namespaceId = openWorkflowNamespaceId()
-  const orgPrefix = `${RUN_KEY_PREFIX}${input.orgId}:`
-  return getSystemDb().transaction(async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended('workspace-upgrade-reingest-slots', 0))`,
-    )
-    const result = await tx.execute<{
-      same: boolean
-      org_other: string
-      org_same: string
-      instance: string
-    }>(sql`
-      select
-        coalesce(bool_or(idempotency_key = ${input.key}), false) as same,
-        count(*) filter (where idempotency_key like ${`${orgPrefix}%`}
-          and idempotency_key not like ${`${orgPrefix}${input.workspaceId}:%`}) as org_other,
-        count(*) filter (where idempotency_key like ${`${orgPrefix}${input.workspaceId}:%`}) as org_same,
-        count(*) as instance
+  upgradeRunId: string
+  runsPerInstance: number
+}): Promise<{ turn: true } | { wait: string }> {
+  const result = await getSystemDb().execute<{
+    org_head: string | null
+    ahead: string
+  }>(sql`
+    with heads as (
+      select distinct on (input->>'orgId') id, input->>'orgId' as org_id, created_at
       from openworkflow.workflow_runs
-      where namespace_id = ${namespaceId}
-        and workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and workflow_name = ${REINGEST_WORKFLOW_NAME}
         and status in ('pending', 'running', 'sleeping')
-        and idempotency_key like ${`${RUN_KEY_PREFIX}%`}
-    `)
-    const counts = result.rows[0]
-    if (!counts?.same) {
-      if (Number(counts?.org_other ?? 0) > 0)
-        return {
-          wait: "A re-ingestion of another Workspace of this organization runs.",
-        }
-      if (Number(counts?.org_same ?? 0) > 0)
-        return { wait: "Another repository of this Workspace runs." }
-      if (
-        Number(counts?.instance ?? 0) >=
-        (input.runsPerInstance ?? REINGEST_THROTTLE.runsPerInstance)
-      )
-        return { wait: "The re-ingestion slots of this instance are full." }
+      order by input->>'orgId', created_at, id
+    )
+    select
+      (select id from heads where org_id = ${input.orgId}) as org_head,
+      (select count(*) from heads h, heads me
+        where me.id = ${input.upgradeRunId}
+          and (h.created_at, h.id) < (me.created_at, me.id)) as ahead
+  `)
+  const row = result.rows[0]
+  if (row?.org_head !== input.upgradeRunId)
+    return {
+      wait: "A re-ingestion of another Workspace of this organization runs.",
     }
-    return { runId: await input.start() }
-  })
+  if (Number(row.ahead) >= input.runsPerInstance)
+    return { wait: "The re-ingestion slots of this instance are full." }
+  return { turn: true }
+}
+
+/** USD of one usage report: the gateway cost, else the tokens at the estimate prices. */
+export function ingestUsageUsd(usage: IngestStepUsage): number {
+  if (typeof usage.costUsd === "number") return usage.costUsd
+  const price = ESTIMATE.usdPerMillionTokens
+  return (
+    (usage.inputTokens * price.input + usage.outputTokens * price.output) /
+    1_000_000
+  )
+}
+
+/** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */
+function ingestionRunTree(runId: string) {
+  const namespaceId = openWorkflowNamespaceId()
+  return sql`
+    with recursive tree(id) as (
+      select id from openworkflow.workflow_runs
+      where namespace_id = ${namespaceId} and id = ${runId}
+      union
+      select child.id from openworkflow.workflow_runs child
+      join openworkflow.step_attempts parent_step
+        on parent_step.namespace_id = child.parent_step_attempt_namespace_id
+        and parent_step.id = child.parent_step_attempt_id
+      join tree on tree.id = parent_step.workflow_run_id
+      where child.namespace_id = ${namespaceId}
+    )`
+}
+
+/**
+ * The model spend in USD of one ingestion v2 run so far: the usage that each
+ * finished step of the run and of its child runs reports.
+ */
+export async function ingestionRunSpendUsd(runId: string): Promise<number> {
+  const result = await getSystemDb().execute<{ usage: unknown }>(sql`
+    ${ingestionRunTree(runId)}
+    select attempt.output->'usage' as usage
+    from openworkflow.step_attempts attempt
+    join tree on tree.id = attempt.workflow_run_id
+    where attempt.namespace_id = ${openWorkflowNamespaceId()}
+      and attempt.status = 'completed'
+      and jsonb_typeof(attempt.output->'usage') = 'object'
+  `)
+  let total = 0
+  for (const { usage } of result.rows) {
+    const value = usage as Partial<IngestStepUsage>
+    total += ingestUsageUsd({
+      inputTokens: Number(value.inputTokens) || 0,
+      outputTokens: Number(value.outputTokens) || 0,
+      ...(typeof value.costUsd === "number" ? { costUsd: value.costUsd } : {}),
+    })
+  }
+  return total
+}
+
+/** The runs of an ingestion v2 run tree that have not ended, the run first. */
+export async function activeIngestionRunTree(runId: string): Promise<string[]> {
+  const result = await getSystemDb().execute<{ id: string }>(sql`
+    ${ingestionRunTree(runId)}
+    select run.id from openworkflow.workflow_runs run
+    join tree on tree.id = run.id
+    where run.namespace_id = ${openWorkflowNamespaceId()}
+      and run.status in ('pending', 'running', 'sleeping')
+    order by (run.id = ${runId}) desc, run.created_at
+  `)
+  return result.rows.map((row) => row.id)
+}
+
+/**
+ * Why a re-ingestion cannot start on this Workspace now, or null. The scan
+ * and the run use the same check. `format` is the Workspace format: the
+ * caller handles a format that is newer than this code.
+ */
+export function reingestBlock(input: {
+  format: number | null
+  writeStatus: string
+  readOnlyReason: string | null
+  githubConnectionId: string | null
+}): { blockedReason: UpgradeBlockedReason; note: string } | null {
+  const sandbox = ingestSandboxUnavailable()
+  if (
+    input.format !== null &&
+    input.format >= 0 &&
+    input.format < REINGEST_REQUIRES_FORMAT
+  )
+    return {
+      blockedReason: UPGRADE_BLOCKED_REASONS.needsFormat,
+      note: `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
+    }
+  if (!ingestionV2EnabledFor({ formatVersion: input.format }))
+    return {
+      blockedReason: UPGRADE_BLOCKED_REASONS.ingestionV2Off,
+      note: "Ingestion v2 does not publish to this Workspace yet: ctx| has not read a valid format file of it.",
+    }
+  if (sandbox)
+    return {
+      blockedReason: UPGRADE_BLOCKED_REASONS.sandboxUnavailable,
+      note: sandbox,
+    }
+  if (input.writeStatus === "read_only" || !input.githubConnectionId)
+    return {
+      blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
+      note:
+        input.readOnlyReason ??
+        "Connect the Workspace repository with the GitHub App, so that ctx| can publish the re-ingestion.",
+    }
+  return null
 }
 
 /** The state of one ingestion v2 run. */

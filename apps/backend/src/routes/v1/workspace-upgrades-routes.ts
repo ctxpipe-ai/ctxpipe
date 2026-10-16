@@ -91,6 +91,10 @@ const WorkspaceUpgradeItemSchema = z
           runId: z.string().nullable(),
           status: z.enum(["pending", "done", "partial", "skipped", "failed"]),
           report: z.array(z.string()),
+          spendUsd: z.number().nullable().openapi({
+            description:
+              "The model spend in USD of the ingestion run, from the usage that its steps report.",
+          }),
         }),
       )
       .openapi({
@@ -102,7 +106,7 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: this version does not publish with ingestion v2.",
+          "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
       }),
     note: z.string().nullable(),
     failureReason: z.string().nullable(),
@@ -166,7 +170,10 @@ function serializeUpgrade(
       ? { number: upgrade.prNumber ?? null, url: upgrade.prUrl }
       : null,
     estimate: upgrade.estimate ?? null,
-    repositories: upgrade.repositories ?? [],
+    repositories: (upgrade.repositories ?? []).map((r) => ({
+      ...r,
+      spendUsd: r.spendUsd ?? null,
+    })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
     failureReason: row.failureReason,

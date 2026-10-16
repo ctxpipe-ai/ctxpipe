@@ -86,7 +86,7 @@ export const UPGRADE_BLOCKED_REASONS = {
   needsFormat: "needs_format",
   /** This deployment has no ingest sandbox runtime. */
   sandboxUnavailable: "sandbox_unavailable",
-  /** The committed publish pipeline is not ingestion v2, so a re-ingestion cannot publish. */
+  /** Ingestion v2 does not publish to this Workspace (`ingestionV2EnabledFor`), for example because its format is not read yet. */
   ingestionV2Off: "ingestion_v2_off",
 } as const
 
@@ -151,13 +151,16 @@ export function upgradeJobId(workspaceId: string, key: string): string {
 }
 
 /**
- * Names the set of upgrades that this code knows. The worker-start scan runs
- * once for each org and release, so a release with a new step scans again.
+ * Names the set of upgrades that this code knows: the git steps and the
+ * ingest skill bundle (`bundleName`) that the re-ingestion offers. The
+ * worker-start scan runs once for each org and release, so a release with a
+ * new step or a new bundle scans again.
  */
 export function upgradeRelease(
-  steps: readonly GitUpgradeStep[] = GIT_UPGRADE_STEPS,
+  steps: readonly GitUpgradeStep[],
+  bundleName: string,
 ): string {
-  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}`
+  return `code-${CODE_FORMAT}.steps-${upgradeTargetFormat(steps)}.${bundleName}`
 }
 
 /**
@@ -191,6 +194,8 @@ export type WorkspaceUpgradePayload = {
   estimate?: ReingestEstimate
   /** Only on a re-ingestion: one entry for each source repository, in run order. */
   repositories?: ReingestRepositoryReport[]
+  /** Only on a re-ingestion that the cost cap stopped. */
+  stopReason?: "cost_cap"
 }
 
 /** A range from the p50 to the p90 value. */
@@ -224,4 +229,6 @@ export type ReingestRepositoryReport = {
   runId: string | null
   status: "pending" | "done" | "partial" | "skipped" | "failed"
   report: string[]
+  /** The model spend in USD of the ingestion run, from the usage that its steps report. */
+  spendUsd?: number
 }

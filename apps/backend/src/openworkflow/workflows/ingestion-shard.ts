@@ -12,6 +12,7 @@ import type {
   IngestDestination,
   IngestShardRuntime,
   IngestShardRuntimeFactory,
+  IngestStepUsage,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
 import {
   releaseIngestStepIndexes,
@@ -154,7 +155,7 @@ const STEP_ATTEMPTS = 3
 /** A skill runs at most this many pages; then it is `partial` (ADR-052 section 6). */
 export const INGEST_MAX_PAGES = 20
 
-type StepResult =
+type StepResult = (
   | {
       tip: string
       ops: number
@@ -163,6 +164,10 @@ type StepResult =
       partial?: undefined
     }
   | { partial: true }
+) & {
+  /** The model usage of the step's attempts, when the runtime reports it (the re-ingestion cost cap reads it). */
+  usage?: IngestStepUsage
+}
 
 export type IngestionV2Deps = {
   runtime: IngestShardRuntimeFactory
@@ -563,6 +568,9 @@ async function attemptSkillStep(
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
+  let usage: IngestStepUsage | undefined
+  const withUsage = <T extends object>(result: T) =>
+    usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
     try {
@@ -570,12 +578,12 @@ async function attemptSkillStep(
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name)
       if (found)
-        return {
+        return withUsage({
           tip: found.sha,
           ops: found.ops,
           rejects: found.rejects,
           more: found.more,
-        }
+        })
       const baseCommit = ctx.oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
       const fetchRef = ctx.oldTip
@@ -592,7 +600,7 @@ async function attemptSkillStep(
           ? []
           : await broker.listFiles(destination.pinnedRevision, baseCommit),
       )
-      const { tar } = await ctx.runtime.runStep({
+      const stepRun = await ctx.runtime.runStep({
         name: ctx.name,
         skill: ctx.skill.name,
         run: ctx.skill.run,
@@ -604,7 +612,8 @@ async function attemptSkillStep(
         rootMap,
         signal: ingestStepSignal(),
       })
-      const pushed = await withIngestStepOutput(tar, (stagedDir) =>
+      usage = addIngestUsage(usage, stepRun.usage)
+      const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
           oldTip: ctx.oldTip,
@@ -647,12 +656,12 @@ async function attemptSkillStep(
           ingestStep: ctx.name,
           reason: `The validator rejected ${pushed.validation.rejections.length} ops and accepted ${pushed.validation.accepted.length}`,
         })
-      return {
+      return withUsage({
         tip: pushed.sha,
         ops: pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
         more: pushed.more,
-      }
+      })
     } catch (error) {
       if (isWorkflowControlSignal(error)) throw error
       const refused = error instanceof IngestRefRefusedError
@@ -666,7 +675,24 @@ async function attemptSkillStep(
     }
   }
   logStepPartial(ctx, ctx.name, reason)
-  return { partial: true }
+  return withUsage({ partial: true as const })
+}
+
+function addIngestUsage(
+  total: IngestStepUsage | undefined,
+  next: IngestStepUsage | undefined,
+): IngestStepUsage | undefined {
+  if (!next) return total
+  if (!total) return next
+  const costUsd =
+    total.costUsd !== undefined && next.costUsd !== undefined
+      ? total.costUsd + next.costUsd
+      : undefined
+  return {
+    inputTokens: total.inputTokens + next.inputTokens,
+    outputTokens: total.outputTokens + next.outputTokens,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+  }
 }
 
 let productionBundle: Promise<IngestSkillBundle> | undefined

@@ -3,18 +3,14 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipeline,
-} from "../../domain/ingestion/ingestion-v2-config.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
   upgradeRelease,
-  upgradeTargetFormat,
 } from "../../domain/upgrades/registry.js"
 import {
+  currentWorkspaceFormat,
   scanWorkspaceReingest,
   scanWorkspaceUpgrade,
 } from "../../domain/upgrades/scan.js"
@@ -48,14 +44,7 @@ export const workspaceUpgradeScanInputSchema = z
  * waited for it (also the jobs that the format gate held), and queues the
  * hydrate of a new commit, which records the format again.
  */
-export function defineWorkspaceUpgradeScan(
-  steps: readonly GitUpgradeStep[],
-  options: {
-    /** The committed publish pipeline; a test gives `v2`. */
-    publishPipeline?: () => IngestionPublishPipeline
-  } = {},
-) {
-  const publishPipeline = options.publishPipeline ?? ingestionPublishPipeline
+export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
   return defineWorkflow(
     {
       name: "workspace-upgrade-scan",
@@ -79,7 +68,6 @@ export function defineWorkspaceUpgradeScan(
             bundle ??= readIngestSkillBundle()
             return bundle
           }
-          const pipeline = publishPipeline()
           const results: Record<
             "workspaces" | "reingest",
             Array<{ workspaceId: string; kind: string }>
@@ -87,12 +75,19 @@ export function defineWorkspaceUpgradeScan(
           for (const workspace of await withOrgDbContext(input.orgId, () =>
             listOrgWorkspaces(input.orgId),
           )) {
+            // Both scans use one read of the format, so GitHub gets one read.
+            let format: Promise<number | null> | undefined
+            const readFormat = () => {
+              format ??= currentWorkspaceFormat(input.orgId, workspace, env)
+              return format
+            }
             const scans = {
-              workspaces: () =>
+              workspaces: async () =>
                 scanWorkspaceUpgrade({
                   orgId: input.orgId,
                   workspace,
                   steps,
+                  format: await readFormat(),
                   env,
                 }),
               reingest: async () =>
@@ -100,8 +95,7 @@ export function defineWorkspaceUpgradeScan(
                   orgId: input.orgId,
                   workspace,
                   bundle: await readBundle(),
-                  publishPipeline: pipeline,
-                  env,
+                  format: await readFormat(),
                 }),
             }
             for (const [upgrade, scan] of Object.entries(scans) as Array<
@@ -162,7 +156,9 @@ export async function enqueueWorkspaceUpgradeScan(input: {
   availableAt?: Date
   release?: string
 }): Promise<void> {
-  const release = input.release ?? upgradeRelease()
+  const release =
+    input.release ??
+    upgradeRelease(GIT_UPGRADE_STEPS, (await readIngestSkillBundle()).name)
   await runWorkflowWithWorkerWake(
     workspaceUpgradeScan.spec,
     { orgId: input.orgId, release, trigger: input.trigger },
@@ -180,15 +176,21 @@ const SCAN_STAGGER_MS = 15_000
  * Backstop on worker start: queue one scan for each org that has a
  * Workspace, once for each release. The scans start one after the other, so
  * the tip checks and the first hydrates of a deploy do not all start at once.
- * With no registered step there is nothing to find, so nothing is queued.
+ * A release with no git step still scans: a new skill bundle offers a new
+ * re-ingestion.
  */
 export async function scheduleUpgradeScansForAllOrgs(
-  input: { now?: Date; steps?: readonly GitUpgradeStep[] } = {},
+  input: {
+    now?: Date
+    steps?: readonly GitUpgradeStep[]
+    bundleName?: string
+  } = {},
 ): Promise<number> {
-  const steps = input.steps ?? GIT_UPGRADE_STEPS
-  if (upgradeTargetFormat(steps) === 0) return 0
   const now = input.now ?? new Date()
-  const release = upgradeRelease(steps)
+  const release = upgradeRelease(
+    input.steps ?? GIT_UPGRADE_STEPS,
+    input.bundleName ?? (await readIngestSkillBundle()).name,
+  )
   const orgs = await getSystemDb()
     .select({ id: organizations.id })
     .from(organizations)

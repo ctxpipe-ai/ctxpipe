@@ -25,6 +25,10 @@ import {
 import type { IngestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
 import {
+  UPGRADE_STATUSES,
+  upgradeJobId,
+} from "../../domain/upgrades/registry.js"
+import {
   estimateReingest,
   reingestUpgradeKey,
   workspaceSourceRepositories,
@@ -32,7 +36,14 @@ import {
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
-import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
+import {
+  deleteSupersededUpgradeRows,
+  failStoppedUpgradeRun,
+  getWorkspaceUpgradeRow,
+  insertWorkspaceUpgradeRow,
+  listWorkspaceUpgradeRows,
+  transitionWorkspaceUpgradeRow,
+} from "../../models/workspace-upgrades.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -46,15 +57,23 @@ import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.j
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
 import { defineWorkspaceOwnershipMigrationWorkflow } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
-import { defineWorkspaceUpgradeReingest } from "./workspace-upgrade-reingest.js"
+import {
+  defineWorkspaceUpgradeReingest,
+  defineWorkspaceUpgradeReingestRepository,
+} from "./workspace-upgrade-reingest.js"
 import { defineWorkspaceUpgradeScan } from "./workspace-upgrade-scan.js"
+
+vi.hoisted(() => {
+  process.env.OPENWORKFLOW_NAMESPACE_ID = `test-upgrade-reingest-${Math.random().toString(36).slice(2, 10)}`
+})
 
 /*
  * The re-ingestion upgrade (CTX-746) end to end, with real Postgres, a real
  * OpenWorkflow worker, the real ingestion v2 workflow, the real broker, and
  * real git. GitHub is a set of local bare repositories
  * (`url.<dir>.insteadOf https://github.com/`); msw mints the GitHub tokens
- * and answers the model calls of the stand-in sandbox.
+ * and answers the model calls of the stand-in sandbox. This file has its own
+ * OpenWorkflow namespace, so its worker claims no run of another test file.
  */
 
 const MODEL_URL = "https://reingest-model.test/v1/step"
@@ -72,7 +91,15 @@ const suffix = Math.random().toString(36).slice(2, 8)
 const sourceName = `acme/billing-api-${suffix}`
 const otherSource = `acme/ledger-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
-const [ready, behind] = [generateObjectId("ws"), generateObjectId("ws")]
+const capSources = [`acme/cap-a-${suffix}`, `acme/cap-b-${suffix}`]
+contexts.push(`acme/context-c-${suffix}`)
+const [ready, behind, capped] = [
+  generateObjectId("ws"),
+  generateObjectId("ws"),
+  generateObjectId("ws"),
+]
+/** The USD that each model step of a Workspace reports. */
+const stepCostUsd = new Map<string, number>()
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: string[] = []
 
@@ -81,8 +108,14 @@ const server = setupServer(
   http.post(MODEL_URL, async ({ request }) => {
     const body = (await request.json()) as { workspaceId: string }
     modelCalls.push(body.workspaceId)
+    const costUsd = stepCostUsd.get(body.workspaceId)
     return HttpResponse.json({
       more: false,
+      usage: {
+        inputTokens: 1000,
+        outputTokens: 200,
+        ...(costUsd ? { costUsd } : {}),
+      },
       files: [
         {
           path: "knowledge/services/billing-api.md",
@@ -100,6 +133,7 @@ let backend: BackendPostgres
 let worker: ReturnType<OpenWorkflow["newWorker"]>
 let runner: OpenWorkflow
 let scan: ReturnType<typeof defineWorkspaceUpgradeScan>
+let reingest: ReturnType<typeof defineWorkspaceUpgradeReingest>
 const committed: { pipeline: IngestionPublishPipeline } = { pipeline: "v2" }
 
 function git(cwd: string, ...args: string[]): string {
@@ -146,6 +180,8 @@ beforeAll(async () => {
     "README.md": "# Billing API\n",
   })
   remote(otherSource, { "README.md": "# Ledger\n" })
+  for (const name of capSources)
+    remote(name, { "package.json": '{ "name": "cap" }\n' })
   const pinned = contexts.map((name) =>
     remote(name, { "README.md": "# Context\n" }),
   )
@@ -181,9 +217,10 @@ beforeAll(async () => {
     installationId: 446,
     accountSlug: "acme",
   })
-  // `ready` is at format 3. `behind` is at format 2, so it must merge the
-  // format upgrade first (G5).
-  for (const [i, workspaceId] of [ready, behind].entries()) {
+  // `ready` and `capped` are at format 3. `behind` is at format 2, so it
+  // must merge the format upgrade first (G5).
+  const sourcesOf = [[sourceName], [otherSource], capSources]
+  for (const [i, workspaceId] of [ready, behind, capped].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
         id: workspaceId,
@@ -196,7 +233,7 @@ beforeAll(async () => {
         desiredSha: pinned[i],
         desiredDefaultBranch: "main",
         writeStatus: "writable",
-        formatVersion: i === 0 ? 3 : 2,
+        formatVersion: i === 1 ? 2 : 3,
       }),
     )
     await replaceWorkspaceSourceRows({
@@ -208,7 +245,7 @@ beforeAll(async () => {
           sourceKey: "code",
           provider: "github",
           connectionId,
-          scope: { repositories: [i === 0 ? sourceName : otherSource] },
+          scope: { repositories: sourcesOf[i] },
           status: "ok",
           statusDetail: null,
         },
@@ -233,13 +270,14 @@ beforeAll(async () => {
   const ownership = defineWorkspaceOwnershipMigrationWorkflow({
     committedPipeline: () => committed.pipeline,
   })
-  scan = defineWorkspaceUpgradeScan([], {
-    publishPipeline: () => committed.pipeline,
-  })
-  const reingest = defineWorkspaceUpgradeReingest({
-    publishPipeline: () => committed.pipeline,
-    throttle: { slotPoll: "1 second", runPoll: "1 second" },
-  })
+  scan = defineWorkspaceUpgradeScan([])
+  const throttle = {
+    firstPollSeconds: 1,
+    maxSlotPollSeconds: 1,
+    maxRunPollSeconds: 1,
+  }
+  const repository = defineWorkspaceUpgradeReingestRepository({ throttle })
+  reingest = defineWorkspaceUpgradeReingest({ throttle, repository })
   runner.implementWorkflow(shard.spec, shard.fn)
   runner.implementWorkflow(parent.spec, parent.fn)
   runner.implementWorkflow(extract.spec, extract.fn)
@@ -249,6 +287,7 @@ beforeAll(async () => {
     workspaceSemanticMerge.fn,
   )
   runner.implementWorkflow(scan.spec, scan.fn)
+  runner.implementWorkflow(repository.spec, repository.fn)
   runner.implementWorkflow(reingest.spec, reingest.fn)
   worker = runner.newWorker({ concurrency: 4 })
   await worker.start()
@@ -284,6 +323,68 @@ async function runScan() {
   return handle.result({ timeoutMs: 60_000 })
 }
 
+/** The row of the Workspace when its run ended. */
+async function settled(workspaceId: string) {
+  let current = await row(workspaceId)
+  for (
+    let i = 0;
+    i < 360 &&
+    current?.status !== "completed" &&
+    current?.status !== "failed" &&
+    current?.status !== "blocked";
+    i++
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    current = await row(workspaceId)
+  }
+  return current
+}
+
+/** Set the row of the Workspace, as a run or a scan of the past left it. */
+async function setRow(
+  workspaceId: string,
+  fields: Omit<
+    Parameters<typeof transitionWorkspaceUpgradeRow>[0],
+    "workspaceId" | "key" | "from"
+  >,
+) {
+  await withOrgIdContext(org, async () =>
+    transitionWorkspaceUpgradeRow({
+      workspaceId,
+      key: await key(),
+      from: Object.values(UPGRADE_STATUSES),
+      ...fields,
+    }),
+  )
+}
+
+/** An upgrade run of the Workspace that ended before it did its work. */
+async function endedUpgradeRun(workspaceId: string, approvedAt?: string) {
+  const handle = await runner.runWorkflow(
+    reingest.spec,
+    { orgId: org.id, workspaceId, key: await key() },
+    {
+      availableAt: new Date(Date.now() + 3_600_000),
+      ...(approvedAt
+        ? {
+            idempotencyKey: `${upgradeJobId(workspaceId, await key())}:${approvedAt}`,
+          }
+        : {}),
+    },
+  )
+  await runner.cancelWorkflowRun(handle.workflowRun.id)
+  return handle.workflowRun.id
+}
+
+async function setFormat(workspaceId: string, formatVersion: number | null) {
+  await withOrgDbContext(org.id, (db) =>
+    db
+      .update(workspaces)
+      .set({ formatVersion })
+      .where(eq(workspaces.id, workspaceId)),
+  )
+}
+
 const key = async () => reingestUpgradeKey((await readIngestSkillBundle()).name)
 const row = async (workspaceId: string) =>
   withOrgIdContext(org, async () =>
@@ -299,13 +400,13 @@ const start = async (workspaceId: string) =>
     }),
   )
 
-/** The ingestion v2 runs that a re-ingestion started in this file. */
-async function reingestRuns() {
+/** The ingestion v2 runs that a re-ingestion started in this file (of one Workspace). */
+async function reingestRuns(workspaceId = "") {
   const result = await getSystemDb().execute<{ id: string }>(sql`
     select id from openworkflow.workflow_runs
     where namespace_id = ${openWorkflowNamespaceId()}
       and workflow_name = 'repository-ingestion-v2'
-      and idempotency_key like ${`upgrade-reingest:${org.id}:%`}
+      and idempotency_key like ${`upgrade-reingest:${org.id}:${workspaceId}%`}
   `)
   return result.rows.map((r) => r.id)
 }
@@ -314,14 +415,6 @@ it(
   "offers the re-ingestion with an estimate, blocks it below format 3, and runs ingestion v2 once per click",
   { timeout: 420_000 },
   async () => {
-    // A committed pipeline that is not v2 cannot publish a re-ingestion.
-    committed.pipeline = "legacy"
-    await runScan()
-    expect(await row(ready)).toMatchObject({
-      status: "blocked",
-      upgrade: { blockedReason: "ingestion_v2_off" },
-    })
-    committed.pipeline = "v2"
     // No ingest sandbox runtime.
     vi.stubEnv("SANDBOX_PROVIDER", "vercel")
     await runScan()
@@ -371,15 +464,7 @@ it(
     expect(await start(ready)).toMatchObject({ kind: "queued" })
     expect(await start(ready)).toMatchObject({ kind: "existing" })
 
-    let done = await row(ready)
-    for (
-      let i = 0;
-      i < 360 && done?.status !== "completed" && done?.status !== "failed";
-      i++
-    ) {
-      await new Promise((resolve) => setTimeout(resolve, 1_000))
-      done = await row(ready)
-    }
+    const done = await settled(ready)
     expect(done).toMatchObject({
       status: "completed",
       upgrade: {
@@ -425,3 +510,145 @@ it(
     ])
   },
 )
+
+it(
+  "skips a repository that an earlier run did at the same commit, so a new start does not pay for it again",
+  { timeout: 120_000 },
+  async () => {
+    const before = await row(ready)
+    expect(before?.upgrade.repositories?.[0]).toMatchObject({ status: "done" })
+    await setRow(ready, {
+      to: "failed",
+      failureReason: "An earlier run failed.",
+    })
+    expect(await start(ready)).toMatchObject({ kind: "queued" })
+    expect(await settled(ready)).toMatchObject({
+      status: "completed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({
+            repository: sourceName,
+            status: "done",
+            runId: before?.upgrade.repositories?.[0]?.runId,
+            report: ["An earlier run did this commit."],
+          }),
+        ],
+      },
+    })
+    expect(await reingestRuns(ready)).toHaveLength(1)
+  },
+)
+
+it(
+  "stops the run when the model spend passes 2 times the p90 estimate",
+  { timeout: 420_000 },
+  async () => {
+    // Each model step of this Workspace reports more than the whole cap.
+    stepCostUsd.set(capped, 1_000)
+    expect(await row(capped)).toMatchObject({ status: "awaiting_operator" })
+    const high = (await row(capped))?.upgrade.estimate?.costUsd.high ?? 0
+    expect(high * 2).toBeLessThan(1_000)
+    expect(await start(capped)).toMatchObject({ kind: "queued" })
+    const stopped = await settled(capped)
+    expect(stopped).toMatchObject({
+      status: "failed",
+      failureReason: expect.stringContaining("cost_cap"),
+      upgrade: {
+        stopReason: "cost_cap",
+        repositories: [
+          expect.objectContaining({
+            repository: capSources[0],
+            spendUsd: expect.any(Number),
+          }),
+          expect.objectContaining({
+            repository: capSources[1],
+            status: "failed",
+            report: ["Not started: the re-ingestion stopped at the cost cap."],
+          }),
+        ],
+      },
+    })
+    expect(
+      stopped?.upgrade.repositories?.[0]?.spendUsd ?? 0,
+    ).toBeGreaterThanOrEqual(1_000)
+    // The second repository started no ingestion run.
+    expect(await reingestRuns(capped)).toHaveLength(1)
+  },
+)
+
+it("keeps the row when the scan cannot read the format, or the format is newer than this code", async () => {
+  expect(await row(capped)).toMatchObject({ status: "failed" })
+  for (const format of [null, 4]) {
+    await setFormat(capped, format)
+    await runScan()
+    expect(await row(capped)).toMatchObject({ status: "failed" })
+    expect((await row(capped))?.upgrade.blockedReason).toBeUndefined()
+  }
+  await setFormat(capped, 3)
+})
+
+it(
+  "fails a re-ingestion row whose run ended in queued or in running, and a new start then works",
+  { timeout: 420_000 },
+  async () => {
+    // Queued: the run of this click ended before it claimed the row.
+    const approvedAt = new Date().toISOString()
+    await endedUpgradeRun(capped, approvedAt)
+    await setRow(capped, {
+      to: "queued",
+      upgrade: { approvedAt },
+      workflowRunId: null,
+    })
+    await withOrgIdContext(org, () => failStoppedUpgradeRun(capped))
+    expect(await row(capped)).toMatchObject({
+      status: "failed",
+      failureReason: "The upgrade run stopped before it finished.",
+    })
+
+    // Running: the recorded run ended without its result.
+    await setRow(capped, {
+      to: "running",
+      workflowRunId: await endedUpgradeRun(capped),
+    })
+    await runScan()
+    expect(await row(capped)).toMatchObject({
+      status: "failed",
+      failureReason: "The upgrade run stopped before it finished.",
+    })
+
+    stepCostUsd.delete(capped)
+    expect(await start(capped)).toMatchObject({ kind: "queued" })
+    expect(await settled(capped)).toMatchObject({ status: "completed" })
+  },
+)
+
+it("deletes only the superseded rows of the same family", async () => {
+  const insert = (key: string) =>
+    insertWorkspaceUpgradeRow({
+      workspaceId: behind,
+      generation: 3,
+      status: "awaiting_operator",
+      upgrade: { key, fromFormat: 2, targetFormat: 3 },
+    })
+  const keys = async () =>
+    (await listWorkspaceUpgradeRows(behind)).map((r) => r.upgrade.key).sort()
+  await withOrgIdContext(org, async () => {
+    const current = await key()
+    await insert("format-3")
+    await insert("reingest-ingest-older")
+    // A re-ingestion scan keeps the format rows.
+    await deleteSupersededUpgradeRows({
+      workspaceId: behind,
+      key: current,
+      statuses: ["awaiting_operator", "blocked", "failed"],
+    })
+    expect(await keys()).toEqual(["format-3", current].sort())
+    // A format scan keeps the re-ingestion rows.
+    await deleteSupersededUpgradeRows({
+      workspaceId: behind,
+      key: "format-4",
+      statuses: ["awaiting_operator", "blocked", "failed"],
+    })
+    expect(await keys()).toEqual([current])
+  })
+})

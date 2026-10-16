@@ -14,7 +14,6 @@ import {
   listOpenPullRequestsByBranchPrefix,
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
-import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import {
@@ -35,8 +34,8 @@ import {
 } from "./registry.js"
 import {
   estimateReingest,
-  ingestSandboxUnavailable,
   REINGEST_REQUIRES_FORMAT,
+  reingestBlock,
   reingestUpgradeKey,
   workspaceSourceRepositories,
 } from "./reingest.js"
@@ -102,12 +101,13 @@ export async function scanWorkspaceUpgrade(input: {
   orgId: string
   workspace: ScannedWorkspace
   steps: readonly GitUpgradeStep[]
+  /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
+  format: number | null
   env: Env
 }): Promise<WorkspaceUpgradeScanResult> {
-  const { workspace } = input
+  const { workspace, format } = input
   const targetFormat = upgradeTargetFormat(input.steps)
   if (targetFormat === 0) return { kind: "none", reason: "no_steps" }
-  const format = await currentWorkspaceFormat(input.orgId, workspace, input.env)
   if (format === null) return { kind: "none", reason: "unknown_format" }
   // A file that is not valid, or a format that is newer than this code,
   // gets no upgrade (ADR-053 section 3).
@@ -255,22 +255,25 @@ export async function scanWorkspaceUpgrade(input: {
  * once for each skill bundle: the key names the bundle, so a completed row
  * keeps it done until a release ships a new bundle. The scan never starts
  * it. It records `awaiting_operator` with the estimate, or `blocked` with
- * the reason: a format below 3 (G5), a committed publish pipeline that is
- * not ingestion v2, no ingest sandbox, or no write access.
+ * the reason of {@link reingestBlock}. A format that the scan cannot read now
+ * leaves the row as it is, and a format that is newer than this code gets no
+ * re-ingestion.
  */
 export async function scanWorkspaceReingest(input: {
   orgId: string
   workspace: ScannedWorkspace
   bundle: { name: string; skills: readonly string[] }
-  publishPipeline: IngestionPublishPipeline
-  env: Env
+  /** {@link currentWorkspaceFormat}: the scan reads it once for each Workspace. */
+  format: number | null
 }): Promise<WorkspaceUpgradeScanResult> {
-  const { workspace } = input
+  const { workspace, format } = input
   const repositories = await workspaceSourceRepositories(
     input.orgId,
     workspace.id,
   )
   if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
+  if (format === null) return { kind: "none", reason: "unknown_format" }
+  if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
   const key = reingestUpgradeKey(input.bundle.name)
   await failStoppedUpgradeRun(workspace.id, key)
   await deleteSupersededUpgradeRows({
@@ -281,33 +284,7 @@ export async function scanWorkspaceReingest(input: {
   const existing = await getWorkspaceUpgradeRow(workspace.id, key)
   if (existing && !SCAN_OWNED.includes(existing.status))
     return { kind: "pending", key, status: existing.status }
-  const format = await currentWorkspaceFormat(input.orgId, workspace, input.env)
-  const sandbox = ingestSandboxUnavailable()
-  const blocked =
-    format === null || format < REINGEST_REQUIRES_FORMAT || format > CODE_FORMAT
-      ? {
-          blockedReason: UPGRADE_BLOCKED_REASONS.needsFormat,
-          note: `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
-        }
-      : input.publishPipeline !== "v2"
-        ? {
-            blockedReason: UPGRADE_BLOCKED_REASONS.ingestionV2Off,
-            note: "This ctx| version does not publish with ingestion v2, so a re-ingestion cannot publish.",
-          }
-        : sandbox
-          ? {
-              blockedReason: UPGRADE_BLOCKED_REASONS.sandboxUnavailable,
-              note: sandbox,
-            }
-          : workspace.writeStatus === "read_only" ||
-              !workspace.githubConnectionId
-            ? {
-                blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
-                note:
-                  workspace.readOnlyReason ??
-                  "Connect the Workspace repository with the GitHub App, so that ctx| can publish the re-ingestion.",
-              }
-            : null
+  const blocked = reingestBlock({ ...workspace, format })
   const estimate = await estimateReingest({
     orgId: input.orgId,
     repositories,
@@ -315,7 +292,7 @@ export async function scanWorkspaceReingest(input: {
   })
   const fields = {
     estimate,
-    fromFormat: format ?? 0,
+    fromFormat: Math.max(format, 0),
     blockedReason: blocked?.blockedReason,
     // A failed run keeps its note; a block replaces it.
     ...(blocked
