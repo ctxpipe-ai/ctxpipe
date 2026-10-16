@@ -92,6 +92,7 @@ import {
 import { postgresSandboxLocks } from "./sandbox-lock-store.js"
 import {
   stopEarlierTurnProcesses,
+  withOpencodeServeRetry,
   withOwnerWatchdog,
   withSingleOpencodeServer,
 } from "./sandbox-process-guards.js"
@@ -284,10 +285,12 @@ export function conversationSandboxProvider(
     return withSingleOpencodeServer(vercelConversationProvider(vercel))
   }
   if (isolation === "unsandboxed")
-    return withOwnerWatchdog(
-      localProcessSandbox({
-        scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
-      }),
+    return withOpencodeServeRetry(
+      withOwnerWatchdog(
+        localProcessSandbox({
+          scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+        }),
+      ),
     )
   return withSingleOpencodeServer(
     withProxyCa(
