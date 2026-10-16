@@ -168,7 +168,7 @@ export async function listMigrationExportJobWorkspaceIds(): Promise<
         and(
           eq(workspaceWriteJobs.kind, "migration_export"),
           // A failed export blocks a new one for an hour after it started,
-          // so a failure is queued again at most once an hour.
+          // so the tip check queues a failed export again at most once an hour.
           sql`(${workspaceWriteJobs.status} <> ${WRITE_JOB_STATUSES.failed} or ${workspaceWriteJobs.createdAt} > now() - interval '1 hour')`,
         ),
       )
@@ -524,17 +524,23 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
 /**
  * Reconcile the jobs of a Workspace that stayed `queued` or `running` since
  * before `staleBefore`. A job whose run failed or was canceled becomes
- * `failed`. Returns each `queued` job that has no run, for example because
+ * `failed`. A `queued` job that has no run lost its run, for example because
  * the process stopped after it stored the job and before it queued the run.
- * The caller queues these jobs again with the same id.
+ * Such a job becomes `paused`, so that the resume step queues it again with
+ * the same id. When it binds an earlier generation or another repository
+ * URL, a newer binding supersedes it, so it becomes `failed`.
  */
 export async function reconcileStaleWriteJobs(
-  workspaceId: string,
+  workspace: {
+    id: string
+    desiredGeneration: number
+    workspaceRepositoryUrl: string
+  },
   staleBefore: Date,
 ) {
   return orgSql(async () => {
     const stale = [
-      eq(workspaceWriteJobs.workspaceId, workspaceId),
+      eq(workspaceWriteJobs.workspaceId, workspace.id),
       lt(workspaceWriteJobs.updatedAt, staleBefore),
     ]
     await failJobsWithEndedRun(
@@ -544,16 +550,16 @@ export async function reconcileStaleWriteJobs(
         WRITE_JOB_STATUSES.running,
       ]),
     )
-    const rows = await getOrgDb()
-      .select({
-        id: workspaceWriteJobs.id,
-        kind: workspaceWriteJobs.kind,
-        generation: workspaceWriteJobs.generation,
-        desiredSha: workspaceWriteJobs.desiredSha,
-        status: workspaceWriteJobs.status,
-        payload: workspaceWriteJobs.payload,
+    const sameBinding = sql<boolean>`(${workspaceWriteJobs.generation} = ${workspace.desiredGeneration}
+      and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl})`
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        status: sql`case when ${sameBinding} then ${WRITE_JOB_STATUSES.paused} else ${WRITE_JOB_STATUSES.failed} end`,
+        payload: sql`case when ${sameBinding} then ${workspaceWriteJobs.payload}
+          else jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb('superseded'::text)) end`,
+        updatedAt: new Date(),
       })
-      .from(workspaceWriteJobs)
       .where(
         and(
           ...stale,
@@ -562,10 +568,6 @@ export async function reconcileStaleWriteJobs(
           sql`${nativeWriteJobOwnerId()} is null`,
         ),
       )
-    return rows.map((row) => ({
-      ...row,
-      kind: row.kind as WorkspaceWriteKind,
-    }))
   })
 }
 

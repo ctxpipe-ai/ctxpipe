@@ -29,7 +29,6 @@ import {
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
-import { enqueueInputFromPausedJob } from "../../domain/workspaces/write-job-intent.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
@@ -137,6 +136,14 @@ export const workspaceTipCheck = defineWorkflow(
           writeStatusById.set(workspace.id, gated.writeStatus)
           if (gated.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
+          // A job that stays `queued` or `running` for an hour lost its run,
+          // or its run ended and nothing recorded that. Record a failed run
+          // on the job, and pause a job that has no run, so that the resume
+          // step below queues it again with its own id.
+          await reconcileStaleWriteJobs(
+            workspace,
+            new Date(Date.now() - 60 * 60 * 1000),
+          )
           await resumePausedWriteJobs({
             orgId: input.orgId,
             workspaceId: workspace.id,
@@ -151,29 +158,6 @@ export const workspaceTipCheck = defineWorkflow(
             },
             log: quietLog,
           })
-          // A job that stays `queued` or `running` for an hour lost its run, or its
-          // run ended and nothing recorded that. Record a failed run on the
-          // job, and queue a job that has no run again with its own id.
-          const lost = await reconcileStaleWriteJobs(
-            workspace.id,
-            new Date(Date.now() - 60 * 60 * 1000),
-          )
-          for (const job of lost) {
-            if (
-              job.generation !== workspace.desiredGeneration ||
-              (job.payload?.jobWorkspaceUrl ??
-                workspace.workspaceRepositoryUrl) !==
-                workspace.workspaceRepositoryUrl
-            )
-              continue
-            pending.push(
-              enqueueInputFromPausedJob({
-                orgId: input.orgId,
-                workspaceId: workspace.id,
-                job,
-              }),
-            )
-          }
           return pending
         })
         writeCommitsToEnqueue.push(...claimed)

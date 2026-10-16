@@ -636,6 +636,51 @@ it(
 )
 
 it(
+  "cron marks a stale queued write job of an earlier generation as failed and does not queue it",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const jobId = `wjob_superseded_${f.id}`
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(workspaceWriteJobs).values({
+            id: jobId,
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            kind: "ui_file_edit",
+            generation: 0,
+            desiredSha: f.sha,
+            status: "queued",
+            payload: { jobWorkspaceUrl: f.workspaceUrl },
+          }),
+        )
+        await ageWriteJobs(f)
+
+        await runTipCheck(f)
+        const [job] = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({
+              status: workspaceWriteJobs.status,
+              payload: workspaceWriteJobs.payload,
+            })
+            .from(workspaceWriteJobs)
+            .where(eq(workspaceWriteJobs.id, jobId)),
+        )
+        expect(job).toEqual({
+          status: "failed",
+          payload: expect.objectContaining({ failureReason: "superseded" }),
+        })
+        expect(await workspaceRuns(f, "workspace-write-ui-file-edit")).toEqual(
+          [],
+        )
+      },
+    )
+  },
+)
+
+it(
   "cron records the failed run of a stale migration export and queues a new export",
   { timeout: 60_000 },
   async () => {
