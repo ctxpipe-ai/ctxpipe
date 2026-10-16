@@ -762,6 +762,23 @@ export async function getPullRequestHeadBranch(
 export async function listOpenPullRequestsByBranchPrefix(
   input: BaseInput & { branchPrefix: string; exactBranch?: string },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
+  const pulls = await listOpenRepositoryPullRequestsByBranchPrefix(input)
+  return pulls
+    .filter((pull) => pull.ours)
+    .map(({ pullUrl, branch, createdAt }) => ({ pullUrl, branch, createdAt }))
+}
+
+/**
+ * Like {@link listOpenPullRequestsByBranchPrefix}, but it also lists the pull
+ * requests of other people and Apps whose head is in this repository. `ours`
+ * tells which pull requests ctx| opened. A fork pull request does not use a
+ * branch of this repository, so it is not listed.
+ */
+export async function listOpenRepositoryPullRequestsByBranchPrefix(
+  input: BaseInput & { branchPrefix: string; exactBranch?: string },
+): Promise<
+  Array<{ pullUrl: string; branch: string; createdAt: string; ours: boolean }>
+> {
   const context = await getInstallationContext(input, { pull_requests: "read" })
   const repository = `${context.owner}/${context.repo}`.toLowerCase()
   const pulls = await withTransientGitHubRetry(() =>
@@ -780,19 +797,19 @@ export async function listOpenPullRequestsByBranchPrefix(
       pull.head.ref.startsWith(input.branchPrefix) &&
       (input.exactBranch === undefined ||
         pull.head.ref === input.exactBranch) &&
-      pull.head.repo?.full_name.toLowerCase() === repository &&
-      pull.user?.type === "Bot",
+      pull.head.repo?.full_name.toLowerCase() === repository,
   )
   // Ask GitHub for the App login only when a pull request can be ours.
-  const login =
-    candidates.length > 0 ? (await context.appBotLogin()).toLowerCase() : ""
-  return candidates
-    .filter((pull) => pull.user?.login.toLowerCase() === login)
-    .map((pull) => ({
-      pullUrl: pull.html_url,
-      branch: pull.head.ref,
-      createdAt: pull.created_at,
-    }))
+  const login = candidates.some((pull) => pull.user?.type === "Bot")
+    ? (await context.appBotLogin()).toLowerCase()
+    : ""
+  return candidates.map((pull) => ({
+    pullUrl: pull.html_url,
+    branch: pull.head.ref,
+    createdAt: pull.created_at,
+    ours:
+      pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
+  }))
 }
 
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
