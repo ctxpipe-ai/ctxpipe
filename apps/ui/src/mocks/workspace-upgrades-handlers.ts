@@ -29,6 +29,8 @@ export function upgradeItemFixture(
       { format: 3, title: "Move the skills", commitSha: null, report: [] },
     ],
     pullRequest: null,
+    estimate: null,
+    repositories: [],
     blockedReason: null,
     note: null,
     failureReason: null,

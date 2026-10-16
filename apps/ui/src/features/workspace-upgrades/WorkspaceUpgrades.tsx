@@ -20,6 +20,7 @@ import {
 } from "./queries"
 import {
   formatHealthLine,
+  formatUpgradeEstimate,
   MEMBER_ASK_ADMIN,
   UPGRADE_BLOCKED_COPY,
   UPGRADE_STATUS_TAG,
@@ -180,7 +181,7 @@ function UpgradeItemRow(props: {
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
       onStart={() => startMutation.mutate()}
-      estimate={item.estimate}
+      estimate={item.estimate ? formatUpgradeEstimate(item.estimate) : null}
     />
   )
 }
