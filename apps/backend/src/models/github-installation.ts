@@ -815,7 +815,32 @@ export async function getInstallationOctokitForOrg(
       .repositoryNames,
     permissions: scope.permissions,
   })) as { token: string }
-  return { installation, octokit: new Octokit({ auth: token }) }
+  return {
+    installation,
+    octokit: new Octokit({ auth: token }),
+    appBotLogin: () => appBotLogin(app),
+  }
+}
+
+const appBotLogins = new WeakMap<App, Promise<string>>()
+
+/**
+ * The GitHub login of the App (`<slug>[bot]`): the author of each pull
+ * request that the App opens. GitHub gives the slug of each App on
+ * `GET /app`, also when the connection did not store it. One call for each
+ * App credential.
+ */
+function appBotLogin(app: App): Promise<string> {
+  const known = appBotLogins.get(app)
+  if (known) return known
+  const login = app.octokit.request("GET /app").then(({ data }) => {
+    if (!data?.slug) throw new Error("GitHub did not give the App slug")
+    return `${data.slug}[bot]`
+  })
+  // Do not keep a failure: the next call asks GitHub again.
+  login.catch(() => appBotLogins.delete(app))
+  appBotLogins.set(app, login)
+  return login
 }
 
 export async function userCanAccessInstallation(

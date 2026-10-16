@@ -67,7 +67,7 @@ class WorkspaceWriteAccessUnavailableError extends Error {
 }
 
 /** Only a recognized remote access/protection denial pauses a native push. */
-function writeAccessDenialReason(error: unknown): string | null {
+export function writeAccessDenialReason(error: unknown): string | null {
   if (!error || typeof error !== "object") return null
   const detail = error as { status?: number; stderr?: Buffer | string }
   const stderr = detail.stderr?.toString() ?? ""
