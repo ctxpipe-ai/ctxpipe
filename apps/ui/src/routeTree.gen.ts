@@ -15,7 +15,6 @@ import { Route as OnboardingRouteImport } from './routes/onboarding'
 import { Route as OrgSlugIndexRouteImport } from './routes/$orgSlug.index'
 import { Route as OrgSlugConnectorsRouteImport } from './routes/$orgSlug.connectors'
 import { Route as OrgSlugKnowledgeGraphRouteImport } from './routes/$orgSlug.knowledge-graph'
-import { Route as OrgSlugSetupRouteImport } from './routes/$orgSlug.setup'
 import { Route as DotauthAuthViewRouteImport } from './routes/[.]auth.$authView'
 import { Route as DotauthAccountRouteImport } from './routes/[.]auth.account'
 import { Route as DotauthConsentRouteImport } from './routes/[.]auth.consent'
@@ -23,6 +22,7 @@ import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
 import { Route as DotauthSelectOrganizationRouteImport } from './routes/[.]auth.select-organization'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
+import { Route as DotgithubLinkRouteImport } from './routes/[.]github.link'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
 import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
@@ -69,11 +69,6 @@ const OrgSlugKnowledgeGraphRoute = OrgSlugKnowledgeGraphRouteImport.update({
   path: '/knowledge-graph',
   getParentRoute: () => OrgSlugRoute,
 } as any)
-const OrgSlugSetupRoute = OrgSlugSetupRouteImport.update({
-  id: '/setup',
-  path: '/setup',
-  getParentRoute: () => OrgSlugRoute,
-} as any)
 const DotauthAuthViewRoute = DotauthAuthViewRouteImport.update({
   id: '/.auth/$authView',
   path: '/.auth/$authView',
@@ -108,6 +103,11 @@ const DotauthSelectOrganizationRoute =
 const DotauthSignInRoute = DotauthSignInRouteImport.update({
   id: '/.auth/sign-in',
   path: '/.auth/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotgithubLinkRoute = DotgithubLinkRouteImport.update({
+  id: '/.github/link',
+  path: '/.github/link',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
@@ -198,7 +198,6 @@ export interface FileRoutesByFullPath {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -206,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -228,13 +228,13 @@ export interface FileRoutesByTo {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/consent': typeof DotauthConsentRoute
   '/.auth/device': typeof DotauthDeviceRoute
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -258,7 +258,6 @@ export interface FileRoutesById {
   '/onboarding': typeof OnboardingRoute
   '/$orgSlug/connectors': typeof OrgSlugConnectorsRoute
   '/$orgSlug/knowledge-graph': typeof OrgSlugKnowledgeGraphRoute
-  '/$orgSlug/setup': typeof OrgSlugSetupRoute
   '/.auth/$authView': typeof DotauthAuthViewRoute
   '/.auth/account': typeof DotauthAccountRouteWithChildren
   '/.auth/consent': typeof DotauthConsentRoute
@@ -266,6 +265,7 @@ export interface FileRoutesById {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -291,7 +291,6 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -299,6 +298,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -321,13 +321,13 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/consent'
     | '/.auth/device'
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -350,7 +350,6 @@ export interface FileRouteTypes {
     | '/onboarding'
     | '/$orgSlug/connectors'
     | '/$orgSlug/knowledge-graph'
-    | '/$orgSlug/setup'
     | '/.auth/$authView'
     | '/.auth/account'
     | '/.auth/consent'
@@ -358,6 +357,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -387,6 +387,7 @@ export interface RootRouteChildren {
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSelectOrganizationRoute: typeof DotauthSelectOrganizationRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
+  DotgithubLinkRoute: typeof DotgithubLinkRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
   DotnotionSetupRoute: typeof DotnotionSetupRoute
   DotslackSetupRoute: typeof DotslackSetupRoute
@@ -438,13 +439,6 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof OrgSlugKnowledgeGraphRouteImport
       parentRoute: typeof OrgSlugRoute
     }
-    '/$orgSlug/setup': {
-      id: '/$orgSlug/setup'
-      path: '/setup'
-      fullPath: '/$orgSlug/setup'
-      preLoaderRoute: typeof OrgSlugSetupRouteImport
-      parentRoute: typeof OrgSlugRoute
-    }
     '/.auth/$authView': {
       id: '/.auth/$authView'
       path: '/.auth/$authView'
@@ -492,6 +486,13 @@ declare module '@tanstack/react-router' {
       path: '/.auth/sign-in'
       fullPath: '/.auth/sign-in'
       preLoaderRoute: typeof DotauthSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.github/link': {
+      id: '/.github/link'
+      path: '/.github/link'
+      fullPath: '/.github/link'
+      preLoaderRoute: typeof DotgithubLinkRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.github/setup': {
@@ -622,7 +623,6 @@ const OrgSlugWsWorkspaceSlugRouteWithChildren =
 interface OrgSlugRouteChildren {
   OrgSlugConnectorsRoute: typeof OrgSlugConnectorsRoute
   OrgSlugKnowledgeGraphRoute: typeof OrgSlugKnowledgeGraphRoute
-  OrgSlugSetupRoute: typeof OrgSlugSetupRoute
   OrgSlugIndexRoute: typeof OrgSlugIndexRoute
   OrgSlugChatSplatRoute: typeof OrgSlugChatSplatRoute
   OrgSlugGithubSetupRoute: typeof OrgSlugGithubSetupRoute
@@ -635,7 +635,6 @@ interface OrgSlugRouteChildren {
 const OrgSlugRouteChildren: OrgSlugRouteChildren = {
   OrgSlugConnectorsRoute: OrgSlugConnectorsRoute,
   OrgSlugKnowledgeGraphRoute: OrgSlugKnowledgeGraphRoute,
-  OrgSlugSetupRoute: OrgSlugSetupRoute,
   OrgSlugIndexRoute: OrgSlugIndexRoute,
   OrgSlugChatSplatRoute: OrgSlugChatSplatRoute,
   OrgSlugGithubSetupRoute: OrgSlugGithubSetupRoute,
@@ -674,6 +673,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSelectOrganizationRoute: DotauthSelectOrganizationRoute,
   DotauthSignInRoute: DotauthSignInRoute,
+  DotgithubLinkRoute: DotgithubLinkRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
   DotnotionSetupRoute: DotnotionSetupRoute,
   DotslackSetupRoute: DotslackSetupRoute,

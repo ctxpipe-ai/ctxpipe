@@ -33,7 +33,7 @@ export function OrganizationViewRoutePage() {
     onboardingCompletedAt?: string | null
   }
   if (!user.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+    return <Navigate to="/onboarding" replace />
   }
 
   const organization = organizations?.find((org) => org.slug === orgSlug)
