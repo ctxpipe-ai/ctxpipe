@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, ne, or, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaceWriteJobs } from "../db/schema/workspaces.js"
@@ -176,15 +176,17 @@ export async function transitionWorkspaceUpgradeRow(input: {
 }
 
 /**
- * Remove the rows of other upgrade keys that wait for a click or cannot
- * start: a newer release replaced them. A row with an open pull request or
- * a run stays.
+ * Remove the rows of other upgrade keys of the same family (`format-` or
+ * `reingest-`, the prefix of `key`) that wait for a click or cannot start:
+ * a newer release replaced them. A row with an open pull request or a run
+ * stays.
  */
 export async function deleteSupersededUpgradeRows(input: {
   workspaceId: string
   key: string
   statuses: readonly UpgradeStatus[]
 }): Promise<void> {
+  const family = `${upgradeJobId(input.workspaceId, input.key.split("-")[0] ?? input.key)}-`
   await orgSql(async () => {
     await getOrgDb()
       .delete(workspaceWriteJobs)
@@ -193,6 +195,7 @@ export async function deleteSupersededUpgradeRows(input: {
           eq(workspaceWriteJobs.workspaceId, input.workspaceId),
           eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
           ne(workspaceWriteJobs.id, upgradeJobId(input.workspaceId, input.key)),
+          like(workspaceWriteJobs.id, `${family.replace(/[\\%_]/g, "\\$&")}%`),
           inArray(workspaceWriteJobs.status, [...input.statuses]),
         ),
       )
@@ -207,7 +210,7 @@ export async function deleteSupersededUpgradeRows(input: {
  * - a `running` row whose recorded run ended;
  * - a `queued` row whose run ended before it claimed the row. That run has
  *   the idempotency key `<row id>:<approvedAt>` of this click
- *   (see `enqueueWorkspaceUpgrade`). An older run of the same row does not
+ *   (see `enqueueWorkspaceUpgrade` and `enqueueWorkspaceUpgradeReingest`). An older run of the same row does not
  *   count, and a row whose run is not queued yet stays `queued`.
  *
  * Without `key`, this checks all the upgrade rows of the Workspace.
@@ -217,6 +220,7 @@ export async function failStoppedUpgradeRun(
   key?: string,
 ): Promise<void> {
   const ended = sql`('completed', 'failed', 'canceled')`
+  const upgradeWorkflows = sql`('workspace-upgrade', 'workspace-upgrade-reingest')`
   await orgSql(async () => {
     await getOrgDb()
       .update(workspaceWriteJobs)
@@ -236,14 +240,14 @@ export async function failStoppedUpgradeRun(
               eq(workspaceWriteJobs.status, "running"),
               sql`exists (select 1 from openworkflow.workflow_runs owner
                 where owner.id = ${workspaceWriteJobs.payload}->>'workflowRunId'
-                  and owner.workflow_name = 'workspace-upgrade'
+                  and owner.workflow_name in ${upgradeWorkflows}
                   and owner.status in ${ended})`,
             ),
             and(
               eq(workspaceWriteJobs.status, "queued"),
               sql`exists (select 1 from openworkflow.workflow_runs owner
                 where owner.idempotency_key = ${workspaceWriteJobs.id} || ':' || (${workspaceWriteJobs.payload}->'upgrade'->>'approvedAt')
-                  and owner.workflow_name = 'workspace-upgrade'
+                  and owner.workflow_name in ${upgradeWorkflows}
                   and owner.status in ${ended})`,
             ),
           ),

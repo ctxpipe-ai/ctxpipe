@@ -80,6 +80,19 @@ export type IngestRootMap = {
   }>
 }
 
+/** The model usage that one ingest step reports. */
+export type IngestStepUsage = {
+  inputTokens: number
+  outputTokens: number
+  /** USD, when the gateway reports it. */
+  costUsd?: number
+  /**
+   * The model steps that reported no usage. Their spend is unknown, so the
+   * spend and the cost cap count only the steps that reported usage.
+   */
+  unknownSteps?: number
+}
+
 export type IngestShardRuntime = {
   /** Make or attach to the sandbox, and prepare it. Idempotent. */
   ensure(): Promise<void>
@@ -89,7 +102,9 @@ export type IngestShardRuntime = {
    * Run one skill step; return the tar of `/ctxpipe/out`. Its `patch.json`
    * holds `more` when files wait for a next page; the host reads it.
    */
-  runStep(step: IngestRuntimeStep): Promise<{ tar: Uint8Array }>
+  runStep(
+    step: IngestRuntimeStep,
+  ): Promise<{ tar: Uint8Array; usage?: IngestStepUsage }>
 }
 
 export type IngestShardRuntimeFactory = {
