@@ -12,6 +12,7 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core"
+import type { WorkspaceUpgradePayload } from "../../domain/upgrades/registry.js"
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
 import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
@@ -250,6 +251,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
       remoteTipSha?: string | null
       mergeFiles?: GitFileChange[]
       mergeDeletePaths?: string[]
+      /** Only on rows of kind `upgrade` (ADR-053). */
+      upgrade?: WorkspaceUpgradePayload
     } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

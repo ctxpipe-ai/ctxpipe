@@ -136,3 +136,17 @@ export function withFormatWriteGate<
       }
     : row
 }
+
+/**
+ * True when hydrate must queue an upgrade scan after it cached `next` over
+ * `previous`. A changed format can complete an upgrade pull request, and it
+ * can lift the format gate, so the write jobs that the gate held must
+ * resume. The first read of a repository with no file (null to 0) changes
+ * nothing: a null cache gives no gate, and no upgrade ends at format 0.
+ */
+export function formatChangeNeedsScan(
+  previous: number | null,
+  next: number,
+): boolean {
+  return previous !== next && !(previous === null && next === 0)
+}

@@ -60,6 +60,8 @@ it(
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
         "github-sync-pull-request",
+        "workspace-upgrade-scan",
+        "workspace-upgrade",
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",

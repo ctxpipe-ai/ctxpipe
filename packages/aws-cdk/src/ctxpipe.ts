@@ -159,7 +159,10 @@ export class CtxPipe extends Construct {
       cdk.Stack.of(this).region,
     )
     const sizeProfile = this.resolveSizeProfile(props)
-    const sandboxHostProfile = this.resolveSandboxHost(props, sizeProfile)
+    const sandboxHostProfile =
+      props.sandboxHost?.enabled === false
+        ? undefined
+        : this.resolveSandboxHost(props, sizeProfile)
     const resolvedCustomDomain = this.resolveCustomDomain(props)
 
     const defaults = this.resolveDefaults(
@@ -188,10 +191,12 @@ export class CtxPipe extends Construct {
       emailFromAddress: defaults.emailFromAddress,
     })
 
-    const sandboxHost = new SandboxHostConstruct(this, "SandboxHost", {
-      networking: networking.resources,
-      ...sandboxHostProfile,
-    })
+    const sandboxHost = sandboxHostProfile
+      ? new SandboxHostConstruct(this, "SandboxHost", {
+          networking: networking.resources,
+          ...sandboxHostProfile,
+        })
+      : undefined
 
     const taskDefinitions = new TaskDefinitionsConstruct(
       this,
@@ -206,7 +211,7 @@ export class CtxPipe extends Construct {
         defaultImageTag: defaults.defaultImageTag,
         sizeProfile,
         otel: props.otel,
-        sandboxHost: sandboxHost.resources,
+        sandboxHost: sandboxHost?.resources,
       },
     )
 
@@ -228,7 +233,7 @@ export class CtxPipe extends Construct {
       migrateDependency: secrets.resources.runtimeDatabaseUrlWriter,
       codesearchEfsMountDependency:
         dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
-      sandboxHost: sandboxHost.resources,
+      sandboxHost: sandboxHost?.resources,
     })
 
     const ingress = new IngressConstruct(this, "Ingress", {
@@ -242,7 +247,7 @@ export class CtxPipe extends Construct {
     this.smtpSecret = secrets.resources.smtpSecret
     this.connectorSecret = secrets.resources.connectorSecret
     this.appUrl = ingress.resources.appUrl
-    this.sandboxHostAlarms = sandboxHost.resources.alarms
+    this.sandboxHostAlarms = sandboxHost?.resources.alarms ?? []
 
     new OutputsConstruct(this, "Outputs", {
       appUrl: this.appUrl,
@@ -252,7 +257,7 @@ export class CtxPipe extends Construct {
       smtpSecretArn: this.smtpSecret.secretArn,
       connectorSecretArn: this.connectorSecret?.secretArn,
       sandboxHostAutoScalingGroupName:
-        sandboxHost.resources.autoScalingGroup.autoScalingGroupName,
+        sandboxHost?.resources.autoScalingGroup.autoScalingGroupName,
     })
   }
 
