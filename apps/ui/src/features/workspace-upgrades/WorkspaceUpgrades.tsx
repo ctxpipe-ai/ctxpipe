@@ -10,7 +10,7 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
-import { StatusTag } from "@/features/workspaces/WorkspaceSettingsPane"
+import { StatusTag } from "@/features/workspaces/StatusTag"
 import {
   startWorkspaceUpgrade,
   useIsOrgAdmin,
