@@ -155,7 +155,6 @@ describe("bindSlackSyncTargetRepository", () => {
     expect(result.setupPhase).toBe("live")
     expect(result.repositoryId).toBe("repo_1")
     expect(result.branch).toBe("develop")
-    expect(result.repositoryIngestion).toBeUndefined()
     expect(setMock).toHaveBeenCalledWith(
       expect.objectContaining({
         config: expect.objectContaining({
@@ -221,12 +220,6 @@ describe("bindSlackSyncTargetRepository", () => {
     })
 
     expect(result.setupPhase).toBe("live")
-    expect(result.repositoryIngestion).toEqual(
-      expect.objectContaining({
-        orgId: "org_1",
-        targetBranch: "main",
-      }),
-    )
     expect(valuesMock).toHaveBeenCalledWith(
       expect.objectContaining({
         name: "acme/ctxpipe-context",

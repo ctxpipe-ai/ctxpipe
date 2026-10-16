@@ -48,6 +48,8 @@ export function planHydrateWrites(input: {
     // Retired folder-map marker lines still in AGENTS.md: one cleanup write.
     ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,
   }
+  // The `repositories/*.md` files of a Workspace that has no conversion yet
+  // stay as they are: the conversion of CTX-721 T10 moves them.
   return (Object.keys(remaining) as Array<keyof typeof remaining>)
     .filter((kind) => remaining[kind] > 0)
     .map((kind) => ({ kind, remainder: remaining[kind] }))

@@ -14,19 +14,23 @@ import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { listCheckoutTree } from "../domain/codeIngestion/codesearchClient.js"
+import { workspaceGithubRepository } from "../domain/workspace-sources/repository.js"
+import {
+  addWorkspaceSources,
+  findOpenAddPullRequest,
+} from "../domain/workspace-sources/service.js"
 import { ensureOrgRepositoryForGitUrl } from "../domain/workspaces/ensure-org-repository.js"
 import { hydrateUnitsToProjectionClaims } from "../domain/workspaces/hydrate.js"
 import { publishedProjection } from "../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { computeWorkspaceGraphQuality } from "../domain/workspaces/workspace-graph.js"
-import { generateObjectId } from "../lib/id.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 import {
   readExtractWriteJob,
   readRepositoryUnits,
   unitKinds,
 } from "../models/repository-knowledge-units.js"
-import { reconcileWorkspaceWriteJob } from "../models/workspace-write-jobs.js"
 import {
   getWorkspaceById,
   getWorkspaceProjection,
@@ -40,10 +44,11 @@ import {
 } from "../observability/otel.js"
 import { closeOpenWorkflowClient } from "../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueWorkspaceWriteCommit } from "../openworkflow/enqueue-workspace-write-commit.js"
+import { enqueueWorkspaceTipCheck } from "../openworkflow/enqueue-workspace-tip-check.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { extractionWriteJobId } from "../openworkflow/workflows/repository-ingestion.js"
 import { extractionHydrateKey } from "../openworkflow/workflows/workspace-extract-ingest.js"
+import { mergePullRequest } from "../services/github/installation-write-client.js"
 import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
@@ -116,34 +121,54 @@ async function linkToWorkspace(
   deadline: number,
 ): Promise<void> {
   const wanted = normalizeWorkspaceRepositoryUrl(gitUrl)
-  const linked = await listLinkedRepositories(workspaceId)
-  if (
-    linked.some((row) => normalizeWorkspaceRepositoryUrl(row.gitUrl) === wanted)
-  )
-    return
-  const jobId = generateObjectId("wjob")
-  const errors: string[] = []
-  const admitted = await withValidatorRequest(run, () =>
-    enqueueWorkspaceWriteCommit(
-      {
-        orgId: run.orgId,
-        workspaceId,
-        jobId,
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: gitUrl,
+  const isLinked = async () =>
+    (await listLinkedRepositories(workspaceId)).some(
+      (row) => normalizeWorkspaceRepositoryUrl(row.gitUrl) === wanted,
+    )
+  if (await isLinked()) return
+  const workspace = await getWorkspaceById(workspaceId)
+  const repository = workspace ? workspaceGithubRepository(workspace) : null
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+  if (!workspace || !repository || !repositoryName)
+    throw new Error("link needs a Workspace and a repository on GitHub")
+  // The Workspace takes the source by a pull request, as for a person. The
+  // validator is the operator, so it merges that pull request itself.
+  // A rerun after a crash reuses the add pull request that is still open.
+  let pullUrl = await findOpenAddPullRequest({ workspace, repositoryName })
+  if (!pullUrl) {
+    const added = await withValidatorRequest(run, () =>
+      addWorkspaceSources({
+        workspace,
+        changes: [
+          {
+            action: "add",
+            provider: "github",
+            connectionId: repository.githubConnectionId,
+            scope: { repository: repositoryName },
+          },
+        ],
+      }),
+    )
+    if (added.outcome !== "pull_request")
+      throw new Error("link did not open a pull request")
+    pullUrl = added.pullRequestUrl
+  }
+  await mergePullRequest({ ...repository, pullUrl })
+  say(`  link merged ${pullUrl}`)
+  // The tip check reads the new default branch tip and hydrates it.
+  let tipCheckError = "the run did not start"
+  const tipCheckStarted = await withValidatorRequest(run, () =>
+    enqueueWorkspaceTipCheck(run.orgId, {
+      error: (error) => {
+        tipCheckError = error.message
       },
-      { error: (error) => errors.push(error.message) },
-    ),
+    }),
   )
-  if (!admitted.started)
-    throw new Error(`link not admitted: ${errors.join("; ") || "unknown"}`)
-  say(`  link ${jobId} queued`)
+  if (!tipCheckStarted)
+    throw new Error(`link tip check not started: ${tipCheckError}`)
   for (;;) {
-    const job = await reconcileWorkspaceWriteJob(jobId)
-    if (job?.status === "completed") return
-    if (job?.status === "failed") throw new Error(`link ${jobId} failed`)
-    if (Date.now() > deadline) throw new Error(`link ${jobId} timed out`)
+    if (await isLinked()) return
+    if (Date.now() > deadline) throw new Error("link timed out")
     await sleep(run.pollSeconds * 1000)
   }
 }

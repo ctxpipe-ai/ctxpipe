@@ -328,15 +328,42 @@ async function processInstallationRepositoriesEvent(
   payload: unknown,
   ctx: GithubWebhookContext,
 ) {
-  if (!connectionId) return
   const parsed = z
     .object({
       action: z.string(),
       installation: z.object({ id: z.number() }),
+      repositories_added: z
+        .array(z.object({ full_name: z.string() }))
+        .optional(),
     })
     .safeParse(payload)
   if (!parsed.success) return
   if (parsed.data.action !== "added") return
+
+  if (!connectionId) {
+    const repoFullNames = (parsed.data.repositories_added ?? []).map(
+      (repository) => repository.full_name,
+    )
+    if (repoFullNames.length === 0) return
+    // The deployment's App names the installation and the added repositories.
+    // A user who gives it access to a repository after a Paste expects that
+    // Workspace to bind, so rebind for each connection on this installation
+    // that uses the App, and check only the added repositories.
+    const installations = await listInstallationsByGithubInstallationId(
+      parsed.data.installation.id,
+      undefined,
+      ctx.env,
+    )
+    for (const installation of installations)
+      await rebindUnboundWorkspaces({
+        orgId: installation.orgId,
+        connectionId: installation.id,
+        env: ctx.env,
+        log: ctx.log,
+        repoFullNames,
+      })
+    return
+  }
 
   await registerInstallationFromConnectionWebhook(
     connectionId,

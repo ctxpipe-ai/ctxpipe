@@ -228,9 +228,10 @@ export const AddToWorkspaces: Story = {
     )
     await userEvent.click(add)
     // The add opened a pull request: the last step is the merge.
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    const merge = await body.findByRole("heading", {
+      name: "Merge the pull request",
+    })
+    await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
@@ -245,7 +246,6 @@ export const AddToWorkspaces: Story = {
             connectionId,
             scope: { services: ["PSVC001"] },
           },
-          delivery: "pull_request",
         },
       },
     ])

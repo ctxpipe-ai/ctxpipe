@@ -16,6 +16,7 @@ const meta = {
   ],
   parameters: {
     layout: "centered",
+    storyRoute: { pattern: "flat", path: "/onboarding" },
   },
   args: {
     onGetStarted: fn(),
@@ -29,15 +30,15 @@ type Story = StoryObj<typeof meta>
 
 export const WelcomeAnimation: Story = {}
 
+/** Reduced motion shows the whole hero at once, so this play needs no timer. */
 export const FullyRevealed: Story = {
+  tags: ["reduced-motion"],
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(
-      async () =>
-        expect(
-          canvas.getByRole("button", { name: /get started/i }),
-        ).toBeVisible(),
-      { timeout: 4000 },
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /get started/i }),
+      ).toBeVisible(),
     )
     expect(args.onWelcomeDetailsVisible).toHaveBeenCalled()
   },

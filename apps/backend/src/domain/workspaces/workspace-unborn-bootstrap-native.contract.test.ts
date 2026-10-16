@@ -6,6 +6,7 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import { withUserIdContext } from "../../auth/context.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
@@ -111,6 +112,7 @@ it.each([
                 gitUrl: f.workspaceUrl,
                 githubConnectionId: f.connectionId,
                 source: "select",
+                env: parseEnv(process.env),
                 log: { error: (error) => errors.push(error.message) },
               }),
             ),

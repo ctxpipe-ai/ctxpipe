@@ -14,13 +14,23 @@
  * git gives (`CHANGED`, `MODIFIED`, `ADDED`) keep their names. The gold
  * answers do not change.
  *
+ * Source files (ADR-050) are hubs: each service, note, and pull request
+ * comes from the GitHub source of its service, each decision and service
+ * from the wiki source, and each rule from the tracker source. Hydrate
+ * writes `FROM_SOURCE`, so both vocabularies keep that name.
+ *
  * The gold answers come from how the fixture is built, never from a ranking.
  * The Workspace graph stores no node-level authority, so no gold answer
  * depends on one.
  */
 import type { RelatedUnit } from "../src/test/related-fixture.js"
 
-export type EvalIntent = "ownership" | "why" | "change" | "dependencies"
+export type EvalIntent =
+  | "ownership"
+  | "why"
+  | "change"
+  | "dependencies"
+  | "provenance"
 
 export type EvalQuestion = {
   intent: EvalIntent
@@ -290,6 +300,33 @@ export function workspaceOrgFixture(
     ])
   }
 
+  // Sources: no call to `random`, so the units and edges above do not change.
+  const wiki = unit("sources/notion/engineering-wiki.md", "Source")
+  const tracker = unit("sources/linear/engineering.md", "Source")
+  const repositoryOf = new Map(
+    serviceNames.map((name) => [
+      servicePath(name),
+      unit(`sources/github/acme/${name}.md`, "Source"),
+    ]),
+  )
+  const fromSource = (from: string, source: string) =>
+    units
+      .get(from)
+      ?.claims?.push({ to: source, predicate: "FROM_SOURCE", confidence: 1 })
+  for (const name of serviceNames) {
+    const service = servicePath(name)
+    const repository = repositoryOf.get(service) as string
+    fromSource(service, repository)
+    fromSource(service, wiki)
+    for (let index = 0; index < (name === "billing" ? 900 : 120); index++)
+      fromSource(`knowledge/notes/${name}/n${index}.md`, repository)
+    for (const { request } of changes.get(service) ?? [])
+      fromSource(request, repository)
+  }
+  for (const decision of decisions) fromSource(decision, wiki)
+  for (let index = 0; index < 3000; index++)
+    fromSource(`knowledge/rules/r${index}.md`, tracker)
+
   for (const service of services) {
     const hub = service === billing
     const add = (intent: EvalIntent, gold: readonly string[], k = 5) => {
@@ -311,6 +348,7 @@ export function workspaceOrgFixture(
         .map((item) => item.request),
     )
     add("dependencies", [...(dependencies.get(service) ?? [])])
+    add("provenance", [repositoryOf.get(service) as string, wiki])
   }
 
   return { now, units: [...units.values()], questions }

@@ -1,4 +1,5 @@
 import { createRoute, z } from "@hono/zod-openapi"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import {
   SOURCE_PROVIDERS,
   SOURCE_STATUSES,
@@ -9,8 +10,9 @@ import {
 } from "./workspace-route-shared.js"
 
 /**
- * The API contract for Workspace sources (`.ctxpipe/sources.yaml`) and for
- * "Used in" on a connection. The UI gets these types through the `hc` client.
+ * The API contract for Workspace sources (one Markdown file under `sources/`
+ * for each source, ADR-050) and for "Used in" on a connection. A source is
+ * named by its path, relative to the Workspace root folder. The UI gets these types through the `hc` client.
  */
 
 const ProviderSchema = z.enum(SOURCE_PROVIDERS).openapi("SourceProvider")
@@ -19,13 +21,13 @@ const ScopeSchema = z
   .record(z.string(), z.unknown())
   .openapi("WorkspaceSourceScope", {
     description:
-      "Provider scope: the entry in .ctxpipe/sources.yaml without id, provider, and connection",
+      "Provider scope: the front matter of the source file without provider and connection",
   })
 
 export const WorkspaceSourceSchema = z
   .object({
-    /** The file `id`: stable and unique in the file. */
-    sourceKey: z.string(),
+    /** The path of the source file, for example sources/github/acme/web.md. */
+    path: z.string(),
     provider: ProviderSchema.nullable(),
     connectionId: z.string().nullable(),
     /** The connection's display name, or null when the connection is missing. */
@@ -34,6 +36,14 @@ export const WorkspaceSourceSchema = z
     scopeSummary: z.string(),
     status: StatusSchema,
     statusDetail: z.string().nullable(),
+    /**
+     * The body of the source file (what the source is for), read from git at
+     * `revision`. Absent when the file has no body, is over 64 KiB, or git
+     * cannot be read.
+     */
+    description: z.string().optional(),
+    /** False when the row has no source file, so a remove cannot name it. */
+    removable: z.boolean(),
     /** The Workspace commit SHA that the row came from. */
     revision: z.string(),
     updatedAt: z.string().datetime(),
@@ -42,9 +52,10 @@ export const WorkspaceSourceSchema = z
 
 export const PendingSourceChangeSchema = z
   .object({
-    sourceKey: z.string(),
+    /** The path that the pull request changes (the old path for a rename). */
+    path: z.string(),
     provider: ProviderSchema,
-    action: z.enum(["add", "edit", "remove"]),
+    action: z.enum(["add", "edit", "rename", "remove"]),
     pullRequestUrl: z.string().url(),
     createdAt: z.string().datetime(),
   })
@@ -52,18 +63,16 @@ export const PendingSourceChangeSchema = z
 
 export const WorkspaceSourceListResponseSchema = z
   .object({
-    /** The path of the config file in the Workspace repository. */
+    /** The folder of the source files in the Workspace repository. */
     path: z.string(),
     /** The Workspace revision of the projection, or null before the first one. */
     revision: z.string().nullable(),
-    /** A file-level error (bad YAML, wrong version). Entries are then empty. */
+    /** A file-level error of the legacy .ctxpipe/sources.yaml file, or null. */
     fileError: z.string().nullable(),
     items: z.array(WorkspaceSourceSchema),
-    /** The user can change this Workspace's sources (by PR at least). */
+    /** The user can change this Workspace's sources (each change is a PR). */
     canEdit: z.boolean(),
-    /** The Workspace accepts a direct commit of the file (delivery `commit`). */
-    directCommitAllowed: z.boolean(),
-    /** Open PRs that change the file ("awaiting merge"). Join on `sourceKey`. */
+    /** Open PRs that change a source file ("awaiting merge"). Join on `path`. */
     pendingChanges: z.array(PendingSourceChangeSchema),
   })
   .openapi("WorkspaceSourceListResponse")
@@ -73,58 +82,84 @@ export const WorkspaceSourceInputSchema = z
     provider: ProviderSchema,
     connectionId: z.string().min(1),
     scope: ScopeSchema,
+    /**
+     * The body of the source file: what the source is for. An edit without it
+     * keeps the body. Send an empty string to clear it.
+     */
+    description: z.string().max(4000).optional(),
   })
   .openapi("WorkspaceSourceInput")
 
-const DeliverySchema = z
-  .enum(["pull_request", "commit"])
-  .default("pull_request")
-  .openapi("WorkspaceSourceDelivery", {
-    description:
-      "pull_request opens a PR against the default branch (awaiting merge). commit queues a direct commit to the default branch through the Workspace write queue.",
-  })
-
 export const CreateWorkspaceSourceRequestSchema = z
   .object({
-    /** Optional. The server makes a key from the provider when absent. */
-    sourceKey: z.string().optional(),
+    /**
+     * Optional. The server names the file when absent:
+     * sources/github/<owner>/<name>.md for GitHub, else sources/<provider>/<provider>.md.
+     */
+    path: z.string().optional(),
     source: WorkspaceSourceInputSchema,
-    delivery: DeliverySchema,
   })
   .openapi("CreateWorkspaceSourceRequest")
 
+export const BatchCreateWorkspaceSourcesRequestSchema = z
+  .object({
+    /** The new sources. One refused source refuses the whole request. */
+    sources: z
+      .array(
+        z.object({
+          /** Optional. Named as in `CreateWorkspaceSourceRequest.path`. */
+          path: z.string().optional(),
+          source: WorkspaceSourceInputSchema,
+        }),
+      )
+      .min(1)
+      .max(20),
+  })
+  .openapi("BatchCreateWorkspaceSourcesRequest", {
+    description: "Add several sources in one pull request.",
+  })
+
 export const UpdateWorkspaceSourceRequestSchema = z
   .object({
+    /** The path of the source file to change. */
+    path: z.string().min(1),
     source: WorkspaceSourceInputSchema,
-    delivery: DeliverySchema,
   })
   .openapi("UpdateWorkspaceSourceRequest")
 
+export const RenameWorkspaceSourceRequestSchema = z
+  .object({
+    path: z.string().min(1),
+    /** The new path. The provider folder stays the same. */
+    newPath: z.string().min(1),
+  })
+  .openapi("RenameWorkspaceSourceRequest", {
+    description:
+      "Move a source file in one commit. The hydrate of the new revision gives the new path to each unit that names the old path in its sources list.",
+  })
+
 export const DeleteWorkspaceSourceQuerySchema = z
-  .object({ delivery: DeliverySchema })
+  .object({ path: z.string().min(1) })
   .openapi("DeleteWorkspaceSourceQuery")
 
+/** A source changes only by a pull request against the default branch. */
 export const WorkspaceSourceChangeResultSchema = z
-  .discriminatedUnion("outcome", [
-    z.object({
-      outcome: z.literal("pull_request"),
-      sourceKey: z.string(),
-      pullRequestUrl: z.string().url(),
-    }),
-    z.object({
-      // The durable Workspace write queue commits to the default branch.
-      outcome: z.literal("commit_queued"),
-      sourceKey: z.string(),
-    }),
-  ])
+  .object({
+    outcome: z.literal("pull_request"),
+    /** The path of the changed file (the new path for a rename). */
+    path: z.string(),
+    pullRequestUrl: z.string().url(),
+  })
   .openapi("WorkspaceSourceChangeResult")
 
-export const WorkspaceSourceParamsSchema = z
+export const WorkspaceSourceBatchResultSchema = z
   .object({
-    workspaceSlug: z.string().min(1),
-    sourceKey: z.string().min(1),
+    outcome: z.literal("pull_request"),
+    /** The path of each added file, in request order. */
+    paths: z.array(z.string()),
+    pullRequestUrl: z.string().url(),
   })
-  .openapi("WorkspaceSourceParams")
+  .openapi("WorkspaceSourceBatchResult")
 
 const errors = {
   400: {
@@ -142,18 +177,18 @@ const errors = {
   409: {
     content: { "application/json": { schema: ErrorResponseSchema } },
     description:
-      "Conflict: the key exists (add), the Workspace is read-only, or the file is not valid",
+      "Conflict: the path exists (add or rename), the Workspace is read-only, or the file is not valid",
   },
-} as const
+}
 
 const changeOk = {
   200: {
     content: {
       "application/json": { schema: WorkspaceSourceChangeResultSchema },
     },
-    description: "The file change: a PR (awaiting merge) or a queued commit",
+    description: "The pull request of the change (awaiting merge)",
   },
-} as const
+}
 
 export const listWorkspaceSourcesRoute = createRoute({
   method: "get",
@@ -164,50 +199,99 @@ export const listWorkspaceSourcesRoute = createRoute({
       content: {
         "application/json": { schema: WorkspaceSourceListResponseSchema },
       },
-      description: "The sources of this Workspace, from .ctxpipe/sources.yaml",
+      description:
+        "The sources of this Workspace, from the files under sources/",
     },
     401: errors[401],
     404: errors[404],
   },
 })
 
-export const createWorkspaceSourceRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/sources",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: CreateWorkspaceSourceRequestSchema },
+export const createWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/sources",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: CreateWorkspaceSourceRequestSchema },
+        },
       },
     },
-  },
-  responses: { ...changeOk, ...errors },
-})
+    responses: { ...changeOk, ...errors },
+  }),
+)
 
-export const updateWorkspaceSourceRoute = createRoute({
-  method: "put",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
-  request: {
-    params: WorkspaceSourceParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: UpdateWorkspaceSourceRequestSchema },
+export const batchCreateWorkspaceSourcesRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/sources/batch",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": {
+            schema: BatchCreateWorkspaceSourcesRequestSchema,
+          },
+        },
       },
     },
-  },
-  responses: { ...changeOk, ...errors },
-})
+    responses: {
+      200: {
+        content: {
+          "application/json": { schema: WorkspaceSourceBatchResultSchema },
+        },
+        description: "The one pull request of the new sources (awaiting merge)",
+      },
+      ...errors,
+    },
+  }),
+)
 
-export const deleteWorkspaceSourceRoute = createRoute({
-  method: "delete",
-  path: "/{workspaceSlug}/sources/{sourceKey}",
-  request: {
-    params: WorkspaceSourceParamsSchema,
-    query: DeleteWorkspaceSourceQuerySchema,
-  },
-  responses: { ...changeOk, ...errors },
-})
+export const updateWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "put",
+    path: "/{workspaceSlug}/sources",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: UpdateWorkspaceSourceRequestSchema },
+        },
+      },
+    },
+    responses: { ...changeOk, ...errors },
+  }),
+)
+
+export const renameWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/sources/rename",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: RenameWorkspaceSourceRequestSchema },
+        },
+      },
+    },
+    responses: { ...changeOk, ...errors },
+  }),
+)
+
+export const deleteWorkspaceSourceRoute = createRoute(
+  directWriteRoute({
+    method: "delete",
+    path: "/{workspaceSlug}/sources",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      query: DeleteWorkspaceSourceQuerySchema,
+    },
+    responses: { ...changeOk, ...errors },
+  }),
+)
 
 export const ConnectionUsageItemSchema = z
   .object({
@@ -218,7 +302,7 @@ export const ConnectionUsageItemSchema = z
     stat: z.string(),
     sources: z.array(
       z.object({
-        sourceKey: z.string(),
+        path: z.string(),
         provider: ProviderSchema,
         status: StatusSchema,
         scopeSummary: z.string(),
@@ -253,37 +337,41 @@ export const listConnectionWorkspacesRoute = createRoute({
   },
 })
 
-export const syncConnectionSourcesRoute = createRoute({
-  method: "post",
-  path: "/{connectionId}/sync",
-  request: { params: ConnectionIdParamsSchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+export const syncConnectionSourcesRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/{connectionId}/sync",
+      request: { params: ConnectionIdParamsSchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description:
+            "A full sync of the connection's Workspace sources is queued. A second request in the same minute queues no other sync.",
+        },
+        401: errors[401],
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "No Workspace source of this connection can sync",
         },
       },
-      description:
-        "A full sync of the connection's Workspace sources is queued. A second request in the same minute queues no other sync.",
     },
-    401: errors[401],
-    403: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forbidden: only an org admin or owner can start a sync",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No Workspace source of this connection can sync",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 export type WorkspaceSourceListResponse = z.infer<
   typeof WorkspaceSourceListResponseSchema
 >
 export type WorkspaceSourceChangeResult = z.infer<
   typeof WorkspaceSourceChangeResultSchema
+>
+export type WorkspaceSourceBatchResult = z.infer<
+  typeof WorkspaceSourceBatchResultSchema
 >
 export type ConnectionUsageResponse = z.infer<
   typeof ConnectionUsageResponseSchema

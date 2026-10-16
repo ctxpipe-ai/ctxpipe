@@ -33,13 +33,13 @@ const meta = {
       {
         url: "https://github.com/acme/docs/pull/8",
         workspaceSlug: "docs",
-        sourceKey: "slack",
+        path: "slack",
         scope: null,
       },
       {
         url: "https://github.com/acme/eng/pull/9",
         workspaceSlug: "eng",
-        sourceKey: "slack",
+        path: "slack",
         scope: { channels: ["C2"] },
       },
     ],
@@ -70,7 +70,7 @@ export const RemoveAndScopeChange: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "slack",
+                    path: "slack",
                     provider: "slack",
                     scope: { channels: [scopeMerged ? "C2" : "C1"] },
                   }),

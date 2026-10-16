@@ -41,5 +41,5 @@ export type ProviderCallResult = {
   chat: HostTextAdapter
   fetch: OpenAiCompatibleFetch
   /** Native embedding path when the provider does not use OpenAI-compatible HTTP. */
-  embed?: (text: string) => Promise<number[]>
+  embed?: (text: string, signal?: AbortSignal) => Promise<number[]>
 }

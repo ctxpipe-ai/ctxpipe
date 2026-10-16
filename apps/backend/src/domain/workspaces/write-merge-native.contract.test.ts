@@ -6,6 +6,7 @@ import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
@@ -87,6 +88,7 @@ it(
           expect(queued).toMatchObject({
             workflowName: "workspace-write-semantic-merge",
             input: {
+              origin: "agent",
               previousSha: f.sha,
               revision: { sha: humanSha },
               files: command.mergeFiles,
@@ -234,6 +236,7 @@ it.each(["valid", "out-of-scope"] as const)(
           const handle = await f.runner.runWorkflow(spec, {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
+            origin: "host",
             jobId: `wjob_${f.id}_overlap`,
             revision: {
               ...(await f.resolveRevision()),
@@ -654,6 +657,7 @@ it.each([
           const command = {
             orgId: f.org.id,
             workspaceId: f.workspaceId,
+            origin: "host" as const,
             jobId: `wjob_${f.id}_modify_delete`,
             revision: {
               ...(await f.resolveRevision()),
@@ -726,6 +730,130 @@ it.each([
           }
         } finally {
           await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+const GENERATED_KNOWLEDGE =
+  "---\nkind: Service\nname: Checkout\ngenerated_by: ctxpipe\n---\n\n# Checkout\n"
+
+it.each([
+  {
+    origin: "agent",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: false,
+  },
+  {
+    origin: "host",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: true,
+  },
+  {
+    origin: "extraction",
+    path: ".ctxpipe/sources.yaml",
+    content: "sources: []\n",
+    committed: false,
+  },
+  {
+    origin: "agent",
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: false,
+  },
+  // A run queued before the origin field fails closed as an agent write.
+  {
+    origin: undefined,
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: false,
+  },
+  // Extraction output that lost a push race: the host stamped generated_by.
+  {
+    origin: "extraction",
+    path: "knowledge/services/checkout.md",
+    content: GENERATED_KNOWLEDGE,
+    committed: true,
+  },
+] as const)(
+  "$origin-origin semantic merge of a new $path",
+  { timeout: 60_000 },
+  async ({ origin, path, content, committed }) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "knowledge/guide.md", body: "# Guide\n" }],
+      },
+      async (f) => {
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceSemanticMerge } = await import(
+          "../../openworkflow/workflows/workspace-semantic-merge.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(
+          workspaceSemanticMerge.spec,
+          workspaceSemanticMerge.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        try {
+          await worker.start()
+          const extraction =
+            origin === "extraction"
+              ? await storeTestExtraction(f.org.id, {
+                  repositoryId: "repo_captured",
+                  repositoryUrl: f.workspaceUrl,
+                  sourceSha: f.sha,
+                  objects: [],
+                  claims: [],
+                })
+              : undefined
+          // Raw input, as a queued run holds it: an old run has no origin.
+          const input = {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_${origin}`,
+            revision: {
+              ...(await f.resolveRevision()),
+              access: "write-default" as const,
+            },
+            previousSha: f.sha,
+            files: [{ path, content }],
+            deletePaths: [],
+            ...(origin ? { origin } : {}),
+            ...(extraction ? { extraction } : {}),
+          }
+          const run = await runner.runWorkflow(
+            workspaceSemanticMerge.spec,
+            input as never,
+          )
+          if (!committed) {
+            await expect(run.result({ timeoutMs: 30_000 })).rejects.toThrow(
+              path.startsWith(".ctxpipe/") ? /host-only/ : /ownership fields/,
+            )
+            expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(
+              f.sha,
+            )
+          } else {
+            expect(await run.result({ timeoutMs: 30_000 })).toMatchObject({
+              committed: true,
+            })
+            expect(f.git("--git-dir", f.remote, "show", `main:${path}`)).toBe(
+              content.trimEnd(),
+            )
+          }
+        } finally {
+          await worker.stop()
+          await backend.stop()
         }
       },
     )

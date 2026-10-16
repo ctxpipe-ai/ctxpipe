@@ -8,6 +8,7 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -120,6 +121,7 @@ export const workspaceValidFromPersist = defineWorkflow(
                 sha: revision.sha,
                 token,
                 includeIntroducingCommits: true,
+                root: workspaceRootPath(revision),
               })
               const timestamps: Record<string, string> = {}
               for (const file of files)
@@ -213,7 +215,8 @@ export const workspaceValidFromPersist = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

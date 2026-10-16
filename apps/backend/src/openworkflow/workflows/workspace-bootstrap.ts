@@ -12,6 +12,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -36,7 +37,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitUnbornGitTree,
   stageUnbornGitFiles,
@@ -135,7 +136,10 @@ export const workspaceBootstrap = defineWorkflow(
             },
           )
           const staged = await step.run({ name: "stage-unborn" }, () =>
-            stageUnbornGitFiles(files),
+            stageUnbornGitFiles(
+              files,
+              workspaceRootPath(queued.bootstrapBinding),
+            ),
           )
           await step.run({ name: "validate-unborn" }, () =>
             validateUnbornGitTree(
@@ -143,6 +147,7 @@ export const workspaceBootstrap = defineWorkflow(
               files
                 .filter((file) => isBootstrapAllowedPath(file.path))
                 .map((file) => file.path),
+              workspaceRootPath(queued.bootstrapBinding),
             ),
           )
           const subject = await step.run(
@@ -301,41 +306,21 @@ export const workspaceBootstrap = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run({ name: "transform-bootstrap" }, () =>
-            withGitDirectory(
-              revision.sha,
-              async (directory) => {
-                const paths = (
-                  await nativeGit(directory, [
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    "-z",
-                    revision.sha,
-                  ])
-                )
-                  .toString()
-                  .split("\0")
-                const existing = new Map<string, string>()
-                for (const path of ["AGENTS.md", BOOTSTRAP_SKILL_PATH]) {
-                  if (paths.includes(path))
-                    existing.set(
-                      path,
-                      (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${path}`,
-                        ])
-                      ).toString(),
-                    )
-                }
-                return bootstrapWorkspaceFiles({
-                  displayName: acquired.displayName,
-                  existing,
-                }).filter((file) => existing.get(file.path) !== file.content)
-              },
-              acquired.pack,
-            ),
+          const files = await step.run(
+            { name: "transform-bootstrap" },
+            async () => {
+              const existing = new Map(
+                (
+                  await readGitFiles(acquired.pack, (path) =>
+                    ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
+                  )
+                ).map((file) => [file.path, file.content]),
+              )
+              return bootstrapWorkspaceFiles({
+                displayName: acquired.displayName,
+                existing,
+              }).filter((file) => existing.get(file.path) !== file.content)
+            },
           )
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
@@ -397,7 +382,8 @@ export const workspaceBootstrap = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

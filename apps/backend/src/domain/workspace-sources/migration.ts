@@ -3,6 +3,7 @@ import {
   listOrgLinkedRepositories,
   listOrgWorkspaces,
 } from "../../models/workspaces.js"
+import { workspaceRelativePath } from "../../services/git/root-folder.js"
 import {
   createPullRequestWithFiles,
   getFileContent,
@@ -11,7 +12,6 @@ import {
 } from "../../services/github/installation-write-client.js"
 import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { applySourceFileChange } from "./edit.js"
 import {
   planSourceMigration,
   SOURCE_MIGRATION_HOOKS,
@@ -20,6 +20,7 @@ import {
 } from "./migration-plan.js"
 import { workspaceGithubRepository } from "./repository.js"
 import { SOURCES_FILE_PATH, type SourceProvider } from "./sources-file.js"
+import { applySourcesYamlChange } from "./sources-yaml-edit.js"
 
 const MIGRATION_BRANCH_PREFIX = "ctxpipe/sources/migrate"
 
@@ -61,7 +62,11 @@ export async function runSourceMigration(input: {
       )
       if (!repository)
         return { ...workspace, repository, sourcesFile: null, tree: [] }
-      const tree = await listFilesInTree(repository)
+      // Paths relative to the Workspace root folder, as the files below use.
+      const tree = (await listFilesInTree(repository)).flatMap((file) => {
+        const path = workspaceRelativePath(repository.rootPath, file.path)
+        return path === null ? [] : [{ ...file, path }]
+      })
       const declarations = tree.filter((file) =>
         isLinkedRepositoryDeclaration(file.path),
       )
@@ -136,7 +141,7 @@ export async function runSourceMigration(input: {
         throw new Error("The Workspace has no connected GitHub repository")
       let text = workspace.sourcesFile
       for (const change of changes)
-        text = applySourceFileChange(text, change).text
+        text = applySourcesYamlChange(text, change).text
       if (!input.apply || text === null) continue
       const [open] = await listOpenPullRequestsByBranchPrefix({
         ...workspace.repository,

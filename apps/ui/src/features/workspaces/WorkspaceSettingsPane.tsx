@@ -24,8 +24,13 @@ import {
   updateWorkspace,
   workspaceKeys,
 } from "./queries"
+import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
-import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
+import {
+  type WorkspaceRepositoryChoice,
+  WorkspaceRepositoryPicker,
+} from "./WorkspaceRepositoryPicker"
+import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
 import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
@@ -124,7 +129,7 @@ function SettingsGroup(props: { eyebrow: string; children: ReactNode }) {
 }
 
 const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
-  malformed: "Front matter or git URL is not valid",
+  malformed: "Front matter is not valid",
   duplicate_repository:
     "Repeats a linked repository or the Workspace's own repository",
 }
@@ -182,6 +187,9 @@ export function WorkspaceSettingsPane(props: {
   const [relinkError, setRelinkError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
   const [confirmName, setConfirmName] = useState("")
+  const [rootFolder, setRootFolder] = useState(workspace.rootPath ?? "")
+  const rootFolderChanged =
+    normalizeRootFolder(rootFolder) !== (workspace.rootPath ?? "")
 
   const dirty =
     displayName.trim() !== workspace.displayName ||
@@ -219,15 +227,12 @@ export function WorkspaceSettingsPane(props: {
   })
 
   const relinkMutation = useMutation({
-    mutationFn: (choice: {
-      gitUrl: string
-      githubConnectionId?: string
-      source: "select" | "paste"
-    }) =>
+    mutationFn: (choice: WorkspaceRepositoryChoice) =>
       updateWorkspace(orgSlug, workspace.slug, {
         workspaceRepositoryUrl: choice.gitUrl,
         githubConnectionId: choice.githubConnectionId ?? null,
         source: choice.source,
+        rootPath: choice.rootPath,
       }),
     onSuccess: () => {
       setRelinkError(null)
@@ -236,6 +241,21 @@ export function WorkspaceSettingsPane(props: {
       toast.success("Workspace repository updated")
     },
     onError: (error: Error) => setRelinkError(error.message),
+  })
+
+  const rootFolderMutation = useMutation({
+    mutationFn: () =>
+      updateWorkspace(orgSlug, workspace.slug, {
+        rootPath: normalizeRootFolder(rootFolder),
+      }),
+    onSuccess: (updated) => {
+      setRootFolder(updated.rootPath)
+      invalidate()
+      toast.success("Root folder saved")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
   })
 
   const checkWriteMutation = useMutation({
@@ -301,47 +321,86 @@ export function WorkspaceSettingsPane(props: {
   const repoWebUrl = githubWebUrl(workspace.workspaceRepositoryUrl)
 
   return (
-    <div className="min-h-0 flex-1 overflow-auto p-4">
-      <div className="flex items-start justify-between gap-4">
-        <h1 className="text-lg font-medium tracking-tight">
-          Workspace settings
-        </h1>
-        <Button
-          type="submit"
-          form="workspace-settings"
-          variant="primary"
-          isDisabled={saveMutation.isPending || !dirty}
-        >
-          Save
-        </Button>
-      </div>
+    // The pane is a container: the groups take columns when it is wide.
+    <div className="@container min-h-0 flex-1 overflow-auto">
+      <div className="mx-auto max-w-5xl px-6 py-4">
+        <div className="flex items-start justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+            <h1 className="text-lg font-medium tracking-tight">
+              Workspace settings
+            </h1>
+            <StatusTag label={write.label} className={write.className} />
+            <StatusTag
+              label={hydrate.label}
+              className={hydrate.className}
+              pulse={hydrate.pulse}
+            />
+          </div>
+          <Button
+            type="submit"
+            form="workspace-settings"
+            variant="primary"
+            isDisabled={saveMutation.isPending || !dirty}
+          >
+            Save
+          </Button>
+        </div>
 
-      <div className="mt-4 flex flex-wrap items-center gap-1.5">
-        <StatusTag label={write.label} className={write.className} />
-        <StatusTag
-          label={hydrate.label}
-          className={hydrate.className}
-          pulse={hydrate.pulse}
-        />
-      </div>
-
-      {workspace.skippedFiles?.length ? (
-        <SkippedFilesNotice
-          files={workspace.skippedFiles}
-          onOpenFile={props.onOpenFile}
-        />
-      ) : null}
-      {workspace.readOnlyReason ? (
-        <div className="mt-4 max-w-lg">
-          <InlineAlert
-            variant="warning"
-            title={
-              workspace.writeStatus === "unknown"
-                ? "Could not check write access"
-                : "Read-only"
-            }
-            actions={
-              workspace.writeStatus === "unknown" ? (
+        {workspace.skippedFiles?.length ? (
+          <SkippedFilesNotice
+            files={workspace.skippedFiles}
+            onOpenFile={props.onOpenFile}
+          />
+        ) : null}
+        {workspace.readOnlyReason ? (
+          <div className="mt-4 max-w-lg">
+            <InlineAlert
+              variant="warning"
+              title={
+                workspace.writeStatus === "unknown"
+                  ? "Could not check write access"
+                  : "Read-only"
+              }
+              actions={
+                workspace.writeStatus === "unknown" ? (
+                  <Button
+                    variant="secondary"
+                    isDisabled={checkWriteMutation.isPending}
+                    onPress={() => {
+                      stall.restart()
+                      checkWriteMutation.mutate()
+                    }}
+                  >
+                    Check again
+                  </Button>
+                ) : !workspace.githubConnectionId ? (
+                  // No connection reads the repository. Select it again
+                  // after GitHub can see it, and the Workspace binds.
+                  <Button
+                    variant="secondary"
+                    onPress={() => {
+                      setRelinkError(null)
+                      setRelinkOpen(true)
+                    }}
+                  >
+                    Select the repository again
+                  </Button>
+                ) : undefined
+              }
+            >
+              {workspace.readOnlyReason}
+              {workspace.writeStatus === "read_only"
+                ? " After you fix it, reload this page. ctxpipe checks again at most once a minute."
+                : null}
+            </InlineAlert>
+          </div>
+        ) : null}
+        {stall.stalled && writeCheckInFlight(workspace) ? (
+          <div className="mt-4 max-w-lg">
+            <InlineAlert
+              variant="warning"
+              title="Still checking write access"
+              actions={
                 <Button
                   variant="secondary"
                   isDisabled={checkWriteMutation.isPending}
@@ -352,148 +411,158 @@ export function WorkspaceSettingsPane(props: {
                 >
                   Check again
                 </Button>
-              ) : undefined
-            }
-          >
-            {workspace.readOnlyReason}
-          </InlineAlert>
-        </div>
-      ) : null}
-      {stall.stalled && writeCheckInFlight(workspace) ? (
-        <div className="mt-4 max-w-lg">
-          <InlineAlert
-            variant="warning"
-            title="Still checking write access"
-            actions={
-              <Button
-                variant="secondary"
-                isDisabled={checkWriteMutation.isPending}
-                onPress={() => {
-                  stall.restart()
-                  checkWriteMutation.mutate()
-                }}
-              >
-                Check again
-              </Button>
-            }
-          >
-            The check takes longer than usual.
-          </InlineAlert>
-        </div>
-      ) : null}
-      {projectionLag ? (
-        <p className="mt-3 max-w-lg text-sm text-muted-foreground">
-          Answers still come from{" "}
-          <code className="font-mono text-xs">{projectionLag}</code> until the
-          new repository finishes loading.
-        </p>
-      ) : null}
+              }
+            >
+              The check takes longer than usual.
+            </InlineAlert>
+          </div>
+        ) : null}
+        {projectionLag ? (
+          <p className="mt-3 max-w-lg text-sm text-muted-foreground">
+            Answers still come from{" "}
+            <code className="font-mono text-xs">{projectionLag}</code> until the
+            new repository finishes loading.
+          </p>
+        ) : null}
 
-      <div className="mt-8 flex max-w-lg flex-col gap-12">
-        <SettingsGroup eyebrow="General">
-          <form
-            id="workspace-settings"
-            className="flex flex-col gap-6"
-            onSubmit={(event) => {
-              event.preventDefault()
-              saveMutation.mutate()
-            }}
-          >
-            <TextField
-              label="Name"
-              value={displayName}
-              onChange={setDisplayName}
-              description="Shown in the sidebar and to your team."
-            />
-            <TextField
-              label="URL name"
-              value={slug}
-              onChange={setSlug}
-              description="Used in this Workspace's web address. If you change it, old links stop working."
-            />
-          </form>
-        </SettingsGroup>
-
-        <SettingsGroup eyebrow="Repositories">
-          <section>
-            <h2 className="text-sm font-medium text-foreground">
-              Main repository
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              The GitHub repository where this Workspace keeps its files.
-            </p>
-            <div className="mt-3 flex items-center gap-3 rounded-md border border-border px-3 py-2">
-              <span
-                className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
-                aria-hidden
-              >
-                <IconGitBranch className="size-4" />
-              </span>
-              <div className="min-w-0 flex-1">
-                <p className="truncate text-sm text-foreground">{repoTitle}</p>
-                {repoWebUrl ? (
-                  <a
-                    href={repoWebUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="truncate text-xs text-muted-foreground hover:text-foreground"
-                  >
-                    {workspace.workspaceRepositoryUrl}
-                  </a>
-                ) : (
-                  <p className="truncate font-mono text-xs text-muted-foreground">
-                    {workspace.workspaceRepositoryUrl}
-                  </p>
-                )}
-              </div>
-              <Button
-                variant="quiet"
-                size="icon-sm"
-                aria-label="Edit main repository"
-                onPress={() => {
-                  setRelinkError(null)
-                  setRelinkOpen(true)
-                }}
-              >
-                <IconPencil
-                  className="size-4 text-muted-foreground"
-                  aria-hidden
-                />
-              </Button>
-            </div>
-          </section>
-        </SettingsGroup>
-
-        <SettingsGroup eyebrow="Sources">
-          <WorkspaceSources
-            orgSlug={orgSlug}
-            workspaceSlug={workspace.slug}
-            linkedRepositories={workspace.linkedRepositories}
-            workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
-          />
-        </SettingsGroup>
-
-        <SettingsGroup eyebrow="Danger zone">
-          <section>
-            <h2 className="text-sm font-medium text-foreground">
-              Delete this Workspace
-            </h2>
-            <p className="mt-1 text-xs text-muted-foreground">
-              Deletes this Workspace and its conversations. Your GitHub
-              repository and its files stay.
-            </p>
-            <Button
-              variant="outline"
-              className="mt-4"
-              onPress={() => {
-                setConfirmName("")
-                setDeleteOpen(true)
+        <div className="mt-8 flex flex-col gap-12">
+          <SettingsGroup eyebrow="General">
+            <form
+              id="workspace-settings"
+              className="grid items-start gap-6 @2xl:grid-cols-2"
+              onSubmit={(event) => {
+                event.preventDefault()
+                saveMutation.mutate()
               }}
             >
-              Delete Workspace
-            </Button>
-          </section>
-        </SettingsGroup>
+              <TextField
+                label="Name"
+                value={displayName}
+                onChange={setDisplayName}
+                description="Shown in the sidebar and to your team."
+              />
+              <TextField
+                label="URL name"
+                value={slug}
+                onChange={setSlug}
+                description="Used in this Workspace's web address. If you change it, old links stop working."
+              />
+            </form>
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Repositories">
+            <section>
+              <h2 className="text-sm font-medium text-foreground">
+                Main repository
+              </h2>
+              <p className="mt-1 text-xs text-muted-foreground">
+                The GitHub repository where this Workspace keeps its files.
+              </p>
+              <div className="mt-3 grid gap-6 @2xl:grid-cols-2">
+                <div className="flex items-center gap-3 rounded-md border border-border px-3 py-2">
+                  <span
+                    className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
+                    aria-hidden
+                  >
+                    <IconGitBranch className="size-4" />
+                  </span>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm text-foreground">
+                      {repoTitle}
+                    </p>
+                    {repoWebUrl ? (
+                      <a
+                        href={repoWebUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="truncate text-xs text-muted-foreground hover:text-foreground"
+                      >
+                        {workspace.workspaceRepositoryUrl}
+                      </a>
+                    ) : (
+                      <p className="truncate font-mono text-xs text-muted-foreground">
+                        {workspace.workspaceRepositoryUrl}
+                      </p>
+                    )}
+                  </div>
+                  <Button
+                    variant="quiet"
+                    size="icon-sm"
+                    aria-label="Edit main repository"
+                    onPress={() => {
+                      setRelinkError(null)
+                      setRelinkOpen(true)
+                    }}
+                  >
+                    <IconPencil
+                      className="size-4 text-muted-foreground"
+                      aria-hidden
+                    />
+                  </Button>
+                </div>
+              </div>
+              <form
+                className="mt-4 flex flex-col gap-3"
+                onSubmit={(event) => {
+                  event.preventDefault()
+                  if (rootFolderChanged && rootFolderError(rootFolder) === null)
+                    rootFolderMutation.mutate()
+                }}
+              >
+                <WorkspaceRootFolderField
+                  value={rootFolder}
+                  onChange={setRootFolder}
+                  isDisabled={rootFolderMutation.isPending}
+                />
+                <div className="flex justify-end">
+                  <Button
+                    type="submit"
+                    variant="secondary"
+                    isPending={rootFolderMutation.isPending}
+                    isDisabled={
+                      !rootFolderChanged || rootFolderError(rootFolder) !== null
+                    }
+                  >
+                    Save root folder
+                  </Button>
+                </div>
+              </form>
+            </section>
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Sources">
+            <WorkspaceSources
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
+              linkedRepositories={workspace.linkedRepositories}
+              workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Danger zone">
+            <section className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-white/[0.06] px-4 py-3">
+              <div>
+                <h2 className="text-sm font-medium text-foreground">
+                  Delete this Workspace
+                </h2>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Deletes this Workspace and its conversations. Your GitHub
+                  repository and its files stay.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                className="shrink-0"
+                onPress={() => {
+                  setConfirmName("")
+                  setDeleteOpen(true)
+                }}
+              >
+                Delete Workspace
+              </Button>
+            </section>
+          </SettingsGroup>
+        </div>
       </div>
 
       <Modal
@@ -521,6 +590,7 @@ export function WorkspaceSettingsPane(props: {
             <WorkspaceRepositoryPicker
               orgSlug={orgSlug}
               currentUrl={workspace.workspaceRepositoryUrl}
+              currentRootPath={workspace.rootPath}
               submitLabel="Save"
               pending={relinkMutation.isPending}
               error={relinkError}

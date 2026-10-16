@@ -3,7 +3,11 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
-import { SOURCES_FILE_PATH } from "../../domain/workspace-sources/sources-file.js"
+import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
+import {
+  SOURCES_TREE_READ,
+  splitSourcesTree,
+} from "../../domain/workspace-sources/source-tree.js"
 import { nativeFolderSetChanged } from "../../domain/workspaces/folder-list.js"
 import { projectWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import {
@@ -13,6 +17,7 @@ import {
 } from "../../domain/workspaces/hydrate.js"
 import { importKeyCleanupRemainder } from "../../domain/workspaces/hydrate-write-jobs.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
   resolveRepositoryReadCredential,
@@ -25,7 +30,9 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { listOrgConnections } from "../../models/org-connections.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -197,6 +204,7 @@ export const workspaceHydrate = defineWorkflow(
               | Promise<{
                   files: Awaited<ReturnType<typeof listMarkdownFilesAtGitSha>>
                   sourcesFile: string | null
+                  sourceFiles: SourceFileBlob[]
                 }>
               | undefined
             const readTree = () => {
@@ -204,9 +212,10 @@ export const workspaceHydrate = defineWorkflow(
                 const treeFiles = planning.needed
                   ? await listMarkdownFilesAtGitSha({
                       includeIntroducingCommits: true,
-                      extraPaths: [SOURCES_FILE_PATH],
+                      ...SOURCES_TREE_READ,
                       url: revision.remote.url,
                       sha: revision.sha,
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({
@@ -216,14 +225,7 @@ export const workspaceHydrate = defineWorkflow(
                         })),
                     })
                   : []
-                return {
-                  files: treeFiles.filter(
-                    (file) => file.path !== SOURCES_FILE_PATH,
-                  ),
-                  sourcesFile:
-                    treeFiles.find((file) => file.path === SOURCES_FILE_PATH)
-                      ?.content ?? null,
-                }
+                return splitSourcesTree(treeFiles)
               })()
               return tree
             }
@@ -252,6 +254,7 @@ export const workspaceHydrate = defineWorkflow(
                       url: revision.remote.url,
                       sha: revision.sha,
                       additionalShas: [planning.previousSha],
+                      root: workspaceRootPath(revision),
                       token:
                         token ??
                         (await resolveRepositoryReadCredential({
@@ -354,9 +357,9 @@ export const workspaceHydrate = defineWorkflow(
                     .map((connection) => connection.id),
                 )
               : []
-            const { files, sourcesFile } = pending.postgres
+            const { files, sourcesFile, sourceFiles } = pending.postgres
               ? await readTree()
-              : { files: [], sourcesFile: null }
+              : { files: [], sourcesFile: null, sourceFiles: [] }
             // A Confluence URL joins a mirrored page only on the org's site.
             const confluenceSiteHosts = pending.postgres
               ? await step.run({ name: "list-confluence-sites" }, async () =>
@@ -366,12 +369,34 @@ export const workspaceHydrate = defineWorkflow(
                     .flatMap((connection) => connection.displayName ?? []),
                 )
               : []
+            // The projection decides the winner of a repository that two
+            // sources name from these rows; the linked set uses the same rule.
+            const previousSourceRows = pending.postgres
+              ? await step.run(
+                  { name: "list-previous-source-rows" },
+                  async () =>
+                    (
+                      await listWorkspaceSourceRows({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                      })
+                    ).map((row) => ({
+                      sourceKey: row.sourceKey,
+                      provider: row.provider,
+                      connectionId: row.connectionId,
+                      scope: row.scope,
+                      status: row.status,
+                    })),
+                )
+              : []
             const parsed = pending.postgres
               ? hydrateKnowledgeTree({
                   workspaceId: workspace.id,
                   workspaceUrl: revision.remote.url,
                   files,
                   sourcesFile,
+                  sourceFiles,
+                  previousSourceRows,
                   githubConnectionIds: new Set(githubConnectionIds),
                   confluenceSiteHosts: new Set(confluenceSiteHosts),
                 })
@@ -388,8 +413,9 @@ export const workspaceHydrate = defineWorkflow(
 
             let activated = !pending.postgres
             if (pending.postgres) {
-              // Before the linked table changes, so a replay still sees which
-              // GitHub links are new and the backfill key dedupes the enqueue.
+              // Before the sources projection changes the pinned state, so a
+              // replay still sees which GitHub links are new and the backfill
+              // key dedupes the enqueue.
               await step.run(
                 { name: "enqueue-github-pr-backfills" },
                 async () => {
@@ -410,7 +436,6 @@ export const workspaceHydrate = defineWorkflow(
                   orgId: input.orgId,
                   revision,
                   displayName,
-                  remotes: parsed.linked,
                   skipped: parsed.skipped,
                   embeddingModel: embeddingModelId(),
                   units: applyEffectiveValidFromToUnits(
@@ -452,6 +477,17 @@ export const workspaceHydrate = defineWorkflow(
                     workspaceId: workspace.id,
                     revision: revision.sha,
                     text: sourcesFile,
+                    files: sourceFiles,
+                    leftoverFiles: revision.remote.connectionId
+                      ? upgradeLinkedRepositories({
+                          sourcesFile,
+                          connectionId: revision.remote.connectionId,
+                          files,
+                        }).skipped.map(({ item, reason }) => ({
+                          path: item,
+                          reason,
+                        }))
+                      : [],
                     env,
                   }),
               )

@@ -248,7 +248,7 @@ export const MergeStepShowsTheMerge: Story = {
           http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
             HttpResponse.json({
               outcome: "pull_request",
-              sourceKey: "linear",
+              path: "sources/linear/linear.md",
               pullRequestUrl,
             }),
           ),
@@ -258,7 +258,7 @@ export const MergeStepShowsTheMerge: Story = {
                 ? workspaceSourceList({
                     items: [
                       workspaceSourceFixture({
-                        sourceKey: "linear",
+                        path: "sources/linear/linear.md",
                         provider: "linear",
                         connectionId,
                         scope: { teams: ["ENG"] },
@@ -268,7 +268,7 @@ export const MergeStepShowsTheMerge: Story = {
                 : workspaceSourceList({
                     pendingChanges: [
                       {
-                        sourceKey: "linear",
+                        path: "sources/linear/linear.md",
                         provider: "linear",
                         action: "add",
                         pullRequestUrl,
@@ -339,7 +339,7 @@ export const ManageKeepsTheCurrentScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -351,7 +351,7 @@ export const ManageKeepsTheCurrentScope: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   connectionId,
                   scope: { teams: ["ENG"] },
@@ -382,8 +382,9 @@ export const ManageKeepsTheCurrentScope: Story = {
     await waitFor(() => expect(manageCalls).toHaveLength(1))
     await expect(manageCalls[0]).toMatchObject({
       method: "PUT",
-      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/linear-3`,
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
       body: {
+        path: "sources/linear/linear-3.md",
         source: {
           provider: "linear",
           connectionId,
@@ -436,7 +437,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -449,7 +450,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "linear-3",
+                    path: "sources/linear/linear-3.md",
                     provider: "linear",
                     connectionId,
                     scope: { teams: currentTeams },

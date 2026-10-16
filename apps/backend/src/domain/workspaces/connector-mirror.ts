@@ -6,17 +6,22 @@ import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connec
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import { sourcesHaveNone } from "../workspace-sources/projection-plan.js"
+import {
+  isSourcesTreePath,
+  sourcesFenceAt,
+  splitSourcesTree,
+} from "../workspace-sources/source-tree.js"
 import type {
   ConfiguredConnectorMirrorSource,
   ConnectorMirrorSource,
   WorkspaceSourcesMirrorSource,
 } from "./connector-mirror-input.js"
-import { isLinkedRepositoryDeclaration } from "./layout.js"
-import { declaresLinkedRepository } from "./link-declarations.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 export type {
@@ -38,8 +43,8 @@ export async function assertConnectorMirrorBinding(
     | WorkspaceSourcesMirrorSource,
   revision: WorkspaceRevision,
 ): Promise<void> {
-  // A Workspace source sync has no binding: the sources file blob fences it.
-  if ("sourcesBlobSha" in source) return
+  // A Workspace source sync has no binding: the sources fence id fences it.
+  if ("sourcesBlobSha" in source || "removedTargets" in source) return
   // GitHub has no binding; assertConnectorMirrorScope checks the link.
   if (source.provider === "github") return
   const bindingReaders = {
@@ -75,16 +80,43 @@ export async function assertConnectorMirrorScope(
   pack: GitPack,
 ): Promise<void> {
   if ("sourcesBlobSha" in source) {
-    if ((await blobShaAt(pack, SOURCES_FILE_PATH)) !== source.sourcesBlobSha)
+    const fence = await withGitDirectory(
+      pack.sha,
+      (directory) => sourcesFenceAt(directory, pack),
+      pack,
+    )
+    if (fence !== source.sourcesBlobSha)
       throw new Error(
         "Workspace sources changed; discard this capture and sync the current sources",
       )
     return
   }
+  if ("removedTargets" in source) {
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
+    )
+    if (
+      !(await sourcesHaveNone(
+        { text: sourcesFile, sourceFiles },
+        source.removedTargets,
+      ))
+    )
+      throw new Error(
+        "A removed Workspace source is in the sources again; discard this cleanup",
+      )
+    return
+  }
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
-    const files = await readGitFiles(pack, isLinkedRepositoryDeclaration)
-    if (!declaresLinkedRepository(files, source.gitUrl))
+    const { sourcesFile, sourceFiles } = splitSourcesTree(
+      await readGitFiles(pack, isSourcesTreePath),
+    )
+    const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+    if (
+      !githubSourceRepositories(sourcesFile, null, sourceFiles).some(
+        (linked) => linked.gitUrl === target,
+      )
+    )
       throw new Error(
         "GitHub repository is no longer linked to this Workspace; discard this capture",
       )
@@ -99,14 +131,14 @@ export async function assertConnectorMirrorScope(
     )
 }
 
-/** The blob id of `path` at the pack's commit, or null when it is absent. */
+/** The blob id of root-relative `path` at the pack's commit, or null when it is absent. */
 async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const entry = (
-        await nativeGit(directory, ["ls-tree", pack.sha, "--", path])
-      )
+      const tree = await packRootTree(directory, pack)
+      if (!tree) return null
+      const entry = (await nativeGit(directory, ["ls-tree", tree, "--", path]))
         .toString()
         .trim()
       return entry ? (entry.split(/\s+/)[2] ?? null) : null

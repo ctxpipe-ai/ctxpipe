@@ -84,7 +84,7 @@ export function LinearConnectionCard({
       health={health}
       remove={{
         description:
-          "This removes the Linear authorization. Its Workspace sources stop syncing. The sources.yaml entries and the files already committed to Git stay.",
+          "This removes the Linear authorization. Its Workspace sources stop syncing. The source files and the files already committed to Git stay.",
         onConfirm: () => removeMutation.mutate(),
       }}
       workspace={connectorDash(status?.workspaceName)}

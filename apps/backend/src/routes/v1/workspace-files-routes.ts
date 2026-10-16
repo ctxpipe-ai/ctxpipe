@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
 import {
   listWorkspaceCheckoutPaths,
@@ -16,6 +17,7 @@ import {
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   getWorkspaceBySlug,
@@ -235,44 +237,48 @@ const WorkspaceFileJobQueuedSchema = z
   .object({ queued: z.literal(true) })
   .openapi("WorkspaceFileJobQueued")
 
-const enqueueWorkspaceFileJobRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/files/jobs",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: WorkspaceFileJobRequestSchema },
+const enqueueWorkspaceFileJobRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/files/jobs",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: WorkspaceFileJobRequestSchema },
+        },
       },
     },
-  },
-  responses: {
-    202: {
-      content: { "application/json": { schema: WorkspaceFileJobQueuedSchema } },
-      description: "Files pane write queued",
+    responses: {
+      202: {
+        content: {
+          "application/json": { schema: WorkspaceFileJobQueuedSchema },
+        },
+        description: "Files pane write queued",
+      },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request or read-only Workspace",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Write status unknown or cannot browse git",
+      },
+      502: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Checkout read failed",
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or read-only Workspace",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not found",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Write status unknown or cannot browse git",
-    },
-    502: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Checkout read failed",
-    },
-  },
-})
+  }),
+)
 
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!c.get("user") || !c.get("session")) {
@@ -309,6 +315,7 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
       workspaceId: workspace.id,
       repositoryId: repository.id,
       sha: published.sha,
+      rootPath: workspaceRootPath(published),
     },
   }
 }

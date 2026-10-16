@@ -1,7 +1,6 @@
-import { and, eq } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
-import { workspaceLinkedRepositories } from "../db/schema/workspaces.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
+import { listLinkedRepositoryPins } from "./workspace-source-state.js"
 
 /**
  * Workspaces in this org whose linked repositories include `gitUrl`. Merged
@@ -11,20 +10,14 @@ export async function listGithubPrMirrorWorkspaceIds(input: {
   orgId: string
   gitUrl: string
 }): Promise<string[]> {
-  // Hydrate stores linked URLs normalized, so equality is the URL match.
-  const rows = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .selectDistinct({ workspaceId: workspaceLinkedRepositories.workspaceId })
-      .from(workspaceLinkedRepositories)
-      .where(
-        and(
-          eq(workspaceLinkedRepositories.orgId, input.orgId),
-          eq(
-            workspaceLinkedRepositories.gitUrl,
-            normalizeWorkspaceRepositoryUrl(input.gitUrl),
-          ),
-        ),
-      ),
+  // The projection stores linked URLs normalized, so equality is the URL match.
+  const gitUrl = normalizeWorkspaceRepositoryUrl(input.gitUrl)
+  const pins = await withOrgDbContext(input.orgId, (db) =>
+    listLinkedRepositoryPins(db, { orgId: input.orgId }),
   )
-  return rows.map((row) => row.workspaceId).sort()
+  return [
+    ...new Set(
+      pins.filter((pin) => pin.gitUrl === gitUrl).map((pin) => pin.workspaceId),
+    ),
+  ].sort()
 }

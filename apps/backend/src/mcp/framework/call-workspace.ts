@@ -1,13 +1,9 @@
 import { and, asc, eq, sql } from "drizzle-orm"
 import { withOrgDbContext } from "../../db/client.js"
-import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
-import { githubScopeSchema } from "../../domain/workspace-sources/providers/github.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import { isValidSlug } from "../../domain/workspaces/slug.js"
+import { listServedRepositoryPins } from "../../models/workspace-source-state.js"
 import { RepositoryHandles } from "./repository-handles.js"
 import { McpToolError, workspaceNotFound } from "./tool-errors.js"
 import type { CallOrg } from "./tool-org.js"
@@ -86,62 +82,22 @@ export async function listOrgWorkspaceSlugs(org: CallOrg): Promise<string[]> {
 
 /**
  * Every repository link of the org: the Workspace and the git URL, oldest
- * first. Two stores hold links during the ADR-050 migration: the GitHub
- * sources of `.ctxpipe/sources.yaml` (the `workspace_sources` projection,
- * `ok` rows only) and the legacy `workspace_linked_repositories` table, which
- * ADR-050 phase 3 retires. Only this function reads them. With
- * `workspaceId`, only the links of that Workspace.
+ * first. The GitHub sources of `.ctxpipe/sources.yaml` link repositories; the
+ * pinned state of their `workspace_sources` rows lists them (ADR-050). MCP
+ * serves only the links of `ok` sources. With `workspaceId`, only the links
+ * of that Workspace.
  */
 export async function listOrgRepositoryLinks(
   org: CallOrg,
   workspaceId?: string,
 ): Promise<Array<{ workspaceId: string; gitUrl: string }>> {
-  const [legacy, sources] = await withOrgDbContext(org.id, (db) =>
-    Promise.all([
-      db
-        .select({
-          workspaceId: workspaceLinkedRepositories.workspaceId,
-          gitUrl: workspaceLinkedRepositories.gitUrl,
-        })
-        .from(workspaceLinkedRepositories)
-        .where(
-          and(
-            eq(workspaceLinkedRepositories.orgId, org.id),
-            workspaceId
-              ? eq(workspaceLinkedRepositories.workspaceId, workspaceId)
-              : undefined,
-          ),
-        )
-        .orderBy(asc(workspaceLinkedRepositories.createdAt)),
-      db
-        .select({
-          workspaceId: workspaceSources.workspaceId,
-          scope: workspaceSources.scope,
-        })
-        .from(workspaceSources)
-        .where(
-          and(
-            eq(workspaceSources.orgId, org.id),
-            eq(workspaceSources.provider, "github"),
-            eq(workspaceSources.status, "ok"),
-            workspaceId
-              ? eq(workspaceSources.workspaceId, workspaceId)
-              : undefined,
-          ),
-        )
-        .orderBy(asc(workspaceSources.createdAt)),
-    ]),
+  const pins = await withOrgDbContext(org.id, (db) =>
+    listServedRepositoryPins(db, { orgId: org.id, workspaceId }),
   )
-  const fromSources = sources.flatMap((row) => {
-    const scope = githubScopeSchema.safeParse(row.scope)
-    return scope.success
-      ? scope.data.repositories.map((name) => ({
-          workspaceId: row.workspaceId,
-          gitUrl: `https://github.com/${name}`,
-        }))
-      : []
-  })
-  return [...legacy, ...fromSources]
+  return pins.map((pin) => ({
+    workspaceId: pin.workspaceId,
+    gitUrl: pin.gitUrl,
+  }))
 }
 
 /** Git URLs of the repository links of the org, or of one Workspace. */
