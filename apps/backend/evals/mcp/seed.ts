@@ -235,6 +235,8 @@ async function publishWorkspaceRevision(input: {
       orgId: org.id,
       revision,
       displayName: fixture.name,
+      // The fixture has no format file.
+      formatVersion: 0,
       units: parsed.units,
       skipped: parsed.skipped,
       embeddingModel: embeddingModelId(),
