@@ -32,6 +32,7 @@ import {
 } from "./ownership-migration.js"
 import {
   AREA_PATH,
+  disallowedPathReason,
   fileOwnership,
   fileSources,
   humanBlocks,
@@ -49,6 +50,16 @@ const HOST_FIELDS = [
   "skill",
   "bundle",
 ] as const
+
+/** A file that the retraction leaves unchanged, and the reason. */
+export type SkippedRetraction = { path: string; reason: string }
+
+export type UnlinkRetractionPlan = {
+  files: GitFileChange[]
+  deletePaths: string[]
+  /** Files that the retraction cannot delete. An operator removes them. */
+  skipped: SkippedRetraction[]
+}
 
 /**
  * The host retraction of a source repository that a Workspace unlinks
@@ -73,6 +84,13 @@ const HOST_FIELDS = [
  *   with only the unlinked repository in `sources`. Its delete goes through
  *   the same validator, on a local commit with the migrated text.
  *
+ * - A file that the repository owns alone, but that lies outside the
+ *   knowledge folders that the patch validator accepts (an old pipeline file
+ *   in `knowledge/topics/`, for example), stays unchanged. The validator
+ *   would refuse its delete on every attempt. The plan lists it in
+ *   `skipped`, with the reason. An operator removes it by hand, or a
+ *   re-ingestion upgrade removes it.
+ *
  * Human sections stay byte for byte. Each edit gets the checks of a staged
  * write: the same human sections, and front matter that is a YAML map. An
  * edit of a file that is not an area file keeps the body byte for byte.
@@ -82,7 +100,7 @@ export async function planUnlinkRetraction(input: {
   sourceUrl: string
   workspaceRepositoryUrl: string
   observedAt: string
-}): Promise<{ files: GitFileChange[]; deletePaths: string[] }> {
+}): Promise<UnlinkRetractionPlan> {
   const source = normalizeSourceUrl(input.sourceUrl)
   const before = await readGitFiles(
     input.pack,
@@ -96,6 +114,7 @@ export async function planUnlinkRetraction(input: {
   // commit, so it checks these deletes on a commit with the migrated text.
   const legacyDeletes: Array<{ path: string; content: string }> = []
   const kept: Array<{ path: string; content: string }> = []
+  const skipped: SkippedRetraction[] = []
   for (const file of before) {
     const legacy = legacySourceUrl(file.content, workspaceUrl)
     const migrated =
@@ -107,7 +126,14 @@ export async function planUnlinkRetraction(input: {
         : undefined
     const content = migrated?.content ?? file.content
     const ownership = fileOwnership(content, source)
-    if (ownership === "sole" && humanBlocks(content).length === 0) {
+    const pathReason = disallowedPathReason(file.path)
+    if (
+      ownership === "sole" &&
+      humanBlocks(content).length === 0 &&
+      pathReason !== null
+    )
+      skipped.push({ path: file.path, reason: pathReason })
+    else if (ownership === "sole" && humanBlocks(content).length === 0) {
       if (migrated) legacyDeletes.push(migrated)
       else deletePaths.push(file.path)
     } else if (ownership === "sole")
@@ -148,7 +174,11 @@ export async function planUnlinkRetraction(input: {
       input.sourceUrl,
       legacyDeletePaths,
     )
-  return { files, deletePaths: [...deletePaths, ...legacyDeletePaths].sort() }
+  return {
+    files,
+    deletePaths: [...deletePaths, ...legacyDeletePaths].sort(),
+    skipped: skipped.sort((a, b) => a.path.localeCompare(b.path)),
+  }
 }
 
 /** The checks of a staged write that apply to a host edit (ADR-052 section 3). */

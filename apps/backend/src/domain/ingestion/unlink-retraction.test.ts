@@ -271,7 +271,7 @@ describe("planUnlinkRetraction", () => {
     expect(content.endsWith(body)).toBe(true)
   })
 
-  it("puts the delete of an old pipeline file through the patch validator, on the migrated text", async () => {
+  it("leaves an old pipeline file outside the allowed knowledge folders unchanged, and lists it", async () => {
     const pack = await workspace({
       // Not a knowledge folder of the allowlist: the validator refuses it.
       "knowledge/topics/billing.md": doc(
@@ -282,10 +282,21 @@ describe("planUnlinkRetraction", () => {
         },
         "# Billing\n",
       ),
+      "knowledge/services/billing.md": doc(
+        { kind: "Service", name: "Billing", ...host([UNLINKED]) },
+        "# Billing\n",
+      ),
     })
-    await expect(plan(pack)).rejects.toThrow(
-      "fails the patch validator: knowledge/topics/billing.md: path",
-    )
+    expect(await plan(pack)).toEqual({
+      files: [],
+      deletePaths: ["knowledge/services/billing.md"],
+      skipped: [
+        {
+          path: "knowledge/topics/billing.md",
+          reason: "Only the knowledge folders of the allowlist are allowed",
+        },
+      ],
+    })
   })
 
   it("removes the evidence of the repository also after a human section in the middle of a shared area file", async () => {
@@ -373,6 +384,10 @@ describe("planUnlinkRetraction", () => {
       ),
       "knowledge/notes.md": "# Notes\n",
     })
-    expect(await plan(pack)).toEqual({ files: [], deletePaths: [] })
+    expect(await plan(pack)).toEqual({
+      files: [],
+      deletePaths: [],
+      skipped: [],
+    })
   })
 })
