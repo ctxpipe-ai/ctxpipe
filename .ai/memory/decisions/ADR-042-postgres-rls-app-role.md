@@ -1,6 +1,6 @@
 # ADR-042: Postgres RLS with a non-owner app role
 
-**Status:** Accepted | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
+**Status:** Accepted (revised 2026-10-16) | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
 
 ## Context
 
@@ -34,3 +34,17 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 - **New `CtxPipe` props / operator `psql` / a second URL in the CDK app** — Rejected; the construct rewrites the existing runtime secret.
 - **`SET SESSION` or `app.rls_bypass`** — Rejected; transaction-mode poolers drop session GUCs, and a bypass GUC is another hole.
 - **Boot refuse + seeded canary + dedicated isolation CI job** — Rejected; RLS is configuration (`ENABLE` + `ctxpipe_app` + `SET LOCAL`). A startup `pg_roles` probe and a sentinel `workspaces` row on every backend/worker wake (Railway sleep) is noise. Isolation belongs in two migrate-job tests, not a second Postgres CI job.
+
+## Revision 2026-10-16: one migrate entry point, role modes, and rollback ([ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md))
+
+- **One entry point.** Hosted, Compose and CDK run `bun run apps/backend/src/db/migrate.ts`. Hosted no longer runs `drizzle-kit migrate` directly, so it runs the same backfills as the other paths.
+- **Role modes.** `provision-app-role.ts` stays in code. It is not a Drizzle migration.
+  - (a) A password is given: create or alter `ctxpipe_app`, then grant. Compose gives `POSTGRES_PASSWORD`. CDK gives the password from its secret.
+  - (b) No password, and the role exists: grants and `ALTER DEFAULT PRIVILEGES` only. Hosted uses this mode, because Terraform `neon_role.app` owns the password.
+  - (c) No password, and no role: migrate stops with exit code 1 and prints the fix for each deploy path. Migrate never skips the role in silence.
+- **Hosted order.** The deploy workflow runs `terraform apply -target=module.ctxpipe.neon_role.app` before it migrates the production database.
+- **Rollback runbook.** To go back to the previous image, put back the previous image and the owner `DATABASE_URL` on every runtime service. Main code does not set `app.organization_id`, so on `ctxpipe_app` it sees no rows. On CDK, deploy the previous `@ctxpipe/aws-cdk` package and restore the previous runtime secret. The minor sets no `NOT NULL` that main code breaks, so main code can write again on the owner URL.
+
+### Alternatives considered (revision)
+
+- **A Drizzle migration with `CREATE ROLE … NOLOGIN`:** rejected. The role needs a password and the safety checks. On Neon, Terraform owns the role, so a SQL `CREATE ROLE` makes `terraform apply` fail on a new preview branch.

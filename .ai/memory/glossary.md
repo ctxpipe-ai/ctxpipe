@@ -20,6 +20,8 @@
 | Temporality | Optional `[valid_from, valid_to)` window. Missing `valid_to` = evergreen (source half-life). Missing `valid_from` is derived from the introducing git commit at hydrate, then persisted by a **job**. `e = 0` before `valid_from` and at/after `valid_to`. |
 | AGENTS.md (workspace map) | Workspace-repository root file: display name in front matter; **one** semantic folder-structure section the ops job maintains (any heading the user chose). Keep folders that exist; drop dead links. Not this monorepo’s agent-instructions `AGENTS.md`. |
 | Read-only Workspace | A Workspace whose desired workspace remote can be cloned and hydrated, but ctxpipe cannot commit/push to it. Chrome shows read-only with an error-specific fix. **Jobs** that maintain that URL are paused; hydrate, search, and workspace chat continue. Distinct from hydrate-failed (tree unreadable). |
+| Workspace format | The layout version of a Workspace repository: one integer in `.ctxpipe/workspace.yaml` below the root folder. No file is format 0. Only an upgrade pull request or bootstrap changes it. Hydrate caches it in `workspaces.format_version`; git stays the truth. A format above the code, or a file that does not parse, makes the Workspace read-only (`format_ahead`, `format_invalid`). See [ADR-053](decisions/ADR-053-minor-upgrades-expand-only-sql-workspace-format.md). |
+| Upgrade | Work that brings a Workspace to the current release. A git upgrade step raises the Workspace format by one, in an upgrade pull request; a re-ingestion upgrade runs a fresh ingestion of the source repositories, with a cost estimate. An operator click starts each one. A `workspace_write_jobs` row of kind `upgrade` tracks it. Required data work (for example retired workflow stubs) runs with no click. See [ADR-053](decisions/ADR-053-minor-upgrades-expand-only-sql-workspace-format.md). |
 | Job sandbox | Retired for write jobs. Write jobs are typed workflows over captured git data and need no sandbox. Semantic merge is one model call and needs no sandbox too ([ADR-047](decisions/ADR-047-native-durable-write-workflows.md)). Ingestion steps run in an **ingest sandbox** ([ADR-052](decisions/ADR-052-ingestion-sandbox-skills-patches.md)). |
 | Chat sandbox | One TanStack sandbox per conversation (`threadId` = conversation id), reused across turns and disposable: work is pushed to the conversation's **session branch**. Conversations run in parallel. See [ADR-048](decisions/ADR-048-native-postgres-sandbox-ownership.md). |
 | Session branch | `ctxpipe/chat/<conversation>/<n>`: the git branch holding a conversation's edits. The durable state of a chat sandbox; Create PR opens a pull request from it. |
@@ -72,4 +74,4 @@
 | ORM | Object-Relational Mapping |
 
 ---
-*Last updated: 2026-09-17*
+*Last updated: 2026-10-16*

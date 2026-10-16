@@ -1,6 +1,6 @@
 # ADR-052: Ingestion as sandbox skills that write patches
 
-**Status:** Accepted | **Date:** 2026-10-13 | **Tags:** ingestion, sandbox, opencode, tanstack, git, openworkflow, security
+**Status:** Accepted (revised 2026-10-16) | **Date:** 2026-10-13 | **Tags:** ingestion, sandbox, opencode, tanstack, git, openworkflow, security
 
 ## Context
 
@@ -125,3 +125,10 @@ Source text must go through to the files, so injection cannot be fully prevented
 - **Skills on the Workspace repository:** rejected. Extraction runs only on source repositories; the context repository is read-only input.
 - **Zoekt and SCIP in the sandbox, or a copied index:** rejected. The indexers are large and slow, and the index would be built again for each run.
 - **At most 2 ingest sandboxes for each org:** replaced by 40, because ingestion needs more slots than chat.
+
+## Revision 2026-10-16: the publish gate and re-ingestion in the upgrade ([ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md))
+
+- **Phase 4 publishes for each Workspace.** The ingestion v2 publish runs for a Workspace only when its format is 3 or higher. Below 3, the legacy pipeline stays for that Workspace. The global rollback switch stays too.
+- **The ownership migration of section 3** ("a one-time migration at the switch") is git upgrade step 3. It goes into the upgrade pull request, and its commit sets `format: 3`.
+- **Fresh re-ingestion is a standard upgrade step.** Every upgrade from main runs a fresh ingestion of the source repositories of each Workspace. An operator click starts it, after the UI shows a cost estimate (a p50 to p90 range). Nothing starts it automatically, also not on hosted. A unit needs it when it has the legacy `generated_by: ctxpipe`, or a `bundle` that is not the current bundle hash.
+- **Throttle.** Upgrade runs of one org run at most 2 source repositories at a time, inside the limit of 40 ingest sandboxes. A cost cap stops a run before a step that goes above 2 times the p90 estimate (`failed: budget`); the operator can resume it. Without a sandbox runtime, the upgrade item is `blocked: sandbox_unavailable`.

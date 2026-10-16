@@ -213,3 +213,11 @@ sources:
 - The trust boundary has more places to guard: the patch validator, conversation publish, and MCP write tools.
 - Rules across files (duplicate and overlap) move from the YAML schema to the projection.
 - The API key of a source is a path with `/`. The routes take it in the body or a query parameter.
+
+## Revision 2026-10-16: the migration is upgrade format 1 ([ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md))
+
+- **Decision 6 and the revision 2026-10-14 change.** The migration of connection scopes and org repositories is not a command any more. It is git upgrade step 1 of the upgrade registry. Step 1 writes the exported knowledge and the sources of each Workspace, and deletes `repositories/*.md`. It goes into the upgrade pull request (branch `ctxpipe/upgrade/format-<target>`), never into a direct push to the default branch. The commit of step 1 sets `format: 1` in `.ctxpipe/workspace.yaml`. An operator click opens the pull request, also on hosted. `migrateWorkspaceSources.ts` and the `migration_export` write kind become thin wrappers of step 1, then go away.
+- **Decision 14 (conversion)** is git upgrade step 2. Its commit sets `format: 2`.
+- **No write access.** A Workspace with no write access shows the upgrade state `blocked: write_access`. The 1-minute retry of the old export goes away. A click on "Check write access" retries one time.
+- **Legacy handover for every provider (CTX-737).** Before this revision, only the Notion and PagerDuty bindings handed over. Now `legacyBindingHandedOver` covers every legacy connector binding: Linear, Slack, Confluence, Notion and PagerDuty. A legacy sync stops when an `ok` Workspace source of the same connection owns its target. Confluence matches by the connection, not by the repository. Thus no connector writes the same content to the old sync repository and to the Workspace. This is the phase 1 gate of [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md).
+- **Writers check the format.** A source config edit on a Workspace below format 2 refuses with "Upgrade this Workspace first". The dual read of decision 15 stays until the next major.
