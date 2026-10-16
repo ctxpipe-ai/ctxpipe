@@ -527,14 +527,16 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
  * `failed`. A `queued` job that has no run lost its run, for example because
  * the process stopped after it stored the job and before it queued the run.
  * Such a job becomes `paused`, so that the resume step queues it again with
- * the same id. When it binds an earlier generation or another repository
- * URL, a newer binding supersedes it, so it becomes `failed`.
+ * the same id. When it binds an earlier generation, another repository URL
+ * or another default branch, a newer binding supersedes it, so it becomes
+ * `failed`. Admission refuses such a job, so a retry cannot succeed.
  */
 export async function reconcileStaleWriteJobs(
   workspace: {
     id: string
     desiredGeneration: number
     workspaceRepositoryUrl: string
+    desiredDefaultBranch: string | null
   },
   staleBefore: Date,
 ) {
@@ -551,7 +553,8 @@ export async function reconcileStaleWriteJobs(
       ]),
     )
     const sameBinding = sql<boolean>`(${workspaceWriteJobs.generation} = ${workspace.desiredGeneration}
-      and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl})`
+      and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl}
+      and coalesce(${workspaceWriteJobs.payload}->>'defaultBranch', ${workspaceWriteJobs.payload}->'revision'->>'defaultBranch', ${workspace.desiredDefaultBranch}) is not distinct from ${workspace.desiredDefaultBranch})`
     await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
