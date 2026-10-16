@@ -35,7 +35,9 @@ type StartInput = {
 export function startIngestionV2Shadow(
   input: StartInput,
 ): Promise<IngestionV2ShadowStart> {
-  return startIngestionV2Run(input, { shadow: true })
+  return startIngestionV2Run(input, {
+    shadow: true,
+  }) as Promise<IngestionV2ShadowStart>
 }
 
 /**

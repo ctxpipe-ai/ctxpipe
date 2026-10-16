@@ -595,8 +595,8 @@ export function defineRepositoryIngestionV2Workflow(
                   return { revision: pinned }
                 },
               )
-              if ("revision" in target) {
-                const { revision } = target
+              const revision = "revision" in target ? target.revision : null
+              if (revision) {
                 const published = await step.runWorkflow(
                   workspaceExtractIngest.spec,
                   {
@@ -649,7 +649,7 @@ export function defineRepositoryIngestionV2Workflow(
                     reason: published.reason,
                   })
                 }
-              } else if (target.skip === "below_format") {
+              } else if ("skip" in target && target.skip === "below_format") {
                 entry.published = null
                 logIngestEvent("warn", "ingestion-v2.upgrade-needed", {
                   ingestionRunId: run.id,
