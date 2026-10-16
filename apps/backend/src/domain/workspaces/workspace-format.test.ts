@@ -7,6 +7,7 @@ import {
   WORKSPACE_FORMAT_INVALID,
   WORKSPACE_FORMAT_PATH,
   withFormatWriteGate,
+  workspaceFormatAtLeast,
   workspaceFormatCacheValue,
   workspaceFormatFile,
 } from "./workspace-format.js"
@@ -87,4 +88,17 @@ describe("the format write gate", () => {
 
 it("keeps the format file host-only", () => {
   expect(isHostOnlyPath(WORKSPACE_FORMAT_PATH)).toBe(true)
+})
+
+describe("workspaceFormatAtLeast", () => {
+  it.each([
+    [null, 2, false],
+    [WORKSPACE_FORMAT_INVALID, 0, false],
+    [0, 2, false],
+    [1, 2, false],
+    [2, 2, true],
+    [CODE_FORMAT + 1, 2, true],
+  ])("reads format %s against %s as %s", (format, min, expected) => {
+    expect(workspaceFormatAtLeast(format, min)).toBe(expected)
+  })
 })
