@@ -1022,7 +1022,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         if (!canAccess) {
           return c.json(
             {
-              error: "Forbidden",
+              error:
+                "Your GitHub account cannot access this GitHub App installation",
               message:
                 "Your GitHub account cannot access this GitHub App installation",
               why: "github_installation_not_accessible",

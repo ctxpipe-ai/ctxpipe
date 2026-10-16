@@ -11,7 +11,12 @@ import {
   it,
   vi,
 } from "vitest"
-import { GITHUB_SETUP_RESULT_KEY, handleGithubSetupPopupResult } from "./popup"
+import {
+  beginGithubPopupFlow,
+  GITHUB_SETUP_RESULT_KEY,
+  getActiveGithubPopupFlowState,
+  handleGithubSetupPopupResult,
+} from "./popup"
 
 const server = setupServer()
 const assign = vi.fn()
@@ -74,6 +79,26 @@ describe("handleGithubSetupPopupResult", () => {
     expect(assign).toHaveBeenCalledWith(
       "/.github/setup?installation_id=42&orgSlug=acme&connectionId=con_draft",
     )
+  })
+
+  it("ends the popup flow before it sends the window to /.github/setup", async () => {
+    const nonce = beginGithubPopupFlow()
+    localStorage.setItem(
+      GITHUB_SETUP_RESULT_KEY,
+      JSON.stringify({ installationId: 42, popupFlowNonce: nonce }),
+    )
+    refuseRegistration("github_not_linked")
+    // The browser unloads the opener on navigation, so no later code runs.
+    let flowAtNavigation: unknown = "not navigated"
+    assign.mockImplementation(() => {
+      flowAtNavigation = getActiveGithubPopupFlowState()
+    })
+
+    await handleGithubSetupPopupResult("acme", new QueryClient())
+
+    // A live flow makes /.github/setup act as the popup: it calls
+    // window.close(), which a full page ignores, and stays blank.
+    expect(flowAtNavigation).toBeNull()
   })
 
   it("reports a failed registration for any other refusal", async () => {

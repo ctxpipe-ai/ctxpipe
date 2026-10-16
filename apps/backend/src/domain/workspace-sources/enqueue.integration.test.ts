@@ -48,6 +48,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
+        publishPipeline: "legacy",
       })
     }
     return cleanupRuns(workspaceId)
@@ -88,6 +89,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
+        publishPipeline: "legacy",
       })
     }
     return cleanupRuns(workspaceId)

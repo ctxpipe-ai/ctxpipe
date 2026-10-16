@@ -51,14 +51,16 @@ UPDATE "confluence_spaces" AS s SET "org_id" = c."org_id" FROM "connections" AS 
 UPDATE "repository_checkouts" AS ch SET "org_id" = r."org_id" FROM "repositories" AS r WHERE ch."repository_id" = r."id" AND ch."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_write_jobs" AS j SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE j."workspace_id" = w."id" AND j."org_id" IS NULL;--> statement-breakpoint
 UPDATE "workspace_sandbox_instances" AS s SET "org_id" = w."org_id" FROM "workspaces" AS w WHERE s."workspace_id" = w."id" AND s."org_id" IS NULL;--> statement-breakpoint
+-- Expand-only: "claim_evidence", "confluence_spaces" and "repository_checkouts"
+-- keep a nullable "org_id" in this minor release, so that the previous image can still
+-- write rows after a rollback. RLS hides rows with no org from the app role. The next
+-- major release sets NOT NULL. The DELETE of orphan rows runs in the migration
+-- transaction, so a failed migration deletes nothing.
 DELETE FROM "claim_evidence" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "confluence_spaces" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "repository_checkouts" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_write_jobs" WHERE "org_id" IS NULL;--> statement-breakpoint
 DELETE FROM "workspace_sandbox_instances" WHERE "org_id" IS NULL;--> statement-breakpoint
-ALTER TABLE "claim_evidence" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "confluence_spaces" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
-ALTER TABLE "repository_checkouts" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "workspace_sandbox_instances" ALTER COLUMN "org_id" SET NOT NULL;--> statement-breakpoint
 ALTER TABLE "claim_evidence" ENABLE ROW LEVEL SECURITY;--> statement-breakpoint
@@ -105,4 +107,36 @@ CREATE POLICY "org_isolation" ON "org_member_preferences" AS PERMISSIVE FOR ALL 
 CREATE POLICY "org_isolation" ON "workspace_knowledge_units" AS PERMISSIVE FOR ALL TO public USING ("workspace_knowledge_units"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_knowledge_units"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspace_sandbox_instances" AS PERMISSIVE FOR ALL TO public USING ("workspace_sandbox_instances"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_sandbox_instances"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
 CREATE POLICY "org_isolation" ON "workspace_write_jobs" AS PERMISSIVE FOR ALL TO public USING ("workspace_write_jobs"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspace_write_jobs"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
-CREATE POLICY "org_isolation" ON "workspaces" AS PERMISSIVE FOR ALL TO public USING ("workspaces"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspaces"."org_id" = current_setting('app.organization_id', true));
+CREATE POLICY "org_isolation" ON "workspaces" AS PERMISSIVE FOR ALL TO public USING ("workspaces"."org_id" = current_setting('app.organization_id', true)) WITH CHECK ("workspaces"."org_id" = current_setting('app.organization_id', true));--> statement-breakpoint
+-- Expand-only: after a rollback, the previous image writes these rows with no
+-- "org_id". These BEFORE INSERT triggers copy "org_id" from the parent row, so that
+-- the app role can see the rows after the next upgrade. The functions run with the
+-- rights of the caller, so RLS on the parent table applies to the app role. The next
+-- major release sets NOT NULL and drops these triggers.
+CREATE FUNCTION "claim_evidence_fill_org_id"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	IF NEW."org_id" IS NULL THEN
+		NEW."org_id" := (SELECT c."org_id" FROM "public"."claims" AS c WHERE c."id" = NEW."claim_id");
+	END IF;
+	RETURN NEW;
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "claim_evidence_fill_org_id" BEFORE INSERT ON "claim_evidence" FOR EACH ROW EXECUTE FUNCTION "claim_evidence_fill_org_id"();--> statement-breakpoint
+CREATE FUNCTION "confluence_spaces_fill_org_id"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	IF NEW."org_id" IS NULL THEN
+		NEW."org_id" := (SELECT c."org_id" FROM "public"."connections" AS c WHERE c."id" = NEW."connection_id");
+	END IF;
+	RETURN NEW;
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "confluence_spaces_fill_org_id" BEFORE INSERT ON "confluence_spaces" FOR EACH ROW EXECUTE FUNCTION "confluence_spaces_fill_org_id"();--> statement-breakpoint
+CREATE FUNCTION "repository_checkouts_fill_org_id"() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+	IF NEW."org_id" IS NULL THEN
+		NEW."org_id" := (SELECT r."org_id" FROM "public"."repositories" AS r WHERE r."id" = NEW."repository_id");
+	END IF;
+	RETURN NEW;
+END;
+$$;--> statement-breakpoint
+CREATE TRIGGER "repository_checkouts_fill_org_id" BEFORE INSERT ON "repository_checkouts" FOR EACH ROW EXECUTE FUNCTION "repository_checkouts_fill_org_id"();

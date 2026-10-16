@@ -24,6 +24,7 @@ import {
   IngestRefRefusedError,
   type IngestRemote,
   listStepFiles,
+  mergeIngestPublish,
   type PushIngestStepInput,
   parseIngestRef,
   pushIngestAssemble,
@@ -702,6 +703,24 @@ export async function pushWorkspaceIngestStep(
     patch: { ...input.patch, rootPath: admitted.rootPath },
     remote,
   })
+}
+
+/**
+ * The publish job kind (T21): the files of a run's publish on the current
+ * default tip, read only. The Workspace must be writable and bound in the org.
+ * A replay can come after the run finished, so the run need not be
+ * unfinished: the `Ctxpipe-Run` trailer of the tip binds the tip to the run.
+ */
+export async function mergeWorkspaceIngestPublish(
+  input: Omit<Parameters<typeof mergeIngestPublish>[0], "remote"> & {
+    orgId: string
+    workspaceId: string
+  },
+  env: Env,
+) {
+  const admitted = await admitIngestJob(input.orgId, input.workspaceId)
+  const remote = await ingestReadRemote(input.orgId, admitted, env)
+  return mergeIngestPublish({ ...input, remote })
 }
 
 /** The assemble job kind: merge the shard tips into the assembled ref. */
