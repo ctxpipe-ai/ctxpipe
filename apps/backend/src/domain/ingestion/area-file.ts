@@ -14,9 +14,13 @@ import { isDeepStrictEqual } from "node:util"
  *   ## Summary          one paragraph
  *   ## Rules            - <rule text>
  *                         - topic: `<key>` = `<value>` (core)
- *                         - source `<url>`, documented: `<path>`, ...
- *                         - source `<url>`, inferred from `<pattern>`: `<path>`, ...
- *   ## Repository notes - `<url>`: <text>
+ *                         - source `<source>`, documented: `<path>`, ...
+ *                         - source `<source>`, inferred from `<pattern>`: `<path>`, ...
+ *   ## Repository notes - `<source>`: <text>
+ *
+ * `<source>` is the path of the source file in the Workspace
+ * (`sources/github/<owner>/<name>.md`, ADR-050 revision 2026-10-16), the
+ * same value as in the `sources` front matter.
  *   ## Being replaced   rules, in the same form as Rules
  */
 
@@ -201,7 +205,7 @@ export function parseAreaBody(
 /**
  * The area body (no human blocks) without the evidence lines and notes of
  * `source`. A rule that has no other source line goes too. Each other line
- * stays as it is. `source` is a normalized URL.
+ * stays as it is. `source` is a normalized source path.
  */
 export function withoutAreaSource(
   body: string,
@@ -277,7 +281,7 @@ export type AreaChange =
 
 /**
  * Shared-file rules (concept section 5.3). `before` is null for a new file.
- * `source` and `beforeSources` are normalized URLs.
+ * `source` and `beforeSources` are normalized source paths.
  *
  * With other sources in the file, the update:
  * - keeps the title and the summary;

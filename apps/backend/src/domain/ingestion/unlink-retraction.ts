@@ -39,6 +39,7 @@ import {
   humanSectionsKept,
   MAX_STEP_OPS,
   normalizeSourceUrl,
+  sourceIdentity,
   validatePatchStep,
 } from "./patch-validator.js"
 
@@ -74,7 +75,7 @@ export type UnlinkRetractionPlan = {
  * - A shared area file loses the evidence lines and notes of the repository,
  *   and each rule that has no other evidence. The shared-file check of the
  *   validator (`checkAreaChange`) proves that the other sources keep theirs.
- *   Another shared file loses only the repository in `sources`.
+ *   Another shared file loses only the source path in `sources`.
  * - Each open claim whose `source` names the repository gets `valid_to`
  *   (the ADR-052 full retraction). A closed claim keeps its dates.
  * - An old pipeline file that the ownership migration did not move yet is
@@ -97,7 +98,14 @@ export type UnlinkRetractionPlan = {
  */
 export async function planUnlinkRetraction(input: {
   pack: GitPack
+  /** The repository that left the sources. */
   sourceUrl: string
+  /**
+   * The path of the source file that declared the repository and that the
+   * merged revision removed (ADR-050 revision 2026-10-16). The files of the
+   * repository list it in `sources`.
+   */
+  sourcePath: string
   workspaceRepositoryUrl: string
   observedAt: string
 }): Promise<UnlinkRetractionPlan> {
@@ -121,11 +129,12 @@ export async function planUnlinkRetraction(input: {
       legacy !== null && normalizeSourceUrl(legacy) === source
         ? ownershipMigrationFiles({
             workspaceRepositoryUrl: input.workspaceRepositoryUrl,
+            sourcePaths: new Map([[legacy, input.sourcePath]]),
             files: [file],
           })[0]
         : undefined
     const content = migrated?.content ?? file.content
-    const ownership = fileOwnership(content, source)
+    const ownership = fileOwnership(content, input.sourcePath)
     const pathReason = disallowedPathReason(file.path)
     if (
       ownership === "sole" &&
@@ -141,7 +150,7 @@ export async function planUnlinkRetraction(input: {
     else if (ownership === "shared")
       kept.push({
         path: file.path,
-        content: withoutSharedSource(file.path, content, source),
+        content: withoutSharedSource(file.path, content, input.sourcePath),
       })
     else kept.push({ path: file.path, content })
   }
@@ -161,8 +170,7 @@ export async function planUnlinkRetraction(input: {
     .map((file) => ({ path: file.path, content: file.content }))
   for (const file of files)
     checkRetractionEdit(file.path, original.get(file.path) ?? "", file.content)
-  if (deletePaths.length)
-    await validateDeletes(input.pack, input.sourceUrl, deletePaths)
+  if (deletePaths.length) await validateDeletes(input.pack, input, deletePaths)
   const legacyDeletePaths = legacyDeletes.map((file) => file.path)
   if (legacyDeletes.length)
     await validateDeletes(
@@ -171,7 +179,7 @@ export async function planUnlinkRetraction(input: {
         subject: "Migrate the old pipeline files that the retraction deletes",
         createdAt: input.observedAt,
       }),
-      input.sourceUrl,
+      input,
       legacyDeletePaths,
     )
   return {
@@ -207,12 +215,14 @@ function toHumanFile(content: string): string {
   })
 }
 
+/** `source` is the source path that left (ADR-050 revision 2026-10-16). */
 function withoutSharedSource(
   path: string,
   content: string,
-  source: string,
+  sourcePath: string,
 ): string {
-  const others = fileSources(content).filter((url) => url !== source)
+  const source = sourceIdentity(sourcePath)
+  const others = fileSources(content).filter((value) => value !== source)
   let next = content
   if (AREA_PATH.test(path)) {
     const front = splitFrontMatter(content)
@@ -228,7 +238,7 @@ function withoutSharedSource(
     let marked = front.body
     for (const [i, block] of blocks.entries())
       marked = marked.replace(block, () => marker(i))
-    const edited = withoutAreaSource(marked, source, normalizeSourceUrl)
+    const edited = withoutAreaSource(marked, source, sourceIdentity)
     if (
       (edited.match(markers()) ?? []).join("") !==
       blocks.map((_, i) => marker(i)).join("")
@@ -238,8 +248,8 @@ function withoutSharedSource(
       )
     // The validator reads an area body with no human sections.
     const unmarked = (body: string) => body.replace(markers(), "")
-    const beforeArea = parseAreaBody(unmarked(marked), normalizeSourceUrl)
-    const afterArea = parseAreaBody(unmarked(edited), normalizeSourceUrl)
+    const beforeArea = parseAreaBody(unmarked(marked), sourceIdentity)
+    const afterArea = parseAreaBody(unmarked(edited), sourceIdentity)
     if ("error" in beforeArea || "error" in afterArea)
       throw new Error(
         `The area file ${path} has a form that the host cannot read`,
@@ -258,7 +268,7 @@ function withoutSharedSource(
     // can stay.
     if (
       afterArea.rules.some((rule) => rule.sources.has(source)) ||
-      afterArea.notes.some((note) => normalizeSourceUrl(note.source) === source)
+      afterArea.notes.some((note) => note.source === source)
     )
       throw new Error(
         `The retraction of ${path} leaves evidence of the repository`,
@@ -274,9 +284,7 @@ function withoutSharedSource(
     if (!isSeq(listed)) return
     listed.items = listed.items.filter((item) => {
       const value = (item as { value?: unknown }).value
-      return (
-        typeof value !== "string" || others.includes(normalizeSourceUrl(value))
-      )
+      return typeof value !== "string" || others.includes(sourceIdentity(value))
     })
   })
 }
@@ -284,7 +292,7 @@ function withoutSharedSource(
 /** Each delete goes through the patch validator, as a step with a gone root. */
 async function validateDeletes(
   pack: GitPack,
-  sourceUrl: string,
+  source: { sourceUrl: string; sourcePath: string },
   paths: readonly string[],
 ): Promise<void> {
   await withGitDirectory(
@@ -317,7 +325,8 @@ async function validateDeletes(
             stagedDir,
             // A delete stamps no source revision; the Workspace commit
             // stands in.
-            source: { url: sourceUrl, sha: pack.sha },
+            source: { url: source.sourceUrl, sha: pack.sha },
+            sourcePath: source.sourcePath,
             skill: "unlink-retraction",
             bundle: "host",
             sourcePathExists: async () => false,

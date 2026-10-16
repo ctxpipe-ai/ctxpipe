@@ -21,6 +21,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const GIT_ENV = {
   ...process.env,
@@ -93,7 +95,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       links: [],
     })),
     raw,
-    sourceUrl: SOURCE_URL,
+    sourcePath: SOURCE_PATH,
   })
   writeFileSync(
     join(root, "context", `${WORKSPACE_ID}.index.json`),
@@ -151,6 +153,8 @@ function step(source: Record<string, string>, context: Record<string, string>) {
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
         ...args,
@@ -174,6 +178,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
+      sourcePath: SOURCE_PATH,
       skill,
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
@@ -257,7 +262,7 @@ describe("libraries skill", () => {
         kind: "Library",
         name: "Hono",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# Hono\n\nWeb framework.\n\n## Related\n\n- `example-org/shop` uses it in `apps/api` (`apps/api/package.json`: `hono`)\n",
     )
@@ -360,9 +365,9 @@ describe("libraries skill", () => {
     const service = (name: string, sources: string[]) =>
       front({ kind: "Service", name, sources }, `# ${name}\n`)
     const s = step(PNPM_SHOP, {
-      "knowledge/services/api.md": service("API", [SOURCE_URL]),
+      "knowledge/services/api.md": service("API", [SOURCE_PATH]),
       "knowledge/apps/web.md": front(
-        { kind: "App", name: "Web", sources: [SOURCE_URL] },
+        { kind: "App", name: "Web", sources: [SOURCE_PATH] },
         "# Web\n",
       ),
       "knowledge/services/foreign.md": service("Foreign", [
@@ -405,7 +410,7 @@ describe("libraries skill", () => {
   it("finds a knowledge/codebases/ file of kind Repository and adds USES_LIBRARY claims to it", async () => {
     const s = step(PNPM_SHOP, {
       "knowledge/codebases/shop.md": front(
-        { kind: "Repository", name: "shop", sources: [SOURCE_URL] },
+        { kind: "Repository", name: "shop", sources: [SOURCE_PATH] },
         "# shop\n",
       ),
     })
@@ -435,7 +440,7 @@ describe("libraries skill", () => {
       })
       const file = `knowledge/services/s${i}.md`
       services[file] = front(
-        { kind: "Service", name: `S${i}`, sources: [SOURCE_URL] },
+        { kind: "Service", name: `S${i}`, sources: [SOURCE_PATH] },
         `# S${i}\n`,
       )
       map[`apps/s${i}`] = [file]
@@ -499,6 +504,8 @@ describe("libraries skill", () => {
         s.sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
       ],
       { encoding: "utf8", env: GIT_ENV },
     )
@@ -522,7 +529,7 @@ describe("ownership skill", () => {
         kind: "Service",
         name: "API",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
         claims: [
           {
             to: "../codebases/shop.md",
@@ -608,7 +615,7 @@ describe("ownership skill", () => {
           {
             kind: "App",
             name: "Web",
-            sources: [SOURCE_URL],
+            sources: [SOURCE_PATH],
             claims: [
               {
                 to: "../codebases/shop.md",
@@ -764,7 +771,7 @@ describe("ownership skill", () => {
 
   it("sees a claim to a path with a space, so a second run and a second page add no claim", async () => {
     const service = (name: string) =>
-      front({ kind: "Service", name, sources: [SOURCE_URL] }, `# ${name}\n`)
+      front({ kind: "Service", name, sources: [SOURCE_PATH] }, `# ${name}\n`)
     const s = step(
       { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
       {
@@ -834,7 +841,7 @@ describe("ownership skill", () => {
       { ...PNPM_SHOP, CODEOWNERS: "/apps/ @example-org/payments\n" },
       {
         [servicePath]: front(
-          { kind: "Service", name: "Long API", sources: [SOURCE_URL] },
+          { kind: "Service", name: "Long API", sources: [SOURCE_PATH] },
           "# Long API\n",
         ),
       },
@@ -873,7 +880,7 @@ describe("ownership skill", () => {
           "",
         ].join("\n"),
         "knowledge/apps/web.md": front(
-          { kind: "App", name: "Web", sources: [SOURCE_URL] },
+          { kind: "App", name: "Web", sources: [SOURCE_PATH] },
           "# Web\n",
         ),
       },
@@ -906,7 +913,7 @@ describe("ownership skill", () => {
           "",
         ].join("\n"),
         "knowledge/apps/web.md": front(
-          { kind: "App", name: "Web", sources: [SOURCE_URL] },
+          { kind: "App", name: "Web", sources: [SOURCE_PATH] },
           "# Web\n",
         ),
       },
@@ -941,7 +948,7 @@ describe("ownership skill", () => {
             "",
           ].join("\n"),
           "knowledge/apps/web.md": front(
-            { kind: "App", name: "Web", sources: [SOURCE_URL] },
+            { kind: "App", name: "Web", sources: [SOURCE_PATH] },
             "# Web\n",
           ),
         },

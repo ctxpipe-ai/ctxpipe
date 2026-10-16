@@ -21,6 +21,10 @@ import type { PatchRule } from "./patch-validator.js"
 export const FIXTURE_SOURCE_URL = "https://github.com/example-org/checkout-api"
 export const FIXTURE_OTHER_SOURCE_URL =
   "https://github.com/example-org/ledger-api"
+/** The source files of the two repositories in the Workspace (`sources`, ADR-050). */
+export const FIXTURE_SOURCE_PATH = "sources/github/example-org/checkout-api.md"
+export const FIXTURE_OTHER_SOURCE_PATH =
+  "sources/github/example-org/ledger-api.md"
 
 const RLO = "‮"
 const ZWSP = "​"
@@ -92,7 +96,7 @@ export const HOSTILE_CONTEXT: Record<string, string> = {
       kind: "Service",
       name: "Billing",
       generated_by: "ctxpipe-extract",
-      sources: [FIXTURE_SOURCE_URL],
+      sources: [FIXTURE_SOURCE_PATH],
     },
     "# Billing\n\nBills orders.\n",
   ),
@@ -101,7 +105,7 @@ export const HOSTILE_CONTEXT: Record<string, string> = {
       kind: "Library",
       name: "HTTP client",
       generated_by: "ctxpipe-extract",
-      sources: [FIXTURE_SOURCE_URL, FIXTURE_OTHER_SOURCE_URL],
+      sources: [FIXTURE_SOURCE_PATH, FIXTURE_OTHER_SOURCE_PATH],
     },
     "# HTTP client\n\nShared client.\n\n## Related\n\n- [Billing](../services/billing.md)\n",
   ),
@@ -110,7 +114,7 @@ export const HOSTILE_CONTEXT: Record<string, string> = {
       kind: "Library",
       name: "Ledger client",
       generated_by: "ctxpipe-extract",
-      sources: [FIXTURE_OTHER_SOURCE_URL],
+      sources: [FIXTURE_OTHER_SOURCE_PATH],
     },
     "# Ledger client\n\nOwned by the other source.\n",
   ),
@@ -156,7 +160,7 @@ const billing = (body: string) =>
       kind: "Service",
       name: "Billing",
       generated_by: "ctxpipe-extract",
-      sources: [FIXTURE_SOURCE_URL],
+      sources: [FIXTURE_SOURCE_PATH],
     },
     body,
   )
@@ -436,7 +440,7 @@ export const INJECTION_CASES: InjectionCase[] = [
           kind: "Library",
           name: "HTTP client",
           generated_by: "ctxpipe-extract",
-          sources: [FIXTURE_SOURCE_URL],
+          sources: [FIXTURE_SOURCE_PATH],
         },
         "# HTTP client\n\nShared client.\n\n## Related\n\n- [Billing](../services/billing.md)\n",
       ),
@@ -452,7 +456,7 @@ export const INJECTION_CASES: InjectionCase[] = [
           kind: "Library",
           name: "HTTP client",
           generated_by: "ctxpipe-extract",
-          sources: [FIXTURE_SOURCE_URL, FIXTURE_OTHER_SOURCE_URL],
+          sources: [FIXTURE_SOURCE_PATH, FIXTURE_OTHER_SOURCE_PATH],
         },
         "# HTTP client\n\nOnly the checkout API uses this client now.\n",
       ),
@@ -468,7 +472,7 @@ export const INJECTION_CASES: InjectionCase[] = [
           kind: "App",
           name: "Portal",
           generated_by: "ctxpipe-extract",
-          sources: [FIXTURE_SOURCE_URL],
+          sources: [FIXTURE_SOURCE_PATH],
         },
         "# Portal\n\nGenerated now.\n",
       ),
@@ -481,7 +485,7 @@ export const INJECTION_CASES: InjectionCase[] = [
     staged: {
       [CHECKOUT]: service("# Checkout API\n", {
         generated_by: "ctxpipe-extract",
-        sources: [FIXTURE_SOURCE_URL, FIXTURE_OTHER_SOURCE_URL],
+        sources: [FIXTURE_SOURCE_PATH, FIXTURE_OTHER_SOURCE_PATH],
       }),
     },
     rejected: one(CHECKOUT, "front_matter"),

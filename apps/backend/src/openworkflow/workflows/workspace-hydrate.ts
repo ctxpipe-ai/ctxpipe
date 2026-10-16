@@ -275,11 +275,12 @@ export function defineWorkspaceHydrateWorkflow(
                 const plan = await step.run(
                   { name: "plan-remaining-writes" },
                   async () => {
-                    const { files } = await readTree()
+                    const { files, sourceFiles } = await readTree()
                     const remaining = planHydrateWrites({
                       revision,
                       displayName: workspace.displayName,
                       files,
+                      sourceFiles,
                       publishPipeline,
                     })
                     if (await getMigrationExportSha(workspace.id, revision)) {

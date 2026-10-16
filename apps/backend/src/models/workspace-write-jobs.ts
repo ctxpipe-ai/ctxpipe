@@ -510,6 +510,8 @@ export async function persistBoundWriteJob(input: {
   publishPipeline?: "legacy" | "v2"
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
+  /** The removed source file of that repository (ADR-050 revision 2026-10-16). */
+  retractSourcePath?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -533,6 +535,9 @@ export async function persistBoundWriteJob(input: {
         : {}),
       ...(input.retractRepositoryUrl
         ? { retractRepositoryUrl: input.retractRepositoryUrl }
+        : {}),
+      ...(input.retractSourcePath
+        ? { retractSourcePath: input.retractSourcePath }
         : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -580,7 +585,8 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName ||
-      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl
+      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl ||
+      row.payload?.retractSourcePath !== input.retractSourcePath
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {

@@ -20,6 +20,9 @@ import {
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
 const OTHER_SOURCE_URL = "https://github.com/example-org/other-api"
+// The source files of the two repositories: the values of `sources`.
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
+const OTHER_SOURCE_PATH = "sources/github/example-org/other-api.md"
 
 let root: string
 let contextDir: string
@@ -62,7 +65,7 @@ function owned(name: string, body = `# ${name}\n\nOwned prose.\n`) {
       kind: "Service",
       name,
       generated_by: "ctxpipe-extract",
-      sources: [SOURCE_URL],
+      sources: [SOURCE_PATH],
       source_sha: "0".repeat(40),
       skill: "apis",
       bundle: "bundle-0",
@@ -130,7 +133,7 @@ beforeAll(() => {
         kind: "Library",
         name: "Shared",
         generated_by: "ctxpipe-extract",
-        sources: [OTHER_SOURCE_URL],
+        sources: [OTHER_SOURCE_PATH],
       },
       "# Shared\n\nOther source prose.\n",
     ),
@@ -139,7 +142,7 @@ beforeAll(() => {
         kind: "Library",
         name: "Co-owned",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL, OTHER_SOURCE_URL],
+        sources: [SOURCE_PATH, OTHER_SOURCE_PATH],
       },
       "# Co-owned\n",
     ),
@@ -221,6 +224,7 @@ function run(
     baseCommit,
     stagedDir,
     source: { url: SOURCE_URL, sha: sourceSha },
+    sourcePath: SOURCE_PATH,
     skill: "apis",
     bundle: "bundle-1",
     ...gitSource(sourceDir, sourceSha),
@@ -363,7 +367,7 @@ const ruleCases: RuleCase[] = [
           kind: "Library",
           name: "Shared",
           generated_by: "ctxpipe-extract",
-          sources: [OTHER_SOURCE_URL],
+          sources: [OTHER_SOURCE_PATH],
           claims: [
             {
               to: "../services/billing.md",
@@ -379,7 +383,7 @@ const ruleCases: RuleCase[] = [
           kind: "Library",
           name: "Co-owned",
           generated_by: "ctxpipe-extract",
-          sources: [SOURCE_URL, OTHER_SOURCE_URL],
+          sources: [SOURCE_PATH, OTHER_SOURCE_PATH],
         },
         "# Co-owned\n\nRewritten.\n",
       ),
@@ -805,7 +809,7 @@ describe("validatePatchStep human files", () => {
             "name: Portal\ngenerated_by: ctxpipe-extract\n",
           ),
           "knowledge/apps/no-related.md": doc(
-            { kind: "App", name: "No related", sources: [SOURCE_URL] },
+            { kind: "App", name: "No related", sources: [SOURCE_PATH] },
             "# No related\n\nHuman prose.\n",
           ),
         },
@@ -935,7 +939,7 @@ describe("validatePatchStep stamps", () => {
     const front = parseYaml(readTree(result.tree, path).split("---\n")[1] ?? "")
     expect(front).toMatchObject({
       generated_by: "ctxpipe-extract",
-      sources: [SOURCE_URL],
+      sources: [SOURCE_PATH],
       source_sha: sourceSha,
       skill: "apis",
       bundle: "bundle-1",
@@ -1058,8 +1062,8 @@ describe("validatePatchStep stamps", () => {
   it("rejects a change to a host field of an owned file", async () => {
     const path = "knowledge/services/billing.md"
     const changed = readTree(baseCommit, path).replace(
-      `sources:\n  - ${SOURCE_URL}`,
-      `sources:\n  - ${SOURCE_URL}\n  - ${OTHER_SOURCE_URL}`,
+      `sources:\n  - ${SOURCE_PATH}`,
+      `sources:\n  - ${SOURCE_PATH}\n  - ${OTHER_SOURCE_PATH}`,
     )
     const result = await run(stage({ files: { [path]: changed } }))
     expect(rulesOf(result)).toEqual(["front_matter"])
@@ -1372,7 +1376,7 @@ describe("validatePatchStep review fixes", () => {
             ]
               .map(
                 (n) =>
-                  `- Rule ${n}.\n  - topic: \`rule-${n}\` = \`yes\`\n  - source \`${SOURCE_URL}\`, documented: \`src/billing.ts\`\n`,
+                  `- Rule ${n}.\n  - topic: \`rule-${n}\` = \`yes\`\n  - source \`${SOURCE_PATH}\`, documented: \`src/billing.ts\`\n`,
               )
               .join("\n")}`,
           ),
@@ -1387,6 +1391,86 @@ describe("validatePatchStep review fixes", () => {
       "knowledge/instructions/unit-testing.md",
     ])
     expect(rulesOf(result)).toEqual(["front_matter"])
+  })
+})
+
+describe("validatePatchStep ownership by source path (CTX-721 T9)", () => {
+  // `sources` holds the source file path of the repository in the
+  // Workspace (ADR-050 revision 2026-10-16), not the repository URL.
+  const generated = (name: string, sources: string[]) =>
+    doc(
+      {
+        kind: "Service",
+        name,
+        generated_by: "ctxpipe-extract",
+        sources,
+        source_sha: "0".repeat(40),
+        skill: "apis",
+        bundle: "bundle-0",
+      },
+      `# ${name}\n\nOld prose.\n`,
+    )
+  const files = {
+    "knowledge/services/sole.md": generated("Sole", [SOURCE_PATH]),
+    "knowledge/services/shared-path.md": generated("Shared path", [
+      SOURCE_PATH,
+      OTHER_SOURCE_PATH,
+    ]),
+    "knowledge/services/foreign-path.md": generated("Foreign path", [
+      OTHER_SOURCE_PATH,
+    ]),
+    "knowledge/services/by-url.md": generated("By URL", [SOURCE_URL]),
+  }
+
+  it("deletes only a file that lists the run's source path alone", async () => {
+    const base = commitOn(baseCommit, files)
+    const result = await run(stage({ deletes: Object.keys(files), base }), {
+      baseCommit: base,
+      rootGone: true,
+    })
+    expect(result.accepted.map((op) => op.path)).toEqual([
+      "knowledge/services/sole.md",
+    ])
+    expect(result.rejections.map((r) => [r.path, r.rule]).sort()).toEqual([
+      ["knowledge/services/by-url.md", "ownership"],
+      ["knowledge/services/foreign-path.md", "ownership"],
+      ["knowledge/services/shared-path.md", "ownership"],
+    ])
+  })
+
+  it("rewrites a sole file and keeps a file that lists only the repository URL additive", async () => {
+    const base = commitOn(baseCommit, files)
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/sole.md": service("Sole", "# Sole\n\nNew.\n"),
+          "knowledge/services/by-url.md": service(
+            "By URL",
+            "# By URL\n\nNew.\n",
+          ),
+        },
+        base,
+      }),
+      { baseCommit: base },
+    )
+    expect(result.accepted.map((op) => op.path)).toEqual([
+      "knowledge/services/sole.md",
+    ])
+    expect(result.rejections.map((r) => [r.path, r.rule])).toEqual([
+      ["knowledge/services/by-url.md", "additive_only"],
+    ])
+  })
+
+  it("stamps the source path of the run's repository in the destination Workspace", async () => {
+    // Another Workspace can name the same repository with another file.
+    const sourcePath = "sources/github/example-org/checkout-api-main.md"
+    const path = "knowledge/services/other-workspace.md"
+    const result = await run(stage({ files: { [path]: service("Other") } }), {
+      sourcePath,
+    })
+    expect(result.rejections).toEqual([])
+    const front = parseYaml(readTree(result.tree, path).split("---\n")[1] ?? "")
+    expect(front.sources).toEqual([sourcePath])
   })
 })
 
@@ -1571,7 +1655,7 @@ describe("validatePatchStep human sections in front matter", () => {
     const block =
       "<!-- ctxpipe:human -->Keep the retry at 3.<!-- /ctxpipe:human -->"
     const header = (extra = "") =>
-      `---\nkind: Service\nname: Retry\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n${extra}---\n`
+      `---\nkind: Service\nname: Retry\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_PATH}\n${extra}---\n`
     const withBlock = `${header()}\n# Retry\n\nBody.\n\n${block}\n`
     const base = commitOn(baseCommit, {
       "knowledge/services/retry-comment.md": withBlock,
@@ -1658,6 +1742,7 @@ describe("validatePatchStep source budget", () => {
     const meter = { work: 0 }
     const result = await run(stage({ files }), {
       source: { url: SOURCE_URL, sha: bigSha },
+      sourcePath: SOURCE_PATH,
       sourcePathExists: source.sourcePathExists,
       readSourceFile: (path) => {
         reads++
@@ -1695,6 +1780,7 @@ describe("validatePatchStep source budget", () => {
       }),
       {
         source: { url: SOURCE_URL, sha: bigSha },
+        sourcePath: SOURCE_PATH,
         sourcePathExists: async () => true,
         readSourceFile: async () => {
           bytes += text.length
@@ -1770,6 +1856,7 @@ describe("validatePatchStep source budget", () => {
       )
     const result = await run(stage({ files }), {
       source: { url: SOURCE_URL, sha: manySha },
+      sourcePath: SOURCE_PATH,
       ...gitSource(manyDir, manySha),
     })
     expect(result.rejections).toEqual([])
@@ -2112,6 +2199,7 @@ describe("validatePatchStep after the ownership migration", () => {
       "<!-- ctxpipe:human -->\nA human note.\n<!-- /ctxpipe:human -->\n"
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl: "https://github.com/example-org/context",
+      sourcePaths: new Map([[SOURCE_URL, SOURCE_PATH]]),
       files: [
         {
           path,
@@ -2156,6 +2244,7 @@ describe("validatePatchStep after the ownership migration", () => {
   function migratedWithClaims(path: string): string {
     const [migrated] = ownershipMigrationFiles({
       workspaceRepositoryUrl: "https://github.com/example-org/context",
+      sourcePaths: new Map([[SOURCE_URL, SOURCE_PATH]]),
       files: [
         {
           path,

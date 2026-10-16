@@ -7,6 +7,7 @@ import {
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import { planUnlinkRetraction } from "../../domain/ingestion/unlink-retraction.js"
 import { sourcesHaveNoRepository } from "../../domain/workspace-sources/projection-plan.js"
+import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
@@ -53,6 +54,14 @@ export const workspaceUnlinkRetractionInputSchema = z
     revision: workspaceRevisionSchema,
     /** The source repository that left the sources. */
     retractRepositoryUrl: z.string().min(1),
+    /**
+     * The source file of that repository that the merged revision removed
+     * (ADR-050 revision 2026-10-16). The files of the repository list it in
+     * `sources`.
+     */
+    retractSourcePath: z
+      .string()
+      .refine((path) => checkSourcePath(path).ok, "Use a source file path"),
     /**
      * The publish pipeline when the job was queued. Only ingestion v2 owns
      * files that a retraction can remove (ADR-052 section 3). The step that
@@ -126,6 +135,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
               workflowRunId: run.id,
               publishPipeline: input.publishPipeline,
               retractRepositoryUrl: input.retractRepositoryUrl,
+              retractSourcePath: input.retractSourcePath,
             }),
           )
           // A no-op plan is checked against a fresh tip at most 3 times; a
@@ -184,6 +194,7 @@ export function defineWorkspaceUnlinkRetractionWorkflow(
                 const plan = await planUnlinkRetraction({
                   pack: acquired.pack,
                   sourceUrl: input.retractRepositoryUrl,
+                  sourcePath: input.retractSourcePath,
                   workspaceRepositoryUrl: revision.remote.url,
                   observedAt: new Date(run.createdAt).toISOString(),
                 })

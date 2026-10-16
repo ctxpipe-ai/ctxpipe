@@ -75,6 +75,25 @@ export function githubSourceRepositories(
 }
 
 /**
+ * The source file path of each repository that a GitHub source file under
+ * `sources/` declares, by normalized repository URL (ADR-050 revision
+ * 2026-10-16). It reads only the files, as the projection does once the
+ * folder exists; an entry of `.ctxpipe/sources.yaml` has no source path.
+ * Ingestion v2 writes this path into `sources` (ADR-052 section 3).
+ */
+export function githubSourcePathsByRepository(
+  sourceFiles: ReadonlyArray<SourceFileBlob>,
+): Map<string, string> {
+  return new Map(
+    githubSourceRepositories(null, null, sourceFiles).flatMap((declared) =>
+      declared.path.startsWith(SOURCES_FOLDER_PREFIX)
+        ? [[declared.gitUrl, declared.path] as const]
+        : [],
+    ),
+  )
+}
+
+/**
  * The rows in the order that links their repositories: the source files
  * first, then the YAML entries in file order. A source file that can link
  * holds its repository alone (the projection makes a second one invalid),

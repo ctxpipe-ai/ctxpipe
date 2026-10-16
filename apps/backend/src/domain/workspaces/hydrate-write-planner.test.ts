@@ -27,6 +27,7 @@ function plan(files: Array<{ path: string; content: string }>) {
     revision,
     displayName: "Knowledge",
     files: [...bootstrapped, ...files],
+    sourceFiles: [],
     publishPipeline: "legacy",
   })
 }
@@ -76,11 +77,21 @@ const migrationFiles = [
   },
 ]
 
-function ownershipRemainder(publishPipeline: "legacy" | "v2") {
+// The GitHub source file that declares the repository of the old files.
+const billingSource = {
+  path: "sources/github/acme/billing.md",
+  text: "---\nprovider: github\nconnection: con_1\nrepository: acme/billing\n---\n",
+}
+
+function ownershipRemainder(
+  publishPipeline: "legacy" | "v2",
+  sourceFiles = [billingSource],
+) {
   return planHydrateWrites({
     revision: migrationRevision,
     displayName: "Context",
     files: migrationFiles,
+    sourceFiles,
     publishPipeline,
   }).find((write) => write.kind === "ownership_migration")
 }
@@ -95,5 +106,9 @@ describe("hydrate write plan for the ownership migration", () => {
 
   it("plans no migration while the old pipeline publishes", () => {
     expect(ownershipRemainder("legacy")).toBeUndefined()
+  })
+
+  it("plans no migration when no source file names the repository", () => {
+    expect(ownershipRemainder("v2", [])).toBeUndefined()
   })
 })

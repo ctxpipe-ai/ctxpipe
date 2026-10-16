@@ -1,4 +1,5 @@
 import { isMap, isScalar, isSeq } from "yaml"
+import { checkSourcePath } from "../workspace-sources/source-file.js"
 import { updateKnowledgeMetadata } from "../workspaces/knowledge-metadata.js"
 import { parseSimpleFrontMatter } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -21,8 +22,9 @@ const V2_KEYS = new Set([
  * The one-time ownership migration at the switch (ADR-052 section 3, CTX-584
  * T22). A file that the old pipeline wrote has `generated_by: ctxpipe` and a
  * `source` URL in its source repository. This write gives the file to
- * ingestion v2: `generated_by: ctxpipe-extract` and that repository in
- * `sources`. The front matter gets the shape that the ingestion v2 validator
+ * ingestion v2: `generated_by: ctxpipe-extract` and, in `sources`, the path
+ * of the source file that declares that repository in the Workspace
+ * (`sourcePaths`, ADR-050 revision 2026-10-16). The front matter gets the shape that the ingestion v2 validator
  * accepts, so a later v2 edit that keeps it passes:
  *
  * - It removes each key that ingestion v2 does not know (`import_key`,
@@ -41,10 +43,18 @@ const V2_KEYS = new Set([
  * file with no `generated_by: ctxpipe` (a human took it over, or ingestion v2
  * already owns it) does not change. A file with no absolute source URL, or
  * with the Workspace repository as its source, does not change either: no
- * ingestion v2 source can own it (ADR-052 section 3).
+ * ingestion v2 source can own it (ADR-052 section 3). A file whose source
+ * repository has no source file in the Workspace does not change: no source
+ * path can own it. It moves when a source file names the repository.
  */
 export function ownershipMigrationFiles(input: {
   workspaceRepositoryUrl: string
+  /**
+   * The source file path of each repository that a GitHub source file of
+   * the Workspace declares, by normalized repository URL
+   * (`githubSourcePathsByRepository`).
+   */
+  sourcePaths: ReadonlyMap<string, string>
   files: ReadonlyArray<{ path: string; content: string }>
   onDroppedClaim?: (drop: {
     path: string
@@ -60,15 +70,21 @@ export function ownershipMigrationFiles(input: {
     if (!file.path.startsWith("knowledge/") || !file.path.endsWith(".md"))
       continue
     const sourceUrl = legacySourceUrl(file.content, workspaceUrl)
-    if (!sourceUrl) continue
+    const sourcePath = sourceUrl ? input.sourcePaths.get(sourceUrl) : undefined
+    if (!sourcePath) continue
     out.push({
       path: file.path,
       content: updateKnowledgeMetadata(file.content, (document) => {
         const sources = document.get("sources", true)
+        // A value that is not a source path (an old URL) names no source.
         const listed = isSeq(sources)
-          ? sources.toJSON().filter((s): s is string => typeof s === "string")
+          ? sources
+              .toJSON()
+              .filter(
+                (s): s is string =>
+                  typeof s === "string" && checkSourcePath(s).ok,
+              )
           : []
-        const known = new Set(listed.map(normalizeWorkspaceRepositoryUrl))
         const claims = legacyClaims(
           document.get("claims", true),
           document.get("confidence"),
@@ -95,7 +111,7 @@ export function ownershipMigrationFiles(input: {
         document.set("generated_by", "ctxpipe-extract")
         document.set(
           "sources",
-          known.has(sourceUrl) ? listed : [...listed, sourceUrl],
+          listed.includes(sourcePath) ? listed : [...listed, sourcePath],
         )
       }),
     })
