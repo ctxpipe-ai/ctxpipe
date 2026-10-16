@@ -7,7 +7,15 @@ import { setTimeout as delay } from "node:timers/promises"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import {
   closeDb,
@@ -80,6 +88,27 @@ const credentials = {
 }
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer()
+
+// Every start checks the CA bundle (CTX-727); here the bundle is whole.
+beforeEach(() => {
+  server.use(
+    http.post(`${API}/sessions/:id/cmd`, ({ params }) => {
+      const command = {
+        id: "cmd_ca",
+        name: "sh",
+        args: [],
+        cwd: "/vercel/sandbox",
+        sessionId: String(params.id),
+        startedAt: 1,
+      }
+      const line = (exitCode: number | null) =>
+        `${JSON.stringify({ command: { ...command, exitCode } })}\n`
+      return new HttpResponse(line(null) + line(0), {
+        headers: { "content-type": "application/x-ndjson" },
+      })
+    }),
+  )
+})
 
 const orgId = generateObjectId("org")
 const DAY = 24 * 60 * 60_000
