@@ -64,11 +64,28 @@ function gitDatabase(
   )
 }
 
+/** The format file of a Workspace at the newest format. */
+const FORMAT_FILE = { ".ctxpipe/workspace.yaml": "format: 3\n" }
+
 /**
  * GitHub's tree listing and file contents for the default branch: `files` is
- * every file of the Workspace repository, by path.
+ * every file of the Workspace repository, by path. The format file is at the
+ * newest format unless `files` names it, or `format: null` removes it.
  */
-function repositoryFiles(files: Record<string, string>) {
+function repositoryFiles(
+  given: Record<string, string>,
+  options: { format?: string | null } = {},
+) {
+  const files: Record<string, string> =
+    options.format === null
+      ? { ...given }
+      : {
+          ...FORMAT_FILE,
+          ...(options.format === undefined
+            ? {}
+            : { ".ctxpipe/workspace.yaml": options.format }),
+          ...given,
+        }
   return [
     http.get(
       "https://api.github.com/repos/fixture/hydration-contract/git/trees/:sha",
@@ -198,7 +215,7 @@ it(
 )
 
 it(
-  "refuses each source writer on a Workspace below format 2 and writes nothing",
+  "refuses each source writer when git has no format file or format 1, also when the cache is null or stale",
   { timeout: 60_000 },
   async () => {
     const gitWrites: Array<{ method: string; path: string; body: unknown }> = []
@@ -210,7 +227,6 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/pulls",
             () => HttpResponse.json([]),
           ),
-          ...repositoryFiles({}),
           gitDatabase("a".repeat(40), gitWrites),
         )
         const linear = await addLinearConnection(f)
@@ -221,7 +237,16 @@ it(
           connectionId: linear,
           scope: { teams: ["ENG"] },
         }
-        for (const formatVersion of [0, 1]) {
+        // Git decides, not the cache: a null cache (hydrate has not read the
+        // file yet) and a stale cache of format 3 do not let a write through.
+        const cases: Array<{ format: string | null; cache: number | null }> = [
+          { format: null, cache: null },
+          { format: "format: 1\n", cache: null },
+          { format: "format: 1\n", cache: 3 },
+          { format: null, cache: 0 },
+        ]
+        for (const { format, cache: formatVersion } of cases) {
+          f.server.use(...repositoryFiles({}, { format }))
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(workspaces)
@@ -1045,10 +1070,13 @@ it(
             "https://api.github.com/repos/fixture/hydration-contract/contents/*",
             ({ params }) => {
               reads.push(String(params[0]))
-              return HttpResponse.json(
-                { message: "Not found" },
-                { status: 404 },
-              )
+              return String(params[0]) === ".ctxpipe/workspace.yaml"
+                ? HttpResponse.json({
+                    type: "file",
+                    encoding: "base64",
+                    content: Buffer.from("format: 3\n").toString("base64"),
+                  })
+                : HttpResponse.json({ message: "Not found" }, { status: 404 })
             },
           ),
           gitDatabase("a".repeat(40)),
@@ -1085,9 +1113,15 @@ it(
               },
             })
           }),
-        ).rejects.toMatchObject({ status: 409 })
-        // Only the path of the new file is read.
-        expect(reads).toEqual(["sources/github/acme/web.md"])
+        ).rejects.toMatchObject({
+          status: 409,
+          message: expect.not.stringContaining("Upgrade this Workspace first"),
+        })
+        // Only the format file and the path of the new file are read.
+        expect(reads).toEqual([
+          ".ctxpipe/workspace.yaml",
+          "sources/github/acme/web.md",
+        ])
       },
     )
   },
