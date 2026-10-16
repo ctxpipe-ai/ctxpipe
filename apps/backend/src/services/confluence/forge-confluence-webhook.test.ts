@@ -13,7 +13,6 @@ vi.mock("../../db/client.js", () => ({
 
 vi.mock("../../models/confluence-sync-target.js", () => ({
   getConfluenceSyncTargetWithRepoByConnectionId: vi.fn(),
-  isConfluenceTargetHandedOver: vi.fn().mockResolvedValue(false),
 }))
 
 vi.mock("../../openworkflow/client.js", () => ({
@@ -29,10 +28,7 @@ vi.mock("./confluence-setup-reset.js", () => ({
   resetConfluenceConnectorAfterMissingConfig: resetMock,
 }))
 
-import {
-  getConfluenceSyncTargetWithRepoByConnectionId,
-  isConfluenceTargetHandedOver,
-} from "../../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
 import { handleForgeConfluenceContentEvent } from "./forge-confluence-webhook.js"
 
@@ -87,32 +83,5 @@ describe("handleForgeConfluenceContentEvent", () => {
 
     expect(result).toBe("skipped")
     expect(resetMock).not.toHaveBeenCalled()
-  })
-
-  it("skips the legacy sync when Workspace sources own the repository", async () => {
-    vi.mocked(getConfluenceSyncTargetWithRepoByConnectionId).mockResolvedValue({
-      enabled: true,
-      setupPhase: "live",
-      githubConnectionId: "ghc_1",
-      repositoryName: "o/r",
-      repositoryGitUrl: "https://github.com/o/r.git",
-      branch: "main",
-    } as never)
-    vi.mocked(isConfluenceTargetHandedOver).mockResolvedValueOnce(true)
-
-    const result = await handleForgeConfluenceContentEvent({
-      orgId: "org_1",
-      connectionId: "con_1",
-      env,
-      spaceKey: "ENG",
-    })
-
-    expect(result).toBe("skipped")
-    expect(isConfluenceTargetHandedOver).toHaveBeenCalledWith({
-      orgId: "org_1",
-      repositoryGitUrl: "https://github.com/o/r.git",
-    })
-    expect(loadConfluenceScopeFromRepo).not.toHaveBeenCalled()
-    expect(runWorkflowMock).not.toHaveBeenCalled()
   })
 })

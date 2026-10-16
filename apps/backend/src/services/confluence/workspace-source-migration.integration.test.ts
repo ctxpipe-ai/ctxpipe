@@ -4,6 +4,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { isLegacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import {
   parseSourceEntry,
@@ -11,12 +12,10 @@ import {
 } from "../../domain/workspace-sources/sources-file.js"
 import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
 import { applySourcesYamlChange } from "../../domain/workspace-sources/sources-yaml-edit.js"
-import {
-  getConfluenceSyncTargetWithRepoByConnectionId,
-  isConfluenceTargetHandedOver,
-} from "../../models/confluence-sync-target.js"
+import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { handleForgeConfluenceContentEvent } from "./forge-confluence-webhook.js"
 import { confluenceSourceMigrationHook } from "./workspace-source-migration.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
@@ -165,8 +164,9 @@ describe("Confluence source migration hook (Postgres)", () => {
       })
     })
     const handedOver = () =>
-      isConfluenceTargetHandedOver({
+      isLegacyBindingHandedOver("confluence", {
         orgId: seed.orgId,
+        connectionId: forge,
         repositoryGitUrl: gitUrl,
       })
     expect(await handedOver()).toBe(false)
@@ -192,6 +192,15 @@ describe("Confluence source migration hook (Postgres)", () => {
       ],
     })
     expect(await handedOver()).toBe(true)
+    // A Forge event stops before it reads the repository or Confluence.
+    expect(
+      await handleForgeConfluenceContentEvent({
+        orgId: seed.orgId,
+        connectionId: forge,
+        env: parseEnv(process.env),
+        spaceKey: "ENG",
+      }),
+    ).toBe("skipped")
 
     // --apply turns the legacy target off.
     await confluenceSourceMigrationHook.disableLegacy?.({
