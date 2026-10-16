@@ -150,6 +150,7 @@ import {
   listFilesInTree,
   listFilesInTreeWithMetadata,
   listOpenPullRequestsByBranchPrefix,
+  listOpenRepositoryPullRequestsByBranchPrefix,
   mergePullRequest,
 } from "./installation-write-client.js"
 
@@ -428,6 +429,61 @@ describe("listOpenPullRequestsByBranchPrefix", () => {
       "https://github.com/acme/context/pull/12",
     ])
     expect(heads).toEqual([`acme:${branch}`])
+  })
+})
+
+describe("listOpenRepositoryPullRequestsByBranchPrefix", () => {
+  const PULLS = "https://api.github.com/repos/acme/context/pulls"
+
+  beforeEach(() => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: new Octokit({
+        auth: "test-token",
+        throttle: { enabled: false },
+      }),
+      appBotLogin: async () => "ctxpipe[bot]",
+    })
+  })
+
+  it("marks as ours only a pull request in this repository by the ctx| App bot, and not one of another App", async () => {
+    const branch = "ctxpipe/upgrade/format-3"
+    const pull = (
+      number: number,
+      repo: string,
+      type: string,
+      login: string,
+    ) => ({
+      number,
+      html_url: `https://github.com/acme/context/pull/${number}`,
+      head: { ref: branch, repo: { full_name: repo } },
+      user: { type, login },
+      created_at: "2026-10-11T00:00:00Z",
+    })
+    server.use(
+      http.get(PULLS, () =>
+        HttpResponse.json([
+          pull(1, "acme/context", "Bot", "ctxpipe[bot]"),
+          pull(2, "acme/context", "Bot", "other-app[bot]"),
+          pull(3, "acme/context", "User", "ctxpipe[bot]"),
+          pull(4, "someone/context", "Bot", "ctxpipe[bot]"),
+        ]),
+      ),
+    )
+    const pulls = await listOpenRepositoryPullRequestsByBranchPrefix({
+      orgId: "org_1",
+      repositoryName: "acme/context",
+      githubConnectionId: "con_github",
+      env: {} as Env,
+      branchPrefix: branch,
+    })
+    expect(
+      pulls.map((item) => [item.pullUrl.split("/").pop(), item.ours]),
+    ).toEqual([
+      ["1", true],
+      ["2", false],
+      ["3", false],
+    ])
   })
 })
 
