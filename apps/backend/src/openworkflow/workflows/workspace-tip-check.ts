@@ -29,6 +29,7 @@ import {
   jobSandboxesDueForDestroy,
 } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { cleanUpWorkspaceIngestRefs } from "../../domain/workspaces/write-broker.js"
+import { enqueueInputFromPausedJob } from "../../domain/workspaces/write-job-intent.js"
 import { resumePausedWriteJobs } from "../../domain/workspaces/write-job-resume.js"
 import {
   nextPersistedWriteProbe,
@@ -46,6 +47,7 @@ import {
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
+  reconcileStaleWriteJobs,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -149,6 +151,29 @@ export const workspaceTipCheck = defineWorkflow(
             },
             log: quietLog,
           })
+          // A job that stays `queued` or `running` for an hour lost its run, or its
+          // run ended and nothing recorded that. Record a failed run on the
+          // job, and queue a job that has no run again with its own id.
+          const lost = await reconcileStaleWriteJobs(
+            workspace.id,
+            new Date(Date.now() - 60 * 60 * 1000),
+          )
+          for (const job of lost) {
+            if (
+              job.generation !== workspace.desiredGeneration ||
+              (job.payload?.jobWorkspaceUrl ??
+                workspace.workspaceRepositoryUrl) !==
+                workspace.workspaceRepositoryUrl
+            )
+              continue
+            pending.push(
+              enqueueInputFromPausedJob({
+                orgId: input.orgId,
+                workspaceId: workspace.id,
+                job,
+              }),
+            )
+          }
           return pending
         })
         writeCommitsToEnqueue.push(...claimed)
@@ -251,6 +276,25 @@ export const workspaceTipCheck = defineWorkflow(
               writeStatus: writeStatusById.get(workspace.id),
             }))
         ) {
+          // A run can also fail after it stores the tip and before it queues
+          // the index and commit projection jobs below. Queue them again with
+          // the same rule and hour as the hydrate.
+          if (
+            servedSha(projection, desired) !== desired.sha &&
+            !updated.some((item) => item.workspaceId === workspace.id)
+          ) {
+            const key = `${desired.workspaceId}:${desired.generation}:${desired.defaultBranch}:${desired.sha}:${hour}`
+            await enqueueWorkspaceIndex(
+              { orgId: input.orgId, revision: { ...desired, access: "read" } },
+              quietLog,
+              { idempotencyKey: `workspace-tip-index:${key}` },
+            )
+            await enqueueWorkspaceCommitProjection(
+              { orgId: input.orgId, workspaceId: workspace.id },
+              quietLog,
+              { idempotencyKey: `workspace-tip-commits:${key}` },
+            )
+          }
           await enqueueWorkspaceHydrate(
             { orgId: input.orgId, workspaceId: workspace.id },
             { error: () => undefined },

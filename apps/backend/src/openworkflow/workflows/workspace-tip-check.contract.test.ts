@@ -561,3 +561,159 @@ describe("cron write probe on a GitHub error", () => {
     },
   )
 })
+
+/** The runs of one workflow whose input names this Workspace. */
+async function workspaceRuns(f: NativeHydrationFixture, workflowName: string) {
+  const backend = await BackendPostgres.connect(f.databaseUrl, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
+  try {
+    return (await backend.listWorkflowRuns({ limit: 1000 })).data.filter(
+      (run) => {
+        const input = run.input as {
+          workspaceId?: string
+          revision?: { workspaceId?: string }
+        }
+        return (
+          run.workflowName === workflowName &&
+          (input?.workspaceId ?? input?.revision?.workspaceId) === f.workspaceId
+        )
+      },
+    )
+  } finally {
+    await backend.stop()
+  }
+}
+
+/** Make the write jobs of the fixture Workspace two hours old. */
+async function ageWriteJobs(f: NativeHydrationFixture) {
+  await withOrgDbContext(f.org.id, (db) =>
+    db
+      .update(workspaceWriteJobs)
+      .set({
+        createdAt: sql`now() - interval '2 hours'`,
+        updatedAt: sql`now() - interval '2 hours'`,
+      })
+      .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
+  )
+}
+
+it(
+  "cron queues a stale write job again when the process stopped before it queued the run",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const jobId = `wjob_lost_${f.id}`
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(workspaceWriteJobs).values({
+            id: jobId,
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            kind: "migration_export",
+            generation: 1,
+            desiredSha: f.sha,
+            status: "queued",
+            payload: { jobWorkspaceUrl: f.workspaceUrl },
+          }),
+        )
+        await ageWriteJobs(f)
+
+        await runTipCheck(f)
+        expect(
+          await workspaceRuns(f, "workspace-write-migration-export"),
+        ).toEqual([
+          expect.objectContaining({
+            input: expect.objectContaining({ jobId }),
+          }),
+        ])
+      },
+    )
+  },
+)
+
+it(
+  "cron records the failed run of a stale migration export and queues a new export",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        await runTipCheck(f)
+        const [first] = await workspaceRuns(
+          f,
+          "workspace-write-migration-export",
+        )
+        if (!first) throw new Error("Expected a migration export run")
+        const firstJobId = (first.input as { jobId: string }).jobId
+        // The run failed before its claim step, so the job stays `queued`.
+        await getSystemDb().execute(
+          sql`update openworkflow.workflow_runs set status = 'failed', finished_at = now() where id = ${first.id}`,
+        )
+        await ageWriteJobs(f)
+
+        await runTipCheck(f)
+        const [job] = await withOrgDbContext(f.org.id, (db) =>
+          db
+            .select({ status: workspaceWriteJobs.status })
+            .from(workspaceWriteJobs)
+            .where(eq(workspaceWriteJobs.id, firstJobId)),
+        )
+        expect(job).toEqual({ status: "failed" })
+        const runs = await workspaceRuns(f, "workspace-write-migration-export")
+        expect(runs.map((run) => run.status).sort()).toEqual([
+          "failed",
+          "pending",
+        ])
+
+        // The new export is live, so a third run queues no other export.
+        await runTipCheck(f)
+        expect(
+          await workspaceRuns(f, "workspace-write-migration-export"),
+        ).toHaveLength(2)
+      },
+    )
+  },
+)
+
+it(
+  "cron queues the index and commit projection jobs of a tip that an earlier failed run stored",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const sha = pushSourcesFile(f)
+        // The keys hold the UTC hour. Start well before the hour ends.
+        const leftInHour = 3_600_000 - (Date.now() % 3_600_000)
+        if (leftInHour < 30_000)
+          await new Promise((resolve) => setTimeout(resolve, leftInHour + 1000))
+        // The failed run stored the tip in `desired_sha`, then stopped.
+        expect((await f.resolveRevision(true)).sha).toBe(sha)
+        const tipJobs = async () => ({
+          index: (await workspaceRuns(f, "workspace-index")).filter(
+            (run) =>
+              (run.input as { revision?: { sha?: string } }).revision?.sha ===
+              sha,
+          ).length,
+          commits: (
+            await workspaceRuns(f, "workspace-commit-projection")
+          ).filter((run) =>
+            run.idempotencyKey?.startsWith("workspace-tip-commits:"),
+          ).length,
+        })
+
+        await runTipCheck(f)
+        expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
+        // The hydrate is in flight, and the keys hold the hour.
+        await runTipCheck(f)
+        expect(await tipJobs()).toEqual({ index: 1, commits: 1 })
+      },
+    )
+  },
+)
