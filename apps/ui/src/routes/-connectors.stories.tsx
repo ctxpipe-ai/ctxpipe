@@ -495,10 +495,13 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    const heading = await page.findByRole("heading", {
-      name: "Set up Confluence connector",
-    })
-    await waitFor(() => expect(heading).toBeVisible())
+    // The dialog can mount again while the status loads, which detaches the
+    // first heading. Query again on each try, so the check reads the live one.
+    await waitFor(() =>
+      expect(
+        page.getByRole("heading", { name: "Set up Confluence connector" }),
+      ).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: {
