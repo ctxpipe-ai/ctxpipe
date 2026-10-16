@@ -1,0 +1,26 @@
+name: FalkorDB with memory overcommit enabled
+description: >
+  Start FalkorDB on port 6379 after the runner enables vm.overcommit_memory.
+  A service container cannot do this, because the setting belongs to the host
+  kernel. Without it, Redis warns that it can fail without low memory, and
+  FalkorDB once stopped answering any command (INFO included) at 0 percent CPU
+  right after it logged "Ready to accept connections". The wait below runs a
+  real GRAPH.QUERY. It fails with the container log and does not retry.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo sysctl -w vm.overcommit_memory=1
+        docker run -d --name falkordb -p 6379:6379 \
+          --health-cmd "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'" \
+          --health-interval 5s --health-timeout 5s --health-retries 12 \
+          falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
+        for _ in $(seq 1 24); do
+          status=$(docker inspect --format '{{.State.Health.Status}}' falkordb)
+          [ "$status" = healthy ] && exit 0
+          sleep 5
+        done
+        echo "::error::FalkorDB was not healthy after 120 s"
+        docker logs falkordb
+        exit 1
