@@ -19,6 +19,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSurface } from "./WorkspaceSurface"
@@ -1524,6 +1528,7 @@ function deleteFlowHandlers(remaining: (typeof docsWorkspace)[]) {
       },
     ),
     workspaceSourcesHandler(workspaceSourceList()),
+    workspaceUpgradesHandler(upgradesFixture([])),
     orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
     githubInstallationReposHandler(),
     ...workspaceShellHandlers({ workspaces: [docsWorkspace, ...remaining] }),
