@@ -38,6 +38,9 @@ describe("dest Workspace SQL migration (Postgres)", () => {
     await admin.query(`CREATE DATABASE "${database}"`)
     ownerUrl.pathname = `/${database}`
     db = new pg.Client({ connectionString: ownerUrl.toString() })
+    // DROP DATABASE ... WITH (FORCE) in afterAll can end a socket that
+    // db.end() has not closed yet. An "error" event with no listener throws.
+    db.on("error", (error) => console.warn("Client error at teardown", error))
     await db.connect()
   }, 60_000)
 

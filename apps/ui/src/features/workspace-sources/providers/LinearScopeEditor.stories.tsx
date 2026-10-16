@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -102,9 +102,11 @@ export const EditsAnExistingScope: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("checkbox", { name: /Operations/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: /Operations/ }),
+      ).toBeChecked(),
+    )
     const missing = canvas.getByRole("checkbox", { name: /OLD/ })
     await expect(missing).toBeChecked()
     await expect(canvas.getByText("Not found in Linear")).toBeVisible()
@@ -125,9 +127,11 @@ export const LoadError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Could not load the Linear teams and projects."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Could not load the Linear teams and projects."),
+      ).toBeVisible(),
+    )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }

@@ -7,7 +7,7 @@ import {
   RouterProvider,
 } from "@tanstack/react-router"
 import { useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { OrgGateError } from "./OrgGateError"
 import { OrgOutletError } from "./OrgOutletError"
 
@@ -44,9 +44,11 @@ export const OrgGateTryAgainLoads: Story = {
   render: () => <OrgGateRetryRouter />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Session check failed (504)")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Session check failed (504)")).toBeVisible(),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Try again" }))
-    expect(await canvas.findByText("Org page")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Org page")).toBeVisible())
   },
 }
 

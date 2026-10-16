@@ -52,10 +52,10 @@ describe("runMigrations", () => {
     ownerUrl.pathname = `/${database}`
     databaseUrl = ownerUrl.toString()
     pool = new pg.Pool({ connectionString: databaseUrl })
-    // DROP DATABASE ... WITH (FORCE) can end a connection that pool.end() is
-    // still closing. That FATAL 57P01 has no listener once the pool lets go
-    // of the client, and vitest reports it as an unhandled error.
-    pool.on("connect", (client) => client.on("error", () => {}))
+    // DROP DATABASE ... WITH (FORCE) in afterAll can end a socket that
+    // pool.end() has not closed yet. The pool re-emits that FATAL 57P01 as a
+    // pool "error" event, which throws when nothing listens.
+    pool.on("error", (error) => console.warn("Pool error at teardown", error))
   })
 
   afterAll(async () => {

@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceHydrateProgress } from "./WorkspaceHydrateProgress"
@@ -76,7 +76,9 @@ export const PrepareFailed: Story = {
   tags: ["workspace-golden"],
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Prepare failed")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Prepare failed")).toBeVisible(),
+    )
     expect(
       canvas.getByText(/Change the Workspace repository in settings/),
     ).toBeVisible()
@@ -106,7 +108,9 @@ export const PreparePendingWithError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Prepare failed")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Prepare failed")).toBeVisible(),
+    )
     expect(
       canvas.getByText(
         "Could not resolve the git tip for this workspace repository.",
@@ -128,7 +132,9 @@ export const PrepareNoAccess: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Prepare failed")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Prepare failed")).toBeVisible(),
+    )
     expect(
       canvas.getByText(/Connect GitHub to this Workspace, then retry/),
     ).toBeVisible()

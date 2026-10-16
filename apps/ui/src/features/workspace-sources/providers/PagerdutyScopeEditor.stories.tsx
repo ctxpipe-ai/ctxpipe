@@ -59,7 +59,7 @@ type Story = StoryObj<typeof meta>
 export const SelectServices: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(canvas.getByText("Select at least one service.")).toBeVisible()
     await userEvent.click(
       await canvas.findByRole("checkbox", { name: "checkout-api" }),
@@ -84,9 +84,11 @@ export const SearchKeepsTheSelection: Story = {
   args: { label: "On-call", initialScope: { services: ["PSVC001"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByRole("checkbox", { name: "checkout-api" }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: "checkout-api" }),
+      ).toBeChecked(),
+    )
     await userEvent.type(
       canvas.getByRole("searchbox", {
         name: "Search PagerDuty services for On-call",

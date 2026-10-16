@@ -363,14 +363,22 @@ export const RootFolder: Story = {
 
     await userEvent.clear(field)
     await userEvent.type(field, "../secrets")
-    await expect(
-      await canvas.findByText(/use a relative folder path/i),
-    ).toBeVisible()
-    await expect(save).toBeDisabled()
+    await waitFor(() =>
+      expect(canvas.getByText(/use a relative folder path/i)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /save root folder/i }),
+      ).toBeDisabled(),
+    )
 
     await userEvent.clear(field)
     await userEvent.type(field, "handbook/context/")
-    await expect(save).toBeEnabled()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /save root folder/i }),
+      ).toBeEnabled(),
+    )
     await userEvent.click(save)
     await waitFor(() =>
       expect(rootFolderPatches).toEqual([{ rootPath: "handbook/context" }]),
@@ -495,13 +503,20 @@ export const DeleteConfirmOpen: Story = {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("alertdialog")
     const scoped = within(dialog)
-    const confirm = scoped.getByRole("button", { name: "Delete Workspace" })
     expect(scoped.getByPlaceholderText("Docs")).toBeInTheDocument()
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Wrong")
-    expect(confirm).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        scoped.getByRole("button", { name: "Delete Workspace" }),
+      ).toBeDisabled(),
+    )
     await userEvent.clear(scoped.getByLabelText("Workspace name"))
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Docs")
-    expect(confirm).toBeEnabled()
+    await waitFor(() =>
+      expect(
+        scoped.getByRole("button", { name: "Delete Workspace" }),
+      ).toBeEnabled(),
+    )
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()

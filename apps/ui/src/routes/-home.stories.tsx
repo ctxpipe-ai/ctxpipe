@@ -40,13 +40,13 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
     expect(
@@ -79,14 +79,16 @@ export const WorkspacesLoading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
-    expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Select workspace")).toBeVisible(),
+    )
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
     expect(
       canvas.queryByRole("button", { name: "Create Workspace" }),
@@ -132,16 +134,18 @@ export const Empty: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
-    expect(
-      await canvas.findByRole("button", { name: "Create Workspace" }),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Create Workspace" }),
+      ).toBeVisible(),
+    )
     // The activity of the organization shows, empty.
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
     await waitFor(() =>
@@ -166,22 +170,22 @@ export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     const activityHeading = await canvas.findByText("Activity")
     expect(activityHeading).toBeVisible()
     expect(activityHeading).toHaveClass("tracking-normal")
     expect(activityHeading).not.toHaveClass("ctx-label")
     expect(canvas.getByText("Recent")).toHaveClass("tracking-normal")
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: homeRoute,
@@ -199,13 +203,13 @@ export const ActivityLoading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByLabelText("Select workspace")).toBeVisible()
     expect(await canvas.findByText("Loading activity")).toBeInTheDocument()
     expect(canvas.queryByText("Loading…")).not.toBeInTheDocument()
@@ -235,14 +239,16 @@ export const FirstMessageOpensConversation: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
-    expect(await canvas.findByLabelText("Select workspace")).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Select workspace")).toBeVisible(),
+    )
     // The composer mounts again when the workspace list loads, so read the
     // current text box each time, not the first one found.
     const input = await waitFor(
@@ -273,16 +279,18 @@ export const NoHistory: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
-    expect(
-      await canvas.findByText("No commits on the default branch yet."),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: homeRoute,

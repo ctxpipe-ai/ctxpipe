@@ -74,9 +74,9 @@ export const Forbidden: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Admin or owner required"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Admin or owner required")).toBeVisible(),
+    )
     await expect(canvas.queryByText("ci-mcp")).toBeNull()
   },
 }
@@ -101,10 +101,12 @@ export const CreateNamedKey: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The card renders after the organization loads, and the key list after its skeleton.
-    await expect(
-      await canvas.findByText(/For CI and shared agents\./),
-    ).toBeVisible()
-    await expect(await canvas.findByText("No organization keys")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/For CI and shared agents\./)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("No organization keys")).toBeVisible(),
+    )
     await expect(
       canvas.getByRole("link", { name: "Use a personal key instead." }),
     ).toBeVisible()
@@ -144,7 +146,7 @@ export const RevokeKey: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(await canvas.findByText("ci-mcp")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("ci-mcp")).toBeVisible())
     await userEvent.click(canvas.getByRole("button", { name: /Revoke/i }))
     // A modal renders in a portal outside the canvas element.
     const page = within(canvasElement.ownerDocument.body)

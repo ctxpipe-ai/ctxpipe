@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import {
   orgApiKeysListEmptyHandler,
   orgApiKeysListForbiddenHandler,
@@ -75,7 +75,9 @@ export const ApiKeysEmpty: Story = {
       name: "Organization settings",
     })
     await expect(nav).toHaveTextContent("API Keys")
-    await expect(await canvas.findByText("No organization keys")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("No organization keys")).toBeVisible(),
+    )
   },
 }
 
