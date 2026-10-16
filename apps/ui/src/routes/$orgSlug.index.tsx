@@ -16,6 +16,7 @@ import {
   WorkspaceActivity,
 } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
+import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -97,6 +98,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (
     <>
+      <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}
       {guideCard}
     </>

@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
@@ -9,6 +9,7 @@ import { getAuth } from "../../auth/config.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
+  members,
   oauthAccessTokens,
   oauthClients,
   sessions,
@@ -380,6 +381,29 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       expect(response.status).toBe(route.expectedStatus)
     })
   }
+
+  it("refuses a plain org member at the admin check on POST /workspaces/{slug}/upgrades/{key}/start", async () => {
+    const s = requireSeed()
+    const db = getSystemDb()
+    const ownerOfSeed = and(
+      eq(members.organizationId, s.orgId),
+      eq(members.userId, s.userId),
+    )
+    await db.update(members).set({ role: "member" }).where(ownerOfSeed)
+    try {
+      await expectOrgAdminRefusal(
+        await send(
+          {
+            method: "POST",
+            path: "/workspaces/missing-ws/upgrades/format-3/start",
+          },
+          { cookie: s.cookie },
+        ),
+      )
+    } finally {
+      await db.update(members).set({ role: "owner" }).where(ownerOfSeed)
+    }
+  })
 
   for (const { path, expectedStatus } of READ_ROUTES) {
     it(`still serves GET ${path} to a ctxpipe:read OAuth token and a personal API key`, async () => {

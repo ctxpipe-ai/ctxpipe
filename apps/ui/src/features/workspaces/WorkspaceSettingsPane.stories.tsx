@@ -13,6 +13,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -56,6 +60,7 @@ const meta = {
           workspaceSourcesHandler(workspaceSourceList()),
           orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
         ],
+        upgrades: [workspaceUpgradesHandler(upgradesFixture([]))],
       },
     },
   },
@@ -122,7 +127,13 @@ export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
-    const eyebrows = ["General", "Repositories", "Sources", "Danger zone"]
+    const eyebrows = [
+      "General",
+      "Repositories",
+      "Sources",
+      "Upgrades",
+      "Danger zone",
+    ]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
       (element) => element.textContent,
     )
