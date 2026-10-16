@@ -1,10 +1,7 @@
 import type { Env } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import {
-  getConfluenceSyncTargetWithRepoByConnectionId,
-  isConfluenceTargetHandedOver,
-} from "../../models/confluence-sync-target.js"
-import { getLogger } from "../../observability/logger.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
+import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-sync-space.js"
 import { loadConfluenceScopeFromRepo } from "./config-from-repo.js"
@@ -25,15 +22,10 @@ export async function handleForgeConfluenceContentEvent(input: {
   if (!target?.enabled) return "skipped"
   // ADR-050: once Workspace sources own the repository, only they write it.
   // A failed lookup must not block the legacy sync.
-  const handedOver = await isConfluenceTargetHandedOver({
+  const handedOver = await legacyBindingHandedOver("confluence", {
     orgId: input.orgId,
+    connectionId: input.connectionId,
     repositoryGitUrl: target.repositoryGitUrl,
-  }).catch((error: unknown) => {
-    getLogger().warn("confluence_handover_lookup_failed", {
-      connectionId: input.connectionId,
-      message: error instanceof Error ? error.message : String(error),
-    })
-    return false
   })
   if (handedOver) return "skipped"
 

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getLinearBindingWithRepoByConnectionId,
@@ -59,6 +60,15 @@ export const linearSyncEntity = defineWorkflow(
             )
             if (!target?.githubConnectionId)
               throw new Error("Linear sync target is not configured")
+            // ADR-050: once Workspace sources own the repository, only they write it.
+            if (
+              await legacyBindingHandedOver("linear", {
+                orgId: input.orgId,
+                connectionId: input.connectionId,
+                repositoryGitUrl: target.repositoryGitUrl,
+              })
+            )
+              return null
             const connection = await withOrgDbContext(input.orgId, () =>
               getLinearConnectionByConnectionId(
                 input.orgId,
