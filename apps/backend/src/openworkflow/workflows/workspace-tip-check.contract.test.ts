@@ -518,17 +518,23 @@ describe("cron write probe on a GitHub error", () => {
           { message: "You have exceeded a secondary rate limit." },
           { status: 429, headers: { "retry-after": "1" } },
         ),
+      // One try, then one wait of `retry-after`. No backoff on top of it.
+      requests: 2,
     },
   ])(
     "records that it could not check write access after $name",
     { timeout: 60_000 },
-    async ({ response }) => {
+    async ({ response, requests }) => {
       await withNativeHydrationFixture(
         { github: true, githubWriteView: "writable" },
         async (f) => {
           await f.publish()
+          let githubRequests = 0
           f.server.use(
-            http.get("https://api.github.com/repos/fixture/:repo", response),
+            http.get("https://api.github.com/repos/fixture/:repo", () => {
+              githubRequests += 1
+              return response()
+            }),
           )
           const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
             orgId: f.org.id,
@@ -548,6 +554,7 @@ describe("cron write probe on a GitHub error", () => {
             writeStatus: "unknown",
             readOnlyReason: WRITE_STATUS_REASONS.checkFailed,
           })
+          if (requests !== undefined) expect(githubRequests).toBe(requests)
         },
       )
     },

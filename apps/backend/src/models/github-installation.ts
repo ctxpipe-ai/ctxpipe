@@ -926,7 +926,20 @@ export async function getRepoReadOctokit(
   input: { githubConnectionId?: string; repoFullName: string },
 ) {
   const token = await getRepoReadCloneToken(orgId, env, input)
-  return token ? new Octokit({ auth: token }) : undefined
+  if (!token) return undefined
+  return new Octokit({
+    auth: token,
+    // The retry plugin retries a 429 with its own 1, 4 and 9 s backoff, and it
+    // ignores `retry-after`. Only the throttle plugin handles a 429: it waits
+    // for `retry-after`, once, and only when that wait is short.
+    retry: { doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451] },
+    throttle: {
+      onRateLimit: (retryAfter, options) =>
+        options.request.retryCount === 0 && retryAfter <= 10,
+      onSecondaryRateLimit: (retryAfter, options) =>
+        options.request.retryCount === 0 && retryAfter <= 10,
+    },
+  })
 }
 
 /** App-authenticated permission inspection issues no installation write credential. */
