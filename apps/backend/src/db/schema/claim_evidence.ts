@@ -14,7 +14,9 @@ export const claimEvidence = pgTable.withRLS(
   "claim_evidence",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    // Nullable in this minor release, so that the previous image can write after a
+    // rollback. RLS hides a row with no org. The next major release sets NOT NULL.
+    orgId: text("org_id"),
     claimId: text("claim_id")
       .notNull()
       .references(() => claims.id, { onDelete: "cascade" }),

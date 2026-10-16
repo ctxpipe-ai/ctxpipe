@@ -2,8 +2,9 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { parseError } from "evlog"
 import { useEffect, useMemo } from "react"
-import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
+import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
@@ -155,7 +156,7 @@ function CloseOnly() {
   return null
 }
 
-function ConnectGithubView({
+export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
@@ -187,14 +188,6 @@ function ConnectGithubView({
         to: "/$orgSlug/github/setup",
         params: { orgSlug },
       })
-    },
-    onError: (err) => {
-      const why = err instanceof ApiError ? err.body.why : parseError(err)?.why
-      if (why === "github_not_linked") {
-        return
-      }
-
-      toast.error(err instanceof Error ? err.message : "Request failed")
     },
   })
 
@@ -242,17 +235,50 @@ function ConnectGithubView({
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
           </h1>
-          <p className="mt-3 text-sm text-zinc-400">
-            Connecting your GitHub App installation to your preferred
-            organization…
-          </p>
+          {error ? (
+            <div className="mt-8">
+              <InlineAlert
+                variant="error"
+                title="Could not link the GitHub installation"
+                actions={
+                  <Button
+                    variant="outline"
+                    className="rounded-md"
+                    onPress={() =>
+                      void navigate({
+                        to: "/$orgSlug/connectors",
+                        params: { orgSlug: selectedOrganizationSlug },
+                        search: {
+                          error: undefined,
+                          error_description: undefined,
+                          pendingAccountClaim: undefined,
+                          notionConnectionId: undefined,
+                        },
+                      })
+                    }
+                  >
+                    Open Connectors
+                  </Button>
+                }
+              >
+                {error.message}
+              </InlineAlert>
+            </div>
+          ) : (
+            <>
+              <p className="mt-3 text-sm text-zinc-400">
+                Connecting your GitHub App installation to your preferred
+                organization…
+              </p>
 
-          <div className="mt-8 max-w-md">
-            <p className="flex items-center gap-2 text-sm text-zinc-300">
-              <Spinner className="text-zinc-400" />
-              Registering installation…
-            </p>
-          </div>
+              <div className="mt-8 max-w-md">
+                <p className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Spinner className="text-zinc-400" />
+                  Registering installation…
+                </p>
+              </div>
+            </>
+          )}
         </section>
       </main>
     </AppShell>
