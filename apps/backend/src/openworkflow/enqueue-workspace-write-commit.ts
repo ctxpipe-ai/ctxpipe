@@ -1,8 +1,8 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
+import { ingestionPublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
 import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
-import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
 import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
@@ -40,12 +40,9 @@ import {
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
-import {
-  workspaceLinkUnlink,
-  workspaceLinkUnlinkInputSchema,
-} from "./workflows/workspace-link-unlink.js"
 import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
+import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
@@ -55,6 +52,10 @@ import {
   workspaceSemanticMerge,
   workspaceSemanticMergeInputSchema,
 } from "./workflows/workspace-semantic-merge.js"
+import {
+  workspaceUnlinkRetraction,
+  workspaceUnlinkRetractionInputSchema,
+} from "./workflows/workspace-unlink-retraction.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 
 type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
@@ -131,11 +132,6 @@ export async function enqueueWriteJob(
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
   assertNotInOrgDbContext()
-  if (input.kind === "link_unlink")
-    input = {
-      ...input,
-      linkGitUrl: linkedRepositoryUrlSchema.parse(input.linkGitUrl),
-    }
   const jobId = input.jobId ?? generateObjectId("wjob")
   let jobGeneration = input.jobGeneration
   let jobWorkspaceUrl = input.jobWorkspaceUrl
@@ -197,12 +193,18 @@ export async function enqueueWriteJob(
   }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
-    Record<EnqueueWriteJobInput["kind"], typeof workspaceClaimsUpgrade>
+    Record<
+      EnqueueWriteJobInput["kind"],
+      | typeof workspaceClaimsUpgrade
+      | typeof workspaceMigrationExport
+      | typeof workspaceOwnershipMigration
+    >
   > = {
     migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
+    ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
@@ -211,10 +213,10 @@ export async function enqueueWriteJob(
     snapshotWorkflow ||
     input.kind === "extract_ingest" ||
     input.kind === "ui_file_edit" ||
-    input.kind === "link_unlink" ||
     input.kind === "rename_rewrite" ||
     input.kind === "connector_mirror" ||
-    input.kind === "semantic_merge"
+    input.kind === "semantic_merge" ||
+    input.kind === "unlink_retraction"
   ) {
     let bound = false
     try {
@@ -325,6 +327,7 @@ export async function enqueueWriteJob(
           jobId,
           revision,
           extraction: input.extraction,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
@@ -332,6 +335,7 @@ export async function enqueueWriteJob(
           kind: input.kind,
           revision,
           extraction: command.extraction,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
         await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
@@ -345,6 +349,9 @@ export async function enqueueWriteJob(
           workspaceId: input.workspaceId,
           jobId,
           revision,
+          // A direct semantic merge carries no trusted origin, so it gets
+          // every check (CTX-722).
+          origin: "agent",
           previousSha: input.previousSha,
           files: input.mergeFiles ?? [],
           deletePaths: input.mergeDeletePaths ?? [],
@@ -412,27 +419,29 @@ export async function enqueueWriteJob(
         })
         return { started: true }
       }
-      if (input.kind === "link_unlink") {
-        const command = workspaceLinkUnlinkInputSchema.parse({
+      if (input.kind === "unlink_retraction") {
+        const command = workspaceUnlinkRetractionInputSchema.parse({
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           jobId,
           revision,
-          linkAction: input.linkAction,
-          linkGitUrl: input.linkGitUrl,
+          retractRepositoryUrl: input.retractRepositoryUrl,
+          publishPipeline: input.publishPipeline ?? ingestionPublishPipeline(),
         })
         await persistBoundWriteJob({
           admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
-          linkAction: command.linkAction,
-          linkGitUrl: command.linkGitUrl,
+          retractRepositoryUrl: command.retractRepositoryUrl,
+          publishPipeline: command.publishPipeline,
         })
         bound = true
-        await runWorkflowWithWorkerWake(workspaceLinkUnlink.spec, command, {
-          idempotencyKey: jobId,
-        })
+        await runWorkflowWithWorkerWake(
+          workspaceUnlinkRetraction.spec,
+          command,
+          { idempotencyKey: jobId },
+        )
         return { started: true }
       }
       if (input.kind === "ui_file_edit") {
@@ -471,6 +480,13 @@ export async function enqueueWriteJob(
         ...(input.kind === "ops_folder_map" && input.previousSha
           ? { previousSha: input.previousSha }
           : {}),
+        // The ownership migration is an ingestion v2 publish (ADR-052).
+        ...(input.kind === "ownership_migration"
+          ? {
+              publishPipeline:
+                input.publishPipeline ?? ingestionPublishPipeline(),
+            }
+          : {}),
       }
       await persistBoundWriteJob({
         admissionStatus,
@@ -479,6 +495,7 @@ export async function enqueueWriteJob(
         revision,
         displayName: command.displayName,
         previousSha: command.previousSha,
+        publishPipeline: command.publishPipeline,
       })
       bound = true
       if (input.kind === "bootstrap")

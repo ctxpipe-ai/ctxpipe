@@ -48,7 +48,7 @@ describe("dest Workspace SQL migration (Postgres)", () => {
     await admin?.end()
   })
 
-  it("links each other org repository only to the first target Workspace and records that Workspace", async () => {
+  it("records the first target Workspace and links no repository in SQL", async () => {
     await apply(migrations.filter((name) => name < backfill))
     const orgId = "org_dest_migration"
     await db.query(
@@ -86,18 +86,21 @@ describe("dest Workspace SQL migration (Postgres)", () => {
     expect(docs).toBeDefined()
     expect(workspaceByUrl.get("https://github.com/acme/wiki")).toBeDefined()
 
-    const { rows: links } = await db.query(
-      `SELECT "workspace_id" AS "workspaceId", "git_url" AS "gitUrl" FROM "workspace_linked_repositories" ORDER BY "git_url"`,
-    )
-    expect(links).toEqual([
-      { workspaceId: docs, gitUrl: "https://github.com/acme/app" },
-    ])
-
     const { rows: first } = await db.query(
       `SELECT "org_id" AS "orgId", "workspace_id" AS "workspaceId", "source_repository_id" AS "sourceRepositoryId" FROM "org_first_workspaces"`,
     )
     expect(first).toEqual([
       { orgId, workspaceId: docs, sourceRepositoryId: "repo_docs" },
     ])
+
+    // No later migration links a repository in SQL either. The migration
+    // export links the other org repositories through `.ctxpipe/sources.yaml`
+    // of the first Workspace, and the sources projection pins them (ADR-050).
+    await apply(migrations.filter((name) => name > firstWorkspaceTable))
+    const { rows: links } = await db.query(
+      `SELECT "workspace_id" AS "workspaceId" FROM "workspace_sources" WHERE "org_id" = $1`,
+      [orgId],
+    )
+    expect(links).toEqual([])
   }, 120_000)
 })

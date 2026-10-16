@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   envHasPagerdutyOAuthApp,
@@ -30,7 +31,6 @@ import {
 } from "../../models/pagerduty-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import { pagerdutySyncConfig } from "../../openworkflow/workflows/pagerduty-sync-config.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -339,53 +339,59 @@ const getConfigRoute = createRoute({
   },
 })
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: PagerdutyPatchConfigRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number().int(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: PagerdutyPatchConfigRequestSchema },
+          },
         },
       },
-      description: "Saved PagerDuty binding and/or enqueued config PR",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number().int(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description: "Saved PagerDuty binding and/or enqueued config PR",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid or ambiguous PagerDuty configuration",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown PagerDuty connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "PagerDuty sync target changed while starting initial sync",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue configuration pull request",
+        },
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or ambiguous PagerDuty configuration",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown PagerDuty connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "PagerDuty sync target changed while starting initial sync",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue configuration pull request",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const retryPagerdutyConfigRoute = createRoute({
   method: "post",
@@ -437,41 +443,46 @@ const retryPagerdutyConfigRoute = createRoute({
   },
 })
 
-const retryPagerdutySyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryPagerdutySyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Content sync retry accepted",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Not in a failed content sync state",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete PagerDuty connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Content sync already being retried",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue content sync retry",
         },
       },
-      description: "Content sync retry accepted",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not in a failed content sync state",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete PagerDuty connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Content sync already being retried",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue content sync retry",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deletePagerdutyConnectorRoute = createRoute({
   method: "delete",
@@ -950,28 +961,11 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     // but still needs its initial content sync.
     const servicesChanged = body.services !== undefined && !servicesMatch
 
-    const saved = await patchPagerdutyConnectorConfig({
+    await patchPagerdutyConnectorConfig({
       orgId,
       connectionId: installed.connection.id,
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
-
-    if (saved.repositoryIngestion) {
-      await enqueueLegacySyncRepositoryIngestion(
-        {
-          connectionId: installed.connection.id,
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-          ...(saved.repositoryIngestion.targetBranch !== undefined
-            ? { targetBranch: saved.repositoryIngestion.targetBranch }
-            : {}),
-        },
-        {
-          error: (err) =>
-            getLogger().error(err, { step: "repositoryIngestion.enqueue" }),
-        },
-      )
-    }
 
     const previousConfigPrState = servicesChanged
       ? await claimPagerdutyConfigPrCreation({

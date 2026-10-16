@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
+import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
@@ -10,7 +11,11 @@ import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
+import {
+  assertWriteOriginAllowed,
+  resolveSemanticConflicts,
+  writeOriginSchema,
+} from "../../domain/workspaces/semantic-merge.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -41,6 +46,7 @@ import {
   mergeGitFiles,
   resolveGitMergeTree,
 } from "../../services/git/merge-tree.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   validateGitTree,
@@ -82,6 +88,7 @@ export const workspaceSemanticMergeInputSchema = semanticMergeContentSchema
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    origin: writeOriginSchema,
     handoff: z
       .object({
         ownerRunId: z.string().min(1),
@@ -168,6 +175,29 @@ export const workspaceSemanticMerge = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
+          // Check every path the write changes, not only the paths that
+          // conflict, as the origin requires (CTX-722).
+          if (input.origin !== "host")
+            await step.run(
+              {
+                name: "check-agent-write",
+                retryPolicy: { maximumAttempts: 1 },
+              },
+              async () => {
+                const paths = new Set(input.files.map((file) => file.path))
+                const current = new Map(
+                  (
+                    await readGitFiles(acquired.pack, (path) => paths.has(path))
+                  ).map((file) => [file.path, file.content] as const),
+                )
+                assertWriteOriginAllowed({
+                  origin: input.origin,
+                  files: input.files,
+                  deletePaths: input.deletePaths,
+                  current,
+                })
+              },
+            )
           const merged = await step.run(
             { name: "transform-semantic-merge" },
             () =>
@@ -213,7 +243,10 @@ export const workspaceSemanticMerge = defineWorkflow(
                   name: "resolve-semantic-conflicts",
                   retryPolicy: { maximumAttempts: 3 },
                 },
-                () => resolveSemanticConflicts(merged.conflicts),
+                () =>
+                  resolveSemanticConflicts(merged.conflicts, {
+                    origin: input.origin,
+                  }),
               )
             : null
           const staged = await step.run({ name: "stage" }, () =>
@@ -271,10 +304,25 @@ export const workspaceSemanticMerge = defineWorkflow(
           })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
-            pushed = await step.run(
+            const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-              () => attemptWorkspaceCommit(input, revision, committed, env),
+              async () => {
+                // Only the old pipeline's extract ingest hands off an
+                // extraction. Its publish must stop after the switch to
+                // ingestion v2 (ADR-052 phase 4), so the step that pushes
+                // reads the switch immediately before the push.
+                if (input.extraction && ingestionPublishPipeline() !== "legacy")
+                  return { stopped: true as const }
+                return attemptWorkspaceCommit(input, revision, committed, env)
+              },
             )
+            if ("stopped" in attempt)
+              return {
+                committed: false as const,
+                reason: "publish_pipeline_v2" as const,
+                commitSha: undefined,
+              }
+            pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>
               persistWriteJobStatus(input.jobId, "paused"),

@@ -5,7 +5,6 @@ import { useMswServer } from "../../../test/msw.js"
 import type { AppEnv } from "../../app/env.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import { encodeSlackBotTokenForDb } from "../../lib/connection-config.js"
 import { contextStorage } from "../../test/hono-test-logger.js"
@@ -19,15 +18,16 @@ let routes: typeof import("./workspace-sources-routes.js")
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 
-function createApp() {
+/** As `withNetworkOrgContext`: the org context, and no request-wide SQL transaction. */
+function createApp({ signedIn = true } = {}) {
   const app = new OpenAPIHono<AppEnv>()
   app.use(contextStorage())
   app.use("*", async (c, next) => {
-    c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-    c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-    return withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () =>
-      withOrgDbContext(seed.orgId, () => next()),
-    )
+    if (signedIn) {
+      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+    }
+    return withOrgIdContext({ id: seed.orgId, slug: seed.orgId }, () => next())
   })
   app.route("/:orgSlug/api/v1/workspaces", routes.workspaceSourcesRoutes)
   app.route("/:orgSlug/api/v1/connectors", routes.connectionUsageRoutes)
@@ -62,8 +62,9 @@ describe("Workspace sources HTTP routes (Postgres + git)", () => {
       status: "installed",
       botTokenEnc: encodeSlackBotTokenForDb("xoxb-test", parseEnv(process.env)),
     })
-    const workspaceId = await seed.addWorkspace("support")
     const repo = await seed.gitRepository()
+    // The list reads the source file bodies from this remote.
+    const workspaceId = await seed.addWorkspace("support", repo.dir)
     const sha = await repo.commit({
       ".ctxpipe/sources.yaml": `version: 1
 sources:
@@ -92,16 +93,15 @@ sources:
     expect(list.status).toBe(200)
     const body = await list.json()
     expect(body).toMatchObject({
-      path: ".ctxpipe/sources.yaml",
+      path: "sources",
       revision: sha,
       fileError: null,
       canEdit: false,
-      directCommitAllowed: false,
       pendingChanges: [],
     })
     expect(
-      body.items.map((item: { sourceKey: string; status: string }) => [
-        item.sourceKey,
+      body.items.map((item: { path: string; status: string }) => [
+        item.path,
         item.status,
       ]),
     ).toEqual([
@@ -120,7 +120,7 @@ sources:
           workspaceId,
           workspaceName: "support",
           stat: "2 Slack channels",
-          sources: [{ sourceKey: "support-channels", status: "ok" }],
+          sources: [{ path: "support-channels", status: "ok" }],
         },
       ],
     })
@@ -145,7 +145,7 @@ sources:
     expect(change.status).toBe(409)
 
     const badKey = await app.request(
-      `/${seed.orgId}/api/v1/workspaces/${slug}/sources/Bad%20Key`,
+      `/${seed.orgId}/api/v1/workspaces/${slug}/sources?path=Bad%20Path.md`,
       { method: "DELETE" },
     )
     expect(badKey.status).toBe(400)
@@ -155,8 +155,33 @@ sources:
       await app.request(`/${seed.orgId}/api/v1/workspaces/${slug}/sources`)
     ).json()
     expect(afterRemoval.items[1]).toMatchObject({
-      sourceKey: "support-channels",
+      path: "support-channels",
       status: "connection_missing",
     })
+  })
+  it("refuses a batch without a session, with no source, and with more than 20 sources", async () => {
+    const batch = (sources: unknown[], options?: { signedIn: boolean }) =>
+      createApp(options).request(
+        `/${seed.orgId}/api/v1/workspaces/any-workspace/sources/batch`,
+        {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ sources }),
+        },
+      )
+    const source = {
+      source: { provider: "linear", connectionId: "con_x", scope: {} },
+    }
+
+    expect((await batch([source], { signedIn: false })).status).toBe(401)
+    expect((await batch([])).status).toBe(400)
+    expect((await batch(Array.from({ length: 21 }, () => source))).status).toBe(
+      400,
+    )
+    // 1 and 20 sources pass the bounds and reach the Workspace lookup.
+    expect((await batch([source])).status).toBe(404)
+    expect((await batch(Array.from({ length: 20 }, () => source))).status).toBe(
+      404,
+    )
   })
 })

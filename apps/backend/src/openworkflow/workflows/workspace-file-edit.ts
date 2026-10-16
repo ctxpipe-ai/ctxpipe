@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { hostOnlyRefusal } from "../../domain/workspaces/host-only.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -26,7 +27,7 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import { readGitFiles } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -62,6 +63,7 @@ export const workspaceFileEdit = defineWorkflow(
   {
     name: "workspace-write-ui-file-edit",
     schema: workspaceFileEditInputSchema,
+    retryPolicy: { maximumAttempts: 1 },
   },
   async ({ input: queuedInput, step, run }) => {
     const input = workspaceFileEditInputSchema.parse(queuedInput)
@@ -95,6 +97,21 @@ export const workspaceFileEdit = defineWorkflow(
             workflowRunId: run.id,
           }),
         )
+        // Planning refuses host-only paths too, but a job queued or paused
+        // before that check can still resume here (CTX-722).
+        const refusal = hostOnlyRefusal([
+          ...input.files.map((file) => file.path),
+          ...input.deletePaths,
+        ])
+        if (refusal) {
+          // A refusal is permanent: fail the job row now so it cannot hold up
+          // the write queue, and never retry it.
+          await step.run(
+            { name: "refuse-command", retryPolicy: { maximumAttempts: 1 } },
+            () => persistWriteJobStatus(input.jobId, "failed"),
+          )
+          throw new Error(refusal)
+        }
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -115,42 +132,28 @@ export const workspaceFileEdit = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const changes = await step.run({ name: "transform-file-edit" }, () =>
-            withGitDirectory(
-              revision.sha,
-              async (directory) => {
-                const paths = (
-                  await nativeGit(directory, [
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    "-z",
-                    revision.sha,
-                  ])
-                )
-                  .toString()
-                  .split("\0")
-                const files: typeof input.files = []
-                for (const file of input.files) {
-                  const existing = paths.includes(file.path)
-                    ? (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${file.path}`,
-                        ])
-                      ).toString()
-                    : null
-                  if (existing !== file.content) files.push(file)
-                }
-                return {
-                  files,
-                  deletePaths: input.deletePaths.filter((path) =>
-                    paths.includes(path),
-                  ),
-                }
-              },
-              acquired.pack,
-            ),
+          const changes = await step.run(
+            { name: "transform-file-edit" },
+            async () => {
+              const named = new Set([
+                ...input.files.map((file) => file.path),
+                ...input.deletePaths,
+              ])
+              // Root-relative paths below the Workspace root folder.
+              const existing = new Map(
+                (
+                  await readGitFiles(acquired.pack, (path) => named.has(path))
+                ).map((file) => [file.path, file.content]),
+              )
+              return {
+                files: input.files.filter(
+                  (file) => existing.get(file.path) !== file.content,
+                ),
+                deletePaths: input.deletePaths.filter((path) =>
+                  existing.has(path),
+                ),
+              }
+            },
           )
           const files = changes.files
           if (!files.length && !changes.deletePaths.length) {
@@ -214,7 +217,8 @@ export const workspaceFileEdit = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

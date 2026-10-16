@@ -13,9 +13,13 @@ import {
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
 import type { WorkspaceExtraction } from "./extraction.js"
-import { assertExtractionSource } from "./extraction-source.js"
+import {
+  assertExtractionSource,
+  type IngestPublishSource,
+} from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
+import { workspaceRootPath } from "./root-path.js"
 import type { WorkspaceWriteKind } from "./write-jobs.js"
 
 export type WorkspaceWriteCommand = {
@@ -25,11 +29,10 @@ export type WorkspaceWriteCommand = {
   revision: WorkspaceRevision
   files?: GitFileChange[]
   deletePaths?: string[]
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }
 
@@ -68,10 +71,9 @@ export async function completedWorkspaceWrite(
     !sameWorkspaceRevision(recorded.payload?.revision, input.revision) ||
     !isDeepStrictEqual(recorded.payload?.mergeFiles, input.files) ||
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
-    recorded.payload?.linkAction !== input.linkAction ||
-    recorded.payload?.linkGitUrl !== input.linkGitUrl ||
     !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
     !isDeepStrictEqual(recorded.payload?.extraction, input.extraction) ||
+    !isDeepStrictEqual(recorded.payload?.ingest, input.ingest) ||
     recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )
@@ -116,6 +118,7 @@ export async function acquireWorkspaceWriteRevision(
     sha: revision.sha,
     additionalShas: previousSha ? [previousSha] : [],
     token,
+    root: workspaceRootPath(revision),
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
   if (input.extraction)

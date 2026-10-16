@@ -54,7 +54,6 @@ it(
         "workspace-write-claims-upgrade",
         "workspace-write-valid-from-persist",
         "workspace-write-ops-folder-list",
-        "workspace-write-link-unlink",
         "workspace-write-migration-export",
         "workspace-write-rename-rewrite",
         "workspace-write-extract-ingest",
@@ -64,6 +63,7 @@ it(
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",
+        "sync-github-repositories",
       ]),
     )
   },

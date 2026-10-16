@@ -13,7 +13,6 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
-import { insertWorkspaceLinks } from "../../test/workspace-links-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 
 it(
@@ -28,7 +27,11 @@ it(
         files: [
           {
             path: "repositories/api.md",
-            body: "---\ngit: https://github.com/existing/api.git\ncustom: keep\n---\n",
+            body: "---\ngit: https://github.com/existing/api.git\nbranch: release\ncustom: keep\n---\n",
+          },
+          {
+            path: "repositories/tools.md",
+            body: "---\ngit: https://gitlab.com/existing/tools.git\n---\n",
           },
           {
             path: "knowledge/imported/billing.md",
@@ -47,17 +50,13 @@ it(
             gitUrl: f.workspaceUrl,
           })
           if (!repository) throw new Error("Source repository was not created")
-          await insertWorkspaceLinks([
-            { workspaceId: f.workspaceId, gitUrl: "not-a-git-url" },
-            {
-              workspaceId: f.workspaceId,
-              gitUrl: "https://github.com/Team-A/API.git",
-            },
-            {
-              workspaceId: f.workspaceId,
-              gitUrl: "git@github.com:team-b/api.git",
-            },
+          // Main's store of linked repositories: the org repositories.
+          for (const gitUrl of [
+            "https://github.com/Team-A/API.git",
+            "git@github.com:team-b/api.git",
+            "https://gitlab.com/team-c/api.git",
           ])
+            await ensureOrgRepositoryForGitUrl({ orgId: f.org.id, gitUrl })
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -199,14 +198,30 @@ it(
           expect(markdown).toContain("Ledger lives here.")
           expect(markdown).toContain("import_key: legacy:billing")
           expect(
-            f.git("--git-dir", f.remote, "show", "main:repositories/api-2.md"),
-          ).toContain("https://github.com/team-a/api")
-          expect(
-            f.git("--git-dir", f.remote, "show", "main:repositories/api-3.md"),
-          ).toContain("https://github.com/team-b/api")
-          expect(
-            f.git("--git-dir", f.remote, "show", "main:repositories/api.md"),
-          ).toContain("custom: keep")
+            parse(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                "main:.ctxpipe/sources.yaml",
+              ),
+            ),
+          ).toEqual({
+            version: 1,
+            sources: [
+              {
+                id: "linked-repositories",
+                provider: "github",
+                connection: f.revision.remote.connectionId,
+                // The repository file moves with its branch as ref.
+                repositories: [
+                  { name: "existing/api", ref: "release" },
+                  "team-a/api",
+                  "team-b/api",
+                ],
+              },
+            ],
+          })
           expect(
             f.git(
               "--git-dir",
@@ -217,9 +232,9 @@ it(
               "main",
               "repositories/",
             ),
-          ).toBe(
-            "repositories/api-2.md\nrepositories/api-3.md\nrepositories/api.md",
-          )
+            // The GitHub file is gone in the same commit; a file for
+            // another host stays, because only GitHub links.
+          ).toBe("repositories/tools.md")
           expect(publicationChecks).toEqual([
             { job: null, export: null, listed: [] },
           ])
@@ -526,12 +541,15 @@ it(
             gitUrl: f.workspaceUrl,
           })
           if (!repo) throw new Error("Fixture source repository unavailable")
-          await insertWorkspaceLinks([
-            {
-              workspaceId: f.workspaceId,
-              gitUrl: "https://github.com/team/api.git",
-            },
-          ])
+          await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: "https://github.com/team/api.git",
+          })
+          await persistOrgFirstWorkspace({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            sourceRepositoryId: repo.id,
+          })
         })
         const { workspaceMigrationExport } = await import(
           "../../openworkflow/workflows/workspace-migration-export.js"
@@ -634,7 +652,7 @@ it(
               "--name-only",
               "main",
             ),
-          ).toBe("AGENTS.md\nrepositories/api.md")
+          ).toBe(".ctxpipe/sources.yaml\nAGENTS.md")
           expect(
             f.git(
               "--git-dir",

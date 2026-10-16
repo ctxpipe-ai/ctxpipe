@@ -188,38 +188,142 @@ export async function resolveCodeScope(
 }
 
 /**
- * Zoekt search over the scope in one request. Matches keep the Zoekt order.
- * `literal` quotes the text; `regex` sends it as a Zoekt query (RE2). A
- * rejected query is `invalid_argument`, with no literal retry. A failed
- * request is a retryable `internal` error: Zoekt answers for all
- * repositories at once, so no single repository is at fault.
+ * A path glob as an anchored RE2 expression for the Zoekt `file:` atom. `*`
+ * and `?` stay in one path segment, `**` crosses segments, and `{a,b}` is an
+ * alternative.
+ */
+export function pathGlobRegex(glob: string): string {
+  let out = ""
+  let depth = 0
+  for (let index = 0; index < glob.length; index += 1) {
+    const char = glob[index] as string
+    if (char === "*") {
+      if (glob[index + 1] === "*") {
+        index += 1
+        if (glob[index + 1] === "/") {
+          index += 1
+          out += "(?:.*/)?"
+        } else out += ".*"
+      } else out += "[^/]*"
+    } else if (char === "?") out += "[^/]"
+    else if (char === "{") {
+      depth += 1
+      out += "(?:"
+    } else if (char === "}" && depth > 0) {
+      depth -= 1
+      out += ")"
+    } else if (char === "," && depth > 0) out += "|"
+    else out += char.replace(/[\\^$.|+()[\]{}]/g, "\\$&")
+  }
+  if (depth > 0) {
+    throw new McpToolError("invalid_argument", "pathGlob has an open brace.")
+  }
+  return `^${out}$`
+}
+
+/**
+ * Check a `pathGlob` of `search_code`. It is a gitignore-style glob: a glob
+ * with no `/` matches at any depth, and a glob with a `/` starts at the
+ * repository root. A `!` negation is not allowed in any mode.
+ */
+export function checkPathGlob(glob: string): string {
+  if (glob.startsWith("!")) {
+    throw new McpToolError(
+      "invalid_argument",
+      "pathGlob does not allow a ! negation. Search the paths that you want.",
+    )
+  }
+  return glob
+}
+
+/**
+ * A regex query goes inside `(...)`, so that `file:` and `case:` apply to
+ * the whole query. A query with an unbalanced parenthesis, or a trailing
+ * backslash, could close the group early or escape it, so it is rejected.
+ */
+function checkRegex(query: string): string {
+  let open = 0
+  let escaped = false
+  let inClass = false
+  for (const char of query) {
+    if (escaped) escaped = false
+    else if (char === "\\") escaped = true
+    else if (inClass) inClass = char !== "]"
+    else if (char === "[") inClass = true
+    else if (char === "(") open += 1
+    else if (char === ")") {
+      open -= 1
+      if (open < 0) break
+    }
+  }
+  if (open !== 0 || escaped || inClass) {
+    throw new McpToolError(
+      "invalid_argument",
+      "query: the regex has an unbalanced ( ), [ ], or a trailing backslash.",
+    )
+  }
+  return query
+}
+
+/** One file of a Zoekt answer, with its matching lines. */
+export type CodeFileMatches = {
+  repository: string
+  path: string
+  language: string | null
+  matches: Array<{ line: number | null; snippet: string }>
+}
+
+/**
+ * Zoekt search over the scope in one request. Files keep the Zoekt order,
+ * and `limit` counts files. `literal` quotes the text; `regex` sends it as a
+ * Zoekt query (RE2). `pathGlob` adds a `file:` atom and `caseSensitive` a
+ * `case:` atom. A rejected query is `invalid_argument`, with no literal
+ * retry. A failed request is a retryable `internal` error: Zoekt answers for
+ * all repositories at once, so no single repository is at fault.
  */
 export async function searchCodeText(
   org: CallOrg,
   scope: CodeScope,
-  input: { query: string; mode: "literal" | "regex" } & Budget,
-): Promise<
-  CodeResults<{
-    repository: string
-    path: string
-    line: number | null
-    snippet: string
-  }>
-> {
+  input: {
+    query: string
+    mode: "literal" | "regex"
+    pathGlob?: string
+    caseSensitive?: boolean
+  } & Budget,
+): Promise<CodeResults<CodeFileMatches>> {
   const byZoektId = new Map(
     scope.repositories.map((repository) => [
       repository.zoektRepoId,
       repository.handle,
     ]),
   )
+  const atoms = [
+    ...(input.pathGlob
+      ? [
+          `file:${zoektLiteralQuery(
+            pathGlobRegex(
+              checkPathGlob(input.pathGlob).includes("/")
+                ? input.pathGlob
+                : `**/${input.pathGlob}`,
+            ),
+          )}`,
+        ]
+      : []),
+    ...(input.caseSensitive === undefined
+      ? []
+      : [input.caseSensitive ? "case:yes" : "case:no"]),
+  ]
+  const text =
+    input.mode === "literal"
+      ? zoektLiteralQuery(input.query)
+      : atoms.length > 0
+        ? `(${checkRegex(input.query)})`
+        : input.query
   let found: Awaited<ReturnType<typeof codeSearch>> = []
   if (scope.repositories.length > 0) {
     try {
       found = await codeSearch(org.id, {
-        query:
-          input.mode === "literal"
-            ? zoektLiteralQuery(input.query)
-            : input.query,
+        query: [text, ...atoms].join(" "),
         repositories: scope.repositories.map((repository) => ({
           id: repository.repositoryId,
           name: repository.handle,
@@ -244,21 +348,27 @@ export async function searchCodeText(
       | Array<{
           FileName?: string
           RepositoryID?: number
+          Language?: string
           LineMatches?: Array<{ LineNumber?: number; Line?: string }>
         }>
       | undefined) ?? []
-  const matches = files.flatMap((file) => {
+  const matches = files.flatMap((file): CodeFileMatches[] => {
     const repository =
       file.RepositoryID === undefined
         ? undefined
         : byZoektId.get(file.RepositoryID)
     if (!repository || !file.FileName) return []
-    return (file.LineMatches ?? []).map((match) => ({
-      repository,
-      path: file.FileName as string,
-      line: typeof match.LineNumber === "number" ? match.LineNumber : null,
-      snippet: Buffer.from(match.Line ?? "", "base64").toString("utf-8"),
-    }))
+    return [
+      {
+        repository,
+        path: file.FileName,
+        language: file.Language || null,
+        matches: (file.LineMatches ?? []).map((match) => ({
+          line: typeof match.LineNumber === "number" ? match.LineNumber : null,
+          snippet: Buffer.from(match.Line ?? "", "base64").toString("utf-8"),
+        })),
+      },
+    ]
   })
   return capped(matches, scope, scope.skipped, input)
 }
@@ -287,27 +397,34 @@ function checkGraphAnchors(
   }
 }
 
-/** One SCIP graph primitive over each repository of the scope. */
+/**
+ * One SCIP graph primitive over each repository of the scope. `keep` filters
+ * the rows of each repository before the merge, so a cursor counts only the
+ * kept rows. With `keep`, each repository gives its full 200 rows, because
+ * the filter can drop any of them.
+ */
 export async function findSymbolAcrossRepositories(
   org: CallOrg,
   scope: CodeScope,
   body: Omit<GraphRequestBody, "checkoutKey" | "limit">,
   budget: Budget,
+  keep?: (row: Record<string, unknown>) => boolean,
 ): Promise<CodeResults<Record<string, unknown> & { repository: string }>> {
   checkGraphAnchors(body)
   return fanOut(scope, budget, "graph", async (repository, transport) => {
     const answer = await codesearchGraphQuery(
       { id: repository.repositoryId, orgId: org.id },
-      { ...body, limit: repositoryLimit(budget, 200) },
+      { ...body, limit: keep ? 200 : repositoryLimit(budget, 200) },
       undefined,
       transport,
     )
     // An empty answer without an index is not "no symbol".
     if (answer.index === "missing") return "not_indexed"
     if (answer.index === "unreadable") return "failed"
-    return Array.isArray(answer.results)
+    const rows = Array.isArray(answer.results)
       ? (answer.results as Record<string, unknown>[])
       : []
+    return keep ? rows.filter(keep) : rows
   })
 }
 

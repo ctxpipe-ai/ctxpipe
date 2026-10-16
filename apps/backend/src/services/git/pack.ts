@@ -9,8 +9,43 @@ import { gitRemoteEnvironment } from "./clone-tree.js"
 
 const execute = promisify(execFile)
 
-/** Native pack and shallow boundary; no filesystem locator or credential is durable. */
-export type GitPack = { sha: string; objects: string; shallow: string }
+/**
+ * Native pack and shallow boundary; no filesystem locator or credential is
+ * durable. `root` is the Workspace root folder (CTX-709): the read and write
+ * helpers use paths relative to it and never touch a path outside it.
+ */
+export type GitPack = {
+  sha: string
+  objects: string
+  shallow: string
+  root?: string
+}
+
+/** The tree of the pack's root folder, or null when that folder does not exist. */
+export async function packRootTree(
+  directory: string,
+  pack: Pick<GitPack, "sha" | "root">,
+): Promise<string | null> {
+  if (!pack.root) return pack.sha
+  try {
+    const tree = (
+      await nativeGit(directory, [
+        "rev-parse",
+        "--verify",
+        "--quiet",
+        `${pack.sha}:${pack.root}`,
+      ])
+    )
+      .toString()
+      .trim()
+    const type = (await nativeGit(directory, ["cat-file", "-t", tree]))
+      .toString()
+      .trim()
+    return type === "tree" ? tree : null
+  } catch {
+    return null
+  }
+}
 
 export async function nativeGit(
   directory: string,
@@ -101,34 +136,55 @@ export async function withGitDirectory<T>(
   }
 }
 
-/** Read selected immutable blobs; the workflow owns the surrounding durable step. */
+/**
+ * Read selected immutable blobs; the workflow owns the surrounding durable
+ * step. With `limit`, a blob that `limit.applies` to and that is larger than
+ * `limit.maxBytes`, or that is not text (it has a NUL byte), comes back with
+ * empty content and the reason in `omitted`. The size check comes before the
+ * read, so a large blob is never in memory.
+ */
 export async function readGitFiles(
   pack: GitPack,
   include: (path: string) => boolean,
-): Promise<Array<{ path: string; content: string }>> {
+  limit?: { maxBytes: number; applies: (path: string) => boolean },
+): Promise<
+  Array<{ path: string; content: string; omitted?: "too_large" | "binary" }>
+> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const paths = (
-        await nativeGit(directory, [
-          "ls-tree",
-          "-r",
-          "--name-only",
-          "-z",
-          pack.sha,
-        ])
+      const tree = await packRootTree(directory, pack)
+      if (!tree) return []
+      const entries = (
+        await nativeGit(directory, ["ls-tree", "-r", "-l", "-z", tree])
       )
         .toString()
         .split("\0")
-        .filter((path) => path && include(path))
-      const files: Array<{ path: string; content: string }> = []
-      for (const path of paths)
-        files.push({
-          path,
-          content: (
-            await nativeGit(directory, ["show", `${pack.sha}:${path}`])
-          ).toString(),
+        .flatMap((line) => {
+          const tab = line.indexOf("\t")
+          const path = line.slice(tab + 1)
+          if (tab < 0 || !path || !include(path)) return []
+          const [, type, , size] = line.slice(0, tab).split(/\s+/)
+          return type === "blob" ? [{ path, size: Number(size) }] : []
         })
+      const files: Array<{
+        path: string
+        content: string
+        omitted?: "too_large" | "binary"
+      }> = []
+      for (const { path, size } of entries) {
+        const limited = limit?.applies(path) ?? false
+        if (limited && size > (limit?.maxBytes ?? 0)) {
+          files.push({ path, content: "", omitted: "too_large" })
+          continue
+        }
+        const bytes = await nativeGit(directory, ["show", `${tree}:${path}`])
+        files.push(
+          limited && bytes.includes(0)
+            ? { path, content: "", omitted: "binary" }
+            : { path, content: bytes.toString() },
+        )
+      }
       return files
     },
     pack,
@@ -141,6 +197,8 @@ export async function readGitPackFromRemote(input: {
   sha: string
   additionalShas?: readonly string[]
   token?: string
+  /** Workspace root folder; `""` or absent is the repository root. */
+  root?: string
 }): Promise<GitPack> {
   return withGitDirectory(input.sha, async (directory) => {
     await nativeGit(
@@ -157,16 +215,35 @@ export async function readGitPackFromRemote(input: {
       undefined,
       gitRemoteEnvironment({ url: input.url, token: input.token }),
     )
-    return captureGitPack(directory, input.sha, input.additionalShas)
+    const pack = await captureGitPack(
+      directory,
+      input.sha,
+      input.additionalShas,
+    )
+    return input.root ? { ...pack, root: input.root } : pack
   })
+}
+
+/** Every blob below the pack's root folder, with root-relative paths. */
+export async function listPackBlobs(
+  directory: string,
+  pack: Pick<GitPack, "sha" | "root">,
+): Promise<Array<{ path: string; sha: string }>> {
+  const tree = await packRootTree(directory, pack)
+  return tree ? listTreeBlobs(directory, tree) : []
 }
 
 /** Every blob in a tree with its object id (git ls-tree), paths unquoted. */
 export async function listTreeBlobs(
   directory: string,
   treeish: string,
+  /** Only the blobs under these paths, when set. */
+  paths?: readonly string[],
 ): Promise<Array<{ path: string; sha: string }>> {
-  return (await nativeGit(directory, ["ls-tree", "-r", "-z", treeish]))
+  const pathspec = paths ? ["--", ...paths] : []
+  return (
+    await nativeGit(directory, ["ls-tree", "-r", "-z", treeish, ...pathspec])
+  )
     .toString()
     .split("\0")
     .flatMap((entry) => {

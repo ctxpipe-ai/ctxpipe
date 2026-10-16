@@ -29,6 +29,7 @@ async function withFilesWorkspace(
     revision: WorkspaceRevision
     directory: string
   }) => Promise<void>,
+  extraFiles: Record<string, string> = {},
 ) {
   await withNativeIndexFixture(
     async (f) => {
@@ -65,7 +66,7 @@ async function withFilesWorkspace(
       })
     },
     true,
-    { "logo.png": Buffer.from("png\0bytes") },
+    { "logo.png": Buffer.from("png\0bytes"), ...extraFiles },
   )
 }
 
@@ -202,6 +203,49 @@ it(
       })
       expect(response.status).toBe(400)
     })
+  },
+)
+
+// CTX-721: a source file grants data flow, so the Files route never writes
+// sources/ to the default branch. A person changes it through a pull request.
+it(
+  "refuses each Files job that writes or deletes a source file",
+  { timeout: 30_000 },
+  async () => {
+    const sourcePath = "sources/github/example-org/web.md"
+    await withFilesWorkspace(
+      async ({ app }) => {
+        const results = []
+        for (const job of [
+          { op: "save", path: sourcePath, content: "changed\n" },
+          { op: "create", path: "sources/github/new.md", kind: "file" },
+          { op: "delete", path: sourcePath },
+          { op: "rename", from: sourcePath, to: "knowledge/web.md" },
+          { op: "rename", from: "AGENTS.md", to: "sources/AGENTS.md" },
+        ]) {
+          const response = await app.request(
+            "/workspaces/knowledge/files/jobs",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(job),
+            },
+          )
+          results.push({ status: response.status, body: await response.json() })
+        }
+        expect(results).toEqual(
+          Array(5).fill({
+            status: 400,
+            body: {
+              error: expect.stringMatching(
+                /^sources\/\S+ is host-only\. Change it through a pull request\.$/,
+              ),
+            },
+          }),
+        )
+      },
+      { [sourcePath]: "---\nprovider: github\n---\n" },
+    )
   },
 )
 

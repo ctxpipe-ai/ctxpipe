@@ -1,13 +1,15 @@
 import { isUtf8 } from "node:buffer"
 import { posix } from "node:path"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import { isAlias, isMap, isSeq } from "yaml"
+import { isAlias, isMap, isScalar, isSeq } from "yaml"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
-import { resolveHydrateLink } from "./hydrate.js"
+import { resolveHydrateLink, sourcePathOf } from "./hydrate.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -21,17 +23,9 @@ import {
 type Rename = { from: string; to: string }
 
 function renamePairs(output: Buffer): Rename[] {
-  const fields = output.toString().split("\0")
-  const pairs: Rename[] = []
-  for (let i = 0; i < fields.length - 1; ) {
-    const status = fields[i++] ?? ""
-    const from = fields[i++] ?? ""
-    if (/^[RC]/.test(status)) {
-      const to = fields[i++] ?? ""
-      if (status.startsWith("R")) pairs.push({ from, to })
-    }
-  }
-  return pairs
+  return parseNameStatus(output)
+    .filter((change) => change.status.startsWith("R"))
+    .map(({ from, to }) => ({ from, to }))
 }
 
 /** Compare immutable trees with Git's similarity scoring, including hidden competing sources. */
@@ -71,15 +65,22 @@ export async function nativeRenameRewriteFiles(
         }
         return files
       }
-      const previous = await filesAt(previousSha)
-      const current = await filesAt(pack.sha)
+      // Both trees are the Workspace root folder, so paths are root-relative.
+      const previousTree = await packRootTree(directory, {
+        sha: previousSha,
+        root: pack.root,
+      })
+      const currentTree = await packRootTree(directory, pack)
+      if (!previousTree || !currentTree) return []
+      const previous = await filesAt(previousTree)
+      const current = await filesAt(currentTree)
       const diff = [
         "diff",
         "--find-renames=50%",
         "--name-status",
         "-z",
-        previousSha,
-        pack.sha,
+        previousTree,
+        currentTree,
       ]
       const candidates = renamePairs(await nativeGit(directory, diff)).filter(
         (pair) => previous.has(pair.from) && current.has(pair.to),
@@ -219,6 +220,28 @@ function rewriteDocument(
         const to = claim.get("to")
         if (typeof to === "string" && claimTarget(to, index) !== to)
           claim.set("to", claimTarget(to, index))
+      }
+    })
+  }
+  // `sources` holds source paths from the Workspace root (ADR-050), not
+  // links from the file, so a renamed source file keeps its units.
+  const movedSource = (entry: unknown): string | null => {
+    const resolved = sourcePathOf(entry)
+    if (!resolved) return null
+    const moved = renames.find((pair) => pair.from === resolved)?.to
+    return moved && current.has(moved) ? moved : null
+  }
+  const sources = parseSimpleFrontMatter(next).attributes.sources
+  if (Array.isArray(sources) && sources.some((entry) => movedSource(entry))) {
+    next = updateKnowledgeMetadata(next, (document) => {
+      const sequence = editableMetadataNode(document, "sources")
+      if (!isSeq(sequence)) return
+      for (let index = 0; index < sequence.items.length; index++) {
+        let item = sequence.items[index]
+        if (isAlias(item)) item = materializeMetadataAlias(document, item)
+        if (!isScalar(item)) continue
+        const moved = movedSource(item.value)
+        if (moved) sequence.set(index, moved)
       }
     })
   }

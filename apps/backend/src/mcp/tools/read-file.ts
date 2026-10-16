@@ -8,7 +8,7 @@ import {
 import { fetchCheckoutFileBytes } from "../../domain/codeIngestion/codesearchClient.js"
 import { chunkKnowledgeBody } from "../../domain/workspaces/knowledge-chunks.js"
 import { log } from "../../observability/logger.js"
-import { fitPage } from "../framework/budget.js"
+import { fitPage, measureResult, truncateText } from "../framework/budget.js"
 import {
   type CallWorkspace,
   loadOrgRepositoryHandles,
@@ -30,6 +30,40 @@ import { McpToolError } from "../framework/tool-errors.js"
 import type { CallOrg } from "../framework/tool-org.js"
 import { defineMcpReadTool } from "../framework/tool-registry.js"
 
+/** Claims that the front matter of one read shows. */
+const MAX_FRONT_MATTER_CLAIMS = 20
+
+/** Characters of a front matter title, claim target, or source. */
+const MAX_FRONT_MATTER_TEXT = 200
+
+/** Tokens that the front matter may take; a larger one is left out. */
+const MAX_FRONT_MATTER_TOKENS = 1_500
+
+const frontMatterSchema = z
+  .object({
+    kind: z.string().optional(),
+    title: z.string().optional(),
+    source: z.string(),
+    updatedAt: z.string(),
+    claims: z
+      .array(
+        z.object({
+          to: z.string(),
+          predicate: z.string().optional(),
+          confidence: z.number().optional(),
+          validFrom: z.string().optional(),
+          validTo: z.string().optional(),
+          source: z.string().optional(),
+        }),
+      )
+      .optional(),
+    moreClaims: z.number().int().optional(),
+  })
+  .describe(
+    "The front matter of a knowledge unit, as ctxpipe parsed it: kind, title, source, last update, and claims. Only on the page that starts at the body.",
+  )
+type FrontMatter = z.infer<typeof frontMatterSchema>
+
 /**
  * A unit and the file line before its first body line: the lines of front
  * matter. The chunk rows hold file lines, and the first chunk starts at its
@@ -40,13 +74,23 @@ async function readUnit(
   org: CallOrg,
   workspace: CallWorkspace,
   path: string,
-): Promise<{ text: string; lineOffset: number; sha: string } | null> {
+): Promise<{
+  text: string
+  lineOffset: number
+  sha: string
+  frontMatter: FrontMatter
+} | null> {
   return withOrgDbContext(org.id, async (db) => {
     const [row] = await db
       .select({
         servingId: workspaceKnowledgeUnits.servingId,
         body: workspaceKnowledgeUnits.body,
         projectionSha: workspaceKnowledgeUnits.projectionSha,
+        kind: workspaceKnowledgeUnits.kind,
+        title: workspaceKnowledgeUnits.title,
+        source: workspaceKnowledgeUnits.source,
+        updatedAt: workspaceKnowledgeUnits.updatedAt,
+        claims: workspaceKnowledgeUnits.claims,
       })
       .from(workspaceKnowledgeUnits)
       .where(
@@ -75,7 +119,35 @@ async function readUnit(
       first && bodyStart !== undefined
         ? Math.max(0, first.startLine - bodyStart)
         : 0
-    return { text: row.body, lineOffset, sha: row.projectionSha }
+    const claims: NonNullable<FrontMatter["claims"]> = row.claims
+      .slice(0, MAX_FRONT_MATTER_CLAIMS)
+      .map((claim) => ({
+        to: truncateText(claim.to, MAX_FRONT_MATTER_TEXT),
+        ...(claim.predicate !== null ? { predicate: claim.predicate } : {}),
+        ...(claim.confidence !== null ? { confidence: claim.confidence } : {}),
+        ...(claim.validFrom !== null ? { validFrom: claim.validFrom } : {}),
+        ...(claim.validTo !== null ? { validTo: claim.validTo } : {}),
+        ...(claim.source !== null
+          ? { source: truncateText(claim.source, MAX_FRONT_MATTER_TEXT) }
+          : {}),
+      }))
+    return {
+      text: row.body,
+      lineOffset,
+      sha: row.projectionSha,
+      frontMatter: {
+        ...(row.kind ? { kind: row.kind } : {}),
+        ...(row.title
+          ? { title: truncateText(row.title, MAX_FRONT_MATTER_TEXT) }
+          : {}),
+        source: truncateText(row.source ?? "authored", MAX_FRONT_MATTER_TEXT),
+        updatedAt: row.updatedAt.toISOString(),
+        ...(claims.length ? { claims } : {}),
+        ...(row.claims.length > claims.length
+          ? { moreClaims: row.claims.length - claims.length }
+          : {}),
+      },
+    }
   })
 }
 
@@ -140,6 +212,13 @@ export const readFileInputShape = {
 const readFileOutputSchema = z.object({
   ref: z.string(),
   served: servedSchema,
+  frontMatter: frontMatterSchema.optional(),
+  frontMatterOmitted: z
+    .boolean()
+    .optional()
+    .describe(
+      "The front matter is too large to show here. Use get_related for the claims of this unit.",
+    ),
   content: z.string(),
   startLine: z.number(),
   endLine: z.number(),
@@ -187,6 +266,7 @@ export async function readFileByRef(
     }
   }
   let text: string | null
+  let frontMatter: FrontMatter | undefined
   let lineOffset = 0
   let served: z.infer<typeof servedSchema>
   if (ref.kind === "unit") {
@@ -194,6 +274,7 @@ export async function readFileByRef(
     const workspaceServed = requireServed(workspace)
     const unit = await readUnit(org, workspace, ref.path)
     text = unit?.text ?? null
+    frontMatter = unit?.frontMatter
     lineOffset = unit?.lineOffset ?? 0
     served = {
       branch: workspaceServed.branch,
@@ -233,6 +314,16 @@ export async function readFileByRef(
     )
   }
   const first = Math.max(startLine, lineOffset + 1)
+  // The front matter comes once: with the page that starts at the body.
+  const wantsFrontMatter = frontMatter && first === lineOffset + 1
+  const fitsBudget =
+    frontMatter !== undefined &&
+    measureResult({ frontMatter }).tokens <= MAX_FRONT_MATTER_TOKENS
+  const header = !wantsFrontMatter
+    ? {}
+    : fitsBudget
+      ? { frontMatter }
+      : { frontMatterOmitted: true }
   const page = fitPage(lines, {
     offset: first - lineOffset - 1,
     limit: Math.max(0, last - first + 1),
@@ -242,6 +333,7 @@ export async function readFileByRef(
       return {
         ref: formatRef(ref),
         served,
+        ...header,
         content: fitted.join("\n"),
         startLine: first,
         endLine: end,
@@ -252,14 +344,19 @@ export async function readFileByRef(
     },
   })
   const end = first + page.page.length - 1
+  // The next line follows the lines that the page took or left out, so the
+  // cursor always moves forward.
+  const nextLine =
+    page.nextOffset === null ? null : page.nextOffset + lineOffset + 1
   return {
     ref: formatRef(ref),
     served,
+    ...header,
     content: page.page.join("\n"),
     startLine: first,
     endLine: end,
     totalLines,
-    nextStartLine: end < last ? end + 1 : null,
+    nextStartLine: nextLine !== null && nextLine <= last ? nextLine : null,
     truncated: page.cut,
   }
 }
@@ -271,7 +368,7 @@ export const readFileTool = defineMcpReadTool({
     "Read a knowledge unit or a linked repository file by ref, with a line range.",
     "A unit ref is its path (knowledge/services/api.md) and needs workspace. A repository file ref is <handle>:<path> (example/api:src/index.ts); workspace is optional for it.",
     "Use refs from search_knowledge, search_code, find_symbol, get_related, or list_files.",
-    "Line numbers are file lines. A long file comes in pages: send nextStartLine as startLine for the next page.",
+    "Line numbers are file lines. A unit gives its front matter (kind, title, claims) in frontMatter, not in content. A long file comes in pages: send nextStartLine as startLine for the next page.",
     "Do not read the repository you have open locally: pass it in excludeRepositories.",
   ].join(" "),
   org: "required",

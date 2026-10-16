@@ -41,6 +41,7 @@ import {
   type IngestSkillBundle,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
+import { workspaceRootPathSchema } from "../../domain/workspaces/root-path.js"
 import {
   findWorkspaceStepCommit,
   listWorkspaceIngestStepFiles,
@@ -76,6 +77,7 @@ export const ingestionDestinationSchema = z.object({
   generation: z.number().int(),
   pinnedRevision: sha,
   repositoryId: z.string().nullable(),
+  rootPath: workspaceRootPathSchema.optional(),
 })
 
 /** A planned root, as `resolveDiscoveredRoots` gave it. */
@@ -135,6 +137,11 @@ export type IngestionShardWorkspace = {
   rejects: number
   /** Steps that failed after their retries; their root is `partial`. */
   partial: number
+  /**
+   * The roots of the steps that failed. Their deletes are not published (no
+   * retraction, concept section 7.3). A repository-wide step has no root.
+   */
+  partialRoots: string[]
 }
 
 export type IngestionShardOutput = {
@@ -237,6 +244,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
                 ops: start?.ops ?? 0,
                 rejects: 0,
                 partial: 0,
+                partialRoots: [],
               } satisfies IngestionShardWorkspace,
             ]
           }),
@@ -447,6 +455,11 @@ type SkillPages = {
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
+  const failed = () => {
+    state.partial++
+    if (ctx.root !== null && !state.partialRoots.includes(ctx.root))
+      state.partialRoots.push(ctx.root)
+  }
   const label = skillStepName(
     ctx.root,
     ctx.skill.name,
@@ -465,7 +478,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       runSkillStep({ ...ctx, name, oldTip, opsBefore }),
     )
     if (result.partial) {
-      state.partial++
+      failed()
       return
     }
     state.tip = result.tip
@@ -473,7 +486,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     state.rejects += result.rejects
     if (!result.more) return
     if (result.ops === 0) {
-      state.partial++
+      failed()
       logStepPartial(
         ctx,
         label,
@@ -482,7 +495,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       return
     }
   }
-  state.partial++
+  failed()
   logStepPartial(
     ctx,
     label,

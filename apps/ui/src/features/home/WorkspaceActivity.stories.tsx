@@ -509,14 +509,18 @@ export const AllWorkspaces: Story = {
       await page.findByRole("menuitemradio", { name: "All workspaces" }),
     )
 
-    expect(
-      await canvas.findByRole("button", {
-        name: "Show activity for: All workspaces",
-      }),
-    ).toBeVisible()
-    expect(await canvas.findByText("Add release checklist")).toBeVisible()
-    expect(canvas.getByText("Handbook")).toBeVisible()
-    expect(canvas.getAllByText("Docs")[0]).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Show activity for: All workspaces",
+        }),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Add release checklist")).toBeVisible(),
+    )
+    await waitFor(() => expect(canvas.getByText("Handbook")).toBeVisible())
+    await waitFor(() => expect(canvas.getAllByText("Docs")[0]).toBeVisible())
     expect(orgActivityDates.includes(null)).toBe(true)
     await waitFor(() =>
       expect(urlSearch(canvasElement)).toEqual({ scope: "*" }),
@@ -530,8 +534,12 @@ export const AllWorkspaces: Story = {
     await waitFor(() =>
       expect(orgActivityDates.includes("2026-08-22")).toBe(true),
     )
-    expect(await canvas.findByText("Add release checklist")).toBeVisible()
-    expect(canvas.getByText("Add on-call severity notes")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Add release checklist")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Add on-call severity notes")).toBeVisible(),
+    )
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
@@ -576,9 +584,12 @@ export const AllWorkspacesPendingNote: Story = {
     pendingOrgReads = 0
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    // A cold first render can take longer than the default 1 s wait.
+    await waitFor(
+      () =>
+        expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+      { timeout: 15_000 },
+    )
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Show activity for: Docs" }),
@@ -587,12 +598,18 @@ export const AllWorkspacesPendingNote: Story = {
       await page.findByRole("menuitemradio", { name: "All workspaces" }),
     )
 
-    expect(
-      await canvas.findByText(
-        "Activity for 1 workspace is still loading: Handbook.",
-      ),
-    ).toBeVisible()
-    expect(canvas.getByText("Document billing ledger rules")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "Activity for 1 workspace is still loading: Handbook.",
+        ),
+      ).toBeVisible(),
+    )
+    await waitFor(
+      () =>
+        expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+      { timeout: 5_000 },
+    )
     // The slow poll waits 10 s, so a 3 s window holds one heatmap read and
     // one list read only.
     await new Promise((settle) => setTimeout(settle, 3_000))

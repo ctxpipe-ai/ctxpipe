@@ -243,6 +243,30 @@ describe("planWorkspaceFileJob", () => {
       }),
     ).toEqual({ ok: false, error: "A valid file path is required" })
   })
+
+  it("refuses every op that writes or deletes a host-only path", async () => {
+    const hostTree = [...tree, ".ctxpipe/sources.yaml"]
+    const readBlob = await blobs({
+      ".ctxpipe/sources.yaml": "sources: []\n",
+      "AGENTS.md": "# x\n",
+    })
+    const requests = [
+      { op: "save", path: ".ctxpipe/sources.yaml", content: "x" },
+      { op: "save", path: ".CtxPipe/new.yaml", content: "x" },
+      { op: "create", path: ".ctxpipe/extra", kind: "folder" },
+      { op: "delete", path: ".ctxpipe" },
+      { op: "rename", from: "AGENTS.md", to: ".ctxpipe/AGENTS.md" },
+      { op: "move", from: ".ctxpipe/sources.yaml", toDirectory: "knowledge" },
+    ] as const
+    for (const request of requests) {
+      const result = await planWorkspaceFileJob({
+        request,
+        treePaths: hostTree,
+        readBlob,
+      })
+      expect(result).toMatchObject({ ok: false, error: /host-only/ })
+    }
+  })
 })
 
 describe("parseWorkspaceFileJobRequest", () => {

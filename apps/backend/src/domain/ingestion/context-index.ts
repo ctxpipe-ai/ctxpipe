@@ -1,15 +1,12 @@
 import { spawn } from "node:child_process"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import {
   hydrateKnowledgeTree,
   resolveHydrateLink,
 } from "../workspaces/hydrate.js"
-import {
-  fileOwnership,
-  fileSources,
-  parseYamlObject,
-  splitFrontMatter,
-} from "./patch-validator.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
+import { fileOwnership, fileSources } from "./patch-validator.js"
 import { runGit } from "./run-git.js"
 
 /**
@@ -53,12 +50,17 @@ const MAX_SUMMARY = 160
 const MAX_SOURCES = 5
 const MAX_LINKS = 10
 
-/** Reads the raw files of a git revision with one `git cat-file --batch`. */
+/**
+ * Reads the raw files of a git revision with one `git cat-file --batch`.
+ * `paths` and the keys of the result are relative to `rootPath`.
+ */
 export async function readGitFiles(
   repoDir: string,
   sha: string,
   paths: readonly string[],
+  rootPath = "",
 ): Promise<Map<string, string>> {
+  const prefix = rootPath ? `${rootPath}/` : ""
   const result = new Map<string, string>()
   if (paths.length === 0) return result
   const child = spawn("git", ["-C", repoDir, "cat-file", "--batch"], {
@@ -70,7 +72,7 @@ export async function readGitFiles(
     child.on("error", reject)
     child.on("close", () => resolve())
   })
-  child.stdin.end(paths.map((path) => `${sha}:${path}\n`).join(""))
+  child.stdin.end(paths.map((path) => `${sha}:${prefix}${path}\n`).join(""))
   await exited
   const out = Buffer.concat(chunks)
   let at = 0
@@ -205,34 +207,37 @@ function parseUnits(
   )
 }
 
-/** The paths that changed between two commits of `repoDir`, with their text at `to`. */
+/**
+ * The paths below `rootPath` that changed between two commits of `repoDir`,
+ * relative to `rootPath`, with their text at `to`.
+ */
 async function changedFiles(
   repoDir: string,
   from: string,
   to: string,
+  rootPath: string,
 ): Promise<Array<{ path: string; content: string | null }>> {
   if (from === to) return []
-  const out = (
-    await runGit(repoDir, [
-      "diff-tree",
-      "-r",
-      "-z",
-      "--no-renames",
-      "--name-status",
-      from,
-      to,
-    ])
-  ).toString("utf8")
-  const fields = out.split("\0").filter(Boolean)
+  const out = await runGit(repoDir, [
+    "diff-tree",
+    "-r",
+    "-z",
+    "--no-renames",
+    "--name-status",
+    from,
+    to,
+    ...(rootPath ? ["--", `${rootPath}/`] : []),
+  ])
+  const prefixLength = rootPath ? rootPath.length + 1 : 0
   const deleted: string[] = []
   const written: string[] = []
-  for (let i = 0; i + 1 < fields.length; i += 2) {
-    const status = fields[i] ?? ""
-    const path = fields[i + 1] ?? ""
+  for (const change of parseNameStatus(out)) {
+    const { status } = change
+    const path = change.to.slice(prefixLength)
     if (status.startsWith("D")) deleted.push(path)
     else written.push(path)
   }
-  const raw = await readGitFiles(repoDir, to, written)
+  const raw = await readGitFiles(repoDir, to, written, rootPath)
   return [
     ...deleted.map((path) => ({ path, content: null })),
     ...written.map((path) => ({ path, content: raw.get(path) ?? null })),
@@ -253,6 +258,8 @@ export function stepContextIndex(source: {
   pinnedRevision: string
   sourceUrl: string
   repoDir: string
+  /** Workspace root folder; unit paths are relative to it. */
+  rootPath?: string
   projection: () => Promise<readonly IndexUnit[]>
   fetch: (what: string, into: string) => Promise<void>
 }) {
@@ -280,6 +287,7 @@ export function stepContextIndex(source: {
         source.repoDir,
         source.pinnedRevision,
         units.map((unit) => unit.path),
+        source.rootPath,
       )
       state = {
         base: source.pinnedRevision,
@@ -294,7 +302,12 @@ export function stepContextIndex(source: {
     if (base !== state.base) {
       if (ref && !(await has(base))) await fetchInto(ref)
       if (!(await has(base))) await fetchInto(base)
-      const changed = await changedFiles(source.repoDir, state.base, base)
+      const changed = await changedFiles(
+        source.repoDir,
+        state.base,
+        base,
+        source.rootPath ?? "",
+      )
       for (const { path } of changed) state.entries.delete(path)
       const written = changed.flatMap((file) =>
         file.content === null
@@ -346,6 +359,7 @@ export async function contextIndexAtStepBase(input: {
   base: string
   sourceUrl: string
   repoDir: string
+  rootPath?: string
 }): Promise<{ index: ContextIndex; json: string }> {
   return stepContextIndex({
     ...input,
@@ -367,6 +381,8 @@ export async function buildContextIndex(input: {
   base?: string
   sourceUrl: string
   repoDir: string
+  /** Workspace root folder; unit paths are relative to it. */
+  rootPath?: string
 }): Promise<{ index: ContextIndex; json: string }> {
   return contextIndexAtStepBase({
     workspaceId: input.workspaceId,
@@ -378,6 +394,7 @@ export async function buildContextIndex(input: {
     base: input.base ?? input.sha,
     sourceUrl: input.sourceUrl,
     repoDir: input.repoDir,
+    rootPath: input.rootPath,
   })
 }
 

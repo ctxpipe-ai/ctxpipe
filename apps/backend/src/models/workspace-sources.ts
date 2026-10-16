@@ -1,21 +1,32 @@
+import { isDeepStrictEqual } from "node:util"
 import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../db/schema/workspaces.js"
-import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
+  type PlannedSourceRow,
+  unmatchedSourceDetail,
+} from "../domain/workspace-sources/projection-plan.js"
+import { sourceProviderSchema } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
+import {
+  holdsTarget,
+  listLinkedRepositoryPins,
+  planSourceStates,
+  sameSourceState,
+} from "./workspace-source-state.js"
 
 export type WorkspaceSourceRow = typeof workspaceSources.$inferSelect
 
-/** The same source entry: provider, connection and scope, not the status. */
+/**
+ * The same source entry: provider, connection and scope, not the status.
+ * jsonb does not keep the key order of the stored scope, so compare by value.
+ */
 export function sameSource(
   row: Pick<WorkspaceSourceRow, "provider" | "connectionId" | "scope">,
   planned: Pick<PlannedSourceRow, "provider" | "connectionId" | "scope">,
@@ -23,7 +34,7 @@ export function sameSource(
   return (
     row.provider === planned.provider &&
     row.connectionId === planned.connectionId &&
-    JSON.stringify(row.scope) === JSON.stringify(planned.scope)
+    isDeepStrictEqual(row.scope, planned.scope)
   )
 }
 
@@ -39,6 +50,11 @@ function sameRow(row: WorkspaceSourceRow, planned: PlannedSourceRow): boolean {
  * Make the rows of one Workspace match the planned projection of `revision`.
  * Running it again with the same plan changes nothing. Returns the rows that
  * it removed and the rows whose content changed, with their old values.
+ *
+ * When the plan cannot tell if a missing source left the file (see
+ * `unmatchedSourceDetail`), the row of a missing source with a last good
+ * target stays as `invalid`, so its files stay. An `invalid` row keeps the
+ * last good target of its source in its state.
  */
 export async function replaceWorkspaceSourceRows(input: {
   orgId: string
@@ -52,13 +68,40 @@ export async function replaceWorkspaceSourceRows(input: {
 }> {
   return withOrgDbContext(input.orgId, (db) =>
     db.transaction(async (tx) => {
+      // Lock the rows: a pin write (`updateLinkedRepositoryPin`) waits, so
+      // this write cannot undo its SHAs.
       const existing = await tx
         .select()
         .from(workspaceSources)
         .where(eq(workspaceSources.workspaceId, input.workspaceId))
-      const byKey = new Map(existing.map((row) => [row.sourceKey, row]))
+        .for("update")
+      const [workspace] = await tx
+        .select({ url: workspaces.workspaceRepositoryUrl })
+        .from(workspaces)
+        .where(eq(workspaces.id, input.workspaceId))
       const plannedKeys = new Set(input.rows.map((row) => row.sourceKey))
-      const removed = existing.filter((row) => !plannedKeys.has(row.sourceKey))
+      const unmatchedDetail = unmatchedSourceDetail(input.rows)
+      const held = (row: WorkspaceSourceRow) =>
+        unmatchedDetail !== null && holdsTarget(row)
+      const missing = existing.filter((row) => !plannedKeys.has(row.sourceKey))
+      const removed = missing.filter((row) => !held(row))
+      const plan: PlannedSourceRow[] = [
+        ...input.rows,
+        ...missing.filter(held).map((row) => ({
+          sourceKey: row.sourceKey,
+          provider: sourceProviderSchema.safeParse(row.provider).data ?? null,
+          connectionId: row.connectionId,
+          scope: row.scope,
+          status: "invalid" as const,
+          statusDetail: unmatchedDetail,
+        })),
+      ]
+      const states = planSourceStates({
+        existing,
+        planned: plan,
+        workspaceUrl: workspace?.url ?? null,
+      })
+      const byKey = new Map(existing.map((row) => [row.sourceKey, row]))
       if (removed.length)
         await tx.delete(workspaceSources).where(
           inArray(
@@ -72,8 +115,9 @@ export async function replaceWorkspaceSourceRows(input: {
       }> = []
       const added: PlannedSourceRow[] = []
       const now = new Date()
-      for (const planned of input.rows) {
+      for (const planned of plan) {
         const current = byKey.get(planned.sourceKey)
+        const state = states.get(planned.sourceKey) ?? {}
         if (!current) {
           added.push(planned)
           await tx.insert(workspaceSources).values({
@@ -81,24 +125,26 @@ export async function replaceWorkspaceSourceRows(input: {
             orgId: input.orgId,
             workspaceId: input.workspaceId,
             ...planned,
+            state,
             revision: input.revision,
             createdAt: now,
             updatedAt: now,
           })
           continue
         }
+        const sameState = sameSourceState(current.state, state)
         if (sameRow(current, planned)) {
-          if (current.revision !== input.revision)
+          if (current.revision !== input.revision || !sameState)
             await tx
               .update(workspaceSources)
-              .set({ revision: input.revision })
+              .set({ revision: input.revision, state })
               .where(eq(workspaceSources.id, current.id))
           continue
         }
         changed.push({ before: current, after: planned })
         await tx
           .update(workspaceSources)
-          .set({ ...planned, revision: input.revision, updatedAt: now })
+          .set({ ...planned, state, revision: input.revision, updatedAt: now })
           .where(eq(workspaceSources.id, current.id))
       }
       return { removed, changed, added }
@@ -143,21 +189,6 @@ export async function listConnectionSourceRows(input: {
       )
       .orderBy(workspaces.slug, workspaceSources.sourceKey),
   )
-}
-
-/** True when any Workspace source row uses the connection, in any status. */
-export async function connectionHasWorkspaceSources(input: {
-  orgId: string
-  connectionId: string
-}): Promise<boolean> {
-  const rows = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .select({ id: workspaceSources.id })
-      .from(workspaceSources)
-      .where(eq(workspaceSources.connectionId, input.connectionId))
-      .limit(1),
-  )
-  return rows.length > 0
 }
 
 /**
@@ -296,12 +327,7 @@ export async function listGithubConnectionWorkspaces(input: {
         })
         .from(workspaces)
         .orderBy(workspaces.slug),
-      db
-        .select({
-          workspaceId: workspaceLinkedRepositories.workspaceId,
-          gitUrl: workspaceLinkedRepositories.gitUrl,
-        })
-        .from(workspaceLinkedRepositories),
+      listLinkedRepositoryPins(db),
       db
         .select({ gitUrl: repositories.gitUrl })
         .from(repositories)

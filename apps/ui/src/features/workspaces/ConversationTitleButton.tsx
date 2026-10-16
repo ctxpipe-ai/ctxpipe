@@ -92,7 +92,8 @@ export function ConversationTitleButton(props: {
             if (event.key === "Enter") {
               event.preventDefault()
               restoreFocus.current = true
-              save()
+              // The blur handler is the one save path.
+              event.currentTarget.blur()
             } else if (event.key === "Escape") {
               event.preventDefault()
               cancelled.current = true

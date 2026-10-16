@@ -1,4 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
+import { z } from "zod"
 import { assertRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
 import {
   type GitPack,
@@ -6,13 +7,14 @@ import {
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import type { WorkspaceExtraction } from "./extraction.js"
 import {
   isLinkedRepositoryDeclaration,
   parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
-import type { WorkspaceRevision } from "./revision.js"
+import { gitObjectIdSchema, type WorkspaceRevision } from "./revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
 /** The first valid declaration in Git tree order is the canonical clone authority. */
@@ -36,7 +38,7 @@ export async function captureExtractionSourceDeclaration(
       (
         await nativeGit(directory, [
           "rev-parse",
-          `${pack.sha}:${declaration.path}`,
+          `${pack.sha}:${workspaceRepositoryPath(pack.root ?? "", declaration.path)}`,
         ])
       )
         .toString()
@@ -127,3 +129,29 @@ async function assertSourceClaimsOnly(
       "Extraction may only update claims in its source declaration",
     )
 }
+
+/**
+ * The source of a publish from an ingestion v2 run (ADR-052 section 6, T21):
+ * the run, and the tip of its assembled ref in the Workspace repository. The
+ * publish replays the delta from the pinned revision (the command's revision)
+ * to `tip`. It keeps each file that the delta deletes in a root of
+ * `withheldRoots`: a failed root gets no retraction (concept section 7.3).
+ * `source`, `sourceSha`, and `bundle` are for the patch validator of a
+ * semantic merge.
+ */
+export const ingestPublishSourceSchema = z
+  .object({
+    runId: z.string().min(1),
+    tip: gitObjectIdSchema,
+    withheldRoots: z.array(z.string().min(1)),
+    bundle: z.string().min(1),
+    source: z
+      .object({ url: z.string().min(1), githubConnectionId: z.string().min(1) })
+      .strict(),
+    sourceSha: gitObjectIdSchema,
+    /** The run's author time: the commit date, so a replay makes the same SHA. */
+    authorTime: z.string().datetime(),
+  })
+  .strict()
+
+export type IngestPublishSource = z.infer<typeof ingestPublishSourceSchema>

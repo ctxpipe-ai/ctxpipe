@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process"
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs"
+import { mkdirSync, rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -99,19 +99,17 @@ it(
     withNativeHydrationFixture(
       { count: 100, traceGitCommands: true },
       async (f) => {
-        const { gitTrace } = f
+        // A runner can start Git processes that the hydration does not own,
+        // for example from a Git wrapper. A shell starts three of them here.
+        // They must not count against the budget.
+        execFileSync("sh", ["-c", "git version; git version; git version"])
         await f.publish()
-        const gitCommands = readFileSync(gitTrace, "utf8")
-          .trim()
-          .split("\n")
-          .map((line) => JSON.parse(line))
-          .filter(
-            (event) => event.event === "start" && !event.sid.includes("/"),
-          )
+        const gitCommands = f.gitCommands()
         expect(
           gitCommands.length,
-          "native git command budget per immutable tree",
+          `native git command budget per immutable tree:\n${gitCommands.join("\n")}`,
         ).toBeLessThanOrEqual(8)
+        expect(gitCommands).not.toContain("version")
       },
     ),
 )
@@ -618,14 +616,9 @@ it(
       expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
         hydrated: true,
         units: 1,
-        skipped: 2,
-        diagnostics: [
-          { path: "broken.md", reason: "malformed" },
-          {
-            path: "repositories/self.md",
-            reason: "duplicate_repository",
-          },
-        ],
+        // A repository file is not a link or a unit any more (ADR-050).
+        skipped: 1,
+        diagnostics: [{ path: "broken.md", reason: "malformed" }],
       })
       const replaced = await readSnapshot()
       expect(replaced.projection).toMatchObject({
@@ -647,13 +640,7 @@ it(
         published: false,
         reason: "no_repository",
       })
-      const brokenSkipped = [
-        { path: "broken.md", reason: "malformed" },
-        {
-          path: "repositories/self.md",
-          reason: "duplicate_repository",
-        },
-      ]
+      const brokenSkipped = [{ path: "broken.md", reason: "malformed" }]
       expect(await storedSkipped()).toEqual(brokenSkipped)
       const detail = await workspaceHttpApp(org, workspaceRoutes).request(
         "/workspaces/knowledge",
@@ -772,7 +759,6 @@ it(
             orgId: org.id,
             revision: rejectedRevision,
             displayName: null,
-            remotes: [],
             units: [duplicate, duplicate],
             skipped: [],
             embeddingModel: "fixture-embedding",

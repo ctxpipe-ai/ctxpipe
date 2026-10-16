@@ -4,19 +4,18 @@ import { withOrgDbContext } from "../../db/client.js"
 import { confluenceSpaces } from "../../db/schema/confluenceSpaces.js"
 import { confluenceSyncTargets } from "../../db/schema/confluenceSyncTargets.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { applySourceFileChange } from "../../domain/workspace-sources/edit.js"
+import { isLegacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { planSourceMigration } from "../../domain/workspace-sources/migration-plan.js"
 import {
   parseSourceEntry,
   sourcesFileSchema,
 } from "../../domain/workspace-sources/sources-file.js"
 import { parseSourcesYaml } from "../../domain/workspace-sources/sources-yaml.js"
-import {
-  getConfluenceSyncTargetWithRepoByConnectionId,
-  isConfluenceTargetHandedOver,
-} from "../../models/confluence-sync-target.js"
+import { applySourcesYamlChange } from "../../domain/workspace-sources/sources-yaml-edit.js"
+import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { handleForgeConfluenceContentEvent } from "./forge-confluence-webhook.js"
 import { confluenceSourceMigrationHook } from "./workspace-source-migration.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
@@ -125,7 +124,7 @@ describe("Confluence source migration hook (Postgres)", () => {
     })
     let text: string | null = null
     for (const change of changes.get("ws_context") ?? [])
-      text = applySourceFileChange(text, change).text
+      text = applySourcesYamlChange(text, change).text
     const file = sourcesFileSchema.parse(parseSourcesYaml(text ?? ""))
     expect(file.sources.map(parseSourceEntry)).toEqual([
       {
@@ -165,8 +164,9 @@ describe("Confluence source migration hook (Postgres)", () => {
       })
     })
     const handedOver = () =>
-      isConfluenceTargetHandedOver({
+      isLegacyBindingHandedOver("confluence", {
         orgId: seed.orgId,
+        connectionId: forge,
         repositoryGitUrl: gitUrl,
       })
     expect(await handedOver()).toBe(false)
@@ -192,6 +192,15 @@ describe("Confluence source migration hook (Postgres)", () => {
       ],
     })
     expect(await handedOver()).toBe(true)
+    // A Forge event stops before it reads the repository or Confluence.
+    expect(
+      await handleForgeConfluenceContentEvent({
+        orgId: seed.orgId,
+        connectionId: forge,
+        env: parseEnv(process.env),
+        spaceKey: "ENG",
+      }),
+    ).toBe("skipped")
 
     // --apply turns the legacy target off.
     await confluenceSourceMigrationHook.disableLegacy?.({
@@ -203,5 +212,79 @@ describe("Confluence source migration hook (Postgres)", () => {
       forge,
     )
     expect(target?.enabled).toBe(false)
+  })
+
+  it("hands each Confluence site over on its own, and only for an ok source", async () => {
+    const siteA = await seed.addConnection("forge", { status: "installed" })
+    const siteB = await seed.addConnection("forge", { status: "installed" })
+    const gitUrl = `https://github.com/acme/two-sites-${seed.suffix}.git`
+    const repositoryId = `repo_two_sites_${seed.suffix}`
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: repositoryId,
+        orgId: seed.orgId,
+        name: "two-sites",
+        gitUrl,
+      })
+      await db.insert(confluenceSyncTargets).values(
+        [siteA, siteB].map((connectionId, index) => ({
+          id: `cst_two_sites_${index}_${seed.suffix}`,
+          orgId: seed.orgId,
+          connectionId,
+          repositoryId,
+          branch: "main",
+          setupPhase: "live",
+        })),
+      )
+    })
+    const handedOver = (connectionId: string) =>
+      isLegacyBindingHandedOver("confluence", {
+        orgId: seed.orgId,
+        connectionId,
+        repositoryGitUrl: gitUrl,
+      })
+    const workspaceId = await seed.addWorkspace(
+      `two-sites-${seed.suffix}`.slice(0, 40),
+      gitUrl.replace(/\.git$/, ""),
+    )
+    const project = (
+      siteBStatus: "invalid" | "connection_missing" | "out_of_access" | "ok",
+    ) =>
+      replaceWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId,
+        revision: "b".repeat(40),
+        rows: [
+          {
+            sourceKey: "site-a",
+            provider: "confluence",
+            connectionId: siteA,
+            scope: { spaces: [{ key: "ENG", pages: "all" }] },
+            status: "ok",
+            statusDetail: null,
+          },
+          {
+            sourceKey: "site-b",
+            provider: "confluence",
+            connectionId: siteB,
+            scope: { spaces: [{ key: "OPS", pages: "all" }] },
+            status: siteBStatus,
+            statusDetail: siteBStatus === "ok" ? null : "fixture",
+          },
+        ],
+      })
+
+    // Site A owns the repository; site B has no ok source, so it still syncs.
+    for (const status of [
+      "invalid",
+      "connection_missing",
+      "out_of_access",
+    ] as const) {
+      await project(status)
+      expect(await handedOver(siteA)).toBe(true)
+      expect(await handedOver(siteB)).toBe(false)
+    }
+    await project("ok")
+    expect(await handedOver(siteB)).toBe(true)
   })
 })

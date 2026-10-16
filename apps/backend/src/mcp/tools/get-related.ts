@@ -16,10 +16,14 @@ import { WorkspaceGraphUnavailableError } from "../../domain/workspaces/graph-pr
 import { WorkspaceGraphBuildingError } from "../../domain/workspaces/graph-rebuild.js"
 import {
   INTENT_PRESETS,
+  isAnswerKind,
   RELEVANCE_INTENTS,
   rankRelated,
 } from "../../domain/workspaces/graph-relevance.js"
-import { searchKnowledge } from "../../domain/workspaces/knowledge-search.js"
+import {
+  embedQuery,
+  searchKnowledge,
+} from "../../domain/workspaces/knowledge-search.js"
 import {
   type PublishedProjection,
   publishedProjection,
@@ -65,7 +69,7 @@ export const getRelatedInputShape = {
     .enum(RELEVANCE_INTENTS)
     .default("general")
     .describe(
-      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, or general.",
+      "The kind of question: why (decisions), ownership, change (recent changes), dependencies, structure, provenance (the sources that a unit came from), or general. Set it, or give the question as query: with neither, one page must serve every kind of question.",
     ),
   predicates: z
     .array(name)
@@ -73,7 +77,15 @@ export const getRelatedInputShape = {
     .max(50)
     .optional()
     .describe(
-      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges when that finds fewer than limit results (all edges for general).",
+      "Walk only edges with these predicates. Not case-sensitive. Default: the edges of the intent and the link edges, then all edges only with fewer than limit results or no answer kind (all edges for general). Only provenance or these predicates walk FROM_SOURCE.",
+    ),
+  excludePredicates: z
+    .array(name)
+    .min(1)
+    .max(50)
+    .optional()
+    .describe(
+      "Never walk edges with these predicates. Not case-sensitive. Applies to every walk.",
     ),
   predicateWeights: z
     .record(name, z.number().min(0))
@@ -89,6 +101,11 @@ export const getRelatedInputShape = {
     .describe(
       "Only results of these kinds. The walk still passes through other kinds.",
     ),
+  excludeKinds: z
+    .array(name)
+    .max(50)
+    .optional()
+    .describe("No results of these kinds. The walk still passes through them."),
   direction: z
     .enum(["out", "in", "both"])
     .default("both")
@@ -103,11 +120,11 @@ export const getRelatedInputShape = {
   maxFanOut: z
     .number()
     .int()
-    .min(1)
-    .max(1_000)
+    .min(5)
+    .max(200)
     .default(50)
     .describe(
-      "Edges that one unit expands: the strongest edge of each predicate first, then the next of each. Default 50.",
+      "Edges that one unit expands, 5 to 200: the strongest edge of each predicate first, then the next of each. Default 50.",
     ),
   minConfidence: z
     .number()
@@ -149,9 +166,10 @@ export const getRelatedInputShape = {
   hubPenalty: z
     .number()
     .min(0)
+    .max(1)
     .optional()
     .describe(
-      "Exponent of the hub penalty degree^-x. The intent sets the default.",
+      "Exponent of the hub penalty degree^-x, 0 to 1. The intent sets the default.",
     ),
   diversity: z
     .number()
@@ -332,6 +350,18 @@ async function resolveSeeds(
   return rows.map((row) => row.id)
 }
 
+/** The deadline of a search, or a Postgres statement timeout (57014). */
+function isTimeout(error: unknown): boolean {
+  for (let current = error; current; ) {
+    if (current instanceof DOMException && current.name === "TimeoutError")
+      return true
+    if (typeof current !== "object") return false
+    if ("code" in current && current.code === "57014") return true
+    current = "cause" in current ? current.cause : undefined
+  }
+  return false
+}
+
 /**
  * The ranking of one call as of `now`. It loads the projection once and
  * checks that it holds the served `sha`. `options.caps` lowers the walk caps,
@@ -352,8 +382,13 @@ export async function rankWorkspaceRelated(
     )
   const projection = await loadProjection(org, workspace, sha)
   const seedIds = await resolveSeeds(org, workspace.id, sha, input.seeds)
+  const total = { ...defaultCaps, ...options.caps }
+  const startedAt = performance.now()
+  const deadline = startedAt + total.totalTimeoutMs
+  let searchTimedOut = false
+  let queryEmbedding: Promise<number[] | null> | undefined
   // Walk the graph and rank what the walk found. No `predicates` walks all
-  // edges.
+  // edges, except the edges to a hub source (FROM_SOURCE).
   const walk = async (
     predicates: string[] | undefined,
     diversity = input.diversity,
@@ -367,13 +402,19 @@ export async function rankWorkspaceRelated(
       maxDepth: input.maxDepth,
       direction: input.direction,
       predicates,
+      excludePredicates: input.excludePredicates?.map((predicate) =>
+        predicate.toUpperCase(),
+      ),
       minConfidence: input.minConfidence,
       maxFanOut: input.maxFanOut,
       validAt: input.validBetween
         ? undefined
         : (input.validAt ?? now.toISOString()),
       validBetween: input.validBetween,
-      caps,
+      caps: {
+        ...caps,
+        totalTimeoutMs: Math.max(0, Math.floor(deadline - performance.now())),
+      },
     }).catch((error: unknown) => {
       if (error instanceof WorkspaceGraphBuildingError) {
         throw notReady("being built")
@@ -383,14 +424,32 @@ export async function rankWorkspaceRelated(
       }
       throw error
     })
-    const queryHits = input.query
+    const query = input.query
+    // Both walks search the same query, so the call embeds it once, inside
+    // the total budget.
+    if (query)
+      queryEmbedding ??= embedQuery(
+        query,
+        AbortSignal.timeout(
+          Math.max(0, Math.ceil(deadline - performance.now())),
+        ),
+      )
+    const queryHits = query
       ? (
           await searchKnowledge({
             orgId: org.id,
             workspaceIds: [workspace.id],
-            query: input.query,
+            query,
             unitIds: expansion.nodes.map((node) => node.id),
             limit: 50,
+            deadline,
+            embedding: queryEmbedding,
+          }).catch((error: unknown) => {
+            // Only the end of the budget makes a partial result: the
+            // deadline of the search, or a Postgres statement timeout.
+            if (!isTimeout(error)) throw error
+            searchTimedOut = true
+            return []
           })
         ).map((hit) => ({ id: hit.unitId, score: hit.score }))
       : []
@@ -410,6 +469,7 @@ export async function rankWorkspaceRelated(
         diversity,
         maxPerKind: input.maxPerKind,
         kinds: input.kinds,
+        excludeKinds: input.excludeKinds,
         includeSeeds: input.includeSeeds,
         limit: RANKED_LIMIT,
         now: input.validAt ? new Date(input.validAt) : now,
@@ -423,13 +483,13 @@ export async function rankWorkspaceRelated(
   }
   // The graph stores predicates in upper case, and the ranking does the same.
   // Explicit predicates are the whole walk. With none, the walk follows the
-  // edges of the intent. When that finds fewer than `limit` results, the
-  // results of a walk over all edges come after them: claims have free-form
-  // predicates, so the edges of the intent can miss the answer.
+  // edges of the intent. Add all edges only for a short result list or a
+  // list with no answer kind. Free-form claims can be outside the preset.
+  const answers = (results: readonly { kind: string | null }[]) =>
+    results.filter((result) => isAnswerKind(input.intent, result.kind))
   const defaultWalk = input.predicates
     ? undefined
     : INTENT_PRESETS[input.intent].walk
-  const startedAt = performance.now()
   const walks = [
     await walk(
       input.predicates?.map((predicate) => predicate.toUpperCase()) ??
@@ -439,9 +499,12 @@ export async function rankWorkspaceRelated(
   // The edges of the walk of all edges are not the edges of the intent, so
   // its results spread over kinds as for `general`.
   // The call keeps its caps as a whole: this walk gets what the first walk left.
-  if (defaultWalk && (walks[0]?.ranked.length ?? 0) < input.limit) {
+  const firstRanked = walks[0]?.ranked ?? []
+  if (
+    defaultWalk &&
+    (firstRanked.length < input.limit || answers(firstRanked).length === 0)
+  ) {
     const first = walks[0]?.expansion
-    const total = { ...defaultCaps, ...options.caps }
     const left = {
       maxNodes: total.maxNodes - (first?.nodes.length ?? 0),
       maxEdges: total.maxEdges - (first?.edges.length ?? 0),
@@ -459,7 +522,9 @@ export async function rankWorkspaceRelated(
         ),
       )
   }
-  // A unit keeps the node and the rank of the first walk that found it.
+  // A unit keeps the node and the rank of the first walk that found it. The
+  // answers of all walks (`answer` of `rankRelated`) come before the other
+  // results, as in one walk.
   const nodes = new Map<string, ExpandedNode>()
   const edgeIds = new Set<string>()
   for (const { expansion } of walks) {
@@ -469,8 +534,11 @@ export async function rankWorkspaceRelated(
   }
   const refOf = (id: string) => nodes.get(id)?.path ?? id
   const rankedIds = new Set<string>()
-  const ranked = walks
-    .flatMap((step) => step.ranked)
+  const ordered = [
+    ...walks.flatMap((step) => step.ranked.filter((result) => result.answer)),
+    ...walks.flatMap((step) => step.ranked.filter((result) => !result.answer)),
+  ]
+  const ranked = ordered
     .filter((result) => !rankedIds.has(result.id) && rankedIds.add(result.id))
     .slice(0, RANKED_LIMIT)
   const units = ranked.length
@@ -523,12 +591,14 @@ export async function rankWorkspaceRelated(
       },
     ]
   })
-  const partialReason = walks.find(({ expansion }) => expansion.partialReason)
-    ?.expansion.partialReason
+  const partialReason = searchTimedOut
+    ? "total_timeout"
+    : walks.find(({ expansion }) => expansion.partialReason)?.expansion
+        .partialReason
   return {
     results,
     explored: { nodes: nodes.size, edges: edgeIds.size },
-    partial: walks.some(({ expansion }) => expansion.partial),
+    partial: searchTimedOut || walks.some(({ expansion }) => expansion.partial),
     ...(partialReason ? { partialReason } : {}),
     cappedHubs: [
       ...new Set(walks.flatMap(({ expansion }) => expansion.cappedHubs)),
@@ -543,7 +613,7 @@ export const getRelatedTool = defineMcpReadTool({
   name: "get_related",
   title: "Get related knowledge",
   description:
-    "Find knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Each result can explain why (the path of predicates from a seed). Set intent for the question: why, ownership, change, dependencies, structure. Each intent first walks its own edges and the link edges (ownership: OWNS; why: decisions, incidents, rules and dependencies; change: changes; dependencies: dependency edges); with fewer than limit results, results from all edges follow. general walks all edges. Give predicates to walk only those edges. Filter by predicates, kinds, direction, depth and time. Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. For plain neighbors, set maxDepth 1 and no query. The default maxDepth is 2.",
+    "Use it after search_knowledge to find owners, dependencies, decisions, incidents and changes. Finds knowledge related to seed refs AND relevant to your query, ranked by graph proximity, edge confidence, recency and query match. Set intent (why, ownership, change, dependencies, structure, provenance) or give the question as query. Each intent walks its own edges first and puts its answer kinds first; with few results, a second walk follows all edges. No walk of all edges follows FROM_SOURCE; the provenance intent walks it, to find the sources a unit came from. Each result can explain why: the path of predicates from a seed. Filter by predicates, kinds, direction, depth and time. For plain neighbors, set maxDepth 1 and no query. Send independent calls in parallel.",
   org: "required",
   inputShape: getRelatedInputShape,
   outputSchema: z.object({

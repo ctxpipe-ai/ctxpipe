@@ -7,11 +7,9 @@ import { withOrgIdContext } from "../auth/withAuth.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { repositories } from "../db/schema/repositories.js"
-import {
-  orgFirstWorkspaces,
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../db/schema/workspaces.js"
+import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
+import { insertLinkedRepositoryRows } from "../test/workspace-links-fixture.js"
+import { listLinkedRepositoryPins } from "./workspace-source-state.js"
 import { ensureOrgFirstWorkspace } from "./workspaces.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -80,7 +78,7 @@ async function seedOrg(input: {
         createdAt: new Date("2026-01-05T00:00:00.000Z"),
       },
     ])
-    await db.insert(workspaceLinkedRepositories).values([
+    await insertLinkedRepositoryRows(db, [
       {
         id: id("wlr", "a_lib"),
         orgId,
@@ -105,16 +103,11 @@ function tipCheckBackfill(orgId: string) {
 }
 
 async function links(orgId: string) {
-  const rows = await withOrgDbContext(orgId, (db) =>
-    db
-      .select({
-        id: workspaceLinkedRepositories.id,
-        workspaceId: workspaceLinkedRepositories.workspaceId,
-        gitUrl: workspaceLinkedRepositories.gitUrl,
-      })
-      .from(workspaceLinkedRepositories)
-      .where(eq(workspaceLinkedRepositories.orgId, orgId)),
-  )
+  const rows = (
+    await withOrgDbContext(orgId, (db) =>
+      listLinkedRepositoryPins(db, { orgId }),
+    )
+  ).map(({ id, workspaceId, gitUrl }) => ({ id, workspaceId, gitUrl }))
   return rows.sort((x, y) => x.id.localeCompare(y.id))
 }
 

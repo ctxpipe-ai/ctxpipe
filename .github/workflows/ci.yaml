@@ -34,7 +34,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -52,6 +52,8 @@ jobs:
         run: node scripts/ci/check-test-policy.mjs
       - name: Reject slow UI motion
         run: node scripts/ci/check-ui-motion.mjs
+      - name: Reject non-Blacksmith runners
+        run: node scripts/ci/check-runners.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs
@@ -67,7 +69,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -90,7 +92,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -235,7 +237,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -273,7 +275,7 @@ jobs:
       always() && (github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Require every test job
         env:
@@ -313,7 +315,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     strategy:
       fail-fast: false
       matrix:
@@ -346,7 +348,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -364,14 +366,41 @@ jobs:
       - run: pnpm --filter ctxpipe build
       - run: pnpm --filter @ctxpipe/aws-cdk-self-host typecheck
 
-  storybook-golden:
-    timeout-minutes: 30
-    name: Storybook Playwright golden journey
+  storybook-build:
+    timeout-minutes: 20
+    name: Storybook build
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @ctxpipe/ui build-storybook
+      - name: Preserve the Storybook build
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-static
+          path: apps/ui/storybook-static
+          if-no-files-found: error
+
+  storybook-golden:
+    timeout-minutes: 30
+    name: Storybook Playwright golden journey
+    needs: storybook-build
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
         with:
@@ -385,7 +414,14 @@ jobs:
       - name: Install Chromium for Storybook Playwright
         working-directory: apps/ui
         run: pnpm exec playwright install --with-deps chromium
+      - name: Download the Storybook build
+        uses: actions/download-artifact@v4
+        with:
+          name: storybook-static
+          path: apps/ui/storybook-static
       - name: Required Storybook golden plays
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
         run: node scripts/ci/storybook-golden.mjs
       - name: Preserve golden play results
         if: always()
@@ -396,6 +432,52 @@ jobs:
           include-hidden-files: true
           if-no-files-found: error
 
+  storybook-plays:
+    timeout-minutes: 45
+    name: Storybook Playwright all plays (${{ matrix.shard }}/4)
+    needs: storybook-build
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      ((github.event_name == 'pull_request') !=
+      (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [1, 2, 3, 4]
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Install Chromium for Storybook Playwright
+        working-directory: apps/ui
+        run: pnpm exec playwright install --with-deps chromium
+      - name: Download the Storybook build
+        uses: actions/download-artifact@v4
+        with:
+          name: storybook-static
+          path: apps/ui/storybook-static
+      - name: Every Storybook story with a play function
+        env:
+          SKIP_STORYBOOK_BUILD: "1"
+          STORYBOOK_PLAYS: all
+          STORYBOOK_SHARD: ${{ matrix.shard }}/4
+        run: node scripts/ci/storybook-golden.mjs
+      - name: Preserve play results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: storybook-plays-results-${{ matrix.shard }}
+          path: .ci-results/storybook-plays/
+          include-hidden-files: true
+          if-no-files-found: error
+
   codesearch:
     timeout-minutes: 30
     name: Codesearch real toolchain contracts
@@ -403,7 +485,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: pnpm/action-setup@v6
@@ -419,7 +501,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
     # Vercel project, never production.
     environment: Preview
@@ -474,7 +556,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - uses: actions/checkout@v6
       - uses: hashicorp/setup-terraform@v3
@@ -508,7 +590,7 @@ jobs:
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
-    runs-on: ubuntu-latest
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     services:
       postgres:
         # Matches local Compose (pgvector); plain postgres:16 lacks the vector extension.
