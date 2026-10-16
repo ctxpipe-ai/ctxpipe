@@ -1,6 +1,6 @@
 # ADR-053: Minor upgrades: expand-only SQL and Workspace format versions in git
 
-**Status:** Accepted (G2 open) | **Date:** 2026-10-16 | **Tags:** upgrades, migrations, postgres, workspaces, git, openworkflow, aws-cdk, compose, ingestion
+**Status:** Accepted | **Date:** 2026-10-16 | **Tags:** upgrades, migrations, postgres, workspaces, git, openworkflow, aws-cdk, compose, ingestion
 
 ## Context
 
@@ -84,6 +84,7 @@ The design is the Linear document [PR 280 minor upgrade and workspace migrations
 - The estimate comes from `ingestion_runs` history (tokens, cost and wall time for each root). Without history, it comes from the root count of the last `discover-roots` (or the file count of the codesearch index), the skills, the median step tokens and the model price. The UI shows a range (p50 to p90) and the number of repositories.
 - Throttle: at most 2 repositories of one org run at a time for upgrade runs (a committed constant). This is inside the ADR-052 limit of 40 ingest sandboxes for each org. A cost cap stops a run before a step that goes above 2 times the p90 estimate. The job is then `failed: budget`, and the operator can resume it.
 - Without a sandbox runtime, the item is `blocked: sandbox_unavailable`.
+- **An org with no Workspace (G2).** When an org has GitHub data but no Workspace after the upgrade (an MCP-first org with no connector sync repository), it is a new user. It goes through the normal onboarding and creates its Workspace there. Its repositories get a fresh ingestion from onboarding, so the upgrade does not export its old Postgres knowledge, and the upgrade flow adds no step for it.
 - The Postgres knowledge export of step 1 keeps only the content that fresh ingestion cannot rebuild, for example knowledge that a person wrote or knowledge that only a connector gave. The builder of [CTX-743](https://linear.app/ctxpipe/issue/CTX-743) names that content exactly and records it in this ADR.
 
 ### 6. Jobs and workflows
@@ -124,7 +125,7 @@ The ingestion v2 publish runs for a Workspace only when its format is 3 or highe
 | Id | Decision |
 | --- | --- |
 | G1 | Nothing runs automatically. Hosted users get the same upgrade UI workflow as everyone else. There is no auto-open-PR setting. Fresh re-ingestion from the source repositories is a standard upgrade step: an operator click starts it, with a cost estimate. The Postgres knowledge export stays only for content that fresh ingestion cannot rebuild. |
-| G2 | **Open.** Orgs with GitHub data but no connector sync repository get no Workspace, and they had no context repository on main. Proposal: a choose-or-create context repository upgrade step for orgs that have GitHub data but no Workspace. This ADR gets a revision when the CTO answers. |
+| G2 | An org that has GitHub data but no Workspace after the upgrade (an MCP-first org with no connector sync repository) is a new user. It goes through the normal onboarding and creates its Workspace there. Its repositories get a fresh ingestion in any case, so its old Postgres knowledge is not exported. The upgrade flow adds no step for it. |
 | G3 | Keep the `DELETE` of orphan rows. The migration deletes them in its own transaction, so they go only when the migration succeeds. No quarantine schema. |
 | G4 | API-key writes on the new direct-write routes get 403. |
 | G5 | The ingestion v2 publish needs format 3 or higher for each Workspace. |
@@ -140,6 +141,7 @@ The ingestion v2 publish runs for a Workspace only when its format is 3 or highe
 - Fresh re-ingestion costs model money for each org that upgrades. The estimate, the click, the throttle and the cost cap control it.
 - Each later layout change is a new format and a new registered step. The dual reads stay until the next major.
 - Orphan rows are gone after the upgrade, and no copy stays.
+- An MCP-first org with no Workspace loses its old Postgres knowledge at the upgrade. Its fresh ingestion in onboarding makes it again from the source repositories.
 
 ## Alternatives considered
 
@@ -153,4 +155,5 @@ The ingestion v2 publish runs for a Workspace only when its format is 3 or highe
 - **A Drizzle migration that creates the app role:** rejected. The role needs a password and safety checks, and on Neon Terraform owns the role, so a SQL `CREATE ROLE` breaks a new preview branch.
 - **An org-level upgrades panel:** rejected. The upgrades are per Workspace.
 - **A `ctx_advisor` MCP shim:** rejected by the CTO. Clients reload `tools/list`, so the removal does not break them.
+- **A choose-or-create context repository upgrade step for orgs with GitHub data but no Workspace:** rejected by the CTO (G2). Normal onboarding does the same work, and a fresh ingestion makes the knowledge again.
 - **A direct commit of the knowledge export:** rejected. The export goes through the upgrade pull request, because it changes the format file.
