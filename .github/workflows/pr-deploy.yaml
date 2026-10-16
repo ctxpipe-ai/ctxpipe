@@ -357,14 +357,50 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
 
+      - name: Mask Neon credentials for later steps
+        id: neon_mask
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_BRANCH_ID: ${{ steps.neon_branch.outputs.branch_id }}
+          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
+        # The step reads no credential from a step output or an expression:
+        # GitHub prints `env:` and the expanded script before it runs, and the
+        # Neon action does not mask its outputs. The step reads each value from
+        # the Neon API with the masked API key, masks it, and only then writes
+        # it to GITHUB_ENV, so later steps need no `env:` entry for it.
+        run: |
+          set -euo pipefail
+          neon_uri() {
+            curl -fsS -G -H "Authorization: Bearer ${NEON_API_KEY}" \
+              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri" \
+              --data-urlencode "branch_id=${NEON_BRANCH_ID}" \
+              --data-urlencode "database_name=neondb" \
+              --data-urlencode "role_name=$1" \
+              --data-urlencode "pooled=$2" | jq -r '.uri'
+          }
+          neon_password() {
+            curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
+              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${NEON_BRANCH_ID}/roles/$1/reveal_password" \
+              | jq -r '.password'
+          }
+          export_masked() {
+            local name="$1" value="$2"
+            [[ -n "$value" && "$value" != "null" ]] || { echo "Neon returned no value for $name"; exit 1; }
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          export_masked OWNER_DB_URL "$(neon_uri neondb_owner false)"
+          export_masked OWNER_DB_URL_POOLED "$(neon_uri neondb_owner true)"
+          if [[ "$APP_ROLE_OK" == "success" ]]; then
+            export_masked APP_DB_URL_POOLED "$(neon_uri ctxpipe_app true)"
+            export_masked APP_PASSWORD "$(neon_password ctxpipe_app)"
+          fi
+
       - name: Migrate PR Neon branch and provision ctxpipe_app
         id: neon_app
         working-directory: apps/backend
         env:
-          OWNER_DB_URL: ${{ steps.neon_branch.outputs.db_url }}
-          OWNER_DB_URL_POOLED: ${{ steps.neon_branch.outputs.db_url_pooled }}
-          APP_DB_URL_POOLED: ${{ steps.neon_app_role.outputs.db_url_pooled }}
-          APP_PASSWORD: ${{ steps.neon_app_role.outputs.password }}
           APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
           # The backfills read OpenWorkflow runs of the namespace that the
           # preview services use, not the production runs on the copied branch.
@@ -384,14 +420,14 @@ jobs:
           # The one migrate entry point (the same as production, Compose and
           # CDK): app role, Drizzle, OpenWorkflow, every backfill, then grants.
           NO_COLOR=1 CI=true DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/migrate.ts
-          echo "db_url_pooled=$POOLED" >> "$GITHUB_OUTPUT"
+          # GITHUB_ENV, not a step output: a later `env:` block would print it.
+          printf 'NEON_DB_URL=%s\n' "$POOLED" >> "$GITHUB_ENV"
 
       - name: Update Railway service config via GraphQL and deploy once
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          NEON_DB_URL: ${{ steps.neon_app.outputs.db_url_pooled }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
