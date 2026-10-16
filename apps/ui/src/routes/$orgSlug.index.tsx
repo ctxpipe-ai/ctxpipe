@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate } from "@tanstack/react-router"
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { Button } from "@/components/ui/Button"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
@@ -10,7 +11,10 @@ import {
   SetupGuideSkeleton,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
-import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
+import {
+  ALL_WORKSPACES,
+  WorkspaceActivity,
+} from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
 import {
@@ -36,6 +40,7 @@ function OrgHomePage() {
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
 export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
+  const navigate = useNavigate()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
   const listQuery = useQuery(workspaceListOptions(orgSlug))
@@ -88,7 +93,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
-  // the guide, the user goes to the Create Workspace form.
+  // the guide (the user dismissed it), keep the composer and the create button.
   const guideShows =
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (
@@ -96,24 +101,42 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}
       {guideCard}
-      <WorkspaceActivity
-        orgSlug={orgSlug}
-        workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
-        workspaces={workspaces}
-      />
     </>
   ) : guideShows ? (
     guideCard
   ) : (
-    // An org with no Workspace is a new user: it goes to onboarding, where
-    // it creates the first Workspace. Home is never empty (CTX-745, G2).
-    <Navigate to="/$orgSlug/workspaces/new" params={{ orgSlug }} replace />
+    <>
+      {composer}
+      <Button
+        variant="primary"
+        onPress={() => {
+          void navigate({
+            to: "/$orgSlug/workspaces/new",
+            params: { orgSlug },
+          })
+        }}
+      >
+        Create Workspace
+      </Button>
+    </>
   )
 
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
       <div className="mx-auto box-border w-full max-w-2xl p-8">
-        <div className="space-y-10">{body}</div>
+        <div className="space-y-10">
+          {body}
+          {/* With no Workspace, the activity of the organization shows, empty. */}
+          <WorkspaceActivity
+            orgSlug={orgSlug}
+            workspaceSlug={
+              sessionPending || listQuery.isPending
+                ? null
+                : (selected?.slug ?? ALL_WORKSPACES)
+            }
+            workspaces={workspaces}
+          />
+        </div>
       </div>
     </div>
   )

@@ -7,6 +7,7 @@ import {
   organizationListWithOrgHandler,
 } from "@/mocks/handlers"
 import {
+  orgActivityHandler,
   workspaceActivityHandler,
   workspaceActivityLoadingHandler,
   workspaceListHandler,
@@ -111,13 +112,23 @@ export const WorkspacesLoading: Story = {
 }
 
 /**
- * An org with no Workspace is a new user. Home does not stay empty: it goes
- * to the Create Workspace form (CTX-745, G2). The story router shows a stub
- * there, so the home content leaves the page.
+ * No Workspace, and the user dismissed the guide: the Create Workspace
+ * button, then the empty activity.
  */
-export const EmptyOrgLeavesHome: Story = {
+export const Empty: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
+  beforeEach: () => {
+    window.localStorage.setItem(
+      "ctxpipe:userPreferences",
+      JSON.stringify({
+        orgGuides: {
+          "user_storybook:acme": { dismissedAt: "2026-01-01T00:00:00.000Z" },
+        },
+      }),
+    )
+    return () => window.localStorage.removeItem("ctxpipe:userPreferences")
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
@@ -128,19 +139,22 @@ export const EmptyOrgLeavesHome: Story = {
         { timeout: 15_000 },
       ),
     ).toBeVisible()
-    await waitFor(() =>
-      expect(canvas.queryByLabelText("Select workspace")).toBeNull(),
-    )
-    expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
     expect(
-      canvas.queryByRole("button", { name: "Create Workspace" }),
-    ).not.toBeInTheDocument()
+      await canvas.findByRole("button", { name: "Create Workspace" }),
+    ).toBeVisible()
+    // The activity of the organization shows, empty.
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: homeRoute,
     msw: {
       handlers: {
-        page: [workspaceListHandler([])],
+        page: [workspaceListHandler([]), orgActivityHandler()],
       },
     },
   },
