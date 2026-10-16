@@ -25,6 +25,7 @@ import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
+import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -398,6 +399,16 @@ export async function processGithubWebhookPayload(
       )
       return
     case "pull_request":
+      await maybeEnqueueUpgradeScanForPullRequest({
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
     case "pull_request_review":
     case "pull_request_review_comment":
     case "issue_comment":
