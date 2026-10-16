@@ -9,7 +9,7 @@
 // source to each area file.
 //
 // node instruction-areas.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> --proposal <file> [--now <ISO date>]
+//   --source-url <url> --source-path <path> --roots <root-to-file map> --proposal <file> [--now <ISO date>]
 //
 // The proposal and the source repository are hostile. Text from the proposal
 // is cleaned (no backtick, control character, or markup), each quote of a
@@ -36,7 +36,7 @@ import {
   MAX_RULES,
   MIN_NEW_AREA_RULES,
   newFront,
-  normalizeUrl,
+  normalizeSource,
   parseAreaFile,
   renderAreaFile,
   SEED_AREAS,
@@ -46,7 +46,7 @@ import {
 import { measurePattern } from "./patterns.mjs"
 
 const { step, source, roots, index, skipped, value, ...given } = scriptStep()
-const sourceUrl = normalizeUrl(given.sourceUrl)
+const sourceId = given.sourcePath.trim()
 const now = value("--now") ? new Date(value("--now")) : new Date()
 const proposalFile = value("--proposal")
 if (!proposalFile || Number.isNaN(now.getTime())) {
@@ -241,19 +241,19 @@ function withoutSource(parsed) {
   const rules = []
   for (const rule of parsed.area.rules) {
     const own = new Map(rule.sources)
-    own.delete(sourceUrl)
+    own.delete(sourceId)
     if (own.size) rules.push({ ...rule, sources: own })
   }
   return {
     rules,
-    notes: parsed.area.notes.filter((n) => n.source !== sourceUrl),
+    notes: parsed.area.notes.filter((n) => n.source !== sourceId),
   }
 }
 
 /** The source leaves a file: its evidence and notes go; the file goes when it was the last source. */
 function leave(parsed) {
   const rest = withoutSource(parsed)
-  if (parsed.sources.every((s) => s === sourceUrl)) {
+  if (parsed.sources.every((s) => s === sourceId)) {
     if (parsed.human.length)
       skip(parsed.path, "The file has a human section, so the script keeps it")
     else deletes.set(parsed.path, "The source no longer follows this area")
@@ -270,7 +270,7 @@ function mergeInto(parsed, area) {
   const rest = withoutSource(parsed)
   const rules = rest.rules
   const notes = [...rest.notes]
-  const addNote = (text) => notes.push({ source: sourceUrl, text })
+  const addNote = (text) => notes.push({ source: sourceId, text })
   for (const text of area.notes) addNote(text)
   for (const rule of [...area.rules].sort((a, b) => (a.key < b.key ? -1 : 1))) {
     const known = rules.find((r) => r.key === rule.key)
@@ -281,7 +281,7 @@ function mergeInto(parsed, area) {
         value: rule.value,
         core: rule.core,
         text: rule.text,
-        sources: new Map([[sourceUrl, toEvidence(rule)]]),
+        sources: new Map([[sourceId, toEvidence(rule)]]),
       })
     } else if (nameKeyDiffers(known.value, rule.value)) {
       addNote(
@@ -293,7 +293,7 @@ function mergeInto(parsed, area) {
           ? `The practice \`${rule.key}\` falls in this repository.`
           : `This repository follows \`${rule.key}\`, which the shared file lists as being replaced.`,
       )
-    } else known.sources.set(sourceUrl, toEvidence(rule))
+    } else known.sources.set(sourceId, toEvidence(rule))
   }
   if (rules.length > MAX_RULES) return false
   outputs.set(
@@ -369,14 +369,14 @@ for (const raw of proposed) {
 
   // Compare with the files in order: the files that already list this source first.
   const ordered = [
-    ...readable.filter((f) => f.sources.includes(sourceUrl)),
-    ...readable.filter((f) => !f.sources.includes(sourceUrl)),
+    ...readable.filter((f) => f.sources.includes(sourceId)),
+    ...readable.filter((f) => !f.sources.includes(sourceId)),
   ]
   const comparisons = []
   let target = null
   for (const file of ordered) {
-    const mine = file.sources.includes(sourceUrl)
-    const others = file.sources.some((s) => s !== sourceUrl)
+    const mine = file.sources.includes(sourceId)
+    const others = file.sources.some((s) => s !== sourceId)
     if (mine && !others) {
       target = { file, decision: "update-own", cmp: null }
       break
@@ -384,7 +384,7 @@ for (const raw of proposed) {
     const theirs = file.area.rules.filter(
       (r) =>
         r.section === "rules" &&
-        [...r.sources.keys()].some((s) => s !== sourceUrl),
+        [...r.sources.keys()].some((s) => s !== sourceId),
     )
     const cmp = compareRules(standing, theirs)
     comparisons.push({ file, cmp })
@@ -438,7 +438,7 @@ for (const raw of proposed) {
       value: r.value,
       core: r.core,
       text: r.text,
-      sources: new Map([[sourceUrl, toEvidence(r)]]),
+      sources: new Map([[sourceId, toEvidence(r)]]),
     }))
     outputs.set(
       path,
@@ -448,7 +448,7 @@ for (const raw of proposed) {
           title,
           summary,
           rules,
-          notes: area.notes.map((text) => ({ source: sourceUrl, text })),
+          notes: area.notes.map((text) => ({ source: sourceId, text })),
         },
         [],
       ),
@@ -460,7 +460,7 @@ for (const raw of proposed) {
   for (const file of readable)
     if (
       file.path !== path &&
-      file.sources.includes(sourceUrl) &&
+      file.sources.includes(sourceId) &&
       !touched.has(file.path)
     ) {
       leave(file)
@@ -494,7 +494,7 @@ if (complete) {
     const file = readAreaFile(name)
     if (
       !file.error &&
-      file.sources.includes(sourceUrl) &&
+      file.sources.includes(sourceId) &&
       !touched.has(file.path)
     ) {
       leave(file)
@@ -537,7 +537,7 @@ const unit = index
       typeof e.path === "string" &&
       e.path.startsWith("knowledge/codebases/") &&
       Array.isArray(e.sources) &&
-      e.sources.some((u) => normalizeUrl(u) === sourceUrl),
+      e.sources.some((u) => normalizeSource(u) === sourceId),
   )
   .map((e) => ({ path: e.path, depth: -1 }))
 const codebases = roots.flatMap((root) =>

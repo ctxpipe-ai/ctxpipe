@@ -1,5 +1,15 @@
 import { isDeepStrictEqual } from "node:util"
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
+import {
+  and,
+  asc,
+  eq,
+  inArray,
+  isNotNull,
+  lt,
+  ne,
+  type SQL,
+  sql,
+} from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -154,7 +164,14 @@ export async function listMigrationExportJobWorkspaceIds(): Promise<
       .select({ workspaceId: workspaceWriteJobs.workspaceId })
       .from(workspaceWriteJobs)
       .innerJoin(workspaces, currentExportBinding())
-      .where(eq(workspaceWriteJobs.kind, "migration_export"))
+      .where(
+        and(
+          eq(workspaceWriteJobs.kind, "migration_export"),
+          // A failed export blocks a new one for an hour after it started,
+          // so the tip check queues a failed export again at most once an hour.
+          sql`(${workspaceWriteJobs.status} <> ${WRITE_JOB_STATUSES.failed} or ${workspaceWriteJobs.createdAt} > now() - interval '1 hour')`,
+        ),
+      )
     return new Set(rows.map((row) => row.workspaceId))
   })
 }
@@ -461,39 +478,99 @@ function nativeWriteJobOwnerId() {
     order by scheduled.created_at, scheduled.id limit 1)`
 }
 
-export async function reconcileWorkspaceWriteJob(jobId: string) {
-  return orgSql(async () => {
-    // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
-    // a failed step whose native retries are still pending must remain running.
-    await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        status: WRITE_JOB_STATUSES.failed,
-        payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${nativeWriteJobOwnerId()}::text))`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          inArray(workspaceWriteJobs.status, [
-            WRITE_JOB_STATUSES.queued,
-            WRITE_JOB_STATUSES.running,
-            WRITE_JOB_STATUSES.paused,
-          ]),
-          sql`exists (select 1 from openworkflow.workflow_runs owner
+/** Set `failed` on a job whose owning run is terminal. */
+function failJobsWithEndedRun(...conditions: SQL[]) {
+  // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
+  // a failed step whose native retries are still pending must remain running.
+  return getOrgDb()
+    .update(workspaceWriteJobs)
+    .set({
+      status: WRITE_JOB_STATUSES.failed,
+      payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${nativeWriteJobOwnerId()}::text))`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        ...conditions,
+        sql`exists (select 1 from openworkflow.workflow_runs owner
         where owner.id = ${nativeWriteJobOwnerId()}
           and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
           and owner.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
           and owner.input->>'jobId' = ${workspaceWriteJobs.id}
           and owner.status in ('failed', 'canceled'))`,
-        ),
-      )
+      ),
+    )
+}
+
+export async function reconcileWorkspaceWriteJob(jobId: string) {
+  return orgSql(async () => {
+    await failJobsWithEndedRun(
+      eq(workspaceWriteJobs.id, jobId),
+      inArray(workspaceWriteJobs.status, [
+        WRITE_JOB_STATUSES.queued,
+        WRITE_JOB_STATUSES.running,
+        WRITE_JOB_STATUSES.paused,
+      ]),
+    )
     const [row] = await getOrgDb()
       .select()
       .from(workspaceWriteJobs)
       .where(eq(workspaceWriteJobs.id, jobId))
       .limit(1)
     return row ?? null
+  })
+}
+
+/**
+ * Reconcile the jobs of a Workspace that stayed `queued` or `running` since
+ * before `staleBefore`. A job whose run failed or was canceled becomes
+ * `failed`. A `queued` job that has no run lost its run, for example because
+ * the process stopped after it stored the job and before it queued the run.
+ * Such a job becomes `paused`, so that the resume step queues it again with
+ * the same id. When it binds an earlier generation, another repository URL
+ * or another default branch, a newer binding supersedes it, so it becomes
+ * `failed`. Admission refuses such a job, so a retry cannot succeed.
+ */
+export async function reconcileStaleWriteJobs(
+  workspace: {
+    id: string
+    desiredGeneration: number
+    workspaceRepositoryUrl: string
+    desiredDefaultBranch?: string | null
+  },
+  staleBefore: Date,
+) {
+  return orgSql(async () => {
+    const stale = [
+      eq(workspaceWriteJobs.workspaceId, workspace.id),
+      lt(workspaceWriteJobs.updatedAt, staleBefore),
+    ]
+    await failJobsWithEndedRun(
+      ...stale,
+      inArray(workspaceWriteJobs.status, [
+        WRITE_JOB_STATUSES.queued,
+        WRITE_JOB_STATUSES.running,
+      ]),
+    )
+    const sameBinding = sql<boolean>`(${workspaceWriteJobs.generation} = ${workspace.desiredGeneration}
+      and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl}
+      and coalesce(${workspaceWriteJobs.payload}->>'defaultBranch', ${workspaceWriteJobs.payload}->'revision'->>'defaultBranch', ${workspace.desiredDefaultBranch ?? null}) is not distinct from ${workspace.desiredDefaultBranch ?? null})`
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        status: sql`case when ${sameBinding} then ${WRITE_JOB_STATUSES.paused} else ${WRITE_JOB_STATUSES.failed} end`,
+        payload: sql`case when ${sameBinding} then ${workspaceWriteJobs.payload}
+          else jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb('superseded'::text)) end`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          ...stale,
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.queued),
+          sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
+          sql`${nativeWriteJobOwnerId()} is null`,
+        ),
+      )
   })
 }
 
@@ -510,6 +587,8 @@ export async function persistBoundWriteJob(input: {
   publishPipeline?: "legacy" | "v2"
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
+  retractSourcePath?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -533,6 +612,9 @@ export async function persistBoundWriteJob(input: {
         : {}),
       ...(input.retractRepositoryUrl
         ? { retractRepositoryUrl: input.retractRepositoryUrl }
+        : {}),
+      ...(input.retractSourcePath
+        ? { retractSourcePath: input.retractSourcePath }
         : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -580,7 +662,8 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
       row.payload?.displayName !== input.displayName ||
-      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl
+      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl ||
+      row.payload?.retractSourcePath !== input.retractSourcePath
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {

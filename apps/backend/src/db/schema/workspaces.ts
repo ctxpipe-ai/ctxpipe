@@ -241,6 +241,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       linkGitUrl?: string
       publishPipeline?: "legacy" | "v2"
       retractRepositoryUrl?: string
+      retractSourcePath?: string
       /** Why the job failed, when it failed for a known reason. */
       failureReason?: string
       displayName?: string

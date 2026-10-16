@@ -167,6 +167,7 @@ async function runStep(
         generation: 1,
         pinnedRevision: pinned,
         repositoryId: null,
+        sourcePath: "sources/github/example-org/shop.md",
       },
       ref: options.ref ?? ref,
       runBase: pinned,
