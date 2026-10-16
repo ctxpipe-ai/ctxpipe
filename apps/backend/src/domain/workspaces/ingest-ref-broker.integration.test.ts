@@ -203,6 +203,7 @@ describe("ingest ref broker jobs", () => {
           url: "https://github.com/example-org/api",
           sha: "b".repeat(40),
         },
+        sourcePath: "sources/github/example-org/api.md",
         skill: "apis",
         sourcePathExists: async () => true,
         readSourceFile: async () => null,

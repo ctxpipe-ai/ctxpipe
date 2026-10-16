@@ -25,6 +25,13 @@ const SKILL = join(INGEST_SKILLS_DIR, "instruction-areas", "scripts")
 const URL_A = "https://github.com/example-org/shop"
 const URL_B = "https://github.com/example-org/billing"
 const URL_C = "https://github.com/example-org/ledger"
+// The source file of each repository in the Workspace: the value of
+// `sources` and of the area file source lines (ADR-050 revision 2026-10-16).
+const PATH_A = "sources/github/example-org/shop.md"
+const PATH_B = "sources/github/example-org/billing.md"
+const PATH_C = "sources/github/example-org/ledger.md"
+const pathOf = (url: string) =>
+  ({ [URL_A]: PATH_A, [URL_B]: PATH_B, [URL_C]: PATH_C })[url] ?? url
 const AREA = "knowledge/instructions/unit-testing.md"
 
 const daysAgo = (days: number) =>
@@ -282,6 +289,8 @@ describe("document selection (concept 5.4)", () => {
         repo.dir,
         "--source-url",
         URL_A,
+        "--source-path",
+        PATH_A,
         "--roots",
         rootsFile,
       ],
@@ -316,7 +325,7 @@ const codebase = (name: string, url: string) =>
       kind: "Repository",
       name,
       generated_by: "ctxpipe-extract",
-      sources: [url],
+      sources: [pathOf(url)],
       source_sha: "0".repeat(40),
       skill: "discover-roots",
       bundle: "bundle-0",
@@ -343,7 +352,7 @@ function contextRepo() {
         kind: "Service",
         name: `Svc ${i}`,
         generated_by: "ctxpipe-extract",
-        sources: [URL_A],
+        sources: [PATH_A],
         source_sha: "0".repeat(40),
         skill: "x",
         bundle: "b",
@@ -428,7 +437,7 @@ async function ingest(
     workspaceId: "ws_fixture",
     contextDir: context.dir,
     base: context.base,
-    sourceUrl: url,
+    sourcePath: pathOf(url),
   })
   writeFileSync(
     join(stepRoot, "roots.json"),
@@ -454,6 +463,8 @@ async function ingest(
       repo.dir,
       "--source-url",
       url,
+      "--source-path",
+      pathOf(url),
       "--roots",
       join(stepRoot, "roots.json"),
       "--proposal",
@@ -474,6 +485,7 @@ async function ingest(
       baseCommit: context.base,
       stagedDir: join(stepRoot, "out"),
       source: { url, sha: repo.sha },
+      sourcePath: pathOf(url),
       skill: "instruction-areas",
       bundle: "ingest-0000000000000000",
       ...gitSource(repo.dir, repo.sha),
@@ -615,9 +627,9 @@ describe("the instruction-areas skill", () => {
       AREA,
     ])
     const area = context.show(result.tree, AREA)
-    expect(area).toContain(`- source \`${URL_A}\`, documented: \`AGENTS.md\``)
+    expect(area).toContain(`- source \`${PATH_A}\`, documented: \`AGENTS.md\``)
     expect(area).toContain(
-      `- source \`${URL_A}\`, inferred from \`from "vitest"\`: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
+      `- source \`${PATH_A}\`, inferred from \`from "vitest"\`: \`lib/c.test.ts\`, \`src/a.test.ts\`, \`src/b.test.ts\``,
     )
     const codebaseText = context.show(
       result.tree,
@@ -716,14 +728,14 @@ describe("the instruction-areas skill", () => {
     const result = await second.validate()
     expect(result.rejections).toEqual([])
     const after = context.show(result.tree, AREA)
-    expect(after).toContain(`- source \`${URL_B}\`, documented: \`AGENTS.md\``)
+    expect(after).toContain(`- source \`${PATH_B}\`, documented: \`AGENTS.md\``)
     expect(after).toContain("Use inline snapshots.")
     expect(after).toContain(human.trim())
     // Each line of the first source stays, in the same order.
-    for (const line of before.split("\n").filter((l) => l.includes(URL_A)))
+    for (const line of before.split("\n").filter((l) => l.includes(PATH_A)))
       expect(after).toContain(line)
     expect(after).toMatch(
-      /sources:\n {2}- https:\/\/github.com\/example-org\/billing\n {2}- https:\/\/github.com\/example-org\/shop/,
+      /sources:\n {2}- sources\/github\/example-org\/billing\.md\n {2}- sources\/github\/example-org\/shop\.md/,
     )
   })
 
@@ -814,8 +826,8 @@ describe("the instruction-areas skill", () => {
     const left = await leaving.validate()
     expect(left.rejections).toEqual([])
     const text = context.show(left.tree, AREA)
-    expect(text).not.toContain(URL_B)
-    expect(text).toContain(`- source \`${URL_A}\``)
+    expect(text).not.toContain(PATH_B)
+    expect(text).toContain(`- source \`${PATH_A}\``)
     context.advance(left.tree)
 
     // A, now alone, leaves: the file goes.

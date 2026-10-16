@@ -15,9 +15,9 @@ import { projectWorkspaceSources } from "../workspace-sources/project.js"
 
 // The fixture answers GitHub for each repository of the `fixture` owner.
 const UNLINKED = "https://github.com/fixture/billing"
-const OTHER = "https://github.com/fixture/ledger"
 const ROOT = "context"
 const UNLINKED_SOURCE = "sources/github/fixture/billing.md"
+const OTHER_SOURCE = "sources/github/fixture/ledger.md"
 const SOURCES_YAML = ".ctxpipe/sources.yaml"
 const HUMAN =
   "<!-- ctxpipe:human -->\nA note that a human wrote.\n<!-- /ctxpipe:human -->\n"
@@ -69,16 +69,16 @@ const areaBody = [
   "",
   "- Use vitest.",
   "  - topic: `runner` = `vitest` (core)",
-  `  - source \`${UNLINKED}\`, documented: \`README.md\``,
-  `  - source \`${OTHER}\`, documented: \`docs/testing.md\``,
+  `  - source \`${UNLINKED_SOURCE}\`, documented: \`README.md\``,
+  `  - source \`${OTHER_SOURCE}\`, documented: \`docs/testing.md\``,
   "- Name tests after the behavior.",
   "  - topic: `naming` = `behavior`",
-  `  - source \`${UNLINKED}\`, documented: \`CONTRIBUTING.md\``,
+  `  - source \`${UNLINKED_SOURCE}\`, documented: \`CONTRIBUTING.md\``,
   "",
   "## Repository notes",
   "",
-  `- \`${OTHER}\`: Ledger runs tests locally.`,
-  `- \`${UNLINKED}\`: Billing runs tests in CI.`,
+  `- \`${OTHER_SOURCE}\`: Ledger runs tests locally.`,
+  `- \`${UNLINKED_SOURCE}\`: Billing runs tests in CI.`,
   "",
 ].join("\n")
 const ledgerBody = `# Ledger\n\nText.\n\n${HUMAN}`
@@ -88,13 +88,18 @@ const ledgerBody = `# Ledger\n\nText.\n\n${HUMAN}`
 const published = [
   { path: UNLINKED_SOURCE, body: sourceFile("fixture/billing") },
   {
-    path: "sources/github/fixture/ledger.md",
+    path: OTHER_SOURCE,
     body: sourceFile("fixture/ledger"),
   },
   {
     path: "knowledge/services/billing.md",
     body: doc(
-      { kind: "Service", name: "Billing", ...host([UNLINKED]), root: "." },
+      {
+        kind: "Service",
+        name: "Billing",
+        ...host([UNLINKED_SOURCE]),
+        root: ".",
+      },
       "# Billing\n\nExtracted text.\n",
     ),
   },
@@ -106,7 +111,7 @@ const published = [
         kind: "Service",
         name: "Invoices",
         claims: [legacyOpen, legacyClosed],
-        ...host([UNLINKED]),
+        ...host([UNLINKED_SOURCE]),
       },
       "# Invoices\n",
     ),
@@ -118,7 +123,7 @@ const published = [
         kind: "Service",
         name: "Ledger",
         claims: [legacyOpen, legacyClosed, otherClaim],
-        ...host([OTHER]),
+        ...host([OTHER_SOURCE]),
       },
       ledgerBody,
     ),
@@ -129,7 +134,7 @@ const published = [
       {
         kind: "InstructionUnit",
         name: "Unit testing",
-        ...host([UNLINKED, OTHER]),
+        ...host([UNLINKED_SOURCE, OTHER_SOURCE]),
       },
       areaBody,
     )}\n${HUMAN}`,
@@ -385,7 +390,7 @@ function expectRetraction(input: {
 
   const ledger = show("knowledge/services/ledger.md")
   const ledgerFront = parse(ledger.split("---\n")[1] ?? "")
-  expect(ledgerFront.sources).toEqual([OTHER])
+  expect(ledgerFront.sources).toEqual([OTHER_SOURCE])
   // The open claim closes; the closed claim keeps its dates.
   expect(ledgerFront.claims).toEqual([
     { ...legacyOpen, valid_to: expect.any(String) },
@@ -395,9 +400,9 @@ function expectRetraction(input: {
   expect(`${ledger}\n`.endsWith(ledgerBody)).toBe(true)
 
   const area = show("knowledge/instructions/unit-testing.md")
-  expect(parse(area.split("---\n")[1] ?? "").sources).toEqual([OTHER])
-  expect(area).not.toContain(UNLINKED)
-  expect(area).toContain(`source \`${OTHER}\`, documented`)
+  expect(parse(area.split("---\n")[1] ?? "").sources).toEqual([OTHER_SOURCE])
+  expect(area).not.toContain(UNLINKED_SOURCE)
+  expect(area).toContain(`source \`${OTHER_SOURCE}\`, documented`)
   expect(area).toContain("Ledger runs tests locally")
   expect(area).not.toContain("Name tests after the behavior")
   expect(`${area}\n`.endsWith(`\n${HUMAN}`)).toBe(true)
@@ -469,7 +474,7 @@ it(
                 {
                   kind: "Service",
                   name: "Payments",
-                  ...host([UNLINKED]),
+                  ...host([UNLINKED_SOURCE]),
                   root: "payments",
                 },
                 "# Payments\n",
@@ -595,6 +600,7 @@ it(
               kind: "unlink_retraction",
               jobId: `wjob_retract_direct_${f.id}`,
               retractRepositoryUrl: UNLINKED,
+              retractSourcePath: UNLINKED_SOURCE,
               publishPipeline: "v2",
             },
             {

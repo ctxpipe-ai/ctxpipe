@@ -15,8 +15,14 @@ import {
  * repository and the source repository, the real validator.
  */
 
-const A = "https://github.com/example-org/shop"
-const B = "https://github.com/example-org/billing"
+// Each source is its source file path (ADR-050 revision 2026-10-16): the
+// value of `sources` and of the source lines of an area file.
+const A = "sources/github/example-org/shop.md"
+const B = "sources/github/example-org/billing.md"
+const URLS: Record<string, string> = {
+  [A]: "https://github.com/example-org/shop",
+  [B]: "https://github.com/example-org/billing",
+}
 const AREA = "knowledge/instructions/unit-testing.md"
 const HUMAN =
   "<!-- ctxpipe:human -->\nKept by people.\n<!-- /ctxpipe:human -->\n"
@@ -218,11 +224,12 @@ function run(
     repoDir: ctx.dir,
     baseCommit: ctx.base,
     stagedDir,
-    source: { url: source, sha: sourceSha },
+    source: { url: URLS[source] ?? source, sha: sourceSha },
+    sourcePath: source,
     skill: "instruction-areas",
     bundle: "bundle-1",
     ...gitSource(sourceDir, sourceSha),
-    linkableRepositories: [A, B],
+    linkableRepositories: Object.values(URLS),
     rootGone,
   })
 }

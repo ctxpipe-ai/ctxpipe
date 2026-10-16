@@ -79,13 +79,12 @@ export function cleanText(text, max) {
   return line
 }
 
-/** The same normal form as the host for the URLs that the script compares. */
-export function normalizeUrl(url) {
-  const text = String(url)
-    .trim()
-    .replace(/\/+$/, "")
-    .replace(/\.git$/i, "")
-  return /^https?:\/\/github\.com\//i.test(text) ? text.toLowerCase() : text
+/**
+ * The normal form of a source in an area file: the source file path of the
+ * Workspace (ADR-050 revision 2026-10-16), trimmed, as the host reads it.
+ */
+export function normalizeSource(url) {
+  return String(url).trim()
 }
 
 export function nameKey(text) {
@@ -121,12 +120,12 @@ export function frontSources(yaml) {
       .slice(1, rest.lastIndexOf("]"))
       .split(",")
       .map(unquote)
-      .map(normalizeUrl)
+      .map(normalizeSource)
   const items = []
   for (const line of lines.slice(at + 1)) {
     const item = /^\s*-\s+(.*)$/.exec(line)
     if (!item) break
-    items.push(normalizeUrl(unquote(item[1])))
+    items.push(normalizeSource(unquote(item[1])))
   }
   return items
 }
@@ -224,7 +223,7 @@ function parseAreaBody(body) {
       if (source) {
         const paths = [...source[4].matchAll(/`([^`\n]+)`/g)].map((m) => m[1])
         rule.sources.set(
-          normalizeUrl(source[1]),
+          normalizeSource(source[1]),
           source[2] === "documented"
             ? { basis: "documented", paths }
             : {
@@ -245,7 +244,7 @@ function parseAreaBody(body) {
     if (line.trim() === "") continue
     const note = NOTE.exec(line)
     if (!note) return { error: "A note does not match the note format" }
-    notes.push({ source: normalizeUrl(note[1]), text: note[2] })
+    notes.push({ source: normalizeSource(note[1]), text: note[2] })
   }
   return { title, summary, rules, notes }
 }

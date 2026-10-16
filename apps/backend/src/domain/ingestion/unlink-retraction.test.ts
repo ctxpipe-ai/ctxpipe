@@ -9,6 +9,10 @@ import { planUnlinkRetraction } from "./unlink-retraction.js"
 
 const UNLINKED = "https://github.com/acme/billing"
 const OTHER = "https://github.com/acme/ledger"
+// The source files of the two repositories: the values of `sources` and of
+// the area file source lines (ADR-050 revision 2026-10-16).
+const UNLINKED_PATH = "sources/github/acme/billing.md"
+const OTHER_PATH = "sources/github/acme/ledger.md"
 const WORKSPACE = "https://github.com/acme/context"
 const OBSERVED = "2026-10-15T00:00:00.000Z"
 const HUMAN =
@@ -82,6 +86,7 @@ function plan(pack: Awaited<ReturnType<typeof workspace>>) {
   return planUnlinkRetraction({
     pack,
     sourceUrl: `${UNLINKED}.git`,
+    sourcePath: UNLINKED_PATH,
     workspaceRepositoryUrl: WORKSPACE,
     observedAt: OBSERVED,
   })
@@ -91,7 +96,7 @@ describe("planUnlinkRetraction", () => {
   it("deletes each file that the unlinked repository owns alone, also a migrated one", async () => {
     const pack = await workspace({
       "knowledge/services/billing.md": doc(
-        { kind: "Service", name: "Billing", ...host([UNLINKED]) },
+        { kind: "Service", name: "Billing", ...host([UNLINKED_PATH]) },
         "# Billing\n",
       ),
       "knowledge/services/invoices.md": doc(
@@ -99,12 +104,12 @@ describe("planUnlinkRetraction", () => {
           kind: "Service",
           name: "Invoices",
           claims: [legacyOpen, legacyClosed],
-          ...host([`${UNLINKED}.git`]),
+          ...host([UNLINKED_PATH]),
         },
         "# Invoices\n",
       ),
       "knowledge/services/ledger.md": doc(
-        { kind: "Service", name: "Ledger", ...host([OTHER]) },
+        { kind: "Service", name: "Ledger", ...host([OTHER_PATH]) },
         "# Ledger\n",
       ),
     })
@@ -113,6 +118,32 @@ describe("planUnlinkRetraction", () => {
       "knowledge/services/billing.md",
       "knowledge/services/invoices.md",
     ])
+    expect(result.files).toEqual([])
+  })
+
+  it("retracts by the removed source path, not by the repository URL", async () => {
+    const pack = await workspace({
+      "knowledge/services/billing.md": doc(
+        { kind: "Service", name: "Billing", ...host([UNLINKED_PATH]) },
+        "# Billing\n",
+      ),
+      // The repository URL is not a source path, so no source owns this file.
+      "knowledge/services/by-url.md": doc(
+        { kind: "Service", name: "By URL", ...host([UNLINKED]) },
+        "# By URL\n",
+      ),
+      // The same repository from another source file of the Workspace.
+      "knowledge/services/renamed.md": doc(
+        {
+          kind: "Service",
+          name: "Renamed",
+          ...host(["sources/github/acme/billing-main.md"]),
+        },
+        "# Renamed\n",
+      ),
+    })
+    const result = await plan(pack)
+    expect(result.deletePaths).toEqual(["knowledge/services/billing.md"])
     expect(result.files).toEqual([])
   })
 
@@ -129,7 +160,7 @@ describe("planUnlinkRetraction", () => {
           kind: "Service",
           name: "Ledger",
           claims: [legacyOpen, legacyClosed, otherClaim],
-          ...host([OTHER]),
+          ...host([OTHER_PATH]),
         },
         `# Ledger\n\nText.\n\n${HUMAN}`,
       ),
@@ -144,7 +175,7 @@ describe("planUnlinkRetraction", () => {
       legacyClosed,
       otherClaim,
     ])
-    expect(front.sources).toEqual([OTHER])
+    expect(front.sources).toEqual([OTHER_PATH])
     expect(file?.content.endsWith(`# Ledger\n\nText.\n\n${HUMAN}`)).toBe(true)
   })
 
@@ -153,21 +184,21 @@ describe("planUnlinkRetraction", () => {
       [
         "- Use vitest.",
         "  - topic: `runner` = `vitest` (core)",
-        `  - source \`${UNLINKED}\`, documented: \`README.md\``,
-        `  - source \`${OTHER}\`, documented: \`docs/testing.md\``,
+        `  - source \`${UNLINKED_PATH}\`, documented: \`README.md\``,
+        `  - source \`${OTHER_PATH}\`, documented: \`docs/testing.md\``,
         "- Name tests after the behavior.",
         "  - topic: `naming` = `behavior`",
-        `  - source \`${UNLINKED}\`, documented: \`CONTRIBUTING.md\``,
+        `  - source \`${UNLINKED_PATH}\`, documented: \`CONTRIBUTING.md\``,
         "",
       ].join("\n"),
-      `- \`${UNLINKED}\`: Billing runs tests in CI.\n- \`${OTHER}\`: Ledger runs tests locally.\n`,
+      `- \`${UNLINKED_PATH}\`: Billing runs tests in CI.\n- \`${OTHER_PATH}\`: Ledger runs tests locally.\n`,
     )
     const pack = await workspace({
       "knowledge/instructions/unit-testing.md": `${doc(
         {
           kind: "InstructionUnit",
           name: "Unit testing",
-          ...host([UNLINKED, OTHER]),
+          ...host([UNLINKED_PATH, OTHER_PATH]),
         },
         before,
       )}\n${HUMAN}`,
@@ -176,10 +207,10 @@ describe("planUnlinkRetraction", () => {
     expect(result.deletePaths).toEqual([])
     const [file] = result.files
     const front = parse(file?.content.split("---\n")[1] ?? "")
-    expect(front.sources).toEqual([OTHER])
-    expect(file?.content).toContain(`source \`${OTHER}\`, documented`)
+    expect(front.sources).toEqual([OTHER_PATH])
+    expect(file?.content).toContain(`source \`${OTHER_PATH}\`, documented`)
     expect(file?.content).toContain("- Use vitest.")
-    expect(file?.content).not.toContain(UNLINKED)
+    expect(file?.content).not.toContain(UNLINKED_PATH)
     expect(file?.content).not.toContain("Name tests after the behavior")
     expect(file?.content).toContain("Ledger runs tests locally")
     expect(file?.content.endsWith(`\n${HUMAN}`)).toBe(true)
@@ -199,7 +230,7 @@ describe("planUnlinkRetraction", () => {
           kind: "Service",
           name: "Billing",
           claims: [own, legacyOpen, legacyClosed],
-          ...host([UNLINKED]),
+          ...host([UNLINKED_PATH]),
           root: ".",
         },
         body,
@@ -283,7 +314,7 @@ describe("planUnlinkRetraction", () => {
         "# Billing\n",
       ),
       "knowledge/services/billing.md": doc(
-        { kind: "Service", name: "Billing", ...host([UNLINKED]) },
+        { kind: "Service", name: "Billing", ...host([UNLINKED_PATH]) },
         "# Billing\n",
       ),
     })
@@ -306,26 +337,26 @@ describe("planUnlinkRetraction", () => {
       [
         "- Use vitest.",
         "  - topic: `runner` = `vitest` (core)",
-        `  - source \`${UNLINKED}\`, documented: \`README.md\``,
-        `  - source \`${OTHER}\`, documented: \`docs/testing.md\``,
+        `  - source \`${UNLINKED_PATH}\`, documented: \`README.md\``,
+        `  - source \`${OTHER_PATH}\`, documented: \`docs/testing.md\``,
         human,
         "- Name tests after the behavior.",
         "  - topic: `naming` = `behavior`",
-        `  - source \`${UNLINKED}\`, documented: \`CONTRIBUTING.md\``,
+        `  - source \`${UNLINKED_PATH}\`, documented: \`CONTRIBUTING.md\``,
         "- Keep tests fast.",
         "  - topic: `speed` = `fast`",
-        `  - source \`${UNLINKED}\`, documented: \`docs/speed.md\``,
-        `  - source \`${OTHER}\`, documented: \`docs/speed.md\``,
+        `  - source \`${UNLINKED_PATH}\`, documented: \`docs/speed.md\``,
+        `  - source \`${OTHER_PATH}\`, documented: \`docs/speed.md\``,
         "",
       ].join("\n"),
-      `- \`${UNLINKED}\`: Billing runs tests in CI.\n- \`${OTHER}\`: Ledger runs tests locally.\n`,
+      `- \`${UNLINKED_PATH}\`: Billing runs tests in CI.\n- \`${OTHER_PATH}\`: Ledger runs tests locally.\n`,
     )
     const pack = await workspace({
       "knowledge/instructions/unit-testing.md": doc(
         {
           kind: "InstructionUnit",
           name: "Unit testing",
-          ...host([UNLINKED, OTHER]),
+          ...host([UNLINKED_PATH, OTHER_PATH]),
         },
         body,
       ),
@@ -333,16 +364,16 @@ describe("planUnlinkRetraction", () => {
     const result = await plan(pack)
     const [file] = result.files
     const content = file?.content ?? ""
-    expect(parse(content.split("---\n")[1] ?? "").sources).toEqual([OTHER])
+    expect(parse(content.split("---\n")[1] ?? "").sources).toEqual([OTHER_PATH])
     // No evidence line or note of the repository stays, before or after the
     // human section, and the human section stays in its place.
-    expect(content).not.toContain(UNLINKED)
+    expect(content).not.toContain(UNLINKED_PATH)
     expect(content).not.toContain("Name tests after the behavior")
     expect(content).toContain(
-      `  - source \`${OTHER}\`, documented: \`docs/testing.md\`\n${human}\n- Keep tests fast.`,
+      `  - source \`${OTHER_PATH}\`, documented: \`docs/testing.md\`\n${human}\n- Keep tests fast.`,
     )
     expect(content).toContain(
-      `source \`${OTHER}\`, documented: \`docs/speed.md\``,
+      `source \`${OTHER_PATH}\`, documented: \`docs/speed.md\``,
     )
   })
 
@@ -354,20 +385,20 @@ describe("planUnlinkRetraction", () => {
         {
           kind: "InstructionUnit",
           name: "Unit testing",
-          ...host([UNLINKED, OTHER]),
+          ...host([UNLINKED_PATH, OTHER_PATH]),
         },
         area(
           [
             "- Use vitest.",
             "  - topic: `runner` = `vitest` (core)",
-            `  - source \`${OTHER}\`, documented: \`docs/testing.md\``,
+            `  - source \`${OTHER_PATH}\`, documented: \`docs/testing.md\``,
             "- Name tests after the behavior.",
             human,
             "  - topic: `naming` = `behavior`",
-            `  - source \`${UNLINKED}\`, documented: \`CONTRIBUTING.md\``,
+            `  - source \`${UNLINKED_PATH}\`, documented: \`CONTRIBUTING.md\``,
             "",
           ].join("\n"),
-          `- \`${OTHER}\`: Ledger runs tests locally.\n`,
+          `- \`${OTHER_PATH}\`: Ledger runs tests locally.\n`,
         ),
       ),
     })
@@ -379,7 +410,7 @@ describe("planUnlinkRetraction", () => {
   it("changes nothing when the repository owns no file and has no open claim", async () => {
     const pack = await workspace({
       "knowledge/services/ledger.md": doc(
-        { kind: "Service", name: "Ledger", ...host([OTHER]) },
+        { kind: "Service", name: "Ledger", ...host([OTHER_PATH]) },
         "# Ledger\n",
       ),
       "knowledge/notes.md": "# Notes\n",

@@ -184,12 +184,16 @@ export async function pushIngestAssemble(input: {
    * shard's version) and returns the content of each path, or null for a
    * delete. The merged files then go through the patch validator against
    * the pinned revision, with `source`, `sourcePathExists`, and
-   * `readSourceFile` for the evidence; one rejected file refuses the job.
+   * `readSourceFile` for the evidence, and `sourcePath` for the ownership;
+   * one rejected file refuses the job.
    * Without it, a conflict refuses the job.
    */
   semanticMerge?: {
     resolve: IngestConflictResolver
-  } & Pick<PatchStepInput, "source" | "sourcePathExists" | "readSourceFile">
+  } & Pick<
+    PatchStepInput,
+    "source" | "sourcePath" | "sourcePathExists" | "readSourceFile"
+  >
 }): Promise<{ sha: string; ops: number }> {
   const rootPath = input.rootPath ?? ""
   const ref = ingestRefName({
@@ -929,6 +933,7 @@ async function mergeConflicts(
         baseCommit,
         stagedDir,
         source: input.merge.source,
+        sourcePath: input.merge.sourcePath,
         sourcePathExists: input.merge.sourcePathExists,
         readSourceFile: input.merge.readSourceFile,
         skill: "semantic-merge",

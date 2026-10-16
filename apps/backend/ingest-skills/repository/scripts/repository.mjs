@@ -7,7 +7,7 @@
 // provenance fields and `root: .`.
 //
 // node repository.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map>
+//   --source-url <url> --source-path <path> --roots <root-to-file map>
 
 import {
   findExisting,
