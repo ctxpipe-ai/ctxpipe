@@ -4,6 +4,7 @@ import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-un
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
 import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
+import { withFormatWriteGate } from "../domain/workspaces/workspace-format.js"
 import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
@@ -54,6 +55,7 @@ import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-pers
 
 type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
+  formatVersion: number | null
 }
 
 /**
@@ -94,9 +96,13 @@ async function storeProbedWriteStatus(input: {
       const stored = await withOrgDbContext(input.orgId, () =>
         persistWriteStatus(workspace, write, input.orgId),
       )
+      // The format gate is on top of the stored probe result.
       if (stored)
         return {
-          writeStatus: write.writeStatus,
+          writeStatus: withFormatWriteGate({
+            ...write,
+            formatVersion: workspace.formatVersion,
+          }).writeStatus,
           desiredSha: workspace.desiredSha,
         }
       if (!input.retry) return null

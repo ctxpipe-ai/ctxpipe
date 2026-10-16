@@ -4,6 +4,7 @@ import { addedOwnershipField, isHostOnlyPath } from "./host-only.js"
 describe("isHostOnlyPath", () => {
   it.each([
     ".ctxpipe/sources.yaml",
+    ".ctxpipe/workspace.yaml",
     ".ctxpipe/skills/release/SKILL.md",
     ".ctxpipe",
     ".CTXPIPE/sources.yaml",

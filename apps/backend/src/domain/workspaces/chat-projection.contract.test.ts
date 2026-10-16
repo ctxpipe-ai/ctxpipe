@@ -97,6 +97,7 @@ async function withChatProjection(
           skipped: [],
           embeddingModel: "fixture-embedding",
           displayName: null,
+          formatVersion: 0,
         }),
       ).toBe(true)
       const repositoryId = generateObjectId("repo")

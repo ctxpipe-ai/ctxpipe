@@ -14,6 +14,10 @@ import {
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatFile,
+} from "../../domain/workspaces/workspace-format.js"
+import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
   publishWorkspaceWriteRevision,
@@ -129,10 +133,16 @@ export const workspaceBootstrap = defineWorkflow(
               const workspace = await getUnbornBootstrapWorkspace(
                 queued.bootstrapBinding,
               )
-              return bootstrapWorkspaceFiles({
-                displayName: workspace.displayName,
-                existing: new Map(),
-              })
+              // Only the root commit of a new repository gets the format
+              // file. An existing repository gets it in an upgrade pull
+              // request (ADR-053).
+              return [
+                ...bootstrapWorkspaceFiles({
+                  displayName: workspace.displayName,
+                  existing: new Map(),
+                }),
+                workspaceFormatFile(),
+              ]
             },
           )
           const staged = await step.run({ name: "stage-unborn" }, () =>
@@ -145,7 +155,11 @@ export const workspaceBootstrap = defineWorkflow(
             validateUnbornGitTree(
               staged,
               files
-                .filter((file) => isBootstrapAllowedPath(file.path))
+                .filter(
+                  (file) =>
+                    isBootstrapAllowedPath(file.path) ||
+                    file.path === WORKSPACE_FORMAT_PATH,
+                )
                 .map((file) => file.path),
               workspaceRootPath(queued.bootstrapBinding),
             ),

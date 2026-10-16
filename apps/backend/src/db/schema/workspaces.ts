@@ -59,6 +59,13 @@ export const workspaces = pgTable.withRLS(
     }),
     hydratePhases: jsonb("hydrate_phases").$type<HydratePhaseRecord | null>(),
     readOnlyReason: text("read_only_reason"),
+    /**
+     * A cache of `.ctxpipe/workspace.yaml` at the active projection SHA
+     * (`workspace-format.ts`). Git is the source of truth: hydrate writes the
+     * value again for each projection. Null before the first hydrate that
+     * reads the file; `-1` when the file is not valid.
+     */
+    formatVersion: integer("format_version"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
