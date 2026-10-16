@@ -508,26 +508,33 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
             branch: "ctxpipe/upgrade/format-3",
           },
         })
-        expect(await row(reingestKey)).toMatchObject({
+        // The re-ingestion item shows too, blocked until the format upgrade
+        // merges. A soft check: the test goes on, and still fails at the end.
+        expect.soft(await row(reingestKey)).toMatchObject({
           status: "blocked",
           upgrade: { blockedReason: "needs_format" },
         })
         expect(opened).toEqual([])
         const listed = await api("GET", "/upgrades")
         expect(listed.status).toBe(200)
-        expect(await listed.json()).toMatchObject({
-          items: expect.arrayContaining([
+        const items = ((await listed.json()) as { items: unknown[] }).items
+        expect(items).toEqual(
+          expect.arrayContaining([
             expect.objectContaining({
               key: "format-3",
               status: "awaiting_operator",
             }),
+          ]),
+        )
+        expect.soft(items).toEqual(
+          expect.arrayContaining([
             expect.objectContaining({
               key: reingestKey,
               status: "blocked",
               blockedReason: "needs_format",
             }),
           ]),
-        })
+        )
 
         // The click of the admin, through the API.
         const started = await api("POST", "/upgrades/format-3/start")
