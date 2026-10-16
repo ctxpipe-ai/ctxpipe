@@ -679,7 +679,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const { session, callbackHost, definition } = built
   // OpenCode treats `--port=0` as 4096, so overlapping unsandboxed sends must
   // claim distinct loopback ports before serve starts. The port comes from
-  // below the Linux ephemeral range: a port from bind(0) was often taken by an
+  // below the Linux ephemeral range: a port from bind(0) could be taken by an
   // outgoing connection of another process before serve bound it, and serve
   // then exited with a ServeError.
   let opencodeListen: { port: number; hostname?: "127.0.0.1" } = {
