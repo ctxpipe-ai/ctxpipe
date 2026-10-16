@@ -7,6 +7,7 @@ import {
   organizationListWithOrgHandler,
 } from "@/mocks/handlers"
 import {
+  orgActivityHandler,
   workspaceActivityHandler,
   workspaceActivityLoadingHandler,
   workspaceListHandler,
@@ -110,6 +111,10 @@ export const WorkspacesLoading: Story = {
   },
 }
 
+/**
+ * An established user with no Workspace: the Create Workspace button, then
+ * the empty activity.
+ */
 export const Empty: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,
@@ -126,13 +131,19 @@ export const Empty: Story = {
     expect(
       await canvas.findByRole("button", { name: "Create Workspace" }),
     ).toBeVisible()
-    expect(canvas.queryByText("Activity")).not.toBeInTheDocument()
+    // The activity of the organization shows, empty.
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: homeRoute,
     msw: {
       handlers: {
-        page: [workspaceListHandler([])],
+        page: [workspaceListHandler([]), orgActivityHandler()],
       },
     },
   },

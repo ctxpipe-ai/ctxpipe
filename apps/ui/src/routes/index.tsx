@@ -57,14 +57,14 @@ export function IndexRoutePage() {
 
   const user = sessionUser(session)
   if (!user?.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+    return <Navigate to="/onboarding" replace />
   }
 
   const orgList = organizations ?? []
   const selected =
     orgList.find((org) => org.slug === selectedOrganizationSlug) ?? orgList[0]
   if (!selected) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+    return <Navigate to="/onboarding" replace />
   }
 
   if (error != null || pendingAccountClaim != null) {

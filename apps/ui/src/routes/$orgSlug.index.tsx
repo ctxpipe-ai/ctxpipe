@@ -11,7 +11,10 @@ import {
   SetupGuideSkeleton,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
-import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
+import {
+  ALL_WORKSPACES,
+  WorkspaceActivity,
+} from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
 import {
   landingWorkspace,
@@ -96,11 +99,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     <>
       {composer}
       {guideCard}
-      <WorkspaceActivity
-        orgSlug={orgSlug}
-        workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
-        workspaces={workspaces}
-      />
     </>
   ) : guideShows ? (
     guideCard
@@ -124,7 +122,19 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
       <div className="mx-auto box-border w-full max-w-2xl p-8">
-        <div className="space-y-10">{body}</div>
+        <div className="space-y-10">
+          {body}
+          {/* With no Workspace, the activity of the organization shows, empty. */}
+          <WorkspaceActivity
+            orgSlug={orgSlug}
+            workspaceSlug={
+              sessionPending || listQuery.isPending
+                ? null
+                : (selected?.slug ?? ALL_WORKSPACES)
+            }
+            workspaces={workspaces}
+          />
+        </div>
       </div>
     </div>
   )

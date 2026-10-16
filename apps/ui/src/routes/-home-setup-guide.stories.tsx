@@ -18,6 +18,7 @@ import {
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
+  orgActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
   workspaceShellHandlers,
@@ -179,14 +180,21 @@ async function findGuide(canvasElement: HTMLElement) {
   )
 }
 
-/** A new admin with no Workspace: the guide takes the composer's place. */
+/**
+ * A new admin with no Workspace: the guide takes the composer's place, and
+ * the activity of the organization shows below it, empty.
+ */
 export const GuideAdminNewOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: [...adminGuide({}), workspaceListHandler([])],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
       },
     },
   },
@@ -198,6 +206,12 @@ export const GuideAdminNewOrg: Story = {
     expect(guide.getByRole("button", { name: "Connect GitHub" })).toBeVisible()
     const canvas = within(canvasElement)
     expect(canvas.queryByLabelText("Select workspace")).not.toBeInTheDocument()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
 }
 

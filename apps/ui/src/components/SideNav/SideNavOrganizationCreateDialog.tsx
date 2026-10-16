@@ -1,5 +1,6 @@
 "use client"
 
+import HyperDX from "@hyperdx/browser"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useRouter } from "@tanstack/react-router"
 import { useId, useState } from "react"
@@ -14,6 +15,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
+import { completeOnboarding } from "../onboarding/complete-onboarding"
 import { orgSlugError } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {
@@ -69,10 +71,15 @@ export function SideNavOrganizationCreateDialog({
         ...prev,
         selectedOrganizationSlug: organization.slug,
       }))
+      // Home shows the Get started guide for the new organization. The user
+      // completed onboarding before, so a failure here only hides the guide.
+      await completeOnboarding(organization.slug, queryClient).catch((error) =>
+        HyperDX.recordException(error),
+      )
       resetForm()
       onOpenChange(false)
       await router.navigate({
-        to: "/$orgSlug/setup",
+        to: "/$orgSlug",
         params: { orgSlug: organization.slug },
         replace: true,
       })

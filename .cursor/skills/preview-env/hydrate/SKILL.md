@@ -9,14 +9,14 @@ disable-model-invocation: true
 Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Postgres knowledge units, graph, embeddings) and `workspace-index` the code index. Not `POST /repositories`. [Harness](../harness.md) is `PASS`; worker and codesearch were woken. Flow format: [run-setup](../run-setup.md#flow-format). Use browser plus curl with a cookie jar exported from account A's session (`COOKIE_JAR`).
 
 ### HYD-1 New Workspace reaches an active projection
-**Requires** ONB-5 (Workspace 1 from the knowledge template).
+**Requires** ONB-4 (Workspace 1 from the knowledge template).
 **Steps**
 1. Poll `curl -fsS -b "$COOKIE_JAR" "$BASE_URL/$orgSlug/api/v1/workspaces/$workspace1Slug"` every 5 s; record `hydrateStatus`, `hydrateError`, `desiredSha`, `activeProjectionSha`.
 2. When `ready`, `GET …/files/tree` (expect 200, not 409) and open **Files**.
 3. Compare the Settings hydrate chip with the JSON.
 
 **Expect (UI)** chip **Hydrate ready** matching the JSON; **Files** shows the tree with `AGENTS.md`, the 4 knowledge files, the malformed file, and `.agents/skills/ctxpipe-knowledge/SKILL.md` from the bootstrap commit.
-**Expect (backend)** `workspace_commit_projections` row for the head SHA; exactly 4 `workspace_knowledge_units` rows (one per valid knowledge file; `AGENTS.md`, `.agents/`, and the malformed file have none); `activeProjectionSha` equals `desiredSha`; `workspace-hydrate` then `workspace-index` runs succeeded; the bootstrap commit from [ONB-5](../onboarding/SKILL.md) is part of the projected revision.
+**Expect (backend)** `workspace_commit_projections` row for the head SHA; exactly 4 `workspace_knowledge_units` rows (one per valid knowledge file; `AGENTS.md`, `.agents/`, and the malformed file have none); `activeProjectionSha` equals `desiredSha`; `workspace-hydrate` then `workspace-index` runs succeeded; the bootstrap commit from [ONB-4](../onboarding/SKILL.md) is part of the projected revision.
 **Budget** 60 s / 3 min, Workspace created to `hydrateStatus === "ready"`. If the worker deploy timestamp did not move after enqueue, wake again ([harness](../harness.md#1-wake)) and keep polling.
 **Evidence** `HYD-1-1.png` (Settings chips), `HYD-1-2.png` (Files); JSON status; trace and `openworkflow.run.id` of both runs.
 
@@ -69,4 +69,4 @@ Workspace **revision** prepare: `workspace-hydrate` rebuilds the projection (Pos
 
 - **PASS** HYD-1, HYD-3, HYD-5 `PASS`; HYD-2 `PASS`; HYD-4 `PASS` or `SKIP`.
 - **FAIL** `failed` after retry, 409 tree after ready, no projection switch after a push, or the worker never ran (attach Railway logs via [observability](../../observability/SKILL.md)).
-- **SKIP** no Workspace (later areas that need one `SKIP(blocked-by ONB-5)`).
+- **SKIP** no Workspace (later areas that need one `SKIP(blocked-by ONB-4)`).
