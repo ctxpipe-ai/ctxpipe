@@ -90,7 +90,7 @@ function hydrateTag(status: string): {
   }
 }
 
-function StatusTag({
+export function StatusTag({
   label,
   className,
   pulse,

@@ -10,7 +10,7 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
-import { cn } from "@/lib/utils"
+import { StatusTag } from "@/features/workspaces/WorkspaceSettingsPane"
 import {
   startWorkspaceUpgrade,
   useIsOrgAdmin,
@@ -26,31 +26,10 @@ import {
   upgradeCanStart,
 } from "./upgrade-copy"
 
-function UpgradeStatusTag(props: { status: WorkspaceUpgradeItem["status"] }) {
-  const tag = UPGRADE_STATUS_TAG[props.status]
-  return (
-    <span
-      className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs",
-        tag.className,
-      )}
-    >
-      <span
-        className={cn(
-          "size-1.5 shrink-0 rounded-full bg-current",
-          tag.pulse && "animate-pulse",
-        )}
-        aria-hidden
-      />
-      {tag.label}
-    </span>
-  )
-}
-
 /**
  * One upgrade. `isAdmin` is `null` while the role loads: no action shows.
  * `estimate` is the slot for the cost estimate of a re-ingestion item
- * (CTX-746). The item list passes nothing until the API gives an estimate.
+ * (CTX-746). The list fills it from `item.estimate` when the API gives one.
  */
 export function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
@@ -74,7 +53,7 @@ export function UpgradeItemCard(props: {
             one pull request. Nothing changes until you merge it.
           </p>
         </div>
-        <UpgradeStatusTag status={item.status} />
+        <StatusTag {...UPGRADE_STATUS_TAG[item.status]} />
       </div>
 
       {item.steps.length > 0 ? (
@@ -84,7 +63,7 @@ export function UpgradeItemCard(props: {
         >
           {item.steps.map((step, index) => (
             <li key={step.format} className="flex items-baseline gap-2 text-xs">
-              <span className="ctx-label w-4 shrink-0 text-muted-foreground">
+              <span className="w-4 shrink-0 text-muted-foreground">
                 {index + 1}
               </span>
               <span className="text-foreground">{step.title}</span>
@@ -173,6 +152,39 @@ export function UpgradeItemCard(props: {
   )
 }
 
+function UpgradeItemRow(props: {
+  item: WorkspaceUpgradeItem
+  orgSlug: string
+  workspaceSlug: string
+  isAdmin: boolean | null
+}) {
+  const { item, orgSlug, workspaceSlug, isAdmin } = props
+  const queryClient = useQueryClient()
+  // One mutation for each card: the pending state of one card stays apart.
+  const startMutation = useMutation({
+    mutationFn: () => startWorkspaceUpgrade(orgSlug, workspaceSlug, item.key),
+    onSuccess: () => {
+      toast.success("The upgrade is queued. ctx| prepares a pull request.")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+      }),
+  })
+  return (
+    <UpgradeItemCard
+      item={item}
+      isAdmin={isAdmin}
+      isStarting={startMutation.isPending}
+      onStart={() => startMutation.mutate()}
+      estimate={item.estimate}
+    />
+  )
+}
+
 function UpgradesSkeleton() {
   return (
     <div
@@ -193,31 +205,19 @@ export function WorkspaceUpgrades(props: {
   workspaceSlug: string
 }) {
   const { orgSlug, workspaceSlug } = props
-  const queryClient = useQueryClient()
   const upgradesQuery = useQuery(
     workspaceUpgradesOptions(orgSlug, workspaceSlug),
   )
   const loading = useSkeletonHold(upgradesQuery.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
-  const startMutation = useMutation({
-    mutationFn: (key: string) =>
-      startWorkspaceUpgrade(orgSlug, workspaceSlug, key),
-    onSuccess: () => {
-      toast.success("The upgrade is queued. ctx| prepares a pull request.")
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-    onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-      }),
-  })
   const data = upgradesQuery.data
 
   return (
-    <section>
-      <h2 className="text-sm font-medium text-foreground">Upgrades</h2>
+    <section aria-labelledby="workspace-upgrades">
+      {/* The settings group eyebrow names this section on screen. */}
+      <h2 id="workspace-upgrades" className="sr-only">
+        Upgrades
+      </h2>
       <p className="mt-1 text-xs text-muted-foreground">
         An upgrade changes the layout of the Workspace repository. An owner or
         admin starts each one. ctx| never changes your default branch.
@@ -251,15 +251,12 @@ export function WorkspaceUpgrades(props: {
             ) : (
               <ul className="flex flex-col gap-3">
                 {data.items.map((item) => (
-                  <UpgradeItemCard
+                  <UpgradeItemRow
                     key={item.key}
                     item={item}
+                    orgSlug={orgSlug}
+                    workspaceSlug={workspaceSlug}
                     isAdmin={isAdmin}
-                    isStarting={
-                      startMutation.isPending &&
-                      startMutation.variables === item.key
-                    }
-                    onStart={() => startMutation.mutate(item.key)}
                   />
                 ))}
               </ul>

@@ -241,6 +241,6 @@ const routes = new OpenAPIHono<AppEnv>()
  * session, so it refuses an OAuth token, and the write gate refuses an API
  * key. Each upgrade needs its own click; there is no org-wide approval.
  */
-export const workspaceUpgradeRoutes = new OpenAPIHono<AppEnv>()
-  .use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
-  .route("/", routes)
+const gated = new OpenAPIHono<AppEnv>()
+gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
+export const workspaceUpgradeRoutes = gated.route("/", routes)

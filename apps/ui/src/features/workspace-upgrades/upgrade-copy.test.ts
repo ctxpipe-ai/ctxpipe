@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
+  upgradeAlertLines,
   upgradeCanStart,
   upgradeIsPending,
 } from "./upgrade-copy"
@@ -31,5 +32,29 @@ describe("upgrade copy", () => {
       "The repository uses format 1. ctx| reads format 3.",
     )
     expect(formatHealthLine(3, 3)).toMatch(/up to date/)
+  })
+
+  it("words the alert from the statuses that are present", () => {
+    expect(upgradeAlertLines([item("awaiting_operator")], true)).toEqual([
+      "An owner or admin must start it.",
+    ])
+    expect(upgradeAlertLines([item("failed")], false)).toEqual([
+      "Ask an admin to start it.",
+    ])
+    expect(
+      upgradeAlertLines(
+        [item("queued"), item("running"), item("pr_open")],
+        null,
+      ),
+    ).toEqual([
+      "An upgrade is running.",
+      "Review and merge the upgrade pull request.",
+    ])
+    expect(
+      upgradeAlertLines(
+        [{ ...item("blocked"), blockedReason: "write_access" }],
+        true,
+      )[0],
+    ).toMatch(/cannot write to the repository/)
   })
 })

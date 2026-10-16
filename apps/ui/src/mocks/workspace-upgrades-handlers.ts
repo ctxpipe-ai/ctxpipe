@@ -49,11 +49,13 @@ export function upgradesFixture(
 /**
  * `GET /workspaces/:slug/upgrades`. `upgrades` is a value, a function (so a
  * story can change the answer after a click), "loading" or "error".
- * `workspaceSlug` limits the handler to one Workspace.
+ * `workspaceSlug` limits the handler to one Workspace. Each answered read
+ * adds its path to `answered`, so a play can wait for it.
  */
 export function workspaceUpgradesHandler(
   upgrades: WorkspaceUpgrades | (() => WorkspaceUpgrades) | "loading" | "error",
   workspaceSlug?: string,
+  answered?: string[],
 ) {
   return http.get(
     ({ request }) => {
@@ -62,8 +64,9 @@ export function workspaceUpgradesHandler(
         ? path.endsWith(`/workspaces/${workspaceSlug}/upgrades`)
         : /\/workspaces\/[^/]+\/upgrades$/.test(path)
     },
-    async () => {
+    async ({ request }) => {
       if (upgrades === "loading") await delay("infinite")
+      answered?.push(pathnameOf(request))
       if (upgrades === "error")
         return HttpResponse.json({ error: "Server error" }, { status: 500 })
       return HttpResponse.json(
@@ -81,7 +84,6 @@ export function workspaceUpgradeStartHandler(
   options: {
     requests?: string[]
     answer?: 202 | 409
-    item?: WorkspaceUpgradeItem
     onStarted?: () => void
   } = {},
 ) {
@@ -96,10 +98,9 @@ export function workspaceUpgradeStartHandler(
           { status: 409 },
         )
       options.onStarted?.()
-      return HttpResponse.json(
-        options.item ?? upgradeItemFixture({ status: "queued" }),
-        { status: 202 },
-      )
+      return HttpResponse.json(upgradeItemFixture({ status: "queued" }), {
+        status: 202,
+      })
     },
   )
 }
