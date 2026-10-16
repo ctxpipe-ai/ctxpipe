@@ -29,7 +29,7 @@ function plan(files: Array<{ path: string; content: string }>) {
     files: [...bootstrapped, ...files],
     sourceFiles: [],
     sourceRows: [],
-    publishPipeline: "legacy",
+    format: 2,
   })
 }
 
@@ -84,33 +84,33 @@ const billingSource = {
   text: "---\nprovider: github\nconnection: con_1\nrepository: acme/billing\n---\n",
 }
 
-function ownershipRemainder(
-  publishPipeline: "legacy" | "v2",
-  sourceFiles = [billingSource],
-) {
+function ownershipRemainder(format: number, sourceFiles = [billingSource]) {
   return planHydrateWrites({
     revision: migrationRevision,
     displayName: "Context",
     files: migrationFiles,
     sourceFiles,
     sourceRows: [],
-    publishPipeline,
+    format,
   }).find((write) => write.kind === "ownership_migration")
 }
 
 describe("hydrate write plan for the ownership migration", () => {
-  it("plans the migration of old extracted files when ingestion v2 publishes", () => {
-    expect(ownershipRemainder("v2")).toEqual({
+  it("plans the migration of old extracted files on a tree at format 3 or more", () => {
+    expect(ownershipRemainder(3)).toEqual({
       kind: "ownership_migration",
       remainder: 1,
     })
   })
 
-  it("plans no migration while the old pipeline publishes", () => {
-    expect(ownershipRemainder("legacy")).toBeUndefined()
+  it("plans no migration below format 3, where upgrade step 3 moves the files", () => {
+    expect(ownershipRemainder(2)).toBeUndefined()
+    expect(ownershipRemainder(0)).toBeUndefined()
+    // A format file that is not valid.
+    expect(ownershipRemainder(-1)).toBeUndefined()
   })
 
   it("plans no migration when no source file names the repository", () => {
-    expect(ownershipRemainder("v2", [])).toBeUndefined()
+    expect(ownershipRemainder(3, [])).toBeUndefined()
   })
 })

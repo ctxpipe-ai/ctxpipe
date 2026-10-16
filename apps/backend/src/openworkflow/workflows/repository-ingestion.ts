@@ -4,7 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
-import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
+import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
 import {
   extractionRetraction,
@@ -12,6 +12,7 @@ import {
   partialRetractionPaths,
   workspaceExtractionSchema,
 } from "../../domain/workspaces/extraction.js"
+import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-tree.js"
 import { repoRootInstructionOwner } from "../../graphs/codeIngestionGraph/nodes/extractInstructionUnits.js"
 import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
 import {
@@ -646,10 +647,20 @@ export const repositoryIngestion = defineWorkflow(
                     roots,
                   },
                 })
-                // While ingestion v2 publishes (ADR-052 phase 4), the old
-                // pipeline does not write: its writes would take the files
-                // back from ingestion v2.
-                if (ingestionPublishPipeline() === "legacy")
+                // A destination at format 3 or more gets ingestion v2
+                // (ADR-052 phase 4, G5). The old pipeline does not write
+                // there: its writes would take the files back from v2. The
+                // job reads the format again from the tree that it pushes on.
+                const destinationFormat = await step.run(
+                  { name: "read-destination-format" },
+                  () =>
+                    readWorkspaceFormatAt({
+                      orgId: input.orgId,
+                      env: parseEnv(process.env),
+                      revision: destination.revision,
+                    }),
+                )
+                if (workspacePublishPipeline(destinationFormat) === "legacy")
                   await step.runWorkflow(
                     workspaceExtractIngest.spec,
                     {

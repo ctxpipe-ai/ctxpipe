@@ -1,6 +1,6 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { ingestionPublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
+import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
@@ -16,6 +16,7 @@ import {
   resolveSemanticConflicts,
   writeOriginSchema,
 } from "../../domain/workspaces/semantic-merge.js"
+import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -308,10 +309,15 @@ export const workspaceSemanticMerge = defineWorkflow(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
               async () => {
                 // Only the old pipeline's extract ingest hands off an
-                // extraction. Its publish must stop after the switch to
-                // ingestion v2 (ADR-052 phase 4), so the step that pushes
-                // reads the switch immediately before the push.
-                if (input.extraction && ingestionPublishPipeline() !== "legacy")
+                // extraction. It must not push on a tree at format 3 or more
+                // (ADR-052 phase 4, G5), so the step that pushes reads the
+                // format of the tree that it pushes on.
+                if (
+                  input.extraction &&
+                  workspacePublishPipeline(
+                    await packWorkspaceFormat(committed),
+                  ) !== "legacy"
+                )
                   return { stopped: true as const }
                 return attemptWorkspaceCommit(input, revision, committed, env)
               },

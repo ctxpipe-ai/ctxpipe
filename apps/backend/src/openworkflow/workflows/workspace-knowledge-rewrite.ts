@@ -1,9 +1,8 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipelineSchema,
-  publishPipelineStopped,
+  retiredPublishPipelineField,
+  workspacePublishPipeline,
 } from "../../domain/ingestion/ingestion-v2-config.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
@@ -13,6 +12,7 @@ import {
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -52,11 +52,8 @@ const inputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
-    /**
-     * The publish pipeline when the job was queued (ADR-052 phase 4). Only a
-     * rewrite of ingestion v2 (`publishPipeline` option) reads it.
-     */
-    publishPipeline: ingestionPublishPipelineSchema.optional(),
+    /** Retired: a job that was queued with it still parses. */
+    publishPipeline: retiredPublishPipelineField,
   })
   .strict()
   .refine(
@@ -81,12 +78,12 @@ export function defineKnowledgeRewriteWorkflow(options: {
   requireMigrationExport?: boolean
   /**
    * The rewrite is an ingestion v2 publish (the ownership migration). The
-   * step that pushes compares the job, the queued, and the committed
-   * pipeline (`committed` reads the switch), and a job of the wrong pipeline
-   * stops. A push that loses the race plans again on the new tip, so that
-   * each push goes through this check (no semantic merge).
+   * step that pushes reads the format of the tree that it pushes on, and
+   * stops below format 3 (ADR-052 phase 4, G5). A push that loses the race
+   * plans again on the new tip, so that each push goes through this check
+   * (no semantic merge).
    */
-  publishPipeline?: { committed: () => IngestionPublishPipeline }
+  ingestionV2Publish?: true
   /**
    * `sourceFiles` are the blobs under `sources/` at the same revision;
    * `orgId` is the org of the job.
@@ -125,7 +122,6 @@ export function defineKnowledgeRewriteWorkflow(options: {
             kind: options.kind,
             revision: input.revision,
             workflowRunId: run.id,
-            publishPipeline: input.publishPipeline,
           }),
         )
         if (options.requireMigrationExport)
@@ -235,15 +231,13 @@ export function defineKnowledgeRewriteWorkflow(options: {
             const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
               async () => {
-                // The same step reads the switch and pushes, so no step
-                // runs between the check and the push.
+                // The same step reads the format and pushes. The push lands
+                // only on the parent of `committed`, so its tree decides.
                 if (
-                  options.publishPipeline &&
-                  publishPipelineStopped({
-                    job: "v2",
-                    queued: input.publishPipeline ?? "legacy",
-                    committed: options.publishPipeline.committed(),
-                  })
+                  options.ingestionV2Publish &&
+                  workspacePublishPipeline(
+                    await packWorkspaceFormat(committed),
+                  ) !== "v2"
                 ) {
                   // The job publishes nothing, so it keeps no commit.
                   await discardWriteJobPreparedCommit(
@@ -271,7 +265,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          if (!pushed.pushed && options.publishPipeline) {
+          if (!pushed.pushed && options.ingestionV2Publish) {
             // The default branch moved: plan again on the new tip.
             await step.run({ name: "discard-unpublished-candidate" }, () =>
               discardWriteJobPreparedCommit(input.jobId, committed.sha),

@@ -26,6 +26,7 @@ import {
   ingestionV2InputSchema,
   ingestionV2Status,
 } from "../../domain/ingestion/ingestion-run.js"
+import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   resolveIngestionV2Run,
   withIngestionOrg,
@@ -34,6 +35,7 @@ import {
   resolveIngestConflicts,
   SemanticResolveError,
 } from "../../domain/workspaces/semantic-merge.js"
+import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   deleteWorkspaceIngestRefs,
   pushWorkspaceIngestAssemble,
@@ -59,7 +61,6 @@ import {
 } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
 import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
-import { migrateOwnershipBeforePublish } from "./workspace-ownership-migration.js"
 
 /*
  * The ingestion v2 parent workflow (ADR-052, T09 and T21):
@@ -90,9 +91,10 @@ import { migrateOwnershipBeforePublish } from "./workspace-ownership-migration.j
  * branch wins each push race) also makes the Workspace `partial`, and the
  * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
  * not the refs of a Workspace whose merge model or publish failed. The tip check deletes the refs that stay (the run is then
- * finished and not a shadow run). A run outside shadow mode first runs
- * the ownership migration in each destination
- * (`ownership-migration:<workspaceId>`).
+ * finished and not a shadow run). A run outside shadow mode publishes only
+ * to a Workspace whose tree at the pinned revision is at format 3 or more
+ * (G5). Upgrade step 3 moved the old extracted files of that tree to
+ * ingestion v2 ownership.
  */
 
 /** The write job of the publish of one Workspace; a replay finds it. */
@@ -200,14 +202,7 @@ export function defineRepositoryIngestionV2Workflow(
       async function ingest(
         attributes: Attributes,
       ): Promise<IngestionV2Output> {
-        if (!input.shadow && input.publishPipeline !== "v2")
-          // Only a run while the switch is v2 may take files over from the
-          // old pipeline and publish.
-          throw new Error(
-            "Ingestion v2 runs outside shadow mode only while the publish pipeline is v2",
-          )
-
-        let resolved = await step.run({ name: "resolve" }, () =>
+        const resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )
         if (!resolved.skipped)
@@ -218,27 +213,6 @@ export function defineRepositoryIngestionV2Workflow(
               reason:
                 "The Workspace is below format 3, so the run does not publish to it",
             })
-        // Before the first v2 publish to a Workspace, its old extracted files
-        // move to ingestion v2 ownership (ADR-052 section 3). Then the run
-        // reads the new revisions.
-        // A Workspace whose migration fails is `partial`: it publishes
-        // nothing and keeps its refs, and the other Workspaces go on.
-        let migrationFailed = new Set<string>()
-        if (!input.shadow && !resolved.skipped) {
-          const migration = await migrateOwnershipBeforePublish({
-            publishPipeline: input.publishPipeline,
-            step,
-            orgId: input.orgId,
-            runId: run.id,
-            workspaceIds: resolved.destinations.map((d) => d.workspaceId),
-            env: env(),
-          })
-          migrationFailed = new Set(migration.failed)
-          if (migration.committed)
-            resolved = await step.run({ name: "resolve-migrated" }, () =>
-              resolveIngestionV2Run(input),
-            )
-        }
         if (resolved.skipped || resolved.destinations.length === 0)
           return {
             status: "skipped",
@@ -592,40 +566,37 @@ export function defineRepositoryIngestionV2Workflow(
           for (const destination of destinations) {
             const { workspaceId } = destination
             const entry = workspaces.find((w) => w.workspaceId === workspaceId)
-            if (entry && migrationFailed.has(workspaceId)) {
-              entry.published = null
-              entry.refused = "The ownership migration failed"
-              entry.partial += 1
-              keepRefs.add(workspaceId)
-              getLogger().warn("ingestion-v2.partial", {
-                ingestionRunId: run.id,
-                step: `ownership-migration:${workspaceId}`,
-                workspaceId,
-                reason: "ownership_migration_failed",
-              })
-            } else if (entry?.assembled) {
+            if (entry?.assembled) {
               const assembled = entry.assembled
-              const revision = await step.run(
-                { name: `publish-revision:${workspaceId}` },
-                () =>
-                  withIngestionOrg(input.orgId, async () => {
-                    const admission = await getWorkspaceWriteAdmission(
-                      workspaceId,
-                      input.orgId,
-                    )
-                    // The pinned revision belongs to the binding that
-                    // `resolve` read. A relink publishes nothing.
-                    if (
-                      admission?.revision.generation !== destination.generation
-                    )
-                      return null
-                    return {
-                      ...admission.revision,
-                      sha: destination.pinnedRevision,
-                    }
-                  }),
+              const target = await step.run(
+                { name: `publish-target:${workspaceId}` },
+                async () => {
+                  const admission = await withIngestionOrg(input.orgId, () =>
+                    getWorkspaceWriteAdmission(workspaceId, input.orgId),
+                  )
+                  // The pinned revision belongs to the binding that
+                  // `resolve` read. A relink publishes nothing.
+                  if (admission?.revision.generation !== destination.generation)
+                    return { skip: "relinked" as const }
+                  const pinned = {
+                    ...admission.revision,
+                    sha: destination.pinnedRevision,
+                  }
+                  // `resolve` read the cached format of the active
+                  // projection. The pinned tree decides (G5): a revert of the
+                  // upgrade before hydrate gives a tree below format 3.
+                  const format = await readWorkspaceFormatAt({
+                    orgId: input.orgId,
+                    env: env(),
+                    revision: pinned,
+                  })
+                  if (workspacePublishPipeline(format) !== "v2")
+                    return { skip: "below_format" as const }
+                  return { revision: pinned }
+                },
               )
-              if (revision) {
+              if ("revision" in target) {
+                const { revision } = target
                 const published = await step.runWorkflow(
                   workspaceExtractIngest.spec,
                   {
@@ -633,7 +604,6 @@ export function defineRepositoryIngestionV2Workflow(
                     workspaceId,
                     jobId: ingestPublishJobId(run.id, workspaceId),
                     revision,
-                    publishPipeline: input.publishPipeline,
                     ingest: {
                       runId: run.id,
                       tip: assembled,
@@ -679,6 +649,14 @@ export function defineRepositoryIngestionV2Workflow(
                     reason: published.reason,
                   })
                 }
+              } else if (target.skip === "below_format") {
+                entry.published = null
+                logIngestEvent("warn", "ingestion-v2.upgrade-needed", {
+                  ingestionRunId: run.id,
+                  workspaceId,
+                  reason:
+                    "The pinned revision is below format 3, so the run does not publish to it",
+                })
               } else {
                 entry.refused = "The Workspace binding changed before publish"
                 entry.partial += 1

@@ -1,4 +1,4 @@
-import type { IngestionPublishPipeline } from "../ingestion/ingestion-v2-config.js"
+import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { ownershipMigrationFiles } from "../ingestion/ownership-migration.js"
 import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
 import type {
@@ -42,7 +42,8 @@ export function planHydrateWrites(input: {
   sourceFiles: ReadonlyArray<SourceFileBlob>
   /** The stored source rows: they decide the winner of a repository. */
   sourceRows: ReadonlyArray<PreviousSourceRow>
-  publishPipeline: IngestionPublishPipeline
+  /** The format in the tree of `revision` (0 for no file, -1 for an invalid one). */
+  format: number
 }): HydrateWriteRequirement[] {
   if (!githubRepoFullNameFromWorkspaceUrl(input.revision.remote.url)) return []
   const { units } = hydrateKnowledgeTree({
@@ -60,9 +61,11 @@ export function planHydrateWrites(input: {
     valid_from_persist: validFromPersistRemainder(units),
     // Retired folder-map marker lines still in AGENTS.md: one cleanup write.
     ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,
-    // Old extracted files move to ingestion v2 only while v2 publishes.
+    // Old extracted files move to ingestion v2 only at format 3 or more.
+    // Below 3, upgrade step 3 moves them in the upgrade pull request: a
+    // direct write would change the layout outside it (ADR-053 section 7).
     ownership_migration:
-      input.publishPipeline === "v2"
+      workspacePublishPipeline(input.format) === "v2"
         ? ownershipMigrationFiles({
             workspaceRepositoryUrl: input.revision.remote.url,
             sourcePaths: githubSourcePathsByRepository(

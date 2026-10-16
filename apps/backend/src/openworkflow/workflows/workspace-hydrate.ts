@@ -2,10 +2,6 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import {
-  type IngestionPublishPipeline,
-  ingestionPublishPipeline,
-} from "../../domain/ingestion/ingestion-v2-config.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import {
@@ -112,14 +108,7 @@ async function enqueueLaggingIndex(input: {
   }
 }
 
-/**
- * `committedPipeline` reads the committed publish switch; a test gives the
- * value that it checks.
- */
-export function defineWorkspaceHydrateWorkflow(
-  deps: { committedPipeline?: () => IngestionPublishPipeline } = {},
-) {
-  const committedPipeline = deps.committedPipeline ?? ingestionPublishPipeline
+export function defineWorkspaceHydrateWorkflow() {
   return defineWorkflow(
     {
       name: "workspace-hydrate",
@@ -267,16 +256,10 @@ export function defineWorkspaceHydrateWorkflow(
               }
               const enqueueRemainingWrites = async () => {
                 if (!planning.needed) return
-                // The switch value goes in the plan and in each job it queues,
-                // so the ownership migration job carries its pipeline.
-                const publishPipeline = await step.run(
-                  { name: "read-publish-pipeline" },
-                  () => committedPipeline(),
-                )
                 const plan = await step.run(
                   { name: "plan-remaining-writes" },
                   async () => {
-                    const { files, sourceFiles } = await readTree()
+                    const { files, sourceFiles, formatFile } = await readTree()
                     const remaining = planHydrateWrites({
                       revision,
                       displayName: workspace.displayName,
@@ -286,7 +269,9 @@ export function defineWorkspaceHydrateWorkflow(
                         orgId: input.orgId,
                         workspaceId: workspace.id,
                       }),
-                      publishPipeline,
+                      format: workspaceFormatCacheValue(
+                        readWorkspaceFormat(formatFile),
+                      ),
                     })
                     if (await getMigrationExportSha(workspace.id, revision)) {
                       remaining.push({
@@ -366,7 +351,6 @@ export function defineWorkspaceHydrateWorkflow(
                           jobWorkspaceUrl: revision.remote.url,
                           jobDesiredSha: revision.sha,
                           defaultBranch: revision.defaultBranch,
-                          publishPipeline,
                         },
                         {
                           error: (error) => {
@@ -584,7 +568,9 @@ export function defineWorkspaceHydrateWorkflow(
                       workspaceId: workspace.id,
                       revision: revision.sha,
                       projected,
-                      publishPipeline: committedPipeline(),
+                      format: workspaceFormatCacheValue(
+                        readWorkspaceFormat(formatFile),
+                      ),
                     })
                   },
                 )

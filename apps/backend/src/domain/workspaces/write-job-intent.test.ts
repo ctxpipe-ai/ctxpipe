@@ -125,39 +125,24 @@ describe("enqueueInputFromPausedJob", () => {
     })
   })
 
-  it("resumes a publish job with no stored pipeline as legacy, not with the current switch", () => {
-    for (const kind of [
-      "extract_ingest",
-      "ownership_migration",
-      "unlink_retraction",
-    ] as const)
-      expect(
-        enqueueInputFromPausedJob({
-          orgId: "org_1",
-          workspaceId: "ws_1",
-          job: {
-            id: `wjob_${kind}`,
-            kind,
-            generation: 1,
-            desiredSha: null,
-            payload: { jobWorkspaceUrl: "https://github.com/acme/docs" },
-          },
-        }).publishPipeline,
-      ).toBe("legacy")
-  })
-
-  it("resumes a publish job with its stored pipeline, and gives no pipeline to another kind", () => {
-    const resume = (
-      kind: "ownership_migration" | "claims_upgrade",
-      payload: { publishPipeline?: "v2" },
-    ) =>
-      enqueueInputFromPausedJob({
-        orgId: "org_1",
-        workspaceId: "ws_1",
-        job: { id: "wjob_1", kind, generation: 1, desiredSha: null, payload },
-      }).publishPipeline
-    expect(resume("ownership_migration", { publishPipeline: "v2" })).toBe("v2")
-    expect(resume("claims_upgrade", {})).toBeUndefined()
+  it("resumes a publish job without the retired pipeline field", () => {
+    // The Workspace format selects the pipeline now; an old payload that
+    // still holds the field does not carry it to the new run.
+    const resumed = enqueueInputFromPausedJob({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      job: {
+        id: "wjob_1",
+        kind: "ownership_migration",
+        generation: 1,
+        desiredSha: null,
+        payload: {
+          jobWorkspaceUrl: "https://github.com/acme/docs",
+          publishPipeline: "v2",
+        } as Parameters<typeof enqueueInputFromPausedJob>[0]["job"]["payload"],
+      },
+    })
+    expect(resumed).not.toHaveProperty("publishPipeline")
   })
 })
 
