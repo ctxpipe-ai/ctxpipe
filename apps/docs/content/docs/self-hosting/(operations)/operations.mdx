@@ -38,6 +38,13 @@ The AWS CDK migrate task and the hosted deploy run the same script,
 Drizzle and OpenWorkflow migrations, runs every data backfill, and then grants
 `ctxpipe_app` access to the tables.
 
+After the Drizzle migrations, migrate runs the backfills. The org backfill
+fills a missing `org_id` on rows that the previous release wrote (the
+`BEFORE INSERT` triggers on `repository_checkouts`, `confluence_spaces`, and
+`claim_evidence` do the same at write time). You do not run it by hand. See
+[Upgrades](/docs/self-hosting/upgrades#what-the-sql-changes) for the
+expand-only rules and the rollback runbook.
+
 Migrations are idempotent. Drizzle tracks applied migrations in the
 `drizzle_migrations` table and skips migrations that already ran. A second run
 changes nothing.

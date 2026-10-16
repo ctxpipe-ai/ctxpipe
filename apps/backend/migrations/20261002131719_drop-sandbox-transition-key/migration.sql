@@ -1,1 +1,0 @@
-ALTER TABLE "workspace_sandbox_instances" DROP COLUMN "transition_key";
