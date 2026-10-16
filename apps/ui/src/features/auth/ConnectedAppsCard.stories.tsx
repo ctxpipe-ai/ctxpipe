@@ -66,6 +66,8 @@ export const SkeletonRowMatchesLoadedRow: Story = {
         height: Math.round(height),
       }
     }
+    // Measure both rows with the same fonts.
+    await document.fonts.ready
     const skeletonRow = canvasElement.querySelector("div[aria-hidden] > div")
     if (!skeletonRow) throw new Error("No skeleton row")
     const skeletonActions = skeletonRow.lastElementChild
@@ -78,6 +80,7 @@ export const SkeletonRowMatchesLoadedRow: Story = {
 
     await gate.release()
     const loadedRow = (await within(canvasElement).findAllByRole("listitem"))[0]
+    await document.fonts.ready
     const loaded = {
       row: rect(loadedRow),
       actions: within(loadedRow).getAllByRole("button").map(rect),

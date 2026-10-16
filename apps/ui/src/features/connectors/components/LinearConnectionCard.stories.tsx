@@ -60,7 +60,7 @@ const meta = {
               workspaceName: "Docs",
               sources: [
                 {
-                  sourceKey: "eng",
+                  path: "sources/linear/eng.md",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -297,7 +297,7 @@ export const SyncNowHiddenWhileAwaitingMerge: Story = {
               stat: "",
               pendingChanges: [
                 {
-                  sourceKey: "eng",
+                  path: "sources/linear/eng.md",
                   provider: "linear",
                   action: "add",
                   pullRequestUrl: "https://github.com/acme/docs/pull/7",

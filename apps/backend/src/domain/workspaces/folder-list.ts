@@ -5,6 +5,7 @@ import { getLogger } from "../../observability/logger.js"
 import {
   type GitPack,
   nativeGit,
+  packRootTree,
   withGitDirectory,
 } from "../../services/git/pack.js"
 import { CONNECTOR_MIRROR_ROOTS } from "../codeIngestion/connectorMirrorPaths.js"
@@ -59,19 +60,23 @@ export async function nativeFolderSetChanged(
   return withGitDirectory(
     pack.sha,
     async (directory) => {
-      const pathsAt = async (sha: string) =>
-        (
-          await nativeGit(directory, [
-            "ls-tree",
-            "-r",
-            "--name-only",
-            "-z",
-            sha,
-          ])
-        )
-          .toString()
-          .split("\0")
-          .filter(Boolean)
+      const pathsAt = async (sha: string) => {
+        const tree = await packRootTree(directory, { sha, root: pack.root })
+        return tree
+          ? (
+              await nativeGit(directory, [
+                "ls-tree",
+                "-r",
+                "--name-only",
+                "-z",
+                tree,
+              ])
+            )
+              .toString()
+              .split("\0")
+              .filter(Boolean)
+          : []
+      }
       return folderSetChanged(
         await pathsAt(previousSha),
         await pathsAt(pack.sha),

@@ -27,7 +27,11 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import { gitFileBytes } from "../../services/git/file-change.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  nativeGit,
+  packRootTree,
+  withGitDirectory,
+} from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -116,23 +120,26 @@ export const workspaceConnectorMirror = defineWorkflow(
               withGitDirectory(
                 revision.sha,
                 async (directory) => {
-                  const paths = (
-                    await nativeGit(directory, [
-                      "ls-tree",
-                      "-r",
-                      "--name-only",
-                      "-z",
-                      revision.sha,
-                    ])
-                  )
-                    .toString()
-                    .split("\0")
+                  const tree = await packRootTree(directory, acquired.pack)
+                  const paths = tree
+                    ? (
+                        await nativeGit(directory, [
+                          "ls-tree",
+                          "-r",
+                          "--name-only",
+                          "-z",
+                          tree,
+                        ])
+                      )
+                        .toString()
+                        .split("\0")
+                    : []
                   const files: typeof input.files = []
                   for (const file of input.files) {
                     const existing = paths.includes(file.path)
                       ? await nativeGit(directory, [
                           "show",
-                          `${revision.sha}:${file.path}`,
+                          `${tree}:${file.path}`,
                         ])
                       : null
                     if (!existing?.equals(gitFileBytes(file))) files.push(file)
@@ -209,7 +216,8 @@ export const workspaceConnectorMirror = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(input, revision, committed, env, "host"),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

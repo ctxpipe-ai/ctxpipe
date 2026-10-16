@@ -10,18 +10,20 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { deleteGithubConnectionById } from "../../models/github-installation.js"
 import { setRepositoryGithubConnectionId } from "../../models/repositories.js"
+import { getLinkedRepositoryPin } from "../../models/workspace-source-state.js"
 import {
   getLinkedReadBinding,
   getWorkspaceById,
   persistLinkedDesiredSha,
 } from "../../models/workspaces.js"
+import {
+  insertLinkedRepositoryRows,
+  setLinkedRepositoryRef,
+} from "../../test/workspace-links-fixture.js"
 import type { WorkspaceRevision } from "./revision.js"
 
 it.each([
@@ -85,7 +87,7 @@ it.each([
         gitUrl: "https://example.test/linked.git",
         githubConnectionId: connectionId,
       })
-      await db.insert(workspaceLinkedRepositories).values({
+      await insertLinkedRepositoryRows(db, {
         id: linkedId,
         orgId: org.id,
         workspaceId: revision.workspaceId,
@@ -108,10 +110,7 @@ it.each([
       if (!binding) throw new Error("Missing fixture binding")
       await withOrgDbContext(org.id, async (db) => {
         if (change === "ref")
-          await db
-            .update(workspaceLinkedRepositories)
-            .set({ desiredRef: "release" })
-            .where(eq(workspaceLinkedRepositories.id, linkedId))
+          await setLinkedRepositoryRef(db, linkedId, "release")
         if (change === "owner")
           await db
             .update(workspaces)
@@ -154,11 +153,8 @@ it.each([
       const invalidated =
         change === "delete_connection" || change === "rebind_repository"
       if (invalidated) {
-        const [link] = await withOrgDbContext(org.id, (db) =>
-          db
-            .select()
-            .from(workspaceLinkedRepositories)
-            .where(eq(workspaceLinkedRepositories.id, linkedId)),
+        const link = await withOrgDbContext(org.id, (db) =>
+          getLinkedRepositoryPin(db, linkedId),
         )
         expect(link).toMatchObject({ desiredSha: null, indexedSha: null })
       }

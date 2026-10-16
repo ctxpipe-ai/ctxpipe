@@ -38,17 +38,6 @@ CREATE TABLE "workspace_knowledge_units" (
 	CONSTRAINT "workspace_knowledge_units_workspace_id_path_uidx" UNIQUE("workspace_id","path")
 );
 --> statement-breakpoint
-CREATE TABLE "workspace_linked_repositories" (
-	"id" text PRIMARY KEY,
-	"workspace_id" text NOT NULL,
-	"git_url" text NOT NULL,
-	"desired_ref" text,
-	"desired_sha" text,
-	"indexed_sha" text,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "workspace_linked_repositories_workspace_id_git_url_uidx" UNIQUE("workspace_id","git_url")
-);
---> statement-breakpoint
 CREATE TABLE "workspace_sandbox_instances" (
 	"id" text PRIMARY KEY,
 	"kind" text NOT NULL,
@@ -108,7 +97,6 @@ CREATE INDEX "conversation_messages_conversation_id_idx" ON "conversation_messag
 CREATE INDEX "conversations_org_id_workspace_id_user_id_last_message_at_index" ON "conversations" ("org_id","workspace_id","user_id","last_message_at");--> statement-breakpoint
 CREATE INDEX "workspace_knowledge_units_workspace_id_idx" ON "workspace_knowledge_units" ("workspace_id");--> statement-breakpoint
 CREATE INDEX "workspace_knowledge_units_org_id_idx" ON "workspace_knowledge_units" ("org_id");--> statement-breakpoint
-CREATE INDEX "workspace_linked_repositories_workspace_id_idx" ON "workspace_linked_repositories" ("workspace_id");--> statement-breakpoint
 CREATE INDEX "workspace_sandbox_instances_workspace_id_idx" ON "workspace_sandbox_instances" ("workspace_id");--> statement-breakpoint
 CREATE INDEX "workspace_sandbox_instances_conversation_id_idx" ON "workspace_sandbox_instances" ("conversation_id");--> statement-breakpoint
 CREATE INDEX "workspace_write_jobs_workspace_id_idx" ON "workspace_write_jobs" ("workspace_id");--> statement-breakpoint
@@ -118,7 +106,6 @@ CREATE INDEX "workspaces_org_id_idx" ON "workspaces" ("org_id");--> statement-br
 ALTER TABLE "conversation_messages" ADD CONSTRAINT "conversation_messages_conversation_id_conversations_id_fkey" FOREIGN KEY ("conversation_id") REFERENCES "conversations"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "org_member_preferences" ADD CONSTRAINT "org_member_preferences_gzcoBbyuxOLm_fkey" FOREIGN KEY ("last_used_workspace_id") REFERENCES "workspaces"("id") ON DELETE SET NULL;--> statement-breakpoint
 ALTER TABLE "workspace_knowledge_units" ADD CONSTRAINT "workspace_knowledge_units_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE;--> statement-breakpoint
-ALTER TABLE "workspace_linked_repositories" ADD CONSTRAINT "workspace_linked_repositories_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "workspace_sandbox_instances" ADD CONSTRAINT "workspace_sandbox_instances_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "workspace_write_jobs" ADD CONSTRAINT "workspace_write_jobs_workspace_id_workspaces_id_fkey" FOREIGN KEY ("workspace_id") REFERENCES "workspaces"("id") ON DELETE CASCADE;--> statement-breakpoint
 ALTER TABLE "workspaces" ADD CONSTRAINT "workspaces_github_connection_id_connections_id_fkey" FOREIGN KEY ("github_connection_id") REFERENCES "connections"("id") ON DELETE SET NULL;

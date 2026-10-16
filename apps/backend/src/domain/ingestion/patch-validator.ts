@@ -3,17 +3,14 @@ import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import {
-  parseDocument,
-  parse as parseYaml,
-  stringify,
-  type YAMLSeq,
-} from "yaml"
+import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import { GitOutputTooLargeError, runGit as git } from "./run-git.js"
 import {
   findSuspectedSecret,
@@ -91,6 +88,12 @@ export type PatchStepInput = {
   root?: string
   /** Counts the characters that the text checks read, so a test can check the bound. */
   meter?: WorkMeter
+  /**
+   * Workspace root folder; `""` (the default) is the repository root. All
+   * paths of the step (staged files, ops, results) are relative to it. Only
+   * the git reads and the tree write add the folder.
+   */
+  rootPath?: string
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -113,7 +116,8 @@ const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "App",
   "Library",
 ])
-const HOST_FIELDS = [
+/** The front matter fields that only the host sets. */
+export const HOST_FIELDS = [
   "generated_by",
   "sources",
   "root",
@@ -232,6 +236,7 @@ export function disallowedPathReason(path: string): string | null {
   const segments = path.split("/")
   if (segments.some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
+  if (isHostOnlyPath(path)) return "Only ctx| writes host-only paths"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))
@@ -329,7 +334,8 @@ export async function validatePatchStep(
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
 
-  const baseEntries = await listTree(input.repoDir, input.baseCommit)
+  const rootPath = input.rootPath ?? ""
+  const baseEntries = await listTree(input.repoDir, input.baseCommit, rootPath)
   const patch = await readPatchJson(input.stagedDir, reject)
   const meta = patch.ops
   const rejectedBeforeOps = rejections.length
@@ -638,9 +644,14 @@ export async function validatePatchStep(
     accepted = accepted.filter((op) => !failed.has(op))
   }
 
-  const tree = await applyOps(input.repoDir, input.baseCommit, accepted)
+  const tree = await applyOps(
+    input.repoDir,
+    input.baseCommit,
+    accepted,
+    rootPath,
+  )
   const acceptedPaths = new Set(accepted.map((op) => op.path))
-  const result = await listTree(input.repoDir, tree)
+  const result = await listTree(input.repoDir, tree, rootPath)
   for (const path of new Set([...result.keys(), ...baseEntries.keys()])) {
     if (result.get(path) !== baseEntries.get(path) && !acceptedPaths.has(path))
       throw new Error(
@@ -1704,25 +1715,6 @@ function resolveRelative(from: string, target: string): string | null {
   return joined.replace(/\/$/, "")
 }
 
-export function splitFrontMatter(
-  text: string,
-): { yaml: string; body: string } | null {
-  const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
-  if (!match) return null
-  return { yaml: match[1] ?? "", body: text.slice(match[0].length) }
-}
-
-export function parseYamlObject(yaml: string): Record<string, unknown> | null {
-  try {
-    const value = parseYaml(yaml) ?? {}
-    return typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
 function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
@@ -1815,18 +1807,33 @@ async function readStagedFiles(
   return files
 }
 
+/**
+ * The blobs of `commit` below `rootPath`, keyed by the path relative to it.
+ * Paths outside the root folder are not in the map.
+ */
 async function listTree(
   repoDir: string,
   commit: string,
+  rootPath: string,
 ): Promise<Map<string, string>> {
-  const out = await git(repoDir, ["ls-tree", "-r", "-z", "--full-tree", commit])
+  const out = await git(repoDir, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--full-tree",
+    commit,
+    ...(rootPath ? ["--", `${rootPath}/`] : []),
+  ])
   const entries = new Map<string, string>()
   for (const record of out.toString("utf8").split("\0")) {
     if (!record) continue
     const tab = record.indexOf("\t")
     const [mode, type, sha] = record.slice(0, tab).split(" ")
     if (type === "blob" && mode !== "120000" && sha)
-      entries.set(record.slice(tab + 1), sha)
+      entries.set(
+        record.slice(tab + 1 + (rootPath ? rootPath.length + 1 : 0)),
+        sha,
+      )
   }
   return entries
 }
@@ -1862,7 +1869,9 @@ async function applyOps(
   repoDir: string,
   baseCommit: string,
   ops: readonly Candidate[],
+  rootPath: string,
 ): Promise<string> {
+  const prefix = rootPath ? `${rootPath}/` : ""
   const env = {
     GIT_INDEX_FILE: join(
       tmpdir(),
@@ -1874,7 +1883,7 @@ async function applyOps(
     const lines: string[] = []
     for (const op of ops) {
       if (op.op === "delete") {
-        lines.push(`0 ${"0".repeat(40)}\t${op.path}`)
+        lines.push(`0 ${"0".repeat(40)}\t${prefix}${op.path}`)
         continue
       }
       const sha = (
@@ -1884,7 +1893,7 @@ async function applyOps(
       )
         .toString()
         .trim()
-      lines.push(`100644 ${sha}\t${op.path}`)
+      lines.push(`100644 ${sha}\t${prefix}${op.path}`)
     }
     if (lines.length)
       await git(repoDir, ["update-index", "--index-info"], {

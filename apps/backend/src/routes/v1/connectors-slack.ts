@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
@@ -16,7 +17,6 @@ import {
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueLegacySyncRepositoryIngestion } from "../../openworkflow/legacy-sync-repository-ingestion.js"
 import {
   assertSlackOAuthConfigured,
   botTokenFromConnection,
@@ -257,47 +257,52 @@ const SlackBindRepositoryRequestSchema = z
   )
   .openapi("SlackBindRepositoryRequest")
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: SlackBindRepositoryRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            setupPhase: z.enum(SLACK_SETUP_PHASES),
-          }),
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: SlackBindRepositoryRequestSchema },
+          },
         },
       },
-      description: "Context repository bound; connector is now live",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                setupPhase: z.enum(SLACK_SETUP_PHASES),
+              }),
+            },
+          },
+          description: "Context repository bound; connector is now live",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid request or ambiguous connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown connectionId or repository",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Slack connection is not installed",
+        },
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or ambiguous connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId or repository",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Slack connection is not installed",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteSlackConnectorRoute = createRoute({
   method: "delete",
@@ -754,24 +759,6 @@ export const slackConnectorRoutes = slackOAuthStartRoutes
           branch: body.branch,
         }),
       )
-      if (target.repositoryIngestion) {
-        await enqueueLegacySyncRepositoryIngestion(
-          {
-            connectionId: installed.connection.id,
-            orgId: target.repositoryIngestion.orgId,
-            repositoryId: target.repositoryIngestion.repositoryId,
-            ...(target.repositoryIngestion.targetBranch !== undefined
-              ? { targetBranch: target.repositoryIngestion.targetBranch }
-              : {}),
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "slack.repository_ingestion.enqueue",
-              }),
-          },
-        )
-      }
       return c.json(
         { accepted: true as const, setupPhase: target.setupPhase },
         200,

@@ -5,9 +5,10 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
-import { workspaceLinkedRepositories } from "../../db/schema/workspaces.js"
 import { bulkCreateRepositoriesForOrg } from "../../models/repositories.js"
+import { getLinkedRepositoryPin } from "../../models/workspace-source-state.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
 import { repositoryKeyFromGitUrl } from "./slug.js"
 
@@ -361,7 +362,7 @@ it(
       expect(await bindingOf(f, linked?.id)).toBeNull()
       const linkedId = `wlr_${f.id}_later`
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: f.org.id,
           workspaceId: f.workspaceId,
@@ -391,16 +392,10 @@ it(
       expect(await bindingOf(f, linked?.id)).toBe(f.connectionId)
       expect(await bindingOf(f, otherId)).toBe(otherConnectionId)
       // The new credential resolves the linked revision again.
-      const [revision] = await withOrgDbContext(f.org.id, (db) =>
-        db
-          .select({
-            desiredSha: workspaceLinkedRepositories.desiredSha,
-            indexedSha: workspaceLinkedRepositories.indexedSha,
-          })
-          .from(workspaceLinkedRepositories)
-          .where(eq(workspaceLinkedRepositories.id, linkedId)),
+      const revision = await withOrgDbContext(f.org.id, (db) =>
+        getLinkedRepositoryPin(db, linkedId),
       )
-      expect(revision).toEqual({ desiredSha: null, indexedSha: null })
+      expect(revision).toMatchObject({ desiredSha: null, indexedSha: null })
     })
   },
 )

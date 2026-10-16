@@ -27,13 +27,13 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import {
   workspaceKnowledgeChunks,
   workspaceKnowledgeUnits,
-  workspaceLinkedRepositories,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { knowledgeChunkRows } from "../../domain/workspaces/knowledge-chunks.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { HARD_CAP_CHARS } from "../framework/budget.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
 import { TOOL_ERROR_META_KEY } from "../framework/tool-result.js"
@@ -167,18 +167,24 @@ function codesearch() {
         REPOSITORY_FILES[repositoryOf(String(params.repoId))] ?? {},
       )
       const prefix = body.path ? `${body.path}/` : ""
+      // "*" lists one level; "{*,*/*}" lists two, and so on.
+      const depth = body.pattern === "*" ? 1 : body.pattern.split(",").length
       const children = new Map<string, "file" | "dir">()
       for (const file of files) {
         if (!file.startsWith(prefix)) continue
-        const [name, ...rest] = file.slice(prefix.length).split("/")
-        if (name) children.set(name, rest.length > 0 ? "dir" : "file")
+        const parts = file.slice(prefix.length).split("/")
+        for (let level = 1; level <= Math.min(depth, parts.length); level++)
+          children.set(
+            parts.slice(0, level).join("/"),
+            level < parts.length ? "dir" : "file",
+          )
       }
       if (children.size === 0) {
         return HttpResponse.json({ error: "Path not found" }, { status: 404 })
       }
-      const entries = [...children].map(([name, type]) => ({
-        name,
-        path: `${prefix}${name}`,
+      const entries = [...children].map(([relative, type]) => ({
+        name: relative.split("/").at(-1),
+        path: `${prefix}${relative}`,
         type,
       }))
       return HttpResponse.json({
@@ -308,6 +314,20 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         path: FRONT_MATTER_UNIT.path,
         body: FRONT_MATTER_UNIT.body,
         projectionSha: sha2,
+        kind: "Standard",
+        title: "Rate limits",
+        source: "authored",
+        updatedAt: new Date("2026-09-01T00:00:00Z"),
+        claims: [
+          {
+            to: "knowledge/services/gateway.md",
+            predicate: "APPLIES_TO",
+            confidence: 0.9,
+            validFrom: null,
+            validTo: null,
+            source: null,
+          },
+        ],
       })
       await db.insert(workspaceKnowledgeChunks).values(
         knowledgeChunkRows(
@@ -326,7 +346,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           workspaceId: paymentsId,
         })),
       )
-      await db.insert(workspaceLinkedRepositories).values([
+      await insertLinkedRepositoryRows(db, [
         ...["payments-api", "ledger", "unindexed", "huge-api"].map((short) => ({
           id: generateObjectId("wlr"),
           orgId: seed.orgId,
@@ -417,6 +437,7 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
       expect(result.structuredContent).toEqual({
         ref: "knowledge/services/payments-api.md",
         served: { branch: "main", sha: sha1 },
+        frontMatter: { source: "authored", updatedAt: expect.any(String) },
         content: "# Payments API\n\nOwns card charges.\nCalls the ledger.",
         startLine: 1,
         endLine: 4,
@@ -608,6 +629,20 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         ref: FRONT_MATTER_UNIT.path,
         // The row of the unit, not the Workspace, states the revision.
         served: { branch: "main", sha: sha2 },
+        // The front matter is its own field, not lines of content.
+        frontMatter: {
+          kind: "Standard",
+          title: "Rate limits",
+          source: "authored",
+          updatedAt: "2026-09-01T00:00:00.000Z",
+          claims: [
+            {
+              to: "knowledge/services/gateway.md",
+              predicate: "APPLIES_TO",
+              confidence: 0.9,
+            },
+          ],
+        },
         content: "# Rate limits\n\nThe gateway allows 100 calls.",
         startLine: chunk?.startLine,
         endLine: 6,
@@ -626,6 +661,8 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         startLine: 6,
         endLine: 6,
       })
+      // A later page does not repeat the front matter.
+      expect(range.structuredContent).not.toHaveProperty("frontMatter")
       expect(
         errorCode(
           await call("read_file", {
@@ -635,6 +672,109 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
           }),
         ),
       ).toBe("invalid_argument")
+    })
+
+    describe("front matter size", () => {
+      const insertUnit = async (
+        path: string,
+        body: string,
+        claimCount: number,
+      ) => {
+        const servingId = generateObjectId("wku")
+        await withOrgDbContext(seed.orgId, (db) =>
+          db.insert(workspaceKnowledgeUnits).values({
+            servingId,
+            orgId: seed.orgId,
+            workspaceId: paymentsId,
+            path,
+            body,
+            projectionSha: sha2,
+            kind: "Standard",
+            title: "T".repeat(5_000),
+            source: "authored",
+            updatedAt: new Date("2026-09-01T00:00:00Z"),
+            claims: Array.from({ length: claimCount }, (_, index) => ({
+              to: `knowledge/${"t".repeat(5_000)}-${index}.md`,
+              predicate: "APPLIES_TO",
+              confidence: 0.9,
+              validFrom: null,
+              validTo: null,
+              source: "s".repeat(5_000),
+            })),
+          }),
+        )
+        return servingId
+      }
+      const remove = (servingId: string) =>
+        withOrgDbContext(seed.orgId, (db) =>
+          db
+            .delete(workspaceKnowledgeUnits)
+            .where(eq(workspaceKnowledgeUnits.servingId, servingId)),
+        )
+
+      it("cuts a long title and long claim strings, and keeps the front matter", async () => {
+        const id = await insertUnit("knowledge/long-title.md", "Body.\n", 3)
+        try {
+          const result = await call("read_file", {
+            ref: "knowledge/long-title.md",
+          })
+          const frontMatter = result.structuredContent?.frontMatter as {
+            title: string
+            claims: Array<{ to: string; source: string }>
+          }
+          expect(frontMatter.title).toHaveLength(200)
+          expect(frontMatter.claims).toHaveLength(3)
+          for (const claim of frontMatter.claims) {
+            expect(claim.to.length).toBeLessThanOrEqual(200)
+            expect(claim.source.length).toBeLessThanOrEqual(200)
+          }
+          expect(result.structuredContent?.content).toBe("Body.")
+        } finally {
+          await remove(id)
+        }
+      })
+
+      it("leaves out front matter that is still too large, and a page walk moves forward", async () => {
+        const body = Array.from(
+          { length: 40 },
+          (_, index) => `${index} ${"w".repeat(2_000)}`,
+        ).join("\n")
+        const id = await insertUnit("knowledge/huge-front-matter.md", body, 20)
+        try {
+          let startLine: number | null = 1
+          let pages = 0
+          const seen: number[] = []
+          while (startLine !== null) {
+            const result = await call("read_file", {
+              ref: "knowledge/huge-front-matter.md",
+              startLine,
+            })
+            expect(result.isError).toBeFalsy()
+            const page = result.structuredContent as {
+              content: string
+              startLine: number
+              nextStartLine: number | null
+              frontMatterOmitted?: boolean
+            }
+            if (pages === 0) {
+              expect(page.frontMatterOmitted).toBe(true)
+              expect(page).not.toHaveProperty("frontMatter")
+            }
+            expect(page.content.length).toBeGreaterThan(0)
+            if (page.nextStartLine !== null) {
+              expect(page.nextStartLine).toBeGreaterThan(startLine)
+            }
+            seen.push(page.startLine)
+            startLine = page.nextStartLine
+            pages += 1
+            expect(pages).toBeLessThan(50)
+          }
+          expect(pages).toBeGreaterThan(1)
+          expect(new Set(seen).size).toBe(seen.length)
+        } finally {
+          await remove(id)
+        }
+      })
     })
 
     it("fits lines full of quotes and backslashes in the hard cap, and loses no line in a page walk", async () => {
@@ -746,45 +886,79 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
   })
 
   describe("list_files", () => {
-    it("lists one folder level of the Workspace repository with refs for files", async () => {
+    it("lists two folder levels of the Workspace repository with sizes and unit counts", async () => {
+      const size = (path: string) => Buffer.byteLength(UNITS[path] ?? "")
       const root = await call("list_files", {})
       expect(root.structuredContent).toEqual({
         repository: null,
         path: "",
         served: { branch: "main", sha: sha1 },
         entries: [
-          { path: "knowledge", type: "dir" },
-          { path: "slack", type: "dir" },
-        ],
-      })
-      const knowledge = await call("list_files", { path: "knowledge/" })
-      expect(knowledge.structuredContent).toMatchObject({
-        path: "knowledge",
-        entries: [
-          { path: "knowledge/runbooks", type: "dir" },
-          { path: "knowledge/services", type: "dir" },
-          { path: "knowledge/big.md", type: "file", ref: "knowledge/big.md" },
+          { path: "knowledge", type: "dir", units: 6 },
+          {
+            path: "knowledge/big.md",
+            type: "file",
+            ref: "knowledge/big.md",
+            size: size("knowledge/big.md"),
+          },
           {
             path: "knowledge/front-matter.md",
             type: "file",
             ref: "knowledge/front-matter.md",
+            size: Buffer.byteLength(FRONT_MATTER_UNIT.body),
           },
           {
             path: "knowledge/long-line.md",
             type: "file",
             ref: "knowledge/long-line.md",
+            size: size("knowledge/long-line.md"),
           },
           {
             path: "knowledge/quotes.md",
             type: "file",
             ref: "knowledge/quotes.md",
+            size: size("knowledge/quotes.md"),
+          },
+          { path: "knowledge/runbooks", type: "dir", units: 1 },
+          { path: "knowledge/services", type: "dir", units: 1 },
+          { path: "slack", type: "dir", units: 1 },
+          { path: "slack/threads", type: "dir", units: 1 },
+        ],
+      })
+      const knowledge = await call("list_files", {
+        path: "knowledge/",
+        depth: 1,
+      })
+      expect(knowledge.structuredContent).toMatchObject({
+        path: "knowledge",
+        entries: [
+          { path: "knowledge/big.md", type: "file" },
+          { path: "knowledge/front-matter.md", type: "file" },
+          { path: "knowledge/long-line.md", type: "file" },
+          { path: "knowledge/quotes.md", type: "file" },
+          { path: "knowledge/runbooks", type: "dir", units: 1 },
+          { path: "knowledge/services", type: "dir", units: 1 },
+        ],
+      })
+      const runbooks = await call("list_files", {
+        path: "knowledge",
+        depth: 5,
+        glob: "**/d*.md",
+      })
+      expect(runbooks.structuredContent).toMatchObject({
+        entries: [
+          {
+            path: "knowledge/runbooks/deploy.md",
+            type: "file",
+            size: size("knowledge/runbooks/deploy.md"),
           },
         ],
       })
+      expect((await call("list_files", { depth: 6 })).isError).toBe(true)
       expect(captured).toEqual([])
     })
 
-    it("lists a folder of a linked repository with handle:path refs", async () => {
+    it("lists two folder levels of a linked repository with handle:path refs", async () => {
       const result = await call("list_files", {
         repository: `https://github.com/${handle("payments-api")}.git`,
       })
@@ -793,13 +967,44 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         path: "",
         served: { branch: "main", sha: sha2 },
         entries: [
-          { path: "src", type: "dir" },
           {
             path: "README.md",
             type: "file",
             ref: `${handle("payments-api")}:README.md`,
           },
+          { path: "src", type: "dir" },
+          {
+            path: "src/index.ts",
+            type: "file",
+            ref: `${handle("payments-api")}:src/index.ts`,
+          },
+          {
+            path: "src/limits.ts",
+            type: "file",
+            ref: `${handle("payments-api")}:src/limits.ts`,
+          },
         ],
+      })
+      expect(captured.at(-1)?.body).toMatchObject({ pattern: "{*,*/*}" })
+      const globbed = await call("list_files", {
+        repository: handle("payments-api"),
+        glob: "src/l*.ts",
+      })
+      expect(
+        (
+          globbed.structuredContent as { entries: Array<{ path: string }> }
+        ).entries.map((entry) => entry.path),
+      ).toEqual(["src/limits.ts"])
+      expect(globbed.structuredContent).not.toHaveProperty("truncated")
+      // A folder at the last level may hold files that the depth hides.
+      const shallow = await call("list_files", {
+        repository: handle("payments-api"),
+        depth: 1,
+        glob: "**/*.ts",
+      })
+      expect(shallow.structuredContent).toMatchObject({
+        entries: [],
+        truncated: true,
       })
       const src = await call("list_files", {
         repository: handle("payments-api"),
@@ -873,7 +1078,10 @@ describe("read_file and list_files (Postgres + msw codesearch + MCP SDK Client)"
         repository: handle("huge-api"),
         truncated: true,
       })
-      expect(captured[0]?.body).toMatchObject({ pattern: "*", limit: 5_000 })
+      expect(captured[0]?.body).toMatchObject({
+        pattern: "{*,*/*}",
+        limit: 5_000,
+      })
     })
 
     it("refuses a .git folder of a repository", async () => {

@@ -918,6 +918,79 @@ it(
 )
 
 it(
+  "refuses a queued file edit of a host-only path, fails the job at once, and runs the next write",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        // The default retry policy stays: the refusal must not need an override.
+        const spec = workspaceFileEdit.spec
+        f.runner.implementWorkflow(spec, workspaceFileEdit.fn)
+        await f.worker.stop()
+        const worker = f.runner.newWorker({ concurrency: 1 })
+        await worker.start()
+        try {
+          const jobId = `wjob_${f.id}_hostonly`
+          const handle = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId,
+            revision: { ...f.revision, access: "write-default" },
+            files: [{ path: ".ctxpipe/sources.yaml", content: "version: 1\n" }],
+            deletePaths: [],
+          })
+          const [result] = await Promise.allSettled([
+            handle.result({ timeoutMs: 30_000 }),
+          ])
+          expect(result?.status).toBe("rejected")
+          const run = await f.backend.getWorkflowRun({
+            workflowRunId: handle.workflowRun.id,
+          })
+          expect(run?.status).toBe("failed")
+          expect(run?.error?.message).toContain(
+            ".ctxpipe/sources.yaml is host-only. Change it through a pull request.",
+          )
+          expect(run?.attempts).toBe(1)
+          // Read the row without reconcile, which would fail it later by itself.
+          const { workspaceWriteJobs } = await import(
+            "../../db/schema/workspaces.js"
+          )
+          const { withOrgDbContext } = await import("../../db/client.js")
+          const { eq } = await import("drizzle-orm")
+          const [row] = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ status: workspaceWriteJobs.status })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.id, jobId)),
+          )
+          expect(row?.status).toBe("failed")
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(f.sha)
+          const next = await f.runner.runWorkflow(spec, {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            jobId: `wjob_${f.id}_after_refusal`,
+            revision: { ...f.revision, access: "write-default" },
+            files: [{ path: "document-000.md", content: "# After refusal\n" }],
+            deletePaths: [],
+          })
+          expect(await next.result({ timeoutMs: 30_000 })).toMatchObject({
+            committed: true,
+          })
+        } finally {
+          await worker.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
   "rechecks an apparent no-op against the current default and applies the requested edit",
   { timeout: 60_000 },
   async () => {
@@ -1096,6 +1169,88 @@ it(
           )
           await owner.unsafe(`DROP FUNCTION public.${fixtureName}()`)
           await owner.end()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "refuses a queued Files edit of a source file under sources/ (CTX-721)",
+  { timeout: 60_000 },
+  async () => {
+    // A source changes only by a pull request (CTX-721). No queued Files edit
+    // of `sources/` lands, so the default branch stays as it is.
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        count: 1,
+      },
+      async (f) => {
+        await f.publish()
+        const { enqueueWriteJob } = await import(
+          "../../openworkflow/enqueue-workspace-write-commit.js"
+        )
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const path = "sources/github/example-org/checkout-api.md"
+        const content =
+          "---\nrepository: https://github.com/example-org/checkout-api\n---\n"
+        try {
+          const before = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-parse",
+            "refs/heads/main",
+          )
+          const jobId = `wjob_${f.id}_source_edit`
+          const accepted = await withOrgIdContext(f.org, () =>
+            enqueueWriteJob(
+              {
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                jobId,
+                kind: "ui_file_edit",
+                mergeFiles: [{ path, content }],
+                mergeDeletePaths: [],
+              },
+              {
+                error: (error) => {
+                  throw error
+                },
+              },
+            ),
+          )
+          expect(accepted).toEqual({ started: true })
+          await worker.start()
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(
+                  f.org,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
+                ),
+              { timeout: 30_000 },
+            )
+            .toBe("failed")
+          expect(
+            f.git("--git-dir", f.remote, "rev-parse", "refs/heads/main"),
+          ).toBe(before)
+        } finally {
+          await worker.stop()
           await backend.stop()
         }
       },

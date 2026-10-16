@@ -275,12 +275,6 @@
     {
       "schema": "public",
       "isRlsEnabled": true,
-      "name": "workspace_linked_repositories",
-      "entityType": "tables"
-    },
-    {
-      "schema": "public",
-      "isRlsEnabled": true,
       "name": "workspace_repository_commits",
       "entityType": "tables"
     },
@@ -5562,110 +5556,6 @@
     },
     {
       "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "workspace_id",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "git_url",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "desired_ref",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "desired_sha",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "indexed_sha",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns"
-    },
-    {
-      "schema": "public",
       "table": "workspace_repository_commits",
       "type": "text",
       "typeSchema": null,
@@ -7917,48 +7807,6 @@
     },
     {
       "schema": "public",
-      "table": "workspace_linked_repositories",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "workspace_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "workspace_linked_repositories_workspace_id_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "org_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "workspace_linked_repositories_org_id_idx",
-      "entityType": "indexes"
-    },
-    {
-      "schema": "public",
       "table": "workspace_repository_commits",
       "nameExplicit": true,
       "columns": [
@@ -8925,23 +8773,6 @@
     },
     {
       "schema": "public",
-      "table": "workspace_linked_repositories",
-      "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "workspace_linked_repositories_workspace_id_workspaces_id_fkey",
-      "entityType": "fks"
-    },
-    {
-      "schema": "public",
       "table": "workspace_repository_commits",
       "nameExplicit": false,
       "columns": [
@@ -9448,16 +9279,6 @@
     },
     {
       "schema": "public",
-      "table": "workspace_linked_repositories",
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "workspace_linked_repositories_pkey",
-      "entityType": "pks"
-    },
-    {
-      "schema": "public",
       "table": "workspace_sandbox_git_tokens",
       "columns": [
         "sandbox_id"
@@ -9578,18 +9399,6 @@
       ],
       "nullsNotDistinct": false,
       "name": "workspace_knowledge_units_workspace_id_path_uidx",
-      "entityType": "uniques"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "nameExplicit": true,
-      "columns": [
-        "workspace_id",
-        "git_url"
-      ],
-      "nullsNotDistinct": false,
-      "name": "workspace_linked_repositories_workspace_id_git_url_uidx",
       "entityType": "uniques"
     },
     {
@@ -9979,19 +9788,6 @@
       ],
       "using": "\"workspace_knowledge_units\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"workspace_knowledge_units\".\"org_id\" = current_setting('app.organization_id', true)",
-      "name": "org_isolation",
-      "entityType": "policies"
-    },
-    {
-      "schema": "public",
-      "table": "workspace_linked_repositories",
-      "as": "PERMISSIVE",
-      "for": "ALL",
-      "roles": [
-        "public"
-      ],
-      "using": "\"workspace_linked_repositories\".\"org_id\" = current_setting('app.organization_id', true)",
-      "withCheck": "\"workspace_linked_repositories\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
       "entityType": "policies"
     },

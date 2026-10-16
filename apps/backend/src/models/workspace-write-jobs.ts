@@ -41,14 +41,24 @@ export async function getWriteJobCommitSha(
   })
 }
 
+/** Set the status of a job. `failureReason` records why a job failed. */
 export async function persistWriteJobStatus(
   jobId: string,
   status: string,
+  failureReason?: string,
 ): Promise<void> {
   await orgSql(async () => {
     const [row] = await getOrgDb()
       .update(workspaceWriteJobs)
-      .set({ status, updatedAt: new Date() })
+      .set({
+        status,
+        updatedAt: new Date(),
+        ...(failureReason
+          ? {
+              payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb(${failureReason}::text))`,
+            }
+          : {}),
+      })
       .where(
         and(
           eq(workspaceWriteJobs.id, jobId),
@@ -495,8 +505,6 @@ export async function persistBoundWriteJob(input: {
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
-  linkAction?: "link" | "unlink"
-  linkGitUrl?: string
   displayName?: string
   previousSha?: string
   extraction?: WorkspaceExtraction
@@ -512,9 +520,6 @@ export async function persistBoundWriteJob(input: {
         ? { displayName: input.displayName }
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
-      ...(input.linkAction
-        ? { linkAction: input.linkAction, linkGitUrl: input.linkGitUrl }
-        : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
@@ -557,8 +562,6 @@ export async function persistBoundWriteJob(input: {
     if (
       !isDeepStrictEqual(row.payload?.mergeFiles, input.files) ||
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
-      row.payload?.linkAction !== input.linkAction ||
-      row.payload?.linkGitUrl !== input.linkGitUrl ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
       row.payload?.previousSha !== input.previousSha ||

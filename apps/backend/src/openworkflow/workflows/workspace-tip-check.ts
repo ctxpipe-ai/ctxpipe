@@ -18,7 +18,11 @@ import {
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
-import { shouldEnqueueCronHydrate } from "../../domain/workspaces/tip-resolve.js"
+import {
+  desiredProjectionRevision,
+  servedSha,
+  shouldEnqueueCronHydrate,
+} from "../../domain/workspaces/tip-resolve.js"
 import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
@@ -30,6 +34,7 @@ import {
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
+import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
@@ -203,6 +208,8 @@ export const workspaceTipCheck = defineWorkflow(
             listMigrationExportJobWorkspaceIds(),
           ]),
       )
+      const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
+      const hour = startedAt.toISOString().slice(0, 13)
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
         const writeStatus = writeStatusById.get(workspace.id)
@@ -220,17 +227,31 @@ export const workspaceTipCheck = defineWorkflow(
             quietLog,
           )
         }
+        const projection = await getWorkspaceProjection(workspace.id)
+        const desired = desiredProjectionRevision(projection)
+        // An earlier run can store the tip in `desired_sha` and then fail
+        // before it queues the hydrate. Thus compare `desired_sha` with the
+        // served SHA, not the tip with `desired_sha`. A hydrate of the same
+        // SHA that is not finished blocks a second one. The key names the
+        // served SHA, the desired SHA and the UTC hour, so a failed or stale
+        // pair is queued again at most once an hour.
         if (
-          updated.some((item) => item.workspaceId === workspace.id) ||
-          shouldEnqueueCronHydrate({
-            migrationExportSha: exportShas.get(workspace.id) ?? null,
-            projection: await getWorkspaceProjection(workspace.id),
-            writeStatus: writeStatusById.get(workspace.id),
-          })
+          desired &&
+          !unfinishedHydrates.has(`${workspace.id}:${desired.sha}`) &&
+          (servedSha(projection, desired) !== desired.sha ||
+            shouldEnqueueCronHydrate({
+              migrationExportSha: exportShas.get(workspace.id) ?? null,
+              projection,
+              writeStatus: writeStatusById.get(workspace.id),
+            }))
         ) {
           await enqueueWorkspaceHydrate(
             { orgId: input.orgId, workspaceId: workspace.id },
             { error: () => undefined },
+            {
+              idempotencyKey: (revision) =>
+                `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${servedSha(projection, revision) ?? "none"}:${revision.sha}:${hour}`,
+            },
           )
         }
       }

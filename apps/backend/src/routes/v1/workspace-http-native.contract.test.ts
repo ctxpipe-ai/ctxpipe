@@ -3,10 +3,7 @@ import { HttpResponse, http } from "msw"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
 import {
   getWorkspaceById,
@@ -15,6 +12,7 @@ import {
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 async function workflowNames(orgId: string, workspaceId: string) {
@@ -57,7 +55,7 @@ it(
       expect(missing.status).toBe(404)
 
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: `wlr_${f.id}`,
           orgId: f.org.id,
           workspaceId: f.workspaceId,
@@ -217,7 +215,7 @@ it(
 )
 
 it(
-  "re-checks write access on each Workspace detail read with a read_only write status",
+  "queues one idempotent re-check per minute on Workspace detail reads with a read_only write status",
   { timeout: 45_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
@@ -230,17 +228,61 @@ it(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       const before = await tipCheckKeys(f.org.id)
-
-      for (let i = 0; i < 2; i++) {
-        const detail = await app.request("/workspaces/knowledge")
-        expect(detail.status).toBe(200)
+      // Pin the clock so both reads share one minute.
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      const minute = Math.floor(Date.now() / 60_000)
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
       }
 
       await expect
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([null, null])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
+    })
+  },
+)
+
+it(
+  "queues a new re-check with a new key when a read_only Workspace is read in the next minute",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "read_only" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const before = await tipCheckKeys(f.org.id)
+      const start = Math.floor(Date.now() / 60_000) * 60_000
+      const now = vi.spyOn(Date, "now")
+      try {
+        for (const at of [start, start + 60_000]) {
+          now.mockReturnValue(at)
+          expect((await app.request("/workspaces/knowledge")).status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
+      }
+
+      const minute = start / 60_000
+      await expect
+        .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
+          timeout: 5_000,
+        })
+        .toEqual([
+          `tip-check-on-demand:${f.org.id}:${minute}`,
+          `tip-check-on-demand:${f.org.id}:${minute + 1}`,
+        ])
     })
   },
 )

@@ -150,6 +150,7 @@ import {
   listFilesInTree,
   listFilesInTreeWithMetadata,
   listOpenPullRequestsByBranchPrefix,
+  mergePullRequest,
 } from "./installation-write-client.js"
 
 function writeBranchOctokit(rest: Record<string, unknown>) {
@@ -249,6 +250,67 @@ describe("getPullRequestHeadBranch", () => {
       repo: "context",
       pull_number: 17,
     })
+  })
+})
+
+describe("mergePullRequest", () => {
+  const base = {
+    orgId: "org_1",
+    repositoryName: "acme/context",
+    githubConnectionId: "con_github",
+    env: {} as Env,
+  }
+
+  beforeEach(() => {
+    getInstallationOctokitForOrgMock.mockResolvedValue({
+      installation: { installationId: 42 },
+      octokit: new Octokit({
+        auth: "test-token",
+        throttle: { enabled: false },
+      }),
+    })
+  })
+
+  it("merges the pull request with a write-scoped installation client", async () => {
+    const merged: string[] = []
+    server.use(
+      http.put(
+        "https://api.github.com/repos/acme/context/pulls/:number/merge",
+        ({ params }) => {
+          merged.push(String(params.number))
+          return HttpResponse.json({ sha: "merge-sha", merged: true })
+        },
+      ),
+    )
+
+    await expect(
+      mergePullRequest({
+        ...base,
+        pullUrl: "https://github.com/acme/context/pull/17",
+      }),
+    ).resolves.toBe("merge-sha")
+    expect(merged).toEqual(["17"])
+  })
+
+  it("refuses a pull request of another repository", async () => {
+    const merged: string[] = []
+    server.use(
+      http.put(
+        "https://api.github.com/repos/:owner/:repo/pulls/:number/merge",
+        ({ params }) => {
+          merged.push(`${params.owner}/${params.repo}`)
+          return HttpResponse.json({ sha: "merge-sha", merged: true })
+        },
+      ),
+    )
+
+    await expect(
+      mergePullRequest({
+        ...base,
+        pullUrl: "https://github.com/other/context/pull/17",
+      }),
+    ).rejects.toThrow(/is not in acme\/context/)
+    expect(merged).toEqual([])
   })
 })
 

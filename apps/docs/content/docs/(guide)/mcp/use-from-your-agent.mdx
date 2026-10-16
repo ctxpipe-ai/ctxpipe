@@ -15,11 +15,11 @@ To connect a client, see [Remote MCP](/docs/mcp/mcp-docs).
 | --- | --- |
 | `list_workspaces` | Lists the organizations and Workspaces that the connection can read. Give one Workspace to get its repositories, sources, and readiness. |
 | `search_knowledge` | Searches the knowledge of one organization. Use natural language or keywords. You can filter by `kinds`, `pathPrefix`, `sources`, `updatedAfter`, and `validAt`. |
-| `search_code` | Searches the linked repositories in one call. The `mode` is `literal`, `regex`, or `structural`. |
+| `search_code` | Searches the linked repositories in one call. The `mode` is `literal`, `regex`, or `structural`. Use `pathGlob` (a gitignore-style glob, such as `*.ts`) and `caseSensitive` to narrow it. |
 | `find_symbol` | Finds a definition, references, callers, or callees. |
 | `read_file` | Reads a knowledge file or a repository file by ref. You can ask for a line range. |
-| `list_files` | Lists the folders and files of a Workspace repository or a linked repository. |
-| `get_related` | Finds knowledge near one or more seeds in the graph that is also relevant to a query. The result is ranked and explained. |
+| `list_files` | Lists the folders and files of a Workspace repository or a linked repository. Use `depth` for more levels and `glob` to list only matching files. |
+| `get_related` | Finds knowledge near one or more seeds in the graph that is also relevant to a query. The result is ranked and explained. Use `excludePredicates` and `excludeKinds` to remove edges and result kinds. |
 
 Every tool has the read-only hint. The tools never change your data.
 

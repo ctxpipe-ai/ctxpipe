@@ -17,6 +17,7 @@ const PENDING_CHANGE_TEXT = {
   add: "Pull request open. The sync starts after the merge.",
   edit: "Pull request open. The change applies after the merge.",
   remove: "Pull request open. The source is removed after the merge.",
+  rename: "Pull request open. The file moves after the merge.",
 } as const
 
 /**

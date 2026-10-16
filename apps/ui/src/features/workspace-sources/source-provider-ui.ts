@@ -13,7 +13,7 @@ import { zendeskSourceUi } from "./providers/zendesk"
 
 /**
  * The props of a provider scope editor. The editor edits the scope part of
- * one `.ctxpipe/sources.yaml` entry (the entry without `id`, `provider`, and
+ * one source file (the front matter without `provider` and
  * `connection`).
  */
 export type SourceScopeEditorProps = {
