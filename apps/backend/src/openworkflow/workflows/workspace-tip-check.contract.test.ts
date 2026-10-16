@@ -5,7 +5,7 @@ import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { eq, sql } from "drizzle-orm"
+import { and, eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { describe, expect, it } from "vitest"
@@ -711,6 +711,52 @@ it(
         expect(
           await workspaceRuns(f, "workspace-write-migration-export"),
         ).toHaveLength(2)
+      },
+    )
+  },
+)
+
+it(
+  "cron waits twice as long before it queues a migration export again after each failure",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable" },
+      async (f) => {
+        await f.publish()
+        const exports = () =>
+          workspaceRuns(f, "workspace-write-migration-export")
+        // Each export job failed, and the newest one started this long ago.
+        const failExports = (minutesAgo: number) =>
+          withOrgDbContext(f.org.id, (db) =>
+            db
+              .update(workspaceWriteJobs)
+              .set({
+                status: "failed",
+                createdAt: sql`now() - make_interval(mins => ${minutesAgo})`,
+              })
+              .where(
+                and(
+                  eq(workspaceWriteJobs.workspaceId, f.workspaceId),
+                  eq(workspaceWriteJobs.kind, "migration_export"),
+                ),
+              ),
+          )
+        await runTipCheck(f)
+        expect(await exports()).toHaveLength(1)
+
+        // One failure: the next export waits 1 hour.
+        await failExports(90)
+        await runTipCheck(f)
+        expect(await exports()).toHaveLength(2)
+
+        // Two failures: the next export waits 2 hours.
+        await failExports(90)
+        await runTipCheck(f)
+        expect(await exports()).toHaveLength(2)
+        await failExports(150)
+        await runTipCheck(f)
+        expect(await exports()).toHaveLength(3)
       },
     )
   },
