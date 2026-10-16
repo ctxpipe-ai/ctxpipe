@@ -114,7 +114,7 @@ export async function scanWorkspaceUpgrade(input: {
   if (format < 0 || format > CODE_FORMAT)
     return { kind: "none", reason: "not_upgradable" }
   const key = formatUpgradeKey(targetFormat)
-  await failStoppedUpgradeRun(workspace.id, key, "workspace-upgrade")
+  await failStoppedUpgradeRun(workspace.id, key)
   const existing = await getWorkspaceUpgradeRow(workspace.id, key)
   if (format >= targetFormat) {
     if (existing && existing.status !== UPGRADE_STATUSES.completed)
@@ -183,12 +183,11 @@ export async function scanWorkspaceUpgrade(input: {
   )
     return { kind: "pending", key, status: existing.status }
   const [open] = github
-    ? (
-        await listOpenPullRequestsByBranchPrefix({
-          ...github,
-          branchPrefix: branch,
-        })
-      ).filter((pull) => pull.branch === branch)
+    ? await listOpenPullRequestsByBranchPrefix({
+        ...github,
+        branchPrefix: branch,
+        exactBranch: branch,
+      })
     : []
   if (open)
     return record(
@@ -273,7 +272,7 @@ export async function scanWorkspaceReingest(input: {
   )
   if (!repositories.length) return { kind: "none", reason: "not_upgradable" }
   const key = reingestUpgradeKey(input.bundle.name)
-  await failStoppedUpgradeRun(workspace.id, key, "workspace-upgrade-reingest")
+  await failStoppedUpgradeRun(workspace.id, key)
   await deleteSupersededUpgradeRows({
     workspaceId: workspace.id,
     key,

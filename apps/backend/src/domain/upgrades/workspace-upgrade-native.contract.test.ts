@@ -5,7 +5,10 @@ import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
-import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
+import {
+  getWorkspaceUpgradeRow,
+  transitionWorkspaceUpgradeRow,
+} from "../../models/workspace-upgrades.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { WORKSPACE_FORMAT_PATH } from "../workspaces/workspace-format.js"
@@ -62,12 +65,44 @@ it(
       title: string
       body: string
     }> = []
-    let openPulls: Array<{
-      number: number
-      html_url: string
-      head: { ref: string }
-      created_at: string
-    }> = []
+    // Three pull requests of others on the upgrade branch name: one from a
+    // fork, one in the repository from a person, and one in the repository
+    // from another GitHub App. ctx| ignores all three: it does not record
+    // them, it does not change their text (the fixture refuses a pull
+    // request update), and it opens its own pull request.
+    const foreignPulls = [
+      {
+        number: 7,
+        html_url: "https://github.com/fixture/hydration-contract/pull/7",
+        head: {
+          ref: BRANCH,
+          repo: { full_name: "someone/hydration-contract" },
+        },
+        user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
+        created_at: "2026-10-15T00:00:00Z",
+      },
+      {
+        number: 8,
+        html_url: "https://github.com/fixture/hydration-contract/pull/8",
+        head: {
+          ref: BRANCH,
+          repo: { full_name: "fixture/hydration-contract" },
+        },
+        user: { type: "User", login: "someone" },
+        created_at: "2026-10-15T00:00:00Z",
+      },
+      {
+        number: 9,
+        html_url: "https://github.com/fixture/hydration-contract/pull/9",
+        head: {
+          ref: BRANCH,
+          repo: { full_name: "fixture/hydration-contract" },
+        },
+        user: { type: "Bot", login: "other-app[bot]" },
+        created_at: "2026-10-15T00:00:00Z",
+      },
+    ]
+    let openPulls: Array<(typeof foreignPulls)[number]> = foreignPulls
     let closedPull: Record<string, unknown> | null = null
     await withNativeHydrationFixture(
       {
@@ -82,10 +117,15 @@ it(
           const pull = body as (typeof opened)[number]
           opened.push(pull)
           openPulls = [
+            ...foreignPulls,
             {
               number: 41,
               html_url: "https://github.com/fixture/hydration-contract/pull/41",
-              head: { ref: pull.head },
+              head: {
+                ref: pull.head,
+                repo: { full_name: "fixture/hydration-contract" },
+              },
+              user: { type: "Bot", login: "ctxpipe-fixture[bot]" },
               created_at: "2026-10-16T00:00:00Z",
             },
           ]
@@ -388,6 +428,97 @@ it(
               { timeout: 30_000 },
             )
             .toHaveLength(1)
+        } finally {
+          await worker.stop()
+          await backend.stop()
+        }
+      },
+    ),
+)
+
+it(
+  "fails a row whose run stopped, so that the next click starts a new run",
+  { timeout: 150_000 },
+  async () =>
+    withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "README.md", body: "# Readme\n" }],
+      },
+      async (f) => {
+        f.server.use(http.get(PULLS, () => HttpResponse.json([])))
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { defineWorkspaceUpgradeScan } = await import(
+          "../../openworkflow/workflows/workspace-upgrade-scan.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        const scan = defineWorkspaceUpgradeScan(STEPS)
+        runner.implementWorkflow(scan.spec, scan.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const inOrg = <T>(fn: () => Promise<T>) => withOrgIdContext(f.org, fn)
+        const start = () =>
+          inOrg(() =>
+            startWorkspaceUpgrade({
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              key: KEY,
+              userId: "user_admin",
+            }),
+          )
+        const upgradeRuns = async () =>
+          (await backend.listWorkflowRuns({ limit: 200 })).data.filter(
+            (run) =>
+              run.workflowName === "workspace-upgrade" &&
+              (run.input as { workspaceId?: string }).workspaceId ===
+                f.workspaceId,
+          )
+        try {
+          await worker.start()
+          const handle = await runner.runWorkflow(scan.spec, {
+            orgId: f.org.id,
+            release: "test",
+            trigger: "first",
+          })
+          await handle.result({ timeoutMs: 30_000 })
+          // No worker runs the upgrade, so each run stays where the test
+          // puts it.
+          await worker.stop()
+
+          // A queued run that ends before it claims the row.
+          expect(await start()).toMatchObject({ kind: "queued" })
+          const [first] = await upgradeRuns()
+          if (!first) throw new Error("expected an upgrade run")
+          await runner.cancelWorkflowRun(first.id)
+          expect(await start()).toMatchObject({
+            kind: "queued",
+            row: { status: "queued" },
+          })
+          expect(await upgradeRuns()).toHaveLength(2)
+
+          // A run that claimed the row, and then ended without a result.
+          const second = (await upgradeRuns()).find(
+            (run) => run.id !== first.id,
+          )
+          if (!second) throw new Error("expected a second upgrade run")
+          await inOrg(() =>
+            transitionWorkspaceUpgradeRow({
+              workspaceId: f.workspaceId,
+              key: KEY,
+              from: ["queued"],
+              to: "running",
+              workflowRunId: second.id,
+            }),
+          )
+          await runner.cancelWorkflowRun(second.id)
+          expect(await start()).toMatchObject({ kind: "queued" })
+          expect(await upgradeRuns()).toHaveLength(3)
         } finally {
           await worker.stop()
           await backend.stop()

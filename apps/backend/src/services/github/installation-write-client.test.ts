@@ -315,46 +315,119 @@ describe("mergePullRequest", () => {
 })
 
 describe("listOpenPullRequestsByBranchPrefix", () => {
-  it("keeps only the open pull requests on the branch prefix", async () => {
-    const pullsList = vi.fn().mockResolvedValue({
-      data: [
-        {
-          html_url: "https://github.com/acme/context/pull/3",
-          head: { ref: "ctxpipe/sources/add/linear/eng-issues-17" },
-          created_at: "2026-10-11T00:00:00Z",
-        },
-        {
-          html_url: "https://github.com/acme/context/pull/4",
-          head: { ref: "feature/other" },
-          created_at: "2026-10-11T00:00:00Z",
-        },
-      ],
-    })
+  const base = {
+    orgId: "org_1",
+    repositoryName: "acme/context",
+    githubConnectionId: "con_github",
+    env: {} as Env,
+  }
+  const PULLS = "https://api.github.com/repos/acme/context/pulls"
+
+  function pull(
+    number: number,
+    ref: string,
+    options: { repo?: string | null; user?: string; login?: string } = {},
+  ) {
+    return {
+      number,
+      html_url: `https://github.com/acme/context/pull/${number}`,
+      head: {
+        ref,
+        repo:
+          options.repo === null
+            ? null
+            : { full_name: options.repo ?? "acme/context" },
+      },
+      user: {
+        type: options.user ?? "Bot",
+        login: options.login ?? "ctxpipe[bot]",
+      },
+      created_at: "2026-10-11T00:00:00Z",
+    }
+  }
+
+  beforeEach(() => {
     getInstallationOctokitForOrgMock.mockResolvedValue({
       installation: { installationId: 42 },
-      octokit: { rest: { pulls: { list: pullsList } } },
-    })
-    await expect(
-      listOpenPullRequestsByBranchPrefix({
-        orgId: "org_1",
-        repositoryName: "acme/context",
-        githubConnectionId: "con_github",
-        env: {} as Env,
-        branchPrefix: "ctxpipe/sources/",
+      octokit: new Octokit({
+        auth: "test-token",
+        throttle: { enabled: false },
       }),
-    ).resolves.toEqual([
-      {
-        pullUrl: "https://github.com/acme/context/pull/3",
-        branch: "ctxpipe/sources/add/linear/eng-issues-17",
-        createdAt: "2026-10-11T00:00:00Z",
-      },
-    ])
-    expect(pullsList).toHaveBeenCalledWith({
-      owner: "acme",
-      repo: "context",
-      state: "open",
-      per_page: 100,
+      appBotLogin: async () => "ctxpipe[bot]",
     })
+  })
+
+  it("keeps only the pull requests that ctx| opened in this repository, on all pages", async () => {
+    const queries: string[] = []
+    server.use(
+      http.get(PULLS, ({ request }) => {
+        const url = new URL(request.url)
+        queries.push(url.search)
+        if (url.searchParams.get("page") === "2")
+          return HttpResponse.json([
+            pull(5, "ctxpipe/sources/add/linear/eng-issues-18"),
+          ])
+        return HttpResponse.json(
+          [
+            pull(3, "ctxpipe/sources/add/linear/eng-issues-17"),
+            pull(4, "feature/other"),
+            // The same branch name from a fork.
+            pull(6, "ctxpipe/sources/add/notion/wiki", {
+              repo: "someone/context",
+            }),
+            // A fork that GitHub deleted.
+            pull(7, "ctxpipe/sources/add/notion/wiki", { repo: null }),
+            // The same branch name in this repository, from a person.
+            pull(8, "ctxpipe/sources/add/notion/wiki", { user: "User" }),
+            // The same branch name in this repository, from another App.
+            pull(13, "ctxpipe/sources/add/notion/wiki", {
+              login: "other-app[bot]",
+            }),
+          ],
+          {
+            headers: {
+              link: `<${PULLS}?state=open&per_page=100&page=2>; rel="next"`,
+            },
+          },
+        )
+      }),
+    )
+    const pulls = await listOpenPullRequestsByBranchPrefix({
+      ...base,
+      branchPrefix: "ctxpipe/sources/",
+    })
+    expect(pulls.map((item) => item.pullUrl)).toEqual([
+      "https://github.com/acme/context/pull/3",
+      "https://github.com/acme/context/pull/5",
+    ])
+    expect(queries).toHaveLength(2)
+    expect(new URLSearchParams(queries[0]).get("state")).toBe("open")
+  })
+
+  it("asks GitHub for one exact branch, and ignores a pull request of another person on it", async () => {
+    const heads: Array<string | null> = []
+    const branch = "ctxpipe/upgrade/format-3"
+    server.use(
+      http.get(PULLS, ({ request }) => {
+        heads.push(new URL(request.url).searchParams.get("head"))
+        return HttpResponse.json([
+          pull(9, branch, { repo: "someone/context" }),
+          pull(10, branch, { user: "User" }),
+          pull(14, branch, { login: "other-app[bot]" }),
+          pull(11, `${branch}-later`),
+          pull(12, branch),
+        ])
+      }),
+    )
+    const pulls = await listOpenPullRequestsByBranchPrefix({
+      ...base,
+      branchPrefix: branch,
+      exactBranch: branch,
+    })
+    expect(pulls.map((item) => item.pullUrl)).toEqual([
+      "https://github.com/acme/context/pull/12",
+    ])
+    expect(heads).toEqual([`acme:${branch}`])
   })
 })
 

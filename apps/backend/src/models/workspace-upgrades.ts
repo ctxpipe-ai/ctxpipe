@@ -1,4 +1,4 @@
-import { and, asc, eq, inArray, like, ne, sql } from "drizzle-orm"
+import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaceWriteJobs } from "../db/schema/workspaces.js"
@@ -204,15 +204,23 @@ export async function deleteSupersededUpgradeRows(input: {
 
 /**
  * A run can stop before it records its result (for example a worker that
- * dies after its last retry). Set such a `running` row to `failed`, so that
- * an owner or admin can start it again. OpenWorkflow owns the retries, so
- * only a run that ended counts.
+ * dies after its last retry). Set such a row to `failed`, so that an owner or
+ * admin can start it again. OpenWorkflow owns the retries, so only a run
+ * that ended counts:
+ * - a `running` row whose recorded run ended;
+ * - a `queued` row whose run ended before it claimed the row. That run has
+ *   the idempotency key `<row id>:<approvedAt>` of this click
+ *   (see `enqueueWorkspaceUpgrade` and `enqueueWorkspaceUpgradeReingest`). An older run of the same row does not
+ *   count, and a row whose run is not queued yet stays `queued`.
+ *
+ * Without `key`, this checks all the upgrade rows of the Workspace.
  */
 export async function failStoppedUpgradeRun(
   workspaceId: string,
-  key: string,
-  workflowName: "workspace-upgrade" | "workspace-upgrade-reingest",
+  key?: string,
 ): Promise<void> {
+  const ended = sql`('completed', 'failed', 'canceled')`
+  const upgradeWorkflows = sql`('workspace-upgrade', 'workspace-upgrade-reingest')`
   await orgSql(async () => {
     await getOrgDb()
       .update(workspaceWriteJobs)
@@ -223,13 +231,26 @@ export async function failStoppedUpgradeRun(
       })
       .where(
         and(
-          eq(workspaceWriteJobs.id, upgradeJobId(workspaceId, key)),
+          key === undefined
+            ? eq(workspaceWriteJobs.workspaceId, workspaceId)
+            : eq(workspaceWriteJobs.id, upgradeJobId(workspaceId, key)),
           eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
-          eq(workspaceWriteJobs.status, "running"),
-          sql`exists (select 1 from openworkflow.workflow_runs owner
-            where owner.id = ${workspaceWriteJobs.payload}->>'workflowRunId'
-              and owner.workflow_name = ${workflowName}
-              and owner.status in ('completed', 'failed', 'canceled'))`,
+          or(
+            and(
+              eq(workspaceWriteJobs.status, "running"),
+              sql`exists (select 1 from openworkflow.workflow_runs owner
+                where owner.id = ${workspaceWriteJobs.payload}->>'workflowRunId'
+                  and owner.workflow_name in ${upgradeWorkflows}
+                  and owner.status in ${ended})`,
+            ),
+            and(
+              eq(workspaceWriteJobs.status, "queued"),
+              sql`exists (select 1 from openworkflow.workflow_runs owner
+                where owner.idempotency_key = ${workspaceWriteJobs.id} || ':' || (${workspaceWriteJobs.payload}->'upgrade'->>'approvedAt')
+                  and owner.workflow_name in ${upgradeWorkflows}
+                  and owner.status in ${ended})`,
+            ),
+          ),
         ),
       )
   })

@@ -300,5 +300,7 @@ try {
   )
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
-  process.exitCode = 1
+  // The static server and the browser keep the event loop alive, so a plain
+  // exit code would hang the job until its timeout.
+  process.exit(1)
 }

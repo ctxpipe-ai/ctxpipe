@@ -170,6 +170,7 @@ async function getInstallationContext(
 ): Promise<{
   installation: GitHubInstallation
   octokit: InstallationContext["octokit"]
+  appBotLogin: InstallationContext["appBotLogin"]
   owner: string
   repo: string
 }> {
@@ -189,6 +190,7 @@ async function getInstallationContext(
   return {
     installation: installationContext.installation,
     octokit: installationContext.octokit,
+    appBotLogin: installationContext.appBotLogin,
     owner,
     repo,
   }
@@ -744,21 +746,48 @@ export async function getPullRequestHeadBranch(
   return data.head.ref || undefined
 }
 
-/** The open pull requests whose head branch starts with `branchPrefix` (first 100). */
+/**
+ * The open pull requests that ctx| opened on a branch that starts with
+ * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ *
+ * Other people can open a pull request with the same head branch name: from
+ * a fork, from the repository itself, or as another GitHub App on the
+ * repository. This function ignores them. It keeps only a pull request whose
+ * head is in this repository and whose author is the ctx| GitHub App of this
+ * installation (ctx| opens each pull request with the installation token).
+ * Thus, ctx| opens its own pull request when someone else took the branch
+ * name in a fork, and it never shows or relabels the pull request of another
+ * person or App as its own.
+ */
 export async function listOpenPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string },
+  input: BaseInput & { branchPrefix: string; exactBranch?: string },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
   const context = await getInstallationContext(input, { pull_requests: "read" })
-  const { data } = await withTransientGitHubRetry(() =>
-    context.octokit.rest.pulls.list({
+  const repository = `${context.owner}/${context.repo}`.toLowerCase()
+  const pulls = await withTransientGitHubRetry(() =>
+    context.octokit.paginate(context.octokit.rest.pulls.list, {
       owner: context.owner,
       repo: context.repo,
       state: "open",
       per_page: 100,
+      ...(input.exactBranch
+        ? { head: `${context.owner}:${input.exactBranch}` }
+        : {}),
     }),
   )
-  return data
-    .filter((pull) => pull.head.ref.startsWith(input.branchPrefix))
+  const candidates = pulls.filter(
+    (pull) =>
+      pull.head.ref.startsWith(input.branchPrefix) &&
+      (input.exactBranch === undefined ||
+        pull.head.ref === input.exactBranch) &&
+      pull.head.repo?.full_name.toLowerCase() === repository &&
+      pull.user?.type === "Bot",
+  )
+  // Ask GitHub for the App login only when a pull request can be ours.
+  const login =
+    candidates.length > 0 ? (await context.appBotLogin()).toLowerCase() : ""
+  return candidates
+    .filter((pull) => pull.user?.login.toLowerCase() === login)
     .map((pull) => ({
       pullUrl: pull.html_url,
       branch: pull.head.ref,
