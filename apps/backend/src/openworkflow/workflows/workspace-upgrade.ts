@@ -187,12 +187,11 @@ async function openOrUpdatePullRequest(input: {
     targetFormat: input.targetFormat,
     steps: input.built.steps,
   })
-  const [open] = (
-    await listOpenPullRequestsByBranchPrefix({
-      ...github,
-      branchPrefix: branch,
-    })
-  ).filter((pull) => pull.branch === branch)
+  const [open] = await listOpenPullRequestsByBranchPrefix({
+    ...github,
+    branchPrefix: branch,
+    exactBranch: branch,
+  })
   const openNumber = open ? parseGithubPullNumberFromUrl(open.pullUrl) : null
   if (open && openNumber) {
     await updatePullRequestText({ ...github, pullNumber: openNumber, ...text })

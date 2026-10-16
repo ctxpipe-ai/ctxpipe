@@ -1,10 +1,9 @@
 {
   "version": "8",
   "dialect": "postgres",
-  "id": "327f3512-b050-4144-8b49-37f6c795ecac",
+  "id": "d4aaede1-ffcd-4ead-b904-5c3aa68e6651",
   "prevIds": [
-    "0c2f5a99-0330-4a8d-9396-b5c509ec1456",
-    "b2a70b16-528b-4279-8837-b052410d07d2"
+    "3a50a151-fb82-49f6-a395-c115d5bb052f"
   ],
   "ddl": [
     {
@@ -189,6 +188,12 @@
       "schema": "public"
     },
     {
+      "isRlsEnabled": false,
+      "name": "oauth_grant_organizations",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
       "isRlsEnabled": true,
       "name": "objects",
       "entityType": "tables",
@@ -238,6 +243,12 @@
     },
     {
       "isRlsEnabled": true,
+      "name": "workspace_sources",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": true,
       "name": "org_first_workspaces",
       "entityType": "tables",
       "schema": "public"
@@ -251,6 +262,12 @@
     {
       "isRlsEnabled": true,
       "name": "workspace_commit_projections",
+      "entityType": "tables",
+      "schema": "public"
+    },
+    {
+      "isRlsEnabled": true,
+      "name": "workspace_knowledge_chunks",
       "entityType": "tables",
       "schema": "public"
     },
@@ -293,12 +310,6 @@
     {
       "isRlsEnabled": true,
       "name": "workspaces",
-      "entityType": "tables",
-      "schema": "public"
-    },
-    {
-      "isRlsEnabled": true,
-      "name": "workspace_sources",
       "entityType": "tables",
       "schema": "public"
     },
@@ -3971,6 +3982,58 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "grant_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "api_key_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "organization_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -5003,6 +5066,175 @@
       "default": null,
       "generated": null,
       "identity": null,
+      "name": "id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "org_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "source_key",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "connection_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "provider",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "scope",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "status_detail",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "jsonb",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "'{}'",
+      "generated": null,
+      "identity": null,
+      "name": "state",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "revision",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "created_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "timestamp with time zone",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "now()",
+      "generated": null,
+      "identity": null,
+      "name": "updated_at",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
       "name": "org_id",
       "entityType": "columns",
       "schema": "public",
@@ -5201,6 +5433,152 @@
       "name": "workspace_id",
       "entityType": "columns",
       "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "unit_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "chunk_hash",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "occurrence",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "org_id",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "ordinal",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "start_line",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "end_line",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "text",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "tsvector",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": {
+        "as": "to_tsvector('english', \"text\")",
+        "type": "stored"
+      },
+      "identity": null,
+      "name": "search",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "vector(2000)",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "embedding",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "workspace_id",
+      "entityType": "columns",
+      "schema": "public",
       "table": "workspace_knowledge_path_state"
     },
     {
@@ -5310,6 +5688,32 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "title",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_units"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "source",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_knowledge_units"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": true,
       "dimensions": 0,
       "default": null,
@@ -5368,19 +5772,6 @@
       "generated": null,
       "identity": null,
       "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_knowledge_units"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "embedding",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_knowledge_units"
@@ -5459,6 +5850,19 @@
       "generated": null,
       "identity": null,
       "name": "author_name",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspace_repository_commits"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "author_login",
       "entityType": "columns",
       "schema": "public",
       "table": "workspace_repository_commits"
@@ -5986,6 +6390,19 @@
     {
       "type": "text",
       "typeSchema": null,
+      "notNull": true,
+      "dimensions": 0,
+      "default": "''",
+      "generated": null,
+      "identity": null,
+      "name": "root_path",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspaces"
+    },
+    {
+      "type": "text",
+      "typeSchema": null,
       "notNull": false,
       "dimensions": 0,
       "default": null,
@@ -6166,6 +6583,19 @@
       "table": "workspaces"
     },
     {
+      "type": "integer",
+      "typeSchema": null,
+      "notNull": false,
+      "dimensions": 0,
+      "default": null,
+      "generated": null,
+      "identity": null,
+      "name": "format_version",
+      "entityType": "columns",
+      "schema": "public",
+      "table": "workspaces"
+    },
+    {
       "type": "timestamp with time zone",
       "typeSchema": null,
       "notNull": true,
@@ -6190,162 +6620,6 @@
       "entityType": "columns",
       "schema": "public",
       "table": "workspaces"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "org_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "workspace_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "source_key",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "connection_id",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "provider",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "jsonb",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "'{}'",
-      "generated": null,
-      "identity": null,
-      "name": "scope",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": false,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "status_detail",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "text",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": null,
-      "generated": null,
-      "identity": null,
-      "name": "revision",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "created_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "type": "timestamp with time zone",
-      "typeSchema": null,
-      "notNull": true,
-      "dimensions": 0,
-      "default": "now()",
-      "generated": null,
-      "identity": null,
-      "name": "updated_at",
-      "entityType": "columns",
-      "schema": "public",
-      "table": "workspace_sources"
     },
     {
       "nameExplicit": true,
@@ -7370,6 +7644,83 @@
       "table": "conversations"
     },
     {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "grant_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "oauth_grant_organizations_grant_org_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "api_key_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": true,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "oauth_grant_organizations_api_key_org_uidx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "organization_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "oauth_grant_organizations_organization_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
       "nameExplicit": false,
       "columns": [
         {
@@ -7691,6 +8042,48 @@
       "nameExplicit": true,
       "columns": [
         {
+          "value": "connection_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "workspace_sources_connection_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "workspace_sources_org_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
           "value": "org_id",
           "isExpression": false,
           "asc": true,
@@ -7707,6 +8100,100 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "workspace_commit_projections"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "workspace_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        },
+        {
+          "value": "chunk_hash",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "workspace_knowledge_chunks_workspace_id_hash_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "org_id",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "btree",
+      "concurrently": false,
+      "name": "workspace_knowledge_chunks_org_id_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "search",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": null
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "gin",
+      "concurrently": false,
+      "name": "workspace_knowledge_chunks_search_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        {
+          "value": "embedding",
+          "isExpression": false,
+          "asc": true,
+          "nullsFirst": false,
+          "opclass": {
+            "name": "vector_cosine_ops",
+            "default": false
+          }
+        }
+      ],
+      "isUnique": false,
+      "where": null,
+      "with": "",
+      "method": "hnsw",
+      "concurrently": false,
+      "name": "workspace_knowledge_chunks_embedding_idx",
+      "entityType": "indexes",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
     },
     {
       "nameExplicit": true,
@@ -8001,48 +8488,6 @@
       "entityType": "indexes",
       "schema": "public",
       "table": "workspaces"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "connection_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "workspace_sources_connection_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        {
-          "value": "org_id",
-          "isExpression": false,
-          "asc": true,
-          "nullsFirst": false,
-          "opclass": null
-        }
-      ],
-      "isUnique": false,
-      "where": null,
-      "with": "",
-      "method": "btree",
-      "concurrently": false,
-      "name": "workspace_sources_org_id_idx",
-      "entityType": "indexes",
-      "schema": "public",
-      "table": "workspace_sources"
     },
     {
       "nameExplicit": false,
@@ -8523,6 +8968,40 @@
     {
       "nameExplicit": false,
       "columns": [
+        "api_key_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "apikeys",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "oauth_grant_organizations_api_key_id_apikeys_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "organization_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "organizations",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "oauth_grant_organizations_organization_id_organizations_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
         "organization_id"
       ],
       "schemaTo": "public",
@@ -8667,6 +9146,23 @@
         "id"
       ],
       "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "workspace_sources_workspace_id_workspaces_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "workspace_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "workspaces",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
       "onDelete": "RESTRICT",
       "name": "org_first_workspaces_workspace_id_workspaces_id_fkey",
       "entityType": "fks",
@@ -8706,6 +9202,23 @@
       "entityType": "fks",
       "schema": "public",
       "table": "workspace_commit_projections"
+    },
+    {
+      "nameExplicit": false,
+      "columns": [
+        "workspace_id"
+      ],
+      "schemaTo": "public",
+      "tableTo": "workspaces",
+      "columnsTo": [
+        "id"
+      ],
+      "onUpdate": "NO ACTION",
+      "onDelete": "CASCADE",
+      "name": "workspace_knowledge_chunks_workspace_id_workspaces_id_fkey",
+      "entityType": "fks",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
     },
     {
       "nameExplicit": false,
@@ -8810,23 +9323,6 @@
       "table": "workspaces"
     },
     {
-      "nameExplicit": false,
-      "columns": [
-        "workspace_id"
-      ],
-      "schemaTo": "public",
-      "tableTo": "workspaces",
-      "columnsTo": [
-        "id"
-      ],
-      "onUpdate": "NO ACTION",
-      "onDelete": "CASCADE",
-      "name": "workspace_sources_workspace_id_workspaces_id_fkey",
-      "entityType": "fks",
-      "schema": "public",
-      "table": "workspace_sources"
-    },
-    {
       "columns": [
         "namespace",
         "key"
@@ -8872,6 +9368,19 @@
       "entityType": "pks",
       "schema": "public",
       "table": "org_member_preferences"
+    },
+    {
+      "columns": [
+        "workspace_id",
+        "unit_id",
+        "chunk_hash",
+        "occurrence"
+      ],
+      "nameExplicit": false,
+      "name": "workspace_knowledge_chunks_pkey",
+      "entityType": "pks",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
     },
     {
       "columns": [
@@ -9216,6 +9725,16 @@
     },
     {
       "columns": [
+        "id"
+      ],
+      "nameExplicit": false,
+      "name": "workspace_sources_pkey",
+      "schema": "public",
+      "table": "workspace_sources",
+      "entityType": "pks"
+    },
+    {
+      "columns": [
         "org_id"
       ],
       "nameExplicit": false,
@@ -9295,16 +9814,6 @@
       "entityType": "pks"
     },
     {
-      "columns": [
-        "id"
-      ],
-      "nameExplicit": false,
-      "name": "workspace_sources_pkey",
-      "schema": "public",
-      "table": "workspace_sources",
-      "entityType": "pks"
-    },
-    {
       "nameExplicit": true,
       "columns": [
         "connection_id",
@@ -9368,6 +9877,18 @@
       "nameExplicit": true,
       "columns": [
         "workspace_id",
+        "source_key"
+      ],
+      "nullsNotDistinct": false,
+      "name": "workspace_sources_workspace_id_source_key_uidx",
+      "entityType": "uniques",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "nameExplicit": true,
+      "columns": [
+        "workspace_id",
         "path"
       ],
       "nullsNotDistinct": false,
@@ -9387,18 +9908,6 @@
       "entityType": "uniques",
       "schema": "public",
       "table": "workspaces"
-    },
-    {
-      "nameExplicit": true,
-      "columns": [
-        "workspace_id",
-        "source_key"
-      ],
-      "nullsNotDistinct": false,
-      "name": "workspace_sources_workspace_id_source_key_uidx",
-      "entityType": "uniques",
-      "schema": "public",
-      "table": "workspace_sources"
     },
     {
       "nameExplicit": false,
@@ -9465,6 +9974,13 @@
       "schema": "public",
       "table": "repository_checkouts",
       "entityType": "uniques"
+    },
+    {
+      "value": "num_nonnulls(\"grant_id\", \"api_key_id\") = 1",
+      "name": "oauth_grant_organizations_one_owner",
+      "entityType": "checks",
+      "schema": "public",
+      "table": "oauth_grant_organizations"
     },
     {
       "as": "PERMISSIVE",
@@ -9706,6 +10222,19 @@
       "roles": [
         "public"
       ],
+      "using": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
+      "withCheck": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
+      "name": "org_isolation",
+      "entityType": "policies",
+      "schema": "public",
+      "table": "workspace_sources"
+    },
+    {
+      "as": "PERMISSIVE",
+      "for": "ALL",
+      "roles": [
+        "public"
+      ],
       "using": "\"org_first_workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "withCheck": "\"org_first_workspaces\".\"org_id\" = current_setting('app.organization_id', true)",
       "name": "org_isolation",
@@ -9738,6 +10267,19 @@
       "entityType": "policies",
       "schema": "public",
       "table": "workspace_commit_projections"
+    },
+    {
+      "as": "PERMISSIVE",
+      "for": "ALL",
+      "roles": [
+        "public"
+      ],
+      "using": "\"workspace_knowledge_chunks\".\"org_id\" = current_setting('app.organization_id', true)",
+      "withCheck": "\"workspace_knowledge_chunks\".\"org_id\" = current_setting('app.organization_id', true)",
+      "name": "org_isolation",
+      "entityType": "policies",
+      "schema": "public",
+      "table": "workspace_knowledge_chunks"
     },
     {
       "as": "PERMISSIVE",
@@ -9829,19 +10371,6 @@
       "entityType": "policies",
       "schema": "public",
       "table": "workspaces"
-    },
-    {
-      "as": "PERMISSIVE",
-      "for": "ALL",
-      "roles": [
-        "public"
-      ],
-      "using": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
-      "withCheck": "\"workspace_sources\".\"org_id\" = current_setting('app.organization_id', true)",
-      "name": "org_isolation",
-      "entityType": "policies",
-      "schema": "public",
-      "table": "workspace_sources"
     }
   ],
   "renames": []
