@@ -1,4 +1,4 @@
-import { spawnSync } from "node:child_process"
+import { execFile } from "node:child_process"
 import { rmSync, writeFileSync } from "node:fs"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
@@ -113,28 +113,42 @@ const phase = (name: string) =>
   )
 let mainTree = ""
 
+/**
+ * Run a command and give its stdout. It does not block the event loop, so a
+ * command that hangs fails at its own timeout with its output.
+ */
 function run(
   command: string,
   args: string[],
   cwd: string,
   databaseUrl: string,
-) {
+): Promise<string> {
   phase(`${command} ${args.join(" ")}`)
-  const result = spawnSync(command, args, {
-    cwd,
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      DATABASE_URL: databaseUrl,
-      DATABASE_APP_PASSWORD: appPassword,
-    },
-    timeout: 180_000,
-  })
-  if (result.status !== 0)
-    throw new Error(
-      `${command} ${args.join(" ")} in ${cwd} failed (${result.status ?? result.signal}):\n${result.stdout}\n${result.stderr}`,
-    )
-  return result.stdout
+  return new Promise((resolve, reject) =>
+    execFile(
+      command,
+      args,
+      {
+        cwd,
+        encoding: "utf8",
+        env: {
+          ...process.env,
+          DATABASE_URL: databaseUrl,
+          DATABASE_APP_PASSWORD: appPassword,
+        },
+        timeout: 180_000,
+        maxBuffer: 16 * 1024 * 1024,
+      },
+      (error, stdout, stderr) =>
+        error
+          ? reject(
+              new Error(
+                `${command} ${args.join(" ")} in ${cwd} failed (${error.code ?? error.signal}):\n${stdout}\n${stderr}`,
+              ),
+            )
+          : resolve(stdout),
+    ),
+  )
 }
 
 async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
@@ -151,7 +165,7 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
  * Two read paths of main's code (the repository list of the org and its
  * connections), run from the main checkout as main runs: as the owner role.
  */
-function readWithMain(): unknown {
+async function readWithMain(): Promise<unknown> {
   const script = join(mainTree, "apps/backend", `.upgrade-read-${suffix}.mts`)
   writeFileSync(
     script,
@@ -167,7 +181,7 @@ process.exit(0)
 `,
   )
   try {
-    const out = run(
+    const out = await run(
       "pnpm",
       ["exec", "tsx", script],
       join(mainTree, "apps/backend"),
@@ -321,14 +335,14 @@ afterAll(async () => {
 
 it("upgrades a main database and its Workspace with no manual step, and main still reads the result", async () => {
   // 1. The database of main: main's own migrate command, then main's data.
-  run(
+  await run(
     "pnpm",
     ["exec", "drizzle-kit", "migrate"],
     join(mainTree, "apps/backend"),
     ownerUrl,
   )
   await owner(seedMainOrg)
-  const mainRead = readWithMain()
+  const mainRead = await readWithMain()
   expect(mainRead).toMatchObject({
     connections: [
       [GITHUB_CONNECTION, "github"],
@@ -345,9 +359,9 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   }))
 
   // 2. The one migrate entry point of this release, twice.
-  run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
+  await run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
   const first = await owner(snapshot)
-  run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
+  await run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
   expect(await owner(snapshot)).toEqual(first)
 
   const migrated = await owner(async (db) => ({
@@ -734,5 +748,5 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   phase("read with main after the upgrade")
   // 4. Rollback: the code of main reads the upgraded database as it read
   // the database of main.
-  expect(readWithMain()).toEqual(mainRead)
+  expect(await readWithMain()).toEqual(mainRead)
 })
