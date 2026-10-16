@@ -36,7 +36,15 @@ const urls = vi.hoisted(() => {
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
   const database = `ctxpipe_upgrade_from_main_${suffix}`
   const appPassword = process.env.DATABASE_APP_PASSWORD || "ctxpipe"
-  if (!serverUrl) return { serverUrl, suffix, database, appPassword, ownerUrl: "", appUrl: "" }
+  if (!serverUrl)
+    return {
+      serverUrl,
+      suffix,
+      database,
+      appPassword,
+      ownerUrl: "",
+      appUrl: "",
+    }
   const url = new URL(serverUrl)
   url.pathname = `/${database}`
   const ownerUrl = url.toString()
@@ -99,7 +107,12 @@ scope:
 let admin: pg.Client
 let mainTree = ""
 
-function run(command: string, args: string[], cwd: string, databaseUrl: string) {
+function run(
+  command: string,
+  args: string[],
+  cwd: string,
+  databaseUrl: string,
+) {
   const result = spawnSync(command, args, {
     cwd,
     encoding: "utf8",
@@ -124,6 +137,38 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
     return await fn(db)
   } finally {
     await db.end()
+  }
+}
+
+/**
+ * Two read paths of main's code (the repository list of the org and its
+ * connections), run from the main checkout as main runs: as the owner role.
+ */
+function readWithMain(): unknown {
+  const script = join(mainTree, "apps/backend", `.upgrade-read-${suffix}.mts`)
+  writeFileSync(
+    script,
+    `const { initDb, closeDb } = await import("./src/db/client.ts")
+const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
+const { listOrgConnections } = await import("./src/models/org-connections.ts")
+initDb(process.env.DATABASE_URL)
+const repositories = await listRepositoriesForOrg(${JSON.stringify(ORG.id)})
+const connections = await listOrgConnections(${JSON.stringify(ORG.id)})
+process.stdout.write("\\n" + JSON.stringify({ repositories: repositories.map((r) => [r.id, r.name, r.gitUrl, r.githubConnectionId]).sort(), connections: connections.map((c) => [c.id, c.type]).sort() }) + "\\n")
+await closeDb()
+process.exit(0)
+`,
+  )
+  try {
+    const out = run(
+      "pnpm",
+      ["exec", "tsx", script],
+      join(mainTree, "apps/backend"),
+      ownerUrl,
+    )
+    return JSON.parse(out.trim().split("\n").at(-1) ?? "null")
+  } finally {
+    rmSync(script, { force: true })
   }
 }
 
@@ -276,6 +321,13 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
     ownerUrl,
   )
   await owner(seedMainOrg)
+  const mainRead = readWithMain()
+  expect(mainRead).toMatchObject({
+    connections: [
+      [GITHUB_CONNECTION, "github"],
+      ["con_main_linear", "linear"],
+    ],
+  })
   const before = await owner(async (db) => ({
     objects: (await db.query(`SELECT id FROM objects ORDER BY id`)).rows,
     claims: (await db.query(`SELECT id FROM claims ORDER BY id`)).rows,
@@ -419,9 +471,10 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
       const row = (key: string) =>
         withOrgIdContext(ORG, () => getWorkspaceUpgradeRow(workspace.id, key))
       /** On a timeout, name each run and the steps of the run that did not end. */
-      const settle = async <T>(
-        handle: { workflowRun: { id: string }; result: () => Promise<T> },
-      ): Promise<T> => {
+      const settle = async <T>(handle: {
+        workflowRun: { id: string }
+        result: () => Promise<T>
+      }): Promise<T> => {
         try {
           return await handle.result()
         } catch (error) {
@@ -566,7 +619,13 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         )
         expect(
           f
-            .git("--git-dir", f.remote, "log", "--format=%s", `${f.sha}..${head}`)
+            .git(
+              "--git-dir",
+              f.remote,
+              "log",
+              "--format=%s",
+              `${f.sha}..${head}`,
+            )
             .split("\n"),
         ).toEqual([
           "ctx| upgrade: set the Workspace format to 3",
@@ -575,13 +634,25 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           "ctx| upgrade to format 1: Move the sources and keep the old knowledge",
         ])
         expect(
-          f.git("--git-dir", f.remote, "show", `${head}:${WORKSPACE_FORMAT_PATH}`),
+          f.git(
+            "--git-dir",
+            f.remote,
+            "show",
+            `${head}:${WORKSPACE_FORMAT_PATH}`,
+          ),
         ).toContain("format: 3")
         // ctx| never pushed to the default branch.
         expect(branchHead()).toBe(f.sha)
 
         // The pull request merges. Hydrate reads format 3.
-        f.git("--git-dir", f.remote, "update-ref", "refs/heads/main", head, f.sha)
+        f.git(
+          "--git-dir",
+          f.remote,
+          "update-ref",
+          "refs/heads/main",
+          head,
+          f.sha,
+        )
         const revision = await f.resolveRevision(true)
         expect(revision.sha).toBe(head)
         const hydrate = await f.runner.runWorkflow(workspaceHydrate.spec, {
@@ -616,9 +687,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
             .from(workspaceWriteJobs)
             .where(eq(workspaceWriteJobs.workspaceId, workspace.id)),
         )
-        expect(jobs.map((job) => job.kind)).toEqual(
-          jobs.map(() => "upgrade"),
-        )
+        expect(jobs.map((job) => job.kind)).toEqual(jobs.map(() => "upgrade"))
         expect(branchHead()).toBe(head)
 
         // The re-ingestion is now ready for the click of an admin.
@@ -645,34 +714,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
     },
   )
 
-  // 4. Rollback: the code of main reads the upgraded database.
-  const script = join(mainTree, "apps/backend", `.upgrade-read-${suffix}.mts`)
-  writeFileSync(
-    script,
-    `const { initDb, closeDb } = await import("./src/db/client.ts")
-const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
-const { listOrgConnections } = await import("./src/models/org-connections.ts")
-initDb(process.env.DATABASE_URL)
-const repositories = await listRepositoriesForOrg(${JSON.stringify(ORG.id)})
-const connections = await listOrgConnections(${JSON.stringify(ORG.id)})
-process.stdout.write("\\n" + JSON.stringify({ repositories: repositories.map((r) => r.id).sort(), connections: connections.map((c) => c.id).sort() }) + "\\n")
-await closeDb()
-process.exit(0)
-`,
-  )
-  try {
-    const out = run(
-      "pnpm",
-      ["exec", "tsx", script],
-      join(mainTree, "apps/backend"),
-      ownerUrl,
-    )
-    const read = JSON.parse(out.trim().split("\n").at(-1) ?? "{}")
-    expect(read.repositories).toEqual(
-      expect.arrayContaining(before.repositories.map((r) => r.id)),
-    )
-    expect(read.connections).toEqual(before.connections.map((c) => c.id))
-  } finally {
-    rmSync(script, { force: true })
-  }
+  // 4. Rollback: the code of main reads the upgraded database as it read
+  // the database of main.
+  expect(readWithMain()).toEqual(mainRead)
 })

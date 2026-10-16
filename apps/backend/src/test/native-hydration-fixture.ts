@@ -802,8 +802,8 @@ async function createNativeHydrationFixture(
     const workspaceUrl = adopt
       ? adopt.workspaceUrl
       : github
-      ? "https://github.com/fixture/hydration-contract.git"
-      : remote
+        ? "https://github.com/fixture/hydration-contract.git"
+        : remote
     if (github) {
       const gitConfig = join(directory, "fixture-git-config")
       git(
@@ -843,21 +843,21 @@ async function createNativeHydrationFixture(
     }
     if (!adopt)
       await withOrgDbContext(org.id, (db) =>
-      db.insert(workspaces).values({
-        id: workspaceId,
-        orgId: org.id,
-        slug: "knowledge",
-        displayName: org.name,
-        workspaceRepositoryUrl: workspaceUrl,
-        githubConnectionId: github ? connectionId : null,
-        desiredSha: missingTip ? null : sha,
-        desiredGeneration: 1,
-        desiredDefaultBranch: "main",
-        indexedSha: sha,
-        writeStatus: writeStatus ?? "unknown",
-        rootPath: options.rootPath ?? "",
-      }),
-    )
+        db.insert(workspaces).values({
+          id: workspaceId,
+          orgId: org.id,
+          slug: "knowledge",
+          displayName: org.name,
+          workspaceRepositoryUrl: workspaceUrl,
+          githubConnectionId: github ? connectionId : null,
+          desiredSha: missingTip ? null : sha,
+          desiredGeneration: 1,
+          desiredDefaultBranch: "main",
+          indexedSha: sha,
+          writeStatus: writeStatus ?? "unknown",
+          rootPath: options.rootPath ?? "",
+        }),
+      )
     const resolveRevision = async (refresh = false) => {
       const resolved = await withOrgIdContext(org, () =>
         resolveWorkspaceReadRevision({
