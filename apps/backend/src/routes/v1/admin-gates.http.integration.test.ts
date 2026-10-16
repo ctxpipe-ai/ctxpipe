@@ -16,11 +16,10 @@ import { registerV1Routes } from "./index.js"
 // registerV1Routes loads the conversation graph, which builds its model at
 // import time. The OpenWorkflow client reads its namespace on import: keep
 // these runs apart from other files.
-const namespaceId = vi.hoisted(() => {
+vi.hoisted(() => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   const id = `admin_gates_${Date.now()}_${Math.random().toString(36).slice(2)}`
   vi.stubEnv("OPENWORKFLOW_NAMESPACE_ID", id)
-  return id
 })
 
 describe("admin-gated connector routes (Postgres)", () => {
