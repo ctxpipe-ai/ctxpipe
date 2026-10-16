@@ -345,15 +345,6 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Drizzle migrations on PR Neon branch
-        working-directory: apps/backend
-        run: |
-          NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
-          pnpm exec tsx src/db/migrate-openworkflow.ts
-          pnpm exec tsx src/db/backfill-pagerduty-connection-directory-cli.ts
-        env:
-          DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
-
       - name: Resolve Neon ctxpipe_app URLs
         id: neon_app_role
         continue-on-error: true
@@ -366,7 +357,7 @@ jobs:
           api_key: ${{ secrets.NEON_API_KEY }}
           expires_at: ${{ steps.neon_expires.outputs.expires_at }}
 
-      - name: Provision ctxpipe_app on PR branch
+      - name: Migrate PR Neon branch and provision ctxpipe_app
         id: neon_app
         working-directory: apps/backend
         env:
@@ -375,6 +366,9 @@ jobs:
           APP_DB_URL_POOLED: ${{ steps.neon_app_role.outputs.db_url_pooled }}
           APP_PASSWORD: ${{ steps.neon_app_role.outputs.password }}
           APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
+          # The backfills read OpenWorkflow runs of the namespace that the
+          # preview services use, not the production runs on the copied branch.
+          OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
         run: |
           set -euo pipefail
           if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
@@ -387,7 +381,9 @@ jobs:
           fi
           echo "::add-mask::$PASSWORD"
           echo "::add-mask::$POOLED"
-          DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/provision-app-role-cli.ts
+          # The one migrate entry point (the same as production, Compose and
+          # CDK): app role, Drizzle, OpenWorkflow, every backfill, then grants.
+          NO_COLOR=1 CI=true DATABASE_URL="$OWNER_DB_URL" DATABASE_APP_PASSWORD="$PASSWORD" pnpm exec tsx src/db/migrate.ts
           echo "db_url_pooled=$POOLED" >> "$GITHUB_OUTPUT"
 
       - name: Update Railway service config via GraphQL and deploy once

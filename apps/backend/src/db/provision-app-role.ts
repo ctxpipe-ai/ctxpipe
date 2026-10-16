@@ -143,14 +143,30 @@ async function assertAppRoleSafe(
   }
 }
 
+/** Fix text for each deploy path when the app role is missing and has no password. */
+export function appRoleMissingMessage(roleName: string): string {
+  return [
+    `[migrate] The role ${roleName} does not exist and DATABASE_APP_PASSWORD is not set. Migrate stopped before it changed the database.`,
+    "Do one of these steps, then run migrate again:",
+    "- Docker Compose: set POSTGRES_PASSWORD in the root .env file. The migrate service sends it as DATABASE_APP_PASSWORD.",
+    "- AWS CDK: deploy the stack again. The migrate task reads DATABASE_APP_PASSWORD from the app database credentials secret.",
+    "- Hosted (Neon): run `terraform apply -target=module.ctxpipe.neon_role.app` before migrate.",
+    `- Other: set DATABASE_APP_PASSWORD to the password for ${roleName}. Migrate creates the role with it.`,
+  ].join("\n")
+}
+
 /**
- * Create `ctxpipe_app` (LOGIN, no BYPASSRLS) and grant DML on application
- * schemas. Runs as the table owner before and after drizzle migrate.
- * Password is quoted by Postgres `format(%L)`, never interpolated in JS.
+ * Make `ctxpipe_app` (LOGIN, no BYPASSRLS) ready and grant DML on the
+ * application schemas. Runs as the table owner before and after drizzle migrate.
+ * - With a password: create the role if it is missing, then set the password.
+ * - With no password and an existing role: grants only. Terraform owns the
+ *   password on hosted.
+ * - With no password and no role: throw `appRoleMissingMessage`.
+ * Postgres `format(%L)` quotes the password. JS never interpolates it.
  */
 export async function provisionAppRole(
   pool: Pool,
-  password: string,
+  password: string | undefined,
   roleName: string = APP_ROLE_NAME,
 ): Promise<void> {
   const role = quoteIdent(roleName)
@@ -161,13 +177,14 @@ export async function provisionAppRole(
       [roleName],
     )
     if ((existing.rowCount ?? 0) === 0) {
+      if (!password) throw new Error(appRoleMissingMessage(roleName))
       await client.query(
         `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
       )
     } else {
       await assertAppRoleSafe(client, roleName)
     }
-    await alterRolePassword(client, roleName, password)
+    if (password) await alterRolePassword(client, roleName, password)
     await assertAppRoleSafe(client, roleName)
 
     const databaseName = (

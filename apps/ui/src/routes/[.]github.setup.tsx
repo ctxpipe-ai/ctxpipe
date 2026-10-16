@@ -20,7 +20,7 @@ import {
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
 } from "@/lib/popup"
-import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
+import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -38,6 +38,7 @@ export const Route = createFileRoute("/.github/setup")({
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
     state: typeof search.state === "string" ? search.state : undefined,
+    error: typeof search.error === "string" ? search.error : undefined,
   }),
 })
 
@@ -45,6 +46,8 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
+  /** The error code of a failed GitHub account link. */
+  linkError?: string
 }
 
 function MissingInstallationIdView() {
@@ -53,7 +56,7 @@ function MissingInstallationIdView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -76,7 +79,7 @@ function MissingPreferredOrgView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -160,6 +163,7 @@ export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
+  linkError,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -199,7 +203,7 @@ export function ConnectGithubView({
 
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
-  const { data: authConfig } = useGetAuthConfig()
+  const githubSignIn = useGithubSignInEnabled()
 
   if (parsedErrorWhy === "github_not_linked") {
     return (
@@ -207,16 +211,13 @@ export function ConnectGithubView({
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <GithubNotLinkedNotice
-            githubSignInEnabled={
-              (
-                authConfig as { providers?: string[] } | undefined
-              )?.providers?.includes("github") ?? true
-            }
+            githubSignInEnabled={githubSignIn ?? true}
             orgSlug={selectedOrganizationSlug}
+            linkError={linkError}
           />
         </main>
       </AppShell>
@@ -228,7 +229,7 @@ export function ConnectGithubView({
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -336,7 +337,7 @@ function DirectSetupPage() {
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <section>
@@ -379,6 +380,7 @@ function DirectSetupPage() {
       installationId={search.installation_id}
       selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
+      linkError={search.error}
     />
   )
 }

@@ -1,11 +1,5 @@
 import { type QueryClient, useSuspenseQuery } from "@tanstack/react-query"
-import {
-  createFileRoute,
-  Link,
-  Outlet,
-  redirect,
-  useMatch,
-} from "@tanstack/react-router"
+import { createFileRoute, Link, Outlet, redirect } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { OrgGateError } from "@/features/org/OrgGateError"
 import { isWorkspaceConversationDocument } from "@/features/workspaces/ensure-route-data"
@@ -44,17 +38,11 @@ async function resolveOrgGate(
 
   const user = gate.session.user
   if (!user.onboardingCompletedAt) {
-    throw redirect({
-      to: "/onboarding",
-      search: { orgSlug: undefined },
-    })
+    throw redirect({ to: "/onboarding" })
   }
 
   if (gate.organizations.length === 0) {
-    throw redirect({
-      to: "/onboarding",
-      search: { orgSlug: undefined },
-    })
+    throw redirect({ to: "/onboarding" })
   }
 
   if (gate.orgAccessDenied) return gate
@@ -72,10 +60,6 @@ function OrgScopedLayout() {
   const { orgSlug } = Route.useParams()
   const { data: gate } = useSuspenseQuery(orgGateOptions(orgSlug))
   const { orgAccessDenied } = gate
-  const setupMatch = useMatch({
-    from: "/$orgSlug/setup",
-    shouldThrow: false,
-  })
   useHyperDxScreenError(orgAccessDenied ? "org_access_denied" : null)
 
   if (orgAccessDenied) {
@@ -110,8 +94,6 @@ function OrgScopedLayout() {
       </main>
     )
   }
-
-  if (setupMatch) return <Outlet />
 
   return (
     <AppShell>

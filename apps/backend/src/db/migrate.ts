@@ -1,65 +1,37 @@
-// TODO: move this to a Railway pre-deploy job so migrations only run once per
-// deploy rather than on every container startup. For now this is safe because
-// drizzle migrate() is idempotent — it tracks applied migrations and skips
-// ones already run.
-import { drizzle } from "drizzle-orm/node-postgres"
-import { migrate } from "drizzle-orm/node-postgres/migrator"
-import { Pool } from "pg"
-import { parseEnv } from "../config/env.js"
+// The one migrate entry point for hosted (deploy.yaml), Docker Compose, AWS CDK
+// and local dev (scripts/db-migrate.sh). Run it with the owner DATABASE_URL.
+// DATABASE_APP_PASSWORD is optional when ctxpipe_app exists already.
+import { config } from "dotenv"
 import { flushEvlog, initEvlog, log } from "../observability/logger.js"
-import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
-import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
-import { backfillMissingPagerdutyConnectionDirectory } from "./backfill-pagerduty-connection-directory.js"
-import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
-import { closeDb, initDb } from "./client.js"
-import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
-import { APP_ROLE_NAME, provisionAppRole } from "./provision-app-role.js"
+import { runMigrations } from "./run-migrations.js"
 
-initEvlog()
-
-const connectionString = process.env.DATABASE_URL ?? "[REDACTED]"
-const appRolePassword = process.env.DATABASE_APP_PASSWORD
-
-const pool = new Pool({ connectionString })
-const db = drizzle({ client: pool })
-
-if (appRolePassword) {
-  log.info({
-    step: "migrate",
-    message: "[migrate] provisioning app role before migrations",
-    role: APP_ROLE_NAME,
-  })
-  await provisionAppRole(pool, appRolePassword)
+config({ path: ".env.local", quiet: true })
+config({ path: ".env", quiet: true })
+try {
+  initEvlog()
+} catch {
+  // Hosted and CI migrate jobs give no app env (AUTH_SECRET). Logs then keep
+  // the evlog defaults, and errors still go to stderr.
 }
 
-log.info({ step: "migrate", message: "[migrate] running migrations…" })
-await migrate(db, { migrationsFolder: "./apps/backend/migrations" })
-await migrateOpenWorkflow(connectionString)
-await backfillKnowledgePathState(pool)
-await backfillRepositoryIngestionRequests(pool)
-
-let env: ReturnType<typeof parseEnv> | undefined
+let exitCode = 0
 try {
-  env = parseEnv(process.env as Record<string, string | undefined>)
+  const connectionString = process.env.DATABASE_URL
+  if (!connectionString) throw new Error("[migrate] DATABASE_URL is required")
+  await runMigrations({
+    connectionString,
+    appRolePassword: process.env.DATABASE_APP_PASSWORD || undefined,
+    env: process.env,
+  })
+  log.info({ step: "migrate", message: "[migrate] done" })
 } catch (error) {
-  log.info({
-    step: "migrate",
-    message: "github secrets backfill skipped (env not parseable)",
-    error: error instanceof Error ? error.message : String(error),
-  })
+  exitCode = 1
+  const message = error instanceof Error ? error.message : String(error)
+  log.error({ step: "migrate", message: "[migrate] failed", error: message })
+  // The stack starts with the message, which holds the fix text.
+  process.stderr.write(
+    `${error instanceof Error ? (error.stack ?? message) : message}\n`,
+  )
 }
-try {
-  initDb(connectionString)
-  await backfillMissingPagerdutyConnectionDirectory()
-  if (env) await backfillGithubAppSecretsFromEnv(env)
-} finally {
-  await closeDb()
-}
-
-if (appRolePassword) {
-  await provisionAppRole(pool, appRolePassword)
-}
-
-await pool.end()
-log.info({ step: "migrate", message: "[migrate] done" })
 await flushEvlog()
+process.exit(exitCode)
