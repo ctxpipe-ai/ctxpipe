@@ -389,25 +389,27 @@ async function waitForListener(
   host: string,
   port: number,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000
+  // The server prints its bound port once `listen` succeeds, so the log is the
+  // readiness signal. A probe that starts a new process in the container per
+  // try is slow on a loaded runner and says nothing about why it failed.
+  const readLogs = async () =>
+    (await container.logs({ stdout: true, stderr: true }))
+      .toString()
+      .replaceAll(/[^\x20-\x7e\n]/g, "")
+      .trim()
+  const deadline = Date.now() + 30_000
   while (true) {
-    try {
-      await runExec(container, [
-        "node",
-        "-e",
-        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(250);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",()=>process.exit(1));socket.once("timeout",()=>process.exit(1))`,
-      ])
-      return
-    } catch {
-      // Inspect below distinguishes startup delay from a failed server.
-    }
+    const logs = await readLogs()
+    if (logs.includes(`{"port":${port}}`)) return
     const info = await container.inspect()
     if (!info.State.Running)
       throw new Error(
-        `Native HTTPS Git fixture exited before readiness: ${(await container.logs({ stdout: true, stderr: true })).toString().trim()}`,
+        `Native HTTPS Git fixture exited (code ${info.State.ExitCode}) before it listened on ${host}:${port}; server logs: ${logs || "<empty>"}`,
       )
     if (Date.now() >= deadline)
-      throw new Error("Native HTTPS Git fixture did not become ready")
+      throw new Error(
+        `Native HTTPS Git fixture did not listen on ${host}:${port} within 30s; server logs: ${logs || "<empty>"}`,
+      )
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }
