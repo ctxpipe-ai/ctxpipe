@@ -32,6 +32,7 @@ import {
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
+  formatChangeNeedsScan,
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
   workspaceFormatCacheValue,
@@ -453,14 +454,15 @@ export const workspaceHydrate = defineWorkflow(
                   })
                 },
               )
+              const formatVersion = workspaceFormatCacheValue(
+                readWorkspaceFormat(formatFile),
+              )
               activated = await orgSql(() =>
                 commitHydrateProjection({
                   orgId: input.orgId,
                   revision,
                   displayName,
-                  formatVersion: workspaceFormatCacheValue(
-                    readWorkspaceFormat(formatFile),
-                  ),
+                  formatVersion,
                   skipped: parsed.skipped,
                   embeddingModel: embeddingModelId(),
                   units: applyEffectiveValidFromToUnits(
@@ -488,6 +490,20 @@ export const workspaceHydrate = defineWorkflow(
                   skipped: parsed.skipped.length,
                 }
               }
+              // A new format can complete an upgrade, and it can lift or
+              // set the format gate. The scan records the upgrade state, and
+              // its tip check resumes the write jobs that the gate held.
+              if (formatChangeNeedsScan(workspace.formatVersion, formatVersion))
+                await step.run({ name: "enqueue-upgrade-scan" }, async () => {
+                  // Import at the admission boundary, like the PR backfill above.
+                  const { enqueueWorkspaceUpgradeScan } = await import(
+                    "./workspace-upgrade-scan.js"
+                  )
+                  await enqueueWorkspaceUpgradeScan({
+                    orgId: input.orgId,
+                    trigger: `format:${workspace.id}:${revision.sha}`,
+                  })
+                })
             }
 
             if (activated && pending.postgres && planning.needed) {

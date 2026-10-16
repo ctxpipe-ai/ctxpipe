@@ -848,6 +848,24 @@ export async function closePullRequest(
   }
 }
 
+/** Replace the title and the body of an open pull request. */
+export async function updatePullRequestText(
+  input: BaseInput & { pullNumber: number; title: string; body: string },
+): Promise<void> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      title: input.title,
+      body: input.body,
+    }),
+  )
+}
+
 export type GithubPullRequestState = "open" | "closed" | "merged"
 
 export async function getPullRequestState(
