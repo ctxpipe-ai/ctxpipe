@@ -101,7 +101,11 @@ it.each([
           namespaceId: openWorkflowNamespaceId(),
         })
         try {
-          await f.publish()
+          // Not `f.publish()`: the format file is not a knowledge unit.
+          await f.worker.start()
+          await expect(
+            f.handle.result({ timeoutMs: 30_000 }),
+          ).resolves.toMatchObject({ hydrated: true, units: 1 })
           const names = (await backend.listWorkflowRuns({ limit: 100 })).data
             .filter(
               (run) =>
