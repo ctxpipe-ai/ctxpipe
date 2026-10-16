@@ -240,16 +240,16 @@ beforeAll(async () => {
     publishPipeline: () => committed.pipeline,
     throttle: { slotPoll: "1 second", runPoll: "1 second" },
   })
-  for (const workflow of [
-    shard,
-    parent,
-    extract,
-    ownership,
-    workspaceSemanticMerge,
-    scan,
-    reingest,
-  ])
-    runner.implementWorkflow(workflow.spec, workflow.fn as never)
+  runner.implementWorkflow(shard.spec, shard.fn)
+  runner.implementWorkflow(parent.spec, parent.fn)
+  runner.implementWorkflow(extract.spec, extract.fn)
+  runner.implementWorkflow(ownership.spec, ownership.fn)
+  runner.implementWorkflow(
+    workspaceSemanticMerge.spec,
+    workspaceSemanticMerge.fn,
+  )
+  runner.implementWorkflow(scan.spec, scan.fn)
+  runner.implementWorkflow(reingest.spec, reingest.fn)
   worker = runner.newWorker({ concurrency: 4 })
   await worker.start()
 }, 120_000)
