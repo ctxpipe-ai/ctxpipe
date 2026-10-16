@@ -1,6 +1,10 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import {
+  chooseUpgradeBranch,
+  listUpgradePullRequests,
+} from "../../domain/upgrades/branch.js"
+import {
   buildUpgradeCommits,
   upgradePullRequestText,
 } from "../../domain/upgrades/build-commits.js"
@@ -62,6 +66,7 @@ const builtSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("current"), format: z.number() }),
   z.object({
     kind: z.literal("pushed"),
+    branch: z.string(),
     revision: workspaceRevisionSchema,
     fromFormat: z.number(),
     headSha: z.string(),
@@ -126,12 +131,25 @@ async function buildAndPushUpgrade(input: {
     ctx: { orgId, workspaceId, baseSha: revision.sha },
     createdAt: input.createdAt,
   })
+  const repositoryName = githubRepoFullNameFromWorkspaceUrl(revision.remote.url)
+  const githubConnectionId = revision.remote.connectionId
+  let branch = upgradeBranch(input.targetFormat)
   try {
+    // A pull request of another person on the branch name keeps its branch:
+    // ctx| pushes to the next free suffixed name instead.
+    if (repositoryName && githubConnectionId)
+      branch = chooseUpgradeBranch(
+        await listUpgradePullRequests(
+          { orgId, env, repositoryName, githubConnectionId },
+          branch,
+        ),
+        branch,
+      )
     await pushUpgradeBranch({
       orgId,
       revision,
       committed: built.pack,
-      branch: upgradeBranch(input.targetFormat),
+      branch,
       env,
     })
   } catch (error) {
@@ -141,6 +159,7 @@ async function buildAndPushUpgrade(input: {
   }
   return {
     kind: "pushed",
+    branch,
     revision,
     fromFormat: read.format,
     headSha: built.pack.sha,
@@ -173,7 +192,7 @@ async function openOrUpdatePullRequest(input: {
     repositoryName,
     githubConnectionId: connectionId,
   }
-  const branch = upgradeBranch(input.targetFormat)
+  const branch = input.built.branch
   const text = upgradePullRequestText({
     fromFormat: input.built.fromFormat,
     targetFormat: input.targetFormat,
@@ -327,6 +346,7 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
               return finish(UPGRADE_STATUSES.pr_open, {
                 desiredSha: built.revision.sha,
                 upgrade: {
+                  branch: built.branch,
                   fromFormat: built.fromFormat,
                   prNumber: pull.prNumber,
                   prUrl: pull.prUrl,

@@ -11,6 +11,7 @@ import {
 import type { Workspace } from "@/features/workspaces/types"
 import { pollWhileOk } from "@/lib/api-result"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import { useOrgMemberRole } from "@/lib/org-member-role"
 import { isAdminRole, sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
 import {
@@ -56,13 +57,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
   const organizationId = organization?.id ?? ""
   const [guidePrefs, updateGuide, prefsLoaded] = useOrgGuide(orgSlug)
 
-  const roleQuery = useQuery({
-    queryKey: ["organization-member-role", orgSlug],
-    queryFn: () =>
-      authClient.organization.getActiveMemberRole({
-        query: { organizationSlug: orgSlug },
-        fetchOptions: { throw: true },
-      }),
+  const roleQuery = useOrgMemberRole(orgSlug, {
     enabled: user !== null,
     refetchOnMount: "always",
   })

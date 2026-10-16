@@ -160,17 +160,19 @@ export async function listMigrationExportJobWorkspaceIds(): Promise<
   Set<string>
 > {
   return orgSql(async () => {
+    const failed = sql`(${workspaceWriteJobs.status} = ${WRITE_JOB_STATUSES.failed})`
     const rows = await getOrgDb()
       .select({ workspaceId: workspaceWriteJobs.workspaceId })
       .from(workspaceWriteJobs)
       .innerJoin(workspaces, currentExportBinding())
-      .where(
-        and(
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          // A failed export blocks a new one for an hour after it started,
-          // so the tip check queues a failed export again at most once an hour.
-          sql`(${workspaceWriteJobs.status} <> ${WRITE_JOB_STATUSES.failed} or ${workspaceWriteJobs.createdAt} > now() - interval '1 hour')`,
-        ),
+      .where(eq(workspaceWriteJobs.kind, "migration_export"))
+      .groupBy(workspaceWriteJobs.workspaceId)
+      // A live or completed export blocks a new one. The newest failed export
+      // blocks a new one for 1 hour after the first failure, then 2, 4, 8
+      // and 16 hours, then 24 hours after each next failure. A new binding
+      // starts again at 1 hour.
+      .having(
+        sql`bool_or(not ${failed}) or max(${workspaceWriteJobs.createdAt}) filter (where ${failed}) > now() - least(power(2, count(*) filter (where ${failed}) - 1), 24) * interval '1 hour'`,
       )
     return new Set(rows.map((row) => row.workspaceId))
   })

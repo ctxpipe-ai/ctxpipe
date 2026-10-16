@@ -373,7 +373,11 @@ export const Full: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Expand Notion" })
-    const expanders = canvas.getAllByRole("button", { name: /^Expand / })
+    // The main navigation has an "Expand navigation" button when an earlier
+    // story left it collapsed. Count the connector cards only.
+    const expanders = canvas.getAllByRole("button", {
+      name: /^Expand (?!navigation)/,
+    })
     for (const expander of expanders) await userEvent.click(expander)
     // A connection has no scope of its own: each Workspace has one, and
     // "Used in" lists it (ADR-050). The card shows the account only.
