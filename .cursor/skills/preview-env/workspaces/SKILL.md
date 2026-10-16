@@ -6,10 +6,10 @@ disable-model-invocation: true
 
 # preview-env workspaces
 
-Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 1 exists from [ONB-5](../onboarding/SKILL.md). Flow format: [run-setup](../run-setup.md#flow-format). A Workspace has one workspace repository and zero or more linked repositories; a URL is the workspace repository of at most one Workspace per org.
+Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 1 exists from [ONB-4](../onboarding/SKILL.md). Flow format: [run-setup](../run-setup.md#flow-format). A Workspace has one workspace repository and zero or more linked repositories; a URL is the workspace repository of at most one Workspace per org.
 
 ### WS-1 Open and switch panes
-**Requires** ONB-5.
+**Requires** ONB-4.
 **Steps**
 1. Open `{BASE_URL}/{orgSlug}/ws/{workspace1Slug}`.
 2. Click **Files**, **Graph**, **Settings**; then close the pane.

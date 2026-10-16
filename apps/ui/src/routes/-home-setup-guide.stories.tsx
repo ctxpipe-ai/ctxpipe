@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http, type RequestHandler } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
@@ -14,10 +14,11 @@ import {
   authConfigHandler,
   githubInstallationLinkedHandler,
   githubInstallationNoneHandler,
-  organizationListWithOrgHandler,
+  organizationListHandler,
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
+  orgActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
   workspaceShellHandlers,
@@ -30,8 +31,11 @@ const DAY_MS = 24 * 60 * 60 * 1000
 const userId = "user_storybook"
 const authBase = "*/.auth/api/v1/auth"
 
-/** A signed-in user who finished onboarding `daysAgo` days ago. */
-function sessionDefaults(daysAgo: number) {
+/**
+ * A signed-in user who finished onboarding `daysAgo` days ago, in an
+ * organization created `orgDaysAgo` days ago.
+ */
+function sessionDefaults(daysAgo: number, orgDaysAgo = 365) {
   return [
     authConfigHandler,
     sessionSignedInHandler({
@@ -40,7 +44,14 @@ function sessionDefaults(daysAgo: number) {
         Date.now() - daysAgo * DAY_MS,
       ).toISOString(),
     }),
-    organizationListWithOrgHandler,
+    organizationListHandler([
+      {
+        id: "org_storybook",
+        name: "Storybook Org",
+        slug: "acme",
+        createdAt: new Date(Date.now() - orgDaysAgo * DAY_MS).toISOString(),
+      },
+    ]),
   ]
 }
 
@@ -179,14 +190,21 @@ async function findGuide(canvasElement: HTMLElement) {
   )
 }
 
-/** A new admin with no Workspace: the guide takes the composer's place. */
+/**
+ * A new admin with no Workspace: the guide takes the composer's place, and
+ * the activity of the organization shows below it, empty.
+ */
 export const GuideAdminNewOrg: Story = {
   tags: ["workspace-golden"],
   parameters: {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
-        page: [...adminGuide({}), workspaceListHandler([])],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
       },
     },
   },
@@ -198,6 +216,12 @@ export const GuideAdminNewOrg: Story = {
     expect(guide.getByRole("button", { name: "Connect GitHub" })).toBeVisible()
     const canvas = within(canvasElement)
     expect(canvas.queryByLabelText("Select workspace")).not.toBeInTheDocument()
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -525,5 +549,110 @@ export const GuideEstablishedUserHidden: Story = {
     expect(
       canvas.queryByRole("region", { name: "Get started" }),
     ).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * Onboarding finished long ago, but the organization is new: the guide shows
+ * for its first 14 days, also after the first Workspace.
+ */
+export const GuideEstablishedUserNewOrg: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30, 2),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+          }),
+          [quietWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+  },
+}
+
+/**
+ * An older organization with no Workspace is still at its start: the guide
+ * shows, with the empty activity below it.
+ */
+export const GuideEstablishedUserEmptyOrg: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30),
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+  },
+}
+
+const openPopup = fn()
+/**
+ * With GitHub sign-in on, Connect GitHub opens one popup that starts on the
+ * link page, with the App install (and the flow nonce) as `next`. The user
+ * does not come back to a second Connect GitHub.
+ */
+export const GuideConnectGithubOpensLinkPopup: Story = {
+  beforeEach: () => {
+    openPopup.mockClear()
+    const open = window.open
+    // A popup that stays open, so the page does not fall back to a redirect.
+    window.open = ((...args: Parameters<typeof window.open>) => {
+      openPopup(...args)
+      return { closed: false, focus: () => {} } as unknown as Window
+    }) as typeof window.open
+    return () => {
+      window.open = open
+    }
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          http.get("*/.auth/api/config", () =>
+            HttpResponse.json({ providers: ["github"] }),
+          ),
+          ...sessionDefaults(1).slice(1),
+        ],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    const connect = guide.getByRole("button", { name: "Connect GitHub" })
+    // A pending button ignores a press until the flow knows its config.
+    await waitFor(() => expect(connect).not.toHaveAttribute("data-pending"))
+    await userEvent.click(connect)
+    await waitFor(() => expect(openPopup).toHaveBeenCalledTimes(1))
+    const url = new URL(String(openPopup.mock.calls[0]?.[0]), "http://app.test")
+    await expect(url.pathname).toBe("/.github/link")
+    const next = new URL(url.searchParams.get("next") ?? "")
+    await expect(`${next.origin}${next.pathname}`).toBe(
+      "https://github.com/apps/ctxpipe-agent/installations/new",
+    )
+    await expect(next.searchParams.get("state")).toBeTruthy()
   },
 }
