@@ -101,6 +101,8 @@ const [ready, behind, capped] = [
 ]
 /** The USD that each model step of a Workspace reports. */
 const stepCostUsd = new Map<string, number>()
+/** The Workspaces whose model steps report no usage, as a runtime that cannot. */
+const noUsage = new Set<string>()
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: string[] = []
 
@@ -112,11 +114,15 @@ const server = setupServer(
     const costUsd = stepCostUsd.get(body.workspaceId)
     return HttpResponse.json({
       more: false,
-      usage: {
-        inputTokens: 1000,
-        outputTokens: 200,
-        ...(costUsd ? { costUsd } : {}),
-      },
+      ...(noUsage.has(body.workspaceId)
+        ? {}
+        : {
+            usage: {
+              inputTokens: 1000,
+              outputTokens: 200,
+              ...(costUsd ? { costUsd } : {}),
+            },
+          }),
       files: [
         {
           path: "knowledge/services/billing-api.md",
@@ -464,6 +470,8 @@ it(
     expect(modelCalls).toEqual([])
 
     expect(await start(behind)).toMatchObject({ kind: "blocked" })
+    // The runtime of this Workspace cannot report the model usage.
+    noUsage.add(ready)
     expect(await start(ready)).toMatchObject({ kind: "queued" })
     expect(await start(ready)).toMatchObject({ kind: "existing" })
 
@@ -473,7 +481,15 @@ it(
       upgrade: {
         approvedBy: "user_admin",
         repositories: [
-          expect.objectContaining({ repository: sourceName, status: "done" }),
+          expect.objectContaining({
+            repository: sourceName,
+            status: "done",
+            // The spend is unknown, not 0 with no note.
+            spendUnknown: true,
+            report: expect.arrayContaining([
+              expect.stringContaining("Spend unknown"),
+            ]),
+          }),
         ],
       },
     })

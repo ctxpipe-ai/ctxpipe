@@ -9,7 +9,7 @@ import {
 } from "../../domain/upgrades/registry.js"
 import {
   activeIngestionRunTree,
-  ingestionRunSpendUsd,
+  ingestionRunSpend,
   ingestionRunState,
   isReingestUpgradeKey,
   REINGEST_THROTTLE,
@@ -84,7 +84,7 @@ const repositoryInputSchema = z
 type RepositoryResult = Pick<
   ReingestRepositoryReport,
   "status" | "report" | "runId"
-> & { spendUsd: number; capped: boolean }
+> & { spendUsd: number; spendUnknown: boolean; capped: boolean }
 
 const runOutputSchema = z
   .object({
@@ -173,9 +173,17 @@ export function defineWorkspaceUpgradeReingestRepository(
           { name: `check:${poll}` },
           async (): Promise<RepositoryResult | null> => {
             const state = await ingestionRunState(runId)
-            const spendUsd = await ingestionRunSpendUsd(runId)
+            const spend = await ingestionRunSpend(runId)
+            const spendUsd = spend.usd
+            const spendUnknown = spend.unknown
             if (state.done)
-              return { ...runReport(state), runId, spendUsd, capped: false }
+              return {
+                ...runReport(state),
+                runId,
+                spendUsd,
+                spendUnknown,
+                capped: false,
+              }
             const capped = input.capUsd !== null && spendUsd > input.capUsd
             if (!capped && !last) return null
             await cancelIngestionRun(runId)
@@ -183,6 +191,7 @@ export function defineWorkspaceUpgradeReingestRepository(
               status: "failed",
               runId,
               spendUsd,
+              spendUnknown,
               capped,
               report: [
                 capped
@@ -223,7 +232,11 @@ const plannedSchema = z.union([
         sha: z.string().nullable(),
         /** Done at this commit by an earlier run of this upgrade. */
         done: z
-          .object({ runId: z.string().nullable(), spendUsd: z.number() })
+          .object({
+            runId: z.string().nullable(),
+            spendUsd: z.number(),
+            spendUnknown: z.boolean(),
+          })
           .nullable(),
       }),
     ),
@@ -273,7 +286,11 @@ async function planReingest(input: {
       sha,
       done:
         sha && before?.status === "done" && before.sha === sha
-          ? { runId: before.runId, spendUsd: before.spendUsd ?? 0 }
+          ? {
+              runId: before.runId,
+              spendUsd: before.spendUsd ?? 0,
+              spendUnknown: before.spendUnknown === true,
+            }
           : null,
     })
   }
@@ -386,7 +403,12 @@ export function defineWorkspaceUpgradeReingest(
                     : [
                         "ctx| cannot read the default branch of the repository.",
                       ],
-                ...(r.done ? { spendUsd: r.done.spendUsd } : {}),
+                ...(r.done
+                  ? {
+                      spendUsd: r.done.spendUsd,
+                      ...(r.done.spendUnknown ? { spendUnknown: true } : {}),
+                    }
+                  : {}),
               }))
             await record("record-plan", {
               to: UPGRADE_STATUSES.running,
@@ -467,6 +489,7 @@ export function defineWorkspaceUpgradeReingest(
                     status: "failed" as const,
                     runId: null,
                     spendUsd: 0,
+                    spendUnknown: false,
                     capped: false,
                     report: [
                       `The repository run failed: ${error instanceof Error ? error.message : String(error)}`,
@@ -480,8 +503,14 @@ export function defineWorkspaceUpgradeReingest(
               Object.assign(report, {
                 status: result.status,
                 runId: result.runId,
-                report: result.report,
+                report: result.spendUnknown
+                  ? [
+                      ...result.report,
+                      "Spend unknown: a model step reported no usage, so the spend and the cost cap count only the known part.",
+                    ]
+                  : result.report,
                 spendUsd: result.spendUsd,
+                ...(result.spendUnknown ? { spendUnknown: true } : {}),
               })
               await record(`record-run:${index}`, {
                 to: UPGRADE_STATUSES.running,

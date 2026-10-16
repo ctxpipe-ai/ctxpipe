@@ -86,6 +86,11 @@ export type IngestStepUsage = {
   outputTokens: number
   /** USD, when the gateway reports it. */
   costUsd?: number
+  /**
+   * The model steps that reported no usage. Their spend is unknown, so the
+   * spend and the cost cap count only the steps that reported usage.
+   */
+  unknownSteps?: number
 }
 
 export type IngestShardRuntime = {

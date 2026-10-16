@@ -231,4 +231,6 @@ export type ReingestRepositoryReport = {
   report: string[]
   /** The model spend in USD of the ingestion run, from the usage that its steps report. */
   spendUsd?: number
+  /** A model step of the run reported no usage: `spendUsd` is only the known part. */
+  spendUnknown?: boolean
 }

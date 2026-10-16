@@ -6,13 +6,20 @@ import {
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
 import {
+  ingestModelRunCommand,
+  parseOpenCodeUsage,
+} from "./ingest-opencode-usage.js"
+import {
   prepareIngestSandbox,
   sealIngestCheckout,
   startIngestStep,
   writeAsRoot,
 } from "./ingest-prepare.js"
 import { type RootExec, runAsRoot } from "./ingest-root.js"
-import type { IngestRuntimeStep } from "./ingest-shard-runtime.js"
+import type {
+  IngestRuntimeStep,
+  IngestStepUsage,
+} from "./ingest-shard-runtime.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_ROOT,
@@ -207,7 +214,8 @@ export function ingestStepPrompt(
  * the agent runs the skill, then `ctxpipe-finish` writes patch.json. A model
  * step is one `opencode run`. A script step runs
  * `<skill>/scripts/<skill>.mjs` with the same arguments that a model step
- * gives its scripts. `patch.json` holds `more` (ADR-052 section 6).
+ * gives its scripts. `patch.json` holds `more` (ADR-052 section 6). A model
+ * step returns the usage that OpenCode reports, when it reports usage.
  */
 export async function runIngestShardStep(
   root: RootExec,
@@ -226,7 +234,7 @@ export async function runIngestShardStep(
     /** `ctxpipe/<model>` for a model step. */
     model?: string
   },
-): Promise<void> {
+): Promise<{ usage?: IngestStepUsage }> {
   const { step } = input
   await startIngestStep(root, {
     workspaceId: step.workspaceId,
@@ -248,8 +256,12 @@ export async function runIngestShardStep(
   await writeAsRoot(root, ROOTS_FILE, JSON.stringify(step.rootMap))
   const command =
     step.run === "model"
-      ? `opencode run${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(ingestStepPrompt(step, input))}`
+      ? ingestModelRunCommand({
+          prompt: ingestStepPrompt(step, input),
+          ...(input.model ? { model: input.model } : {}),
+        })
       : `node ${INGEST_SKILLS_ROOT}/${step.skill}/scripts/${step.skill}.mjs ${ingestSkillArguments({ root: step.root, sourceUrl: input.sourceUrl, sourcePath: input.sourcePath })}`
+  let usage: IngestStepUsage | undefined
   for (const part of [command, "ctxpipe-finish"]) {
     const result = await root(ingestAgentCommand({ env, command: part }), {
       signal: step.signal,
@@ -258,7 +270,10 @@ export async function runIngestShardStep(
       throw new Error(
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
       )
+    if (part === command && step.run === "model")
+      usage = parseOpenCodeUsage(result.stdout)
   }
+  return usage ? { usage } : {}
 }
 
 /**

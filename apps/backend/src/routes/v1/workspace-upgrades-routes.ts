@@ -95,6 +95,10 @@ const WorkspaceUpgradeItemSchema = z
             description:
               "The model spend in USD of the ingestion run, from the usage that its steps report.",
           }),
+          spendUnknown: z.boolean().openapi({
+            description:
+              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part, and the cost cap counts only that part.",
+          }),
         }),
       )
       .openapi({
@@ -173,6 +177,7 @@ function serializeUpgrade(
     repositories: (upgrade.repositories ?? []).map((r) => ({
       ...r,
       spendUsd: r.spendUsd ?? null,
+      spendUnknown: r.spendUnknown === true,
     })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,

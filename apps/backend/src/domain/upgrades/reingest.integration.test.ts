@@ -53,9 +53,15 @@ afterAll(async () => {
 async function upgradeRun(orgId: string): Promise<string> {
   const handle = await runner.runWorkflow(upgradeSpec, { orgId })
   queued.push(handle.workflowRun.id)
-  // A later run gets a later created_at, so the queue order is the call order.
-  await new Promise((resolve) => setTimeout(resolve, 20))
   return handle.workflowRun.id
+}
+
+/** Set the `created_at` of a run. */
+async function startedAt(id: string, at: Date): Promise<void> {
+  await getSystemDb().execute(sql`
+    update openworkflow.workflow_runs set created_at = ${at.toISOString()}
+    where namespace_id = ${openWorkflowNamespaceId()} and id = ${id}
+  `)
 }
 
 describe("re-ingestion throttle", () => {
@@ -65,18 +71,31 @@ describe("re-ingestion throttle", () => {
       generateObjectId("org"),
       generateObjectId("org"),
     ]
-    const first = await upgradeRun(orgA)
-    const second = await upgradeRun(orgA)
-    const other = await upgradeRun(orgB)
-    const third = await upgradeRun(orgC)
+    const runs = {
+      a1: await upgradeRun(orgA),
+      a2: await upgradeRun(orgA),
+      other: await upgradeRun(orgB),
+      third: await upgradeRun(orgC),
+    }
+    // The two runs of org A start in the same millisecond: the run id
+    // orders them, so the same run gets the slot each time.
+    const at = Date.now()
+    await startedAt(runs.a1, new Date(at))
+    await startedAt(runs.a2, new Date(at))
+    await startedAt(runs.other, new Date(at + 1))
+    await startedAt(runs.third, new Date(at + 2))
+    const [first = "", second = ""] = [runs.a1, runs.a2].sort()
+    const [other, third] = [runs.other, runs.third]
     const turn = (orgId: string, upgradeRunId: string, runsPerInstance = 4) =>
       reingestSlotTurn({ orgId, upgradeRunId, runsPerInstance })
 
-    expect(await turn(orgA, first)).toEqual({ turn: true })
-    // The slot stays with the first run, also between its repositories.
-    expect(await turn(orgA, second)).toEqual({
-      wait: "A re-ingestion of another Workspace of this organization runs.",
-    })
+    for (let ask = 0; ask < 3; ask++) {
+      expect(await turn(orgA, first)).toEqual({ turn: true })
+      // The slot stays with the first run, also between its repositories.
+      expect(await turn(orgA, second)).toEqual({
+        wait: "A re-ingestion of another Workspace of this organization runs.",
+      })
+    }
     // Another org is not held by this org.
     expect(await turn(orgB, other)).toEqual({ turn: true })
     // Two heads are before the third org.

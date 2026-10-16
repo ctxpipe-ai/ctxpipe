@@ -617,7 +617,24 @@ async function attemptSkillStep(
         rootMap,
         signal: ingestStepSignal(),
       })
-      usage = addIngestUsage(usage, stepRun.usage)
+      // A runtime that cannot report the usage of a model step makes the
+      // spend unknown. The step counts as unknown, so that the spend does not
+      // look complete.
+      const stepUsage =
+        stepRun.usage ??
+        (ctx.skill.run === "model"
+          ? { inputTokens: 0, outputTokens: 0, unknownSteps: 1 }
+          : undefined)
+      if (stepUsage?.unknownSteps)
+        logIngestEvent("warn", "ingestion-v2.usage-unknown", {
+          ingestionRunId: run.runId,
+          ...(run.shard === undefined ? {} : { shard: run.shard }),
+          workspaceId: destination.workspaceId,
+          ingestStep: ctx.name,
+          reason:
+            "The model step reported no usage: the spend of the run is unknown, and the cost cap counts only the known spend",
+        })
+      usage = addIngestUsage(usage, stepUsage)
       const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
@@ -690,14 +707,17 @@ function addIngestUsage(
 ): IngestStepUsage | undefined {
   if (!next) return total
   if (!total) return next
-  const costUsd =
-    total.costUsd !== undefined && next.costUsd !== undefined
-      ? total.costUsd + next.costUsd
-      : undefined
+  // A part with no tokens (an unknown step) does not drop the known cost.
+  const cost = (u: IngestStepUsage) =>
+    u.costUsd ?? (u.inputTokens + u.outputTokens === 0 ? 0 : undefined)
+  const [a, b] = [cost(total), cost(next)]
+  const costUsd = a !== undefined && b !== undefined ? a + b : undefined
+  const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
   return {
     inputTokens: total.inputTokens + next.inputTokens,
     outputTokens: total.outputTokens + next.outputTokens,
     ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(unknownSteps ? { unknownSteps } : {}),
   }
 }
 

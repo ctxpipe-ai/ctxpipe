@@ -333,8 +333,10 @@ const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
  * first run of each org is the head of that org, and the first
  * `runsPerInstance` heads run. A run holds its slot until it ends, so one
  * Workspace of an org runs at a time, and its repositories run one after the
- * other. The answer comes only from the run rows, so two runs cannot both
- * take the same slot, and a run that ended frees its slot.
+ * other. Two runs that start in the same millisecond keep the id order, so
+ * the same run gets the slot at each ask. The answer comes only from the run
+ * rows, so two runs cannot both take the same slot, and a run that ended
+ * frees its slot.
  */
 export async function reingestSlotTurn(input: {
   orgId: string
@@ -398,9 +400,12 @@ function ingestionRunTree(runId: string) {
 
 /**
  * The model spend in USD of one ingestion v2 run so far: the usage that each
- * finished step of the run and of its child runs reports.
+ * finished step of the run and of its child runs reports. `unknown` is true
+ * when a model step reported no usage; then `usd` counts only the known part.
  */
-export async function ingestionRunSpendUsd(runId: string): Promise<number> {
+export async function ingestionRunSpend(
+  runId: string,
+): Promise<{ usd: number; unknown: boolean }> {
   const result = await getSystemDb().execute<{ usage: unknown }>(sql`
     ${ingestionRunTree(runId)}
     select attempt.output->'usage' as usage
@@ -410,16 +415,18 @@ export async function ingestionRunSpendUsd(runId: string): Promise<number> {
       and attempt.status = 'completed'
       and jsonb_typeof(attempt.output->'usage') = 'object'
   `)
-  let total = 0
+  let usd = 0
+  let unknown = false
   for (const { usage } of result.rows) {
     const value = usage as Partial<IngestStepUsage>
-    total += ingestUsageUsd({
+    usd += ingestUsageUsd({
       inputTokens: Number(value.inputTokens) || 0,
       outputTokens: Number(value.outputTokens) || 0,
       ...(typeof value.costUsd === "number" ? { costUsd: value.costUsd } : {}),
     })
+    if (Number(value.unknownSteps) > 0) unknown = true
   }
-  return total
+  return { usd, unknown }
 }
 
 /** The runs of an ingestion v2 run tree that have not ended, the run first. */
