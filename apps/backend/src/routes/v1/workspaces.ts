@@ -439,7 +439,7 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       env: c.var.env,
       log: c.get("log"),
     })
-    return c.json(serializeWorkspace(created, null), 201)
+    return c.json(serializeWorkspace(created), 201)
   })
   .openapi(getWorkspaceRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
