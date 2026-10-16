@@ -174,7 +174,8 @@ it.each(["captured", "legacy"] as const)(
   { timeout: 90_000 },
   async (capture) => {
     await withNativeHydrationFixture(
-      { github: true, writeStatus: "writable" },
+      // Format 3: hydrate plans the bootstrap write only there.
+      { github: true, writeStatus: "writable", format: 3 },
       async (f) => {
         await f.publish()
         const paused = await withOrgIdContext(f.org, () =>

@@ -138,7 +138,13 @@ it(
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "missing", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "missing",
+        writeStatus: "writable",
+        // Format 3: hydrate plans a write, so the cron checks write access.
+        format: 3,
+      },
       async (f) => {
         await f.publish()
         const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
