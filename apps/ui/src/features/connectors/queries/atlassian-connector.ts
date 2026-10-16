@@ -204,16 +204,9 @@ export async function searchGithubInstallationRepos(
   hasMore: boolean
   warning?: string
 }> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: {
-        q: string
-        per_page: string
-        connectionId?: string
-      }
-    }) => Promise<Response>
-  )({
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.github.installation.repositories.$get({
     param: { orgSlug },
     query: {
       q,
