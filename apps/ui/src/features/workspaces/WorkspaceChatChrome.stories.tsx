@@ -172,10 +172,12 @@ export const CommittedCreatePrOnly: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible(),
+    )
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
 }
 
@@ -202,6 +204,7 @@ export const CleanNoPublishActions: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await canvas.findByText("Repo layout")
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
@@ -442,10 +445,10 @@ export const BranchLabel: Story = {
     expect(text.scrollWidth).toBeGreaterThan(text.clientWidth)
     await userEvent.hover(label)
     await new Promise((resolve) => setTimeout(resolve, 400))
-    expect(
+    expect(  // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByRole("tooltip"),
     ).toBeNull()
-    expect(
+    expect(  // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByText(
         /ctxpipe\/chat\/conv_1/,
       ),
