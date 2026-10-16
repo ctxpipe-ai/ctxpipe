@@ -207,6 +207,38 @@ ${UPSTREAM}
 EOF
 exec node /tmp/upstream.cjs`,
     )
+    // The upstream seeds a Git repository before it listens. A call through the
+    // proxy before that gets 502 "bad gateway", so wait until both ports answer.
+    const upstreamDeadline = Date.now() + 60_000
+    for (;;) {
+      const ready = await docker(
+        "exec",
+        upstreamName,
+        "node",
+        "-e",
+        `const net=require("node:net");let n=0;for(const port of [8080,443]){const s=net.connect({port,host:"127.0.0.1"});s.once("connect",()=>{s.destroy();if(++n===2)process.exit(0)});s.once("error",()=>process.exit(1))}`,
+      )
+        .then(() => true)
+        .catch(() => false)
+      if (ready) break
+      const running = await docker(
+        "inspect",
+        "-f",
+        "{{.State.Running}}",
+        upstreamName,
+      ).catch(() => "false")
+      if (running !== "true" || Date.now() > upstreamDeadline)
+        throw new Error(
+          `Agent Vault test upstream ${running === "true" ? "did not listen within 60s" : "exited before it listened"}: ${await exec(
+            "docker",
+            ["logs", upstreamName],
+          ).then(
+            (r) => `${r.stdout}${r.stderr}`.trim(),
+            () => "<no logs>",
+          )}`,
+        )
+      await new Promise((resolve) => setTimeout(resolve, 250))
+    }
     const upstreamIp = await ipOn(upstreamName, network)
     await docker(
       "run",
