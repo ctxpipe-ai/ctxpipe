@@ -53,34 +53,55 @@ import {
 } from "./workspace-sources-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
-const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", githubInstallationRoutes)
+const githubInstallationAdminScopedGate = new OpenAPIHono<AppEnv>()
+githubInstallationAdminScopedGate.use("*", requireOrgAdminOrOwner)
+const githubInstallationAdminScoped = githubInstallationAdminScopedGate.route(
+  "/",
+  githubInstallationRoutes,
+)
 
-const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", atlassianConnectorRoutes)
+const atlassianConnectorScopedGate = new OpenAPIHono<AppEnv>()
+atlassianConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const atlassianConnectorScoped = atlassianConnectorScopedGate.route(
+  "/",
+  atlassianConnectorRoutes,
+)
 
-const slackConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", slackConnectorRoutes)
+const slackConnectorScopedGate = new OpenAPIHono<AppEnv>()
+slackConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const slackConnectorScoped = slackConnectorScopedGate.route(
+  "/",
+  slackConnectorRoutes,
+)
 
-const linearConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", linearConnectorRoutes)
+const linearConnectorScopedGate = new OpenAPIHono<AppEnv>()
+linearConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const linearConnectorScoped = linearConnectorScopedGate.route(
+  "/",
+  linearConnectorRoutes,
+)
 
-const notionConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", notionConnectorRoutes)
+const notionConnectorScopedGate = new OpenAPIHono<AppEnv>()
+notionConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const notionConnectorScoped = notionConnectorScopedGate.route(
+  "/",
+  notionConnectorRoutes,
+)
 
-const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", pagerdutyConnectorRoutes)
+const pagerdutyConnectorScopedGate = new OpenAPIHono<AppEnv>()
+pagerdutyConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const pagerdutyConnectorScoped = pagerdutyConnectorScopedGate.route(
+  "/",
+  pagerdutyConnectorRoutes,
+)
 
 // Only the sync path: this app mounts on "/connectors" beside other routes.
-const connectionSyncScoped = new OpenAPIHono<AppEnv>()
-  .use("/:connectionId/sync", requireOrgAdminOrOwner)
-  .route("/", connectionSyncRoutes)
+const connectionSyncScopedGate = new OpenAPIHono<AppEnv>()
+connectionSyncScopedGate.use("/:connectionId/sync", requireOrgAdminOrOwner)
+const connectionSyncScoped = connectionSyncScopedGate.route(
+  "/",
+  connectionSyncRoutes,
+)
 
 function createOrgScopedV1<BasePath extends string>(
   app: OpenAPIHono<AppEnv, Record<never, never>, BasePath>,

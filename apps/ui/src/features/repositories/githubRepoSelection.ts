@@ -143,12 +143,9 @@ export async function fetchGithubInstallationReposPage(
   manageUrl: string | null
   totalCount?: number
 }> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: { page: string; per_page: string; connectionId?: string }
-    }) => Promise<Response>
-  )({
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.github.installation.repositories.$get({
     param: { orgSlug },
     query: {
       page: String(page),
