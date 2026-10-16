@@ -16,8 +16,9 @@ import {
   workspaceRootPathSchema,
 } from "../../domain/workspaces/root-path.js"
 import {
-  formatBelow,
   INGESTION_V2_PUBLISH_FORMAT,
+  WORKSPACE_FORMAT_INVALID,
+  workspaceFormatAtLeast,
 } from "../../domain/workspaces/workspace-format.js"
 import {
   createWorkspaceLifecycle,
@@ -93,7 +94,7 @@ const WorkspaceSchema = z
     readOnlyReason: z.string().nullable(),
     upgradeNeeded: z.boolean().openapi({
       description:
-        "True when the Workspace format is below 3. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
+        "True when the Workspace format is below 3, or is not read yet. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
     }),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
@@ -218,7 +219,14 @@ function serializeWorkspace(
     hydrateError: row.hydrateError ?? null,
     migrationExportSha,
     readOnlyReason: row.readOnlyReason,
-    upgradeNeeded: formatBelow(row.formatVersion, INGESTION_V2_PUBLISH_FORMAT),
+    // A format that is not read yet (null) is not known, so the UI shows the
+    // upgrade. A format file that is not valid has its own read-only gate.
+    upgradeNeeded:
+      row.formatVersion !== WORKSPACE_FORMAT_INVALID &&
+      !workspaceFormatAtLeast(
+        row.formatVersion ?? null,
+        INGESTION_V2_PUBLISH_FORMAT,
+      ),
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
