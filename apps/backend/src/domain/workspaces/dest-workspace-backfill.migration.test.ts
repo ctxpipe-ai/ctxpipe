@@ -5,10 +5,7 @@ import { describe, expect, it } from "vitest"
 
 const backendRoot = join(dirname(fileURLToPath(import.meta.url)), "../../..")
 const migrationSql = readFileSync(
-  join(
-    backendRoot,
-    "migrations/20260820070625_purple_eddie_brock/migration.sql",
-  ),
+  join(backendRoot, "migrations/20261016064110_workspaces/migration.sql"),
   "utf8",
 )
 
@@ -21,7 +18,7 @@ describe("dest workspace SQL backfill", () => {
     expect(migrationSql).toContain("linear")
     expect(migrationSql).toContain("notion")
     expect(migrationSql).toContain("slack")
-    expect(migrationSql).toContain('DROP TABLE "org_workspace_cutover"')
+    expect(migrationSql).not.toContain("org_workspace_cutover")
     expect(migrationSql).not.toContain("workspace_linked_repositories")
   })
 

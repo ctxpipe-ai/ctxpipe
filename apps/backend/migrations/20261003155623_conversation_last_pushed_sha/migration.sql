@@ -1,1 +1,0 @@
-ALTER TABLE "conversations" ADD COLUMN "last_pushed_sha" text;

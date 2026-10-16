@@ -54,6 +54,7 @@ import {
   workspaceSlugParams,
 } from "./workspace-route-shared.js"
 import { workspaceSourcesRoutes } from "./workspace-sources-routes.js"
+import { workspaceUpgradeRoutes } from "./workspace-upgrades-routes.js"
 
 const WorkspaceSkippedFileSchema = z
   .object({
@@ -684,3 +685,4 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
   .route("/", workspaceGraphRoutes)
   .route("/", workspaceLinkedRoutes)
   .route("/", workspaceSourcesRoutes)
+  .route("/", workspaceUpgradeRoutes)

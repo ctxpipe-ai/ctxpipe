@@ -22,7 +22,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
-        props.sandboxHost.backendSecurityGroup,
+        ...(props.sandboxHost ? [props.sandboxHost.backendSecurityGroup] : []),
       ],
       cloudMapOptions: {
         name: "backend",
@@ -43,7 +43,7 @@ export class ServicesConstruct extends Construct {
       assignPublicIp: false,
       securityGroups: [
         props.networking.appSecurityGroup,
-        props.sandboxHost.workerSecurityGroup,
+        ...(props.sandboxHost ? [props.sandboxHost.workerSecurityGroup] : []),
       ],
       cloudMapOptions: {
         name: "worker",
@@ -98,8 +98,10 @@ export class ServicesConstruct extends Construct {
 
     // The host signals CloudFormation once its TLS secret and chat image exist;
     // tasks read that secret at start.
-    backendService.node.addDependency(props.sandboxHost.autoScalingGroup);
-    workerService.node.addDependency(props.sandboxHost.autoScalingGroup);
+    if (props.sandboxHost) {
+      backendService.node.addDependency(props.sandboxHost.autoScalingGroup);
+      workerService.node.addDependency(props.sandboxHost.autoScalingGroup);
+    }
 
     if (props.codesearchEfsMountDependency) {
       codesearchService.node.addDependency(props.codesearchEfsMountDependency);
