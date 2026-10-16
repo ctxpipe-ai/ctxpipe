@@ -14,6 +14,7 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { writeCheckInFlight } from "./projection"
@@ -25,6 +26,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
+import { StatusTag } from "./StatusTag"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
@@ -87,35 +89,6 @@ function hydrateTag(status: string): {
     className: "border-border bg-zinc-800 text-muted-foreground",
     pulse: true,
   }
-}
-
-function StatusTag({
-  label,
-  className,
-  pulse,
-}: {
-  label: string
-  className: string
-  pulse?: boolean
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs",
-        className,
-      )}
-    >
-      <span
-        className={
-          pulse
-            ? "size-1.5 shrink-0 animate-pulse rounded-full bg-current"
-            : "size-1.5 shrink-0 rounded-full bg-current"
-        }
-        aria-hidden
-      />
-      {label}
-    </span>
-  )
 }
 
 /** One settings group: a hairline, a mono eyebrow, then the content. */
@@ -536,6 +509,13 @@ export function WorkspaceSettingsPane(props: {
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
               workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Upgrades">
+            <WorkspaceUpgrades
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
             />
           </SettingsGroup>
 

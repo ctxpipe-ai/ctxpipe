@@ -1,7 +1,7 @@
 import { useMutation, useQuery } from "@tanstack/react-query"
 import type { SourceProvider } from "backend/domain/workspace-sources/sources-file"
 import { toast } from "sonner"
-import { authClient } from "@/lib/auth-client"
+import { useOrgMemberRole } from "@/lib/org-member-role"
 import { isAdminRole } from "@/lib/session-user"
 import { connectionUsageOptions, syncConnectionNow } from "./queries"
 
@@ -32,15 +32,7 @@ export function useConnectorSync(input: {
     ...connectionUsageOptions(orgSlug, connectionId),
     enabled: synced,
   })
-  const roleQuery = useQuery({
-    queryKey: ["organization-member-role", orgSlug],
-    queryFn: () =>
-      authClient.organization.getActiveMemberRole({
-        query: { organizationSlug: orgSlug },
-        fetchOptions: { throw: true },
-      }),
-    enabled: synced,
-  })
+  const roleQuery = useOrgMemberRole(orgSlug, { enabled: synced })
   const mutation = useMutation({
     mutationFn: () => syncConnectionNow(orgSlug, connectionId),
     onSuccess: () => toast.success("Sync started. Files update after it ends."),
