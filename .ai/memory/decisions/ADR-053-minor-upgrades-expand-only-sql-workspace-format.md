@@ -52,11 +52,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 
 - A fresh ingestion from the source repositories is an upgrade item like a git step. It is the standard way to bring knowledge to the current ingestion, not an optional extra.
 - It costs model money, so the operator sees an estimate before the start.
-- A knowledge export from the database keeps only the content that a fresh ingestion cannot rebuild. On main, only the code ingestion wrote knowledge to the database, from git repositories. No person or client could write it. Thus the export keeps exactly this content (CTX-743, upgrade step 1):
-  - **Kept:** the knowledge of an org repository that is not on GitHub. A source can link only a GitHub repository, so no fresh ingestion reads it again.
-  - **Rebuilt, not exported:** the knowledge of a GitHub repository (the step links it as a source, and the fresh ingestion makes it again); the knowledge of a Workspace repository and the connector nodes (hydrate makes them again from the files of the Workspace); and rows of a deleted repository, which is no longer a source.
-  - The upgrade pull request lists the kept content and counts the rest.
-- No code path writes the export directly to a default branch. It goes only into the upgrade pull request.
+- A knowledge export from the database keeps only the content that a fresh ingestion cannot rebuild, and it goes only into the upgrade pull request, never directly to a default branch.
 
 ### 6. Git holds the upgrade state
 
