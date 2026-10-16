@@ -98,7 +98,6 @@ describe("workspaceHydrateView", () => {
         activeProjectionSha: null,
         hydrateError:
           "Could not resolve the git tip for this workspace repository.",
-        migrationExportSha: null,
       }),
     ).toBe(false)
   })
@@ -153,7 +152,6 @@ describe("workspacePrepareNeedsPoll", () => {
         hydrateStatus: "failed",
         desiredSha: "aaa",
         activeProjectionSha: null,
-        migrationExportSha: null,
       }),
     ).toBe(false)
     expect(
@@ -166,18 +164,9 @@ describe("workspacePrepareNeedsPoll", () => {
     ).toBe(false)
     expect(
       workspacePrepareNeedsPoll({
-        hydrateStatus: "ready",
-        desiredSha: "aaa",
-        activeProjectionSha: "aaa",
-        migrationExportSha: "export",
-      }),
-    ).toBe(false)
-    expect(
-      workspacePrepareNeedsPoll({
         hydrateStatus: "failed",
         desiredSha: "bbb",
         activeProjectionSha: "aaa",
-        migrationExportSha: "export",
       }),
     ).toBe(false)
   })

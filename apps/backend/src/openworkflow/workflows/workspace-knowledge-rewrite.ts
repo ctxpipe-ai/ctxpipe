@@ -27,11 +27,11 @@ import {
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
   discardWriteJobPreparedCommit,
-  getMigrationExportSha,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
+  getBindingWorkspaceFormat,
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
@@ -77,8 +77,8 @@ type KnowledgeFile = { path: string; content: string }
 export function defineKnowledgeRewriteWorkflow(options: {
   name: string
   kind: "import_key_cleanup" | "ownership_migration"
-  /** Refuse the write unless the binding has a completed migration export. */
-  requireMigrationExport?: boolean
+  /** Refuse the write below Workspace format 1 (the main data is not exported yet). */
+  requireExportedFormat?: boolean
   /**
    * The rewrite is an ingestion v2 publish (the ownership migration). The
    * step that pushes compares the job, the queued, and the committed
@@ -128,21 +128,16 @@ export function defineKnowledgeRewriteWorkflow(options: {
             publishPipeline: input.publishPipeline,
           }),
         )
-        if (options.requireMigrationExport)
+        if (options.requireExportedFormat)
           await step.run(
             {
-              name: "require-migration-cutover",
+              name: "require-exported-format",
               retryPolicy: { maximumAttempts: 1 },
             },
             async () => {
-              if (
-                !(await getMigrationExportSha(
-                  input.workspaceId,
-                  input.revision,
-                ))
-              )
+              if ((await getBindingWorkspaceFormat(input.revision)) < 1)
                 throw new Error(
-                  "This write requires a completed migration export for this workspace binding",
+                  "This write requires Workspace format 1 or newer for this workspace binding",
                 )
             },
           )

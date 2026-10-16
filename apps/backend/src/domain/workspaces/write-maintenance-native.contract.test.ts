@@ -64,17 +64,7 @@ it(
         const runner = new OpenWorkflow({ backend })
         let worker: ReturnType<typeof runner.newWorker> | undefined
         const jobId = `wjob_${f.id}_cleanup`
-        await withOrgIdContext(f.org, async () => {
-          const { persistBoundWriteJob, persistMigrationExportNoOp } =
-            await import("../../models/workspace-write-jobs.js")
-          const id = `${jobId}_export`
-          await persistBoundWriteJob({
-            id,
-            kind: "migration_export",
-            revision: { ...f.revision, access: "write-default" },
-          })
-          await persistMigrationExportNoOp(id, f.sha)
-        })
+        await f.cacheFormat(1)
         try {
           expect(
             await withOrgIdContext(f.org, () =>

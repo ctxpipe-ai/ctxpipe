@@ -1,15 +1,5 @@
 import { isDeepStrictEqual } from "node:util"
-import {
-  and,
-  asc,
-  eq,
-  inArray,
-  isNotNull,
-  lt,
-  ne,
-  type SQL,
-  sql,
-} from "drizzle-orm"
+import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import {
@@ -29,10 +19,7 @@ import {
   type WorkspaceWriteJobPayload,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
-import type {
-  WorkspaceWriteJobKind,
-  WorkspaceWriteKind,
-} from "../domain/workspaces/write-jobs.js"
+import type { WorkspaceWriteJobKind } from "../domain/workspaces/write-jobs.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
@@ -160,124 +147,6 @@ export async function persistWriteJobCommitSha(
       )
       .returning()
     if (row) await projectCompletedKnowledgePaths(row)
-  })
-}
-
-const migrationExportTip = sql<
-  string | null
->`coalesce(${workspaceWriteJobs.payload}->>'exportTipSha', ${workspaceWriteJobs.commitSha})`
-
-/** A completed empty export still has a cutover revision, but created no commit. */
-export async function persistMigrationExportNoOp(
-  jobId: string,
-  sha: string,
-  unpublishedCommitSha?: string,
-): Promise<void> {
-  await orgSql(async () => {
-    const [row] = await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        commitSha: null,
-        payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{exportTipSha}', to_jsonb(${sha}::text))`,
-        status: WRITE_JOB_STATUSES.completed,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-          sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${unpublishedCommitSha ?? null})`,
-        ),
-      )
-      .returning()
-    if (!row) {
-      const [existing] = await getOrgDb()
-        .select()
-        .from(workspaceWriteJobs)
-        .where(eq(workspaceWriteJobs.id, jobId))
-        .limit(1)
-      if (
-        existing?.kind === "migration_export" &&
-        existing.status === WRITE_JOB_STATUSES.completed &&
-        existing.commitSha === null &&
-        existing.payload?.exportTipSha === sha
-      )
-        return
-      throw new Error(
-        "Migration export is unavailable or already has a candidate commit",
-      )
-    }
-    await projectCompletedKnowledgePaths(row)
-  })
-}
-
-/** Cutover belongs to a binding, and remains valid as that binding's tip advances. */
-function currentExportBinding() {
-  return and(
-    eq(workspaceWriteJobs.workspaceId, workspaces.id),
-    eq(workspaceWriteJobs.generation, workspaces.desiredGeneration),
-    sql`${workspaceWriteJobs.payload}->'revision'->'remote'->>'url' = ${workspaces.workspaceRepositoryUrl}`,
-    sql`(${workspaceWriteJobs.payload}->'revision'->'remote'->>'connectionId') is not distinct from ${workspaces.githubConnectionId}`,
-    sql`${workspaceWriteJobs.payload}->'revision'->>'defaultBranch' = ${workspaces.desiredDefaultBranch}`,
-  )
-}
-
-export async function listMigrationExportShas(): Promise<Map<string, string>> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({
-        workspaceId: workspaceWriteJobs.workspaceId,
-        commitSha: migrationExportTip,
-      })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(
-        and(
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(migrationExportTip),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-        ),
-      )
-      .orderBy(asc(workspaceWriteJobs.createdAt))
-    const shas = new Map<string, string>()
-    for (const row of rows) {
-      if (row.commitSha && !shas.has(row.workspaceId)) {
-        shas.set(row.workspaceId, row.commitSha)
-      }
-    }
-    return shas
-  })
-}
-
-export async function getMigrationExportSha(
-  workspaceId: string,
-  revision?: WorkspaceRevision,
-): Promise<string | null> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select({ commitSha: migrationExportTip })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, workspaceId),
-          revision
-            ? and(
-                eq(workspaces.desiredGeneration, revision.generation),
-                eq(workspaces.workspaceRepositoryUrl, revision.remote.url),
-                sql`${workspaces.githubConnectionId} is not distinct from ${revision.remote.connectionId}`,
-                eq(workspaces.desiredDefaultBranch, revision.defaultBranch),
-              )
-            : undefined,
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(migrationExportTip),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-        ),
-      )
-      .orderBy(asc(workspaceWriteJobs.createdAt))
-      .limit(1)
-    return row?.commitSha ?? null
   })
 }
 
@@ -564,7 +433,7 @@ export async function reconcileStaleWriteJobs(
 /** Immutable command admission and atomic ownership by one native workflow run. */
 export async function persistBoundWriteJob(input: {
   id: string
-  kind: WorkspaceWriteKind
+  kind: WorkspaceWriteJobKind
   revision: WorkspaceRevision
   files?: GitFileChange[]
   deletePaths?: string[]

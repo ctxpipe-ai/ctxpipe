@@ -231,7 +231,6 @@ export const workspaceWriteJobs = pgTable.withRLS(
       planning?: WorkspaceWritePlanning
       workflowRunId?: string
       semanticHandoff?: WorkspaceSemanticHandoff
-      exportTipSha?: string
       knowledgePaths?: Record<string, string>
       previousSha?: string
       extraction?: WorkspaceExtraction

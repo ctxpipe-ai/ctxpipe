@@ -14,7 +14,7 @@ import {
 } from "./extraction.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteJobKind, WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -51,7 +51,6 @@ export type WorkspaceWriteJobPayload = {
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
   semanticHandoff?: WorkspaceSemanticHandoff
-  exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string
   mirror?: ConnectorMirrorSource
@@ -199,7 +198,7 @@ export function shouldResumePausedWriteJob(input: {
 }
 
 /** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
-const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
+const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteJobKind> = new Set([
   "extract_ingest",
   "ownership_migration",
   "unlink_retraction",
