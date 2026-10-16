@@ -33,8 +33,8 @@ App processes use the app-role `DATABASE_URL`. The migrate container runs:
 bun run apps/backend/src/db/migrate.ts
 ```
 
-The AWS CDK migrate task and the hosted deploy run the same command. It does
-these steps in this order: it makes the `ctxpipe_app` role ready, applies the
+The AWS CDK migrate task and the hosted deploy run the same script,
+`migrate.ts`. It does these steps in this order: it makes the `ctxpipe_app` role ready, applies the
 Drizzle and OpenWorkflow migrations, runs every data backfill, and then grants
 `ctxpipe_app` access to the tables.
 
