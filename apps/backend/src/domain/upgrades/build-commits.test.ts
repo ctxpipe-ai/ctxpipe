@@ -18,6 +18,10 @@ import {
 } from "./registry.js"
 
 const directories: string[] = []
+const REMOTE = {
+  url: "https://github.com/fixture/upgrade.git",
+  connectionId: "con_test",
+}
 afterEach(() => {
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true })
@@ -127,7 +131,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt,
     })
     expect(built.steps.map((step) => [step.format, step.sha !== null])).toEqual(
@@ -161,7 +170,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt,
     })
     expect(again.pack.sha).toBe(built.pack.sha)
@@ -176,6 +190,7 @@ describe("buildUpgradeCommits", () => {
         orgId: "org_test",
         workspaceId: "ws_test",
         baseSha: built.pack.sha,
+        remote: REMOTE,
       },
       createdAt,
     })
@@ -200,7 +215,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 2,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt: "2026-10-16T00:00:00.000Z",
     })
     expect(built.steps.map((step) => step.format)).toEqual([3])
@@ -221,7 +241,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt: "2026-10-16T00:00:00.000Z",
     })
     const commits = await readCommits(built.pack)
@@ -254,7 +279,12 @@ describe("buildUpgradeCommits", () => {
         ],
         fromFormat: 0,
         targetFormat: 1,
-        ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+        ctx: {
+          orgId: "org_test",
+          workspaceId: "ws_test",
+          baseSha: base.sha,
+          remote: REMOTE,
+        },
         createdAt: "2026-10-16T00:00:00.000Z",
       }),
     ).rejects.toThrow(/must not change/)
@@ -281,26 +311,10 @@ describe("the upgrade registry", () => {
 })
 
 describe("the production registry", () => {
-  it("is contiguous, and a second plan of each step on its own output changes nothing", async () => {
-    const target = upgradeTargetFormat(GIT_UPGRADE_STEPS)
-    const base = await fixturePack({ "README.md": "# Readme\n" })
-    const ctx = { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha }
-    const built = await buildUpgradeCommits({
-      pack: base,
-      steps: GIT_UPGRADE_STEPS,
-      fromFormat: 0,
-      targetFormat: target,
-      ctx,
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
-    const rerun = await buildUpgradeCommits({
-      pack: built.pack,
-      steps: GIT_UPGRADE_STEPS,
-      fromFormat: 0,
-      targetFormat: target,
-      ctx: { ...ctx, baseSha: built.pack.sha },
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
-    expect(rerun.steps.filter((step) => step.sha !== null)).toEqual([])
+  // The contract test of step 1 (export-and-sources-native) proves on a
+  // real database that a second plan of each step changes nothing.
+  it("is contiguous from format 1", () => {
+    expect(GIT_UPGRADE_STEPS.map((step) => step.format)).toEqual([1])
+    expect(upgradeTargetFormat(GIT_UPGRADE_STEPS)).toBe(1)
   })
 })

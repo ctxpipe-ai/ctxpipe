@@ -41,7 +41,6 @@ import {
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
-import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
 import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
@@ -201,12 +200,9 @@ export async function enqueueWriteJob(
   const snapshotWriteWorkflows: Partial<
     Record<
       EnqueueWriteJobInput["kind"],
-      | typeof workspaceClaimsUpgrade
-      | typeof workspaceMigrationExport
-      | typeof workspaceOwnershipMigration
+      typeof workspaceClaimsUpgrade | typeof workspaceOwnershipMigration
     >
   > = {
-    migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,

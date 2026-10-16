@@ -1,7 +1,6 @@
 import { HttpResponse, http } from "msw"
 import { beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -12,7 +11,6 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import type { SourceChange } from "./edit.js"
-import { runSourceMigration } from "./migration.js"
 import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
 import {
   addWorkspaceSources,
@@ -591,77 +589,6 @@ for (const change of ["edit", "remove"] as const)
       )
     },
   )
-
-it(
-  "opens the source migration pull request from a new branch into the default branch",
-  { timeout: 60_000 },
-  async () => {
-    const pullRequests: unknown[] = []
-    await withNativeHydrationFixture(
-      {
-        github: true,
-        githubWriteView: "writable",
-        writeStatus: "writable",
-        onGithubPullRequest: (body) => {
-          pullRequests.push(body)
-        },
-      },
-      async (f) => {
-        const linear = await addLinearConnection(f)
-        f.server.use(
-          http.get(
-            "https://api.github.com/repos/fixture/hydration-contract/pulls",
-            () => HttpResponse.json([]),
-          ),
-          http.all(
-            "https://api.github.com/repos/fixture/hydration-contract/git/*",
-            ({ request, params }) => {
-              const path = String(params[0])
-              if (request.method === "GET" && path.startsWith("trees/"))
-                return HttpResponse.json({ tree: [], truncated: false })
-              if (request.method === "GET")
-                return HttpResponse.json({
-                  object: { sha: "a".repeat(40) },
-                  tree: { sha: "b".repeat(40) },
-                })
-              return HttpResponse.json({ sha: "e".repeat(40) })
-            },
-          ),
-        )
-
-        const report = await withOrgIdContext(f.org, () =>
-          runSourceMigration({
-            orgId: f.org.id,
-            env: parseEnv(process.env),
-            apply: true,
-            hooks: {
-              linear: {
-                provider: "linear",
-                listLegacyBindings: async () => [
-                  {
-                    provider: "linear",
-                    connectionId: linear,
-                    syncRepositoryUrl:
-                      "https://github.com/fixture/hydration-contract.git",
-                    scope: { teams: ["ENG"] },
-                  },
-                ],
-              },
-            },
-          }),
-        )
-
-        expect(report.failures).toEqual([])
-        expect(pullRequests).toEqual([
-          expect.objectContaining({
-            head: expect.stringMatching(/^ctxpipe\/sources\/migrate-/),
-            base: "main",
-          }),
-        ])
-      },
-    )
-  },
-)
 
 it(
   "offers remove only for a row whose source file a remove can name",

@@ -329,7 +329,7 @@ it.each(["knowledge/services/billing.md", "knowledge/imported/billing.md"])(
   },
 )
 
-it.each(["migration_export", "extract_ingest"] as const)(
+it.each(["extract_ingest"] as const)(
   "durably queues an unwritable %s command to its typed workflow",
   { timeout: 30_000 },
   async (kind) => {
@@ -383,10 +383,7 @@ it.each(["migration_export", "extract_ingest"] as const)(
           )
           expect(owners).toHaveLength(1)
           expect(owners[0]).toMatchObject({
-            workflowName:
-              kind === "migration_export"
-                ? "workspace-write-migration-export"
-                : "workspace-write-extract-ingest",
+            workflowName: "workspace-write-extract-ingest",
             input: { jobId, revision: { sha: f.sha, access: "write-default" } },
           })
         } finally {
@@ -702,11 +699,9 @@ it(
       const { eq } = await import("drizzle-orm")
       const { withOrgDbContext } = await import("../../db/client.js")
       const { workspaces } = await import("../../db/schema/workspaces.js")
-      const {
-        getMigrationExportSha,
-        listMigrationExportShas,
-        listMigrationExportJobWorkspaceIds,
-      } = await import("../../models/workspace-write-jobs.js")
+      const { getMigrationExportSha, listMigrationExportShas } = await import(
+        "../../models/workspace-write-jobs.js"
+      )
       const { loadExtractionPathIdentity } = await import(
         "../../models/workspace-export.js"
       )
@@ -727,9 +722,6 @@ it(
         )
         expect(await getMigrationExportSha(f.workspaceId)).toBeNull()
         expect((await listMigrationExportShas()).has(f.workspaceId)).toBe(false)
-        expect(
-          (await listMigrationExportJobWorkspaceIds()).has(f.workspaceId),
-        ).toBe(false)
         expect(
           await loadExtractionPathIdentity({
             ...f.revision,

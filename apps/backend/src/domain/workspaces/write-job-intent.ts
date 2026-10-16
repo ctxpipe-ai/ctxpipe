@@ -14,7 +14,7 @@ import {
 } from "./extraction.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind, WorkspaceWriteKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -81,7 +81,6 @@ const writeJobBaseSchema = z.object({
 })
 
 const writeJobKindSchema = z.enum([
-  "migration_export",
   "extract_ingest",
   "connector_mirror",
   "claims_upgrade",
@@ -205,7 +204,7 @@ export function enqueueInputFromPausedJob(input: {
   workspaceId: string
   job: {
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     payload: WorkspaceWriteJobPayload | null

@@ -19,7 +19,10 @@ import {
   type WorkspaceWriteJobPayload,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
-import type { WorkspaceWriteKind } from "../domain/workspaces/write-jobs.js"
+import type {
+  WorkspaceWriteJobKind,
+  WorkspaceWriteKind,
+} from "../domain/workspaces/write-jobs.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
@@ -75,7 +78,7 @@ export async function persistWriteJobStatus(
 export async function listPausedWriteJobs(workspaceId: string): Promise<
   Array<{
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     status: string
@@ -97,11 +100,15 @@ export async function listPausedWriteJobs(workspaceId: string): Promise<
         and(
           eq(workspaceWriteJobs.workspaceId, workspaceId),
           eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.paused),
+          // A paused direct export from before upgrade step 1 never
+          // resumes: the export goes only through the upgrade pull request
+          // (ADR-053).
+          ne(workspaceWriteJobs.kind, "migration_export"),
         ),
       )
     return rows.map((row) => ({
       ...row,
-      kind: row.kind as WorkspaceWriteKind,
+      kind: row.kind as WorkspaceWriteJobKind,
     }))
   })
 }
@@ -143,19 +150,6 @@ export async function persistWriteJobCommitSha(
       )
       .returning()
     if (row) await projectCompletedKnowledgePaths(row)
-  })
-}
-
-export async function listMigrationExportJobWorkspaceIds(): Promise<
-  Set<string>
-> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({ workspaceId: workspaceWriteJobs.workspaceId })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(eq(workspaceWriteJobs.kind, "migration_export"))
-    return new Set(rows.map((row) => row.workspaceId))
   })
 }
 

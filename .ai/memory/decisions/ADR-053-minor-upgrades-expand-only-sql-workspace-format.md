@@ -57,7 +57,7 @@ The design is the Linear document [PR 280 minor upgrade and workspace migrations
   | Format | Layout |
   | --- | --- |
   | 0 | No file: a main-era repository or a foreign repository |
-  | 1 | Knowledge from Postgres that fresh ingestion cannot rebuild is exported. Connection scopes and org repositories are sources. `repositories/*.md` is removed |
+  | 1 | Knowledge from Postgres that fresh ingestion cannot rebuild (the knowledge of org repositories that are not on GitHub, section 5) is exported. Connection scopes and org repositories are sources. `repositories/*.md` of GitHub repositories is removed |
   | 2 | One Markdown file for each source under `sources/` ([ADR-050](ADR-050-workspace-sources-config-file.md), revision 2026-10-16) |
   | 3 | Ingestion v2 ownership front matter ([ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) section 3) |
 
@@ -73,7 +73,8 @@ The design is the Linear document [PR 280 minor upgrade and workspace migrations
 - `domain/upgrades/registry.ts` holds the upgrades in code:
   - A **git upgrade step** has a `format` N and a pure `plan(tree)` that returns writes, deletes and a report. It runs only when the file reads N-1, and its commit sets `format: N`. The steps are contiguous from 1 to `CODE_FORMAT`. A test proves that the steps are contiguous and that a second `plan` on its own output changes nothing.
   - A **re-ingestion upgrade** has a key, a minimum format (3), a `needed` rule and an estimate.
-- Step 1 holds the knowledge export and the source migration. Step 2 is the conversion to `sources/*.md`. Step 3 is the ownership migration of ingestion v2. `migrateWorkspaceSources.ts` and the `migration_export` write kind become thin wrappers, then go away.
+- Step 1 holds the knowledge export and the source migration. Step 2 is the conversion to `sources/*.md`. Step 3 is the ownership migration of ingestion v2.
+- Step 1 replaces the `migration_export` write kind (CTX-743). No code path queues that kind: not the tip check, not the Workspace create flow, and not "Retry". The tip check does not resume an old paused row of that kind. The workflow name `workspace-write-migration-export` stays one minor release as a retired stub, so a run that an older build queued ends with no write. `migrateWorkspaceSources.ts` is a thin wrapper: without `--apply` it prints the source plan, and with `--apply` it starts the Workspace upgrade, as the "Open upgrade PR" button does.
 - All pending git steps of a Workspace go into one pull request on the branch `ctxpipe/upgrade/format-<target>`, with one commit for each step. Each step reads the tree that the step before it made. A step with no change makes no commit; a final commit writes the format file. A merge lands the files and the format together, so they cannot disagree.
 - Git upgrades never push to the default branch. The upgrade workflow force-updates only its own upgrade branch.
 
@@ -86,7 +87,16 @@ The design is the Linear document [PR 280 minor upgrade and workspace migrations
 - Throttle: at most 2 repositories of one org run at a time for upgrade runs (a committed constant). This is inside the ADR-052 limit of 40 ingest sandboxes for each org. A cost cap stops a run before a step that goes above 2 times the p90 estimate. The job is then `failed: budget`, and the operator can resume it.
 - Without a sandbox runtime, the item is `blocked: sandbox_unavailable`.
 - **An org with no Workspace (G2).** When an org has GitHub data but no Workspace after the upgrade (an MCP-first org with no connector sync repository), it is a new user. It goes through the normal onboarding and creates its Workspace there. Its repositories get a fresh ingestion from onboarding, so the upgrade does not export its old Postgres knowledge, and the upgrade flow adds no step for it.
-- The Postgres knowledge export of step 1 keeps only the content that fresh ingestion cannot rebuild, for example knowledge that a person wrote or knowledge that only a connector gave. The builder of [CTX-743](https://linear.app/ctxpipe/issue/CTX-743) names that content exactly and records it in this ADR.
+- **The content that step 1 exports from Postgres (CTX-743).** On main, only the code ingestion wrote the knowledge tables (`objects`, `claims`, `claim_evidence`). It read git repositories: the org repositories, and the connector sync repository with its connector mirror files. No person, chat or MCP client could write knowledge on main, so there is no human-written knowledge in Postgres. Step 1 sorts each old object by the repository in its deduplication key (`legacyKnowledgeOrigin` in `domain/upgrades/steps/export-and-sources.ts`):
+
+  | Origin of the object | Step 1 | What makes it again |
+  | --- | --- | --- |
+  | An org repository that is not on GitHub (for example GitLab, Bitbucket or a self-hosted git URL) | **Exports it** to `knowledge/` of the first Workspace, with its claims to other exported objects and an `import_key` | Nothing. A source links only GitHub repositories, and fresh ingestion reads only GitHub sources |
+  | An org repository on GitHub | Does not export it. Step 1 links the repository as a GitHub source | The re-ingestion upgrade (fresh ingestion v2) |
+  | The repository of a Workspace (for example the old connector sync repository) | Does not export it | Hydrate reads the files of the Workspace directly: the connector mirror files and the knowledge files |
+  | No org repository: connector nodes (Linear issues and teams, Slack threads, pull requests), and rows of a deleted repository | Does not export it | Hydrate makes the connector nodes again from the mirror files. A deleted repository is not a source any more |
+
+  The upgrade pull request lists the kept items for each repository and the count of each other origin. A plan that runs again on its own output changes nothing: the `import_key` finds each exported file. When a person's file is at the path that the export prefers, the export takes a new file name and does not merge, so the plan calls no model.
 
 ### 6. Jobs and workflows
 

@@ -2,10 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
-import {
-  HYDRATE_SKIP_REASONS,
-  shouldHydrateBeforeMigrationExport,
-} from "../../domain/workspaces/hydrate.js"
+import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
   type DerivedStoreResult,
   type ProjectionState,
@@ -36,7 +33,6 @@ import {
 } from "../../models/workspaces.js"
 import { enqueueWorkspaceHydrate } from "../../openworkflow/enqueue-workspace-hydrate.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
-import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceActivityRoutes } from "./workspace-activity-routes.js"
 import { workspaceFilesRoutes } from "./workspace-files-routes.js"
 import { workspaceGraphRoutes } from "./workspace-graph-routes.js"
@@ -634,16 +630,6 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       { orgId: retried.orgId, workspaceId: retried.id },
       c.get("log"),
     )
-    if (shouldHydrateBeforeMigrationExport(exportSha)) {
-      void enqueueWorkspaceWriteCommit(
-        {
-          orgId: retried.orgId,
-          workspaceId: retried.id,
-          kind: "migration_export",
-        },
-        c.get("log"),
-      )
-    }
     return c.json(serializeWorkspace(retried, exportSha), 200)
   })
   .openapi(checkWriteAccessWorkspaceRoute, async (c) => {

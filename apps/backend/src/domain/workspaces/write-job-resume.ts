@@ -3,11 +3,11 @@ import {
   shouldResumePausedWriteJob,
   type WorkspaceWriteJobPayload,
 } from "./write-job-intent.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 export type PausedWriteJobRow = {
   id: string
-  kind: WorkspaceWriteKind
+  kind: WorkspaceWriteJobKind
   generation: number
   desiredSha: string | null
   status: string

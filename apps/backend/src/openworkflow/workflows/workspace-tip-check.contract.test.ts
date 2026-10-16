@@ -21,7 +21,7 @@ import { openWorkflowNamespaceId } from "../namespace.js"
 import { workspaceTipCheck } from "./workspace-tip-check.js"
 
 it(
-  "cron queues a missing migration export through real OpenWorkflow outside SQL",
+  "cron queues no knowledge export for a writable Workspace that has none (ADR-053: only the upgrade pull request writes it)",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -48,18 +48,8 @@ it(
                 f.workspaceId &&
               run.workflowName === "workspace-write-migration-export",
           )
-          expect(queued).toEqual([
-            expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
-              input: expect.objectContaining({
-                workspaceId: f.workspaceId,
-                revision: expect.objectContaining({
-                  sha: f.sha,
-                  access: "write-default",
-                }),
-              }),
-            }),
-          ])
+          expect(queued).toEqual([])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }
@@ -69,7 +59,7 @@ it(
 )
 
 it(
-  "cron resumes a paused write job through the native workflow queue",
+  "cron resumes a paused write job through the native workflow queue, but never a direct knowledge export",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -77,17 +67,20 @@ it(
       async (f) => {
         await f.publish()
         const jobId = `wjob_${f.id}`
+        const exportJobId = `wjob_${f.id}_export`
         await withOrgDbContext(f.org.id, (db) =>
-          db.insert(workspaceWriteJobs).values({
-            id: jobId,
-            orgId: f.org.id,
-            workspaceId: f.workspaceId,
-            kind: "migration_export",
-            generation: 1,
-            desiredSha: f.sha,
-            status: "paused",
-            payload: { jobWorkspaceUrl: f.workspaceUrl },
-          }),
+          db.insert(workspaceWriteJobs).values(
+            (["claims_upgrade", "migration_export"] as const).map((kind) => ({
+              id: kind === "claims_upgrade" ? jobId : exportJobId,
+              orgId: f.org.id,
+              workspaceId: f.workspaceId,
+              kind,
+              generation: 1,
+              desiredSha: f.sha,
+              status: "paused",
+              payload: { jobWorkspaceUrl: f.workspaceUrl },
+            })),
+          ),
         )
         const handle = await f.runner.runWorkflow(workspaceTipCheck.spec, {
           orgId: f.org.id,
@@ -98,14 +91,14 @@ it(
           runMigrations: false,
         })
         try {
-          const queued = (
-            await backend.listWorkflowRuns({ limit: 100 })
-          ).data.filter(
-            (run) => (run.input as { jobId?: string })?.jobId === jobId,
-          )
-          expect(queued).toEqual([
+          const runs = (await backend.listWorkflowRuns({ limit: 100 })).data
+          expect(
+            runs.filter(
+              (run) => (run.input as { jobId?: string })?.jobId === jobId,
+            ),
+          ).toEqual([
             expect.objectContaining({
-              workflowName: "workspace-write-migration-export",
+              workflowName: "workspace-write-claims-upgrade",
               input: expect.objectContaining({
                 jobId,
                 revision: expect.objectContaining({
@@ -115,6 +108,22 @@ it(
               }),
             }),
           ])
+          // The export goes only through the upgrade pull request
+          // (ADR-053): the tip check neither resumes an old paused export
+          // nor queues a new one.
+          expect(
+            runs.filter(
+              (run) => run.workflowName === "workspace-write-migration-export",
+            ),
+          ).toEqual([])
+          const exportRow = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ status: workspaceWriteJobs.status })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.id, exportJobId)),
+          )
+          expect(exportRow).toEqual([{ status: "paused" }])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await backend.stop()
         }

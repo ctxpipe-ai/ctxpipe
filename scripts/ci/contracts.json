@@ -8,7 +8,6 @@
     "src/domain/workspaces/write-unlink-retraction-native.contract.test.ts",
     "src/domain/workspaces/write-ops-native.contract.test.ts",
     "src/domain/workspaces/commit-subject.contract.test.ts",
-    "src/domain/workspaces/write-export-native.contract.test.ts",
     "src/domain/workspaces/write-rename-native.contract.test.ts",
     "src/domain/workspaces/write-extract-native.contract.test.ts",
     "src/domain/workspaces/write-mirror-native.contract.test.ts",

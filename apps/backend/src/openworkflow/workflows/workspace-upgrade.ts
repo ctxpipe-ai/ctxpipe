@@ -123,7 +123,15 @@ async function buildAndPushUpgrade(input: {
     steps: input.steps,
     fromFormat: read.format,
     targetFormat: input.targetFormat,
-    ctx: { orgId, workspaceId, baseSha: revision.sha },
+    ctx: {
+      orgId,
+      workspaceId,
+      baseSha: revision.sha,
+      remote: {
+        url: revision.remote.url,
+        connectionId: revision.remote.connectionId ?? null,
+      },
+    },
     createdAt: input.createdAt,
   })
   try {

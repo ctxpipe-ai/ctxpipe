@@ -1,4 +1,5 @@
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
+import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
 /**
  * The upgrades of a Workspace repository, in code (ADR-053 section 4).
@@ -15,8 +16,12 @@ import { CODE_FORMAT } from "../workspaces/workspace-format.js"
 export type UpgradeTreeReader = {
   /** Every file path of the tree, sorted. */
   paths(): readonly string[]
+  /** The blob SHA of a file, or null when the tree has no such file. */
+  blobSha(path: string): string | null
   /** The UTF-8 text of a file, or null when the tree has no such file. */
   read(path: string): Promise<string | null>
+  /** The bytes of a file, or null when the tree has no such file. */
+  readBytes(path: string): Promise<Buffer | null>
 }
 
 export type UpgradeStepContext = {
@@ -24,11 +29,14 @@ export type UpgradeStepContext = {
   workspaceId: string
   /** The commit of the default branch that the pull request starts from. */
   baseSha: string
+  /** The Workspace repository and its GitHub connection. */
+  remote: { url: string; connectionId: string | null }
 }
 
 /** The change that one step makes. Paths are relative to the Workspace root folder. */
 export type UpgradeStepPlan = {
-  writes: Array<{ path: string; content: string }>
+  /** A binary file has `encoding: "base64"`; other content is UTF-8 text. */
+  writes: Array<{ path: string; content: string; encoding?: "base64" }>
   deletes: string[]
   /** Lines for the pull request body, for example an entry that the step could not move. */
   report: string[]
@@ -51,12 +59,15 @@ export type GitUpgradeStep = {
 }
 
 /**
- * The registered git upgrade steps. CTX-743 adds step 1 (export and
- * sources); CTX-744 adds steps 2 and 3. Until a step is registered, the scan
- * offers no upgrade to its format, so no pull request can claim a format
- * whose layout change did not run.
+ * The registered git upgrade steps. Step 1 exports the knowledge that fresh
+ * ingestion cannot make again and moves the sources into
+ * `.ctxpipe/sources.yaml` (CTX-743); CTX-744 adds steps 2 and 3. Until a
+ * step is registered, the scan offers no upgrade to its format, so no pull
+ * request can claim a format whose layout change did not run.
  */
-export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = []
+export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = [
+  exportAndSourcesStep(),
+]
 
 /** The prefix of every upgrade branch. Only the upgrade workflow pushes to it. */
 export const UPGRADE_BRANCH_PREFIX = "ctxpipe/upgrade/"
