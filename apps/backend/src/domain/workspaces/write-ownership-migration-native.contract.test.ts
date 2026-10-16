@@ -11,6 +11,8 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { fileOwnership } from "../ingestion/patch-validator.js"
 
+const BILLING_SOURCE = "sources/github/acme/billing.md"
+
 const humanSection =
   "<!-- ctxpipe:human -->\nA note that a human wrote.\n<!-- /ctxpipe:human -->\n"
 
@@ -33,6 +35,12 @@ const files = [
   {
     path: "knowledge/notes.md",
     body: "# Notes\n\nA human file with no front matter.\n",
+  },
+  {
+    // The source file of the repository: its path goes into `sources`
+    // (ADR-050 revision 2026-10-16). The fixture puts in the connection id.
+    path: BILLING_SOURCE,
+    body: '---\nprovider: github\nconnection: "{{connectionId}}"\nrepository: acme/billing\n---\n',
   },
 ]
 
@@ -134,23 +142,18 @@ it(
             kind: "Service",
             name: "Billing",
             generated_by: "ctxpipe-extract",
-            sources: ["https://github.com/acme/billing"],
+            sources: [BILLING_SOURCE],
           })
           expect(
             billing.endsWith(
               `---\n\n# Billing\n\nExtracted text.\n\n${humanSection}`,
             ),
           ).toBe(true)
+          expect(fileOwnership(billing, BILLING_SOURCE)).toBe("sole")
           expect(
-            fileOwnership(billing, "https://github.com/acme/billing"),
+            fileOwnership(show("knowledge/libraries/zod.md"), BILLING_SOURCE),
           ).toBe("sole")
-          expect(
-            fileOwnership(
-              show("knowledge/libraries/zod.md"),
-              "https://github.com/acme/billing",
-            ),
-          ).toBe("sole")
-          for (const file of files.slice(2))
+          for (const file of files.slice(2, 4))
             expect(show(file.path)).toBe(file.body)
         } finally {
           await worker?.stop()
@@ -311,7 +314,7 @@ it(
                 "show",
                 "refs/heads/main:knowledge/services/billing.md",
               ),
-              "https://github.com/acme/billing",
+              BILLING_SOURCE,
             ),
           ).toBe("sole")
 

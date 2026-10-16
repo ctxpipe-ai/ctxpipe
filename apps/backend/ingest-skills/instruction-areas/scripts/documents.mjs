@@ -156,7 +156,12 @@ function main() {
     if (argv[i] === "--source") source = argv[i + 1]
     else if (argv[i] === "--roots") rootsFile = argv[i + 1]
     // The other host inputs (ADR-052 section 6); the list needs neither.
-    else if (argv[i] === "--source-url" || argv[i] === "--root") continue
+    else if (
+      argv[i] === "--source-url" ||
+      argv[i] === "--source-path" ||
+      argv[i] === "--root"
+    )
+      continue
     else {
       process.stderr.write(`Unknown argument ${argv[i]}\n`)
       process.exit(1)
@@ -164,7 +169,7 @@ function main() {
   }
   if (!source || !rootsFile) {
     process.stderr.write(
-      "Usage: documents.mjs --source <checkout> --source-url <url> --roots <file>\n",
+      "Usage: documents.mjs --source <checkout> --source-url <url> --source-path <path> --roots <file>\n",
     )
     process.exit(1)
   }

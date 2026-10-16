@@ -6,7 +6,7 @@
 // with the shared writer (new files, and additive updates of existing ones).
 //
 // node write-apis.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> --path <root path> \
+//   --source-url <url> --source-path <path> --roots <root-to-file map> --path <root path> \
 //   --plan /ctxpipe/home/apis-plan.json
 //
 // Plan: { "root": "apps/api", "service": "knowledge/services/api.md" | null,
@@ -18,7 +18,6 @@ import { existsSync, readFileSync, statSync } from "node:fs"
 import {
   findExisting,
   relativeTo,
-  repositoryName,
   stepArgs,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
@@ -51,7 +50,7 @@ const API_NAME = /^[A-Za-z0-9][A-Za-z0-9 ._()-]{0,79}$/
 const METHOD_SET = new Set(HTTP_METHODS)
 
 const args = stepArgs()
-const { root, source, rootsFile, repository } = args
+const { root, source, rootsFile, repository, sourcePath } = args
 const planFile = args.value("--plan") ?? fail("Give --plan <plan file>")
 const rootPath = args.rootPath ?? fail("Give --path <root path>")
 
@@ -112,9 +111,7 @@ if (plan.service !== undefined && plan.service !== null) {
       "The service is not a file of kind Service in the context index",
     )
   else if (
-    !(entry.sources ?? []).some(
-      (url) => repositoryName(url)?.toLowerCase() === repository.toLowerCase(),
-    )
+    !(entry.sources ?? []).some((path) => String(path).trim() === sourcePath)
   )
     skip(plan.service, "The service file does not list this source")
   else service = plan.service

@@ -8,7 +8,7 @@
 // again with --kind and --evidence.
 //
 // node classify-kind.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> --path <root path> \
+//   --source-url <url> --source-path <path> --roots <root-to-file map> --path <root path> \
 //   [--kind <kind> --evidence <file>]
 //
 // The repository unit (knowledge/codebases/, kind Repository) is in the
@@ -39,7 +39,7 @@ const FOLDERS = { App: "apps", Library: "libraries", Service: "services" }
 const LABELS = { App: "an app", Library: "a library", Service: "a service" }
 
 const args = stepArgs()
-const { root, source, sourceUrl, repository, value } = args
+const { root, source, sourcePath, repository, value } = args
 const rootPath = args.rootPath ?? fail("Give --path <root path>")
 const chosen = value("--kind")
 const chosenEvidence = value("--evidence")
@@ -145,18 +145,11 @@ if (!name)
 const index = existsSync(step.indexFile)
   ? (JSON.parse(readFileSync(step.indexFile, "utf8")).entries ?? [])
   : []
-const sameUrl = (url) =>
-  String(url)
-    .toLowerCase()
-    .replace(/\.git$/, "")
-    .replace(/\/+$/, "") ===
-  sourceUrl
-    .toLowerCase()
-    .replace(/\.git$/, "")
-    .replace(/\/+$/, "")
+// `sources` holds source file paths (ADR-050 revision 2026-10-16).
+const ownSource = (value) => String(value).trim() === sourcePath
 const ofSource = (entry) =>
   entry.owned === true ||
-  (Array.isArray(entry.sources) && entry.sources.some(sameUrl))
+  (Array.isArray(entry.sources) && entry.sources.some(ownSource))
 const keys = new Set([nameKey(name), nameKey(folderName)].filter(Boolean))
 
 // A file that already describes this package: same name, a root kind, and
@@ -217,7 +210,7 @@ function ownFile(candidate) {
   const listed = [...yaml.matchAll(/^\s*-\s+["']?([^"'\s]+)["']?\s*$/gm)].map(
     (m) => m[1],
   )
-  return nameKey(fileName) === nameKey(name) && listed.some(sameUrl)
+  return nameKey(fileName) === nameKey(name) && listed.some(ownSource)
 }
 
 const codebase = index

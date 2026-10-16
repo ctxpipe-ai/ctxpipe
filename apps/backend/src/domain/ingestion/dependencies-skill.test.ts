@@ -22,6 +22,8 @@ import { INGEST_SKILLS_DIR } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const GIT_ENV = {
   ...process.env,
@@ -90,7 +92,7 @@ const OWN_FILE = front(
     kind: "Service",
     name: "Shop API",
     generated_by: "ctxpipe-extract",
-    sources: [SOURCE_URL],
+    sources: [SOURCE_PATH],
   },
   "# Shop API\n\nThe shop API.\n",
 )
@@ -122,7 +124,7 @@ async function step(
       workspaceId: WORKSPACE_ID,
       contextDir,
       base,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
     })
   await index(baseCommit)
   writeFileSync(
@@ -153,6 +155,8 @@ async function step(
         sourceDir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
         ...args,
@@ -184,6 +188,7 @@ async function step(
       baseCommit: base,
       stagedDir: join(root, "out"),
       source: { url: SOURCE_URL, sha: sourceSha },
+      sourcePath: SOURCE_PATH,
       skill: "dependencies",
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
@@ -511,6 +516,8 @@ describe("dependencies scan", { timeout: 60_000 }, () => {
           s.sourceDir,
           "--source-url",
           SOURCE_URL,
+          "--source-path",
+          SOURCE_PATH,
           "--roots",
           join(s.root, "roots.json"),
           "--path",

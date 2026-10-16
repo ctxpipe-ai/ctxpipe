@@ -181,7 +181,8 @@ export function defineWorkspaceExtractIngestWorkflow(
               { name: "transform-extract-ingest" },
               async () => {
                 if (input.ingest) {
-                  const { source, sourceSha, ...ingest } = input.ingest
+                  const { source, sourcePath, sourceSha, ...ingest } =
+                    input.ingest
                   // Its own copy of the source tree, for the validator.
                   const holder = `publish:${input.workspaceId}`
                   const sourceTree = () =>
@@ -208,6 +209,7 @@ export function defineWorkspaceExtractIngestWorkflow(
                           semanticMerge: {
                             resolve: resolveIngestConflicts,
                             source: { url: source.url, sha: sourceSha },
+                            sourcePath,
                             sourcePathExists: (path) =>
                               sourceTree().exists(path),
                             readSourceFile: (path) => sourceTree().read(path),

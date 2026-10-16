@@ -60,6 +60,8 @@ export type WorkspaceWriteJobPayload = {
   publishPipeline?: IngestionPublishPipeline
   /** The source repository that an `unlink_retraction` job retracts. */
   retractRepositoryUrl?: string
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
+  retractSourcePath?: string
   /** Why the job failed, when it failed for a known reason. */
   failureReason?: string
   defaultBranch?: string
@@ -109,6 +111,7 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   /** Empty: the enqueue reads the committed switch. */
   publishPipeline: ingestionPublishPipelineSchema.optional(),
   retractRepositoryUrl: z.string().min(1).optional(),
+  retractSourcePath: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -127,6 +130,7 @@ export type WriteJobEnqueueFields = Pick<
   | "defaultBranch"
   | "publishPipeline"
   | "retractRepositoryUrl"
+  | "retractSourcePath"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -145,6 +149,8 @@ export function writeJobIntentPayload(
   if (input.publishPipeline) payload.publishPipeline = input.publishPipeline
   if (input.retractRepositoryUrl)
     payload.retractRepositoryUrl = input.retractRepositoryUrl
+  if (input.retractSourcePath)
+    payload.retractSourcePath = input.retractSourcePath
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -231,6 +237,9 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
     ...(payload.retractRepositoryUrl
       ? { retractRepositoryUrl: payload.retractRepositoryUrl }
+      : {}),
+    ...(payload.retractSourcePath
+      ? { retractSourcePath: payload.retractSourcePath }
       : {}),
     // A publish job that was stored before the pipeline field was queued
     // under `legacy`. It does not get the switch value at resume time.

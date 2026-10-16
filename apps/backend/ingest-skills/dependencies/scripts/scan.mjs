@@ -5,7 +5,7 @@
 // streams, and apply.mjs writes the files.
 //
 // node scan.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> [--path <root path>]
+//   --source-url <url> --source-path <path> --roots <root-to-file map> [--path <root path>]
 //
 // With --path (a root step): the HTTP and config candidates of that root.
 // Without --path (the repository-wide step): for each root of the map, the

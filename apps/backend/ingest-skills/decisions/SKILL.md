@@ -7,7 +7,7 @@ description: Write a knowledge file for each decision file (ADR) of the source r
 
 The host runs this skill once for each repository, on the assembled ref after the root steps. A script finds the decision files and reads what a script can read. You read each decision file and write one context file for it.
 
-1. The step prompt gives the arguments: `--source`, `--source-url`, and `--roots` (the root-to-file map, ADR-052 section 6). Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs <arguments>`.
+1. The step prompt gives the arguments: `--source`, `--source-url`, `--source-path`, and `--roots` (the root-to-file map, ADR-052 section 6). Run `node /ctxpipe/skills/decisions/scripts/decisions.mjs <arguments>`.
 2. The script writes JSON that matches `schema.json` to stdout. Each entry in `decisions` is one decision file of the source (`path`). It gives the context file to write (`target`) and how (`write`):
    - `create`: a new file.
    - `update`: a file that this source already wrote, or that describes the same decision. Change it with `ctxpipe-stage <target>`, and keep what is still true.
