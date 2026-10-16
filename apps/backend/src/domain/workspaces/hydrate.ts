@@ -280,12 +280,6 @@ function unitTitle(frontMatterTitle: unknown, body: string): string | null {
   return markdownLines(body).find((line) => line.heading)?.heading ?? null
 }
 
-export function shouldHydrateBeforeMigrationExport(
-  migrationExportSha: string | null | undefined,
-): boolean {
-  return !migrationExportSha
-}
-
 export function applyEffectiveValidFromToUnits(
   units: readonly HydrateUnit[],
   introducingCommits: ReadonlyMap<string, string>,

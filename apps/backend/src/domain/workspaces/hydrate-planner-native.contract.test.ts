@@ -10,6 +10,7 @@ import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
+import { workspaceFormatFile } from "./workspace-format.js"
 
 it(
   "hydration durably admits each remaining maintenance concern once",
@@ -63,6 +64,58 @@ it(
                   ?.contents === "write",
             ),
           ).toHaveLength(0)
+        } finally {
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it.each([
+  { format: 0, cleanup: false },
+  { format: 1, cleanup: true },
+])(
+  "hydration at Workspace format $format admits the import-key cleanup: $cleanup",
+  { timeout: 60_000 },
+  async ({ format, cleanup }) => {
+    const formatFile = workspaceFormatFile(format)
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          {
+            path: "knowledge/a.md",
+            body: "---\nimport_key: legacy:a\n---\n# A\n",
+          },
+          ...(format
+            ? [{ path: formatFile.path, body: formatFile.content }]
+            : []),
+        ],
+      },
+      async (f) => {
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          runMigrations: false,
+          namespaceId: openWorkflowNamespaceId(),
+        })
+        try {
+          // Not `f.publish()`: the format file is not a knowledge unit.
+          await f.worker.start()
+          await expect(
+            f.handle.result({ timeoutMs: 30_000 }),
+          ).resolves.toMatchObject({ hydrated: true, units: 1 })
+          const names = (await backend.listWorkflowRuns({ limit: 100 })).data
+            .filter(
+              (run) =>
+                (run.input as { workspaceId?: string }).workspaceId ===
+                f.workspaceId,
+            )
+            .map((run) => run.workflowName)
+          expect(names.includes("workspace-write-import-key-cleanup")).toBe(
+            cleanup,
+          )
         } finally {
           await backend.stop()
         }

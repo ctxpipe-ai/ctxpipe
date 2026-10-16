@@ -14,7 +14,7 @@ import {
 } from "./extraction.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -51,7 +51,6 @@ export type WorkspaceWriteJobPayload = {
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
   semanticHandoff?: WorkspaceSemanticHandoff
-  exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string
   mirror?: ConnectorMirrorSource
@@ -83,7 +82,6 @@ const writeJobBaseSchema = z.object({
 })
 
 const writeJobKindSchema = z.enum([
-  "migration_export",
   "extract_ingest",
   "connector_mirror",
   "claims_upgrade",
@@ -200,7 +198,7 @@ export function shouldResumePausedWriteJob(input: {
 }
 
 /** The write kinds whose push compares the publish pipeline (ADR-052 phase 4). */
-const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteKind> = new Set([
+const PUBLISH_PIPELINE_KINDS: ReadonlySet<WorkspaceWriteJobKind> = new Set([
   "extract_ingest",
   "ownership_migration",
   "unlink_retraction",
@@ -211,7 +209,7 @@ export function enqueueInputFromPausedJob(input: {
   workspaceId: string
   job: {
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     payload: WorkspaceWriteJobPayload | null

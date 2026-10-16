@@ -18,6 +18,10 @@ import {
 } from "./registry.js"
 
 const directories: string[] = []
+const REMOTE = {
+  url: "https://github.com/fixture/upgrade.git",
+  connectionId: "con_test",
+}
 afterEach(() => {
   for (const directory of directories.splice(0))
     rmSync(directory, { recursive: true, force: true })
@@ -25,7 +29,7 @@ afterEach(() => {
 
 /** A real repository with one commit, captured as a depth-1 pack. */
 async function fixturePack(
-  files: Record<string, string>,
+  files: Record<string, string | Buffer>,
   root = "",
 ): Promise<GitPack> {
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-upgrade-build-"))
@@ -127,7 +131,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt,
     })
     expect(built.steps.map((step) => [step.format, step.sha !== null])).toEqual(
@@ -161,7 +170,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt,
     })
     expect(again.pack.sha).toBe(built.pack.sha)
@@ -176,6 +190,7 @@ describe("buildUpgradeCommits", () => {
         orgId: "org_test",
         workspaceId: "ws_test",
         baseSha: built.pack.sha,
+        remote: REMOTE,
       },
       createdAt,
     })
@@ -200,7 +215,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 2,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt: "2026-10-16T00:00:00.000Z",
     })
     expect(built.steps.map((step) => step.format)).toEqual([3])
@@ -221,7 +241,12 @@ describe("buildUpgradeCommits", () => {
       steps: STEPS,
       fromFormat: 0,
       targetFormat: 3,
-      ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
       createdAt: "2026-10-16T00:00:00.000Z",
     })
     const commits = await readCommits(built.pack)
@@ -234,6 +259,65 @@ describe("buildUpgradeCommits", () => {
         "outside.md",
       ].sort(),
     )
+  })
+
+  it("moves a binary file by its bytes and blob SHA, and a second run on the result changes nothing", async () => {
+    // Not valid UTF-8: a text round trip changes these bytes.
+    const bytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x00, 0xff, 0xfe, 0x0a])
+    const base = await fixturePack({
+      "README.md": "# Readme\n",
+      "a.bin": bytes,
+    })
+    const move: GitUpgradeStep = {
+      format: 1,
+      title: "Move the binary file",
+      plan: async (tree) => {
+        const from = (await tree.readBytes("a.bin")) ?? null
+        const sha = tree.blobSha("a.bin") ?? tree.blobSha("b/a.bin")
+        expect(sha).toMatch(/^[0-9a-f]{40}$/)
+        expect(tree.blobSha("missing.bin")).toBeNull()
+        expect(await tree.readBytes("missing.bin")).toBeNull()
+        const content = (from ?? (await tree.readBytes("b/a.bin")))?.toString(
+          "base64",
+        )
+        return {
+          writes: content
+            ? [{ path: "b/a.bin", content, encoding: "base64" as const }]
+            : [],
+          deletes: ["a.bin"],
+          report: [],
+        }
+      },
+    }
+    const run = (pack: GitPack) =>
+      buildUpgradeCommits({
+        pack,
+        steps: [move],
+        fromFormat: 0,
+        targetFormat: 1,
+        ctx: {
+          orgId: "org_test",
+          workspaceId: "ws_test",
+          baseSha: pack.sha,
+          remote: REMOTE,
+        },
+        createdAt: "2026-10-16T00:00:00.000Z",
+      })
+    const built = await run(base)
+    expect(built.steps[0]?.sha).not.toBeNull()
+    const blob = await withGitDirectory(
+      built.pack.sha,
+      async (directory) =>
+        execFileSync("git", ["cat-file", "blob", `${built.pack.sha}:b/a.bin`], {
+          cwd: directory,
+        }),
+      built.pack,
+    )
+    expect(Buffer.compare(blob, bytes)).toBe(0)
+    // The base64 compare sees the same bytes, so the step makes no commit.
+    const again = await run(built.pack)
+    expect(again.steps[0]?.sha).toBeNull()
+    expect(again.pack.sha).toBe(built.pack.sha)
   })
 
   it("refuses a step that writes the format file", async () => {
@@ -254,7 +338,12 @@ describe("buildUpgradeCommits", () => {
         ],
         fromFormat: 0,
         targetFormat: 1,
-        ctx: { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha },
+        ctx: {
+          orgId: "org_test",
+          workspaceId: "ws_test",
+          baseSha: base.sha,
+          remote: REMOTE,
+        },
         createdAt: "2026-10-16T00:00:00.000Z",
       }),
     ).rejects.toThrow(/must not change/)
@@ -281,26 +370,10 @@ describe("the upgrade registry", () => {
 })
 
 describe("the production registry", () => {
-  it("is contiguous, and a second plan of each step on its own output changes nothing", async () => {
-    const target = upgradeTargetFormat(GIT_UPGRADE_STEPS)
-    const base = await fixturePack({ "README.md": "# Readme\n" })
-    const ctx = { orgId: "org_test", workspaceId: "ws_test", baseSha: base.sha }
-    const built = await buildUpgradeCommits({
-      pack: base,
-      steps: GIT_UPGRADE_STEPS,
-      fromFormat: 0,
-      targetFormat: target,
-      ctx,
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
-    const rerun = await buildUpgradeCommits({
-      pack: built.pack,
-      steps: GIT_UPGRADE_STEPS,
-      fromFormat: 0,
-      targetFormat: target,
-      ctx: { ...ctx, baseSha: built.pack.sha },
-      createdAt: "2026-10-16T00:00:00.000Z",
-    })
-    expect(rerun.steps.filter((step) => step.sha !== null)).toEqual([])
+  // The contract test of step 1 (export-and-sources-native) proves on a
+  // real database that a second plan of each step changes nothing.
+  it("is contiguous from format 1", () => {
+    expect(GIT_UPGRADE_STEPS.map((step) => step.format)).toEqual([1])
+    expect(upgradeTargetFormat(GIT_UPGRADE_STEPS)).toBe(1)
   })
 })

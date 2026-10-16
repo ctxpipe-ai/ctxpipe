@@ -29,6 +29,8 @@ export async function loadKnowledgeProjectionSource(): Promise<{
   firstWorkspaceId: string | null
   workspaceByRepositoryId: Map<string, string>
   repositoryGitUrlById: Map<string, string>
+  /** The GitHub connection of each org repository, or null when it has none. */
+  repositoryConnectionById: Map<string, string | null>
   objects: ExportObjectRow[]
   claims: ExportClaimRow[]
 }> {
@@ -73,7 +75,11 @@ export async function loadKnowledgeProjectionSource(): Promise<{
         })
         .from(claimEvidence),
       db
-        .select({ id: repositories.id, gitUrl: repositories.gitUrl })
+        .select({
+          id: repositories.id,
+          gitUrl: repositories.gitUrl,
+          githubConnectionId: repositories.githubConnectionId,
+        })
         .from(repositories)
         .where(eq(repositories.orgId, orgId)),
       db
@@ -119,6 +125,9 @@ export async function loadKnowledgeProjectionSource(): Promise<{
       repositoryGitUrlById: new Map(
         repoRows.map((row) => [row.id, row.gitUrl]),
       ),
+      repositoryConnectionById: new Map(
+        repoRows.map((row) => [row.id, row.githubConnectionId]),
+      ),
       objects: objectRows.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -141,7 +150,7 @@ export async function loadKnowledgeProjectionSource(): Promise<{
   })
 }
 
-/** Control-plane path identity and migration cutover, with no projection-content reads. */
+/** Control-plane path identity and the format cutover, with no projection-content reads. */
 export async function loadExtractionPathIdentity(
   revision: import("../domain/workspaces/revision.js").WorkspaceRevision,
 ) {
@@ -149,14 +158,15 @@ export async function loadExtractionPathIdentity(
   return withOrgDbContext(
     requireCurrentOrgId(),
     async () => {
-      const { getCompletedKnowledgePaths, getMigrationExportSha } =
-        await import("./workspace-write-jobs.js")
-      const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
-      const exportSha = await getMigrationExportSha(
-        revision.workspaceId,
-        revision,
+      const { getCompletedKnowledgePaths } = await import(
+        "./workspace-write-jobs.js"
       )
-      return { knownKnowledgePaths, stampImportKey: !exportSha }
+      const { getBindingWorkspaceFormat } = await import("./workspaces.js")
+      const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
+      // From format 1 the main data is in the Workspace, so a new file
+      // needs no import key (ADR-053).
+      const format = await getBindingWorkspaceFormat(revision)
+      return { knownKnowledgePaths, stampImportKey: format < 1 }
     },
     { isolationLevel: "repeatable read" },
   )

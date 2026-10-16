@@ -39,15 +39,10 @@ export function isDefaultBranchPush(
 }
 
 export function shouldEnqueueCronHydrate(input: {
-  migrationExportSha: string | null | undefined
   projection: ProjectionState
-  writeStatus?: string | null
 }): boolean {
   const projection = input.projection
   if (!desiredProjectionRevision(projection)) return false
-  const skipExportWait =
-    input.writeStatus === "read_only" || input.writeStatus === "unknown"
-  if (!skipExportWait && !input.migrationExportSha) return false
   return (
     projection.kind !== "active" ||
     projection.stores.graph.kind !== "ready" ||

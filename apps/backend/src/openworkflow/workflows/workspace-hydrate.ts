@@ -43,7 +43,6 @@ import {
 } from "../../domain/workspaces/workspace-format.js"
 import { listOrgConnections } from "../../models/org-connections.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
-import { getMigrationExportSha } from "../../models/workspace-write-jobs.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
@@ -204,13 +203,9 @@ export function defineWorkspaceHydrateWorkflow(
               const planning = await step.run(
                 { name: "capture-planning-target" },
                 async () => ({
-                  // A completed export may share the already-active SHA. Its cleanup
-                  // still belongs after this successful hydrate, including replay.
-                  needed:
-                    pending.postgres ||
-                    Boolean(
-                      await getMigrationExportSha(workspace.id, revision),
-                    ),
+                  // An upgrade pull request always makes a new SHA, so the
+                  // writes that a format change needs come with that SHA.
+                  needed: pending.postgres,
                   previousSha:
                     projection?.kind === "active" &&
                     sameWorkspaceRevision(
@@ -276,7 +271,7 @@ export function defineWorkspaceHydrateWorkflow(
                 const plan = await step.run(
                   { name: "plan-remaining-writes" },
                   async () => {
-                    const { files, sourceFiles } = await readTree()
+                    const { files, sourceFiles, formatFile } = await readTree()
                     const remaining = planHydrateWrites({
                       revision,
                       displayName: workspace.displayName,
@@ -288,7 +283,10 @@ export function defineWorkspaceHydrateWorkflow(
                       }),
                       publishPipeline,
                     })
-                    if (await getMigrationExportSha(workspace.id, revision)) {
+                    // From format 1 the main data is in the Workspace, so the
+                    // import keys of the old export are no longer needed.
+                    const format = readWorkspaceFormat(formatFile)
+                    if (format.kind === "format" && format.format >= 1) {
                       remaining.push({
                         kind: "import_key_cleanup",
                         remainder: importKeyCleanupRemainder(files),

@@ -4,6 +4,6 @@ import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js
 export const workspaceImportKeyCleanup = defineKnowledgeRewriteWorkflow({
   name: "workspace-write-import-key-cleanup",
   kind: "import_key_cleanup",
-  requireMigrationExport: true,
+  requireExportedFormat: true,
   transform: (files) => importKeyCleanupFiles(files),
 })
