@@ -11,10 +11,14 @@ fail() {
 bash -n "$script" || fail "preview-neon-branch.sh must pass bash -n"
 
 # BRANCHES is the branch list that the fake Neon API returns. DEFAULT is the
-# id of the default branch. CALLS gets one line for each API call.
+# id of the default branch. CALLS gets one line for each API call. The
+# operation list shows RUNNING_POLLS polls with a running operation on
+# br-pr7, then none.
 calls="$(mktemp)"
 err="$(mktemp)"
-trap 'rm -f "$calls" "$err"' EXIT
+polls="$(mktemp)"
+trap 'rm -f "$calls" "$err" "$polls"' EXIT
+export RUNNING_POLLS=0
 
 with_fake_neon() {
   (
@@ -31,6 +35,14 @@ with_fake_neon() {
           ;;
         "POST /branches/"*"/roles/neondb_owner/reset_password") echo '{"operations":[{"id":"op1"}]}' ;;
         "GET /operations/op1") echo '{"operation":{"status":"finished"}}' ;;
+        "GET /operations?"*)
+          echo x >>"$polls"
+          if (($(wc -l <"$polls") <= RUNNING_POLLS)); then
+            echo '{"operations":[{"id":"op0","branch_id":"br-pr7","status":"running"},{"id":"op9","branch_id":"br-other","status":"running"}]}'
+          else
+            echo '{"operations":[{"id":"op0","branch_id":"br-pr7","status":"finished"},{"id":"op9","branch_id":"br-other","status":"running"}]}'
+          fi
+          ;;
         "GET /connection_uri?"*) echo '{"uri":"postgresql://neondb_owner:new@ep.example.test/neondb"}' ;;
         *)
           echo "unexpected call: $1 $2" >&2
@@ -61,9 +73,23 @@ grep -Fq "not the preview branch" "$err" || fail "the refusal should name the pr
 with_fake_neon neon_preview_branch_id "7 || true" 2>"$err" && fail "a PR number that is not a number must fail"
 
 : >"$calls"
-with_fake_neon neon_reset_owner_password br-pr7 || fail "the reset should wait for its operation"
+with_fake_neon neon_reset_owner_password br-pr7 >/dev/null || fail "the reset should wait for its operation"
 grep -Fxq "POST /branches/br-pr7/roles/neondb_owner/reset_password" "$calls" || fail "the reset must use the preview branch"
 grep -Fxq "GET /operations/op1" "$calls" || fail "the reset must wait for its operation"
+
+# A running operation on the branch (an earlier deploy) makes Neon refuse
+# the reset with HTTP 423, so the reset waits for it first. A running
+# operation on another branch does not hold it.
+: >"$calls"
+: >"$polls"
+sleep() { :; }
+export -f sleep
+RUNNING_POLLS=2 with_fake_neon neon_reset_owner_password br-pr7 >/dev/null || fail "the reset should wait for running operations"
+unset -f sleep
+[[ "$(grep -c '^GET /operations?' "$calls")" == 3 ]] || fail "the reset must poll until the branch has no running operation"
+first_post="$(grep -n '^POST ' "$calls" | head -1 | cut -d: -f1)"
+last_poll="$(grep -n '^GET /operations?' "$calls" | tail -1 | cut -d: -f1)"
+((last_poll < first_post)) || fail "the reset must wait before the password reset, not after"
 
 url="$(with_fake_neon neon_owner_url br-pr7 false)"
 [[ "$url" == "postgresql://neondb_owner:new@ep.example.test/neondb" ]] || fail "the owner URL comes from the API"

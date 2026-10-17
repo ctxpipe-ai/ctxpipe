@@ -96,12 +96,33 @@ neon_ensure_preview_branch() {
   echo "Created Neon branch $name"
 }
 
+# neon_wait_branch_idle BRANCH_ID: waits until the branch has no running
+# Neon operation. Neon refuses a change (HTTP 423) while an operation runs on
+# the branch, for example the endpoint start of an earlier deploy.
+neon_wait_branch_idle() {
+  local running deadline
+  deadline=$(($(date +%s) + 300))
+  while true; do
+    running="$(neon_api GET "/operations?limit=100" | jq -r --arg b "$1" \
+      '[.operations[]? | select(.branch_id == $b and (.status | IN("finished", "skipped", "cancelled", "failed", "error") | not))] | length')"
+    [[ "$running" == 0 ]] && return 0
+    if (($(date +%s) > deadline)); then
+      echo "Neon branch $1 still has $running running operations after 5 minutes" >&2
+      return 1
+    fi
+    echo "Neon branch $1 has $running running operations; waiting"
+    sleep 3
+  done
+}
+
 # neon_reset_owner_password BRANCH_ID: gives neondb_owner a new password on
 # this branch only. The branch copies the role from production, with the
 # production password; after the reset, the old password does not work on
-# this branch, and the new one does not work on production.
+# this branch, and the new one does not work on production. It first waits
+# until no operation runs on the branch.
 neon_reset_owner_password() {
   local response
+  neon_wait_branch_idle "$1"
   response="$(neon_api POST "/branches/$1/roles/neondb_owner/reset_password")"
   neon_wait_operations "$response"
 }

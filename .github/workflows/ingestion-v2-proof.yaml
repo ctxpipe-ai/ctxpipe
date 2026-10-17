@@ -7,10 +7,11 @@ name: Ingestion v2 proof (Docker)
 # worker once during the last run, and writes one summary row for each
 # repository. The total model spend stops every run at `spend_cap_usd`.
 #
-# Repository secrets (names only):
-#   MODEL_PROVIDER_API_KEY  the model provider key
-#   GH_APP_ID               the GitHub App id of the test org (Preview environment)
-#   GH_PRIVATE_KEY          the GitHub App private key, PEM (Preview environment)
+# Secrets of the Preview environment (names only):
+#   PREVIEW_MODEL_PROVIDER_API_KEY  a spend-capped model key, never the
+#                                   production key MODEL_PROVIDER_API_KEY
+#   GH_APP_ID               the GitHub App id of the test org
+#   GH_PRIVATE_KEY          the GitHub App private key, PEM
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
 # How to start a run (GitHub runs workflow_dispatch only for a workflow file on
@@ -64,13 +65,23 @@ jobs:
     name: Ingestion v2 proof (Docker)
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 360
-    # GH_APP_ID and GH_PRIVATE_KEY are secrets of the Preview environment.
+    # GH_APP_ID, GH_PRIVATE_KEY and PREVIEW_MODEL_PROVIDER_API_KEY are secrets
+    # of the Preview environment. The job builds images and runs dependency
+    # code, so it never gets the production model key.
     environment: Preview
     permissions:
       contents: read
     env:
       COMPOSE_PROFILES: deploy
     steps:
+      - name: Check the Preview model key
+        env:
+          PREVIEW_MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
+        run: |
+          [[ -n "$PREVIEW_MODEL_PROVIDER_API_KEY" ]] || {
+            echo "::error::PREVIEW_MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the Preview environment (Settings > Environments). This job never uses the production key MODEL_PROVIDER_API_KEY."
+            exit 1
+          }
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-buildx
       - name: Write the Compose settings
@@ -109,7 +120,7 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Start the stack and build the chat sandbox image
         env:
-          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
           GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
           GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
         run: |
@@ -163,7 +174,7 @@ jobs:
           } >> "$GITHUB_ENV"
       - name: Run ingestion v2 for each repository
         env:
-          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
           GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
           GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
         run: bash scripts/ci/ingestion-v2-proof.sh

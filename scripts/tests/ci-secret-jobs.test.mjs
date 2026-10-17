@@ -116,7 +116,10 @@ test("rejects a reviewed script that runs a package manager", () => {
 })
 
 test("rejects make and sh -c in a job with a secret", () => {
-  rejects(workflow(deployJob(`${tokenStep}      - run: make deploy\n`)), /runs make/)
+  rejects(
+    workflow(deployJob(`${tokenStep}      - run: make deploy\n`)),
+    /runs make/,
+  )
   rejects(
     workflow(deployJob(`${tokenStep}      - run: sh -c "$CMD"\n`)),
     /runs `sh -c`/,
@@ -138,7 +141,9 @@ test("rejects toJSON(secrets) and secrets[…]", () => {
   for (const value of ["${{ toJSON(secrets) }}", "${{ secrets[inputs.name] }}"])
     rejects(
       workflow(
-        deployJob(`      - env:\n          ALL: ${value}\n        run: echo ok\n`),
+        deployJob(
+          `      - env:\n          ALL: ${value}\n        run: echo ok\n`,
+        ),
       ),
       /reads every secret/,
     )
@@ -168,7 +173,7 @@ test("rejects NEON_API_KEY in a package manager job, even in a reviewed exceptio
     {
       ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    steps:\n      - env:\n          NEON_API_KEY: \${{ secrets.NEON_API_KEY }}\n        run: echo\n${install}`,
     },
-    /gives NEON_API_KEY to a job that runs a package manager/,
+    /gives NEON_API_KEY to a job that runs untrusted code/,
   )
 })
 
@@ -190,7 +195,7 @@ test("rejects a sticky disk that a production job and a PR job share", () => {
       ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    env:\n      TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n${sticky("store")}${install}`,
       ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky("store")}${install}`,
     },
-    /cache key store is used by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\) and by a job that runs untrusted code \(.*w\.yaml:7 \(job migrate\)\)/,
+    /cache key store is read by a job with a secret \(.*deploy\.yaml:9 \(job terraform\)\), and a job that runs untrusted code writes store \(.*w\.yaml:7 \(job migrate\)\)/,
   )
 })
 
@@ -199,7 +204,7 @@ test("rejects an actions/cache restore in a secret job that a branch-code job wr
     workflow(
       `  build:\n    steps:\n      - uses: actions/cache@v4\n        with:\n          key: tools\n${install}  deploy:\n    steps:\n      - uses: actions/cache/restore@v4\n        with:\n          key: tools\n${tokenStep}`,
     ),
-    /cache key tools is used by a job with a secret/,
+    /cache key tools is read by a job with a secret/,
   )
 })
 
@@ -236,9 +241,146 @@ ${headCheckout}${install}      - run: pnpm exec tsx src/db/migrate.ts
     steps:
       # No ref: the workflow commit. pnpm install runs in migrate.
       - uses: useblacksmith/checkout@v1
-      - run: npm install -g @railway/cli@4.35.2
+      - run: |
+          curl -fsSL -o railway.tar.gz "$URL"
+          echo "$SHA256  railway.tar.gz" | sha256sum --check --strict
+          tar -xzf railway.tar.gz railway
 ${tokenStep}`),
   )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+for (const [name, command, message] of [
+  ["npm install -g", "npm install -g @railway/cli@4.35.2", /runs npm/],
+  ["npm i", "npm i left-pad", /runs npm/],
+  ["npm ci", "npm ci", /runs npm/],
+  ["docker build", "docker build -t x .", /builds an image/],
+  ["docker compose --build", "docker compose up -d --build", /builds an image/],
+  ["docker-compose --build", "docker-compose up --build", /builds an image/],
+  ["pip install", "pip install requests", /runs pip/],
+  ["python -m pip", "python3 -m pip install requests", /runs pip/],
+  ["go install", "go install example.com/tool@v1", /runs `go install`/],
+  ["go run", "go run ./cmd/x", /runs `go install`/],
+  [
+    "add-apt-repository",
+    "sudo add-apt-repository ppa:x/y && sudo apt-get install -y y",
+    /third-party apt repository/,
+  ],
+  [
+    "a third-party apt source",
+    "echo deb https://x.example/apt stable main | sudo tee /etc/apt/sources.list.d/x.list",
+    /third-party apt repository/,
+  ],
+  ["dpkg -i", "sudo dpkg -i x.deb", /third-party apt repository/],
+  [
+    "terraform init without -lockfile=readonly",
+    "terraform init -input=false",
+    /terraform init` without -lockfile=readonly/,
+  ],
+]) {
+  test(`rejects ${name} in a job with a secret`, () => {
+    rejects(
+      workflow(deployJob(`${tokenStep}      - run: ${command}\n`)),
+      message,
+    )
+  })
+}
+
+test("accepts apt-get install from the runner image sources and terraform init -lockfile=readonly", () => {
+  const result = check(
+    workflow(
+      deployJob(
+        `${tokenStep}      - run: sudo apt-get install -y -qq postgresql-client\n      - run: terraform init -input=false -lockfile=readonly\n`,
+      ),
+    ),
+  )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects a secret in the job env", () => {
+  rejects(
+    workflow(
+      `  deploy:\n    env:\n      PR_ENV: pr-1\n      RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n    steps:\n      - run: echo\n`,
+    ),
+    /w\.yaml:6: job deploy holds a secret and puts a secret in the job env/,
+  )
+})
+
+test("accepts a job env without secrets and a secret in a step env", () => {
+  const result = check(
+    workflow(
+      `  deploy:\n    env:\n      PR_ENV: pr-1\n    steps:\n${tokenStep}`,
+    ),
+  )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects an account token in a job that runs any untrusted code, even in a reviewed exception", () => {
+  for (const command of [
+    "docker compose up -d --build",
+    "npm install -g x@1.0.0",
+    "go run ./cmd/x",
+  ])
+    rejects(
+      {
+        ".github/workflows/ingestion-v2-proof.yaml": `on: push\njobs:\n  proof:\n    steps:\n      - env:\n          RAILWAY_API_TOKEN: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: ${command}\n`,
+      },
+      /gives RAILWAY_API_TOKEN to a job that runs untrusted code/,
+    )
+})
+
+test("rejects the production model key in a job that runs untrusted code", () => {
+  rejects(
+    {
+      ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
+    },
+    /gives MODEL_PROVIDER_API_KEY to a job that runs untrusted code/,
+  )
+  const result = check({
+    ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    environment: Preview\n    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
+  })
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+const cacheStep = (action, key, extra = "") =>
+  `      - uses: actions/cache${action}@v4\n        with:\n          path: x\n          key: ${key}\n${extra}`
+
+test("rejects actions/cache/save in a branch-code job that a secret job restores", () => {
+  rejects(
+    workflow(
+      `  build:\n    steps:\n${cacheStep("/save", "tools")}${install}  deploy:\n    steps:\n${cacheStep("/restore", "tools")}${tokenStep}`,
+    ),
+    /cache key tools is read by a job with a secret .* and a job that runs untrusted code writes tools/,
+  )
+})
+
+test("rejects a cache key that matches once its expressions are removed", () => {
+  rejects(
+    workflow(
+      `  build:\n    steps:\n${cacheStep("/save", "tools-evil")}${install}  deploy:\n    steps:\n${cacheStep("/restore", `tools-\${{ hashFiles('x') }}`)}${tokenStep}`,
+    ),
+    /cache key tools-\$\{\{ hashFiles\('x'\) \}\} is read by a job with a secret/,
+  )
+})
+
+test("rejects a restore-keys prefix that a branch-code job writes", () => {
+  rejects(
+    workflow(
+      `  build:\n    steps:\n${cacheStep("", "tools-linux-1")}${install}  deploy:\n    steps:\n${cacheStep("/restore", `tools-\${{ github.sha }}`, "          restore-keys: |\n            tools-\n")}${tokenStep}`,
+    ),
+    /cache key tools- is read by a job with a secret/,
+  )
+})
+
+test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
+  const result = check({
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
+  })
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
 })

@@ -567,7 +567,6 @@ jobs:
           --health-retries 5
     env:
       AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
-      VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
       # Stands in for a minted Workspace read token in the firewall contract.
       GITHUB_TOKEN: ${{ github.token }}
       VERCEL_TEAM: ctxpipe
@@ -592,6 +591,7 @@ jobs:
       - name: Required real Vercel sandbox contracts
         env:
           DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
         run: node scripts/ci/test-suite.mjs vercel
 
   terraform-validate:

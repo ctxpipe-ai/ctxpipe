@@ -175,11 +175,10 @@ jobs:
     defaults:
       run:
         working-directory: ops/observability/terraform
+    # Values that are not secret. Each secret goes in the env of the steps
+    # that need it.
     env:
       TF_IN_AUTOMATION: "true"
-      AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
       TF_VAR_collector_image: ${{ needs.tags.outputs.collector }}
       TF_VAR_clickhouse_image: ${{ needs.tags.outputs.clickhouse }}
       TF_VAR_railway_telemetry_image: ${{ needs.tags.outputs['railway-telemetry'] }}
@@ -197,12 +196,24 @@ jobs:
           terraform_wrapper: false
 
       - name: Terraform init
-        run: terraform init -input=false
+        # -lockfile=readonly: each provider must match the hashes in
+        # .terraform.lock.hcl (scripts/ci/check-secret-jobs.mjs).
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: terraform init -input=false -lockfile=readonly
 
       - name: Terraform plan
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
         run: terraform plan -no-color -input=false -lock=false -out=terraform.plan | tee plan.txt
 
       - name: Refuse plans that delete resources
+        env:
+          AWS_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          AWS_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
         run: |
           umask 077
           terraform show -json terraform.plan > plan.json
