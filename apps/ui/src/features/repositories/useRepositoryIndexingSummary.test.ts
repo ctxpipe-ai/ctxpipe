@@ -58,13 +58,13 @@ describe("getRepositoryIndexingSummary", () => {
           indexingStatus: "running",
           indexingStep: 7,
           indexingStepTotal: 22,
-          indexingStepKey: "embedding",
+          indexingStepKey: "finalizing",
         },
         { indexingStatus: "ready" },
       ]),
     ).toMatchObject({
       activeCount: 1,
-      singleActiveStepLabel: "embedding 7/22",
+      singleActiveStepLabel: "finalizing 7/22",
     })
   })
 
@@ -93,14 +93,14 @@ describe("getRepositoryIndexingSummary", () => {
           indexingStatus: "running",
           indexingStep: 7,
           indexingStepTotal: 22,
-          indexingStepKey: "embedding",
+          indexingStepKey: "finalizing",
         },
         { indexingStatus: "failed" },
       ]),
     ).toMatchObject({
       activeCount: 1,
       failedCount: 1,
-      singleActiveStepLabel: "embedding 7/22",
+      singleActiveStepLabel: "finalizing 7/22",
     })
   })
 
@@ -140,7 +140,7 @@ describe("getRepositoryIndexingSummary", () => {
           indexingStatus: "running",
           indexingStep: 7,
           indexingStepTotal: 22,
-          indexingStepKey: "embedding",
+          indexingStepKey: "finalizing",
         },
         {
           indexingStatus: "queued",

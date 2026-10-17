@@ -82,7 +82,7 @@ export const IndexingWithStepLabel: Story = {
         indexingStatus: "running",
         indexingStep: 7,
         indexingStepTotal: 22,
-        indexingStepKey: "embedding",
+        indexingStepKey: "finalizing",
       }}
       onDelete={noop}
       onRetry={noop}
@@ -113,7 +113,7 @@ export const RefreshingWithStepLabel: Story = {
         lastIngestedHash: "abc1234",
         indexingStep: 14,
         indexingStepTotal: 22,
-        indexingStepKey: "syncing_graph",
+        indexingStepKey: "cloning",
       }}
       onDelete={noop}
       onRetry={noop}
