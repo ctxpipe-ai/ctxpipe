@@ -2,10 +2,7 @@ import { isDeepStrictEqual } from "node:util"
 import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
-import {
-  workspaces,
-  workspaceWriteJobs,
-} from "../db/schema/workspaces.js"
+import { workspaceWriteJobs } from "../db/schema/workspaces.js"
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
