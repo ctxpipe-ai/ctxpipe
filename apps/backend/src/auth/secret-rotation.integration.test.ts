@@ -1,5 +1,5 @@
 import { randomBytes } from "node:crypto"
-import { inArray, notInArray } from "drizzle-orm"
+import { inArray } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -24,6 +24,8 @@ const authPath = `${base}/.auth/api/v1/auth`
 const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
 const emails: string[] = []
 let keysBefore: string[] = []
+// Keys that signed a JWT in this file and did not exist when it started.
+const ownKeys = new Set<string>()
 let oldSecret = ""
 const newSecret = randomBytes(32).toString("hex")
 
@@ -57,10 +59,13 @@ function cookiePairs(response: Response): string[] {
   return response.headers.getSetCookie().map((part) => part.split(";")[0] ?? "")
 }
 
-function getSession(cookie: string) {
-  return getAuth().handler(
+async function getSession(cookie: string) {
+  const response = await getAuth().handler(
     new Request(`${authPath}/get-session`, { headers: { cookie } }),
   )
+  const kid = jwtKeyId(response)
+  if (kid && !keysBefore.includes(kid)) ownKeys.add(kid)
+  return response
 }
 
 async function signUpAndReadSession(): Promise<string> {
@@ -141,10 +146,10 @@ describe("AUTH_SECRET rotation (Postgres)", () => {
     vi.unstubAllEnvs()
     resetBetterAuthForTests()
     const db = getSystemDb()
-    // Remove the keys this file made with its own secret.
-    await (keysBefore.length > 0
-      ? db.delete(jwkss).where(notInArray(jwkss.id, keysBefore))
-      : db.delete(jwkss))
+    // Other files share this table, so remove only the keys that signed a JWT here.
+    if (ownKeys.size > 0) {
+      await db.delete(jwkss).where(inArray(jwkss.id, [...ownKeys]))
+    }
     await db.delete(users).where(inArray(users.email, emails))
     await closeDb()
   })
