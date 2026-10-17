@@ -23,9 +23,22 @@ export async function runMigrations(options: {
   appRolePassword: string | undefined
   env: Record<string, string | undefined>
   roleName?: string
+  /** How long one statement may wait for a lock. Default 30 000 ms. */
+  lockTimeoutMs?: number
 }): Promise<void> {
   const roleName = options.roleName ?? APP_ROLE_NAME
+  const lockTimeoutMs = options.lockTimeoutMs ?? 30_000
   const pool = new Pool({ connectionString: options.connectionString })
+  // A SET query, not a startup option: a pooled connection string can refuse
+  // startup options. Only a lock wait is bounded. A statement timeout would
+  // also stop the long backfills.
+  pool.on("connect", (client) => {
+    client
+      .query(`SET lock_timeout = ${Math.trunc(lockTimeoutMs)}`)
+      .catch(() => {
+        // The next query on this client shows a broken connection.
+      })
+  })
   try {
     // First, so that a missing role stops migrate before the schema changes.
     await provisionAppRole(pool, options.appRolePassword, roleName)
@@ -61,6 +74,16 @@ export async function runMigrations(options: {
 
     // Again after the migrations, for the tables and schemas they added.
     await provisionAppRole(pool, undefined, roleName)
+  } catch (error) {
+    const code =
+      (error as { code?: string }).code ??
+      (error as { cause?: { code?: string } }).cause?.code
+    if (code === "55P03")
+      throw new Error(
+        `[migrate] A statement waited more than ${lockTimeoutMs} ms for a database lock. Another session holds the lock. End that session, then run migrate again.`,
+        { cause: error },
+      )
+    throw error
   } finally {
     await pool.end()
   }
