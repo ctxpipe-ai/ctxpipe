@@ -24,12 +24,12 @@ describe("Notion connector API helpers", () => {
       ),
     )
 
-    await expect(fetchNotionOAuthStart("acme")).rejects.toBeInstanceOf(
+    await expect(fetchNotionOAuthStart("acme", "con_notion")).rejects.toBeInstanceOf(
       NotionOAuthNotConfiguredError,
     )
     expect(fetch).toHaveBeenCalledWith(
-      "/acme/api/v1/connectors/notion/oauth/start",
-      { credentials: "include" },
+      "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_notion",
+      expect.objectContaining({ credentials: "include" }),
     )
   })
 
@@ -47,7 +47,7 @@ describe("Notion connector API helpers", () => {
 
     expect(fetch).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_notion",
-      { credentials: "include" },
+      expect.objectContaining({ credentials: "include" }),
     )
   })
 })
