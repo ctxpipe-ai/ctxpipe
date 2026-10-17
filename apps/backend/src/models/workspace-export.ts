@@ -152,46 +152,76 @@ export async function loadKnowledgeProjectionSource(
     const claimFilter = scope
       ? and(eq(claims.orgId, orgId), inArray(claims.subjectId, objectIds))
       : eq(claims.orgId, orgId)
-    const [objectRows, claimRows, evidenceRows] = await Promise.all([
-      db
-        .select({
-          id: objects.id,
-          kind: objects.kind,
-          deduplicationKey: objects.deduplicationKey,
-          payload: objects.payload,
-        })
-        .from(objects)
-        .where(objectFilter),
-      db
-        .select({
-          id: claims.id,
-          subjectId: claims.subjectId,
-          objectId: claims.objectId,
-          predicate: claims.predicate,
-          aggregatedConfidence: claims.aggregatedConfidence,
-          validFrom: claims.validFrom,
-          validTo: claims.validTo,
-          firstObservedAt: claims.firstObservedAt,
-          status: claims.status,
-        })
-        .from(claims)
-        .where(claimFilter),
-      db
-        .select({
-          claimId: claimEvidence.claimId,
-          sourceType: claimEvidence.sourceType,
-          logicalSourceKey: claimEvidence.logicalSourceKey,
-        })
-        .from(claimEvidence)
-        .where(
-          scope
-            ? inArray(
-                claimEvidence.claimId,
-                db.select({ id: claims.id }).from(claims).where(claimFilter),
+    const [objectRows, targetRows, claimRows, evidenceRows] = await Promise.all(
+      [
+        db
+          .select({
+            id: objects.id,
+            kind: objects.kind,
+            deduplicationKey: objects.deduplicationKey,
+            payload: objects.payload,
+          })
+          .from(objects)
+          .where(objectFilter),
+        // A link of this Workspace to an object of another Workspace is
+        // dropped. The note of the drop names the target, as in upgrade step
+        // 1, so the target comes with its name only.
+        scope
+          ? db
+              .select({
+                id: objects.id,
+                kind: objects.kind,
+                deduplicationKey: objects.deduplicationKey,
+                payload: sql<
+                  Record<string, unknown>
+                >`jsonb_strip_nulls(jsonb_build_object('title', ${objects.payload}->'title', 'name', ${objects.payload}->'name'))`,
+              })
+              .from(objects)
+              .where(
+                and(
+                  eq(objects.orgId, orgId),
+                  inArray(
+                    objects.id,
+                    db
+                      .select({ id: claims.objectId })
+                      .from(claims)
+                      .where(claimFilter),
+                  ),
+                  sql`not (${objectFilter})`,
+                ),
               )
-            : undefined,
-        ),
-    ])
+          : [],
+        db
+          .select({
+            id: claims.id,
+            subjectId: claims.subjectId,
+            objectId: claims.objectId,
+            predicate: claims.predicate,
+            aggregatedConfidence: claims.aggregatedConfidence,
+            validFrom: claims.validFrom,
+            validTo: claims.validTo,
+            firstObservedAt: claims.firstObservedAt,
+            status: claims.status,
+          })
+          .from(claims)
+          .where(claimFilter),
+        db
+          .select({
+            claimId: claimEvidence.claimId,
+            sourceType: claimEvidence.sourceType,
+            logicalSourceKey: claimEvidence.logicalSourceKey,
+          })
+          .from(claimEvidence)
+          .where(
+            scope
+              ? inArray(
+                  claimEvidence.claimId,
+                  db.select({ id: claims.id }).from(claims).where(claimFilter),
+                )
+              : undefined,
+          ),
+      ],
+    )
 
     const sourceByClaim = new Map<string, string>()
     for (const row of evidenceRows) {
@@ -211,7 +241,7 @@ export async function loadKnowledgeProjectionSource(
 
     return {
       ...maps,
-      objects: objectRows.map((row) => ({
+      objects: [...objectRows, ...targetRows].map((row) => ({
         id: row.id,
         kind: row.kind,
         deduplicationKey:

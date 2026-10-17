@@ -156,20 +156,37 @@ async function projection(workspaceId: string, scoped: boolean) {
   return {
     objectIds: source.objects.map((row) => row.id).sort(),
     files: planned.files,
+    droppedLinks: planned.droppedLinks.map((link) => ({
+      from: link.from.id,
+      predicate: link.predicate,
+      to: link.to && {
+        id: link.to.id,
+        name: (link.to.payload as { name?: string }).name,
+      },
+    })),
   }
 }
 
 it("reads only the rows of a Workspace that is not the first, with the same projection as the full read", async () => {
   const scoped = await projection(second, true)
   const full = await projection(second, false)
-  // Only the rows of the second Workspace.
+  // The rows of the second Workspace, and the target of its dropped link
+  // with its name only.
   expect(scoped.objectIds).toEqual(
-    [object.ownService, object.ownLibrary].sort(),
+    [object.ownService, object.ownLibrary, object.sharedService].sort(),
   )
   expect(scoped.files).toEqual(full.files)
   expect(scoped.files.map((file) => file.path).sort()).toEqual([
     "knowledge/libraries/cart.md",
     "knowledge/services/checkout.md",
+  ])
+  expect(scoped.droppedLinks).toEqual(full.droppedLinks)
+  expect(scoped.droppedLinks).toEqual([
+    {
+      from: object.ownService,
+      predicate: "CALLS",
+      to: { id: object.sharedService, name: "Billing" },
+    },
   ])
 })
 
@@ -180,4 +197,5 @@ it("reads the rows of the first Workspace with the same projection as the full r
     [object.sharedService, object.sharedLibrary].sort(),
   )
   expect(scoped.files).toEqual(full.files)
+  expect(scoped.droppedLinks).toEqual(full.droppedLinks)
 })
