@@ -72,7 +72,7 @@ export function repositoriesListOptions(orgSlug: string) {
       const res = await client[":orgSlug"].api.v1.repositories.$get({
         param: { orgSlug },
       })
-      const json = await readApiJson<{ items: Repository[] }>(res, {
+      const json = await readApiJson(res, {
         message: "Failed to fetch repositories",
       })
       return json.items

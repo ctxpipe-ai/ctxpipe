@@ -38,14 +38,14 @@ export type KnowledgeGraphCosmographCanvasHandle = {
   fitView: () => void
   fitToIds: (ids: string[], options?: FitToIdsOptions) => void
   focusNode: (id: string) => void
-  /** Zoom so the node and its 1-hop neighbours fit the viewport — contextual
+  /** Zoom so the node and its 1-hop neighbors fit the viewport — contextual
    * framing for deep-link landings, unlike `focusNode` which over-zooms. */
   focusNeighbourhood: (id: string) => void
   selectPoints: (ids: string[]) => void
-  /** Focus points plus their 1-hop neighbours; used to keep incident edges
+  /** Focus points plus their 1-hop neighbors; used to keep incident edges
    * visually bright while preserving the caller's smaller focus list. */
   selectPointsWithAdjacentEdges: (ids: string[]) => void
-  /** Node + its 1-hop neighbours; others dim. */
+  /** Node + its 1-hop neighbors; others dim. */
   selectNeighbourhood: (id: string) => void
   unselectAll: () => void
   clearSelectionFilters: () => void

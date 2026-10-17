@@ -435,6 +435,7 @@ export const CtaButtonStyle: Story = {
     expect(face.color).not.toBe(face.backgroundColor)
     expect(face.fontSize).toBe("12px")
     expect(face.fontWeight).toBe("400")
+    await document.fonts.ready
     expect(sync.getBoundingClientRect().height).toBeLessThanOrEqual(28)
     expect(sync.querySelector("svg.tabler-icon-external-link")).toBeNull()
     const rest = face.backgroundColor
@@ -464,13 +465,16 @@ export const BranchLabel: Story = {
     )
     const text = label.querySelector("span.truncate")
     if (!(text instanceof HTMLElement)) throw new Error("Branch text missing")
+    await document.fonts.ready
     expect(text.scrollWidth).toBeGreaterThan(text.clientWidth)
     await userEvent.hover(label)
     await new Promise((resolve) => setTimeout(resolve, 400))
-    expect(  // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
+    expect(
+      // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByRole("tooltip"),
     ).toBeNull()
-    expect(  // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
+    expect(
+      // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByText(
         /ctxpipe\/chat\/conv_1/,
       ),

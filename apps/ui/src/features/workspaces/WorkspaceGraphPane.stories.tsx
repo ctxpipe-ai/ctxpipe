@@ -60,7 +60,7 @@ export const Loading: Story = {
 export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.queryByText(/but no edges yet/)).toBeNull()  // play-timing: ok the pane draws this note from props, with no request
+    await expect(canvas.queryByText(/but no edges yet/)).toBeNull() // play-timing: ok the pane draws this note from props, with no request
   },
   args: {
     pending: false,
