@@ -54,7 +54,7 @@ const github = setupServer(
 )
 
 function cookiePairs(response: Response): string[] {
-  return response.headers.getSetCookie().map((part) => part.split(";")[0])
+  return response.headers.getSetCookie().map((part) => part.split(";")[0] ?? "")
 }
 
 function getSession(cookie: string) {
