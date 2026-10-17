@@ -126,7 +126,6 @@ export const docsWorkspace: Workspace = {
   hydrateStatus: "ready",
   hydrateError: null,
   readOnlyReason: null,
-  upgradeNeeded: false,
   mostRecentConversationId: "conv_1",
   createdAt: "2026-08-16T09:00:00.000Z",
   updatedAt: "2026-08-16T10:00:00.000Z",
