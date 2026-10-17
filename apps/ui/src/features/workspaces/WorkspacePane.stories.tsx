@@ -546,6 +546,108 @@ export const ReadOnly: Story = {
   },
 }
 
+const legacyPath = "knowledge/services/tools-cli.md"
+const legacyReason =
+  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+
+/** The editor of the open file takes keys only when it is editable. */
+async function expectFileEditable(
+  canvasElement: HTMLElement,
+  body: string,
+  editable: boolean,
+) {
+  // The file shows first: the check below is on a settled page.
+  await waitFor(() => {
+    expect(textInShadows(canvasElement)).toContain(body)
+  })
+  await waitFor(() => {
+    expect(
+      Boolean(findInShadows(canvasElement, "[contenteditable='true']")),
+    ).toBe(editable)
+  })
+}
+
+/**
+ * Knowledge from before Workspaces that hydrate serves from Postgres. It is
+ * not in git, so the Files pane shows the reason and no editor.
+ */
+export const LegacyKnowledgeReadOnly: Story = {
+  args: {
+    pane: { kind: "file", path: legacyPath },
+    fileTabs: [legacyPath],
+    previewPath: legacyPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: legacyPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces\/[^/]+\/files\/blob$/.test(
+                new URL(request.url).pathname,
+              ) && new URL(request.url).searchParams.get("path") === legacyPath,
+            () =>
+              HttpResponse.json({
+                path: legacyPath,
+                body: "# Tools CLI\n\nThe release tools.\n",
+                binary: false,
+                readOnlyReason: legacyReason,
+              }),
+          ),
+          ...gitFilesHandlers,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText(legacyReason)).toBeVisible()
+    })
+    await expectFileEditable(canvasElement, "The release tools.", false)
+  },
+}
+
+/** A file in git of a writable Workspace opens in the editor. */
+export const GitFileEditable: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath],
+    previewPath: ledgerPath,
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+      pane: serializePane({ kind: "file", path: ledgerPath }),
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: gitFilesHandlers,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const firstLine =
+      (docsWorkspaceGitBlobs[ledgerPath] ?? "").split("\n").find(Boolean) ?? ""
+    await expectFileEditable(
+      canvasElement,
+      firstLine.replace(/^#+\s*/, ""),
+      true,
+    )
+    expect(
+      within(canvasElement).queryByText(legacyReason),
+    ).not.toBeInTheDocument()
+  },
+}
+
 const manyFileTabs = [
   ...Array.from(
     { length: 14 },

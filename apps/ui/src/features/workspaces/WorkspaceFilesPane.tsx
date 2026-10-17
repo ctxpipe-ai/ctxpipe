@@ -1108,7 +1108,7 @@ function CodesearchGitFilePreview(
   return <GitFilePreviewBody {...props} data={data} />
 }
 
-export function GitFilePreviewBody(props: {
+function GitFilePreviewBody(props: {
   orgSlug: string
   workspaceSlug: string
   conversationId?: string
