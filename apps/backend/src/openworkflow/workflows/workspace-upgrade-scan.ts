@@ -4,7 +4,6 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
-import { stopOrphanedReingestRuns } from "../../domain/upgrades/stop-orphans.js"
 import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
@@ -15,6 +14,7 @@ import {
   scanWorkspaceReingest,
   scanWorkspaceUpgrade,
 } from "../../domain/upgrades/scan.js"
+import { stopOrphanedReingestRuns } from "../../domain/upgrades/stop-orphans.js"
 import {
   ensureOrgFirstWorkspace,
   listOrgWorkspaces,
