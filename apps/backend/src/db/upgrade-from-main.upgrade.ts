@@ -71,6 +71,8 @@ const urls = vi.hoisted(() => {
  *    hydrate records format 3 with no direct write, and the re-ingestion is
  *    ready.
  * 4. Rollback: main's code reads the upgraded database.
+ * 5. Rollback window: main's code adds a connection and deletes one, and the
+ *    next migrate brings the webhook directory back in line.
  *
  * Inputs: DATABASE_URL (a role that can CREATE DATABASE and CREATE ROLE),
  * MAIN_TREE (a checkout of origin/main with its dependencies installed).
@@ -85,6 +87,7 @@ const GITHUB_CONNECTION = "con_main_github"
 const WORKSPACE_REPO = "repo_main_context"
 const WORKSPACE_URL = "https://github.com/fixture/hydration-contract"
 const PULLS = "https://api.github.com/repos/fixture/hydration-contract/pulls"
+const SLACK_TEAM = "T0ROLLBACK"
 const LINEAR_WORKSPACE = "5f0c1d2e-aaaa-4bbb-8ccc-000000000001"
 const LINEAR_CONFIG = `version: 1
 source: linear
@@ -161,21 +164,14 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
   }
 }
 
-/**
- * Two read paths of main's code (the repository list of the org and its
- * connections), run from the main checkout as main runs: as the owner role.
- */
-async function readWithMain(): Promise<unknown> {
-  const script = join(mainTree, "apps/backend", `.upgrade-read-${suffix}.mts`)
+/** Run a script with main's code from the main checkout, as main runs: as the owner role. */
+async function runWithMain(body: string): Promise<unknown> {
+  const script = join(mainTree, "apps/backend", `.upgrade-main-${suffix}.mts`)
   writeFileSync(
     script,
     `const { initDb, closeDb } = await import("./src/db/client.ts")
-const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
-const { listOrgConnections } = await import("./src/models/org-connections.ts")
 initDb(process.env.DATABASE_URL)
-const repositories = await listRepositoriesForOrg(${JSON.stringify(ORG.id)})
-const connections = await listOrgConnections(${JSON.stringify(ORG.id)})
-process.stdout.write("\\n" + JSON.stringify({ repositories: repositories.map((r) => [r.id, r.name, r.gitUrl, r.githubConnectionId]).sort(), connections: connections.map((c) => [c.id, c.type]).sort() }) + "\\n")
+${body}
 await closeDb()
 process.exit(0)
 `,
@@ -191,6 +187,31 @@ process.exit(0)
   } finally {
     rmSync(script, { force: true })
   }
+}
+
+/** Two read paths of main's code: the repository list of the org and its connections. */
+function readWithMain(): Promise<unknown> {
+  return runWithMain(`const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
+const { listOrgConnections } = await import("./src/models/org-connections.ts")
+const repositories = await listRepositoriesForOrg(${JSON.stringify(ORG.id)})
+const connections = await listOrgConnections(${JSON.stringify(ORG.id)})
+process.stdout.write("\\n" + JSON.stringify({ repositories: repositories.map((r) => [r.id, r.name, r.gitUrl, r.githubConnectionId]).sort(), connections: connections.map((c) => [c.id, c.type]).sort() }) + "\\n")`)
+}
+
+/**
+ * In the rollback window, main's code adds a Slack connection and deletes the
+ * Linear connection. main writes `connections` only, not the directory.
+ */
+function writeWithMain(): Promise<unknown> {
+  return runWithMain(`const { withOrgDbContext } = await import("./src/db/client.ts")
+const { upsertSlackConnectionFromOAuth } = await import("./src/models/slack-connector.ts")
+const { deleteLinearConnectionById } = await import("./src/models/linear-connector.ts")
+const result = await withOrgDbContext(${JSON.stringify(ORG.id)}, async () => {
+  const slack = await upsertSlackConnectionFromOAuth({ orgId: ${JSON.stringify(ORG.id)}, env: { AUTH_SECRET: "rollback-window-secret-at-least-32-chars" }, ownerUserId: "user_main_admin", botToken: "xoxb-rollback-window", teamId: ${JSON.stringify(SLACK_TEAM)} })
+  const deleted = await deleteLinearConnectionById(${JSON.stringify(ORG.id)}, "con_main_linear")
+  return { slack: slack.id, deleted }
+})
+process.stdout.write("\\n" + JSON.stringify(result) + "\\n")`)
 }
 
 /** The org as main kept it, in main's schema. */
@@ -749,4 +770,30 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   // 4. Rollback: the code of main reads the upgraded database as it read
   // the database of main.
   expect(await readWithMain()).toEqual(mainRead)
+
+  // 5. In the rollback window main adds one connection and deletes one. The
+  // next migrate makes the webhook directory agree with `connections` again.
+  phase("main writes in the rollback window")
+  const written = (await writeWithMain()) as { slack: string; deleted: boolean }
+  expect(written.deleted).toBe(true)
+  const directory = () =>
+    owner(
+      async (db) =>
+        (
+          await db.query(
+            `SELECT connection_id, type, slack_team_id FROM connection_directory ORDER BY connection_id`,
+          )
+        ).rows,
+    )
+  expect(await directory()).toEqual([
+    { connection_id: GITHUB_CONNECTION, type: "github", slack_team_id: null },
+    { connection_id: "con_main_linear", type: "linear", slack_team_id: null },
+  ])
+  await run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
+  expect(await directory()).toEqual(
+    [
+      { connection_id: GITHUB_CONNECTION, type: "github", slack_team_id: null },
+      { connection_id: written.slack, type: "slack", slack_team_id: SLACK_TEAM },
+    ].sort((a, b) => a.connection_id.localeCompare(b.connection_id)),
+  )
 })
