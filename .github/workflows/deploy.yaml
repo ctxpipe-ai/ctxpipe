@@ -194,8 +194,11 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: bash scripts/railway-set-regions.sh
 
-      - name: Ensure Neon ctxpipe_app role exists
-        run: terraform apply -auto-approve -target=module.ctxpipe.neon_role.app
+      # Only the password goes into state here. Migrate creates the role in
+      # SQL with it (ADR-042 mode a), before the full apply gives the services
+      # the app URL.
+      - name: Ensure the ctxpipe_app password exists
+        run: terraform apply -auto-approve -target=module.ctxpipe.random_password.app_database
 
       - uses: pnpm/action-setup@v4
 
@@ -216,16 +219,23 @@ jobs:
         working-directory: ${{ github.workspace }}
         run: pnpm install --frozen-lockfile
 
-      # The one migrate entry point (the same as Compose and CDK): Drizzle,
-      # OpenWorkflow, every backfill, then grants. Terraform made the role above
-      # and owns its password, so migrate gets no DATABASE_APP_PASSWORD and only
-      # grants (ADR-042). Migrate runs before the new images deploy.
+      # The one migrate entry point (the same as Compose and CDK): app role,
+      # Drizzle, OpenWorkflow, every backfill, then grants. The step reads the
+      # password from Terraform state and masks it before use. No `env:` entry
+      # and no step output holds it, so GitHub never prints it. Migrate runs
+      # before the new images deploy.
       - name: Migrate production database
         timeout-minutes: 20
         working-directory: ${{ github.workspace }}/apps/backend
         env:
           DATABASE_URL: ${{ secrets.PRODUCTION_DATABASE_URL }}
-        run: pnpm exec tsx src/db/migrate.ts
+        run: |
+          set -euo pipefail
+          DATABASE_APP_PASSWORD="$(terraform -chdir="$GITHUB_WORKSPACE/infra" output -raw ctxpipe_app_password)"
+          [[ -n "$DATABASE_APP_PASSWORD" ]] || { echo "Terraform state has no ctxpipe_app password"; exit 1; }
+          echo "::add-mask::$DATABASE_APP_PASSWORD"
+          export DATABASE_APP_PASSWORD
+          pnpm exec tsx src/db/migrate.ts
 
       # Provider Update() serviceConnects the image for every environment and
       # redeploys previews. App image tags are ignore_changes; this step
