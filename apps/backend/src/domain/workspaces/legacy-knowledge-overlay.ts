@@ -10,6 +10,7 @@ import {
 } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { CODE_FORMAT, INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Why an edit of a main-era knowledge path is refused. */
 export const LEGACY_KNOWLEDGE_READ_ONLY =
@@ -46,6 +47,11 @@ export async function legacyKnowledgeOverlay(input: {
    * get a file. The other objects are still link targets.
    */
   onlyRepositoryUrls?: ReadonlySet<string>
+  /**
+   * The GitHub repositories (`owner/name`, lower case) that a re-ingestion
+   * did. Their objects get no file at any format: git has their knowledge.
+   */
+  reingestedRepositories: ReadonlySet<string>
   source: {
     firstWorkspaceId: string | null
     workspaceByRepositoryId: ReadonlyMap<string, string>
@@ -67,10 +73,13 @@ export async function legacyKnowledgeOverlay(input: {
       : null
   }
   const inScope = (repositoryId: string | null) => {
-    if (!input.onlyRepositoryUrls) return true
     const url = repositoryId
       ? source.repositoryGitUrlById.get(repositoryId)
       : undefined
+    const name = url ? githubRepoFullNameFromWorkspaceUrl(url) : null
+    if (name && input.reingestedRepositories.has(name.toLowerCase()))
+      return false
+    if (!input.onlyRepositoryUrls) return true
     return (
       !!url &&
       input.onlyRepositoryUrls.has(normalizeWorkspaceRepositoryUrl(url))

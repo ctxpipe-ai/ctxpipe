@@ -1,3 +1,5 @@
+import { mkdir, writeFile } from "node:fs/promises"
+import { join } from "node:path"
 import { eq } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
@@ -23,6 +25,7 @@ import {
 import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import { reingestUpgradeKey } from "../upgrades/reingest.js"
 import { scanWorkspaceReingest } from "../upgrades/scan.js"
+import { workspaceFormatFile } from "./workspace-format.js"
 
 const TOOLS_SOURCE = {
   path: "sources/github/example/tools.md",
@@ -253,6 +256,128 @@ it(
 
           expect(await reproject(f)).toMatchObject({ hydrated: true })
           expect(await legacyUnitPaths(f)).toEqual([])
+        }),
+    )
+  },
+)
+
+/**
+ * The operator reverts the upgrade pull request after the re-ingestion did a
+ * repository. The revert deletes the files that upgrade step 1 wrote, and
+ * the Workspace is below format 3 again.
+ */
+it(
+  "shows each main-era item once after a revert of the upgrade pull request",
+  { timeout: 120_000 },
+  async () => {
+    if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
+    await withNativeHydrationFixture(
+      { github: true, format: 2, files: [TOOLS_SOURCE] },
+      (f) =>
+        withToolsKnowledge(f, async () => {
+          // Knowledge of a repository that is not a source: step 1 writes
+          // it to git.
+          const docsId = `repo_docs_${f.id}`
+          await withOrgDbContext(f.org.id, async (db) => {
+            await db.insert(repositories).values({
+              id: docsId,
+              orgId: f.org.id,
+              name: "docs",
+              gitUrl: "https://gitlab.com/example/docs.git",
+            })
+            await db.insert(objects).values({
+              id: `obj_handbook_${f.id}`,
+              orgId: f.org.id,
+              kind: "Service",
+              deduplicationKey: `svc:${docsId}:handbook`,
+              payload: { name: "Handbook", summary: "How the team works." },
+            })
+          })
+          const handbook = "knowledge/services/handbook.md"
+          await f.worker.start()
+          expect(await f.handle.result({ timeoutMs: 60_000 })).toMatchObject({
+            hydrated: true,
+          })
+          expect(await legacyUnitPaths(f)).toEqual(
+            [handbook, ...TOOLS_LEGACY_PATHS].sort(),
+          )
+
+          const commit = (message: string, paths: string[]) => {
+            f.git("add", "--", ...paths)
+            f.git(
+              "-c",
+              "user.name=Fixture",
+              "-c",
+              "user.email=fixture@example.test",
+              "commit",
+              "-q",
+              "-m",
+              message,
+            )
+          }
+          const push = () => f.git("push", "-q", f.remote, "HEAD:main")
+          // The upgrade pull request: format 3, and the kept item in git.
+          const format = workspaceFormatFile(3)
+          await writeFile(join(f.directory, format.path), format.content)
+          await mkdir(join(f.directory, "knowledge/services"), {
+            recursive: true,
+          })
+          await writeFile(
+            join(f.directory, handbook),
+            "---\nkind: Service\nname: Handbook\n---\n# Handbook\n\nHow the team works.\n",
+          )
+          commit("Upgrade the Workspace to format 3", [format.path, handbook])
+          const upgrade = f.git("rev-parse", "HEAD")
+          // The re-ingestion did the tools repository.
+          await writeFile(
+            join(f.directory, "knowledge/services/tools.md"),
+            "---\nkind: Service\nname: Tools\n---\n# Tools\n\nThe release tools.\n",
+          )
+          commit("Re-ingest example/tools", ["knowledge/services/tools.md"])
+          await withOrgIdContext(f.org, () =>
+            insertWorkspaceUpgradeRow({
+              workspaceId: f.workspaceId,
+              generation: 1,
+              status: "completed",
+              upgrade: {
+                key: reingestUpgradeKey("ingest-test"),
+                fromFormat: 3,
+                targetFormat: 3,
+                repositories: [
+                  {
+                    repository: "example/tools",
+                    sha: f.sha,
+                    runId: null,
+                    status: "done",
+                    report: [],
+                  },
+                ],
+              },
+            }),
+          )
+          // The operator reverts the upgrade pull request.
+          f.git(
+            "-c",
+            "user.name=Fixture",
+            "-c",
+            "user.email=fixture@example.test",
+            "revert",
+            "--no-edit",
+            upgrade,
+          )
+          push()
+
+          expect(await reproject(f)).toMatchObject({ hydrated: true })
+          // The kept item comes back from Postgres, and the tools knowledge
+          // is only the file of the re-ingestion.
+          expect(await legacyUnitPaths(f)).toEqual([handbook])
+          const paths = await withOrgIdContext(f.org, async () =>
+            (await listWorkspaceKnowledgeUnits(f.workspaceId)).units.map(
+              (unit) => unit.path,
+            ),
+          )
+          expect(paths.filter((path) => path === handbook)).toHaveLength(1)
+          expect(paths).toContain("knowledge/services/tools.md")
         }),
     )
   },

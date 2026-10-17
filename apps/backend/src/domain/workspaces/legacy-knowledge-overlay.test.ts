@@ -72,6 +72,7 @@ function overlay(
     files,
     deletedPaths: options.deletedPaths ?? new Set(),
     onlyRepositoryUrls: options.onlyRepositoryUrls,
+    reingestedRepositories: new Set(),
     source: { ...source, objects },
   })
 }

@@ -245,6 +245,9 @@ export function defineWorkspaceHydrateWorkflow() {
                     ? await listMarkdownFilesAtGitSha({
                         includeIntroducingCommits: true,
                         deletedPaths,
+                        // An upgrade or its revert moves files: its deletes
+                        // are not deletes of a person.
+                        layoutPath: WORKSPACE_FORMAT_PATH,
                         ...SOURCES_TREE_READ,
                         extraPaths: [
                           ...SOURCES_TREE_READ.extraPaths,
@@ -457,9 +460,13 @@ export function defineWorkspaceHydrateWorkflow() {
                     workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
                   )
                 : null
+              // A repository that a re-ingestion did gets no overlay at any
+              // scope: a revert of the upgrade must not show it twice.
+              const done = overlayScope
+                ? await reingestedRepositories(workspace.id)
+                : new Set<string>()
               let onlyRepositoryUrls: Set<string> | undefined
               if (overlayScope === "sources") {
-                const done = await reingestedRepositories(workspace.id)
                 onlyRepositoryUrls = new Set(
                   githubSourceRepositories(sourcesFile, null, sourceFiles, {
                     previousRows: previousSourceRows,
@@ -480,6 +487,7 @@ export function defineWorkspaceHydrateWorkflow() {
                       deletedPaths,
                       files,
                       onlyRepositoryUrls,
+                      reingestedRepositories: done,
                       source: await loadKnowledgeProjectionSource({
                         workspaceId: workspace.id,
                       }),
