@@ -33,7 +33,7 @@ const repositoryIngestionInputSchema = z.object({
   requestId: z.string().min(1).optional(),
   /** Checkpointed with connector writes so replay cannot switch installations. */
   githubConnectionId: z.string().nullable().optional(),
-  /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
+  /** Ignore the last ingested commit: index in full codesearch mode. */
   fullReingest: z.boolean().optional(),
 })
 
