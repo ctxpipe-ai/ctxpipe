@@ -107,6 +107,21 @@ export function workspaceUpgradeStartHandler(
   )
 }
 
+/** `POST /workspaces/:slug/upgrades/check`. Each call adds its path to `requests`. */
+export function workspaceUpgradeCheckHandler(
+  options: { requests?: string[]; onChecked?: () => void } = {},
+) {
+  return http.post(
+    ({ request }) =>
+      /\/workspaces\/[^/]+\/upgrades\/check$/.test(pathnameOf(request)),
+    ({ request }) => {
+      options.requests?.push(pathnameOf(request))
+      options.onChecked?.()
+      return HttpResponse.json({ queued: true }, { status: 202 })
+    },
+  )
+}
+
 /**
  * `GET /workspace-upgrades/pending`: the pending upgrades of the org, keyed
  * by Workspace slug. A Workspace with no item is left out, as the server

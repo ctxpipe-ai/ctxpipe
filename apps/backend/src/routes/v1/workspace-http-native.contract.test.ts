@@ -370,6 +370,30 @@ it(
 )
 
 it(
+  "refuses the check-again route for a caller that is not an org admin, and queues no tip check",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const before = (await workflowNames(f.org.id, f.workspaceId)).filter(
+        (name) => name === "workspace-tip-check",
+      ).length
+      // The test session has no org member role, so the admin gate refuses it.
+      const res = await app.request("/workspaces/knowledge/upgrades/check", {
+        method: "POST",
+      })
+      expect(res.status).toBe(403)
+      expect(
+        (await workflowNames(f.org.id, f.workspaceId)).filter(
+          (name) => name === "workspace-tip-check",
+        ).length,
+      ).toBe(before)
+    })
+  },
+)
+
+it(
   "reports a legacy projection graph as ready so the graph route decides",
   { timeout: 45_000 },
   async () => {

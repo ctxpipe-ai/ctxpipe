@@ -123,3 +123,15 @@ export async function startWorkspaceUpgrade(
     message: "Failed to start the upgrade",
   })
 }
+
+/** Starts the tip check now: ctx| reads the default branch of the Workspace repository. */
+export async function checkWorkspaceUpgrades(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<{ queued: boolean }> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.workspaces[
+    ":workspaceSlug"
+  ].upgrades.check.$post({ param: { orgSlug, workspaceSlug } })
+  return readApiJson(res, { message: "Failed to check the upgrade" })
+}
