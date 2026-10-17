@@ -44,7 +44,12 @@ const config = withMDX({
       },
       {
         source: "/docs/git-repositories/install-mcps-via-pr",
-        destination: "/docs/mcp/install-mcps-via-pr",
+        destination: "/docs/mcp/mcp-docs",
+        permanent: false,
+      },
+      {
+        source: "/docs/mcp/install-mcps-via-pr",
+        destination: "/docs/mcp/mcp-docs",
         permanent: false,
       },
       {
