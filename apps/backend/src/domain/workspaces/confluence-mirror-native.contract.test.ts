@@ -15,6 +15,7 @@ import { confluenceSyncSpace } from "../../openworkflow/workflows/confluence-syn
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 it.each(["full", "space", "failed", "rebind"] as const)(
   "captures Confluence %s with scoped deletion and transient credentials",
@@ -310,7 +311,7 @@ process.exit(result.status ?? 1);
           for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
           await withOrgDbContext(f.org.id, (db) =>

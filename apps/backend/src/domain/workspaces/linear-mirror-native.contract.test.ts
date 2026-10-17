@@ -16,6 +16,7 @@ import { linearSyncEntity } from "../../openworkflow/workflows/linear-sync-entit
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 it.each(["entity", "full", "rebind"] as const)(
   "captures a Linear %s deletion without persisting its credential and runs one native mirror child",
@@ -249,7 +250,7 @@ process.exit(result.status ?? 1);
           for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
         }
