@@ -2,14 +2,21 @@
 # The run part of the ingestion v2 Docker proof (CTX-630). The workflow
 # .github/workflows/ingestion-v2-proof.yaml starts the Compose `deploy` stack,
 # then runs this script. Environment: REPOS (URLs, separated by spaces, commas
-# or new lines), WORKSPACE_REPO (URL), SPEND_CAP_USD, MODE (shadow).
+# or new lines), WORKSPACE_REPO (URL), SPEND_CAP_USD, MODE (shadow),
+# MODEL_PROVIDER_API_KEY (only to hash it for the credential check).
+# Before any run starts, it refuses when the p90 estimate for all
+# repositories is over the cap. While a run goes, it stops the run when the
+# finished spend plus the reserve of each running model step reaches the cap
+# (`spendGuard` in ingestionV2ProofBudget.ts). After the first step of each
+# shard, it checks that the shard sandbox holds no credential.
 # It writes one table row for each repository to $GITHUB_STEP_SUMMARY and
 # exits 1 when any repository fails.
 set -euo pipefail
 
 proof_script=apps/backend/src/scripts/ingestionV2Proof.ts
 summary=${GITHUB_STEP_SUMMARY:-/dev/stdout}
-poll_seconds=15
+poll_seconds=5
+credential_check=scripts/ci/ingestion-v2-sandbox-credential-check.sh
 run_timeout_minutes=150
 
 [ "${MODE:-}" = shadow ] || { echo "::error::Only the shadow mode is built"; exit 1; }
@@ -33,6 +40,63 @@ echo "::endgroup::"
 org_id=$(jq -r .orgId <<<"$seed")
 count=$(jq '.repositories | length' <<<"$seed")
 
+echo "::group::Estimate the cost"
+estimate=$(proof ESTIMATE estimate --org-id "$org_id" --repos "$repo_list" --cap "$SPEND_CAP_USD")
+echo "::endgroup::"
+[ -n "$estimate" ] || { echo "::error::The estimate printed no result"; exit 1; }
+estimate_line="p90 cost estimate for all repositories: $(jq -r .costUsd.high <<<"$estimate") USD (p50 $(jq -r .costUsd.low <<<"$estimate") USD), spend cap $SPEND_CAP_USD USD."
+echo "$estimate_line"
+if [ "$(jq -r '.refusal // empty' <<<"$estimate" | wc -c)" -gt 1 ]; then
+  {
+    echo "### Ingestion v2 proof (Docker, shadow mode)"
+    echo
+    echo "Not started. $(jq -r .refusal <<<"$estimate")"
+  } >>"$summary"
+  echo "::error::$(jq -r .refusal <<<"$estimate")"
+  exit 1
+fi
+
+# Hashes of the secrets that must not be in a sandbox. The values are never
+# printed, and only the hashes go into the sandbox.
+forbidden_hashes=""
+if [ -n "${MODEL_PROVIDER_API_KEY:-}" ]; then
+  forbidden_hashes=$(printf '%s' "$MODEL_PROVIDER_API_KEY" | sha256sum | cut -d' ' -f1)
+fi
+vault_hash=$(docker compose exec -T backend sh -c 'cat "$AGENT_VAULT_OWNER_PASSWORD_FILE" 2>/dev/null' |
+  tr -d '\r\n' | { read -r v || true; [ -z "$v" ] || printf '%s' "$v" | sha256sum | cut -d' ' -f1; } || true)
+[ -z "$vault_hash" ] || forbidden_hashes="$forbidden_hashes $vault_hash"
+
+# Run the credential check in each shard sandbox that has finished a first
+# step and has not been checked. Sets credential_checked and credential_failed.
+credential_checked=0
+credential_failed=0
+checked_ids=" "
+credential_findings=""
+check_credentials() {
+  local shards=$1 cid out
+  [ "$credential_checked" -lt "$shards" ] || return 0
+  for cid in $(docker compose exec -T dind docker --host unix:///var/run/docker.sock ps -q 2>/dev/null | tr -d '\r'); do
+    [ "$credential_checked" -lt "$shards" ] || break
+    case "$checked_ids" in *" $cid "*) continue ;; esac
+    out=$(docker compose exec -T dind docker --host unix:///var/run/docker.sock exec -i \
+      -u ctxpipe-agent -e "FORBIDDEN_SHA256=$forbidden_hashes" "$cid" sh -s \
+      <"$credential_check" 2>&1) || true
+    checked_ids="$checked_ids$cid "
+    # Names and counts only: the check prints no value.
+    if printf '%s\n' "$out" | grep -q '^SUMMARY '; then
+      credential_checked=$((credential_checked + 1))
+      echo "Credential check, sandbox ${cid:0:12}: $(printf '%s\n' "$out" | grep '^SUMMARY ')"
+      if printf '%s\n' "$out" | grep -q '^FINDING '; then
+        credential_failed=1
+        credential_findings="$credential_findings$(printf '%s\n' "$out" | grep '^FINDING ' | sed 's/^FINDING //' | paste -sd';' -);"
+        printf '%s\n' "$out" | grep '^FINDING ' | sed 's/^/::error::credential in the sandbox: /'
+      fi
+    else
+      echo "::warning::The credential check printed no summary in sandbox ${cid:0:12}: $(printf '%s\n' "$out" | head -n 3 | tr '\n' ' ')"
+    fi
+  done
+}
+
 {
   echo "### Ingestion v2 proof (Docker, shadow mode)"
   echo
@@ -42,7 +106,9 @@ count=$(jq '.repositories | length' <<<"$seed")
 
 total_spend=0
 failed=0
-over_cap() { awk -v a="$1" -v b="$SPEND_CAP_USD" 'BEGIN { exit !(a > b) }'; }
+over_cap() { awk -v a="$1" -v b="$SPEND_CAP_USD" 'BEGIN { exit !(a >= b) }'; }
+# The status of a run, with the spend guard of the whole proof.
+run_state() { proof STATUS status --run-id "$1" --spent-before "$total_spend" --cap "$SPEND_CAP_USD" || true; }
 
 for ((i = 0; i < count; i++)); do
   url=$(jq -r ".repositories[$i].url" <<<"$seed")
@@ -67,16 +133,31 @@ for ((i = 0; i < count; i++)); do
   killed=0
   note=""
   state=""
+  credential_checked=0
+  credential_failed=0
+  credential_findings=""
+  checked_ids=" "
+  shards_seen=0
   while :; do
-    state=$(proof STATUS status --run-id "$run_id" || true)
+    state=$(run_state "$run_id")
     [ -n "$state" ] || { sleep "$poll_seconds"; continue; }
-    run_spend=$(jq -r .spendUsd <<<"$state")
     if [ "$(jq -r .terminal <<<"$state")" = true ]; then break; fi
-    if over_cap "$(awk -v a="$total_spend" -v b="$run_spend" 'BEGIN { print a + b }')"; then
+    shards_seen=$(jq -r '[.shardsWithFirstStep, '"$shards_seen"'] | max' <<<"$state")
+    check_credentials "$shards_seen"
+    # Spent plus the reserve of each running model step reaches the cap: the
+    # run starts no new step. The running steps end inside their reserve.
+    if [ "$(jq -r .stop <<<"$state")" = true ]; then
+      echo "Spend guard: $(jq -r .spendUsd <<<"$state") USD spent in this run, $(jq -r .reservedUsd <<<"$state") USD reserved for $(jq -r .inFlightModelSteps <<<"$state") running model step(s)"
       proof CANCEL cancel --run-id "$run_id" >/dev/null
       note="stopped at the spend cap"
-      sleep "$poll_seconds"
-      state=$(proof STATUS status --run-id "$run_id" || true)
+      # Wait until the running steps end, so that the final spend is real.
+      drain_deadline=$(($(date +%s) + 600))
+      while [ "$(date +%s)" -lt "$drain_deadline" ]; do
+        sleep "$poll_seconds"
+        state=$(run_state "$run_id")
+        [ -n "$state" ] || continue
+        [ "$(jq -r .inFlightModelSteps <<<"$state")" = 0 ] && break
+      done
       break
     fi
     if [ "$kill_here" -eq 1 ] && [ "$killed" -eq 0 ] &&
@@ -89,7 +170,7 @@ for ((i = 0; i < count; i++)); do
     if [ "$(date +%s)" -gt "$deadline" ]; then
       proof CANCEL cancel --run-id "$run_id" >/dev/null
       note="timed out after $run_timeout_minutes minutes"
-      state=$(proof STATUS status --run-id "$run_id" || true)
+      state=$(run_state "$run_id")
       break
     fi
     sleep "$poll_seconds"
@@ -125,6 +206,14 @@ for ((i = 0; i < count; i++)); do
   fi
   [ "$partial" = 0 ] || note="${note:+$note; }$partial partial step(s)"
   [ "$unknown" = 0 ] || note="${note:+$note; }$unknown step(s) with unknown usage"
+  # Every shard that ran a step must have had its sandbox checked.
+  shards_seen=$(jq -r '[.shardsWithFirstStep, '"$shards_seen"'] | max' <<<"$state")
+  if [ "$credential_failed" -ne 0 ]; then
+    result="FAIL: credential in the sandbox ($credential_findings)"
+  elif [ "$credential_checked" -lt "$shards_seen" ] || [ "$credential_checked" -eq 0 ]; then
+    result="FAIL: the credential check ran in $credential_checked of $shards_seen shard sandboxes"
+  fi
+  note="${note:+$note; }credential check: $credential_checked sandbox(es), $([ "$credential_failed" -eq 0 ] && echo 0 || echo some) finding(s); highest step cost $(jq -r .maxStepCostUsd <<<"$state") USD"
   [ "${result%%:*}" = PASS ] || failed=1
   echo "| $name | $wall | $spend | $patches | $rejects | $result${note:+ ($note)} |" >>"$summary"
 
@@ -135,6 +224,7 @@ done
 
 {
   echo
-  echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend counts only the steps that reported usage."
+  echo "$estimate_line"
+  echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend is the cost of the finished steps; a step with no reported cost counts at the token price."
 } >>"$summary"
 exit "$failed"

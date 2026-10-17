@@ -5,7 +5,12 @@ name: Ingestion v2 proof (Docker)
 # sandbox host with Agent Vault), seeds a test org with one Workspace at
 # format 3, runs ingestion v2 in shadow mode for each repository, kills the
 # worker once during the last run, and writes one summary row for each
-# repository. The total model spend stops every run at `spend_cap_usd`.
+# repository. Before any run starts, the proof prints the p90 cost estimate of
+# the Upgrades UI and refuses to start when it is over `spend_cap_usd`. While
+# a run goes, the proof stops it when the finished spend plus a reserve for
+# each running model step reaches the cap. After the first step of each shard,
+# it checks that the shard sandbox holds no GitHub token, model key or vault
+# token, and it fails the proof when one is there.
 #
 # Repository secrets (names only):
 #   MODEL_PROVIDER_API_KEY  the model provider key
@@ -41,7 +46,7 @@ on:
         required: true
         type: string
       spend_cap_usd:
-        description: "Stop every run when the total model spend passes this amount (USD)."
+        description: "Refuse to start when the p90 estimate is over this amount, and stop every run when the model spend plus the reserve of running steps reaches it (USD)."
         required: true
         type: number
         default: 30
