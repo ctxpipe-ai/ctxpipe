@@ -188,6 +188,8 @@ test("rejects a secret that a reviewed exception does not name", () => {
 
 const sticky = (key) =>
   `      - uses: useblacksmith/stickydisk@v1\n        with:\n          key: ${key}\n          path: ~/.pnpm-store\n`
+const pinnedSticky = (key) =>
+  `      - uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1\n        with:\n          key: ${key}\n          path: ~/.pnpm-store\n`
 
 test("rejects a sticky disk that a production job and a PR job share", () => {
   rejects(
@@ -212,7 +214,7 @@ test("accepts a trusted job that hands a value to a branch-code job through the 
   const result = check(
     workflow(`  prepare:
     steps:
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v6
       - env:
           NEON_API_KEY: \${{ secrets.NEON_API_KEY }}
         run: source "\${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
@@ -240,7 +242,7 @@ ${headCheckout}${install}      - run: pnpm exec tsx src/db/migrate.ts
     needs: [migrate]
     steps:
       # No ref: the workflow commit. pnpm install runs in migrate.
-      - uses: useblacksmith/checkout@v1
+      - uses: actions/checkout@v6
       - run: |
           curl -fsSL -o railway.tar.gz "$URL"
           echo "$SHA256  railway.tar.gz" | sha256sum --check --strict
@@ -378,7 +380,7 @@ test("rejects a restore-keys prefix that a branch-code job writes", () => {
 
 test("accepts a production sticky disk and a PR sticky disk with a longer key", () => {
   const result = check({
-    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${pinnedSticky(`\${{ github.repository }}-pnpm-store`)}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
     ".github/workflows/w.yaml": `on: pull_request\njobs:\n  migrate:\n    steps:\n${sticky(`\${{ github.repository }}-pnpm-store-pr`)}${install}`,
   })
   assert.equal(result.stderr, "")
@@ -391,6 +393,63 @@ test("rejects a main-only job whose if: does not name main", () => {
       ".github/workflows/observability.yaml": `on: push\njobs:\n  apply:\n    if: github.event_name == 'push'\n    env:\n      T: \${{ secrets.RAILWAY_TOKEN }}\n    steps:\n${install}`,
     },
     /job apply is a main-only job/,
+  )
+})
+
+test("rejects a third-party action by tag in a job with a secret", () => {
+  rejects(
+    workflow(deployJob(`      - uses: nick-fields/retry@v4\n${tokenStep}`)),
+    /job deploy holds a secret and uses nick-fields\/retry@v4, a third-party action that is not pinned/,
+  )
+  rejects(
+    workflow(
+      deployJob(
+        `      - uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4\n      - uses: "dataaxiom/ghcr-cleanup-action@v1"\n${tokenStep}`,
+      ),
+    ),
+    /uses dataaxiom\/ghcr-cleanup-action@v1, a third-party action that is not pinned/,
+  )
+})
+
+test("accepts a pinned third-party action and actions/* by tag in a job with a secret, and any tag without a secret", () => {
+  const result = check(
+    workflow(`  deploy:
+    steps:
+      - uses: actions/checkout@v6
+      - uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
+${tokenStep}  build:
+    steps:
+      - uses: useblacksmith/checkout@v1
+`),
+  )
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects an unpinned third-party action in a production job", () => {
+  rejects(
+    {
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n      - uses: hashicorp/setup-terraform@v3\n      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    },
+    /deploy\.yaml:6: job terraform holds a secret and uses hashicorp\/setup-terraform@v3/,
+  )
+})
+
+test("applies every rule to a deploy.yaml job that is not a named production job", () => {
+  rejects(
+    {
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  release:\n    if: github.event_name != 'workflow_dispatch'\n    steps:\n${install}      - env:\n          NPM_TOKEN: \${{ secrets.NPM_TOKEN }}\n        run: echo\n`,
+    },
+    /job release holds a secret and runs a package manager/,
+  )
+})
+
+test("rejects a production job whose if: does not limit it to the push to main", () => {
+  rejects(
+    {
+      ".github/workflows/deploy.yaml": `on: push\njobs:\n  terraform:\n    steps:\n${install}      - env:\n          T: \${{ secrets.RAILWAY_API_TOKEN }}\n        run: echo\n`,
+    },
+    /job terraform is a production job, but its if: does not limit it to the push to main/,
   )
 })
 

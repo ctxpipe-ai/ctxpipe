@@ -27,8 +27,12 @@
 // flag checks each provider against the hashes in .terraform.lock.hcl), an
 // image build (also `docker compose … --build`), `make`, `sh -c`, and a git
 // fetch or checkout.
-// The production deploy (deploy.yaml) runs only for main, so the rules for
-// one job do not apply to it; the cache rule does.
+// - A job that holds a secret uses a third-party action (not `actions/…`)
+//   only when it is pinned by a 40-character commit SHA: a tag can move to
+//   other code. Put the version in a comment after the SHA.
+// The production jobs in productionJobs run only on a push to main, so the
+// rules for one job do not apply to them; the pin rule and the cache rule do.
+// Every other job of deploy.yaml gets all the rules.
 // The check reads each workflow line by line. It ignores comment lines.
 import { existsSync, readdirSync, readFileSync } from "node:fs"
 import { dirname, join } from "node:path"
@@ -36,6 +40,23 @@ import { fileURLToPath } from "node:url"
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..", "..")
 const production = join(".github", "workflows", "deploy.yaml")
+
+// Production deploy jobs that run untrusted code with production secrets, by
+// a decision of the team. Each one runs only on a push to main (the check
+// keeps its `if:` so), with merged code and a frozen lockfile, and the
+// production runtime trusts the same dependencies.
+const productionJobs = new Map(
+  Object.entries({
+    // `pnpm install`: migrate (tsx src/db/migrate.ts) and the cleanup of
+    // preview sandboxes (Vercel SDK) need the dependencies. The production
+    // Terraform variables, the Railway and Neon keys and the production
+    // database URL are in this job.
+    "deploy.yaml:terraform": "migrate and the sandbox cleanup need packages",
+    // `pnpm install`: the Forge CLI deploys the Forge app with the Forge
+    // token.
+    "deploy.yaml:forge_deploy": "the Forge CLI is a package",
+  }),
+)
 
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
@@ -63,8 +84,8 @@ const exceptions = new Map(
     // The model key is the spend-capped Preview key, not the production key.
     "mcp-evals.yaml:evals": [
       "PREVIEW_MODEL_PROVIDER_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "OPENAI_API_KEY",
+      "PREVIEW_ANTHROPIC_API_KEY",
+      "PREVIEW_OPENAI_API_KEY",
     ],
     // Ingests real repositories with a real model and the preview GitHub App.
     "ingestion-v2-proof.yaml:proof": [
@@ -112,6 +133,8 @@ const untrusted = [
   [/(^|[;&|(]|\brun:)\s*make\b/, "runs make"],
   [/\bsh\s+-c\b/, "runs `sh -c`"],
 ]
+// A third-party action pinned by a full commit SHA.
+const pinnedAction = /@[0-9a-f]{40}$/
 const scriptPath = /(?:^|[\s"'=(/}])(?:\.\/)?(scripts\/[\w./-]+)/g
 
 function code(text) {
@@ -245,6 +268,33 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
       }
     }
 
+    if (holdsSecret)
+      for (const { text, number } of job.lines) {
+        const action = /^\s+(?:-\s+)?uses:\s*['"]?([^\s'"#]+)/.exec(text)?.[1]
+        if (
+          action &&
+          !action.startsWith("actions/") &&
+          !action.startsWith("./") &&
+          !pinnedAction.test(action)
+        )
+          failures.push(
+            `${file}:${number}: job ${job.name} holds a secret and uses ${action}, a third-party action that is not pinned. Pin it by its 40-character commit SHA, with the version in a comment.`,
+          )
+      }
+
+    const productionJob = productionJobs.has(`${name}:${job.name}`)
+    if (productionJob) {
+      if (
+        !job.lines.some(({ text }) =>
+          /^ {4}if:.*github\.event_name != 'workflow_dispatch'/.test(text),
+        )
+      )
+        failures.push(
+          `${file}: job ${job.name} is a production job, but its if: does not limit it to the push to main.`,
+        )
+      continue
+    }
+
     if (mainOnly.has(`${name}:${job.name}`)) {
       if (
         !job.lines.some(({ text }) =>
@@ -256,7 +306,7 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
         )
       continue
     }
-    if (isProduction || !holdsSecret) continue
+    if (!holdsSecret) continue
     const where = (number) =>
       `${file}:${number}: job ${job.name} holds a secret and`
     for (const { text, number } of job.env)

@@ -45,7 +45,7 @@ jobs:
     # the Preview environment. This job runs pnpm install, so it never gets
     # the production key MODEL_PROVIDER_API_KEY. The name differs on purpose:
     # a missing environment secret falls back to a repository secret with the
-    # same name.
+    # same name. The client model keys have Preview names for the same reason.
     environment: Preview
     services:
       postgres:
@@ -93,12 +93,12 @@ jobs:
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - run: pnpm install --frozen-lockfile
@@ -165,8 +165,12 @@ jobs:
         working-directory: apps/backend
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # Preview names, so that a missing Preview secret can never fall
+          # back to a repository or organization secret with the plain name.
+          # run.ts stops with "Set <PROVIDER>_API_KEY" when a model of
+          # MCP_EVAL_MODELS has no key.
+          ANTHROPIC_API_KEY: ${{ secrets.PREVIEW_ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.PREVIEW_OPENAI_API_KEY }}
           MODELS: ${{ vars.MCP_EVAL_MODELS }}
           UPDATE_BASELINE: ${{ inputs.update_baseline }}
         run: |

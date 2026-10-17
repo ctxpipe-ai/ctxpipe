@@ -66,8 +66,12 @@ on:
 # gets a group of its own: in the PR group it could replace a queued real run.
 # A manual run must start from the PR branch (resolve_pr checks this), so its
 # ref name is the PR branch.
+# A PR close is not in this group: GitHub cancels a pending run of a group
+# when a newer run queues, so a push after the close could cancel the
+# cleanup. The cleanup jobs have a group of their own for each PR, and the
+# deploy jobs refuse a closed PR.
 concurrency:
-  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) || (github.event_name == 'pull_request' && github.actor != 'cursor[bot]' && github.actor != 'cursoragent' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
+  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.actor != 'cursor[bot]' && github.actor != 'cursoragent' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
   cancel-in-progress: false
 
 permissions:
@@ -330,10 +334,24 @@ jobs:
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
+
       # No `ref:`: the commit of this workflow file, not the PR head. This job
       # holds the account token.
       - name: Checkout workflow commit
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Check the Railway token
         env:
@@ -397,7 +415,7 @@ jobs:
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 12
           max_attempts: 2
@@ -430,23 +448,39 @@ jobs:
   #   branch is readable by every branch, so this job refuses it.
   # - The key holds a random nonce made here, so no job that ran earlier can
   #   create the entry first: migrate restores the exact key, never a prefix.
-  # - deploy_pr_environment deletes the entry after migrate read it.
+  # - delete_db_handoff deletes the entry after migrate, also when migrate
+  #   fails or a later job never gets its approval.
   # - The cache is GitHub's: this job and migrate run on GitHub-hosted
   #   runners. On a Blacksmith runner, actions/cache writes to the Blacksmith
   #   cache, which the GitHub API (gh cache delete) cannot delete.
   prepare_pr_database:
     name: Prepare PR Neon branch
     needs: [resolve_pr, prepare_pr_environment]
-    # github-hosted: the owner URL handoff must use the GitHub Actions cache, so that deploy_pr_environment can delete it with gh cache delete.
+    # github-hosted: the owner URL handoff must use the GitHub Actions cache, so that delete_db_handoff can delete it with gh cache delete.
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     permissions:
       contents: read
+      pull-requests: read
     # NEON_API_KEY comes from this protected environment.
     environment: preview-deploy
     outputs:
       handoff_key: ${{ steps.owner.outputs.handoff_key }}
     steps:
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
+
       - name: Refuse the default branch
         env:
           REF: ${{ github.ref }}
@@ -565,6 +599,34 @@ jobs:
         # because only that job can read the preview DATABASE_URL in Railway.
         run: NO_COLOR=1 CI=true DATABASE_URL="$OWNER_DB_URL" pnpm exec tsx src/db/migrate.ts
 
+  # The handoff entry holds the owner URL of the preview branch, so it must
+  # not wait for the cache to expire. This job runs after migrate on every
+  # path (a failed or cancelled migrate too). It needs no approval, so an
+  # approval that never comes for deploy_pr_environment does not keep the
+  # entry. It gets no secret.
+  delete_db_handoff:
+    name: Delete the owner URL handoff
+    needs: [prepare_pr_database, migrate_pr_database]
+    if: always() && needs.prepare_pr_database.outputs.handoff_key != ''
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    steps:
+      - name: Delete the owner URL handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+          HANDOFF_KEY: ${{ needs.prepare_pr_database.outputs.handoff_key }}
+        # The entry is absent when the save step of prepare_pr_database
+        # failed: then there is nothing to delete.
+        run: |
+          set -euo pipefail
+          if ! gh cache delete "$HANDOFF_KEY" --repo "$GITHUB_REPOSITORY"; then
+            LEFT="$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$HANDOFF_KEY" --json key --jq 'length')"
+            [[ "$LEFT" == "0" ]] || { echo "::error::The owner URL handoff is still in the cache."; exit 1; }
+            echo "No owner URL handoff in the cache."
+          fi
+
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
     # Waits for migrate_pr_database of the same run. The workflow
@@ -572,11 +634,9 @@ jobs:
     needs: [resolve_pr, prepare_pr_environment, prepare_pr_database, migrate_pr_database]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
-    # actions: write only to delete the owner URL handoff from the cache;
     # pull-requests: write for the preview comment.
     permissions:
       contents: read
-      actions: write
       pull-requests: write
     # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
     # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
@@ -588,18 +648,24 @@ jobs:
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
       PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
     steps:
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
+
       # No `ref:`: the commit of this workflow file, not the PR head. This job
       # holds the account token.
       - name: Checkout workflow commit
-        uses: useblacksmith/checkout@v1
-
-      - name: Delete the owner URL handoff
-        # migrate_pr_database has read it. The entry holds the owner URL of
-        # the preview branch, so it must not wait for the cache to expire.
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          HANDOFF_KEY: ${{ needs.prepare_pr_database.outputs.handoff_key }}
-        run: gh cache delete "$HANDOFF_KEY" --repo "$GITHUB_REPOSITORY"
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Check the Railway token
         env:
@@ -609,6 +675,24 @@ jobs:
             echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
             exit 1
           }
+
+      - name: Refuse a removed Railway environment
+        # A PR-close cleanup can run while this run waits. Each later step
+        # writes to the environment id of prepare_pr_environment and never
+        # creates an environment; this step stops early when the id is gone.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          FOUND="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+          if [[ -z "$FOUND" || "$FOUND" != "$ENV_ID" ]]; then
+            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone. The PR-close cleanup removed it; the deploy does not create it again."
+            exit 1
+          fi
 
       - name: Read Neon owner credentials
         env:
@@ -1282,7 +1366,7 @@ jobs:
           ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -1358,12 +1442,19 @@ jobs:
               -F body=@pr-deploy-comment.md
           fi
 
+  # Not in the deploy group (see the workflow concurrency): a push after the
+  # close must not cancel this job. It can run while a deploy runs, so each
+  # delete accepts a resource that is already gone, and the deploy fails when
+  # its environment is gone.
   cleanup_pr_environment:
     timeout-minutes: 20
     name: Cleanup Neon, Railway, and PR GHCR images
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: pr-cleanup-environment-${{ github.event.number }}
+      cancel-in-progress: false
     runs-on: blacksmith-4vcpu-ubuntu-2404
     # RAILWAY_API_TOKEN and NEON_API_KEY come from this protected environment.
     # The job calls only the Neon and Railway APIs with curl: no CLI, no
@@ -1451,9 +1542,10 @@ jobs:
         if: steps.railway_env.outputs.env_id != ''
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           ENV_ID: ${{ steps.railway_env.outputs.env_id }}
           PR_ENV: pr-${{ github.event.number }}
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -1463,6 +1555,15 @@ jobs:
               -d "$(jq -nc --arg id "$ENV_ID" '{query:"mutation($id: String!) { environmentDelete(id: $id) }",variables:{id:$id}}')" \
               https://backboard.railway.com/graphql/v2)"
             if jq -e '.errors | type == "array" and length > 0' >/dev/null <<<"$RESP"; then
+              # An earlier attempt or another cleanup can have deleted it.
+              LEFT="$(curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id: String!) { project(id: $id) { environments { edges { node { id } } } } }",variables:{id:$id}}')" \
+                https://backboard.railway.com/graphql/v2 \
+                | jq -er --arg env "$ENV_ID" '.data.project.environments.edges | [.[].node | select(.id == $env)] | length')"
+              if [[ "$LEFT" == "0" ]]; then
+                echo "Railway environment $PR_ENV is already deleted"
+                exit 0
+              fi
               echo "Railway did not delete $PR_ENV: $(jq -c '.errors' <<<"$RESP")" >&2
               exit 1
             fi
@@ -1470,7 +1571,7 @@ jobs:
 
       # Requires packages:write (workflow) and Admin on each GHCR package → Manage Actions access for this repo.
       - name: Delete PR-tagged GHCR images
-        uses: dataaxiom/ghcr-cleanup-action@v1
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
@@ -1490,6 +1591,9 @@ jobs:
       !cancelled() &&
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: pr-cleanup-sandboxes-${{ github.event.number }}
+      cancel-in-progress: false
     runs-on: blacksmith-4vcpu-ubuntu-2404
     permissions:
       contents: read
@@ -1499,22 +1603,22 @@ jobs:
     environment: Preview
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Mount pnpm store sticky disk
-        uses: useblacksmith/stickydisk@v1
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
         with:
           # Not the production key: branch code writes to this store.
           key: ${{ github.repository }}-pnpm-store-pr
           path: ~/.pnpm-store
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
 
-      - uses: useblacksmith/setup-node@v5
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
         with:
           node-version: "22"
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
 

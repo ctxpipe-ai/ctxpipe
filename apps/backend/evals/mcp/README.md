@@ -85,7 +85,7 @@ CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pul
 4. It runs `run.ts` against `http://localhost:3000/mcp`.
 5. It uploads the results with the pass rates of each model and case, and the logs.
 
-The model provider keys are the only secrets. Only the steps that need them get them. The variable `MCP_EVAL_MODELS` names the client models, at least two.
+The model provider keys are the only secrets. Only the steps that need them get them. The job runs in the GitHub environment `Preview` and reads only secrets with a `PREVIEW_` name: `PREVIEW_MODEL_PROVIDER_API_KEY` for the backend, and `PREVIEW_ANTHROPIC_API_KEY` and `PREVIEW_OPENAI_API_KEY` for the client models. A missing environment secret falls back to a repository secret with the same name, so a plain name could reach a production key. `run.ts` reads each client key as `<PROVIDER>_API_KEY` and stops when a model has no key. The variable `MCP_EVAL_MODELS` names the client models, at least two.
 
 A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. `.github/workflows/mcp-evals-reminder.yaml` adds a comment that asks for the label.
 
