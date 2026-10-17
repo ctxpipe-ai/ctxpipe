@@ -93,7 +93,7 @@ export function pendingWorkspaceUpgradesOptions(orgSlug: string) {
       const res = await client[":orgSlug"].api.v1[
         "workspace-upgrades"
       ].pending.$get({ param: { orgSlug } })
-      const body = await readApiJson<PendingUpgradesResponse>(res, {
+      const body = await readApiJson(res, {
         message: "Failed to load the upgrades",
       })
       return body.workspaces
