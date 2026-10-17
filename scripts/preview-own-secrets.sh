@@ -12,6 +12,13 @@
 #   Railway scopes to this preview environment only. The script never writes
 #   the account token RAILWAY_API_TOKEN into a service variable.
 #
+# - The `jwkss` rows: the Neon branch copies the production JWKS keys, whose
+#   private keys the production AUTH_SECRET encrypted. The step deletes them in
+#   the preview database (OWNER_DB_URL, the owner URL of the preview Neon
+#   branch, never production), so the backend makes a key with its own secret.
+#   Without OWNER_DB_URL (pr-preview-roll-existing.yaml), the backend ignores
+#   keys that it cannot decrypt and makes a new key.
+#
 # The backend variable PREVIEW_OWN_SECRETS records that the preview has these
 # values, so later rolls keep them for the life of the preview. Production does
 # not have it, so the duplicate never copies it. The backend gets its values
@@ -58,6 +65,16 @@ sync_preview_own_secrets() {
     return 1
   fi
   preview_own_secrets_mask "$wake_token"
+
+  if [[ -n "${OWNER_DB_URL:-}" ]]; then
+    psql "$OWNER_DB_URL" -v ON_ERROR_STOP=1 -qc 'DELETE FROM jwkss' >/dev/null || {
+      echo "preview-own-secrets: could not delete the JWKS keys copied from production" >&2
+      return 1
+    }
+    echo "Deleted the JWKS keys that the Neon branch copied from production"
+  else
+    echo "No preview database URL: the backend ignores the JWKS keys copied from production"
+  fi
 
   upsert_service_vars "own AUTH_SECRET and connection-secrets key" \
     "$(jq -nc --arg auth "$auth_secret" --arg key "$connection_key" \
