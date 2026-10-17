@@ -425,6 +425,11 @@ export function defineWorkspaceUpgradeReingest(
               // main-era knowledge. Hydrate projects the revision again, so
               // that the overlay of that repository goes (the publish
               // hydrate can come first).
+              // Known limit: `before` comes from this step. If the step stops
+              // after the transition and before the enqueue, the retry sees
+              // no new done mark and queues no reproject. Then the main-era
+              // knowledge of that repository stays in the projection until
+              // the next hydrate of the Workspace (a push or a reproject).
               if (
                 moved &&
                 reingestedNames(moved.upgrade).some(
