@@ -42,7 +42,7 @@ import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
-  legacyKnowledgePaths,
+  writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { applyAttribution } from "../../observability/attribution.js"
 
@@ -820,12 +820,7 @@ export const conversationFileRoutes = fileRoutes
     const body = PutConversationFileBodySchema.parse(await c.req.json())
     // A main-era knowledge unit is not in git: it is read-only.
     if (
-      (
-        await legacyKnowledgePaths(
-          loaded.workspace.id,
-          [body.path, body.from].flatMap((path) => path ?? []),
-        )
-      ).size
+      await writesLegacyKnowledge(loaded.workspace.id, [body.path, body.from])
     )
       return c.json({ error: LEGACY_KNOWLEDGE_READ_ONLY }, 403)
     const currentVersion = await conversationWorktreeVersion(handle)

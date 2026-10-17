@@ -1153,6 +1153,30 @@ export async function legacyKnowledgePaths(
   return new Map(rows.map((row) => [row.path, row.body]))
 }
 
+/**
+ * True when a write to `paths` changes a main-era knowledge unit of the
+ * Workspace. Each path is made canonical before the check (no padding, no
+ * `./` part and no empty part), so that another spelling of a path cannot go
+ * past the check. Every writer (the Files job, the conversation file route
+ * and the conversation publish) calls this one function.
+ */
+export async function writesLegacyKnowledge(
+  workspaceId: string,
+  paths: ReadonlyArray<string | null | undefined>,
+): Promise<boolean> {
+  const canonical = new Set(
+    paths.flatMap((path) => {
+      const parts = (path ?? "")
+        .replaceAll("\\", "/")
+        .split("/")
+        .map((part) => part.trim())
+        .filter((part) => part !== "" && part !== ".")
+      return parts.length ? [parts.join("/")] : []
+    }),
+  )
+  return (await legacyKnowledgePaths(workspaceId, [...canonical])).size > 0
+}
+
 export async function listWorkspaceKnowledgeUnits(
   workspaceId: string,
 ): Promise<{

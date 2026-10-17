@@ -31,6 +31,7 @@ import {
   getWorkspaceSearchProjection,
   legacyKnowledgePaths,
   listWorkspaceKnowledgeFiles,
+  writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
@@ -476,12 +477,6 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const raw = WorkspaceFileJobRequestSchema.parse(await c.req.json())
     const request = parseWorkspaceFileJobRequest(raw)
     if (!request) return c.json({ error: "A valid file job is required" }, 400)
-    // A main-era knowledge unit is not in git: it is read-only.
-    const legacy = await legacyKnowledgePaths(
-      loaded.workspace.id,
-      [raw.path, raw.from, raw.to].flatMap((path) => path ?? []),
-    )
-    if (legacy.size) return c.json({ error: LEGACY_KNOWLEDGE_READ_ONLY }, 400)
     try {
       const treePaths = await listWorkspaceCheckoutPaths(loaded.input)
       const planned = await planWorkspaceFileJob({
@@ -495,6 +490,22 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           return explorerBlobFromGitFile(file)?.body ?? null
         },
       })
+      // A main-era knowledge unit is not in git: it is read-only. The check
+      // reads the paths that the job writes, and the paths of the request.
+      if (
+        await writesLegacyKnowledge(loaded.workspace.id, [
+          raw.path,
+          raw.from,
+          raw.to,
+          ...(planned.ok
+            ? [
+                ...planned.plan.mergeFiles.map((file) => file.path),
+                ...planned.plan.mergeDeletePaths,
+              ]
+            : []),
+        ])
+      )
+        return c.json({ error: LEGACY_KNOWLEDGE_READ_ONLY }, 400)
       if (!planned.ok) return c.json({ error: planned.error }, 400)
       if (
         planned.plan.mergeFiles.length === 0 &&
