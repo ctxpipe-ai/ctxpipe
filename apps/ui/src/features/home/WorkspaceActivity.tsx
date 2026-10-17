@@ -120,9 +120,15 @@ export function WorkspaceActivity(props: {
   }
   const filtered = Object.values(filters).some((value) => value !== undefined)
   const ready = query.data?.status === "ready"
+  // Recent is empty with no Workspace, or when the heatmap read has no
+  // commits and no filter applies. Then it shows the empty text at once,
+  // not commit skeletons that go away.
+  const noWorkspace = scope === ALL_WORKSPACES && props.workspaces?.length === 0
+  const recentEmpty =
+    noWorkspace || (ready && !filtered && query.data?.recent.length === 0)
   const listQuery = useInfiniteQuery({
     ...activityCommitsOptions(props.orgSlug, scopeSlug(scope), filters),
-    enabled: scope !== null && ready,
+    enabled: scope !== null && ready && !recentEmpty,
     // While a workspace of the org is still loading, read the list again
     // with the heatmap, so its commits show when they are there.
     refetchInterval: query.data?.pendingWorkspaces?.length ? 10_000 : false,
@@ -133,7 +139,9 @@ export function WorkspaceActivity(props: {
   const loading = useSkeletonHold(
     query.isPending || query.data?.status === "pending",
   )
-  const listLoading = useSkeletonHold(ready && listQuery.isPending)
+  const listLoading = useSkeletonHold(
+    ready && !recentEmpty && listQuery.isPending,
+  )
 
   const activityHeader = (
     <div className="flex items-center justify-between gap-4">
@@ -157,7 +165,12 @@ export function WorkspaceActivity(props: {
   )
 
   if (loading) {
-    return <WorkspaceActivityLoading header={activityHeader} />
+    return (
+      <WorkspaceActivityLoading
+        header={activityHeader}
+        recentEmpty={noWorkspace}
+      />
+    )
   }
 
   const data = query.data
@@ -175,7 +188,13 @@ export function WorkspaceActivity(props: {
       </section>
     )
   }
-  if (!data) return <WorkspaceActivityLoading header={activityHeader} />
+  if (!data)
+    return (
+      <WorkspaceActivityLoading
+        header={activityHeader}
+        recentEmpty={noWorkspace}
+      />
+    )
 
   const showWorkspace = scope === ALL_WORKSPACES
   const pendingWorkspaces = showWorkspace ? (data.pendingWorkspaces ?? []) : []
@@ -590,7 +609,11 @@ function ActivityScopeMenu(props: {
   )
 }
 
-function WorkspaceActivityLoading(props: { header: ReactNode }) {
+function WorkspaceActivityLoading(props: {
+  header: ReactNode
+  /** Recent is known to be empty: show the empty text, not skeletons. */
+  recentEmpty: boolean
+}) {
   return (
     <>
       <section>
@@ -602,7 +625,11 @@ function WorkspaceActivityLoading(props: { header: ReactNode }) {
       <section>
         <p className={sectionHeadingClassName}>Recent</p>
         <div className="mt-3">
-          <WorkspaceRecentCommitsSkeleton />
+          {props.recentEmpty ? (
+            <WorkspaceRecentCommits commits={[]} />
+          ) : (
+            <WorkspaceRecentCommitsSkeleton />
+          )}
         </div>
       </section>
     </>
