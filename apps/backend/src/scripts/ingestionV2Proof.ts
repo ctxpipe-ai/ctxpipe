@@ -14,8 +14,12 @@
  *       and one source file per repository.
  *   start --org-id <org> --repo-url <url> --sha <sha>
  *       Queues one ingestion v2 run in shadow mode.
- *   status --run-id <id>
- *       Reads the run tree: status, completed steps, model spend, patches.
+ *   estimate --org-id <org> --repos <url,url,...> --cap <usd>
+ *       The p90 re-ingestion estimate of the Upgrades UI for all repositories,
+ *       and whether it is over the cap.
+ *   status --run-id <id> --spent-before <usd> --cap <usd>
+ *       Reads the run tree: status, completed steps, model spend, steps in
+ *       flight, patches, and the spend guard (spent plus reserved vs the cap).
  *   cancel --run-id <id>
  *       Cancels the run and its child runs.
  */
@@ -29,6 +33,11 @@ import { organizations } from "../db/schema/auth.js"
 import { connections } from "../db/schema/connections.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import type { IngestionV2Input } from "../domain/ingestion/ingestion-run.js"
+import { readIngestSkillBundle } from "../domain/ingestion/skill-bundle.js"
+import {
+  estimateReingest,
+  ingestionRunSpend,
+} from "../domain/upgrades/reingest.js"
 import { githubSourcePath } from "../domain/workspace-sources/source-file.js"
 import { renderSourceFile } from "../domain/workspace-sources/source-file-text.js"
 import { resolveRepositoryReadTip } from "../domain/workspaces/resolve-revision.js"
@@ -45,6 +54,11 @@ import { ow, runWorkflowWithWorkerWake } from "../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../openworkflow/enqueue-repository-ingestion.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import { repositoryIngestionV2 } from "../openworkflow/workflows/repository-ingestion-v2.js"
+import {
+  estimateRefusal,
+  isModelStepName,
+  spendGuard,
+} from "./ingestionV2ProofBudget.js"
 
 function flag(argv: string[], name: string): string {
   const index = argv.indexOf(name)
@@ -280,6 +294,45 @@ async function start(argv: string[]): Promise<void> {
   emit("START", { runId: handle.workflowRun.id })
 }
 
+async function estimate(argv: string[]): Promise<void> {
+  const orgId = flag(argv, "--org-id")
+  const cap = Number(flag(argv, "--cap"))
+  if (!Number.isFinite(cap) || cap <= 0)
+    throw new Error("--cap must be above 0")
+  const [connection] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ id: connections.id })
+      .from(connections)
+      .where(eq(connections.type, "github"))
+      .limit(1),
+  )
+  if (!connection) throw new Error("The org has no GitHub connection")
+  const repositories = flag(argv, "--repos")
+    .split(",")
+    .map((raw) => {
+      const url = normalizeWorkspaceRepositoryUrl(raw.trim())
+      const repository = githubRepoFullNameFromWorkspaceUrl(url)
+      if (!repository) throw new Error("Each repository must be on GitHub")
+      return { repository, url, githubConnectionId: connection.id }
+    })
+  const result = await estimateReingest({
+    orgId,
+    repositories,
+    bundleSkills: (await readIngestSkillBundle()).skills,
+  })
+  emit("ESTIMATE", {
+    capUsd: cap,
+    costUsd: result.costUsd,
+    minutes: result.minutes,
+    perRepository: result.perRepository.map((r) => ({
+      repository: r.repository,
+      costUsd: r.costUsd,
+      basis: r.basis,
+    })),
+    refusal: estimateRefusal(result, cap),
+  })
+}
+
 /** The run and its child runs, to a depth of 8. */
 const runTree = (runId: string) => sql`
   with recursive tree as (
@@ -300,6 +353,10 @@ const runTree = (runId: string) => sql`
 
 async function status(argv: string[]): Promise<void> {
   const runId = flag(argv, "--run-id")
+  const spentBefore = Number(flag(argv, "--spent-before"))
+  const cap = Number(flag(argv, "--cap"))
+  if (!Number.isFinite(spentBefore) || !Number.isFinite(cap))
+    throw new Error("--spent-before and --cap must be numbers")
   const db = getSystemDb()
   const root = await db.execute<{
     status: string
@@ -317,16 +374,16 @@ async function status(argv: string[]): Promise<void> {
   // The model steps of the shard runs report their usage in their output.
   const usage = await db.execute<{
     steps: string
-    cost: string | null
     unknown: string | null
+    max_step_cost: string | null
   }>(sql`
     ${runTree(runId)}
     select
       count(*) filter (where attempt.status = 'completed'
         and attempt.step_name not in ('ensure-sandbox', 'destroy-sandbox')
         and run.workflow_name = 'ingestion-shard') as steps,
-      sum((attempt.output->'usage'->>'costUsd')::numeric) as cost,
-      sum((attempt.output->'usage'->>'unknownSteps')::numeric) as unknown
+      sum((attempt.output->'usage'->>'unknownSteps')::numeric) as unknown,
+      max((attempt.output->'usage'->>'costUsd')::numeric) as max_step_cost
     from tree
     join openworkflow.workflow_runs run
       on run.namespace_id = ${openWorkflowNamespaceId()} and run.id = tree.id
@@ -336,6 +393,40 @@ async function status(argv: string[]): Promise<void> {
     where jsonb_typeof(attempt.output) = 'object'
   `)
   const counts = usage.rows[0]
+  // Steps that run now, and the shards that finished a first step (each has
+  // a sandbox that the credential check must inspect).
+  const shardSteps = await db.execute<{
+    run_id: string
+    step_name: string
+    status: string
+  }>(sql`
+    ${runTree(runId)}
+    select attempt.workflow_run_id as run_id, attempt.step_name, attempt.status
+    from tree
+    join openworkflow.workflow_runs run
+      on run.namespace_id = ${openWorkflowNamespaceId()} and run.id = tree.id
+    join openworkflow.step_attempts attempt
+      on attempt.namespace_id = ${openWorkflowNamespaceId()}
+      and attempt.workflow_run_id = run.id
+    where run.workflow_name = 'ingestion-shard'
+      and attempt.step_name like 'skill:%'
+      and attempt.status in ('running', 'completed')
+  `)
+  const inFlightModelSteps = shardSteps.rows.filter(
+    (r) => r.status === "running" && isModelStepName(r.step_name),
+  ).length
+  const shardsWithFirstStep = new Set(
+    shardSteps.rows
+      .filter((r) => r.status === "completed")
+      .map((r) => r.run_id),
+  ).size
+  // The finished cost, with the token price when a step reports no cost.
+  const finished = await ingestionRunSpend(runId)
+  const guard = spendGuard({
+    spentUsd: spentBefore + finished.usd,
+    inFlightModelSteps,
+    capUsd: cap,
+  })
   const output = (row.output ?? {}) as {
     status?: string
     workspaces?: Array<{ ops?: number; rejects?: number; partial?: number }>
@@ -351,8 +442,14 @@ async function status(argv: string[]): Promise<void> {
     outputStatus: output.status ?? null,
     error: row.error ?? null,
     completedSteps: Number(counts?.steps ?? 0),
-    spendUsd: Number(counts?.cost ?? 0),
+    spendUsd: finished.usd,
+    maxStepCostUsd: Number(counts?.max_step_cost ?? 0),
     unknownSteps: Number(counts?.unknown ?? 0),
+    inFlightModelSteps,
+    shardsWithFirstStep,
+    reservedUsd: guard.reservedUsd,
+    committedUsd: guard.committedUsd,
+    stop: guard.stop,
     patches: sum("ops"),
     rejects: sum("rejects"),
     partial: sum("partial"),
@@ -376,9 +473,10 @@ initDb(process.env.DATABASE_URL ?? "")
 try {
   if (command === "seed") await seed(rest)
   else if (command === "start") await start(rest)
+  else if (command === "estimate") await estimate(rest)
   else if (command === "status") await status(rest)
   else if (command === "cancel") await cancel(rest)
-  else throw new Error("Use one of: seed, start, status, cancel")
+  else throw new Error("Use one of: seed, start, estimate, status, cancel")
 } catch (error) {
   note(error instanceof Error ? (error.stack ?? error.message) : String(error))
   process.exitCode = 1
