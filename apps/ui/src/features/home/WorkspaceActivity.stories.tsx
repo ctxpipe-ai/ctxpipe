@@ -172,9 +172,9 @@ function clickDay(canvasElement: HTMLElement, date: string) {
 export const DayFiltersRecent: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
     expect(canvas.getByText("Recent")).toBeVisible()
     expect(
       canvas.queryByRole("button", { name: "Reset" }),
@@ -182,11 +182,13 @@ export const DayFiltersRecent: Story = {
 
     clickDay(canvasElement, "2026-08-22")
 
-    expect(
-      await canvas.findByText("Aug 22, 2026", { selector: "p" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Aug 22, 2026", { selector: "p" })).toBeVisible(),
+    )
     await waitFor(() => expect(activityDates.includes("2026-08-22")).toBe(true))
-    expect(await canvas.findByText("Add on-call severity notes")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Add on-call severity notes")).toBeVisible(),
+    )
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
@@ -201,10 +203,10 @@ export const DayFiltersRecent: Story = {
 
     await userEvent.click(canvas.getByRole("button", { name: "Reset" }))
 
-    expect(await canvas.findByText("Recent")).toBeVisible()
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Recent")).toBeVisible())
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
     expect(
       canvas.queryByRole("button", { name: "Reset" }),
     ).not.toBeInTheDocument()
@@ -217,9 +219,9 @@ export const DayFiltersRecent: Story = {
 export const KeyboardSelectsEmptyDay: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
     const chart = canvas.getByRole("img", {
       name: /Workspace commit activity/,
     })
@@ -227,7 +229,9 @@ export const KeyboardSelectsEmptyDay: Story = {
     await userEvent.keyboard("{ArrowRight}")
     await userEvent.keyboard("{Enter}")
 
-    expect(await canvas.findByText("No commits on this day.")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("No commits on this day.")).toBeVisible(),
+    )
     const dated = activityReads
       .map((read) => read.get("date"))
       .filter((date) => date !== null)
@@ -246,9 +250,9 @@ export const AuthorFiltersRecent: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
 
     await userEvent.click(
       canvas.getByRole("button", {
@@ -260,19 +264,21 @@ export const AuthorFiltersRecent: Story = {
     expect(lin).toHaveTextContent("6")
     await userEvent.click(lin)
 
-    expect(
-      await canvas.findByRole("button", {
-        name: "Filter commits by author: Lin",
-      }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Filter commits by author: Lin",
+        }),
+      ).toBeVisible(),
+    )
     await waitFor(() =>
       expect(activityReads.some((read) => read.get("author") === "Lin")).toBe(
         true,
       ),
     )
-    expect(
-      await canvas.findByText("Clarify session cookie policy"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Clarify session cookie policy")).toBeVisible(),
+    )
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
@@ -282,9 +288,9 @@ export const AuthorFiltersRecent: Story = {
 
     // A day works together with the author.
     clickDay(canvasElement, "2026-08-22")
-    expect(
-      await canvas.findByText("No commits match these filters."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("No commits match these filters.")).toBeVisible(),
+    )
     await waitFor(() =>
       expect(urlSearch(canvasElement)).toEqual({
         author: "Lin",
@@ -299,9 +305,9 @@ export const DateRangeFiltersRecent: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
@@ -311,11 +317,13 @@ export const DateRangeFiltersRecent: Story = {
     )
 
     const since = utcDayBefore(29)
-    expect(
-      await canvas.findByRole("button", {
-        name: "Filter commits by date: Last 30 days",
-      }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Filter commits by date: Last 30 days",
+        }),
+      ).toBeVisible(),
+    )
     await waitFor(() =>
       expect(activityReads.some((read) => read.get("since") === since)).toBe(
         true,
@@ -334,9 +342,9 @@ export const CustomDateRange: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
@@ -367,12 +375,16 @@ export const CustomDateRange: Story = {
     )
     // The open popover hides the page from assistive tech, so close it first.
     await userEvent.keyboard("{Escape}")
-    expect(
-      await canvas.findByRole("button", {
-        name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
-      }),
-    ).toBeVisible()
-    expect(await canvas.findByText("Refresh payments API claims")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Filter commits by date: Aug 1, 2026 – Aug 20, 2026",
+        }),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Refresh payments API claims")).toBeVisible(),
+    )
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
@@ -394,9 +406,9 @@ export const ResetClearsEveryFilter: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("Aug 26, 2026", { selector: "p" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Aug 26, 2026", { selector: "p" })).toBeVisible(),
+    )
     expect(
       canvas.getByRole("button", { name: "Filter commits by author: Ada" }),
     ).toBeVisible()
@@ -405,9 +417,9 @@ export const ResetClearsEveryFilter: Story = {
         name: "Filter commits by date: Aug 1, 2026 – Aug 31, 2026",
       }),
     ).toBeVisible()
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
     const first = activityReads.find((read) => read.has("limit"))
     expect(first?.get("author")).toBe("Ada")
     expect(first?.get("date")).toBe("2026-08-26")
@@ -416,7 +428,7 @@ export const ResetClearsEveryFilter: Story = {
 
     await userEvent.click(canvas.getByRole("button", { name: "Reset" }))
 
-    expect(await canvas.findByText("Recent")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Recent")).toBeVisible())
     expect(
       canvas.getByRole("button", {
         name: "Filter commits by author: All authors",
@@ -425,9 +437,9 @@ export const ResetClearsEveryFilter: Story = {
     expect(
       canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
     ).toBeVisible()
-    expect(
-      await canvas.findByText("Clarify session cookie policy"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Clarify session cookie policy")).toBeVisible(),
+    )
     await waitFor(() => expect(urlSearch(canvasElement)).toEqual({}))
   },
 }
@@ -463,14 +475,18 @@ export const LoadMorePages: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Commit number 10")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Commit number 10")).toBeVisible(),
+    )
     expect(canvas.queryByText("Commit number 11")).not.toBeInTheDocument()
     expect(canvas.getAllByRole("listitem")).toHaveLength(10)
     const before = beadTops(canvasElement)
 
     await userEvent.click(canvas.getByRole("button", { name: "Load more" }))
 
-    expect(await canvas.findByText("Commit number 12")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Commit number 12")).toBeVisible(),
+    )
     expect(canvas.getAllByRole("listitem")).toHaveLength(12)
     expect(beadTops(canvasElement).slice(0, 10)).toEqual(before)
     expect(activityReads.some((read) => read.get("cursor") === "10")).toBe(true)
@@ -494,9 +510,9 @@ export const AllWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
     const filter = canvas.getByRole("button", {
       name: "Show activity for: Docs",
     })
@@ -528,9 +544,9 @@ export const AllWorkspaces: Story = {
 
     clickDay(canvasElement, "2026-08-22")
 
-    expect(
-      await canvas.findByText("Aug 22, 2026", { selector: "p" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Aug 22, 2026", { selector: "p" })).toBeVisible(),
+    )
     await waitFor(() =>
       expect(orgActivityDates.includes("2026-08-22")).toBe(true),
     )
@@ -651,9 +667,9 @@ export const AllWorkspacesNoneReady: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await canvas.findByText("Document billing ledger rules"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Document billing ledger rules")).toBeVisible(),
+    )
 
     await userEvent.click(
       canvas.getByRole("button", { name: "Show activity for: Docs" }),

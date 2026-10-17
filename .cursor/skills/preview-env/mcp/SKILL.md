@@ -6,7 +6,7 @@ disable-model-invocation: true
 
 # preview-env mcp
 
-`{BASE_URL}/mcp`. The product MCP exposes **seven** read tools ([ADR-051](../../../../.ai/memory/decisions/ADR-051-mcp-read-surface.md)): `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and `get_related`, plus the resource template `ctxpipe://{org}/{workspace}/{+ref}`. Each tool except `list_workspaces` needs an `org` slug argument. The server ignores `?orgSlug=`. No tool runs a model or a chat turn. `ctx_advisor` is gone. [Harness](../harness.md) is `PASS`. HTTP/CLI plus a short browser task. Flow format: [run-setup](../run-setup.md#flow-format). The onboarding MCP snippet URL is recorded in [ONB-4](../onboarding/SKILL.md).
+`{BASE_URL}/mcp`. The product MCP exposes **seven** read tools ([ADR-051](../../../../.ai/memory/decisions/ADR-051-mcp-read-surface.md)): `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and `get_related`, plus the resource template `ctxpipe://{org}/{workspace}/{+ref}`. Each tool except `list_workspaces` needs an `org` slug argument. The server ignores `?orgSlug=`. No tool runs a model or a chat turn. `ctx_advisor` is gone. [Harness](../harness.md) is `PASS`. HTTP/CLI plus a short browser task. Flow format: [run-setup](../run-setup.md#flow-format).
 
 ### MCP-1 Discovery
 **Requires** ONB-2.

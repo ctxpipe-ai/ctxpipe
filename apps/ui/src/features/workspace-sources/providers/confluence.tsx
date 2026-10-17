@@ -73,4 +73,5 @@ export const confluenceSourceUi: SourceProviderUi = {
     <ConfluenceMark className={className} variant="outline" />
   ),
   ScopeEditor: ConfluenceScopeEditor,
+  memberCanPick: true,
 }

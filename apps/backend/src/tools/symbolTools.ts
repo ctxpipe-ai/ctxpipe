@@ -1,4 +1,3 @@
-import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
@@ -7,6 +6,7 @@ import {
   isZoektSearchClientFailure,
   zoektSearchRepository,
 } from "./codesearchZoekt.js"
+import { tool } from "./tool.js"
 import { COMPACT_SEARCH_OPTS, compactSearchResponse } from "./zoektCompact.js"
 import {
   buildSymbolDefinitionQuery,

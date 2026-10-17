@@ -14,10 +14,7 @@ import {
   verifyWorkspaceChatRunCapability,
   verifyWorkspaceIngestRunCapability,
 } from "../../domain/workspaces/workspace-chat-run-capability.js"
-import {
-  verifyWorkspaceChatToken,
-  workspaceChatBearerToken,
-} from "../../domain/workspaces/workspace-chat-token.js"
+import { workspaceChatBearerToken } from "../../domain/workspaces/workspace-chat-token.js"
 import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { lowerOpenAiChatCompletionsParams } from "../../retrieval/services/providers/openAILikeModelProvider.js"
@@ -113,13 +110,11 @@ async function chatTokenFromRequest(
   const presented = workspaceChatBearerToken(c.req.header("authorization"))
   if (!presented) return undefined
   const authSecret = c.var.env.AUTH_SECRET
-  const chat =
-    verifyWorkspaceChatToken({ authSecret, token: presented }) ??
-    (await verifyWorkspaceChatRunCapability({
-      authSecret,
-      token: presented,
-      purpose: "workspace-chat-model",
-    }))
+  const chat = await verifyWorkspaceChatRunCapability({
+    authSecret,
+    token: presented,
+    purpose: "workspace-chat-model",
+  })
   if (chat) return chat
   const ingest = await verifyWorkspaceIngestRunCapability({
     authSecret,

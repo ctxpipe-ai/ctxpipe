@@ -8,7 +8,7 @@
 // it again while the result has `more: true`.
 //
 // node libraries.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map>
+//   --source-url <url> --source-path <path> --roots <root-to-file map>
 
 import { posix } from "node:path"
 import {

@@ -43,6 +43,12 @@ export type HydrateClaim = {
   source: string | null
 }
 
+/**
+ * The `source` of a unit that hydrate makes from the main-era knowledge in
+ * Postgres, not from git. Such a unit is read-only.
+ */
+export const LEGACY_UNIT_SOURCE = "legacy"
+
 export type HydrateUnit = {
   path: string
   servingId: string
@@ -278,12 +284,6 @@ function unitTitle(frontMatterTitle: unknown, body: string): string | null {
   if (typeof frontMatterTitle === "string" && frontMatterTitle.trim())
     return frontMatterTitle.trim()
   return markdownLines(body).find((line) => line.heading)?.heading ?? null
-}
-
-export function shouldHydrateBeforeMigrationExport(
-  migrationExportSha: string | null | undefined,
-): boolean {
-  return !migrationExportSha
 }
 
 export function applyEffectiveValidFromToUnits(

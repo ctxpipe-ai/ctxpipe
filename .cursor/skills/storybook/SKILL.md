@@ -90,8 +90,15 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 
 ## Play timing
 
-- Before a play measures layout (sizes or positions), run `await document.fonts.ready`.
+- Before a play measures layout (sizes or positions), run `await document.fonts.ready`. The play-timing guard fails a story that reads `scrollWidth`, `clientWidth`, or `getBoundingClientRect` before that line.
 - Assert visibility or style inside `waitFor(() => expect(...))`. Do not assert right after `findBy...`. A fade or a re-render can then not fail the check.
+- Never keep an element from `findBy...` or `getBy...` in a variable and check it after an `await userEvent...`. A re-render can replace the node. Query it again inside `waitFor`.
+- To close a dialog, press Close inside `waitFor` and wait until the dialog is gone. A press on a node that a re-render replaced is lost.
+- A story that depends on a smooth scroll or a spring gets the `reduced-motion` tag. The runner then turns on `prefers-reduced-motion`, and the thread scroll jumps at once. Do not raise a timeout to outwait a spring.
+- Raise a `waitFor` timeout only when you can name the slow step in a comment (for example, the story router loads a route after an async load).
+- Assert absence (`queryBy...` with `.not.toBeInTheDocument()`) inside `waitFor`, after the final state shows.
+- Before an absence check, wait for a positive sign that the page has settled: a loaded element (`findBy...`, or `getBy...` that throws when it is missing), or a `waitFor` on an element or on a recorded msw request that the page has answered. An absence check can pass while the page still loads, and then it proves nothing. An interaction (`userEvent...`) can start new requests, so wait again after it. A check inside `waitFor` retries, so it may follow an interaction (for example, a dialog that closes).
+- **Guard:** `node scripts/ci/check-story-play-timing.mjs` runs in CI (the lint job, next to the motion check). It fails on `expect(await ...findBy...)` with a state matcher (`toBeVisible`, `toBeChecked`, `toBeEnabled`, `toBeDisabled`, `toHaveStyle`, `toHaveValue`, and similar) outside `waitFor`. It also fails on a stored element that gets such a check after an `await userEvent...`. It also fails on an absence check (`queryBy...` or `querySelector...` with `.not.toBeInTheDocument()`, `.toBeNull()`, or `queryAllBy...` with `.toHaveLength(0)`) that has no earlier settled wait in the same play. A settled wait is `findBy...`, `getBy...`, an awaited helper named `expect...`, `wait...` or `find...`, or a `waitFor` that holds no absence check. Add `// play-timing: ok <reason>` to a line to exempt it, for example when a manual clock drives every timer.
 - With React Aria components, use the Tailwind `hover:` variant. The plugin maps it to `data-hovered`. There is no `hovered:` variant.
 
 ## Quick reference (commands)

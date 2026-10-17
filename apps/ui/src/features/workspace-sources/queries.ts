@@ -86,7 +86,7 @@ export function workspaceSourcesOptions(
       const res = await client[":orgSlug"].api.v1.workspaces[
         ":workspaceSlug"
       ].sources.$get({ param: { orgSlug, workspaceSlug } })
-      return readApiJson<WorkspaceSourceListResponse>(res, {
+      return readApiJson(res, {
         message: "Failed to load Workspace sources",
       })
     },
@@ -104,7 +104,7 @@ export function connectionUsageOptions(orgSlug: string, connectionId: string) {
       const res = await client[":orgSlug"].api.v1.connectors[
         ":connectionId"
       ].workspaces.$get({ param: { orgSlug, connectionId } })
-      return readApiJson<ConnectionUsageResponse>(res, {
+      return readApiJson(res, {
         message: "Failed to load the Workspaces of this connector",
       })
     },
@@ -145,7 +145,7 @@ export async function createWorkspaceSource(
     param: { orgSlug, workspaceSlug },
     json: { path, source },
   })
-  return readApiJson<WorkspaceSourceChangeResult>(res, {
+  return readApiJson(res, {
     message: "Failed to add the source",
   })
 }
@@ -163,7 +163,7 @@ export async function createWorkspaceSourcesBatch(
     param: { orgSlug, workspaceSlug },
     json: { sources },
   })
-  return readApiJson<WorkspaceSourceBatchResult>(res, {
+  return readApiJson(res, {
     message: "Failed to add the sources",
   })
 }
@@ -181,7 +181,7 @@ export async function updateWorkspaceSource(
     param: { orgSlug, workspaceSlug },
     json: { path, source },
   })
-  return readApiJson<WorkspaceSourceChangeResult>(res, {
+  return readApiJson(res, {
     message: "Failed to change the source",
   })
 }
@@ -199,7 +199,7 @@ export async function renameWorkspaceSource(
     param: { orgSlug, workspaceSlug },
     json: { path, newPath },
   })
-  return readApiJson<WorkspaceSourceChangeResult>(res, {
+  return readApiJson(res, {
     message: "Failed to rename the source",
   })
 }
@@ -216,7 +216,7 @@ export async function deleteWorkspaceSource(
     param: { orgSlug, workspaceSlug },
     query: { path },
   })
-  return readApiJson<WorkspaceSourceChangeResult>(res, {
+  return readApiJson(res, {
     message: "Failed to remove the source",
   })
 }

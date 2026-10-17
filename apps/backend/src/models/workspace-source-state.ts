@@ -5,7 +5,10 @@ import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
-import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
+import {
+  githubRepositoryUrls,
+  githubSourceScopeRepositories,
+} from "../domain/workspace-sources/providers/github.js"
 import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
@@ -144,6 +147,30 @@ export function holdsTarget(row: SourceTargetRow): boolean {
     : lastGoodTarget(row) !== null
 }
 
+/**
+ * Tell if a stored source row names the repository `gitUrl` in any form: its
+ * own scope, its last good target, or its GitHub pins. An `invalid` row whose
+ * stored target does not parse can hold any repository, so it names each one
+ * (the CTX-710 rule: an entry that became invalid keeps its repository).
+ */
+export function sourceRowsNameRepository(
+  rows: readonly SourceTargetRow[],
+  gitUrl: string,
+): boolean {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  return rows.some((row) => {
+    const good = lastGoodTarget(row)
+    if (holdsTarget(row) && !good) return true
+    return (
+      githubRepositoryUrls(row).includes(target) ||
+      (good !== null && githubRepositoryUrls(good).includes(target)) ||
+      githubPins(row).some(
+        (pin) => normalizeWorkspaceRepositoryUrl(pin.gitUrl) === target,
+      )
+    )
+  })
+}
+
 /** A GitHub state with `repositories` that keeps the target of `row`. */
 function withPins(
   row: { state: unknown },
@@ -227,6 +254,12 @@ export function planSourceStates(input: {
     scope: unknown
   }>
   workspaceUrl: string | null
+  /**
+   * The old key of a row whose source moved to a new key, by new key. The new
+   * row takes the pins and the held target of the old row, when no planned
+   * row has the old key.
+   */
+  movedFrom?: ReadonlyMap<string, string>
   now?: Date
 }): Map<string, StoredSourceState> {
   const byKey = new Map(
@@ -235,6 +268,15 @@ export function planSourceStates(input: {
       { row, pins: githubPins(row) },
     ]),
   )
+  const plannedKeys = new Set(input.planned.map((row) => row.sourceKey))
+  const rowOf = (sourceKey: string) => {
+    const own = byKey.get(sourceKey)
+    if (own) return own
+    const old = input.movedFrom?.get(sourceKey)
+    return old !== undefined && !plannedKeys.has(old)
+      ? byKey.get(old)
+      : undefined
+  }
   // A pin belongs to its repository URL and ref, not to a row or a path, so
   // a renamed source file keeps its pin (ADR-050, revision 2026-10-16).
   const pool = new Map<string, GithubRepositoryPin>()
@@ -278,7 +320,7 @@ export function planSourceStates(input: {
   // one row only. An `invalid` row also keeps the last good target.
   const kept = new Set<string>()
   for (const planned of input.planned) {
-    const current = byKey.get(planned.sourceKey)
+    const current = rowOf(planned.sourceKey)
     if (planned.provider === "github" && !linking(planned.status)) {
       const named = new Set(
         githubSourceScopeRepositories(planned.scope).map(

@@ -118,7 +118,7 @@ describe("POST /api/v1/repositories", () => {
         indexingStatus: "running",
         indexingStep: 7,
         indexingStepTotal: 22,
-        indexingStepKey: "embedding",
+        indexingStepKey: "finalizing",
       },
       created: true,
     })
@@ -138,7 +138,7 @@ describe("POST /api/v1/repositories", () => {
     expect(body).toMatchObject({
       indexingStep: 7,
       indexingStepTotal: 22,
-      indexingStepKey: "embedding",
+      indexingStepKey: "finalizing",
     })
   })
 

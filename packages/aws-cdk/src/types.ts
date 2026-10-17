@@ -121,9 +121,16 @@ export interface CtxPipeOtelProps {
 
 /**
  * Overrides for the EC2 Docker host that runs Workspace chat sandboxes.
- * The host is always created; these only change its size.
+ * The host is on by default. Set `enabled: false` to create no host. Chat
+ * then stays off: it answers "sandbox unavailable" (503).
  */
 export interface CtxPipeSandboxHostProps {
+  /**
+   * Create the host. Defaults to `true`. When `false`, the stack has no EC2
+   * host and the services get no sandbox host settings, so Workspace chat
+   * does not work. The other overrides are ignored.
+   */
+  readonly enabled?: boolean;
   /**
    * Defaults by `size`: `t4g.medium` (small), `t4g.large` (medium),
    * `t4g.xlarge` (large). Memory is the limit (~0.3–0.5 GiB per active
@@ -157,6 +164,6 @@ export interface CtxPipeProps {
    * Defaults to "small" when omitted.
    */
   readonly size?: CtxPipeSize;
-  /** Optional overrides for the always-created chat sandbox host. */
+  /** The chat sandbox host: on by default; overrides and an off switch. */
   readonly sandboxHost?: CtxPipeSandboxHostProps;
 }

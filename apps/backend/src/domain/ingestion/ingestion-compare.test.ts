@@ -13,6 +13,8 @@ import {
 } from "./ingestion-compare.js"
 
 const SOURCE = "https://github.com/example-org/checkout-api"
+/** The source file of SOURCE in the Workspace (ADR-050 revision 2026-10-16). */
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 
 const oldFile = (kind: string, title: string, claims = "") =>
   `---\nimport_key: k\nkind: ${kind}\ngenerated_by: ctxpipe\n${claims}---\n\n# ${title}\n\nText.\n`
@@ -21,7 +23,7 @@ const v2File = (
   kind: string,
   name: string,
   claims = "",
-  sources = [SOURCE],
+  sources = [SOURCE_PATH],
   body = "Text.",
 ) =>
   `---\nkind: ${kind}\nname: ${name}\n${claims}generated_by: ctxpipe-extract\nsources:\n${sources.map((s) => `  - ${s}`).join("\n")}\n---\n# ${name}\n\n${body}\n`
@@ -102,7 +104,6 @@ describe("projectExtractedTree", () => {
   it("names a v2 unit from `name`, keys a claim by its target unit, and reads the evidence kind", () => {
     const { units } = projectExtractedTree({
       generatedBy: "ctxpipe-extract",
-      sourceUrl: `${SOURCE}.git`,
       files: [
         {
           path: "knowledge/services/checkout-api.md",
@@ -115,12 +116,6 @@ describe("projectExtractedTree", () => {
         {
           path: "knowledge/libraries/http.md",
           content: v2File("Library", "HTTP Client"),
-        },
-        {
-          path: "knowledge/libraries/other.md",
-          content: v2File("Library", "Other", "", [
-            "https://github.com/example-org/billing",
-          ]),
         },
       ],
     })
@@ -251,7 +246,7 @@ describe("findInjectionsThrough", () => {
       files: [
         {
           path: "knowledge/services/a.md",
-          content: v2File("Service", "A", "", [SOURCE], body),
+          content: v2File("Service", "A", "", [SOURCE_PATH], body),
         },
       ],
     }).units

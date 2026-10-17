@@ -4,28 +4,18 @@ import { AnimatedBackground } from "@/components/AnimatedBackground"
 import { ignoreRepeatClick } from "./ignoreRepeatClick"
 
 type OnboardingPageShellProps = {
-  showDotNav: boolean
   sceneReady: boolean
-  currentSlide: number
-  slideCount: number
   sceneFailed: boolean
   onSceneLoad: () => void
   onSceneError: () => void
-  onGoToSlide: (index: number) => void
-  statusIndicator?: React.ReactNode
   children: React.ReactNode
 }
 
 export function OnboardingPageShell({
-  showDotNav,
   sceneReady,
-  currentSlide,
-  slideCount,
   sceneFailed,
   onSceneLoad,
   onSceneError,
-  onGoToSlide,
-  statusIndicator,
   children,
 }: OnboardingPageShellProps) {
   return (
@@ -69,33 +59,6 @@ export function OnboardingPageShell({
             {children}
           </div>
         </section>
-      </div>
-
-      {statusIndicator ? (
-        <div className="fixed inset-x-4 top-4 z-20 flex justify-center sm:inset-x-auto sm:right-6 sm:top-6">
-          {statusIndicator}
-        </div>
-      ) : null}
-
-      <div
-        className={`fixed inset-x-0 bottom-8 z-20 flex items-center justify-center gap-1.5 ${
-          showDotNav ? "opacity-100" : "opacity-0"
-        }`}
-      >
-        {Array.from({ length: slideCount }, (_, index) => (
-          <button
-            // biome-ignore lint/suspicious/noArrayIndexKey: fixed slide count; index is stable
-            key={index}
-            type="button"
-            aria-label={`Go to slide ${index + 1}`}
-            className={`h-1.5 w-1.5 rounded-full transition-[background-color,scale] ${
-              index === currentSlide
-                ? "scale-110 bg-teal-400"
-                : "bg-zinc-600 hover:bg-zinc-500"
-            }`}
-            onClick={() => onGoToSlide(index)}
-          />
-        ))}
       </div>
 
       {sceneFailed ? (

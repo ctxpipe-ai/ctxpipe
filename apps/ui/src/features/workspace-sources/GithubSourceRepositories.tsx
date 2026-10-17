@@ -10,6 +10,12 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
 import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
@@ -29,6 +35,8 @@ import {
   workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
@@ -85,10 +93,17 @@ function sameName(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
 
-type StatusTag = { label: string; className: string; dotClassName: string }
+type StatusTag = {
+  label: string
+  /** What the status means, for the tip on hover and focus. */
+  hint: string
+  className: string
+  dotClassName: string
+}
 
 const pendingTag: StatusTag = {
   label: "Pending",
+  hint: "ctx| has not read this repository yet.",
   className:
     "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
@@ -101,6 +116,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed && item.indexingStatus === "complete_with_issues") {
     return {
       label: "Indexed with issues",
+      hint: "ctx| indexed the latest commit that it knows, but some parts of the index are incomplete.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 rounded-full bg-amber-300",
@@ -109,6 +125,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed) {
     return {
       label: "Indexed",
+      hint: "ctx| indexed the latest commit of this repository that it knows.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
       dotClassName: "size-1.5 rounded-full bg-teal-300",
@@ -117,6 +134,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (item.desiredSha && item.indexedSha !== item.desiredSha) {
     return {
       label: "Indexing",
+      hint: "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 animate-pulse rounded-full bg-amber-300",
@@ -322,10 +340,25 @@ export function GithubSourceRepositories(props: {
                       )}
                     </p>
                     <span className={sourceRowStatusClassName}>
-                      <span className={status.className}>
-                        <span className={status.dotClassName} aria-hidden />
-                        {status.label}
-                      </span>
+                      <TooltipProvider delay={200}>
+                        <Tooltip>
+                          {/* The trigger is a button, so keyboard focus opens the tip. */}
+                          <TooltipTrigger
+                            className={cn(
+                              status.className,
+                              focusVisibleClassName,
+                            )}
+                          >
+                            <span className={status.dotClassName} aria-hidden />
+                            {status.label}
+                            {/* Base UI sets no description, so the status carries it. */}
+                            <span className="sr-only">{status.hint}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {status.hint}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                     </span>
                     <div className={sourceRowActionsClassName}>
                       {canUnlink ? (
@@ -436,9 +469,11 @@ function AddGithubRepositoriesModal(props: {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const connectionIds = connections.map((connection) => connection.id)
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, connectionIds),
-    enabled: isOpen && connectionIds.length > 0,
+    enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
   })
 
   const eligibleRepos = useMemo(
@@ -511,6 +546,8 @@ function AddGithubRepositoriesModal(props: {
             ? `${results.length} pull requests opened. Each change applies after its merge.`
             : sourceChangeMessage(),
           {
+            // Long enough to read the text and to press the action.
+            duration: 10_000,
             action: {
               label: "View pull request",
               onClick: () =>
@@ -547,17 +584,24 @@ function AddGithubRepositoriesModal(props: {
         </p>
 
         <div className="mt-5 space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <SearchField
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search repositories"
-              aria-label="Search GitHub repositories"
-              className="min-w-0 flex-1"
-            />
-            <GithubRepoSortSelect value={sort} onChange={setSort} />
-          </div>
-          {connectionIds.length === 0 ? (
+          {isAdmin === false ? (
+            <p className="text-sm text-muted-foreground">
+              Ask an admin to add repositories. Only an owner or admin can list
+              the GitHub repositories.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search repositories"
+                aria-label="Search GitHub repositories"
+                className="min-w-0 flex-1"
+              />
+              <GithubRepoSortSelect value={sort} onChange={setSort} />
+            </div>
+          )}
+          {isAdmin === false ? null : connectionIds.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Connect GitHub on the Connectors page first.
             </p>

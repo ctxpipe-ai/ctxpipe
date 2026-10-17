@@ -33,7 +33,7 @@ Last area: it disturbs the target. [Harness](../harness.md) is `PASS`; run it af
 **Evidence** `RES-2-1.png`; worker status before and after; run ids.
 
 ### RES-3 Errors render inline, never a blank page
-**Requires** ONB-5; accounts A and C.
+**Requires** ONB-4; accounts A and C.
 **Steps**
 1. As A, open `/{orgSlug}/ws/does-not-exist-{run-id}` and `/{orgSlug}/ws/{workspace1Slug}/conv_does_not_exist`.
 2. As C (not a member), open `/{orgSlug}/`.

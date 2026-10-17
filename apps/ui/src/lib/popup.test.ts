@@ -81,25 +81,24 @@ describe("handleGithubSetupPopupResult", () => {
     )
   })
 
-  it("ends the popup flow before it leaves for /.github/setup", async () => {
-    // The opener started a popup flow; the popup relayed its nonce.
+  it("ends the popup flow before it sends the window to /.github/setup", async () => {
     const nonce = beginGithubPopupFlow()
     localStorage.setItem(
       GITHUB_SETUP_RESULT_KEY,
       JSON.stringify({ installationId: 42, popupFlowNonce: nonce }),
     )
     refuseRegistration("github_not_linked")
-    // The browser leaves at the redirect: code after it may never run. A
-    // flow that is still active makes /.github/setup act as the popup, which
-    // renders nothing in a normal tab.
-    let flowAtRedirect: unknown = "not redirected"
+    // The browser unloads the opener on navigation, so no later code runs.
+    let flowAtNavigation: unknown = "not navigated"
     assign.mockImplementation(() => {
-      flowAtRedirect = getActiveGithubPopupFlowState()
+      flowAtNavigation = getActiveGithubPopupFlowState()
     })
 
     await handleGithubSetupPopupResult("acme", new QueryClient())
 
-    expect(flowAtRedirect).toBeNull()
+    // A live flow makes /.github/setup act as the popup: it calls
+    // window.close(), which a full page ignores, and stays blank.
+    expect(flowAtNavigation).toBeNull()
   })
 
   it("reports a failed registration for any other refusal", async () => {

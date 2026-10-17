@@ -29,7 +29,6 @@ import {
   finishWorkspaceChatTurn,
 } from "../../domain/workspaces/workspace-chat-otel.js"
 import { mintWorkspaceChatRunCapability } from "../../domain/workspaces/workspace-chat-run-capability.js"
-import { mintWorkspaceChatToken } from "../../domain/workspaces/workspace-chat-token.js"
 import { generateObjectId } from "../../lib/id.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
 import { LangfuseContextSpanProcessor } from "../../observability/langfuseContextProcessor.js"
@@ -73,10 +72,6 @@ beforeEach(() => {
   exporter.reset()
 })
 
-afterEach(() => {
-  finishWorkspaceChatTurn("conv_1")
-})
-
 afterAll(async () => {
   await provider.shutdown()
 })
@@ -109,15 +104,6 @@ function appWithRoutes(): OpenAPIHono<AppEnv> {
   return app
 }
 
-function chatToken(): string {
-  return mintWorkspaceChatToken({
-    authSecret: AUTH_SECRET,
-    orgId: "org_1",
-    orgSlug: "acme",
-    conversationId: "conv_1",
-  })
-}
-
 function serverSpan() {
   const finished = exporter.getFinishedSpans()
   for (let index = finished.length - 1; index >= 0; index--) {
@@ -126,135 +112,6 @@ function serverSpan() {
   }
   return undefined
 }
-
-it("attributes completions HTTP and Langfuse from the verified token, not the URL slug or baggage", async () => {
-  beginWorkspaceChatTurn("conv_1", "conv_1", {
-    orgId: "org_1",
-    orgSlug: "acme",
-  })
-  const res = await appWithRoutes().request(
-    "/spoofed-org/api/v1/workspace-chat/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${chatToken()}`,
-        baggage:
-          "ctxpipe.org.id=org_SPOOFED,ctxpipe.org.slug=spoofed,ctxpipe.conversation.id=conv_SPOOFED",
-        "x-request-id": "req_ws_chat",
-      },
-      body: JSON.stringify({
-        model: "openai/gpt-5.6-terra",
-        messages: [{ role: "user", content: "secret-prompt-token" }],
-      }),
-    },
-  )
-
-  expect(res.status).toBe(200)
-  await res.json()
-  const span = serverSpan()
-  expect(span?.attributes).toMatchObject({
-    "ctxpipe.org.id": "org_1",
-    "ctxpipe.org.slug": "acme",
-    "ctxpipe.conversation.id": "conv_1",
-    "request.id": "req_ws_chat",
-  })
-  expect(span?.attributes["ctxpipe.org.id"]).not.toBe("org_SPOOFED")
-  expect(span?.attributes["ctxpipe.org.slug"]).not.toBe("spoofed")
-  expect(span?.attributes["ctxpipe.conversation.id"]).not.toBe("conv_SPOOFED")
-  expect(JSON.stringify(span?.attributes)).not.toContain("secret-prompt-token")
-  const generation = exporter
-    .getFinishedSpans()
-    .find((item) => item.name.startsWith("generation"))
-  expect(generation?.attributes["langfuse.trace.tags"]).toEqual(
-    expect.arrayContaining(["org:acme", `env:${environment}`]),
-  )
-  expect(generation?.attributes["langfuse.trace.metadata.orgId"]).toBe("org_1")
-  expect(generation?.attributes["langfuse.trace.metadata.orgSlug"]).toBe("acme")
-  expect(generation?.attributes["session.id"]).toBe("conv_1")
-  expect(JSON.stringify(generation?.attributes)).not.toContain("SPOOFED")
-  expect(generation?.links.map((link) => link.context.spanId)).toEqual([
-    span?.spanContext().spanId,
-  ])
-})
-
-it("records the model, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
-  let upstreamBody: Record<string, unknown> = {}
-  const sse = [
-    {
-      model: "openai/gpt-5.6-terra-20260901",
-      choices: [{ delta: { content: "Hel" } }],
-    },
-    { choices: [{ delta: { content: "lo" }, finish_reason: "stop" }] },
-    {
-      choices: [],
-      usage: {
-        prompt_tokens: 7200,
-        completion_tokens: 40,
-        prompt_tokens_details: { cached_tokens: 6800 },
-        cost: 0.0021,
-      },
-    },
-  ]
-    .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
-    .concat("data: [DONE]\n\n")
-    .join("")
-  server.use(
-    http.post(`${MODEL_PROVIDER_URL}/chat/completions`, async ({ request }) => {
-      upstreamBody = (await request.json()) as Record<string, unknown>
-      return new HttpResponse(sse, {
-        headers: { "content-type": "text/event-stream" },
-      })
-    }),
-  )
-  beginWorkspaceChatTurn("conv_1", "conv_1", {
-    orgId: "org_1",
-    orgSlug: "acme",
-  })
-  const res = await appWithRoutes().request(
-    "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
-    {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        authorization: `Bearer ${chatToken()}`,
-      },
-      body: JSON.stringify({
-        model: "anything",
-        stream: true,
-        messages: [
-          { role: "user", content: "Say hello" },
-          { role: "tool", content: "token ghp_abcdefghijklmnopqrstuvwxyz0123" },
-        ],
-      }),
-    },
-  )
-  expect(res.status).toBe(200)
-  await res.text()
-
-  expect(upstreamBody.stream_options).toEqual({ include_usage: true })
-  const generation = exporter
-    .getFinishedSpans()
-    .find((item) => item.name === "generation #0")
-  expect(generation?.attributes).toMatchObject({
-    "gen_ai.request.model": "openai/gpt-5.6-terra",
-    "gen_ai.response.model": "openai/gpt-5.6-terra-20260901",
-    "gen_ai.usage.input_tokens": 7200,
-    "gen_ai.usage.output_tokens": 40,
-    "gen_ai.usage.cache_read.input_tokens": 6800,
-    "gen_ai.usage.cost": 0.0021,
-    "gen_ai.response.finish_reasons": "stop",
-  })
-  expect(
-    JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
-  ).toEqual([
-    { role: "user", content: "Say hello" },
-    { role: "tool", content: "token [masked]" },
-  ])
-  expect(
-    JSON.parse(String(generation?.attributes["langfuse.observation.output"])),
-  ).toEqual({ role: "assistant", content: "Hello" })
-})
 
 describeWithDatabase("workspace-chat capability attribution", () => {
   const orgId = generateObjectId("org")
@@ -312,6 +169,106 @@ describeWithDatabase("workspace-chat capability attribution", () => {
     })
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()
+  })
+
+  function capability(): Promise<string> {
+    return mintWorkspaceChatRunCapability({
+      authSecret: AUTH_SECRET,
+      orgId,
+      orgSlug,
+      conversationId,
+      expectedOwner: lockOwner,
+      revision: {
+        workspaceId,
+        generation: 1,
+        remote: { url: repoUrl, connectionId: null },
+        sha,
+        defaultBranch: "main",
+        access: "read",
+      },
+      purpose: "workspace-chat-model",
+    })
+  }
+
+  it("records the model, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
+    let upstreamBody: Record<string, unknown> = {}
+    const sse = [
+      {
+        model: "openai/gpt-5.6-terra-20260901",
+        choices: [{ delta: { content: "Hel" } }],
+      },
+      { choices: [{ delta: { content: "lo" }, finish_reason: "stop" }] },
+      {
+        choices: [],
+        usage: {
+          prompt_tokens: 7200,
+          completion_tokens: 40,
+          prompt_tokens_details: { cached_tokens: 6800 },
+          cost: 0.0021,
+        },
+      },
+    ]
+      .map((chunk) => `data: ${JSON.stringify(chunk)}\n\n`)
+      .concat("data: [DONE]\n\n")
+      .join("")
+    server.use(
+      http.post(
+        `${MODEL_PROVIDER_URL}/chat/completions`,
+        async ({ request }) => {
+          upstreamBody = (await request.json()) as Record<string, unknown>
+          return new HttpResponse(sse, {
+            headers: { "content-type": "text/event-stream" },
+          })
+        },
+      ),
+    )
+    beginWorkspaceChatTurn(conversationId, conversationId, { orgId, orgSlug })
+    const res = await appWithRoutes().request(
+      `/${orgSlug}/api/v1/workspace-chat/openai/v1/chat/completions`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${await capability()}`,
+        },
+        body: JSON.stringify({
+          model: "anything",
+          stream: true,
+          messages: [
+            { role: "user", content: "Say hello" },
+            {
+              role: "tool",
+              content: "token ghp_abcdefghijklmnopqrstuvwxyz0123",
+            },
+          ],
+        }),
+      },
+    )
+    expect(res.status).toBe(200)
+    await res.text()
+
+    expect(upstreamBody.stream_options).toEqual({ include_usage: true })
+    const generation = exporter
+      .getFinishedSpans()
+      .find((item) => item.name === "generation #0")
+    expect(generation?.attributes).toMatchObject({
+      "gen_ai.request.model": "openai/gpt-5.6-terra",
+      "gen_ai.response.model": "openai/gpt-5.6-terra-20260901",
+      "gen_ai.usage.input_tokens": 7200,
+      "gen_ai.usage.output_tokens": 40,
+      "gen_ai.usage.cache_read.input_tokens": 6800,
+      "gen_ai.usage.cost": 0.0021,
+      "gen_ai.response.finish_reasons": "stop",
+    })
+    expect(
+      JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
+    ).toEqual([
+      { role: "user", content: "Say hello" },
+      { role: "tool", content: "token [masked]" },
+    ])
+    expect(
+      JSON.parse(String(generation?.attributes["langfuse.observation.output"])),
+    ).toEqual({ role: "assistant", content: "Hello" })
   })
 
   it("attributes completions from the verified run capability, not the URL slug or baggage", async () => {

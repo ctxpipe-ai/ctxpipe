@@ -1,15 +1,11 @@
 import { isDeepStrictEqual } from "node:util"
-import { and, asc, eq, inArray, isNotNull, ne, sql } from "drizzle-orm"
+import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
-import {
-  workspaceKnowledgePathState,
-  workspaces,
-  workspaceWriteJobs,
-} from "../db/schema/workspaces.js"
+import { workspaceWriteJobs } from "../db/schema/workspaces.js"
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
-import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
+import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -18,7 +14,7 @@ import {
   type WorkspaceWriteJobPayload,
   WRITE_JOB_STATUSES,
 } from "../domain/workspaces/write-job-intent.js"
-import type { WorkspaceWriteKind } from "../domain/workspaces/write-jobs.js"
+import type { WorkspaceWriteJobKind } from "../domain/workspaces/write-jobs.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import type { GitFileChange } from "../services/git/file-change.js"
 import { orgSql } from "./workspace-sql.js"
@@ -41,6 +37,38 @@ export async function getWriteJobCommitSha(
   })
 }
 
+/**
+ * The status of one Files pane write job in a Workspace. Row-level security
+ * keeps the read in the org of the caller; the Workspace and kind filters keep
+ * it to Files pane jobs of that Workspace.
+ */
+export async function getWorkspaceFileJobStatus(
+  workspaceId: string,
+  jobId: string,
+): Promise<{ status: string; failureReason: string | null } | null> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        status: workspaceWriteJobs.status,
+        payload: workspaceWriteJobs.payload,
+      })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, jobId),
+          eq(workspaceWriteJobs.workspaceId, workspaceId),
+          eq(workspaceWriteJobs.kind, "ui_file_edit"),
+        ),
+      )
+      .limit(1)
+    if (!row) return null
+    return {
+      status: row.status,
+      failureReason: row.payload?.failureReason ?? null,
+    }
+  })
+}
+
 /** Set the status of a job. `failureReason` records why a job failed. */
 export async function persistWriteJobStatus(
   jobId: string,
@@ -48,7 +76,7 @@ export async function persistWriteJobStatus(
   failureReason?: string,
 ): Promise<void> {
   await orgSql(async () => {
-    const [row] = await getOrgDb()
+    await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
         status,
@@ -65,16 +93,13 @@ export async function persistWriteJobStatus(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
-    if (row?.status === WRITE_JOB_STATUSES.completed)
-      await projectCompletedKnowledgePaths(row)
   })
 }
 
 export async function listPausedWriteJobs(workspaceId: string): Promise<
   Array<{
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     status: string
@@ -96,11 +121,15 @@ export async function listPausedWriteJobs(workspaceId: string): Promise<
         and(
           eq(workspaceWriteJobs.workspaceId, workspaceId),
           eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.paused),
+          // A paused direct export from before upgrade step 1 never
+          // resumes: the export goes only through the upgrade pull request
+          // (ADR-053).
+          ne(workspaceWriteJobs.kind, "migration_export"),
         ),
       )
     return rows.map((row) => ({
       ...row,
-      kind: row.kind as WorkspaceWriteKind,
+      kind: row.kind as WorkspaceWriteJobKind,
     }))
   })
 }
@@ -127,7 +156,7 @@ export async function persistWriteJobCommitSha(
   commitSha: string | null,
 ): Promise<void> {
   await orgSql(async () => {
-    const [row] = await getOrgDb()
+    await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
         commitSha,
@@ -140,139 +169,6 @@ export async function persistWriteJobCommitSha(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
-    if (row) await projectCompletedKnowledgePaths(row)
-  })
-}
-
-export async function listMigrationExportJobWorkspaceIds(): Promise<
-  Set<string>
-> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({ workspaceId: workspaceWriteJobs.workspaceId })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(eq(workspaceWriteJobs.kind, "migration_export"))
-    return new Set(rows.map((row) => row.workspaceId))
-  })
-}
-
-const migrationExportTip = sql<
-  string | null
->`coalesce(${workspaceWriteJobs.payload}->>'exportTipSha', ${workspaceWriteJobs.commitSha})`
-
-/** A completed empty export still has a cutover revision, but created no commit. */
-export async function persistMigrationExportNoOp(
-  jobId: string,
-  sha: string,
-  unpublishedCommitSha?: string,
-): Promise<void> {
-  await orgSql(async () => {
-    const [row] = await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        commitSha: null,
-        payload: sql`jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{exportTipSha}', to_jsonb(${sha}::text))`,
-        status: WRITE_JOB_STATUSES.completed,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-          sql`(${workspaceWriteJobs.commitSha} is null or ${workspaceWriteJobs.commitSha} = ${unpublishedCommitSha ?? null})`,
-        ),
-      )
-      .returning()
-    if (!row) {
-      const [existing] = await getOrgDb()
-        .select()
-        .from(workspaceWriteJobs)
-        .where(eq(workspaceWriteJobs.id, jobId))
-        .limit(1)
-      if (
-        existing?.kind === "migration_export" &&
-        existing.status === WRITE_JOB_STATUSES.completed &&
-        existing.commitSha === null &&
-        existing.payload?.exportTipSha === sha
-      )
-        return
-      throw new Error(
-        "Migration export is unavailable or already has a candidate commit",
-      )
-    }
-    await projectCompletedKnowledgePaths(row)
-  })
-}
-
-/** Cutover belongs to a binding, and remains valid as that binding's tip advances. */
-function currentExportBinding() {
-  return and(
-    eq(workspaceWriteJobs.workspaceId, workspaces.id),
-    eq(workspaceWriteJobs.generation, workspaces.desiredGeneration),
-    sql`${workspaceWriteJobs.payload}->'revision'->'remote'->>'url' = ${workspaces.workspaceRepositoryUrl}`,
-    sql`(${workspaceWriteJobs.payload}->'revision'->'remote'->>'connectionId') is not distinct from ${workspaces.githubConnectionId}`,
-    sql`${workspaceWriteJobs.payload}->'revision'->>'defaultBranch' = ${workspaces.desiredDefaultBranch}`,
-  )
-}
-
-export async function listMigrationExportShas(): Promise<Map<string, string>> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({
-        workspaceId: workspaceWriteJobs.workspaceId,
-        commitSha: migrationExportTip,
-      })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(
-        and(
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(migrationExportTip),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-        ),
-      )
-      .orderBy(asc(workspaceWriteJobs.createdAt))
-    const shas = new Map<string, string>()
-    for (const row of rows) {
-      if (row.commitSha && !shas.has(row.workspaceId)) {
-        shas.set(row.workspaceId, row.commitSha)
-      }
-    }
-    return shas
-  })
-}
-
-export async function getMigrationExportSha(
-  workspaceId: string,
-  revision?: WorkspaceRevision,
-): Promise<string | null> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select({ commitSha: migrationExportTip })
-      .from(workspaceWriteJobs)
-      .innerJoin(workspaces, currentExportBinding())
-      .where(
-        and(
-          eq(workspaceWriteJobs.workspaceId, workspaceId),
-          revision
-            ? and(
-                eq(workspaces.desiredGeneration, revision.generation),
-                eq(workspaces.workspaceRepositoryUrl, revision.remote.url),
-                sql`${workspaces.githubConnectionId} is not distinct from ${revision.remote.connectionId}`,
-                eq(workspaces.desiredDefaultBranch, revision.defaultBranch),
-              )
-            : undefined,
-          eq(workspaceWriteJobs.kind, "migration_export"),
-          isNotNull(migrationExportTip),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
-        ),
-      )
-      .orderBy(asc(workspaceWriteJobs.createdAt))
-      .limit(1)
-    return row?.commitSha ?? null
   })
 }
 
@@ -285,7 +181,7 @@ export async function persistSemanticHandoff(input: {
   files: GitFileChange[]
   deletePaths: string[]
   mirror?: ConnectorMirrorSource
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
 }) {
   return orgSql(async () => {
     const [row] = await getOrgDb()
@@ -346,7 +242,7 @@ export async function validateSemanticHandoff(
     files: GitFileChange[]
     deletePaths: string[]
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
+    extraction?: Record<string, unknown>
     handoff: { ownerRunId: string; candidateSha: string }
   },
   preparedSha?: string,
@@ -460,33 +356,40 @@ function nativeWriteJobOwnerId() {
     order by scheduled.created_at, scheduled.id limit 1)`
 }
 
-export async function reconcileWorkspaceWriteJob(jobId: string) {
-  return orgSql(async () => {
-    // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
-    // a failed step whose native retries are still pending must remain running.
-    await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        status: WRITE_JOB_STATUSES.failed,
-        payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${nativeWriteJobOwnerId()}::text))`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          inArray(workspaceWriteJobs.status, [
-            WRITE_JOB_STATUSES.queued,
-            WRITE_JOB_STATUSES.running,
-            WRITE_JOB_STATUSES.paused,
-          ]),
-          sql`exists (select 1 from openworkflow.workflow_runs owner
+/** Set `failed` on a job whose owning run is terminal. */
+function failJobsWithEndedRun(...conditions: SQL[]) {
+  // OpenWorkflow is the retry authority. Reconcile only a terminal owning run;
+  // a failed step whose native retries are still pending must remain running.
+  return getOrgDb()
+    .update(workspaceWriteJobs)
+    .set({
+      status: WRITE_JOB_STATUSES.failed,
+      payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{workflowRunId}', to_jsonb(${nativeWriteJobOwnerId()}::text))`,
+      updatedAt: new Date(),
+    })
+    .where(
+      and(
+        ...conditions,
+        sql`exists (select 1 from openworkflow.workflow_runs owner
         where owner.id = ${nativeWriteJobOwnerId()}
           and owner.input->>'orgId' = ${workspaceWriteJobs.orgId}
           and owner.input->>'workspaceId' = ${workspaceWriteJobs.workspaceId}
           and owner.input->>'jobId' = ${workspaceWriteJobs.id}
           and owner.status in ('failed', 'canceled'))`,
-        ),
-      )
+      ),
+    )
+}
+
+export async function reconcileWorkspaceWriteJob(jobId: string) {
+  return orgSql(async () => {
+    await failJobsWithEndedRun(
+      eq(workspaceWriteJobs.id, jobId),
+      inArray(workspaceWriteJobs.status, [
+        WRITE_JOB_STATUSES.queued,
+        WRITE_JOB_STATUSES.running,
+        WRITE_JOB_STATUSES.paused,
+      ]),
+    )
     const [row] = await getOrgDb()
       .select()
       .from(workspaceWriteJobs)
@@ -496,24 +399,83 @@ export async function reconcileWorkspaceWriteJob(jobId: string) {
   })
 }
 
+/**
+ * Reconcile the jobs of a Workspace that stayed `queued` or `running` since
+ * before `staleBefore`. A job whose run failed or was canceled becomes
+ * `failed`. A `queued` job that has no run lost its run, for example because
+ * the process stopped after it stored the job and before it queued the run.
+ * Such a job becomes `paused`, so that the resume step queues it again with
+ * the same id. When it binds an earlier generation, another repository URL
+ * or another default branch, a newer binding supersedes it, so it becomes
+ * `failed`. Admission refuses such a job, so a retry cannot succeed.
+ */
+export async function reconcileStaleWriteJobs(
+  workspace: {
+    id: string
+    desiredGeneration: number
+    workspaceRepositoryUrl: string
+    desiredDefaultBranch?: string | null
+  },
+  staleBefore: Date,
+) {
+  return orgSql(async () => {
+    const stale = [
+      eq(workspaceWriteJobs.workspaceId, workspace.id),
+      lt(workspaceWriteJobs.updatedAt, staleBefore),
+    ]
+    await failJobsWithEndedRun(
+      ...stale,
+      inArray(workspaceWriteJobs.status, [
+        WRITE_JOB_STATUSES.queued,
+        WRITE_JOB_STATUSES.running,
+      ]),
+    )
+    const sameBinding = sql<boolean>`(${workspaceWriteJobs.generation} = ${workspace.desiredGeneration}
+      and coalesce(${workspaceWriteJobs.payload}->>'jobWorkspaceUrl', ${workspace.workspaceRepositoryUrl}) = ${workspace.workspaceRepositoryUrl}
+      and coalesce(${workspaceWriteJobs.payload}->>'defaultBranch', ${workspaceWriteJobs.payload}->'revision'->>'defaultBranch', ${workspace.desiredDefaultBranch ?? null}) is not distinct from ${workspace.desiredDefaultBranch ?? null})`
+    await getOrgDb()
+      .update(workspaceWriteJobs)
+      .set({
+        status: sql`case when ${sameBinding} then ${WRITE_JOB_STATUSES.paused} else ${WRITE_JOB_STATUSES.failed} end`,
+        payload: sql`case when ${sameBinding} then ${workspaceWriteJobs.payload}
+          else jsonb_set(coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb), '{failureReason}', to_jsonb('superseded'::text)) end`,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          ...stale,
+          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.queued),
+          sql`${workspaceWriteJobs.payload}->>'workflowRunId' is null`,
+          sql`${nativeWriteJobOwnerId()} is null`,
+        ),
+      )
+  })
+}
+
 /** Immutable command admission and atomic ownership by one native workflow run. */
 export async function persistBoundWriteJob(input: {
   id: string
-  kind: WorkspaceWriteKind
+  kind: WorkspaceWriteJobKind
   revision: WorkspaceRevision
   files?: GitFileChange[]
   deletePaths?: string[]
   workflowRunId?: string
   admissionStatus?: "queued" | "paused"
+  /** The source repository that an `unlink_retraction` job retracts. */
+  retractRepositoryUrl?: string
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
+  retractSourcePath?: string
   displayName?: string
   previousSha?: string
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }) {
   return orgSql(async () => {
     const payload: WorkspaceWriteJobPayload = {
       revision: input.revision,
       ...(input.extraction ? { extraction: input.extraction } : {}),
+      ...(input.ingest ? { ingest: input.ingest } : {}),
       ...(input.mirror ? { mirror: input.mirror } : {}),
       ...(input.previousSha ? { previousSha: input.previousSha } : {}),
       ...(input.displayName !== undefined
@@ -521,6 +483,12 @@ export async function persistBoundWriteJob(input: {
         : {}),
       ...(input.files ? { mergeFiles: input.files } : {}),
       ...(input.deletePaths ? { mergeDeletePaths: input.deletePaths } : {}),
+      ...(input.retractRepositoryUrl
+        ? { retractRepositoryUrl: input.retractRepositoryUrl }
+        : {}),
+      ...(input.retractSourcePath
+        ? { retractSourcePath: input.retractSourcePath }
+        : {}),
       jobWorkspaceUrl: input.revision.remote.url,
       defaultBranch: input.revision.defaultBranch,
       ...(input.workflowRunId ? { workflowRunId: input.workflowRunId } : {}),
@@ -564,8 +532,11 @@ export async function persistBoundWriteJob(input: {
       !isDeepStrictEqual(row.payload?.mergeDeletePaths, input.deletePaths) ||
       !isDeepStrictEqual(row.payload?.mirror, input.mirror) ||
       !isDeepStrictEqual(row.payload?.extraction, input.extraction) ||
+      !isDeepStrictEqual(row.payload?.ingest, input.ingest) ||
       row.payload?.previousSha !== input.previousSha ||
-      row.payload?.displayName !== input.displayName
+      row.payload?.displayName !== input.displayName ||
+      row.payload?.retractRepositoryUrl !== input.retractRepositoryUrl ||
+      row.payload?.retractSourcePath !== input.retractSourcePath
     )
       throw new Error("Write job id belongs to a different file command")
     if (!input.workflowRunId && row.payload?.revision) {
@@ -645,99 +616,6 @@ export async function reconcileWriteJobAdmission(
         ),
       )
     return false
-  })
-}
-
-function matchingPathBinding(
-  stored: WorkspaceRevision,
-  revision: WorkspaceRevision,
-): boolean {
-  return sameWorkspaceRevision(
-    { ...stored, sha: revision.sha, access: revision.access },
-    revision,
-  )
-}
-
-/** Publish result metadata in the same short transaction as command completion. */
-async function projectCompletedKnowledgePaths(
-  row: typeof workspaceWriteJobs.$inferSelect,
-): Promise<void> {
-  const revision = row.payload?.revision
-  const paths = row.payload?.knowledgePaths
-  if (!revision || !paths) return
-  const db = getOrgDb()
-  const [workspace] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, row.workspaceId))
-    .for("update")
-  if (
-    !workspace ||
-    workspace.desiredGeneration !== revision.generation ||
-    workspace.workspaceRepositoryUrl !== revision.remote.url ||
-    workspace.githubConnectionId !== revision.remote.connectionId ||
-    workspace.desiredDefaultBranch !== revision.defaultBranch
-  )
-    return
-  const [previous] = await db
-    .select()
-    .from(workspaceKnowledgePathState)
-    .where(eq(workspaceKnowledgePathState.workspaceId, row.workspaceId))
-    .limit(1)
-  const state = {
-    revision,
-    paths: {
-      ...(previous && matchingPathBinding(previous.revision, revision)
-        ? previous.paths
-        : {}),
-      ...paths,
-    },
-  }
-  await db
-    .insert(workspaceKnowledgePathState)
-    .values({ workspaceId: row.workspaceId, orgId: row.orgId, ...state })
-    .onConflictDoUpdate({
-      target: workspaceKnowledgePathState.workspaceId,
-      set: state,
-    })
-}
-
-/** Read one current binding's compact completed-result metadata, independent of job history. */
-export async function getCompletedKnowledgePaths(
-  revision: WorkspaceRevision,
-): Promise<Record<string, string>> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select()
-      .from(workspaceKnowledgePathState)
-      .where(eq(workspaceKnowledgePathState.workspaceId, revision.workspaceId))
-      .limit(1)
-    return row && matchingPathBinding(row.revision, revision) ? row.paths : {}
-  })
-}
-
-export async function persistWriteJobKnowledgePaths(
-  jobId: string,
-  paths: Record<string, string>,
-): Promise<void> {
-  await orgSql(async () => {
-    const [row] = await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        payload: sql`coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb) || jsonb_build_object('knowledgePaths', ${JSON.stringify(paths)}::jsonb)`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
-        ),
-      )
-      .returning({ id: workspaceWriteJobs.id })
-    if (!row)
-      throw new Error(
-        "Knowledge path assignments require a running write command",
-      )
   })
 }
 

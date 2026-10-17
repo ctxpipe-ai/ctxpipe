@@ -90,7 +90,13 @@ export const OpensInNewTab: Story = {
     // The time comes first in the tab order, then the hash.
     await userEvent.tab()
     await userEvent.tab()
-    expect(hash).toHaveFocus()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", {
+          name: "Commit abc123d (opens in a new tab)",
+        }),
+      ).toHaveFocus(),
+    )
     await iconOpacity("on keyboard focus", "1")
     expect(getComputedStyle(hash).outlineStyle).toBe("solid")
     expect(getComputedStyle(hash).outlineWidth).toBe("2px")
@@ -123,6 +129,7 @@ export const CompactRowTruncates: Story = {
     const canvas = within(canvasElement)
     const message = canvas.getByText(longCommit.subject)
     expect(getComputedStyle(message).textOverflow).toBe("ellipsis")
+    await document.fonts.ready
     expect(message.scrollWidth).toBeGreaterThan(message.clientWidth)
     const row = message.parentElement
     if (!row) throw new Error("The message has no row")
@@ -188,6 +195,7 @@ export const CommitLineAligns: Story = {
     ),
   ],
   play: async ({ canvasElement }) => {
+    await document.fonts.ready
     const lines = [
       ...canvasElement.querySelectorAll<HTMLElement>("[data-commit-line]"),
     ]

@@ -306,9 +306,9 @@ export async function handleGithubSetupPopupResult(
               throw e
             // Its not-linked view links GitHub, then registers again.
             status = "redirected"
-            // The page leaves now, so end the popup flow first: with an
-            // active flow, /.github/setup acts as the popup and renders
-            // nothing in this tab.
+            // End the flow first. The navigation unloads this page before the
+            // clear below runs, and a live flow makes /.github/setup act as
+            // the popup and close itself.
             clearGithubPopupFlow()
             window.location.assign(
               `/.github/setup?${new URLSearchParams({
@@ -366,10 +366,7 @@ export async function handleGithubSetupPopupResult(
           query: {},
         },
       )
-      const linked = await readApiJson<{
-        id?: string
-        installationId?: number | null
-      } | null>(response)
+      const linked = await readApiJson(response)
       if (githubInstallationIsLinked(linked)) status = "registered"
     } catch {
       // Keep "no_result" and let caller decide UX.
@@ -415,7 +412,10 @@ export function consumePagerdutySetupPopupResult(): PagerdutySetupPopupResult {
       error?: unknown
       type?: unknown
     }
-    if (parsed.type === "pagerduty-oauth-error" && typeof parsed.error === "string") {
+    if (
+      parsed.type === "pagerduty-oauth-error" &&
+      typeof parsed.error === "string"
+    ) {
       return { status: "error", error: parsed.error }
     }
     if (typeof parsed.connectionId === "string" && parsed.connectionId) {

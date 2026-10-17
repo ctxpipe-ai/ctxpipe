@@ -36,6 +36,12 @@ export type SourceProviderUi = {
   Icon: ComponentType<{ className?: string }>
   /** The scope editor of the provider. */
   ScopeEditor: ComponentType<SourceScopeEditorProps>
+  /**
+   * True when the scope editor reads no admin-only route. Most editors list
+   * the content of the connection, and only an owner or admin can read
+   * those lists, so a member sees "Ask an admin" in place of them.
+   */
+  memberCanPick?: true
 }
 
 export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {

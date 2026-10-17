@@ -12,7 +12,11 @@ import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { destroyWorkspaceSandbox } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { persistSandboxInstance } from "../../models/workspaces.js"
@@ -400,7 +404,11 @@ it.each(["writable", "read_only", "unknown"])(
             },
           )
           expect(response.status).toBe(202)
-          expect(await response.json()).toEqual({ queued: true })
+          const queued = (await response.json()) as { jobId: string }
+          expect(queued).toEqual({
+            queued: true,
+            jobId: expect.stringMatching(/^wjob_/),
+          })
           await expect
             .poll(
               async () => {
@@ -427,6 +435,7 @@ it.each(["writable", "read_only", "unknown"])(
             .toMatchObject({
               orgId,
               workspaceId,
+              jobId: queued.jobId,
               revision: { access: "write-default", workspaceId },
               files: [{ path: "AGENTS.md", content: "# Saved instructions\n" }],
               deletePaths: [],
@@ -513,5 +522,77 @@ it(
         },
       })
     })
+  },
+)
+
+it(
+  "shows knowledge from before Workspaces read-only and refuses each Files job on its path",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(
+      async ({ app, orgId, workspaceId, revision }) => {
+        const path = "knowledge/services/tools-cli.md"
+        await withOrgDbContext(orgId, (db) =>
+          db.insert(workspaceKnowledgeUnits).values({
+            servingId: `unit_legacy_${workspaceId}`,
+            orgId,
+            workspaceId,
+            path,
+            source: "legacy",
+            body: "The release tools.",
+            projectionSha: revision.sha,
+          }),
+        )
+        const blob = await app.request(
+          `/workspaces/knowledge/files/blob?path=${path}`,
+        )
+        expect({ status: blob.status, body: await blob.json() }).toEqual({
+          status: 200,
+          body: {
+            path,
+            body: "The release tools.",
+            binary: false,
+            readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+          },
+        })
+        for (const job of [
+          { op: "save", path, content: "# Changed\n" },
+          { op: "create", path, kind: "file", content: "# New\n" },
+          { op: "delete", path },
+          { op: "rename", from: path, to: "knowledge/services/tools.md" },
+          // Other spellings of the same path, which the job makes canonical.
+          { op: "save", path: ` ${path} `, content: "# Changed\n" },
+          { op: "create", path: `${path}\n`, kind: "file", content: "# New\n" },
+          { op: "save", path: `./${path}`, content: "# Changed\n" },
+          { op: "save", path: path.replace("/", "//"), content: "# Changed\n" },
+          { op: "rename", from: "notes/tools-cli.md", to: ` ${path}` },
+          // A move whose destination is the main-era path.
+          {
+            op: "move",
+            from: "notes/tools-cli.md",
+            toDirectory: "knowledge/services",
+          },
+        ]) {
+          const response = await app.request(
+            "/workspaces/knowledge/files/jobs",
+            {
+              method: "POST",
+              headers: { "content-type": "application/json" },
+              body: JSON.stringify(job),
+            },
+          )
+          expect({
+            op: job.op,
+            status: response.status,
+            body: await response.json(),
+          }).toEqual({
+            op: job.op,
+            status: 400,
+            body: { error: LEGACY_KNOWLEDGE_READ_ONLY },
+          })
+        }
+      },
+      { "notes/tools-cli.md": "# Tools\n" },
+    )
   },
 )

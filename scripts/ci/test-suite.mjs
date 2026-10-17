@@ -46,7 +46,10 @@ try {
     const result = spawnSync(process.execPath, [join(root, script), ...args], {
       cwd: directory,
       stdio: "inherit",
+      timeout: 300_000,
     })
+    if (result.error)
+      throw new Error(`${script} did not finish: ${result.error.message}`)
     if (result.status !== 0) throw new Error(`${script} failed`)
   }
   const baseline = `scripts/ci/failures/${name}.json`

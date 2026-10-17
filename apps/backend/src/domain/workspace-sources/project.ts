@@ -8,6 +8,7 @@ import {
   replaceWorkspaceSourceRows,
 } from "../../models/workspace-sources.js"
 import { SOURCE_ADAPTERS, type SourceAdapter } from "./adapter.js"
+import { unconvertedEntryIds } from "./convert-to-files.js"
 import { checkGithubSourceAccess } from "./github-access.js"
 import {
   planSourceRows,
@@ -91,5 +92,6 @@ export async function projectWorkspaceSources(input: {
     workspaceId: input.workspaceId,
     revision: input.revision,
     rows,
+    movedFrom: unconvertedEntryIds(input.files ?? []),
   })
 }

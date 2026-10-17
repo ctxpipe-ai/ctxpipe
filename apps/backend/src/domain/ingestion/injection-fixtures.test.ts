@@ -12,6 +12,7 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { resolveDiscoveredRoots } from "./discovered-roots.js"
 import {
   FIXTURE_OTHER_SOURCE_URL,
+  FIXTURE_SOURCE_PATH,
   FIXTURE_SOURCE_URL,
   HOSTILE_CONTEXT,
   HOSTILE_SOURCE,
@@ -123,6 +124,7 @@ function validate(stagedDir: string) {
     baseCommit,
     stagedDir,
     source: { url: FIXTURE_SOURCE_URL, sha: sourceSha },
+    sourcePath: FIXTURE_SOURCE_PATH,
     skill: "apis",
     bundle: "bundle-fixture",
     ...gitSource(sourceDir, sourceSha),

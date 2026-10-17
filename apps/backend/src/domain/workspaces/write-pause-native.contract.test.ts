@@ -32,6 +32,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { enqueueInputFromPausedJob } from "./write-job-intent.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 async function cancelUnlessAlreadyTerminal(
   runner: Pick<OpenWorkflow, "cancelWorkflowRun">,
@@ -159,7 +160,7 @@ process.exit(result.status ?? 1);
             workflowRunId: handle.workflowRun.id,
           })
           if (run && !["completed", "failed", "canceled"].includes(run.status))
-            await f.runner.cancelWorkflowRun(run.id)
+            await cancelWorkflowRunIfOpen(f.backend, run.id)
           await worker.stop()
           if (priorPath === undefined) delete process.env.PATH
           else process.env.PATH = priorPath
@@ -174,7 +175,8 @@ it.each(["captured", "legacy"] as const)(
   { timeout: 90_000 },
   async (capture) => {
     await withNativeHydrationFixture(
-      { github: true, writeStatus: "writable" },
+      // Format 3: hydrate plans the bootstrap write only there.
+      { github: true, writeStatus: "writable", format: 3 },
       async (f) => {
         await f.publish()
         const paused = await withOrgIdContext(f.org, () =>
@@ -326,7 +328,12 @@ it.each(["bootstrap", "ui_file_edit"] as const)(
       "../../models/workspaces.js"
     )
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {
@@ -546,7 +553,12 @@ it(
   { timeout: 100_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
         const backend = await BackendPostgres.connect(f.databaseUrl, {

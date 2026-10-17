@@ -10,8 +10,7 @@ const __dirname = fileURLToPath(new URL(".", import.meta.url))
 config({ path: resolve(__dirname, "../../.env.local") })
 
 const migrationsDir = join(__dirname, "../../migrations")
-const backfill = "20260820070625_purple_eddie_brock"
-const firstWorkspaceTable = "20260825105305_organic_rhino"
+const backfill = "20261016064110_workspaces"
 const database = `ctxpipe_test_dest_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
 const migrations = readdirSync(migrationsDir, { withFileTypes: true })
   .filter((entry) => entry.isDirectory())
@@ -39,6 +38,9 @@ describe("dest Workspace SQL migration (Postgres)", () => {
     await admin.query(`CREATE DATABASE "${database}"`)
     ownerUrl.pathname = `/${database}`
     db = new pg.Client({ connectionString: ownerUrl.toString() })
+    // DROP DATABASE ... WITH (FORCE) in afterAll can end a socket that
+    // db.end() has not closed yet. An "error" event with no listener throws.
+    db.on("error", (error) => console.warn("Client error at teardown", error))
     await db.connect()
   }, 60_000)
 
@@ -68,11 +70,7 @@ describe("dest Workspace SQL migration (Postgres)", () => {
         ('con_notion', $1, 'notion', '{"enabled": true, "repositoryId": "repo_docs"}')`,
       [orgId],
     )
-    await apply(
-      migrations.filter(
-        (name) => name >= backfill && name <= firstWorkspaceTable,
-      ),
-    )
+    await apply(migrations.filter((name) => name >= backfill))
 
     const { rows: workspaces } = await db.query<{
       id: string
@@ -93,10 +91,9 @@ describe("dest Workspace SQL migration (Postgres)", () => {
       { orgId, workspaceId: docs, sourceRepositoryId: "repo_docs" },
     ])
 
-    // No later migration links a repository in SQL either. The migration
-    // export links the other org repositories through `.ctxpipe/sources.yaml`
-    // of the first Workspace, and the sources projection pins them (ADR-050).
-    await apply(migrations.filter((name) => name > firstWorkspaceTable))
+    // The migration links no repository in SQL. The migration export links
+    // the other org repositories through `.ctxpipe/sources.yaml` of the first
+    // Workspace, and the sources projection pins them (ADR-050).
     const { rows: links } = await db.query(
       `SELECT "workspace_id" AS "workspaceId" FROM "workspace_sources" WHERE "org_id" = $1`,
       [orgId],

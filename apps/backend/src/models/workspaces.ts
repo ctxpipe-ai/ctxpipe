@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   getColumnTable,
+  inArray,
   isNotNull,
   type SQL,
   sql,
@@ -25,7 +26,11 @@ import {
 } from "../db/schema/workspaces.js"
 import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
-import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
+import {
+  type HydrateSkip,
+  type HydrateUnit,
+  LEGACY_UNIT_SOURCE,
+} from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type KnowledgeChunkRow,
@@ -40,6 +45,7 @@ import {
   type ProjectionState,
   type PublishedProjection,
   publishedProjection,
+  sameWorkspaceBinding,
   sameWorkspaceRevision,
   type WorkspaceRevision,
   workspaceRevisionSchema,
@@ -53,6 +59,7 @@ import {
   normalizeWorkspaceRepositoryUrl,
   slugFromGitUrl,
 } from "../domain/workspaces/slug.js"
+import { withFormatWriteGate } from "../domain/workspaces/workspace-format.js"
 import {
   WORKSPACE_WRITE_STATUSES,
   type WorkspaceWriteProbe,
@@ -157,7 +164,7 @@ export async function listWorkspaces(): Promise<{
     return {
       lastUsedWorkspaceId: prefs?.lastUsedWorkspaceId ?? null,
       items: rows.map((row) => ({
-        ...row,
+        ...withFormatWriteGate(row),
         mostRecentConversationId: mostRecentByWorkspace.get(row.id) ?? null,
       })),
     }
@@ -177,7 +184,7 @@ export async function getWorkspaceBySlug(
       .from(workspaces)
       .where(and(eq(workspaces.orgId, orgId), eq(workspaces.slug, normalised)))
       .limit(1)
-    return row ?? null
+    return row ? withFormatWriteGate(row) : null
   })
 }
 
@@ -194,7 +201,7 @@ export async function getWorkspaceById(
       .from(workspaces)
       .where(and(eq(workspaces.orgId, id), eq(workspaces.id, workspaceId)))
       .limit(1)
-    return row ?? null
+    return row ? withFormatWriteGate(row) : null
   })
 }
 
@@ -874,7 +881,7 @@ export async function updateWorkspace(
         .set(patch)
         .where(and(eq(workspaces.id, existing.id), eq(workspaces.orgId, orgId)))
         .returning()
-      return updated ?? null
+      return updated ? withFormatWriteGate(updated) : null
     } catch (error) {
       if (isUniqueViolation(error, "workspaces_org_id_slug")) {
         throw createError({
@@ -963,6 +970,8 @@ export async function listOrgWorkspaces(
       | "activeProjectionSha"
       | "githubConnectionId"
       | "writeStatus"
+      | "readOnlyReason"
+      | "formatVersion"
       | "hydrateStatus"
       | "hydrateError"
       | "updatedAt"
@@ -972,7 +981,7 @@ export async function listOrgWorkspaces(
     >
   >
 > {
-  return orgSql(() =>
+  const rows = await orgSql(() =>
     getOrgDb()
       .select({
         id: workspaces.id,
@@ -985,6 +994,8 @@ export async function listOrgWorkspaces(
         activeProjectionSha: workspaces.activeProjectionSha,
         githubConnectionId: workspaces.githubConnectionId,
         writeStatus: workspaces.writeStatus,
+        readOnlyReason: workspaces.readOnlyReason,
+        formatVersion: workspaces.formatVersion,
         hydrateStatus: workspaces.hydrateStatus,
         hydrateError: workspaces.hydrateError,
         updatedAt: workspaces.updatedAt,
@@ -995,6 +1006,7 @@ export async function listOrgWorkspaces(
       .from(workspaces)
       .where(eq(workspaces.orgId, orgId)),
   )
+  return rows.map(withFormatWriteGate)
 }
 
 /** The projection state of every Workspace of the org, read in one query. */
@@ -1112,6 +1124,59 @@ export async function listWorkspaceKnowledgeFiles(
   )
 }
 
+/**
+ * The paths of `paths` that are main-era knowledge units of the Workspace
+ * (source `legacy`), with their body: hydrate serves them from Postgres, and
+ * git does not have them. With no `paths`, at most one such unit.
+ */
+export async function legacyKnowledgePaths(
+  workspaceId: string,
+  paths?: readonly string[],
+): Promise<Map<string, string>> {
+  if (paths && paths.length === 0) return new Map()
+  const rows = await orgSql(() =>
+    getOrgDb()
+      .select({
+        path: workspaceKnowledgeUnits.path,
+        body: workspaceKnowledgeUnits.body,
+      })
+      .from(workspaceKnowledgeUnits)
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+          eq(workspaceKnowledgeUnits.source, LEGACY_UNIT_SOURCE),
+          paths ? inArray(workspaceKnowledgeUnits.path, [...paths]) : undefined,
+        ),
+      )
+      .limit(paths ? paths.length : 1),
+  )
+  return new Map(rows.map((row) => [row.path, row.body]))
+}
+
+/**
+ * True when a write to `paths` changes a main-era knowledge unit of the
+ * Workspace. Each path is made canonical before the check (no padding, no
+ * `./` part and no empty part), so that another spelling of a path cannot go
+ * past the check. Every writer (the Files job, the conversation file route
+ * and the conversation publish) calls this one function.
+ */
+export async function writesLegacyKnowledge(
+  workspaceId: string,
+  paths: ReadonlyArray<string | null | undefined>,
+): Promise<boolean> {
+  const canonical = new Set(
+    paths.flatMap((path) => {
+      const parts = (path ?? "")
+        .replaceAll("\\", "/")
+        .split("/")
+        .map((part) => part.trim())
+        .filter((part) => part !== "" && part !== ".")
+      return parts.length ? [parts.join("/")] : []
+    }),
+  )
+  return (await legacyKnowledgePaths(workspaceId, [...canonical])).size > 0
+}
+
 export async function listWorkspaceKnowledgeUnits(
   workspaceId: string,
 ): Promise<{
@@ -1190,10 +1255,37 @@ export async function listKnowledgeUnitPaths(
   })
 }
 
+/**
+ * The Workspace format (ADR-053) that hydrate cached for the binding of
+ * `revision`, or 0. The cache belongs to the active projection, so a
+ * projection of another binding (or no projection) gives 0. Only an upgrade
+ * pull request changes the format, so a newer SHA of the same binding has
+ * the same format until hydrate reads that SHA.
+ */
+export async function getBindingWorkspaceFormat(
+  revision: WorkspaceRevision,
+): Promise<number> {
+  return orgSql(async () => {
+    const [row] = await getOrgDb()
+      .select({
+        activeRevision: workspaces.activeRevision,
+        formatVersion: workspaces.formatVersion,
+      })
+      .from(workspaces)
+      .where(eq(workspaces.id, revision.workspaceId))
+      .limit(1)
+    return row && sameWorkspaceBinding(row.activeRevision, revision)
+      ? (row.formatVersion ?? 0)
+      : 0
+  })
+}
+
 export async function commitHydrateProjection(input: {
   orgId: string
   revision: WorkspaceRevision
   displayName: string | null
+  /** The cache value of the format file at the revision (`workspace-format.ts`). */
+  formatVersion: number
   units: readonly HydrateUnit[]
   skipped: readonly HydrateSkip[]
   /** Part of each chunk hash, so that a model change embeds again. */
@@ -1210,6 +1302,7 @@ export async function commitHydrateProjection(input: {
           activeProjectionSha: input.revision.sha,
           hydrateStatus: "ready",
           hydrateError: null,
+          formatVersion: input.formatVersion,
           hydratePhases: sql`${JSON.stringify({
             ...initialHydratePhases({
               url: input.revision.remote.url,
@@ -1323,7 +1416,7 @@ export async function detachWorkspaceConnection(
 
 /** Workspaces with no GitHub connection: detached by a disconnect, or added by Paste. */
 export async function listUnboundWorkspaces(): Promise<WorkspaceRecord[]> {
-  return orgSql(() =>
+  const rows = await orgSql(() =>
     getOrgDb()
       .select()
       .from(workspaces)
@@ -1334,6 +1427,7 @@ export async function listUnboundWorkspaces(): Promise<WorkspaceRecord[]> {
         ),
       ),
   )
+  return rows.map(withFormatWriteGate)
 }
 
 /** Bind only while the row is still unbound at the read generation, so a concurrent relink wins. */

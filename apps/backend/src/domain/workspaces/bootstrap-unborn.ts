@@ -1,12 +1,18 @@
-import type { Env } from "../../config/env.js"
+import { type Env, parseEnv } from "../../config/env.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
+import { listGitPathsAtSha } from "../../services/git/clone-tree.js"
 import { readUnbornRemoteBranch } from "../../services/git/unborn-tree.js"
 import {
   type UnbornBootstrapBinding,
   unbornBootstrapBindingSchema,
 } from "./bootstrap-input.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import type { WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
+import {
+  CTXPIPE_CONTENT_FOLDERS,
+  hasCtxpipeContent,
+} from "./workspace-format.js"
 
 export async function getUnbornBootstrapWorkspace(
   binding: UnbornBootstrapBinding,
@@ -49,4 +55,27 @@ export async function captureUnbornBootstrapBinding(input: {
   })
   await getUnbornBootstrapWorkspace(binding)
   return binding
+}
+
+/**
+ * True when the tree of `revision` has ctx| content (see
+ * {@link hasCtxpipeContent}). The fetch gets only the trees.
+ */
+export async function revisionHasCtxpipeContent(
+  orgId: string,
+  revision: WorkspaceRevision,
+): Promise<boolean> {
+  return hasCtxpipeContent(
+    await listGitPathsAtSha({
+      url: revision.remote.url,
+      sha: revision.sha,
+      token: await resolveRepositoryReadCredential({
+        orgId,
+        env: parseEnv(process.env),
+        remote: revision.remote,
+      }),
+      root: workspaceRootPath(revision),
+      folders: CTXPIPE_CONTENT_FOLDERS,
+    }),
+  )
 }

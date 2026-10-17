@@ -23,6 +23,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 const SOURCE_URL = "https://github.com/fixture/source-app"
 const SECOND_URL = "https://github.com/fixture/second-workspace.git"
@@ -388,7 +389,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
           await withOrgDbContext(f.org.id, (db) =>
@@ -469,7 +470,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
         }
@@ -543,7 +544,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
         }

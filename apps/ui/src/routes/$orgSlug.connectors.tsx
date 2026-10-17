@@ -44,7 +44,8 @@ import {
   sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
 import { useSession } from "@/lib/auth-client"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
@@ -475,11 +476,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               setClaimOpen(false)
               return
             }
-            const id = encodeURIComponent(search.pendingAccountClaim)
-            await apiFetch(
-              `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/cancel`,
-              { method: "POST", credentials: "include" },
-            )
+            await client[":orgSlug"].api.v1.connectors.atlassian[
+              "pending-claim"
+            ][":pendingId"].cancel.$post({
+              param: { orgSlug, pendingId: search.pendingAccountClaim },
+            })
             setClaimOpen(false)
             void navigate({
               to: "/$orgSlug/connectors",
@@ -498,12 +499,12 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               setClaimOpen(false)
               return
             }
-            const id = encodeURIComponent(search.pendingAccountClaim)
             try {
-              const res = await apiFetch(
-                `/${orgSlug}/api/v1/connectors/atlassian/pending-claim/${id}/confirm`,
-                { method: "POST", credentials: "include" },
-              )
+              const res = await client[":orgSlug"].api.v1.connectors.atlassian[
+                "pending-claim"
+              ][":pendingId"].confirm.$post({
+                param: { orgSlug, pendingId: search.pendingAccountClaim },
+              })
               await readApiJson(res, {
                 message: "Failed to confirm Atlassian account claim",
               })

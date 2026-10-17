@@ -1,8 +1,9 @@
-import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises"
+import { execFile } from "node:child_process"
+import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { expect, it } from "vitest"
-import { listTreeBlobs, nativeGit } from "./pack.js"
+import { listTreeBlobs, nativeGit, withGitDirectory } from "./pack.js"
 
 it("lists every blob with its object id, including unusual paths", async () => {
   const directory = await mkdtemp(join(tmpdir(), "ctxpipe-tree-blobs-"))
@@ -80,5 +81,42 @@ it("keeps a read error on the file input fatal", async () => {
     ).rejects.toThrow(/ENOENT/)
   } finally {
     await rm(directory, { recursive: true, force: true })
+  }
+})
+
+it("waits for a Git process the operation left running before it removes the directory", async () => {
+  const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-left-running-"))
+  const fifo = join(scratch, "input")
+  await new Promise<void>((resolve, reject) =>
+    execFile("mkfifo", [fifo], (error) => (error ? reject(error) : resolve())),
+  )
+  let leftSettled = false
+  let leftDirectory = ""
+  try {
+    await expect(
+      withGitDirectory("0".repeat(40), async (directory) => {
+        leftDirectory = directory
+        // Git blocks on the pipe: it is alive until something writes to it or kills it.
+        void nativeGit(directory, ["hash-object", "-w", "--stdin"], {
+          file: fifo,
+        })
+          .catch(() => undefined)
+          .finally(() => {
+            leftSettled = true
+          })
+        // Let Git start and block, so the process is really alive.
+        await new Promise((resolve) => setTimeout(resolve, 200))
+        throw new Error("the operation failed")
+      }),
+    ).rejects.toThrow("the operation failed")
+    // The clean-up has waited: the process has exited, not only been signaled.
+    expect(leftSettled).toBe(true)
+    await expect(open(leftDirectory)).rejects.toThrow(/ENOENT/)
+  } finally {
+    // Release the blocked read of the pipe, then remove it.
+    await open(fifo, "r+")
+      .then((handle) => handle.close())
+      .catch(() => undefined)
+    await rm(scratch, { recursive: true, force: true })
   }
 })

@@ -49,10 +49,7 @@ describe("getOrgDb ambient-context audit", () => {
     const tenantFrom = new RegExp(
       `(?:\\.from\\(\\s*(?:${tenantTables})\\s*\\)|\\.(?:insert|update|delete)\\(\\s*(?:${tenantTables})\\s*\\)|\\.query\\.(?:${tenantTables}))`,
     )
-    const allowlist = new Set([
-      "db/client.ts",
-      "scripts/backfillGithubConnectionSecrets.ts",
-    ])
+    const allowlist = new Set(["db/client.ts"])
     const files = walk(SRC)
     const violations: string[] = []
     for (const file of files) {

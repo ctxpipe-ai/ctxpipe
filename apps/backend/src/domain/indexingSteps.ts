@@ -15,22 +15,6 @@ const BASE_STEP_KEYS = [
   "detecting_languages",
   // scip:<lang> steps are inserted here at runtime
   "merging_intelligence",
-  "retracting",
-  "finding_roots",
-  "classifying_packages",
-  "identify_api_clients",
-  "identify_apis",
-  "identify_databases",
-  "identify_infrastructure",
-  "identify_streams",
-  "identify_service_dependencies",
-  "identify_libraries",
-  "identify_patterns",
-  "extract_instruction_units",
-  "deduplicating",
-  "projecting",
-  "embedding",
-  "syncing_graph",
   "finalizing",
 ] as const
 
@@ -46,14 +30,6 @@ export type BadgeWord =
   | "cloning"
   | "checking out"
   | "indexing"
-  | "updating"
-  | "finding packages"
-  | "classifying"
-  | "analyzing"
-  | "deduplicating"
-  | "projecting"
-  | "embedding"
-  | "syncing"
   | "finalizing"
 
 const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
@@ -65,22 +41,6 @@ const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
   indexing_search: "indexing",
   detecting_languages: "indexing",
   merging_intelligence: "indexing",
-  retracting: "updating",
-  finding_roots: "finding packages",
-  classifying_packages: "classifying",
-  identify_api_clients: "analyzing",
-  identify_apis: "analyzing",
-  identify_databases: "analyzing",
-  identify_infrastructure: "analyzing",
-  identify_streams: "analyzing",
-  identify_service_dependencies: "analyzing",
-  identify_libraries: "analyzing",
-  identify_patterns: "analyzing",
-  extract_instruction_units: "analyzing",
-  deduplicating: "deduplicating",
-  projecting: "projecting",
-  embedding: "embedding",
-  syncing_graph: "syncing",
   finalizing: "finalizing",
 }
 

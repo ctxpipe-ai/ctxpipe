@@ -13,7 +13,10 @@ import {
   withLogger,
 } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { startIngestionV2Shadow } from "../enqueue-ingestion-v2-shadow.js"
+import {
+  startIngestionV2Publish,
+  startIngestionV2Shadow,
+} from "../enqueue-ingestion-v2-shadow.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestion } from "./repository-ingestion.js"
 
@@ -83,6 +86,28 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
               }).catch((error: unknown) => {
                 getLogger().warn("repository-ingestion-orchestrator.shadow", {
                   step: "start-ingestion-v2-shadow",
+                  repositoryId: input.repositoryId,
+                  orgId: input.orgId,
+                  errMessage:
+                    error instanceof Error ? error.message : String(error),
+                })
+                return { started: false as const, reason: "start_failed" }
+              }),
+            )
+          if ("targetHash" in result && result.targetHash)
+            // Ingestion v2 publishes to each declaring Workspace at format 3
+            // or more (ADR-052 phase 4, G5). No ingestion writes below 3. A
+            // failed start never fails the indexing that it follows; the next
+            // ingestion of the repository starts one.
+            await step.run({ name: "start-ingestion-v2-publish" }, () =>
+              startIngestionV2Publish({
+                orgId: input.orgId,
+                repositoryId: input.repositoryId,
+                sha: result.targetHash,
+                triggerRunId: run.id,
+              }).catch((error: unknown) => {
+                getLogger().warn("repository-ingestion-orchestrator.publish", {
+                  step: "start-ingestion-v2-publish",
                   repositoryId: input.repositoryId,
                   orgId: input.orgId,
                   errMessage:

@@ -14,21 +14,12 @@ import {
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import {
+  fetchAtlassianSpacePages,
+  fetchAtlassianSpaces,
+  searchAtlassianSpacePages,
+} from "./queries/atlassian-connector"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
-
-function connectorsAtlassianUrl(
-  orgSlug: string,
-  suffix: string,
-  atlassianConnectionId: string | undefined,
-  params?: Record<string, string>,
-) {
-  const p = new URLSearchParams(params ?? {})
-  if (atlassianConnectionId) p.set("connectionId", atlassianConnectionId)
-  const qs = p.toString()
-  const path = `/${orgSlug}/api/v1/connectors/atlassian${suffix}`
-  return qs ? `${path}?${qs}` : path
-}
 
 /** `undefined` = space not in scope; `null` = all pages in space; array = specific pages */
 type PageScopeSelection = string[] | null | undefined
@@ -69,21 +60,13 @@ function PageNode({
       spaceKey,
       page.id,
     ],
-    queryFn: async () => {
-      const res = await apiFetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(spaceKey)}/pages`,
-          atlassianConnectionId,
-          { parentId: page.id },
-        ),
-        { credentials: "include" },
-      )
-      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
-        message: `HTTP ${res.status}`,
-      })
-      return json.items
-    },
+    queryFn: () =>
+      fetchAtlassianSpacePages(
+        orgSlug,
+        spaceKey,
+        atlassianConnectionId,
+        page.id,
+      ),
     enabled: expanded,
     throwOnError: false,
   })
@@ -207,20 +190,8 @@ function SpaceNode({
       atlassianConnectionId ?? "default",
       space.key,
     ],
-    queryFn: async () => {
-      const res = await apiFetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(space.key)}/pages`,
-          atlassianConnectionId,
-        ),
-        { credentials: "include" },
-      )
-      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
-        message: `Failed to fetch pages (${res.status})`,
-      })
-      return json.items
-    },
+    queryFn: () =>
+      fetchAtlassianSpacePages(orgSlug, space.key, atlassianConnectionId),
     enabled: expanded && !isSearching,
     throwOnError: false,
   })
@@ -233,21 +204,13 @@ function SpaceNode({
       space.key,
       search,
     ],
-    queryFn: async () => {
-      const res = await apiFetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(space.key)}/search`,
-          atlassianConnectionId,
-          { q: search },
-        ),
-        { credentials: "include" },
-      )
-      const json = await readApiJson<{ items: ConfluencePage[] }>(res, {
-        message: `Failed to search pages (${res.status})`,
-      })
-      return json.items
-    },
+    queryFn: () =>
+      searchAtlassianSpacePages(
+        orgSlug,
+        space.key,
+        search,
+        atlassianConnectionId,
+      ),
     enabled: isSearching,
     throwOnError: false,
   })
@@ -494,22 +457,7 @@ export function SpacePageTree({
       orgSlug,
       atlassianConnectionId ?? "default",
     ],
-    queryFn: async () => {
-      const res = await apiFetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          "/available-spaces",
-          atlassianConnectionId,
-        ),
-        {
-          credentials: "include",
-        },
-      )
-      const json = await readApiJson<{ items: ConfluenceSpace[] }>(res, {
-        message: "Failed to fetch spaces",
-      })
-      return json.items
-    },
+    queryFn: () => fetchAtlassianSpaces(orgSlug, atlassianConnectionId),
     throwOnError: false,
   })
 

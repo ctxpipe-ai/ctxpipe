@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -108,13 +108,15 @@ export const InitialScopeSelected: Story = {
   args: { initialScope: { repositories: ["acme/web", "acme/gone"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("checkbox", { name: "acme/web" }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(canvas.getByRole("checkbox", { name: "acme/web" })).toBeChecked(),
+    )
     // The list shows the initial scope before the connection's list loads.
-    await expect(
-      await canvas.findByRole("checkbox", { name: "acme/api" }),
-    ).not.toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: "acme/api" }),
+      ).not.toBeChecked(),
+    )
     // The connection cannot see acme/gone, but the user can still remove it.
     const gone = canvas.getByRole("checkbox", { name: "acme/gone" })
     await expect(gone).toBeChecked()

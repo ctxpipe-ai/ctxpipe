@@ -21,6 +21,11 @@ import { workspaceBootstrap } from "../../openworkflow/workflows/workspace-boots
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapKnowledgeSkillMarkdown } from "./bootstrap.js"
+import {
+  CODE_FORMAT,
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatFile,
+} from "./workspace-format.js"
 import { createWorkspaceLifecycle } from "./workspace-lifecycle.js"
 
 it.each([
@@ -145,6 +150,10 @@ it.each([
                   "---\nname: ctxpipe-knowledge\n---\n\nWrite knowledge/ files with confidence 0.5 or 0.7. Avoid obj_ jargon.\n",
                 ),
               )
+              // Satisfied also means the format file is there.
+              const format = workspaceFormatFile()
+              mkdirSync(join(human, ".ctxpipe"), { recursive: true })
+              writeFileSync(join(human, format.path), format.content)
             }
             f.git("-C", human, "add", ".")
             f.git(
@@ -289,9 +298,29 @@ it.each([
             .split("\n")
           expect(paths).toContain(".agents/skills/ctxpipe-knowledge/SKILL.md")
           expect(
+            f.git(
+              "--git-dir",
+              f.remote,
+              "show",
+              `trunk:${WORKSPACE_FORMAT_PATH}`,
+            ),
+          ).toContain(`format: ${CODE_FORMAT}`)
+          await expect
+            .poll(
+              () =>
+                withOrgIdContext(
+                  f.org,
+                  async () =>
+                    (await getWorkspaceById(f.workspaceId))?.formatVersion,
+                ),
+              { timeout: 15_000 },
+            )
+            .toBe(CODE_FORMAT)
+          expect(
             paths.every(
               (path) =>
                 (mode === "first writer" && path === "README.md") ||
+                path === WORKSPACE_FORMAT_PATH ||
                 path === "AGENTS.md" ||
                 path.startsWith(".agents/skills/ctxpipe-knowledge/"),
             ),

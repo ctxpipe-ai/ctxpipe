@@ -223,7 +223,12 @@ it(
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.publish()
         const { enqueueWriteJob } = await import(
@@ -1071,7 +1076,12 @@ it(
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         const { default: postgres } = await import("postgres")
         const { BackendPostgres } = await import("openworkflow/postgres")

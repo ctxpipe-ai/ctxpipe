@@ -12,12 +12,11 @@ import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
-import type { WorkspaceExtraction } from "./extraction.js"
-import { assertExtractionSource } from "./extraction-source.js"
+import type { IngestPublishSource } from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
 export type WorkspaceWriteCommand = {
   orgId: string
@@ -28,7 +27,8 @@ export type WorkspaceWriteCommand = {
   deletePaths?: string[]
   displayName?: string
   previousSha?: string
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
+  ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }
 
@@ -56,7 +56,7 @@ export function withWorkspaceWriteContext<T>(
 
 export async function completedWorkspaceWrite(
   input: WorkspaceWriteCommand,
-  kind: WorkspaceWriteKind,
+  kind: WorkspaceWriteJobKind,
   workflowRunId: string,
 ) {
   const recorded = await reconcileWorkspaceWriteJob(input.jobId)
@@ -69,6 +69,7 @@ export async function completedWorkspaceWrite(
     !isDeepStrictEqual(recorded.payload?.mergeDeletePaths, input.deletePaths) ||
     !isDeepStrictEqual(recorded.payload?.mirror, input.mirror) ||
     !isDeepStrictEqual(recorded.payload?.extraction, input.extraction) ||
+    !isDeepStrictEqual(recorded.payload?.ingest, input.ingest) ||
     recorded.payload?.previousSha !== input.previousSha ||
     recorded.payload?.displayName !== input.displayName
   )
@@ -116,7 +117,5 @@ export async function acquireWorkspaceWriteRevision(
     root: workspaceRootPath(revision),
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
-  if (input.extraction)
-    await assertExtractionSource(input.orgId, input.extraction, revision, pack)
   return { pack, displayName: workspace.displayName }
 }

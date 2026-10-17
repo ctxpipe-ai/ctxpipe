@@ -52,6 +52,41 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("names the Markdown paths that a commit deleted, relative to the root", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-deleted-paths-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    const commit = (message: string) =>
+      git(
+        "-c",
+        "user.name=Contract",
+        "-c",
+        "user.email=contract@example.test",
+        "commit",
+        "-m",
+        message,
+      )
+    await git("init", "-b", "main")
+    await mkdir(join(dir, "ctx", "knowledge"), { recursive: true })
+    await writeFile(join(dir, "ctx", "knowledge", "gone.md"), "# Gone\n")
+    await writeFile(join(dir, "ctx", "knowledge", "kept.md"), "# Kept\n")
+    await git("add", ".")
+    await commit("Add")
+    await git("rm", "-q", "ctx/knowledge/gone.md")
+    await commit("Delete")
+    const sha = await git("rev-parse", "HEAD")
+    const deletedPaths = new Set<string>()
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      root: "ctx",
+      includeIntroducingCommits: true,
+      deletedPaths,
+    })
+    expect(files.map((file) => file.path)).toEqual(["knowledge/kept.md"])
+    expect([...deletedPaths]).toEqual(["knowledge/gone.md"])
+  })
+
   it("does not read a folder blob that is larger than the limit or not text", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-folder-limit-"))
     const git = async (...args: string[]) =>

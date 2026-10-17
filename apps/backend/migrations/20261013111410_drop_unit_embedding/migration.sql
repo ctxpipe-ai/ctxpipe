@@ -1,1 +1,0 @@
-ALTER TABLE "workspace_knowledge_units" DROP COLUMN "embedding";

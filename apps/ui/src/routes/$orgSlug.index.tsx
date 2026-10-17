@@ -11,12 +11,17 @@ import {
   SetupGuideSkeleton,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
-import { WorkspaceActivity } from "@/features/home/WorkspaceActivity"
+import {
+  ALL_WORKSPACES,
+  WorkspaceActivity,
+} from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
+import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
 import {
   landingWorkspace,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
+import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
@@ -50,6 +55,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const workspaces = listQuery.data?.items ?? []
   const guide = useSetupGuide(orgSlug)
   const [composerKey, setComposerKey] = useState(0)
+  // Add Workspace from the guide. The dialog lives here, not in the guide:
+  // the first Workspace moves the guide below the composer, and that
+  // remounts the guide.
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -83,24 +92,25 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     : undefined
   const guideCard =
     guide.status === "ready" ? (
-      <SetupGuideCard orgSlug={orgSlug} guide={guide} onAsk={ask} />
+      <SetupGuideCard
+        orgSlug={orgSlug}
+        guide={guide}
+        onAsk={ask}
+        onCreateWorkspace={() => setCreateOpen(true)}
+      />
     ) : guide.mayShow ? (
       <SetupGuideSkeleton collapsed={guide.collapsed} />
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
-  // the guide (an established user), keep the composer and the create button.
+  // the guide (the user dismissed it), keep the composer and the create button.
   const guideShows =
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
   const body = hasWorkspace ? (
     <>
+      <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}
       {guideCard}
-      <WorkspaceActivity
-        orgSlug={orgSlug}
-        workspaceSlug={sessionPending ? null : (selected?.slug ?? null)}
-        workspaces={workspaces}
-      />
     </>
   ) : guideShows ? (
     guideCard
@@ -124,8 +134,26 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
       <div className="mx-auto box-border w-full max-w-2xl p-8">
-        <div className="space-y-10">{body}</div>
+        <div className="space-y-10">
+          {body}
+          {/* With no Workspace, the activity of the organization shows, empty. */}
+          <WorkspaceActivity
+            orgSlug={orgSlug}
+            workspaceSlug={
+              sessionPending || listQuery.isPending
+                ? null
+                : (selected?.slug ?? ALL_WORKSPACES)
+            }
+            workspaces={workspaces}
+          />
+        </div>
       </div>
+      <WorkspaceCreateModal
+        orgSlug={orgSlug}
+        isOpen={createOpen}
+        onOpenChange={setCreateOpen}
+        onDone={() => setCreateOpen(false)}
+      />
     </div>
   )
 }

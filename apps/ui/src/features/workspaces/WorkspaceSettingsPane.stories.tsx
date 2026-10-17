@@ -8,11 +8,16 @@ import {
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceFixture,
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { OrgHomePageContent } from "@/routes/$orgSlug.index"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -56,6 +61,7 @@ const meta = {
           workspaceSourcesHandler(workspaceSourceList()),
           orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
         ],
+        upgrades: [workspaceUpgradesHandler(upgradesFixture([]))],
       },
     },
   },
@@ -122,7 +128,13 @@ export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
-    const eyebrows = ["General", "Repositories", "Sources", "Danger zone"]
+    const eyebrows = [
+      "General",
+      "Repositories",
+      "Sources",
+      "Upgrades",
+      "Danger zone",
+    ]
     const labels = [...canvasElement.querySelectorAll(".ctx-label")].map(
       (element) => element.textContent,
     )
@@ -139,7 +151,7 @@ export const Populated: Story = {
       docsWorkspaceDetail.slug,
     )
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Main repository" }),
+      canvas.getByRole("heading", { level: 2, name: "Context repository" }),
     ).toBeVisible()
     await expect(
       canvas.getByRole("region", { name: "Sources" }),
@@ -176,9 +188,31 @@ export const ReadOnly: Story = {
   },
 }
 
+/** A protected default branch: a neutral note, no warning and no "fix it". */
+export const ProtectedDefaultBranch: Story = {
+  args: {
+    workspace: {
+      ...readOnlyWorkspaceDetail,
+      conversationWritable: true,
+      readOnlyReason:
+        "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Changes by pull request")
+    await canvas.findByText(
+      "The default branch is protected. A conversation pushes its own branch and opens a pull request.",
+    )
+    await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull())
+    await waitFor(() => expect(canvas.queryByText(/fix it/)).toBeNull())
+    await waitFor(() => expect(canvas.queryByText("Read-only")).toBeNull())
+  },
+}
+
 /**
  * A Paste Workspace that no GitHub connection reads. "Select the repository
- * again" opens the main repository dialog, where Select GitHub binds it.
+ * again" opens the context repository dialog, where Select GitHub binds it.
  */
 export const ReadOnlyWithoutConnection: Story = {
   args: {
@@ -198,9 +232,11 @@ export const ReadOnlyWithoutConnection: Story = {
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")
-    await expect(
-      within(dialog).getByRole("heading", { name: "Main repository" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("heading", { name: "Context repository" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -249,18 +285,22 @@ export const LinkedRepositoryWithIssues: Story = {
 }
 
 /**
- * The main repository picker and "Add repositories" share one cached
+ * The context repository picker and "Add repositories" share one cached
  * repository query. Opening one, then the other, lists the repositories.
  */
 export const AddRepositories: Story = {
   args: {
     workspace: emptyLinkedWorkspaceDetail,
   },
+  parameters: {
+    // Only an owner or admin sees the repository pickers.
+    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(
-      await canvas.findByRole("button", { name: /edit main repository/i }),
+      await canvas.findByRole("button", { name: /edit context repository/i }),
     )
     const picker = await body.findByRole("dialog")
     await within(picker).findByText("acme/handbook")
@@ -350,14 +390,22 @@ export const RootFolder: Story = {
 
     await userEvent.clear(field)
     await userEvent.type(field, "../secrets")
-    await expect(
-      await canvas.findByText(/use a relative folder path/i),
-    ).toBeVisible()
-    await expect(save).toBeDisabled()
+    await waitFor(() =>
+      expect(canvas.getByText(/use a relative folder path/i)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /save root folder/i }),
+      ).toBeDisabled(),
+    )
 
     await userEvent.clear(field)
     await userEvent.type(field, "handbook/context/")
-    await expect(save).toBeEnabled()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /save root folder/i }),
+      ).toBeEnabled(),
+    )
     await userEvent.click(save)
     await waitFor(() =>
       expect(rootFolderPatches).toEqual([{ rootPath: "handbook/context" }]),
@@ -390,7 +438,7 @@ export const RelinkError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /edit main repository/i }),
+      canvas.getByRole("button", { name: /edit context repository/i }),
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")
@@ -482,13 +530,20 @@ export const DeleteConfirmOpen: Story = {
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("alertdialog")
     const scoped = within(dialog)
-    const confirm = scoped.getByRole("button", { name: "Delete Workspace" })
     expect(scoped.getByPlaceholderText("Docs")).toBeInTheDocument()
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Wrong")
-    expect(confirm).toBeDisabled()
+    await waitFor(() =>
+      expect(
+        scoped.getByRole("button", { name: "Delete Workspace" }),
+      ).toBeDisabled(),
+    )
     await userEvent.clear(scoped.getByLabelText("Workspace name"))
     await userEvent.type(scoped.getByLabelText("Workspace name"), "Docs")
-    expect(confirm).toBeEnabled()
+    await waitFor(() =>
+      expect(
+        scoped.getByRole("button", { name: "Delete Workspace" }),
+      ).toBeEnabled(),
+    )
     await userEvent.keyboard("{Enter}")
     await waitFor(() => {
       expect(body.queryByRole("alertdialog")).not.toBeInTheDocument()

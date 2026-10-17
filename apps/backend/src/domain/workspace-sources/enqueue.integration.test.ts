@@ -1,7 +1,11 @@
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import {
+  listWorkspaceSourceRows,
+  replaceWorkspaceSourceRows,
+} from "../../models/workspace-sources.js"
 import { closeOpenWorkflowClient } from "../../openworkflow/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
@@ -48,6 +52,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
+        format: 2,
       })
     }
     return cleanupRuns(workspaceId)
@@ -88,6 +93,7 @@ describe("Source projection follow-ups (Postgres)", () => {
         workspaceId,
         revision,
         projected,
+        format: 2,
       })
     }
     return cleanupRuns(workspaceId)
@@ -253,5 +259,59 @@ sources:
         noSources,
       ]),
     ).toEqual(cleanedEng)
+  })
+
+  it("refuses a source file that names another repository at the same path, and retracts nothing", async () => {
+    const env = parseEnv(process.env)
+    // No installation: the access check finds no coverage and asks no API.
+    const github = await seed.addConnection("github")
+    const workspaceId = await seed.addWorkspace("same-path")
+    const repo = await seed.gitRepository()
+    const path = "sources/github/acme/billing.md"
+    const name = (repository: string) =>
+      `acme/${repository}-${seed.suffix.replaceAll("_", "-")}`
+    const sourceText = (repository: string) =>
+      `---\nprovider: github\nconnection: ${github}\nrepository: ${name(repository)}\n---\n`
+    const follow = async (repository: string) => {
+      const revision = await repo.commit({ [path]: sourceText(repository) })
+      const tree = await repo.sourcesTree(revision)
+      const projected = await withOrgIdContext(
+        { id: seed.orgId, slug: seed.orgId },
+        () =>
+          projectWorkspaceSources({
+            orgId: seed.orgId,
+            workspaceId,
+            revision,
+            text: tree.sourcesFile,
+            files: tree.sourceFiles,
+            env,
+          }),
+      )
+      // A queued retraction needs a writable Workspace, so a retraction
+      // makes this call fail.
+      await enqueueSourceProjectionFollowUps({
+        orgId: seed.orgId,
+        workspaceId,
+        revision,
+        projected,
+        format: 3,
+      })
+      const [row] = await listWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId,
+      })
+      return [row?.status, row?.statusDetail]
+    }
+
+    expect(await follow("billing")).toEqual(["ok", null])
+    const refused = [
+      "invalid",
+      "The file names another repository than the one it links. To link another repository, add a new source file; remove this one to unlink.",
+    ]
+    expect(await follow("payments")).toEqual(refused)
+    // The refusal stays while the file names the other repository.
+    expect(await follow("payments")).toEqual(refused)
+    expect(await cleanupRuns(workspaceId)).toEqual([])
+    expect(await follow("billing")).toEqual(["ok", null])
   })
 })

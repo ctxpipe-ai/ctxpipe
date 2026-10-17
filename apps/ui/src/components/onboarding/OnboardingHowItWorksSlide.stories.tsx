@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
@@ -35,7 +35,7 @@ type Story = StoryObj<typeof meta>
 export const NewOrganization: Story = {
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("A Workspace")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("A Workspace")).toBeVisible())
     expect(canvas.getByText("Kept current")).toBeVisible()
     expect(canvas.getByText("An agent that works in it")).toBeVisible()
     await userEvent.click(canvas.getByRole("button", { name: "Next" }))

@@ -8,6 +8,9 @@ fail() {
   exit 1
 }
 
+# Production backend variables that the mock Railway returns.
+PROD_VARS='{"GITHUB_APP_ID":"999","GITHUB_CLIENT_ID":"Iv1.production","GITHUB_CLIENT_SECRET":"prod-secret"}'
+
 run_sync() {
   local tmp="$1"
   mkdir -p "$tmp"
@@ -18,6 +21,14 @@ run_sync() {
     # shellcheck disable=SC2329 # the sourced script calls it
     railway_graphql() {
       case "$1" in
+        *environments*)
+          jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}'
+          ;;
+        *"query variables"*)
+          [[ "$PROD_VARS" != "fail" ]] || return 22
+          printf '%s\n' "$2" >"$tmp/prod_read"
+          jq -nc --argjson vars "$PROD_VARS" '{data:{variables:$vars}}'
+          ;;
         *variableCollectionUpsert*)
           printf '%s\n' "$2" >>"$tmp/upserts"
           echo '{"data":{"variableCollectionUpsert":true}}'
@@ -70,5 +81,27 @@ for name in GH_APP_ID GH_APP_SLUG GH_CLIENT_ID GH_CLIENT_SECRET GH_PRIVATE_KEY G
   printf '%s' "$out" | grep -Fq "$name" || fail "the error should name $name: $out"
   [[ ! -s "$tmp/empty-$name/upserts" ]] || fail "nothing should be written when $name is empty"
 done
+
+jq -e '.environmentId == "env_prod" and .serviceId == "svc_backend"' "$tmp/ok/prod_read" >/dev/null \
+  || fail "the guard should read the production backend"
+
+expect_production_failure() {
+  local label="$1" prod_vars="$2" want="$3" out
+  shift 3
+  if out="$(PROD_VARS="$prod_vars"; export "$@"; run_sync "$tmp/$label" 2>&1)"; then
+    fail "sync should fail: $label"
+  fi
+  printf '%s' "$out" | grep -Fq "$want" || fail "$label: the error should say '$want': $out"
+  if printf '%s' "$out" | grep -Fq "prod-secret"; then
+    fail "$label: the guard must not print a production value"
+  fi
+  [[ ! -s "$tmp/$label/upserts" ]] || fail "$label: nothing should be written"
+}
+
+expect_production_failure same-app-id "$PROD_VARS" "equal to the production GitHub App: GH_APP_ID." GH_APP_ID=999
+expect_production_failure same-client-id "$PROD_VARS" "equal to the production GitHub App: GH_CLIENT_ID." "GH_CLIENT_ID= Iv1.production "
+expect_production_failure same-both "$PROD_VARS" "GH_APP_ID GH_CLIENT_ID." GH_APP_ID=999 GH_CLIENT_ID=Iv1.production
+expect_production_failure no-production-ids '{"OTHER":"x"}' "cannot prove that the preview App is different" GH_APP_ID=123456
+expect_production_failure read-error fail "cannot read the production GitHub App id" GH_APP_ID=123456
 
 echo "preview-github-app-vars tests passed"

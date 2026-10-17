@@ -1,19 +1,23 @@
 import { createHash } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
+import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { getAuth } from "../../auth/config.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import {
+  members,
   oauthAccessTokens,
   oauthClients,
   sessions,
 } from "../../db/schema/auth.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import {
   contextStorage,
   withTestRequestLogger,
@@ -112,6 +116,18 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   },
   {
     method: "POST",
+    path: "/workspaces/missing-ws/upgrades/format-3/start",
+    expectedStatus: 404,
+    orgAdmin: true,
+  },
+  {
+    method: "POST",
+    path: "/workspaces/missing-ws/upgrades/check",
+    expectedStatus: 404,
+    orgAdmin: true,
+  },
+  {
+    method: "POST",
     path: "/connectors/con_missing/sync",
     expectedStatus: 404,
     orgAdmin: true,
@@ -147,6 +163,7 @@ const READ_ROUTES = [
   { path: "/workspaces/missing-ws", expectedStatus: 404 },
   { path: "/workspaces/missing-ws/sources", expectedStatus: 404 },
   { path: "/workspaces/missing-ws/linked-repositories", expectedStatus: 404 },
+  { path: "/workspaces/missing-ws/upgrades", expectedStatus: 404 },
 ]
 
 describe("Direct-write REST routes need a session or the ctxpipe:write scope (Postgres)", () => {
@@ -374,6 +391,94 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     })
   }
 
+  it("refuses a plain org member at the admin check on POST /workspaces/{slug}/upgrades/{key}/start", async () => {
+    const s = requireSeed()
+    const db = getSystemDb()
+    const ownerOfSeed = and(
+      eq(members.organizationId, s.orgId),
+      eq(members.userId, s.userId),
+    )
+    await db.update(members).set({ role: "member" }).where(ownerOfSeed)
+    try {
+      await expectOrgAdminRefusal(
+        await send(
+          {
+            method: "POST",
+            path: "/workspaces/missing-ws/upgrades/format-3/start",
+          },
+          { cookie: s.cookie },
+        ),
+      )
+    } finally {
+      await db.update(members).set({ role: "owner" }).where(ownerOfSeed)
+    }
+  })
+
+  it("queues one tip check for an admin on POST /workspaces/{slug}/upgrades/check, and none for a second call in the same minute", async () => {
+    const s = requireSeed()
+    const slug = `check-${generateObjectId("ws").slice(-8).toLowerCase()}`
+    await withOrgDbContext(s.orgId, (db) =>
+      db.insert(workspaces).values({
+        id: generateObjectId("ws"),
+        orgId: s.orgId,
+        slug,
+        displayName: "Check route workspace",
+        workspaceRepositoryUrl: `https://git.example.test/acme/${slug}.git`,
+        desiredDefaultBranch: "main",
+      }),
+    )
+    const backend = await BackendPostgres.connect(
+      process.env.DATABASE_URL as string,
+      { namespaceId: openWorkflowNamespaceId(), runMigrations: false },
+    )
+    const tipChecks = async () =>
+      (await backend.listWorkflowRuns({ limit: 100 })).data
+        .filter(
+          (run) =>
+            run.workflowName === "workspace-tip-check" &&
+            (run.input as { orgId?: string })?.orgId === s.orgId,
+        )
+        .map((run) => run.idempotencyKey)
+    const check = () =>
+      send(
+        { method: "POST", path: `/workspaces/${slug}/upgrades/check` },
+        { cookie: s.cookie },
+      )
+    // Pin the date, so that the key does not depend on the wall clock.
+    const minute = Math.floor(Date.now() / 60_000)
+    vi.useFakeTimers({ toFake: ["Date"] })
+    try {
+      vi.setSystemTime(minute * 60_000 + 1_000)
+      expect(await tipChecks()).toEqual([])
+      const first = await check()
+      expect(first.status).toBe(202)
+      expect(await first.json()).toEqual({ queued: true })
+      expect(await tipChecks()).toEqual([
+        `tip-check-on-demand:${s.orgId}:${minute}`,
+      ])
+
+      vi.setSystemTime(minute * 60_000 + 30_000)
+      const second = await check()
+      expect(second.status).toBe(202)
+      // No worker runs here, so the first check is still pending.
+      expect(await second.json()).toEqual({ queued: true })
+      expect(await tipChecks()).toEqual([
+        `tip-check-on-demand:${s.orgId}:${minute}`,
+      ])
+    } finally {
+      vi.useRealTimers()
+      // Another test file's worker must not claim the queued check.
+      for (const run of (await backend.listWorkflowRuns({ limit: 100 })).data)
+        if (
+          run.workflowName === "workspace-tip-check" &&
+          run.status === "pending" &&
+          (run.input as { orgId?: string })?.orgId === s.orgId
+        )
+          await backend.cancelWorkflowRun({ workflowRunId: run.id })
+      await backend.stop()
+    }
+  })
+
   for (const { path, expectedStatus } of READ_ROUTES) {
     it(`still serves GET ${path} to a ctxpipe:read OAuth token and a personal API key`, async () => {
       for (const credential of <Record<string, string>[]>[
@@ -413,6 +518,8 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     )
     const base = "/{orgSlug}/api/v1"
     const adminOnly = [
+      `POST ${base}/workspaces/{workspaceSlug}/upgrades/{key}/start`,
+      `POST ${base}/workspaces/{workspaceSlug}/upgrades/check`,
       `POST ${base}/connectors/{connectionId}/sync`,
       ...["linear", "notion", "pagerduty"].flatMap((connector) => [
         `PATCH ${base}/connectors/${connector}/config`,

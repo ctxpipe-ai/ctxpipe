@@ -1,0 +1,7 @@
+# file  sha256  url   (pinned by version and checksum; read by scripts/fetch-releases.sh)
+scip-go.tar.gz	5bfe39016ca04f5b3b1cce41d1b63ea120a7d7e93b55407bfb17a6b02d18135a	https://github.com/sourcegraph/scip-go/releases/download/v0.2.7/scip-go-linux-amd64.tar.gz
+scip.tar.gz	fc2e7273e110be9f35924da1066000183791e8bfdb0391355de6eaaa070fec75	https://github.com/scip-code/scip/releases/download/v0.9.0/scip-linux-amd64.tar.gz
+scip-java	a694cae143c32c5b6226362fb4bd268a8d13d3cd9b482819b3b0029a9a97b8fe	https://github.com/scip-code/scip-java/releases/download/v0.13.1/scip-java-v0.13.1
+scip-clang	06fd18c576f979a726c651594644ec4a35db4f471f2160b3f72eb89fa6001784	https://github.com/sourcegraph/scip-clang/releases/download/v0.4.0/scip-clang-x86_64-linux
+scip-ruby	a068c7c3b2042b9eac563ce77ce35dcaca666b418530b1db9f932a3dbc7175dd	https://github.com/sourcegraph/scip-ruby/releases/download/scip-ruby-v0.4.7/scip-ruby-x86_64-linux
+rust-analyzer.gz	ac4f42ddbbd040d75d847e991894776485783e28beb744b9719a660a99abe115	https://github.com/rust-lang/rust-analyzer/releases/download/2026-07-27/rust-analyzer-x86_64-unknown-linux-gnu.gz
