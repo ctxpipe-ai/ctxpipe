@@ -49,18 +49,6 @@ function generations(): ReadableSpan[] {
     )
 }
 
-function _keysContaining(span: ReadableSpan, needle: string): string[] {
-  const keys = Object.entries(span.attributes)
-    .filter(([, value]) => JSON.stringify(value)?.includes(needle))
-    .map(([key]) => key)
-  for (const event of span.events) {
-    for (const [key, value] of Object.entries(event.attributes ?? {})) {
-      if (JSON.stringify(value)?.includes(needle)) keys.push(`event:${key}`)
-    }
-  }
-  return keys
-}
-
 describe("Langfuse context attributes", () => {
   it("copies userId, sessionId, tags, and metadata onto the observation", async () => {
     const parent = trace.getTracer("test").startSpan("http")
