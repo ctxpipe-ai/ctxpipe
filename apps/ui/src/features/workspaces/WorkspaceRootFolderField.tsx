@@ -11,13 +11,13 @@ export function WorkspaceRootFolderField(props: {
   return (
     <TextField
       label="Root folder"
-      placeholder="docs/context"
+      placeholder="Leave empty to use the whole repository"
       value={props.value}
       onChange={props.onChange}
       isDisabled={props.isDisabled}
       isInvalid={error !== null}
       errorMessage={error ?? undefined}
-      description="The folder in the repository that holds this Workspace. ctxpipe reads and changes files only in this folder. Leave it empty to use the whole repository."
+      description="A team can keep its context in a folder of an existing repository. You can also keep several Workspaces in one repository, with one folder for each. ctx| reads and changes files only in this folder."
     />
   )
 }

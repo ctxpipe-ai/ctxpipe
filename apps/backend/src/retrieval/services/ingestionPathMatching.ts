@@ -1,6 +1,6 @@
 /**
  * Path helpers for partial-ingestion retraction against colon-delimited
- * `logical_source_key` / `source_id` values (see extractors under codeIngestionGraph).
+ * `logical_source_key` / `source_id` values.
  */
 
 /** Normalize git-style paths to forward slashes and trim redundant ./ */

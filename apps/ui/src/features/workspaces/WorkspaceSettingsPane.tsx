@@ -434,7 +434,7 @@ export function WorkspaceSettingsPane(props: {
           <SettingsGroup eyebrow="Repositories">
             <section>
               <h2 className="text-sm font-medium text-foreground">
-                Main repository
+                Context repository
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 The GitHub repository where this Workspace keeps its files.
@@ -469,7 +469,7 @@ export function WorkspaceSettingsPane(props: {
                   <Button
                     variant="quiet"
                     size="icon-sm"
-                    aria-label="Edit main repository"
+                    aria-label="Edit context repository"
                     onPress={() => {
                       setRelinkError(null)
                       setRelinkOpen(true)
@@ -568,7 +568,7 @@ export function WorkspaceSettingsPane(props: {
             slot="title"
             className="my-0 text-lg font-medium leading-6 text-foreground"
           >
-            Main repository
+            Context repository
           </Heading>
           <p className="mt-1 text-sm text-muted-foreground">
             You keep this Workspace and its conversations. Files in the old

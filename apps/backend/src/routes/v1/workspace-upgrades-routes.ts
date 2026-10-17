@@ -70,11 +70,23 @@ const WorkspaceUpgradeItemSchema = z
           title: z.string(),
           commitSha: z.string().nullable(),
           report: z.array(z.string()),
+          notices: z
+            .array(
+              z.object({
+                kind: z.enum(["action", "risk"]),
+                text: z.string(),
+              }),
+            )
+            .optional()
+            .openapi({
+              description:
+                "The lines of `report` that the user must know, in plain words: `action` is a thing to do, `risk` is knowledge or a setting that ctx| cannot keep or make again. The UI shows these lines and keeps `report` behind Details.",
+            }),
         }),
       )
       .openapi({
         description:
-          "The steps of the upgrade, in order. `commitSha` and `report` come from the last run; a step with no change has no commit.",
+          "The steps of the upgrade, in order. `commitSha`, `report` and `notices` come from the last run; a step with no change has no commit.",
       }),
     pullRequest: z
       .object({ number: z.number().int().nullable(), url: z.string() })
@@ -154,7 +166,7 @@ function serializeUpgrade(
         GIT_UPGRADE_STEPS,
         upgrade.fromFormat,
         Math.min(upgrade.targetFormat, GIT_UPGRADE_STEPS.length),
-      ).map((step) => ({ ...step, sha: null, report: [] })))
+      ).map((step) => ({ ...step, sha: null, report: [], notices: [] })))
   return {
     key: upgrade.key,
     kind: reingest ? "reingest" : "format",
@@ -169,6 +181,7 @@ function serializeUpgrade(
       title: step.title,
       commitSha: step.sha,
       report: step.report,
+      notices: step.notices ?? [],
     })),
     pullRequest: upgrade.prUrl
       ? { number: upgrade.prNumber ?? null, url: upgrade.prUrl }
