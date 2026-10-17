@@ -2,7 +2,7 @@ import { createHash } from "node:crypto"
 import {
   asStringArray,
   splitFrontmatter,
-} from "../../graphs/codeIngestionGraph/nodes/connectorFrontmatter.js"
+} from "../codeIngestion/connectorFrontmatter.js"
 
 /** Index range of the top-level `sources` key (key line plus its block). */
 function sourcesRange(lines: string[]): [number, number] | null {

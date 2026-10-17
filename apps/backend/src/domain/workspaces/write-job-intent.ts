@@ -4,10 +4,6 @@ import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
-import {
-  type WorkspaceExtraction,
-  workspaceExtractionSchema,
-} from "./extraction.js"
 import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
@@ -40,7 +36,7 @@ export type WorkspaceWritePlanning = {
 
 export type WorkspaceWriteJobPayload = {
   bootstrapBinding?: UnbornBootstrapBinding
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
   /** An ingestion v2 publish (T21): the run and its assembled tip. */
   ingest?: IngestPublishSource
   revision?: WorkspaceRevision
@@ -93,7 +89,8 @@ const writeJobKindSchema = z.enum([
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
-  extraction: workspaceExtractionSchema.optional(),
+  /** Retired: the capture of the old pipeline. An old payload still parses. */
+  extraction: z.record(z.string(), z.unknown()).optional(),
   mirror: connectorMirrorSourceSchema.optional(),
   previousSha: z
     .string()
