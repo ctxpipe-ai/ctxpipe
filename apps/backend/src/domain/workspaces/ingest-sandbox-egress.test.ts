@@ -88,6 +88,9 @@ describe("ingestNetworkPolicy", () => {
         "100.64.0.0/10",
       ]),
     )
+    // The Vercel API refuses an IPv6 range, and with it the whole policy.
+    for (const range of (policy as Policy).subnets?.deny ?? [])
+      expect(range).toMatch(/^\d+\.\d+\.\d+\.\d+\/\d+$/)
   })
 
   it("leaves the chat policy open", () => {

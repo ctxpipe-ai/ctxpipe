@@ -358,7 +358,9 @@ export async function refreshIngestSandboxEgress(input: {
 
 /**
  * Private, loopback, link-local (cloud metadata), and shared address ranges.
- * The sandbox must not reach them, also through an allowed name.
+ * The sandbox must not reach them, also through an allowed name. IPv4 only:
+ * the Vercel API refuses an IPv6 range ("Invalid CIDR"). The policy allows
+ * no IPv6 address, so the sandbox has no IPv6 route out of it.
  */
 const PRIVATE_SUBNETS = [
   "0.0.0.0/8",
@@ -368,9 +370,6 @@ const PRIVATE_SUBNETS = [
   "169.254.0.0/16",
   "172.16.0.0/12",
   "192.168.0.0/16",
-  "fc00::/7",
-  "fe80::/10",
-  "::1/128",
 ]
 
 /**
