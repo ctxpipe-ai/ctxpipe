@@ -248,7 +248,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
             if ("stopped" in attempt)
               return {
                 committed: false as const,
-                reason: "publish_pipeline_legacy" as const,
+                reason: "publish_pipeline_stopped" as const,
               }
             pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break

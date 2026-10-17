@@ -150,7 +150,7 @@ export const Populated: Story = {
       docsWorkspaceDetail.slug,
     )
     await expect(
-      canvas.getByRole("heading", { level: 2, name: "Main repository" }),
+      canvas.getByRole("heading", { level: 2, name: "Context repository" }),
     ).toBeVisible()
     await expect(
       canvas.getByRole("region", { name: "Sources" }),
@@ -189,7 +189,7 @@ export const ReadOnly: Story = {
 
 /**
  * A Paste Workspace that no GitHub connection reads. "Select the repository
- * again" opens the main repository dialog, where Select GitHub binds it.
+ * again" opens the context repository dialog, where Select GitHub binds it.
  */
 export const ReadOnlyWithoutConnection: Story = {
   args: {
@@ -211,7 +211,7 @@ export const ReadOnlyWithoutConnection: Story = {
     const dialog = await body.findByRole("dialog")
     await waitFor(() =>
       expect(
-        within(dialog).getByRole("heading", { name: "Main repository" }),
+        within(dialog).getByRole("heading", { name: "Context repository" }),
       ).toBeVisible(),
     )
   },
@@ -262,7 +262,7 @@ export const LinkedRepositoryWithIssues: Story = {
 }
 
 /**
- * The main repository picker and "Add repositories" share one cached
+ * The context repository picker and "Add repositories" share one cached
  * repository query. Opening one, then the other, lists the repositories.
  */
 export const AddRepositories: Story = {
@@ -273,7 +273,7 @@ export const AddRepositories: Story = {
     const canvas = within(canvasElement)
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(
-      await canvas.findByRole("button", { name: /edit main repository/i }),
+      await canvas.findByRole("button", { name: /edit context repository/i }),
     )
     const picker = await body.findByRole("dialog")
     await within(picker).findByText("acme/handbook")
@@ -411,7 +411,7 @@ export const RelinkError: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      canvas.getByRole("button", { name: /edit main repository/i }),
+      canvas.getByRole("button", { name: /edit context repository/i }),
     )
     const body = within(canvasElement.ownerDocument.body)
     const dialog = await body.findByRole("dialog")

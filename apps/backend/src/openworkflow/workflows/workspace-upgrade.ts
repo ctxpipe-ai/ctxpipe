@@ -77,6 +77,11 @@ const builtSchema = z.discriminatedUnion("kind", [
         title: z.string(),
         sha: z.string().nullable(),
         report: z.array(z.string()),
+        notices: z
+          .array(
+            z.object({ kind: z.enum(["action", "risk"]), text: z.string() }),
+          )
+          .optional(),
       }),
     ),
   }),

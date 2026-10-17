@@ -1,5 +1,6 @@
 import { isDeepStrictEqual } from "node:util"
 import YAML, { isNode, type Node, type YAMLSeq } from "yaml"
+import type { UpgradeNotice } from "../upgrades/registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
   githubScopeRepositories,
@@ -45,6 +46,8 @@ export type SourcesConversion = {
   deletes: string[]
   /** Lines for the pull request body: each input that did not become an active source file. */
   report: string[]
+  /** The actions and risks for the user, in plain words (see `UpgradeStepPlan.notices`). */
+  notices?: UpgradeNotice[]
 }
 
 /**
@@ -96,6 +99,7 @@ export function planSourcesConversion(
       .sort((a, b) => compareBytes(a.path, b.path)),
     deletes: [SOURCES_FILE_PATH],
     report: plan.report,
+    notices: plan.notices,
   }
 }
 
@@ -128,10 +132,17 @@ export function unconvertedEntryIds(
   return ids
 }
 
+/** The notice for keys and comments that the conversion drops. */
+const UNCONVERTED_SETTINGS: UpgradeNotice = {
+  kind: "risk",
+  text: "Some settings or comments of the old sources file are not converted.",
+}
+
 /** The sources that exist or that the plan writes, and the plan itself. */
 class ConversionPlan {
   readonly writes = new Map<string, { path: string; content: string }>()
   readonly report: string[] = []
+  readonly notices: UpgradeNotice[] = []
   /**
    * Every path under `sources/` that a file has or that the plan writes, in
    * lowercase: two paths that differ only in case are one file on a
@@ -214,10 +225,15 @@ class ConversionPlan {
         `the description of ${origin}`,
         `\nThe description:\n${body}`,
       )
-    else if (tooLarge)
+    else if (tooLarge) {
       this.report.push(
         `${path} (from ${origin}) is larger than ${SOURCE_FILE_MAX_BYTES / 1024} KiB, so it is invalid. Split it into smaller sources.`,
       )
+      this.notices.push({
+        kind: "action",
+        text: "Some sources are too large and are not valid. Split each one into smaller sources.",
+      })
+    }
   }
 
   writeUnconverted(
@@ -242,6 +258,10 @@ class ConversionPlan {
       )
     if (!existing) this.write(path, content)
     this.report.push(`${origin} went to ${path}: ${reason}`)
+    this.notices.push({
+      kind: "action",
+      text: "ctx| could not convert some sources. They show as not valid in Sources. Fix or delete them.",
+    })
   }
 
   private write(path: string, content: string): void {
@@ -276,10 +296,12 @@ function convertYaml(text: string, plan: ConversionPlan): void {
   const extraKeys = Object.keys(data as object).filter(
     (key) => key !== "version" && key !== "sources",
   )
-  if (extraKeys.length)
+  if (extraKeys.length) {
     plan.report.push(
       `${SOURCES_FILE_PATH} had keys that ctx| did not use, and they are not converted: ${extraKeys.join(", ")}`,
     )
+    plan.notices.push(UNCONVERTED_SETTINGS)
+  }
 
   const sequence = document.get("sources", true)
   const items: readonly unknown[] = YAML.isSeq(sequence)
@@ -349,10 +371,12 @@ function convertEntry(
   const unused = ignored.filter(
     (key) => !(key === "description" && description),
   )
-  if (unused.length)
+  if (unused.length) {
     plan.report.push(
       `${origin} had keys that ctx| did not use, and they are not converted: ${unused.join(", ")}`,
     )
+    plan.notices.push(UNCONVERTED_SETTINGS)
+  }
   const body = [description, input.comment ?? ""]
     .filter(Boolean)
     .map((text) => `\n${text}\n`)
@@ -483,10 +507,12 @@ function reportComments(
     }
   })
   add(document.comment)
-  if (comments.length)
+  if (comments.length) {
     plan.report.push(
       `${SOURCES_FILE_PATH} had comments that are not above an entry, and they are not converted:\n${comments.map((comment) => `> ${comment.replaceAll("\n", "\n> ")}`).join("\n")}`,
     )
+    plan.notices.push(UNCONVERTED_SETTINGS)
+  }
 }
 
 /** The text of a YAML comment: each line without the space after `#`. */

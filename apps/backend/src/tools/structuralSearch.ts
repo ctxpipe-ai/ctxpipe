@@ -1,4 +1,3 @@
-import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
@@ -12,6 +11,7 @@ import {
 import type { CodesearchHttpOptions } from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
+import { tool } from "./tool.js"
 
 export type StructuralSearchBody = {
   pattern: string

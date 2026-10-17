@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto"
 import { parseEnv } from "../../config/env.js"
 import {
   type RunGitTokenStore,
@@ -77,6 +78,43 @@ export async function recordedRunGitToken(
     }),
   )
   return (await store.get(key))?.token
+}
+
+/**
+ * The GitHub token of one Workspace base build, recorded like a run token
+ * under `run:workspace-base-<workspace>:clone:<build>:<window>`. `revoke`
+ * revokes it at the end of the build. When the build process stops before
+ * that, the sandbox sweep revokes it.
+ */
+export function recordedBaseBuildGitToken(
+  input: RunTokenOptions & {
+    workspaceId: string
+    mint: () => Promise<string>
+  },
+): { mint: () => Promise<string>; revoke: () => Promise<void> } {
+  const conversationId = `workspace-base-${input.workspaceId}`
+  const label = `clone:${randomUUID()}`
+  return {
+    mint: async () => {
+      const token = await recordedRunGitToken({
+        ...input,
+        conversationId,
+        label,
+      })
+      if (!token)
+        throw new Error("The Workspace base build got no GitHub token")
+      return token
+    },
+    revoke: async () => {
+      const left = await revokeRunGitTokens({
+        ...input,
+        conversationId,
+        prefixes: [`${label}:`],
+      })
+      if (left > 0)
+        throw new Error("The sweep revokes the base build's GitHub token later")
+    },
+  }
 }
 
 /**

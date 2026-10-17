@@ -161,7 +161,7 @@ export async function dropOrgGraph(orgId: string): Promise<void> {
 
 /** An MCP client over the real `/mcp` route with one tool registered. */
 export async function connectToolClient(
-  seed: SeededOrg,
+  seed: Pick<SeededOrg, "orgApiKey">,
   tool: McpReadTool,
 ): Promise<Client> {
   const app = new Hono<AppEnv>()
