@@ -18,7 +18,7 @@ function canonicalEvidencePath(value: string): string | null {
 }
 
 /** Source paths belong to the captured repository, including files deleted since capture. */
-export function extractionEvidencePath(
+function extractionEvidencePath(
   source: unknown,
   fromPath: string,
   repositoryUrl: string,
@@ -50,102 +50,53 @@ export function extractionEvidencePath(
   return canonicalEvidencePath(posix.join(posix.dirname(fromPath), source))
 }
 
-/** Expire only evidence inspected by this capture; preserve unknown metadata and prose. */
+/** Expire the claims whose evidence lies in one source repository; preserve unknown metadata and prose. */
 export function retractExtractionClaims(input: {
-  extraction: {
-    repositoryUrl: string
-    claims: ReadonlyArray<{
-      subjectRef: string
-      objectRef: string
-      predicate: string
-      sourcePath?: string
-    }>
-    retraction?:
-      | { mode: "full"; observedAt: string }
-      | { mode: "partial"; observedAt: string; paths: string[] }
-  }
+  repositoryUrl: string
+  observedAt: string
   workspaceRepositoryUrl: string
   files: ExistingKnowledgeFile[]
-  referencePaths: ReadonlyMap<string, string>
 }): ExistingKnowledgeFile[] {
-  const scope = input.extraction.retraction
-  if (!scope) return input.files
-  const assertions = new Set<string>()
-  for (const claim of input.extraction.claims) {
-    const from = input.referencePaths.get(claim.subjectRef)
-    const to = input.referencePaths.get(claim.objectRef)
-    if (from && to)
-      assertions.add(
-        JSON.stringify([from, to, claim.predicate, claim.sourcePath ?? null]),
-      )
-  }
   return input.files.map((file) => {
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed || !Array.isArray(parsed.attributes.claims))
       return file
-    const actions = parsed.attributes.claims.map(
-      (claim): "expire" | "reassert" | null => {
-        if (!claim || typeof claim !== "object") return null
-        const row = claim as Record<string, unknown>
-        if (typeof row.to !== "string" || typeof row.predicate !== "string")
-          return null
-        if (
-          typeof row.valid_from === "string" &&
-          Date.parse(row.valid_from) > Date.parse(scope.observedAt)
-        )
-          return null
-        const path = extractionEvidencePath(
-          row.source,
-          file.path,
-          input.extraction.repositoryUrl,
-          input.workspaceRepositoryUrl,
-        )
-        if (path === null) return null
-        const toPath = posix.normalize(
-          posix.join(posix.dirname(file.path), row.to),
-        )
-        const asserted =
-          assertions.has(
-            JSON.stringify([file.path, toPath, row.predicate, path]),
-          ) ||
-          assertions.has(
-            JSON.stringify([file.path, toPath, row.predicate, null]),
-          )
-        const expired =
-          typeof row.valid_to === "string" &&
-          Date.parse(row.valid_to) <= Date.parse(scope.observedAt)
-        if (asserted) return expired ? "reassert" : null
-        if (expired) return null
-        return scope.mode === "full" ||
-          scope.paths.some(
-            (affected) =>
-              path === affected ||
-              path.startsWith(`${affected}/`) ||
-              affected.startsWith(`${path}/`),
-          )
-          ? "expire"
-          : null
-      },
-    )
-    if (!actions.some(Boolean)) return file
+    const expire = parsed.attributes.claims.map((claim): boolean => {
+      if (!claim || typeof claim !== "object") return false
+      const row = claim as Record<string, unknown>
+      if (typeof row.to !== "string" || typeof row.predicate !== "string")
+        return false
+      if (
+        typeof row.valid_from === "string" &&
+        Date.parse(row.valid_from) > Date.parse(input.observedAt)
+      )
+        return false
+      const path = extractionEvidencePath(
+        row.source,
+        file.path,
+        input.repositoryUrl,
+        input.workspaceRepositoryUrl,
+      )
+      if (path === null) return false
+      const expired =
+        typeof row.valid_to === "string" &&
+        Date.parse(row.valid_to) <= Date.parse(input.observedAt)
+      return !expired
+    })
+    if (!expire.some(Boolean)) return file
     return {
       ...file,
       content: updateKnowledgeMetadata(file.content, (document) => {
         const claims = editableMetadataNode(document, "claims")
         if (!isSeq(claims)) return
-        for (const [index, action] of actions.entries()) {
-          if (!action) continue
+        for (const [index, shouldExpire] of expire.entries()) {
+          if (!shouldExpire) continue
           let claim = claims.items[index]
           if (isAlias(claim)) {
             claim = materializeMetadataAlias(document, claim)
             claims.items[index] = claim
           }
-          if (!isMap(claim)) continue
-          if (action === "expire") claim.set("valid_to", scope.observedAt)
-          else {
-            claim.delete("valid_to")
-            claim.set("valid_from", scope.observedAt)
-          }
+          if (isMap(claim)) claim.set("valid_to", input.observedAt)
         }
       }),
     }
