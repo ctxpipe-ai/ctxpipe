@@ -128,8 +128,8 @@ import {
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
-  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_JSON_SECRET,
+  workspaceChatLocalProcessScrubEnv,
   workspaceChatOpenCodeContract,
   writeWorkspaceChatOpenCodeConfig,
 } from "./workspace-chat-opencode-contract.js"
@@ -288,7 +288,7 @@ export function conversationSandboxProvider(
     return withOpencodeServeRetry(
       withOwnerWatchdog(
         localProcessSandbox({
-          scrubEnv: [...WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV],
+          scrubEnv: workspaceChatLocalProcessScrubEnv(),
         }),
       ),
     )

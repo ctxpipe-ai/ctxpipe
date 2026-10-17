@@ -108,14 +108,10 @@ running agents without a sandbox. When `dind` restarts, running sandboxes stop
 with it. The next turn of each conversation starts its container again, or
 creates a new one from the conversation's git branch if the container is gone.
 
-<Callout type="warn" title="Unsandboxed chat is a last resort">
-  If your Docker host cannot run privileged containers, the backend can run
-  chat without a sandbox: set `SANDBOX_PROVIDER: unsandboxed` on `backend` and
-  `worker` in a `docker-compose.override.yml`. The backend logs a warning at
-  startup. The agent then runs as a process inside the backend container with
-  the backend's network access and credentials. Use it only where
-  Docker-in-Docker cannot run at all, and treat every Workspace user as
-  trusted with the backend.
+<Callout type="warn" title="Chat needs a sandbox">
+  The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`: an
+  agent without a sandbox would run with the backend's credentials. If your
+  Docker host cannot run privileged containers, chat answers 503.
 </Callout>
 
 ## Persistent state
