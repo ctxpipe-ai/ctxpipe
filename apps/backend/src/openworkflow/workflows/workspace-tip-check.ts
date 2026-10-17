@@ -123,6 +123,8 @@ export const workspaceTipCheck = defineWorkflow(
       const quietLog = { error: () => undefined }
       const writeStatusById = new Map<string, string>()
       const writeCommitsToEnqueue: EnqueueWorkspaceWriteCommitInput[] = []
+      /** The Workspaces whose stored write access changed, as `id:status`. */
+      const writeAccessChanges: string[] = []
       for (const workspace of workspaces) {
         const probe = await probeWorkspaceWriteAccess({
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
@@ -141,6 +143,10 @@ export const workspaceTipCheck = defineWorkflow(
         const claimed = await withOrgDbContext(input.orgId, async () => {
           if (!(await persistWriteStatus(workspace, write, input.orgId)))
             return []
+          // The scan reads the stored status to block or open the upgrades,
+          // so a change in write access must queue the scan again.
+          if (write.writeStatus !== workspace.writeStatus)
+            writeAccessChanges.push(`${workspace.id}:${write.writeStatus}`)
           // The format gate is on top of the stored probe result.
           const gated = withFormatWriteGate({
             ...write,
@@ -177,6 +183,20 @@ export const workspaceTipCheck = defineWorkflow(
       }
       for (const args of writeCommitsToEnqueue) {
         await enqueueWorkspaceWriteCommit(args, quietLog)
+      }
+      if (writeAccessChanges.length) {
+        // Import at the admission boundary: the scan module queues this
+        // workflow.
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workspace-upgrade-scan.js"
+        )
+        // The hour and the changes make the key: the same change in the
+        // same hour queues no second scan, so the tip check of that scan
+        // cannot loop.
+        await enqueueWorkspaceUpgradeScan({
+          orgId: input.orgId,
+          trigger: `write-access:${input.hour ?? new Date().toISOString().slice(0, 13)}:${writeAccessChanges.join(",")}`,
+        })
       }
       const updated: Array<{
         workspaceId: string

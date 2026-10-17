@@ -52,13 +52,21 @@ resource "neon_branch" "production" {
   project_id = neon_project.this.id
 }
 
-resource "neon_role" "app" {
-  project_id = neon_project.this.id
-  branch_id  = neon_branch.production.id
-  name       = "ctxpipe_app"
+# Migrate creates ctxpipe_app in SQL with this password (role mode a, ADR-042).
+# A role that the Neon API creates is a member of neon_superuser, which has
+# BYPASSRLS, so the migrate safety check refuses it.
+resource "random_password" "app_database" {
+  length  = 40
+  special = false
+}
+
+# Older states can hold the API role. Forget it and do not drop it: migrate
+# takes over the role and sets the password above.
+removed {
+  from = neon_role.app
 
   lifecycle {
-    prevent_destroy = true
+    destroy = false
   }
 }
 
@@ -71,8 +79,8 @@ locals {
   )
   app_database_url = (
     strcontains(local.pooler_after_user, ":${neon_project.this.database_password}@")
-    ? replace(local.pooler_after_user, ":${neon_project.this.database_password}@", ":${neon_role.app.password}@")
-    : replace(local.pooler_after_user, ":${urlencode(neon_project.this.database_password)}@", ":${urlencode(neon_role.app.password)}@")
+    ? replace(local.pooler_after_user, ":${neon_project.this.database_password}@", ":${random_password.app_database.result}@")
+    : replace(local.pooler_after_user, ":${urlencode(neon_project.this.database_password)}@", ":${urlencode(random_password.app_database.result)}@")
   )
 }
 

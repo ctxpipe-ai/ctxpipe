@@ -21,26 +21,74 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
 
-export async function loadKnowledgeProjectionSource(): Promise<{
+/** The org repositories of main and the Workspace of each, with no knowledge rows. */
+export type RepositoryWorkspaceMaps = {
   firstWorkspaceId: string | null
   workspaceByRepositoryId: Map<string, string>
   repositoryGitUrlById: Map<string, string>
   /** The GitHub connection of each org repository, or null when it has none. */
   repositoryConnectionById: Map<string, string | null>
-  objects: ExportObjectRow[]
-  claims: ExportClaimRow[]
-}> {
+}
+
+/**
+ * The repository and Workspace maps of the current org. It reads only the
+ * repositories, the Workspaces and the first Workspace, not the knowledge
+ * store, so the upgrade scan can call it for each Workspace.
+ */
+export async function loadRepositoryWorkspaceMaps(): Promise<RepositoryWorkspaceMaps> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
-    const [
-      objectRows,
-      claimRows,
-      evidenceRows,
-      repoRows,
-      workspaceRows,
-      firstWorkspaceRow,
-    ] = await Promise.all([
+    const [repoRows, workspaceRows, firstWorkspaceRow] = await Promise.all([
+      db
+        .select({
+          id: repositories.id,
+          gitUrl: repositories.gitUrl,
+          githubConnectionId: repositories.githubConnectionId,
+        })
+        .from(repositories)
+        .where(eq(repositories.orgId, orgId)),
+      db
+        .select({
+          id: workspaces.id,
+          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+          createdAt: workspaces.createdAt,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.orgId, orgId)),
+      db
+        .select({ workspaceId: orgFirstWorkspaces.workspaceId })
+        .from(orgFirstWorkspaces)
+        .where(eq(orgFirstWorkspaces.orgId, orgId))
+        .limit(1),
+    ])
+    return {
+      firstWorkspaceId: firstWorkspaceRow[0]?.workspaceId ?? null,
+      workspaceByRepositoryId: workspaceByRepositoryUrl({
+        repositories: repoRows,
+        workspaces: workspaceRows,
+        normalizeUrl: normalizeWorkspaceRepositoryUrl,
+      }),
+      repositoryGitUrlById: new Map(
+        repoRows.map((row) => [row.id, row.gitUrl]),
+      ),
+      repositoryConnectionById: new Map(
+        repoRows.map((row) => [row.id, row.githubConnectionId]),
+      ),
+    }
+  })
+}
+
+export async function loadKnowledgeProjectionSource(): Promise<
+  RepositoryWorkspaceMaps & {
+    objects: ExportObjectRow[]
+    claims: ExportClaimRow[]
+  }
+> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const [objectRows, claimRows, evidenceRows, maps] = await Promise.all([
       db
         .select({
           id: objects.id,
@@ -71,27 +119,7 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           logicalSourceKey: claimEvidence.logicalSourceKey,
         })
         .from(claimEvidence),
-      db
-        .select({
-          id: repositories.id,
-          gitUrl: repositories.gitUrl,
-          githubConnectionId: repositories.githubConnectionId,
-        })
-        .from(repositories)
-        .where(eq(repositories.orgId, orgId)),
-      db
-        .select({
-          id: workspaces.id,
-          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
-          createdAt: workspaces.createdAt,
-        })
-        .from(workspaces)
-        .where(eq(workspaces.orgId, orgId)),
-      db
-        .select({ workspaceId: orgFirstWorkspaces.workspaceId })
-        .from(orgFirstWorkspaces)
-        .where(eq(orgFirstWorkspaces.orgId, orgId))
-        .limit(1),
+      loadRepositoryWorkspaceMaps(),
     ])
 
     const sourceByClaim = new Map<string, string>()
@@ -110,21 +138,8 @@ export async function loadKnowledgeProjectionSource(): Promise<{
       }
     }
 
-    const firstWorkspaceId = firstWorkspaceRow[0]?.workspaceId ?? null
-
     return {
-      firstWorkspaceId,
-      workspaceByRepositoryId: workspaceByRepositoryUrl({
-        repositories: repoRows,
-        workspaces: workspaceRows,
-        normalizeUrl: normalizeWorkspaceRepositoryUrl,
-      }),
-      repositoryGitUrlById: new Map(
-        repoRows.map((row) => [row.id, row.gitUrl]),
-      ),
-      repositoryConnectionById: new Map(
-        repoRows.map((row) => [row.id, row.githubConnectionId]),
-      ),
+      ...maps,
       objects: objectRows.map((row) => ({
         id: row.id,
         kind: row.kind,

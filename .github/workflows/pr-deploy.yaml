@@ -1,3 +1,19 @@
+# Secrets and isolation of a preview. A preview runs branch code that nobody
+# has reviewed, so it holds no production secret and no account-wide token:
+# - RAILWAY_API_TOKEN (Railway account token) goes only to the Railway steps of
+#   this workflow, never to a step that runs branch code and never into a
+#   preview service variable. The preview backend wakes its worker with a
+#   Railway project token that the deploy creates for the preview environment
+#   only (scripts/preview-own-secrets.sh), and that the PR-close cleanup
+#   revokes. No extra secret is necessary.
+# - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: each preview gets its
+#   own random values once, and keeps them for its life. Connection secrets
+#   copied from production do not decrypt on a preview.
+# - GH_* (Preview environment secrets): the preview GitHub App. The deploy
+#   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
+#   production backend value (scripts/preview-github-app-vars.sh).
+# - OTEL exporter variables: the deploy reads only those four variables from
+#   the production backend (scripts/preview-otel-vars.sh).
 name: PR Deploy
 
 on:
@@ -245,8 +261,10 @@ jobs:
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
     # Vercel project (scripts/preview-sandbox-vars.sh), never production.
     environment: Preview
+    # RAILWAY_API_TOKEN is the account token. Only the Railway steps get it, in
+    # their own env. The steps that run branch code (pnpm install, migrations)
+    # do not get it, and no preview service variable holds it.
     env:
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
       PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
@@ -261,7 +279,13 @@ jobs:
       - name: Check preview GitHub App secrets
         # Fail before the job creates anything: a preview must not run with
         # the production GitHub App that the production duplicate carries.
+        # The check also fails when GH_APP_ID or GH_CLIENT_ID is equal to the
+        # production backend value (a missing Preview secret falls back to a
+        # repository secret). It reads only those two production variables.
         env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           GH_APP_ID: ${{ secrets.GH_APP_ID }}
           GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
           GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
@@ -270,6 +294,8 @@ jobs:
           GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
         run: |
           set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
           check_preview_github_app_secrets
@@ -306,6 +332,7 @@ jobs:
         # live environment. The step never deletes an environment. When
         # `environment new` fails, the step fails, and the retry looks again.
         env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
         uses: nick-fields/retry@v4
         with:
@@ -346,25 +373,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve Neon ctxpipe_app URLs
-        id: neon_app_role
-        continue-on-error: true
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
-          parent_branch: production
-          role: ctxpipe_app
-          api_key: ${{ secrets.NEON_API_KEY }}
-          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
-
       - name: Mask Neon credentials for later steps
         id: neon_mask
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
           NEON_BRANCH_ID: ${{ steps.neon_branch.outputs.branch_id }}
-          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
         # The step reads no credential from a step output or an expression:
         # GitHub prints `env:` and the expanded script before it runs, and the
         # Neon action does not mask its outputs. The step reads each value from
@@ -380,11 +394,6 @@ jobs:
               --data-urlencode "role_name=$1" \
               --data-urlencode "pooled=$2" | jq -r '.uri'
           }
-          neon_password() {
-            curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
-              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${NEON_BRANCH_ID}/roles/$1/reveal_password" \
-              | jq -r '.password'
-          }
           export_masked() {
             local name="$1" value="$2"
             [[ -n "$value" && "$value" != "null" ]] || { echo "Neon returned no value for $name"; exit 1; }
@@ -393,29 +402,21 @@ jobs:
           }
           export_masked OWNER_DB_URL "$(neon_uri neondb_owner false)"
           export_masked OWNER_DB_URL_POOLED "$(neon_uri neondb_owner true)"
-          if [[ "$APP_ROLE_OK" == "success" ]]; then
-            export_masked APP_DB_URL_POOLED "$(neon_uri ctxpipe_app true)"
-            export_masked APP_PASSWORD "$(neon_password ctxpipe_app)"
-          fi
 
       - name: Migrate PR Neon branch and provision ctxpipe_app
         id: neon_app
         working-directory: apps/backend
         env:
-          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
           # The backfills read OpenWorkflow runs of the namespace that the
           # preview services use, not the production runs on the copied branch.
           OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
         run: |
           set -euo pipefail
-          if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
-            PASSWORD="$APP_PASSWORD"
-            POOLED="$APP_DB_URL_POOLED"
-          else
-            echo "Neon parent has no ctxpipe_app yet; creating it on this preview branch"
-            PASSWORD="$(openssl rand -base64 24)"
-            POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
-          fi
+          # Migrate creates ctxpipe_app in SQL, or takes over the copy of the
+          # production role, and sets this password (ADR-042 mode a). The Neon
+          # API cannot reveal the password of a role that SQL created.
+          PASSWORD="$(openssl rand -hex 24)"
+          POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
           echo "::add-mask::$PASSWORD"
           echo "::add-mask::$POOLED"
           # The one migrate entry point (the same as production, Compose and
@@ -663,32 +664,6 @@ jobs:
                     }
                   }')"
               echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
-            }
-
-            # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
-            upsert_preview_backend_wake_variables() {
-              local service_id="$1"
-              local token
-              token="${RAILWAY_API_TOKEN:?RAILWAY_API_TOKEN must be set for preview worker wake}"
-              railway_graphql \
-                'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc \
-                  --arg project "$RAILWAY_PROJECT_ID" \
-                  --arg env "$ENV_ID" \
-                  --arg service "$service_id" \
-                  --arg wake_token "$token" \
-                  '{
-                    input: {
-                      projectId: $project,
-                      environmentId: $env,
-                      serviceId: $service,
-                      skipDeploys: true,
-                      variables: {
-                        RAILWAY_TOKEN: $wake_token
-                      }
-                    }
-                  }')"
-              echo "Updated preview RAILWAY_TOKEN on backend service $service_id for worker wake"
             }
 
             update_preview_worker_service_instance() {
@@ -999,9 +974,17 @@ jobs:
             source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
             sync_preview_github_app_variables
 
+            # The duplicate carries the production AUTH_SECRET and
+            # CONNECTION_SECRETS_ENCRYPTION_KEY. Give the preview its own
+            # values, and give the backend a worker-wake token that Railway
+            # scopes to this environment. Once per preview; later rolls keep them.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
+            sync_preview_own_secrets
+            echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key. Connection secrets copied from production do not decrypt here: connect each integration again on the preview." >> "$GITHUB_STEP_SUMMARY"
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
-            upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
             # shellcheck disable=SC1091
             source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
             point_preview_backend_at_private_ui
@@ -1104,6 +1087,7 @@ jobs:
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
             echo "- This preview uses the preview GitHub App, not the production App. To sign in with GitHub here, add $BACKEND_URL/.auth/api/v1/auth/callback/github to the callback URLs of the [preview GitHub App](https://github.com/organizations/ctxpipe-ai/settings/apps/${GH_APP_SLUG:-}). GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key, so connection secrets copied from production do not decrypt here. Connect each integration again on the preview."
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
@@ -1169,6 +1153,38 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 15
           command: npm install -g @railway/cli@4.35.2
+
+      - name: Revoke the preview worker-wake token
+        # PR Deploy creates one Railway project token per preview environment
+        # (scripts/preview-own-secrets.sh). Delete each token of this
+        # environment before the environment goes. Prints no token value.
+        # A failure here must not stop the environment delete, because the
+        # token is scoped to that environment.
+        continue-on-error: true
+        env:
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENV: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          gql() {
+            curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$1" --argjson v "$2" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2
+          }
+          ENV_ID="$(gql 'query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
+            "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')" \
+            | jq -r --arg n "$PR_ENV" '[.data.project.environments.edges[]?.node | select(.name == $n) | .id][0] // empty')"
+          if [[ -z "$ENV_ID" ]]; then
+            echo "No Railway environment $PR_ENV; no token to revoke"
+            exit 0
+          fi
+          TOKEN_IDS="$(gql 'query($projectId: String!) { projectTokens(projectId: $projectId, first: 100) { edges { node { id environmentId } } } }' \
+            "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" '{projectId:$p}')" \
+            | jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id')"
+          for id in $TOKEN_IDS; do
+            gql 'mutation($id: String!) { projectTokenDelete(id: $id) }' "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null
+            echo "Revoked Railway project token $id of $PR_ENV"
+          done
 
       - name: Delete Railway environment
         # Railway API/CLI calls can be flaky; retry once before failing.
