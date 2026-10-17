@@ -1,10 +1,11 @@
 import { AccountView } from "@daveyplate/better-auth-ui"
-import { createFileRoute } from "@tanstack/react-router"
+import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { AppShell } from "@/components/AppShell"
 import { AccountSettingsNav } from "@/features/auth/AccountSettingsNav"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { ConnectedAppsCard } from "@/features/auth/ConnectedAppsCard"
 import { PersonalApiKeysCard } from "@/features/organization/OrganizationApiKeysCard"
+import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/.auth/account/$accountView")({
@@ -25,6 +26,22 @@ export function AccountSettingsBody(props: { accountView: string }) {
   const { accountView } = props
   const isApiKeys = accountView === "api-keys"
   const isConnectedApps = accountView === "connected-apps"
+  const {
+    data: organizations,
+    isPending,
+    isRefetching,
+  } = useListOrganizations()
+
+  // The delete dialog of an organization opens this view. After the last
+  // organization is gone, the user creates a new one in onboarding.
+  if (
+    accountView === "organizations" &&
+    !isPending &&
+    !isRefetching &&
+    organizations?.length === 0
+  ) {
+    return <Navigate to="/onboarding" replace />
+  }
 
   return (
     <main
