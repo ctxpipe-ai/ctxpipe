@@ -10,6 +10,7 @@ import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { bootstrapWorkspaceFiles } from "./bootstrap.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 it(
   "hydration durably admits each remaining maintenance concern once",
@@ -228,7 +229,7 @@ it(
                 f.workspaceId &&
               !["completed", "failed", "canceled"].includes(run.status)
             )
-              await runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(backend, run.id)
           }
           await worker.stop()
           await backend.stop()
