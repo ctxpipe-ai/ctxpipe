@@ -53,7 +53,7 @@ import { VERCEL_SANDBOX } from "../workspaces/workspace-chat-opencode-contract.j
 import { ingestAgentCommand } from "./ingest-opencode.js"
 import { INGEST_AGENT_USER } from "./ingest-prepare.js"
 import { type RootExec, vercelRootExec } from "./ingest-root.js"
-import { hostedIngestShardRuntimeForContract } from "./ingest-shard-sandbox.js"
+import { ingestShardRuntimeFactory } from "./ingest-shard-sandbox.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 import {
   INGEST_CONTEXT_ROOT,
@@ -554,7 +554,8 @@ async function agentStatus(curlArgs: string): Promise<number> {
   return Number(result.stdout.trim() || "0")
 }
 
-const runtime = hostedIngestShardRuntimeForContract()
+// The hosted gate is open for this test only.
+const runtime = ingestShardRuntimeFactory({ hostedEgressProven: true })
 
 describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
   it("runs one shard end to end: prepare, discover-roots, and a model step whose usage comes back, all egress through the backend proxy", async () => {
@@ -650,13 +651,23 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
       }),
       { signal: controller.signal },
     )
-    await new Promise((resolve) => setTimeout(resolve, 3_000))
-    controller.abort(new Error("contract abort"))
-    await expect(running).rejects.toThrow("contract abort")
-    const left = await root(
-      `uid=$(id -u ${INGEST_AGENT_USER}); n=0; for d in /proc/[0-9]*; do u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null); [ "$u" = "$uid" ] && n=$((n+1)); done; echo $n`,
+    const outcome = running.then(
+      () => "finished",
+      (error: Error) => error.message,
     )
-    expect(left.stdout.trim()).toBe("0")
+    // Wait for proof that the agent process started.
+    const agentProcesses = async () =>
+      Number(
+        (
+          await root(
+            `uid=$(id -u ${INGEST_AGENT_USER}); n=0; for d in /proc/[0-9]*; do u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null); [ "$u" = "$uid" ] && n=$((n+1)); done; echo $n`,
+          )
+        ).stdout.trim(),
+      )
+    while ((await agentProcesses()) < 1) {}
+    controller.abort(new Error("contract abort"))
+    expect(await outcome).toBe("contract abort")
+    expect(await agentProcesses()).toBe(0)
   })
 
   it("allows only the T03b list: Git fetch of the shard's repositories; refuses push, other repositories, other paths, raw IPs, SSH, other names, DNS, private ranges, and another sandbox's scope", async () => {

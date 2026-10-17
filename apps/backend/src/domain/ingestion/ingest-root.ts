@@ -12,13 +12,45 @@ import Docker from "dockerode"
 
 /**
  * Runs a shell script as root in the sandbox. With a `signal`, an abort ends
- * the script's whole process group in the sandbox, and the promise rejects
- * with the signal's reason only after the group is gone.
+ * the script's whole process group in the sandbox and each process of the
+ * agent user (also one that left the group with `setsid`), and the promise
+ * rejects with the signal's reason only after they are gone.
  */
 export type RootExec = (
   script: string,
   options?: { signal?: AbortSignal },
 ) => Promise<ExecResult>
+
+/** The agent user on every provider. It is in no sudoers file. */
+export const INGEST_AGENT_USER = "ctxpipe-agent"
+
+/**
+ * Stop every process of the agent user, again and again until none is left,
+ * so a process that forks while it is stopped is also stopped. The real uid
+ * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
+ * all found processes first, so none can fork or write while the round kills
+ * them. A process can exit before its signal arrives; the script uses
+ * `|| true` there, because under `set -e` that failed `kill` stops the whole
+ * script with no message.
+ */
+export const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
+found() {
+  for d in /proc/[0-9]*; do
+    u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null || true)
+    if [ "$u" = "$uid" ]; then echo "\${d#/proc/}"; fi
+  done
+  true
+}
+i=0
+while [ "$i" -lt 100 ]; do
+  left=$(found)
+  [ -z "$left" ] && break
+  for p in $left; do kill -STOP "$p" 2>/dev/null || true; done
+  for p in $left; do kill -KILL "$p" 2>/dev/null || true; done
+  sleep 0.1
+  i=$((i + 1))
+done
+if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /** Root-only folder for the process group id of each signalled exec. */
 const EXEC_GROUPS = "/run/ctxpipe-exec"
@@ -42,7 +74,7 @@ function signalledRootExec(exec: RootCommand): RootExec {
     const wrapper = `mkdir -p -m 700 ${EXEC_GROUPS} && echo $$ > ${file} && { sh -c "$1"; code=$?; rm -f ${file}; exit $code; }`
     let killed: Promise<unknown> | undefined
     const onAbort = () => {
-      // TERM, then KILL after 5 seconds; return when no process of the
+      // TERM, then KILL after 5 seconds; go on when no process of the
       // group is left. A group that has not written its file yet gets 5
       // seconds to do it. Dash's `kill` refuses `--`, so the group id comes
       // directly after the signal. PID 1 of the sandbox does not reap
@@ -50,10 +82,16 @@ function signalledRootExec(exec: RootCommand): RootExec {
       // group and state of each process come from /proc, because a Vercel
       // sandbox has no `ps`: in /proc/<pid>/stat, after the last ") ", the
       // first field is the state and the third field is the group id.
+      // Then stop each process of the agent user: an agent process can
+      // leave the group (`setsid`, a double fork).
       killed = exec([
         "sh",
         "-c",
-        `i=0; while [ ! -f ${file} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.1; done; [ -f ${file} ] || exit 0; g=$(cat ${file}); live() { for s in /proc/[0-9]*/stat; do r=$(sed 's/.*) //' "$s" 2>/dev/null) || continue; set -- $r; [ "$3" = "$g" ] && [ "$1" != Z ] && return 0; done; return 1; }; kill -TERM -$g 2>/dev/null; i=0; while live; do i=$((i+1)); [ $i -ge 50 ] && kill -KILL -$g 2>/dev/null; sleep 0.1; done; rm -f ${file}`,
+        [
+          `i=0; while [ ! -f ${file} ] && [ $i -lt 50 ]; do i=$((i+1)); sleep 0.1; done; if [ -f ${file} ]; then g=$(cat ${file}); live() { for s in /proc/[0-9]*/stat; do r=$(sed 's/.*) //' "$s" 2>/dev/null) || continue; set -- $r; [ "$3" = "$g" ] && [ "$1" != Z ] && return 0; done; return 1; }; kill -TERM -$g 2>/dev/null; i=0; while live; do i=$((i+1)); [ $i -ge 50 ] && kill -KILL -$g 2>/dev/null; sleep 0.1; done; rm -f ${file}; fi`,
+          `id -u ${INGEST_AGENT_USER} >/dev/null 2>&1 || exit 0`,
+          STOP_AGENT_PROCESSES,
+        ].join("\n"),
       ])
     }
     signal.addEventListener("abort", onAbort, { once: true })

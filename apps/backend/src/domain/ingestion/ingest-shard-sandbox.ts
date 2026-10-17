@@ -18,6 +18,7 @@ import {
 } from "../workspaces/chat-runtime.js"
 import { ingestSandbox } from "../workspaces/ingest-sandbox.js"
 import {
+  assertHostedIngestEgress,
   dockerIngestSandboxProvider,
   type IngestEgress,
   ingestSandboxTags,
@@ -277,6 +278,36 @@ function withShardLock<T>(
   )
 }
 
+/**
+ * Run `fn` with the step's credentials in the hosted sandbox firewall (no
+ * firewall: Docker, just `fn`). `closeTurn` always runs, also when
+ * `openTurn` throws: Vercel can apply an update and still answer with an
+ * error, so the step's credentials can be in the policy then. A failed
+ * `closeTurn` is logged: the capability ends with the lock owner, and the
+ * scope expires.
+ */
+export async function withStepFirewall<T>(
+  firewall: ConversationFirewall | undefined,
+  sandboxName: string,
+  credentials: HostedTurnCredentials,
+  logContext: { orgId: string; runId: string },
+  fn: () => Promise<T>,
+): Promise<T> {
+  if (!firewall) return fn()
+  try {
+    await firewall.openTurn(sandboxName, credentials)
+    return await fn()
+  } finally {
+    await firewall.closeTurn(sandboxName).catch((error: unknown) =>
+      log.error({
+        step: "ingest-shard-close-turn",
+        message: `Removing the step's credentials from the sandbox firewall failed: ${String(error)}`,
+        ...logContext,
+      }),
+    )
+  }
+}
+
 /** The deployment's ingest provider: Docker (the default) or Vercel. */
 function ingestIsolation(): "docker" | "vercel" {
   const isolation = lockedSandboxProvider(process.env) ?? "docker"
@@ -440,6 +471,8 @@ function shardRuntime(
       target,
       async (lockOwner, lockSignal) => {
         const hosted = ingestIsolation() === "vercel"
+        // The hosted gate, before any capability or sandbox call of the step.
+        if (hosted) assertHostedIngestEgress(options.hostedEgressProven)
         const egress = await ingestShardStepEgress({
           spec,
           lockOwner,
@@ -466,44 +499,50 @@ function shardRuntime(
           })
         const handle = existing ?? (await box.sandbox.ensure())
         const root = await box.root(handle.id)
-        if (box.firewall)
-          await box.firewall.openTurn(handle.id, hostedStepCredentials(egress))
-        try {
-          const agentEnv = await ingestAgentEnv(root, {
-            modelProxyUrl: egress.modelProxyUrl,
-            ...(box.agentPath ? { path: box.agentPath } : {}),
-          })
-          if (!(await ingestShardPrepared(root))) {
-            const models = ingestModels()
-            await prepareIngestShard(handle, root, {
-              bundle: spec.bundle,
-              opencodeConfig: ingestOpenCodeConfig({
-                modelBase: models.medium,
-                models: [models.fast],
-                skills: spec.bundle.skills,
-                proxyAddsCredentials: true,
-                toolBridgeUrl: egress.bridge.url,
-              }),
-              agentEnv,
-              source: { url: spec.source.url, sha: spec.source.sha },
-              contexts: spec.destinations,
-              now: new Date(),
-            })
-          }
-          return await fn({ handle, root, agentEnv, signal: lockSignal })
-        } finally {
-          // The step's credentials leave the firewall. A failure is logged:
-          // the capability ends with the lock owner, and the scope expires.
-          if (box.firewall)
-            await box.firewall.closeTurn(handle.id).catch((error: unknown) =>
-              log.error({
-                step: "ingest-shard-close-turn",
-                message: `Removing the step's credentials from the sandbox firewall failed: ${String(error)}`,
-                orgId: spec.orgId,
-                runId: spec.runId,
-              }),
-            )
-        }
+        return withStepFirewall(
+          box.firewall,
+          handle.id,
+          hostedStepCredentials(egress),
+          { orgId: spec.orgId, runId: spec.runId },
+          async () => {
+            try {
+              const agentEnv = await ingestAgentEnv(root, {
+                modelProxyUrl: egress.modelProxyUrl,
+                ...(box.agentPath ? { path: box.agentPath } : {}),
+              })
+              if (!(await ingestShardPrepared(root))) {
+                const models = ingestModels()
+                await prepareIngestShard(handle, root, {
+                  bundle: spec.bundle,
+                  opencodeConfig: ingestOpenCodeConfig({
+                    modelBase: models.medium,
+                    models: [models.fast],
+                    skills: spec.bundle.skills,
+                    proxyAddsCredentials: true,
+                    toolBridgeUrl: egress.bridge.url,
+                  }),
+                  agentEnv,
+                  source: { url: spec.source.url, sha: spec.source.sha },
+                  contexts: spec.destinations,
+                  now: new Date(),
+                })
+              }
+              return await fn({ handle, root, agentEnv, signal: lockSignal })
+            } catch (error) {
+              // A failed or aborted step skips `collectIngestStep`: stop each
+              // agent process here, before the shard lock is released.
+              await stopIngestAgentProcesses(root).catch((stopError: unknown) =>
+                log.error({
+                  step: "ingest-shard-stop-agent",
+                  message: `Stopping the agent processes of a failed step failed: ${String(stopError)}`,
+                  orgId: spec.orgId,
+                  runId: spec.runId,
+                }),
+              )
+              throw error
+            }
+          },
+        )
       },
       signal,
     )
@@ -569,24 +608,16 @@ async function destroyShard(
   })
 }
 
-export const sandboxIngestShardRuntime: IngestShardRuntimeFactory =
-  Object.assign((spec: IngestShardSpec) => shardRuntime(spec), {
-    // Destroy makes no sandbox and mints no credential.
-    destroy: (target: {
-      orgId: string
-      runId: string
-      shard: number
-      workspaceId: string
-    }) => destroyShard(target),
-  })
-
 /**
- * The production runtime with the hosted egress gate open. Only the hosted
- * contract test uses it, to prove the path that the gate waits for.
+ * The shard runtime factory. Production uses {@link sandboxIngestShardRuntime};
+ * only the hosted contract test passes `hostedEgressProven`, to prove the
+ * path that the hosted gate waits for.
  */
-export function hostedIngestShardRuntimeForContract(): IngestShardRuntimeFactory {
-  const options = { hostedEgressProven: true }
+export function ingestShardRuntimeFactory(
+  options: ShardOptions = {},
+): IngestShardRuntimeFactory {
   return Object.assign((spec: IngestShardSpec) => shardRuntime(spec, options), {
+    // Destroy makes no sandbox and mints no credential.
     destroy: (target: {
       orgId: string
       runId: string
@@ -595,3 +626,6 @@ export function hostedIngestShardRuntimeForContract(): IngestShardRuntimeFactory
     }) => destroyShard(target, options),
   })
 }
+
+export const sandboxIngestShardRuntime: IngestShardRuntimeFactory =
+  ingestShardRuntimeFactory()

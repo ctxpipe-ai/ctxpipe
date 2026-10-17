@@ -1,5 +1,10 @@
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
-import { type RootExec, runAsRoot } from "./ingest-root.js"
+import {
+  INGEST_AGENT_USER,
+  type RootExec,
+  runAsRoot,
+  STOP_AGENT_PROCESSES,
+} from "./ingest-root.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_HOME,
@@ -21,8 +26,7 @@ import {
  * host collects a step's output, root stops every process of the agent.
  */
 
-/** The agent user on every provider. It is in no sudoers file. */
-export const INGEST_AGENT_USER = "ctxpipe-agent"
+export { INGEST_AGENT_USER }
 
 /** The step output that root packs for the host to read. */
 export const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
@@ -54,34 +58,6 @@ async function run(handle: Sandbox, command: string): Promise<string> {
     )
   return result.stdout
 }
-
-/**
- * Stop every process of the agent user, again and again until none is left,
- * so a process that forks while it is stopped is also stopped. The real uid
- * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
- * all found processes first, so none can fork or write while the round kills
- * them. A process can exit before its signal arrives; the script uses
- * `|| true` there, because under `set -e` that failed `kill` stops the whole
- * script with no message.
- */
-const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
-found() {
-  for d in /proc/[0-9]*; do
-    u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null || true)
-    if [ "$u" = "$uid" ]; then echo "\${d#/proc/}"; fi
-  done
-  true
-}
-i=0
-while [ "$i" -lt 100 ]; do
-  left=$(found)
-  [ -z "$left" ] && break
-  for p in $left; do kill -STOP "$p" 2>/dev/null || true; done
-  for p in $left; do kill -KILL "$p" 2>/dev/null || true; done
-  sleep 0.1
-  i=$((i + 1))
-done
-if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /**
  * Stop every process of the agent user before a locked step does any work,

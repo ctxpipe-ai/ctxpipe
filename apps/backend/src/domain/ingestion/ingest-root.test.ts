@@ -7,7 +7,9 @@ import { runAsRoot, vercelRootExec } from "./ingest-root.js"
  * The hosted path runs the same root scripts as Docker, through the Vercel
  * SDK's `sudo` option. The Docker contract test runs those scripts for real,
  * also in an image whose default user has passwordless sudo as on Vercel;
- * this test proves the Vercel call. No Vercel sandbox runs here (T12).
+ * this test proves the Vercel call. No Vercel sandbox runs here (T12). The
+ * abort of a signalled script runs on real processes in the Docker contract
+ * (`ingest-root.contract.test.ts`).
  */
 
 type Call = { cmd: string; args?: string[]; sudo?: boolean }
@@ -40,38 +42,6 @@ describe("vercelRootExec", () => {
     expect(calls).toEqual([
       { cmd: "sh", args: ["-c", "mkdir -p /ctxpipe"], sudo: true },
     ])
-  })
-
-  it("runs a signalled script in its own process group, and an abort ends the group as root before the call rejects", async () => {
-    const calls: Call[] = []
-    let finishStep: (() => void) | undefined
-    const sandbox = {
-      runCommand: async (input: Call) => {
-        calls.push(input)
-        // The step runs until the kill command ends its group.
-        if (input.cmd === "setsid")
-          await new Promise<void>((resolve) => {
-            finishStep = resolve
-          })
-        else finishStep?.()
-        return { exitCode: 0, output: async () => "" }
-      },
-    }
-    const controller = new AbortController()
-    const running = vercelRootExec(sandbox)("opencode run x", {
-      signal: controller.signal,
-    })
-    await new Promise((resolve) => setTimeout(resolve, 0))
-    controller.abort(new Error("step limit"))
-    await expect(running).rejects.toThrow("step limit")
-    expect(calls).toHaveLength(2)
-    expect(calls[0]).toMatchObject({ cmd: "setsid", sudo: true })
-    expect(calls[0]?.args?.slice(0, 3)).toEqual(["-w", "sh", "-c"])
-    expect(calls[0]?.args?.at(-1)).toBe("opencode run x")
-    expect(calls[1]).toMatchObject({ cmd: "sh", sudo: true })
-    expect(calls[1]?.args?.[1]).toContain("kill -TERM -$g")
-    // The group of each process comes from /proc: a Vercel sandbox has no `ps`.
-    expect(calls[1]?.args?.[1]).not.toContain("ps -eo")
   })
 
   it("throws with the stderr when a root script fails", async () => {
