@@ -56,11 +56,14 @@ Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git
 ## Ingestion and retrieval
 
 - Repository and connector events enqueue durable OpenWorkflow jobs.
-- `repository-ingestion` coordinates repository indexing and graph extraction.
-  Its indexing child calls codesearch phases for checkout, Zoekt, language
-  detection, SCIP, and SCIP merge.
-- LangGraph remains responsible for code extraction only; it is not the
-  durable workflow engine. Workspace chat runs OpenCode in a sandbox
+- `repository-ingestion` coordinates repository indexing. Its indexing child
+  calls codesearch phases for checkout, Zoekt, language detection, SCIP, and
+  SCIP merge.
+- Knowledge extraction is ingestion v2: sandbox skills that write patches
+  ([ADR-052](decisions/ADR-052-ingestion-sandbox-skills-patches.md)). It
+  publishes only for a Workspace at format 3 or more. Below format 3 no
+  ingestion runs. The old pipeline (ReAct agents and the legacy capture) is
+  deleted. Workspace chat runs OpenCode in a sandbox
   ([ADR-044](decisions/ADR-044-workspace-chat-stock-tanstack.md)).
 - The backend owns repository readiness and indexing status. Codesearch records
   checkout and indexing-step metadata.
