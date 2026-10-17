@@ -148,7 +148,7 @@ export function KnowledgeGraphExplorer({
           predicateCounts: new Map(),
           firstObserved: null,
           lastObserved: null,
-          neighbourKindCounts: new Map(),
+          neighborKindCounts: new Map(),
         }
         facts.set(id, f)
       }
@@ -183,13 +183,13 @@ export function KnowledgeGraphExplorer({
       }
       const sKind = nodeById.get(s)?.kind || "Unknown"
       const tKind = nodeById.get(t)?.kind || "Unknown"
-      src.neighbourKindCounts.set(
+      src.neighborKindCounts.set(
         tKind,
-        (src.neighbourKindCounts.get(tKind) ?? 0) + 1,
+        (src.neighborKindCounts.get(tKind) ?? 0) + 1,
       )
-      tgt.neighbourKindCounts.set(
+      tgt.neighborKindCounts.set(
         sKind,
-        (tgt.neighbourKindCounts.get(sKind) ?? 0) + 1,
+        (tgt.neighborKindCounts.get(sKind) ?? 0) + 1,
       )
     }
     return facts
@@ -277,7 +277,7 @@ export function KnowledgeGraphExplorer({
       cgRef.current?.selectNeighbourhood(selectedId)
       if (!deepLinkFocusedRef.current && nodeById.has(selectedId)) {
         // One-shot: on first render after arriving with ?node= in the URL,
-        // zoom to the node + its 1-hop neighbourhood so the landing frame has
+        // zoom to the node + its 1-hop neighborhood so the landing frame has
         // context instead of a lone dot.
         deepLinkFocusedRef.current = true
         cgRef.current?.focusNeighbourhood(selectedId)
@@ -358,7 +358,7 @@ export function KnowledgeGraphExplorer({
       if (link.source === displayedId) {
         claims.push({
           predicate: link.predicate,
-          neighbourId: link.target,
+          neighborId: link.target,
           direction: "out",
           confidence: link.confidence,
           observedAt,
@@ -366,7 +366,7 @@ export function KnowledgeGraphExplorer({
       } else if (link.target === displayedId) {
         claims.push({
           predicate: link.predicate,
-          neighbourId: link.source,
+          neighborId: link.source,
           direction: "in",
           confidence: link.confidence,
           observedAt,
@@ -381,7 +381,7 @@ export function KnowledgeGraphExplorer({
         predicateCounts: new Map<string, number>(),
         firstObserved: null,
         lastObserved: null,
-        neighbourKindCounts: new Map<string, number>(),
+        neighborKindCounts: new Map<string, number>(),
       }),
       claims,
     }

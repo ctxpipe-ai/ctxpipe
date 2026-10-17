@@ -129,6 +129,7 @@ export const CompactRowTruncates: Story = {
     const canvas = within(canvasElement)
     const message = canvas.getByText(longCommit.subject)
     expect(getComputedStyle(message).textOverflow).toBe("ellipsis")
+    await document.fonts.ready
     expect(message.scrollWidth).toBeGreaterThan(message.clientWidth)
     const row = message.parentElement
     if (!row) throw new Error("The message has no row")
@@ -194,6 +195,7 @@ export const CommitLineAligns: Story = {
     ),
   ],
   play: async ({ canvasElement }) => {
+    await document.fonts.ready
     const lines = [
       ...canvasElement.querySelectorAll<HTMLElement>("[data-commit-line]"),
     ]

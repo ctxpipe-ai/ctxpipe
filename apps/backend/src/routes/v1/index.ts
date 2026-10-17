@@ -144,21 +144,8 @@ export type OrgScopedV1Rpc = ReturnType<
   typeof createOrgScopedV1<"/:orgSlug/api/v1">
 >
 
-export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
-  const orgScopedV1 = createOrgScopedV1(new OpenAPIHono<AppEnv>())
-
-  // Do not chain `.use()` after `OpenAPIHono.basePath()` — that returns a
-  // plain Hono with no `getOpenAPI31Document`. One-shot
-  // `.basePath().route("/", inner)` also drops RPC inference (`hc` → unknown).
-  const orgScopedMounted = new OpenAPIHono<AppEnv>()
-    .basePath("/:orgSlug/api/v1")
-    .route("/", orgScopedV1)
-
-  const workspaceChatOpenai = new OpenAPIHono<AppEnv>()
-    .basePath("/:orgSlug/api/v1/workspace-chat/openai")
-    .route("/", workspaceChatOpenaiRoutes)
-
-  const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
+function createUserScopedV1() {
+  return new OpenAPIHono<AppEnv>()
     .basePath("/api/v1")
     .use("/me/connected-apps/*", async (c, next) => {
       if (
@@ -192,6 +179,26 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .route("/me/api-keys", meApiKeysRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)
+}
+
+/** UI `hc` surface of the routes with no org in the path: `userClient.api.v1.…` */
+export type UserScopedV1Rpc = ReturnType<typeof createUserScopedV1>
+
+export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
+  const orgScopedV1 = createOrgScopedV1(new OpenAPIHono<AppEnv>())
+
+  // Do not chain `.use()` after `OpenAPIHono.basePath()` — that returns a
+  // plain Hono with no `getOpenAPI31Document`. One-shot
+  // `.basePath().route("/", inner)` also drops RPC inference (`hc` → unknown).
+  const orgScopedMounted = new OpenAPIHono<AppEnv>()
+    .basePath("/:orgSlug/api/v1")
+    .route("/", orgScopedV1)
+
+  const workspaceChatOpenai = new OpenAPIHono<AppEnv>()
+    .basePath("/:orgSlug/api/v1/workspace-chat/openai")
+    .route("/", workspaceChatOpenaiRoutes)
+
+  const nonOrgScopedV1 = createUserScopedV1()
 
   app.route("/", workspaceChatOpenai)
   // Per-run tool bridges for remote (Vercel) sandboxes; bearer token per run.

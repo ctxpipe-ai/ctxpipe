@@ -262,7 +262,8 @@ export const PaletteLoadingKeepsPages: Story = {
     // The empty state waits for the workspace list.
     await userEvent.clear(await searchField())
     await userEvent.type(await searchField(), "zzzz")
-    await expect(  // play-timing: ok the handler holds the list pending, so absence is the state under test
+    await expect(
+      // play-timing: ok the handler holds the list pending, so absence is the state under test
       screen.queryByText(/No results for/, { selector: "p" }),
     ).not.toBeInTheDocument()
     await expect(

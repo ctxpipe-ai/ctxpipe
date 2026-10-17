@@ -91,9 +91,10 @@ export function workspaceChatWebSocket(
         },
       )
       if (res.status === 404) return emptyChatHydration()
-      const data = await readApiJson<Partial<ChatHydrationResult>>(res, {
+      // TODO: the chat route is outside the Hono client, so the body is unknown.
+      const data = (await readApiJson(res, {
         message: "Failed to load conversation",
-      })
+      })) as Partial<ChatHydrationResult>
       return {
         messages: reviveChatMessages(
           (Array.isArray(data.messages) ? data.messages : []) as Array<{

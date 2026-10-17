@@ -153,15 +153,9 @@ export async function fetchGithubInstallationReposPage(
       ...(connectionId ? { connectionId } : {}),
     },
   })
-  const body = await readApiJson<{
-    repositories: Array<
-      Partial<GithubRepoItem> & { name: string; clone_url: string }
-    >
-    hasMore?: boolean
-    repositorySelection?: string
-    manageUrl?: string | null
-    totalCount?: number
-  }>(res, { message: "Failed to fetch repositories" })
+  const body = await readApiJson(res, {
+    message: "Failed to fetch repositories",
+  })
   return {
     repositories: body.repositories.map((repo, index) => ({
       id: repo.id ?? index + 1 + (page - 1) * 100,

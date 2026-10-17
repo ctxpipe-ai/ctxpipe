@@ -1,3 +1,6 @@
+import type { ClientResponse } from "hono/client"
+import type { SuccessStatusCode } from "hono/utils/http-status"
+
 export type ApiErrorBody = {
   error?: string
   message?: string
@@ -72,18 +75,48 @@ export async function apiFetch(
   }
 }
 
-export async function readApiJson<T>(
+/** The JSON body types of the success responses (2xx) of a Hono client call. */
+export type ApiOkJson<R> =
+  R extends ClientResponse<
+    infer T,
+    infer S extends number,
+    // biome-ignore lint/suspicious/noExplicitAny: the response format does not matter here
+    any
+  >
+    ? number extends S
+      ? unknown // a plain `Response`: narrow the body where you use it
+      : S extends SuccessStatusCode
+        ? T
+        : never
+    : never
+
+/**
+ * Read the JSON body of a Hono client response. The type comes from the route,
+ * so a changed backend response fails to compile here.
+ */
+export async function readApiJson<
+  // biome-ignore lint/suspicious/noExplicitAny: any ClientResponse
+  R extends ClientResponse<any, any, any> | Response,
+  E = never,
+>(
+  res: R,
+  opts?: { emptyOn?: number[]; empty?: E; message?: string },
+): Promise<ApiOkJson<R> | E> {
+  return readJson(res as Response, opts) as Promise<ApiOkJson<R> | E>
+}
+
+async function readJson(
   res: Response,
-  opts?: { emptyOn?: number[]; empty?: T; message?: string },
-): Promise<T> {
+  opts?: { emptyOn?: number[]; empty?: unknown; message?: string },
+): Promise<unknown> {
   if (opts?.emptyOn?.includes(res.status)) {
-    return opts.empty as T
+    return opts.empty
   }
   if (res.ok) {
-    if (res.status === 204) return undefined as T
+    if (res.status === 204) return undefined
     const text = await res.text()
-    if (!text) return undefined as T
-    return JSON.parse(text) as T
+    if (!text) return undefined
+    return JSON.parse(text)
   }
   const body = (await res.json().catch(() => ({}))) as ApiErrorBody
   throw new ApiError(

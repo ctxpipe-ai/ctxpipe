@@ -1,4 +1,5 @@
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { userClient } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { authClient } from "@/lib/auth-client"
 
 const ORG_API_KEY_CONFIG_ID = "organization"
@@ -102,8 +103,6 @@ export function createPersonalApiKey(input: {
   return createApiKey({ ...input, owner: { kind: "personal" } })
 }
 
-const PERSONAL_API_KEYS_PATH = "/api/v1/me/api-keys"
-
 /**
  * The org set of each personal key, by key id. `null`: a key from before org
  * sets, which reaches every organization of the user.
@@ -111,10 +110,10 @@ const PERSONAL_API_KEYS_PATH = "/api/v1/me/api-keys"
 export async function listPersonalApiKeyOrganizations(): Promise<
   Map<string, PersonalApiKeyOrganization[] | null>
 > {
-  const res = await apiFetch(PERSONAL_API_KEYS_PATH, { credentials: "include" })
-  const body = await readApiJson<{
-    keys: { id: string; organizations: PersonalApiKeyOrganization[] | null }[]
-  }>(res, { message: "Could not load the organizations of the keys" })
+  const res = await userClient.api.v1.me["api-keys"].$get()
+  const body = await readApiJson(res, {
+    message: "Could not load the organizations of the keys",
+  })
   return new Map(body.keys.map((key) => [key.id, key.organizations]))
 }
 
@@ -122,16 +121,13 @@ export async function setPersonalApiKeyOrganizations(input: {
   keyId: string
   organizationIds: string[]
 }) {
-  const res = await apiFetch(
-    `${PERSONAL_API_KEYS_PATH}/${encodeURIComponent(input.keyId)}/organizations`,
-    {
-      method: "PUT",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ organizationIds: input.organizationIds }),
-    },
-  )
-  await readApiJson<undefined>(res, {
+  const res = await userClient.api.v1.me["api-keys"][
+    ":keyId"
+  ].organizations.$put({
+    param: { keyId: input.keyId },
+    json: { organizationIds: input.organizationIds },
+  })
+  await readApiJson(res, {
     message: "Could not save the organizations",
   })
 }

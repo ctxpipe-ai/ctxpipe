@@ -72,7 +72,7 @@ export function workspaceUpgradesOptions(
       const res = await client[":orgSlug"].api.v1.workspaces[
         ":workspaceSlug"
       ].upgrades.$get({ param: { orgSlug, workspaceSlug } })
-      return readApiJson<WorkspaceUpgrades>(res, {
+      return readApiJson(res, {
         message: "Failed to load the upgrades",
       })
     },
@@ -93,7 +93,7 @@ export function pendingWorkspaceUpgradesOptions(orgSlug: string) {
       const res = await client[":orgSlug"].api.v1[
         "workspace-upgrades"
       ].pending.$get({ param: { orgSlug } })
-      const body = await readApiJson<PendingUpgradesResponse>(res, {
+      const body = await readApiJson(res, {
         message: "Failed to load the upgrades",
       })
       return body.workspaces
@@ -119,7 +119,7 @@ export async function startWorkspaceUpgrade(
   ].upgrades[":key"].start.$post({
     param: { orgSlug, workspaceSlug, key },
   })
-  return readApiJson<WorkspaceUpgradeItem>(res, {
+  return readApiJson(res, {
     message: "Failed to start the upgrade",
   })
 }

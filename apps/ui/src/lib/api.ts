@@ -1,5 +1,8 @@
 import { hc } from "hono/client"
-import type { registerV1Routes } from "../../../backend/src/routes/v1"
+import type {
+  registerV1Routes,
+  UserScopedV1Rpc,
+} from "../../../backend/src/routes/v1"
 import { apiFetch } from "./api-result"
 import { ssrApiBaseUrl } from "./ssr-api-base"
 
@@ -34,6 +37,12 @@ export async function getApiClient(): Promise<ApiClient> {
  * Prefer {@link getApiClient} in shared queryFns / loaders.
  */
 export const client = hc<V1Routes>("/", {
+  init: { credentials: "include" },
+  fetch: apiFetch,
+})
+
+/** Browser-relative client for the routes with no org in the path (`/api/v1/me/…`). */
+export const userClient = hc<UserScopedV1Rpc>("/", {
   init: { credentials: "include" },
   fetch: apiFetch,
 })

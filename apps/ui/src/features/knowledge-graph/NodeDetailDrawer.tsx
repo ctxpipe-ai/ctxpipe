@@ -221,7 +221,7 @@ function NodeDetailDrawerBody({
   const predicates = Array.from(facts.predicateCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-  const neighbourKinds = Array.from(facts.neighbourKindCounts.entries()).sort(
+  const neighborKinds = Array.from(facts.neighborKindCounts.entries()).sort(
     (a, b) => b[1] - a[1],
   )
   const totalDegree = facts.inDegree + facts.outDegree
@@ -232,11 +232,11 @@ function NodeDetailDrawerBody({
   )
   const isIsolated = totalDegree <= 2
 
-  /** Top 5 neighbours by claim count. Clicking pivots selection to that node. */
+  /** Top 5 neighbors by claim count. Clicking pivots selection to that node. */
   const strongestConnections = useMemo(() => {
     const byNeighbour = new Map<string, number>()
     for (const c of facts.claims) {
-      byNeighbour.set(c.neighbourId, (byNeighbour.get(c.neighbourId) ?? 0) + 1)
+      byNeighbour.set(c.neighborId, (byNeighbour.get(c.neighborId) ?? 0) + 1)
     }
     return Array.from(byNeighbour.entries())
       .sort((a, b) => b[1] - a[1])
@@ -508,10 +508,10 @@ function NodeDetailDrawerBody({
           </Section>
         ) : null}
 
-        {neighbourKinds.length > 0 ? (
+        {neighborKinds.length > 0 ? (
           <Section label="Neighbour kinds">
             <ul className="flex flex-col gap-1.5">
-              {neighbourKinds.map(([k, c]) => {
+              {neighborKinds.map(([k, c]) => {
                 const color = kindColors.get(k) ?? KIND_FALLBACK_COLOR
                 return (
                   <li
@@ -590,19 +590,19 @@ function ClaimList({
   return (
     <ul className="-mx-2 flex max-h-64 flex-col gap-2 overflow-y-auto">
       {sorted.map((c, i) => {
-        const neighbour = nodeById.get(c.neighbourId)
-        const neighbourKind = neighbour?.kind || "Unknown"
-        const neighbourName = neighbour?.name?.trim() || c.neighbourId
-        const kindColor = kindColors.get(neighbourKind) ?? KIND_FALLBACK_COLOR
+        const neighbor = nodeById.get(c.neighborId)
+        const neighborKind = neighbor?.kind || "Unknown"
+        const neighborName = neighbor?.name?.trim() || c.neighborId
+        const kindColor = kindColors.get(neighborKind) ?? KIND_FALLBACK_COLOR
         const tone = confidenceTone(c.confidence)
         const when =
           c.observedAt != null ? formatShortDate(c.observedAt) : "unknown"
-        const key = `${c.direction}-${c.predicate}-${c.neighbourId}-${i}`
+        const key = `${c.direction}-${c.predicate}-${c.neighborId}-${i}`
         return (
           <li key={key}>
             <Button
               variant="ghost"
-              onPress={() => onNeighbourSelect(c.neighbourId)}
+              onPress={() => onNeighbourSelect(c.neighborId)}
               className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >
               <div className="flex items-center gap-1.5">
@@ -622,7 +622,7 @@ function ClaimList({
                     style={{ backgroundColor: kindColor }}
                     aria-hidden
                   />
-                  {neighbourKind}
+                  {neighborKind}
                 </Tag>
                 <span className="ml-auto shrink-0 text-xs">
                   <span className="text-muted-foreground">confidence: </span>
@@ -633,7 +633,7 @@ function ClaimList({
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="min-w-0 truncate text-sm text-foreground">
-                  {neighbourName}
+                  {neighborName}
                 </span>
                 <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
                   {when}
