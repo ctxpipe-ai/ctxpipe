@@ -93,5 +93,4 @@ Out of scope unless that body names them: codesearch `POST /search` 503 (Zoekt w
 - `@opentelemetry/sdk-node` does not patch `Bun.serve` or Bun's `fetch`. The server span is `backendOtelMiddleware`. The client span is `tracedOutgoingFetch`. pg, undici, net, dns, and fs auto-instrumentation is off; Postgres spans come from `dbTrace`.
 - A PR flush exports after `span.end()`. An empty preview has no metric series until the next request or job.
 - Under Bun there are no `v8js.*` runtime metrics.
-- `CtxpipeCallbackHandler` (`observability/langfuse.ts`) collapses a repeated `model_name` before Langfuse records the generation.
 - `AttributionUrlSpanProcessor` strips a Drizzle `params:` line from exception messages, stacks, and status text as the span ends. Bound values stay off the exported span when a library calls `recordException` with the original error.

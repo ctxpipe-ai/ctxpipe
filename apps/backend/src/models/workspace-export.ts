@@ -1,10 +1,6 @@
 import { eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
-import {
-  assertNotInOrgDbContext,
-  getOrgDb,
-  withOrgDbContext,
-} from "../db/client.js"
+import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
@@ -167,26 +163,4 @@ export async function loadKnowledgeProjectionSource(): Promise<
         })),
     }
   })
-}
-
-/** Control-plane path identity and the format cutover, with no projection-content reads. */
-export async function loadExtractionPathIdentity(
-  revision: import("../domain/workspaces/revision.js").WorkspaceRevision,
-) {
-  assertNotInOrgDbContext()
-  return withOrgDbContext(
-    requireCurrentOrgId(),
-    async () => {
-      const { getCompletedKnowledgePaths } = await import(
-        "./workspace-write-jobs.js"
-      )
-      const { getBindingWorkspaceFormat } = await import("./workspaces.js")
-      const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
-      // From format 1 the main data is in the Workspace, so a new file
-      // needs no import key (ADR-053).
-      const format = await getBindingWorkspaceFormat(revision)
-      return { knownKnowledgePaths, stampImportKey: format < 1 }
-    },
-    { isolationLevel: "repeatable read" },
-  )
 }

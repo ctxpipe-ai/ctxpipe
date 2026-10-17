@@ -101,6 +101,23 @@ export const UpToDate: Story = {
   },
 }
 
+/** The section says in one line what an upgrade is and when it applies. */
+export const PurposeLine: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Ready to start")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "Upgrades move your Workspace repository to the layout that this version of ctx| reads. Nothing changes until you merge the pull request.",
+        ),
+      ).toBeVisible(),
+    )
+  },
+}
+
 /** An admin sees Start. The click queues the item and shows the new status. */
 export const AdminStartsUpgrade: Story = {
   parameters: {
@@ -206,7 +223,20 @@ export const PullRequestOpen: Story = {
               format: 1,
               title: "Export and sources",
               commitSha: "a1b2c3d4e5f6",
-              report: ["2 sources could not move. They stay in place."],
+              report: [
+                "Not moved: a Slack connection. It has no Workspace.",
+                "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+              ],
+              notices: [
+                {
+                  kind: "risk",
+                  text: "ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+                },
+                {
+                  kind: "action",
+                  text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+                },
+              ],
             },
             {
               format: 2,
@@ -231,15 +261,63 @@ export const PullRequestOpen: Story = {
     await waitFor(async () => expect(canvas.getByText("a1b2c3d")).toBeVisible())
     await waitFor(async () =>
       expect(
-        canvas.getByText("2 sources could not move. They stay in place."),
-      ).toBeVisible(),
-    )
-    await waitFor(async () =>
-      expect(
         canvas.getByText("Merge the pull request to apply the upgrade."),
       ).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/**
+ * The card shows only the actions and the risks, the action first. The
+ * report lines, with their paths and counts, stay behind Details until the
+ * user opens it.
+ */
+export const NotesWithDetails: Story = {
+  parameters: PullRequestOpen.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const notes = () =>
+      within(canvas.getByRole("list", { name: "Notes of Upgrade to format 3" }))
+    await waitFor(async () =>
+      expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        notes()
+          .getAllByRole("listitem")
+          .map((row) => row.textContent),
+      ).toEqual([
+        "Action: Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+        "Risk: ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+      ]),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Details" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByText(
+          "Not moved: a Slack connection. It has no Workspace.",
+        ),
+      ).not.toBeVisible(),
+    )
+
+    await userEvent.click(canvas.getByRole("button", { name: "Details" }))
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Not moved: a Slack connection. It has no Workspace."),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/^Kept 219 knowledge item/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Format 1: Export and sources")).toBeVisible(),
+    )
   },
 }
 
@@ -475,7 +553,11 @@ export const ReadOnlyBelowFormat: Story = {
   },
 }
 
-export const Completed: Story = {
+/**
+ * An applied upgrade leaves the list. It waits in History, which starts
+ * collapsed, so the section says only that the repository is up to date.
+ */
+export const HistoryWithAppliedUpgrade: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture([upgradeItemFixture({ status: "completed" })], {
@@ -486,9 +568,26 @@ export const Completed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
-      expect(await canvas.findByText("Applied")).toBeVisible(),
+      expect(await canvas.findByText("No upgrades are pending.")).toBeVisible(),
     )
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "History" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      ),
+    )
+    await waitFor(() => expect(canvas.queryByText("Applied")).not.toBeVisible())
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+
+    await userEvent.click(canvas.getByRole("button", { name: "History" }))
+    await waitFor(() => expect(canvas.getByText("Applied")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        within(
+          canvas.getByRole("list", { name: "Applied upgrades" }),
+        ).getByRole("heading", { name: "Upgrade to format 3" }),
+      ).toBeVisible(),
+    )
   },
 }
 

@@ -1,9 +1,9 @@
-import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { fetchCheckoutFileBytes } from "../domain/codeIngestion/codesearchClient.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
+import { tool } from "./tool.js"
 
 /** Hard cap for any single read (UTF-8 chars). */
 const MAX_GET_FILE_CHARS = 96_000

@@ -45,6 +45,7 @@ import {
 } from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
+import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
 import {
   organizationApiKeyLocalization,
   personalApiKeyLocalization,
@@ -56,8 +57,12 @@ import {
   deleteOrganizationApiKey,
   deletePersonalApiKey,
   listOrganizationApiKeys,
+  listPersonalApiKeyOrganizations,
   listPersonalApiKeys,
+  type PersonalApiKeyOrganization,
+  setPersonalApiKeyOrganizations,
 } from "@/features/organization/organizationApiKeys"
+import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
 const apiKeysCardClassNames = betterAuthShellClassNames.card
@@ -153,6 +158,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   const [createOpen, setCreateOpen] = useState(false)
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null)
   const [createdSecret, setCreatedSecret] = useState<string | null>(null)
+  const [keyToEdit, setKeyToEdit] = useState<ApiKey | null>(null)
 
   const keysQuery = useQuery({
     queryKey,
@@ -162,8 +168,19 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         : listPersonalApiKeys(),
   })
 
+  // Personal keys only: the org set of each key (ADR-051).
+  const keyOrganizationsQuery = useQuery({
+    queryKey: personalKeyOrganizationsQueryKey,
+    queryFn: listPersonalApiKeyOrganizations,
+    enabled: !isOrganization,
+  })
+
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; expiresIn: number | null }) =>
+    mutationFn: (input: {
+      name: string
+      expiresIn: number | null
+      organizationIds: string[]
+    }) =>
       props.kind === "organization"
         ? createOrganizationApiKey({
             organizationId: props.organizationId,
@@ -172,11 +189,26 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           })
         : createPersonalApiKey(input),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({
-        queryKey,
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        isOrganization
+          ? null
+          : queryClient.invalidateQueries({
+              queryKey: personalKeyOrganizationsQueryKey,
+            }),
+      ])
       setCreateOpen(false)
       setCreatedSecret(created.key ?? null)
+    },
+  })
+
+  const editOrganizationsMutation = useMutation({
+    mutationFn: setPersonalApiKeyOrganizations,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: personalKeyOrganizationsQueryKey,
+      })
+      setKeyToEdit(null)
     },
   })
 
@@ -265,6 +297,11 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                     />
                     <SkeletonText className="text-xs" boneClassName="w-28" />
                   </div>
+                  {isOrganization ? null : (
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible">Organizations</span>
+                    </Skeleton>
+                  )}
                   <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
                 </div>
               ))}
@@ -323,7 +360,28 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                       <span className="mx-1.5 text-zinc-600">·</span>
                       {formatExpiry(apiKey.expiresAt)}
                     </p>
+                    {isOrganization ? null : (
+                      <p className="truncate font-mono text-xs text-muted-foreground">
+                        {keyOrganizationsSummary(
+                          keyOrganizationsQuery.data?.get(apiKey.id),
+                        )}
+                      </p>
+                    )}
                   </div>
+                  {isOrganization ? null : (
+                    <Button
+                      variant="outline"
+                      className="rounded-md"
+                      aria-label={`Edit organizations of ${apiKey.name || "Unnamed key"}`}
+                      isDisabled={!keyOrganizationsQuery.data}
+                      onPress={() => {
+                        editOrganizationsMutation.reset()
+                        setKeyToEdit(apiKey)
+                      }}
+                    >
+                      Organizations
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
                     className="rounded-md"
@@ -358,6 +416,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
 
       <CreateApiKeyModal
         isOpen={createOpen}
+        pickOrganizations={!isOrganization}
         isPending={createMutation.isPending}
         error={
           createMutation.error
@@ -387,6 +446,32 @@ function ApiKeysCard(props: ApiKeysCardProps) {
             onDone={() => setCreatedSecret(null)}
           />
         </Modal>
+      ) : null}
+
+      {keyToEdit ? (
+        <EditKeyOrganizationsModal
+          keyName={keyToEdit.name || "Unnamed key"}
+          initial={
+            keyOrganizationsQuery.data
+              ?.get(keyToEdit.id)
+              ?.map((org) => org.id) ?? []
+          }
+          isPending={editOrganizationsMutation.isPending}
+          error={
+            editOrganizationsMutation.error
+              ? errorMessage(editOrganizationsMutation.error)
+              : undefined
+          }
+          onClose={() => {
+            if (!editOrganizationsMutation.isPending) setKeyToEdit(null)
+          }}
+          onSave={(organizationIds) =>
+            editOrganizationsMutation.mutate({
+              keyId: keyToEdit.id,
+              organizationIds,
+            })
+          }
+        />
       ) : null}
 
       {keyToRevoke ? (
@@ -420,20 +505,43 @@ function ApiKeysCard(props: ApiKeysCardProps) {
 
 function CreateApiKeyModal(props: {
   isOpen: boolean
+  /** A personal key: the user selects the organizations it can reach. */
+  pickOrganizations: boolean
   isPending: boolean
   error: string | undefined
   onOpenChange: (open: boolean) => void
-  onSubmit: (input: { name: string; expiresIn: number | null }) => void
+  onSubmit: (input: {
+    name: string
+    expiresIn: number | null
+    organizationIds: string[]
+  }) => void
 }) {
-  const { isOpen, isPending, error, onOpenChange, onSubmit } = props
+  const {
+    isOpen,
+    pickOrganizations,
+    isPending,
+    error,
+    onOpenChange,
+    onSubmit,
+  } = props
   const [name, setName] = useState("")
   const [expiry, setExpiry] = useState<ExpiryOptionId>("30")
   const [touched, setTouched] = useState(false)
+  // Null until the user changes it: then a user with one org gets that org.
+  const [picked, setPicked] = useState<string[] | null>(null)
+  const { data: organizations, isPending: organizationsPending } =
+    useListOrganizations()
+  const [onlyOrganization] =
+    organizations?.length === 1 ? organizations : [undefined]
+  const organizationIds =
+    picked ?? (onlyOrganization ? [onlyOrganization.id] : [])
+  const organizationsMissing = pickOrganizations && organizationIds.length === 0
 
   const reset = () => {
     setName("")
     setExpiry("30")
     setTouched(false)
+    setPicked(null)
   }
 
   const nameError =
@@ -457,14 +565,20 @@ function CreateApiKeyModal(props: {
             event.preventDefault()
             setTouched(true)
             const trimmed = name.trim()
-            if (!trimmed) return
-            onSubmit({ name: trimmed, expiresIn })
+            if (!trimmed || organizationsMissing) return
+            onSubmit({
+              name: trimmed,
+              expiresIn,
+              organizationIds: pickOrganizations ? organizationIds : [],
+            })
           }}
         >
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
-              Name the key and choose an expiry. The secret is shown once.
+              {pickOrganizations
+                ? "Name the key, select its organizations, and choose an expiry. The secret is shown once."
+                : "Name the key and choose an expiry. The secret is shown once."}
             </DialogDescription>
           </DialogHeader>
           {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
@@ -483,6 +597,23 @@ function CreateApiKeyModal(props: {
             autoFocus
             className="[&_input]:rounded-none [&_input]:border-border [&_input]:bg-zinc-950 [&_input]:text-zinc-100 [&_label]:text-zinc-300"
           />
+          {pickOrganizations ? (
+            organizationsPending ? (
+              <OrganizationPickerSkeleton />
+            ) : (
+              <OrganizationPicker
+                organizations={(organizations ?? []).map(
+                  ({ id, name: orgName, slug }) => ({
+                    id,
+                    name: orgName,
+                    slug,
+                  }),
+                )}
+                value={organizationIds}
+                onChange={setPicked}
+              />
+            )
+          ) : null}
           <Select
             label="Expires"
             selectedKey={expiry}
@@ -523,7 +654,7 @@ function CreateApiKeyModal(props: {
               type="submit"
               variant="primary"
               className="rounded-md"
-              isDisabled={isPending || !name.trim()}
+              isDisabled={isPending || !name.trim() || organizationsMissing}
               isPending={isPending}
             >
               Create API key
@@ -569,5 +700,110 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
         </Button>
       </div>
     </Dialog>
+  )
+}
+
+const personalKeyOrganizationsQueryKey = [
+  "me",
+  "api-keys",
+  "organizations",
+] as const
+
+function keyOrganizationsSummary(
+  organizations: PersonalApiKeyOrganization[] | null | undefined,
+): string {
+  // Still loading: keep the line height.
+  if (organizations === undefined) return "\u00a0"
+  if (organizations === null) return "All your organizations"
+  if (organizations.length === 0) return "No organizations"
+  return organizations.map((org) => org.slug).join(", ")
+}
+
+/** The box of `OrganizationPicker`: a check box and two text lines per row. */
+function OrganizationPickerSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col gap-2">
+      <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
+      {[0, 1].map((row) => (
+        <div key={row} className="flex items-center gap-2">
+          <Skeleton className="size-4.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <SkeletonText className="text-sm" boneClassName="w-40" />
+            <SkeletonText className="text-xs" boneClassName="w-24" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Change the organizations that a personal key can reach. The change applies
+ * to the next call of the key.
+ */
+function EditKeyOrganizationsModal(props: {
+  keyName: string
+  /** The current set. Empty for a key that reaches every organization. */
+  initial: string[]
+  isPending: boolean
+  error: string | undefined
+  onClose: () => void
+  onSave: (organizationIds: string[]) => void
+}) {
+  const { keyName, initial, isPending, error, onClose, onSave } = props
+  const { data: organizations, isPending: organizationsPending } =
+    useListOrganizations()
+  const [value, setValue] = useState(initial)
+  return (
+    <Modal
+      isOpen
+      isDismissable={!isPending}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <Dialog>
+        <div className="flex flex-col gap-5">
+          <DialogHeader>
+            <DialogTitle>Organizations for {keyName}</DialogTitle>
+            <DialogDescription>
+              The key can reach only the organizations you select. The change
+              applies to its next call.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
+          {organizationsPending ? (
+            <OrganizationPickerSkeleton />
+          ) : (
+            <OrganizationPicker
+              organizations={(organizations ?? []).map(
+                ({ id, name, slug }) => ({ id, name, slug }),
+              )}
+              value={value}
+              onChange={setValue}
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="quiet"
+              className="rounded-md"
+              isDisabled={isPending}
+              onPress={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="rounded-md"
+              isDisabled={isPending || value.length === 0}
+              isPending={isPending}
+              onPress={() => onSave(value)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </Modal>
   )
 }

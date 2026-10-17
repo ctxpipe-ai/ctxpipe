@@ -12,11 +12,7 @@ import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
-import type { WorkspaceExtraction } from "./extraction.js"
-import {
-  assertExtractionSource,
-  type IngestPublishSource,
-} from "./extraction-source.js"
+import type { IngestPublishSource } from "./extraction-source.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
@@ -31,7 +27,7 @@ export type WorkspaceWriteCommand = {
   deletePaths?: string[]
   displayName?: string
   previousSha?: string
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
   ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }
@@ -121,7 +117,5 @@ export async function acquireWorkspaceWriteRevision(
     root: workspaceRootPath(revision),
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
-  if (input.extraction)
-    await assertExtractionSource(input.orgId, input.extraction, revision, pack)
   return { pack, displayName: workspace.displayName }
 }
