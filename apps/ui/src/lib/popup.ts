@@ -366,10 +366,7 @@ export async function handleGithubSetupPopupResult(
           query: {},
         },
       )
-      const linked = await readApiJson<{
-        id?: string
-        installationId?: number | null
-      } | null>(response)
+      const linked = await readApiJson(response)
       if (githubInstallationIsLinked(linked)) status = "registered"
     } catch {
       // Keep "no_result" and let caller decide UX.
@@ -415,7 +412,10 @@ export function consumePagerdutySetupPopupResult(): PagerdutySetupPopupResult {
       error?: unknown
       type?: unknown
     }
-    if (parsed.type === "pagerduty-oauth-error" && typeof parsed.error === "string") {
+    if (
+      parsed.type === "pagerduty-oauth-error" &&
+      typeof parsed.error === "string"
+    ) {
       return { status: "error", error: parsed.error }
     }
     if (typeof parsed.connectionId === "string" && parsed.connectionId) {

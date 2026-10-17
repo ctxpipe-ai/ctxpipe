@@ -36,6 +36,7 @@ import {
 } from "@/features/workspaces/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
@@ -468,9 +469,11 @@ function AddGithubRepositoriesModal(props: {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const connectionIds = connections.map((connection) => connection.id)
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, connectionIds),
-    enabled: isOpen && connectionIds.length > 0,
+    enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
   })
 
   const eligibleRepos = useMemo(
@@ -581,17 +584,24 @@ function AddGithubRepositoriesModal(props: {
         </p>
 
         <div className="mt-5 space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <SearchField
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search repositories"
-              aria-label="Search GitHub repositories"
-              className="min-w-0 flex-1"
-            />
-            <GithubRepoSortSelect value={sort} onChange={setSort} />
-          </div>
-          {connectionIds.length === 0 ? (
+          {isAdmin === false ? (
+            <p className="text-sm text-muted-foreground">
+              Ask an admin to add repositories. Only an owner or admin can list
+              the GitHub repositories.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search repositories"
+                aria-label="Search GitHub repositories"
+                className="min-w-0 flex-1"
+              />
+              <GithubRepoSortSelect value={sort} onChange={setSort} />
+            </div>
+          )}
+          {isAdmin === false ? null : connectionIds.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Connect GitHub on the Connectors page first.
             </p>

@@ -1,218 +1,154 @@
-export type Workspace = {
-  id: string
-  orgId: string
-  slug: string
-  displayName: string
-  workspaceRepositoryUrl: string
-  /** Folder in the repository that holds the Workspace; "" is the whole repository. */
-  rootPath: string
-  githubConnectionId: string | null
-  desiredGeneration: number
-  desiredSha: string | null
-  activeProjectionUrl: string | null
-  activeProjectionSha: string | null
-  indexedSha: string | null
-  /** Server capability; older responses retain the write-status fallback. */
-  conversationWritable?: boolean
-  writeStatus: string
-  hydrateStatus: string
-  hydrateError: string | null
-  readOnlyReason: string | null
-  mostRecentConversationId: string | null
-  createdAt: string
-  updatedAt: string
-}
+import type { InferResponseType } from "hono/client"
+import type { ApiClient } from "@/lib/api"
 
-export type WorkspaceSkippedFile = {
-  path: string
-  reason: "malformed" | "duplicate_repository"
-}
+type WithOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>
 
-export type WorkspaceStorePhase = { kind: "pending" | "ready" | "failed" }
+type V1 = ApiClient[":orgSlug"]["api"]["v1"]
+type WorkspaceRoutes = V1["workspaces"][":workspaceSlug"]
+type ConversationRoutes = V1["conversations"][":conversationId"]
 
-export type WorkspaceDetail = Workspace & {
-  linkedRepositories: WorkspaceLinkedRepository[]
-  /** Absent on a detail seeded from the list. */
-  skippedFiles?: WorkspaceSkippedFile[]
-  /** Absent on a detail seeded from the list. */
-  hydratePhases?: { graph: WorkspaceStorePhase }
-}
+/** The response types come from the backend routes through the Hono client. */
+type WorkspaceListRead = InferResponseType<V1["workspaces"]["$get"], 200>
 
-export type WorkspaceLinkedRepository = {
-  id: string
-  workspaceId: string
-  gitUrl: string
-  desiredRef: string | null
-  desiredSha: string | null
-  indexedSha: string | null
-  /** Org repository index health, e.g. `complete_with_issues`. */
-  indexingStatus?: string | null
-  indexingError?: string | null
-  createdAt: string
-}
+/** `conversationWritable`: older responses omit it, and the UI falls back to the write status. */
+export type Workspace = WithOptional<
+  WorkspaceListRead["items"][number],
+  "conversationWritable"
+>
 
-export type WorkspaceListResponse = {
-  lastUsedWorkspaceId: string | null
+export type WorkspaceListResponse = Omit<WorkspaceListRead, "items"> & {
   items: Workspace[]
 }
 
-export type WorkspaceActivityDay = {
-  date: string
-  count: number
-}
+type WorkspaceDetailRead = InferResponseType<WorkspaceRoutes["$get"], 200>
 
-export type WorkspaceActivityCommit = {
-  sha: string
-  subject: string
-  authorName: string
-  /** The GitHub login of the author. `null`: no GitHub user. */
-  authorLogin?: string | null
-  committedAt: string
-  htmlUrl: string | null
-  workspaceSlug: string
-  workspaceName: string
-}
+/** `skippedFiles` and `hydratePhases` are absent on a detail seeded from the list. */
+export type WorkspaceDetail = Omit<
+  WithOptional<
+    WorkspaceDetailRead,
+    "skippedFiles" | "hydratePhases" | "conversationWritable"
+  >,
+  "linkedRepositories"
+> & { linkedRepositories: WorkspaceLinkedRepository[] }
 
-export type WorkspaceActivityResponse = {
-  status: "pending" | "ready" | "failed"
-  days: WorkspaceActivityDay[]
-  recent: WorkspaceActivityCommit[]
-  /** The authors of the commits in the heatmap window, most active first. */
-  authors: { name: string; count: number; login?: string | null }[]
-  /** The cursor of the next page of `recent`. `null`: no more commits. */
-  nextCursor: string | null
-  /** Org read only: the workspaces whose activity is still loading. */
-  pendingWorkspaces?: { slug: string; name: string }[]
-}
+type LinkedRepositoryRead = WorkspaceDetailRead["linkedRepositories"][number]
 
-export type WorkspaceFile = {
-  path: string
-  body: string
-}
+/** The org repository index health is absent when the repository has no index row. */
+export type WorkspaceLinkedRepository = WithOptional<
+  LinkedRepositoryRead,
+  "indexingStatus" | "indexingError"
+>
 
+export type WorkspaceSkippedFile = NonNullable<
+  WorkspaceDetailRead["skippedFiles"]
+>[number]
+
+export type WorkspaceStorePhase = NonNullable<
+  WorkspaceDetailRead["hydratePhases"]
+>["graph"]
+
+export type WorkspaceActivityResponse = InferResponseType<
+  V1["activity"]["$get"],
+  200
+>
+
+export type WorkspaceActivityDay = WorkspaceActivityResponse["days"][number]
+
+export type WorkspaceActivityCommit =
+  WorkspaceActivityResponse["recent"][number]
+
+type WorkspaceFilesRead = InferResponseType<
+  WorkspaceRoutes["files"]["$get"],
+  200
+>
+
+export type WorkspaceFile = WorkspaceFilesRead["items"][number]
+
+/** The route schema is recursive, so the client type of `children` is loose. */
 export type WorkspaceFileTreeNode = {
   name: string
   path: string
   children?: WorkspaceFileTreeNode[]
 }
 
-export type WorkspaceFilesResponse = {
-  items: WorkspaceFile[]
+export type WorkspaceFilesResponse = Omit<WorkspaceFilesRead, "tree"> & {
   tree: WorkspaceFileTreeNode[]
 }
 
-export type WorkspaceGitTreeResponse = {
-  sha: string
-  paths: string[]
-}
+export type WorkspaceGitTreeResponse = InferResponseType<
+  WorkspaceRoutes["files"]["tree"]["$get"],
+  200
+>
 
-export type ConversationGitTreeResponse = WorkspaceGitTreeResponse & {
-  branch: string
-  ready?: boolean
-  worktreeVersion?: string
-}
+type ConversationGitTreeRead = InferResponseType<
+  ConversationRoutes["files"]["tree"]["$get"],
+  200
+>
 
-export type WorkspaceGitBlobResponse = {
-  path: string
-  body: string | null
-  binary: boolean
-  /** Set for knowledge from before Workspaces that is not in git. */
-  readOnlyReason?: string
-}
+/** `ready` is set by a poll that waits for the sandbox; a cached tree has no `worktreeVersion`. */
+export type ConversationGitTreeResponse = Omit<
+  ConversationGitTreeRead,
+  "worktreeVersion"
+> & { worktreeVersion?: string; ready?: boolean }
 
-export type WorkspaceGitStatus =
-  | "added"
-  | "deleted"
-  | "ignored"
-  | "modified"
-  | "renamed"
-  | "untracked"
+export type WorkspaceGitBlobResponse = InferResponseType<
+  WorkspaceRoutes["files"]["blob"]["$get"],
+  200
+>
 
-export type WorkspaceGitStatusItem = {
-  path: string
-  status: WorkspaceGitStatus
-  body?: string | null
-  additions?: number
-  deletions?: number
-}
+export type WorkspaceGitStatusResponse = InferResponseType<
+  WorkspaceRoutes["files"]["status"]["$get"],
+  200
+>
 
-export type WorkspaceGitStatusResponse = {
-  sha: string
-  source: "sandbox" | "clean"
-  items: WorkspaceGitStatusItem[]
-}
+export type WorkspaceGitStatusItem = WorkspaceGitStatusResponse["items"][number]
 
-export type ConversationGitStatusResponse = {
-  branch: string | null
-  sha?: string | null
-  desiredSha?: string | null
-  stale?: boolean
-  source: "sandbox"
-  dirty: boolean
-  differsFromDefault: boolean
-  unpushed: boolean
-  published: boolean
-  ahead: number
-  behind: number
-  items: WorkspaceGitStatusItem[]
-  worktreeVersion?: string
-}
+export type WorkspaceGitStatus = WorkspaceGitStatusItem["status"]
 
-/** One changed file, as the backend's git diff gives it. */
-export type ChangedFile = {
-  path: string
-  /** The path before a rename. */
-  oldPath?: string
-  status: "added" | "modified" | "deleted" | "renamed"
-  additions: number
-  deletions: number
-  /** Why the file has no bodies; the UI shows this in place of a diff. */
-  omitted?: "binary" | "too_large" | "not_a_file"
-}
+type ConversationGitStatusRead = InferResponseType<
+  ConversationRoutes["files"]["status"]["$get"],
+  200
+>
 
-export type ConversationGitDiffItem = ChangedFile & {
-  oldBody: string | null
-  body: string | null
-}
+/** `items`: the route types the file status as a string; the sandbox sends the known values. */
+export type ConversationGitStatusResponse = Omit<
+  WithOptional<
+    ConversationGitStatusRead,
+    "sha" | "desiredSha" | "stale" | "worktreeVersion"
+  >,
+  "items"
+> & { items: WorkspaceGitStatusItem[] }
 
-export type ConversationGitDiffResponse = {
-  /** The branch the diff compares against. */
+/** A diff read. `gone`: the turn's snapshots are no longer in the sandbox (410). */
+type ConversationGitDiffRead = InferResponseType<
+  ConversationRoutes["files"]["diff"]["$get"],
+  200
+>
+
+export type ConversationGitDiffResponse = Omit<
+  ConversationGitDiffRead,
+  "base"
+> & {
   base?: string
-  items: ConversationGitDiffItem[]
-  /** The turn's snapshots are no longer in the sandbox (410). */
   gone?: boolean
 }
 
-export type ConversationTurnChanges = {
-  runId: string
-  /**
-   * The number of user messages in the thread when the turn ended. It places
-   * the card only when no message carries the run id (a failed turn).
-   */
-  turn: number
-  files: ChangedFile[]
-}
+export type ConversationGitDiffItem =
+  ConversationGitDiffResponse["items"][number]
+
+export type ConversationTurnChangesResponse = InferResponseType<
+  ConversationRoutes["turns"]["$get"],
+  200
+>
+
+export type ConversationTurnChanges =
+  ConversationTurnChangesResponse["items"][number]
+
+/** One changed file, as the backend's git diff gives it. */
+export type ChangedFile = ConversationTurnChanges["files"][number]
 
 /** One push of the conversation's commits to its branch. */
-export type ConversationSync = {
-  /** What pushed: the user's Sync or Create PR, the agent, or the sweep. */
-  trigger: "sync" | "create_pr" | "agent" | "sweep"
-  /** Create PR: the pull request; `opened` when this push opened it. */
-  pullRequest?: { number: number; url: string; opened: boolean }
-  branch: string
-  sha: string
-  /** The number of files that the pushed commits changed. */
-  files: number
-  treeUrl: string
-  /** The number of user messages in the thread at the time of the Sync. */
-  turn: number
-  syncedAt: string
-}
-
-export type ConversationTurnChangesResponse = {
-  items: ConversationTurnChanges[]
-  syncs: ConversationSync[]
-}
+export type ConversationSync = ConversationTurnChangesResponse["syncs"][number]
 
 export type ConversationFileMutation = {
   path: string
@@ -222,23 +158,28 @@ export type ConversationFileMutation = {
   expectedWorktreeVersion: string
 }
 
-export type ConversationFileWriteResponse = WorkspaceGitBlobResponse & {
-  worktreeVersion: string
+type ConversationFileWriteRead = InferResponseType<
+  ConversationRoutes["files"]["blob"]["$put"],
+  200
+>
+
+export type ConversationFileWriteResponse = Omit<
+  ConversationFileWriteRead,
+  "status" | "tree"
+> & {
   tree: ConversationGitTreeResponse
   status: ConversationGitStatusResponse
 }
 
-export type ConversationPushResponse = {
-  branch: string
-  treeUrl: string
-}
+export type ConversationPushResponse = InferResponseType<
+  ConversationRoutes["push"]["$post"],
+  200
+>
 
-export type ConversationPullRequestResponse = {
-  branch: string
-  prNumber: number
-  pullUrl: string
-  prState: "open" | "closed" | "merged"
-}
+export type ConversationPullRequestResponse = InferResponseType<
+  ConversationRoutes["pull-request"]["$get"],
+  200
+>
 
 export type WorkspaceFileJobRequest =
   | { op: "save"; path: string; content: string }
@@ -247,26 +188,8 @@ export type WorkspaceFileJobRequest =
   | { op: "move"; from: string; toDirectory: string | null }
   | { op: "delete"; path: string }
 
-export type WorkspaceGraphPayload = {
-  metrics: {
-    totalNodes: number
-    totalEdges: number
-    lastUpdatedAt: string | null
-    nodesReturned: number
-    edgesReturned: number
-    truncated: boolean
-  }
-  nodes: Array<{
-    id: string
-    kind: string
-    name: string | null
-    summary: string | null
-  }>
-  edges: Array<{
-    sourceId: string
-    targetId: string
-    predicate: string
-    lastObservedAt: string | null
-    confidence: number | null
-  }>
-}
+/** What the graph route returns when the graph is ready. */
+export type WorkspaceGraphPayload = InferResponseType<
+  WorkspaceRoutes["graph"]["$get"],
+  200
+>

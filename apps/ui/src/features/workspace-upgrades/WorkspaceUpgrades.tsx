@@ -20,9 +20,9 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   startWorkspaceUpgrade,
-  useIsOrgAdmin,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,
@@ -232,9 +232,14 @@ function UpgradeItemRow(props: {
       toast.error(error.message)
     },
     onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-      }),
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.pending(orgSlug),
+        }),
+      ]),
   })
   return (
     <UpgradeItemCard

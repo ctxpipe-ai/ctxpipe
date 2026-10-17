@@ -866,6 +866,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
     )
     expect(createPr.closest("[data-workspace-surface]")).not.toBeNull()
     // The CTA button is smaller than a trigger, and both centers align.
+    await document.fonts.ready
     const cta = createPr.getBoundingClientRect()
     const trigger = files.getBoundingClientRect()
     expect(cta.height).toBeLessThan(trigger.height)
@@ -972,6 +973,7 @@ export const PaneTabsStayInPlace: Story = {
     const names = ["Files", "Diff", "Graph", "Settings"]
     for (const name of names)
       await page.findByRole("tab", { name }, { timeout: 15_000 })
+    await document.fonts.ready
     const boxes = () =>
       Object.fromEntries(
         names.map((name) => {

@@ -1,10 +1,11 @@
 import { and, asc, eq, inArray, like, ne, or, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
-import { workspaceWriteJobs } from "../db/schema/workspaces.js"
+import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
 import {
   reingestedNames,
   UPGRADE_JOB_KIND,
+  UPGRADE_STATUSES,
   type UpgradeStatus,
   upgradeJobId,
   type WorkspaceUpgradePayload,
@@ -58,6 +59,37 @@ export async function listWorkspaceUpgradeRows(
       )
       .orderBy(asc(workspaceWriteJobs.createdAt), asc(workspaceWriteJobs.id))
     return rows.flatMap((row) => toUpgradeRow(row) ?? [])
+  })
+}
+
+/**
+ * The upgrade rows of all the Workspaces of the current org that are not
+ * `completed`, with the slug of their Workspace. One read for the home alert.
+ */
+export async function listOrgPendingUpgradeRows(): Promise<
+  Array<WorkspaceUpgradeRow & { workspaceSlug: string }>
+> {
+  return orgSql(async () => {
+    const rows = await getOrgDb()
+      .select({ job: workspaceWriteJobs, workspaceSlug: workspaces.slug })
+      .from(workspaceWriteJobs)
+      .innerJoin(workspaces, eq(workspaces.id, workspaceWriteJobs.workspaceId))
+      .where(
+        and(
+          eq(workspaceWriteJobs.orgId, requireCurrentOrgId()),
+          eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
+          ne(workspaceWriteJobs.status, UPGRADE_STATUSES.completed),
+        ),
+      )
+      .orderBy(
+        asc(workspaces.slug),
+        asc(workspaceWriteJobs.createdAt),
+        asc(workspaceWriteJobs.id),
+      )
+    return rows.flatMap(({ job, workspaceSlug }) => {
+      const row = toUpgradeRow(job)
+      return row ? [{ ...row, workspaceSlug }] : []
+    })
   })
 }
 

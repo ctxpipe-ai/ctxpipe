@@ -14,6 +14,7 @@ import {
   scanWorkspaceReingest,
   scanWorkspaceUpgrade,
 } from "../../domain/upgrades/scan.js"
+import { stopOrphanedReingestRuns } from "../../domain/upgrades/stop-orphans.js"
 import {
   ensureOrgFirstWorkspace,
   listOrgWorkspaces,
@@ -52,6 +53,17 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
     },
     async ({ input: queuedInput, step }) => {
       const input = workspaceUpgradeScanInputSchema.parse(queuedInput)
+      // Once for each scan: the sweep reads the runs of all orgs. A failure
+      // must not stop the scan; the slot poll and the next scan try again.
+      await step.run({ name: "stop-orphaned-reingest-runs" }, async () => {
+        await stopOrphanedReingestRuns().catch((error: unknown) => {
+          log.warn({
+            event: "workspace_upgrade_orphan_sweep_failed",
+            message: error instanceof Error ? error.message : String(error),
+          })
+        })
+        return null
+      })
       const scanned = await step.run({ name: "scan" }, async () => {
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },

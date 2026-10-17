@@ -18,6 +18,7 @@ run_sync() {
   mkdir -p "$tmp"
   : >"$tmp/upserts"
   : >"$tmp/mints"
+  : >"$tmp/psql"
   (
     # shellcheck disable=SC1090
     source "$script"
@@ -40,10 +41,15 @@ run_sync() {
         *) echo "unexpected query: $1" >&2; return 1 ;;
       esac
     }
+    # shellcheck disable=SC2329 # the sourced script calls it
+    psql() {
+      printf '%s\n' "$*" >>"$tmp/psql"
+    }
     export RAILWAY_PROJECT_ID=proj_test ENV_ID=env_preview PR_ENV=pr-7
     export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
     export UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
     export RAILWAY_API_TOKEN=account-token-value
+    export OWNER_DB_URL="${DB_URL:-}"
     # Outside Actions, so the ::add-mask:: lines (which hold values) stay off.
     export GITHUB_ACTIONS=false
     sync_preview_own_secrets
@@ -53,7 +59,7 @@ run_sync() {
 tmp="$(mktemp -d)"
 trap 'rm -rf "$tmp"' EXIT
 
-out="$(MARKER="" TOKEN=scoped-token-value run_sync "$tmp/new" 2>&1)" \
+out="$(MARKER="" TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-branch/neondb run_sync "$tmp/new" 2>&1)" \
   || fail "a new preview should get its own secrets: $out"
 for secret in scoped-token-value account-token-value production-auth; do
   if printf '%s' "$out" | grep -Fq "$secret"; then
@@ -83,8 +89,14 @@ fi
 jq -e '.environmentId == "env_preview" and .serviceId == "svc_backend"' "$tmp/new/read" >/dev/null \
   || fail "the marker read should target the preview backend"
 
-out="$(MARKER=v1 TOKEN=scoped-token-value run_sync "$tmp/kept" 2>&1)" || fail "a marked preview should pass: $out"
-[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" ]] \
+[[ "$(cat "$tmp/new/psql")" == "postgresql://owner@preview-branch/neondb -v ON_ERROR_STOP=1 -qc DELETE FROM jwkss" ]] \
+  || fail "a new preview should delete the JWKS keys copied from production, in the preview database only"
+
+out="$(MARKER="" TOKEN=scoped-token-value run_sync "$tmp/no-db" 2>&1)" || fail "a preview without a database URL should pass: $out"
+[[ ! -s "$tmp/no-db/psql" ]] || fail "without OWNER_DB_URL, sync must not run psql"
+
+out="$(MARKER=v1 TOKEN=scoped-token-value DB_URL=postgresql://owner@preview-branch/neondb run_sync "$tmp/kept" 2>&1)" || fail "a marked preview should pass: $out"
+[[ ! -s "$tmp/kept/upserts" && ! -s "$tmp/kept/mints" && ! -s "$tmp/kept/psql" ]] \
   || fail "a preview that has its own secrets keeps them for its life"
 
 if out="$(MARKER="" TOKEN="" run_sync "$tmp/no-token" 2>&1)"; then

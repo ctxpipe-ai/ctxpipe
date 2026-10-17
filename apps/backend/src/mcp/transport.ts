@@ -12,6 +12,10 @@ import {
   grantedMcpScopes,
   insufficientMcpScopeResponse,
 } from "../auth/mcp-scopes.js"
+import {
+  isAllowedRequestOrigin,
+  isLoopbackHostname,
+} from "../auth/request-origin.js"
 import { mcpOAuthProtectedResourceMetadataUrl } from "../auth/withAuth.js"
 import {
   type AttributionInput,
@@ -25,15 +29,6 @@ import {
 } from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
 import { workspaceFileResourceName } from "./resources/workspace-file.js"
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost")
-  )
-}
 
 export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
   const expected = new URL(c.get("env").AUTH_BASE_URL)
@@ -52,23 +47,9 @@ export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
 
   const originHeader = c.req.header("origin")
   if (!originHeader) return null
-  try {
-    const origin = new URL(originHeader)
-    const configuredOrigins = (c.get("env").AUTH_ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-    const allowed =
-      origin.origin === expected.origin ||
-      configuredOrigins.includes(origin.origin) ||
-      (isLoopbackHostname(expected.hostname) &&
-        isLoopbackHostname(origin.hostname) &&
-        origin.protocol === expected.protocol &&
-        origin.port === expected.port)
-    return allowed ? null : new Response(null, { status: 403 })
-  } catch {
-    return new Response(null, { status: 403 })
-  }
+  return isAllowedRequestOrigin(c.get("env"), originHeader)
+    ? null
+    : new Response(null, { status: 403 })
 }
 
 export type McpTransportOptions = {

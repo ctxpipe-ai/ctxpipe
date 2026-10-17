@@ -17,20 +17,9 @@ export class SlackConnectionNotFoundError extends Error {
   }
 }
 
-export type SlackConnectorStatus = {
-  isInstalled: boolean
-  installationStatus: string | null
-  teamName: string | null
-  botHandle: string | null
-  isGithubLinked: boolean
-  setupPhase: SlackSetupPhase
-  syncTarget: {
-    repositoryId: string
-    repositoryName: string
-    branch: string
-    githubConnectionId: string | null
-  } | null
-}
+export type SlackConnectorStatus = Awaited<
+  ReturnType<typeof fetchSlackConnectorStatus>
+>
 
 export const slackConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
@@ -40,13 +29,9 @@ export const slackConnectorKeys = {
 }
 
 /** A channel that a Slack source can select. */
-export type SlackChannel = {
-  id: string
-  name: string
-  isPrivate: boolean
-  /** The bot is in the channel, so it can read it. */
-  isMember: boolean
-}
+export type SlackChannel = Awaited<
+  ReturnType<typeof fetchSlackChannels>
+>["items"][number]
 
 function connectionQuery(connectionId?: string) {
   return connectionId
@@ -57,13 +42,13 @@ function connectionQuery(connectionId?: string) {
 export async function fetchSlackConnectorStatus(
   orgSlug: string,
   connectionId?: string,
-): Promise<SlackConnectorStatus> {
+) {
   const res = await client[":orgSlug"].api.v1.connectors.slack.status.$get({
     param: { orgSlug },
     ...connectionQuery(connectionId),
   })
   try {
-    return await readApiJson<SlackConnectorStatus>(res, {
+    return await readApiJson(res, {
       message: "Failed to fetch Slack connector status",
     })
   } catch (error) {
@@ -74,16 +59,14 @@ export async function fetchSlackConnectorStatus(
   }
 }
 
-export async function fetchSlackOAuthStart(
-  orgSlug: string,
-): Promise<{ authorizationUrl: string }> {
+export async function fetchSlackOAuthStart(orgSlug: string) {
   const res = await client[":orgSlug"].api.v1.connectors.slack.oauth.start.$get(
     {
       param: { orgSlug },
     },
   )
   try {
-    return await readApiJson<{ authorizationUrl: string }>(res, {
+    return await readApiJson(res, {
       message: "Failed to start Slack authorization",
     })
   } catch (error) {
@@ -105,18 +88,18 @@ export async function deleteSlackConnector(
     param: { orgSlug },
     ...connectionQuery(connectionId),
   })
-  await readApiJson<void>(res, { message: "Failed to remove Slack connector" })
+  await readApiJson(res, { message: "Failed to remove Slack connector" })
 }
 
 export async function fetchSlackChannels(
   orgSlug: string,
   connectionId: string,
-): Promise<{ items: SlackChannel[]; truncated: boolean }> {
+) {
   const res = await client[":orgSlug"].api.v1.connectors.slack.channels.$get({
     param: { orgSlug },
     query: { connectionId },
   })
-  return readApiJson<{ items: SlackChannel[]; truncated: boolean }>(res, {
+  return readApiJson(res, {
     message: "Failed to load the Slack channels",
   })
 }

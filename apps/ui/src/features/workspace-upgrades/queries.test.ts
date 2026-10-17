@@ -1,14 +1,9 @@
 import { describe, expect, it } from "vitest"
-import {
-  upgradeItemFixture,
-  upgradesFixture,
-} from "@/mocks/workspace-upgrades-handlers"
+import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
 import { type UpgradeStatus, upgradePollInterval } from "./queries"
 
 const poll = (...statuses: UpgradeStatus[]) =>
-  upgradePollInterval(
-    upgradesFixture(statuses.map((status) => upgradeItemFixture({ status }))),
-  )
+  upgradePollInterval(statuses.map((status) => upgradeItemFixture({ status })))
 
 describe("upgrade polling", () => {
   it("polls every 3 s while an item is queued or running", () => {

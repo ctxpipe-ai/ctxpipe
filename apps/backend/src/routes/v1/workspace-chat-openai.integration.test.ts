@@ -1,13 +1,27 @@
+import { createHmac } from "node:crypto"
 import { createServer, type Server } from "node:http"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { mintWorkspaceChatToken } from "../../domain/workspaces/workspace-chat-token.js"
+import { closeDb, initDb } from "../../db/client.js"
 import {
   contextStorage,
   withTestRequestLogger,
 } from "../../test/hono-test-logger.js"
+import {
+  type ChatCapabilityFixture,
+  seedChatCapability,
+} from "../../test/workspace-chat-capability-fixture.js"
 import { workspaceChatOpenaiRoutes } from "./workspace-chat-openai.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
@@ -105,14 +119,24 @@ function appWithRoutes(input: {
   return app
 }
 
-function chatToken(now = Date.now()): string {
-  return mintWorkspaceChatToken({
-    authSecret: AUTH_SECRET,
-    orgId: "org_1",
-    orgSlug: "acme",
-    conversationId: "conv_1",
-    now,
-  })
+let chat: ChatCapabilityFixture | undefined
+
+beforeAll(async () => {
+  if (!process.env.DATABASE_URL)
+    throw new Error("DATABASE_URL is required for this integration test")
+  initDb(process.env.DATABASE_URL)
+  chat = await seedChatCapability(AUTH_SECRET)
+})
+
+afterAll(async () => {
+  await chat?.cleanup()
+  await closeDb()
+})
+
+/** A model capability bound to the held conversation lock. */
+function chatToken(): Promise<string> {
+  if (!chat) throw new Error("seedChatCapability did not run")
+  return chat.mint()
 }
 
 describe("workspace-chat openai completions", () => {
@@ -185,7 +209,7 @@ describe("workspace-chat openai completions", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${chatToken()}`,
+          authorization: `Bearer ${await chatToken()}`,
         },
         body: JSON.stringify({
           model: "anthropic/claude-sonnet-4-5",
@@ -214,7 +238,7 @@ describe("workspace-chat openai completions", () => {
         method: "POST",
         headers: {
           "content-type": "application/json",
-          authorization: `Bearer ${chatToken()}`,
+          authorization: `Bearer ${await chatToken()}`,
         },
         body: JSON.stringify({
           model: "text-embedding-3-small",
@@ -223,6 +247,47 @@ describe("workspace-chat openai completions", () => {
       },
     )
     expect(res.status).toBe(404)
+  })
+
+  it("refuses a chat token signed with AUTH_SECRET that no conversation lock binds", async () => {
+    let calls = 0
+    upstream = await startUpstream(() => {
+      calls += 1
+      return { body: { id: "chatcmpl_ws", choices: [] } }
+    })
+    const app = appWithRoutes({
+      upstreamUrl: upstream.origin,
+      apiKey: "sk-upstream",
+    })
+    // The token format of the chat token that this route no longer accepts.
+    const payload = Buffer.from(
+      JSON.stringify({
+        exp: Date.now() + 30 * 60_000,
+        orgId: "org_1",
+        orgSlug: "acme",
+        conversationId: "conv_1",
+        purpose: "workspace-chat-completions",
+      }),
+    ).toString("base64url")
+    const signature = createHmac("sha256", AUTH_SECRET)
+      .update(payload)
+      .digest("base64url")
+    const res = await app.request(
+      "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          authorization: `Bearer ${payload}.${signature}`,
+        },
+        body: JSON.stringify({
+          model: "openai/gpt-5.6-terra",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      },
+    )
+    expect(res.status).toBe(401)
+    expect(calls).toBe(0)
   })
 
   it("forwards to OpenRouter when MODEL_PROVIDER_URL is unset", async () => {
@@ -246,7 +311,7 @@ describe("workspace-chat openai completions", () => {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            authorization: `Bearer ${chatToken()}`,
+            authorization: `Bearer ${await chatToken()}`,
           },
           body: JSON.stringify({
             model: "openai/gpt-5.6-terra",

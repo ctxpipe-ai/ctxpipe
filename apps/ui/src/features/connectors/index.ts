@@ -24,12 +24,7 @@ export type {
   AtlassianConnectorStatus,
   AtlassianConnectorStatusSpacePreview,
   ConfluencePage,
-  ConfluenceScopeRow,
   ConfluenceSpace,
-  ConfluenceSyncTarget,
-  NotionConnectorStatus,
   NotionResource,
-  NotionSyncTarget,
-  SaveConfluenceSyncTargetInput,
   SpaceScopeItem,
 } from "./types"

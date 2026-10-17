@@ -681,6 +681,7 @@ export const SelectedTabInView: Story = {
     const canvas = within(canvasElement)
     const tab = await canvas.findByRole("tab", { name: "ledger.md" })
     await expect(tab).toHaveAttribute("aria-selected", "true")
+    await document.fonts.ready
     const strip = tab.closest('[role="tablist"]') as HTMLElement
     await waitFor(() => {
       expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
@@ -715,6 +716,7 @@ export const TextTabsKeepPadding: Story = {
     expectFadeCue(active)
     expectFadeCue(idle)
     const files = await canvas.findByRole("tab", { name: "Files" })
+    await document.fonts.ready
     // The icon tab is square: 7px + 1px border + 16px icon on each side.
     expect(files.getBoundingClientRect().width).toBe(32)
   },
@@ -732,13 +734,13 @@ export const TabChangeKeepsPosition: Story = {
     const canvas = within(canvasElement)
     const a = await canvas.findByRole("tab", { name: "ledger.md" })
     const b = await canvas.findByRole("tab", { name: "meeting-notes-1.md" })
+    await document.fonts.ready
     const box = (tab: HTMLElement) => {
       const r = tab.getBoundingClientRect()
       return { top: r.top, bottom: r.bottom, x: r.x, width: r.width }
     }
     await expect(a).toHaveAttribute("aria-selected", "true")
     // Wait for the mount fade and the fonts, so no late font swap changes a tab width.
-    await document.fonts.ready
     await waitFor(() => expect(box(a).top).toBe(box(b).top))
     const before = { a: box(a), b: box(b) }
     expect(before.a.top).toBe(before.b.top)

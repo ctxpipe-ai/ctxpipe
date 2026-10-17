@@ -14,6 +14,7 @@ import { workspaceChatDockerImage } from "./chat-runtime.js"
 import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import type { WorkspaceRevision } from "./revision.js"
+import { recordedBaseBuildGitToken } from "./run-git-tokens.js"
 import { discoverSandboxProvider, dockerImageId } from "./sandbox-provider.js"
 import {
   builderSnapshotExpiration,
@@ -224,17 +225,26 @@ export async function workspaceBaseBuilder(input: {
   })
   if (!hosted.ok) throw new Error(hosted.error)
   return {
-    start: async () =>
-      startVercelWorkspaceBase({
+    start: async () => {
+      // As on Docker: the build's end revokes the token, and the sandbox
+      // sweep revokes what a crash left.
+      const gitToken = recordedBaseBuildGitToken({
+        orgId: input.orgId,
+        workspaceId: revision.workspaceId,
+        mint: hosted.mintGitToken,
+      })
+      return startVercelWorkspaceBase({
         credentials: hosted.credentials,
         agentSnapshotId: await vercelAgentSnapshot({
           credentials: hosted.credentials,
           environment: hosted.environment,
         }),
-        mintGitToken: hosted.mintGitToken,
+        mintGitToken: gitToken.mint,
+        revokeGitToken: gitToken.revoke,
         tags: workspaceBaseTags(hosted.environment),
         expiration: builderSnapshotExpiration(hosted.environment),
-      }),
+      })
+    },
   }
 }
 

@@ -19,8 +19,10 @@ export async function cancelIngestionRun(runId: string): Promise<void> {
  * Cancel each repository run of a re-ingestion whose upgrade run ended
  * without it (failed or canceled), and the ingestion runs of that
  * repository run. A canceled parent run does not cancel its children, and
- * they keep spending. Call it where the app reads the rows of the upgrades,
- * and from the wait for a slot: the slot stays taken until these runs end.
+ * they keep spending. It reads the runs of all orgs, so only two places
+ * call it: the upgrade scan (once for each scan, not for each Workspace) and
+ * the wait for a slot, because the slot stays taken until these runs end.
+ * A read path must not call it.
  */
 export async function stopOrphanedReingestRuns(): Promise<void> {
   const namespaceId = openWorkflowNamespaceId()
