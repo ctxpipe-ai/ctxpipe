@@ -698,6 +698,23 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     return next()
   }
 
+  // A personal API key is read-only (see write-grant.ts). Outside /mcp it
+  // reads; every other method gets 403 before the route.
+  if (
+    c.get("personalApiKeyId") &&
+    !isMcpRequestPath(c.req.path) &&
+    !["GET", "HEAD", "OPTIONS"].includes(c.req.method)
+  ) {
+    return c.json(
+      {
+        error:
+          "API keys are read-only. Sign in, or use an OAuth token with the ctxpipe:write scope.",
+        code: "write_grant_required",
+      },
+      403,
+    )
+  }
+
   const hasValidOfflineMcpBearer =
     Boolean(c.get("user")) &&
     isMcpRequestPath(c.req.path) &&
@@ -732,14 +749,16 @@ export async function hasOrgAdminOrOwnerRole(input: {
   }
 }
 
-/** Use after {@link requireAuth} and {@link withNetworkOrgContext}. Requires org admin or owner (Better Auth organization plugin). */
+/** Use after {@link requireAuth} and {@link withNetworkOrgContext}. Requires an org admin or owner session (Better Auth organization plugin); an API key gets 403. */
 export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
   const user = c.get("user")
   const orgId = c.get("orgId")
-  if (!user?.id || !orgId) {
+  // Better Auth gives a personal API key a session with the user's role, so
+  // the role check alone would let the key through.
+  if (!user?.id || !orgId || c.get("personalApiKeyId") || c.get("orgApiKey")) {
     return c.json({ error: "Forbidden" }, 403)
   }
   if (

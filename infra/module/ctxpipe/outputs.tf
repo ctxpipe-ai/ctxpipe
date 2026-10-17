@@ -25,7 +25,7 @@ output "neon_default_branch_id" {
 }
 
 output "ctxpipe_app_password" {
-  value     = neon_role.app.password
+  value     = random_password.app_database.result
   sensitive = true
 }
 

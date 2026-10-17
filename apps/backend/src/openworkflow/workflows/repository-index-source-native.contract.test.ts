@@ -10,7 +10,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { fetchFiles } from "../../domain/codeIngestion/codesearchClient.js"
-import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
+import { withRepositorySourceRevision } from "../../domain/codeIngestion/source-revision-context.js"
 import {
   getRepositoryForOrg,
   markRepositoryIndexingReady,
@@ -144,14 +144,11 @@ it(
         { FileName: "AGENTS.md", Version: newer },
       ])
       await withOrgIdContext(f.org, () =>
-        withIngestAgentContext(
+        withRepositorySourceRevision(
           {
-            sessionId: f.namespace,
-            source: {
-              orgId: f.org.id,
-              repositoryId: f.repositoryId,
-              sha: f.sha,
-            },
+            orgId: f.org.id,
+            repositoryId: f.repositoryId,
+            sha: f.sha,
           },
           async () => {
             expect(

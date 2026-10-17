@@ -56,7 +56,7 @@ jobs:
           --health-timeout 5s
           --health-retries 5
       falkordb:
-        image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
+        image: falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
         ports:
           - 6379:6379
         options: >-
