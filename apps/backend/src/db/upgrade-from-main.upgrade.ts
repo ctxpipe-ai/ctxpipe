@@ -793,7 +793,11 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   expect(await directory()).toEqual(
     [
       { connection_id: GITHUB_CONNECTION, type: "github", slack_team_id: null },
-      { connection_id: written.slack, type: "slack", slack_team_id: SLACK_TEAM },
+      {
+        connection_id: written.slack,
+        type: "slack",
+        slack_team_id: SLACK_TEAM,
+      },
     ].sort((a, b) => a.connection_id.localeCompare(b.connection_id)),
   )
 })
