@@ -385,7 +385,9 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
       guide.getByRole("button", { name: "Create Workspace" }),
     )
     const body = within(canvasElement.ownerDocument.body)
-    const dialog = within(await body.findByRole("dialog"))
+    const dialog = within(
+      await body.findByRole("dialog", { name: "Add Workspace" }),
+    )
     await userEvent.click(
       await dialog.findByRole("radio", { name: /acme\/handbook/ }),
     )
@@ -394,7 +396,9 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     )
     await userEvent.click(await dialog.findByRole("button", { name: "Done" }))
     await waitFor(() =>
-      expect(body.queryByRole("dialog")).not.toBeInTheDocument(),
+      expect(
+        body.queryByRole("dialog", { name: "Add Workspace" }),
+      ).not.toBeInTheDocument(),
     )
     // Home stays, and the guide shows the build of the new Workspace.
     const after = await findGuide(canvasElement)

@@ -1,5 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Navigate,
+  useRouter,
+  useSearch,
+} from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { completeOnboarding } from "@/components/onboarding/complete-onboarding"
@@ -13,6 +18,11 @@ import { sessionUser } from "@/lib/session-user"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
+  // `github`: the slug of the organization that the user created. The
+  // Connect GitHub slide shows after onboarding is complete, so it lives in
+  // the URL and not in component state.
+  validateSearch: (search: Record<string, unknown>): { github?: string } =>
+    typeof search.github === "string" ? { github: search.github } : {},
   component: OnboardingPageContent,
 })
 
@@ -29,11 +39,10 @@ export function OnboardingPageContent() {
   const router = useRouter()
   const queryClient = useQueryClient()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
-  const [step, setStep] = useState<
-    | { kind: "how-it-works" }
-    | { kind: "create-org" }
-    | { kind: "connect-github"; orgSlug: string }
-  >({ kind: "how-it-works" })
+  const [step, setStep] = useState<"how-it-works" | "create-org">(
+    "how-it-works",
+  )
+  const { github: githubParam } = useSearch({ strict: false })
 
   const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
   const [sceneFailed, setSceneFailed] = useState(false)
@@ -78,10 +87,22 @@ export function OnboardingPageContent() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = sessionUser(session)
+  // The Connect GitHub slide, for an organization of this user only. While
+  // `finish` runs, the list can still miss the organization just created.
+  const githubSlug =
+    githubParam &&
+    (completing || organizations?.some((org) => org.slug === githubParam))
+      ? githubParam
+      : undefined
   // Onboarding is complete already, for example when the user comes back
-  // through the browser history. After `finish` starts, this page opens Home
-  // itself, or first shows the GitHub slide.
-  if (user?.onboardingCompletedAt && !completing && organizations?.length) {
+  // through the browser history. While `finish` runs, it opens Home or the
+  // GitHub slide itself.
+  if (
+    user?.onboardingCompletedAt &&
+    !completing &&
+    organizations?.length &&
+    !githubSlug
+  ) {
     return (
       <Navigate
         to="/"
@@ -128,8 +149,15 @@ export function OnboardingPageContent() {
       toast.error(FINISH_ERROR)
       return
     }
-    if (isJoinerLocked) openHome(slug)
-    else setStep({ kind: "connect-github", orgSlug: slug })
+    if (isJoinerLocked) {
+      openHome(slug)
+      return
+    }
+    void router.navigate({
+      to: "/onboarding",
+      search: { github: slug },
+      replace: true,
+    })
   }
 
   const joinedSlug = organizations?.[0]?.slug
@@ -147,18 +175,18 @@ export function OnboardingPageContent() {
         setSceneFailed(true)
       }}
     >
-      {step.kind === "connect-github" ? (
+      {githubSlug ? (
         <OnboardingConnectGithubSlide
-          orgSlug={step.orgSlug}
-          onDone={() => openHome(step.orgSlug)}
+          orgSlug={githubSlug}
+          onDone={() => openHome(githubSlug)}
         />
-      ) : step.kind === "how-it-works" ? (
+      ) : step === "how-it-works" ? (
         <OnboardingHowItWorksSlide
           actionLabel={isJoinerLocked ? "Get started" : "Next"}
           isPending={completing}
           onNext={() => {
             if (!isJoinerLocked) {
-              setStep({ kind: "create-org" })
+              setStep("create-org")
               return
             }
             if (joinedSlug) void finish(joinedSlug)
