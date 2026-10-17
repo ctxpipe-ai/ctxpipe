@@ -38,6 +38,12 @@ export const ingestionV2InputSchema = z.object({
   sha,
   /** The author time of each step commit, so a replay makes the same SHA. */
   authorTime: z.string().datetime(),
+  /**
+   * Only these Workspaces can be destinations. A re-ingestion gives its own
+   * Workspace, so the other Workspaces of the source get no publish. When
+   * it is not set, each Workspace that declares the source is a candidate.
+   */
+  destinations: z.array(z.string().min(1)).min(1).optional(),
 })
 
 export type IngestionV2Input = z.infer<typeof ingestionV2InputSchema>

@@ -42,6 +42,9 @@ describe("upgrade copy", () => {
       "The repository uses format 1. ctx| reads format 3.",
     )
     expect(formatHealthLine(3, 3)).toMatch(/up to date/)
+    expect(formatHealthLine(4, 3)).toBe(
+      "The repository uses format 4. ctx| reads format 3. This Workspace needs a newer ctx| version.",
+    )
   })
 
   it("words the alert from the statuses that are present", () => {

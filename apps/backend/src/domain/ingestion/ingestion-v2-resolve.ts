@@ -39,10 +39,11 @@ export type IngestionV2Resolution =
  * of `.ctxpipe/sources.yaml` has no source path, so it makes no destination;
  * the conversion (CTX-744) gives the Workspace its source files. The run
  * skips a source that is the repository of a Workspace of the org. A
- * Workspace that is not writable, or has no commit yet, gets no refs.
+ * Workspace that is not writable, or has no commit yet, gets no refs. When
+ * the input has `destinations`, only those Workspaces can be destinations.
  */
 export async function resolveIngestionV2Run(
-  input: Pick<IngestionV2Input, "orgId" | "source" | "shadow">,
+  input: Pick<IngestionV2Input, "orgId" | "source" | "shadow" | "destinations">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
   if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))
@@ -93,6 +94,7 @@ export async function resolveIngestionV2Run(
         normalizeWorkspaceRepositoryUrl(url),
     )?.id ?? null
   const declared = orgWorkspaces.flatMap((row) => {
+    if (input.destinations && !input.destinations.includes(row.id)) return []
     const path = sourcePath(row.id)
     return path ? [{ row, sourcePath: path }] : []
   })

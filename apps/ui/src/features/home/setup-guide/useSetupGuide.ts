@@ -21,6 +21,7 @@ import {
   guideRows,
   guideView,
   isGuideRecent,
+  oldestCreatedAt,
 } from "./guide-state"
 
 /** When this app load started. The complete line shows on one load only. */
@@ -114,6 +115,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
   })
 
   const workspaces = listQuery.data?.items ?? []
+  const firstWorkspaceCreatedAt = oldestCreatedAt(workspaces)
   const asked = workspaces.some((item) => item.mostRecentConversationId)
   const pending =
     sessionPending ||
@@ -152,7 +154,9 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           prefs: guidePrefs,
           onboardingCompletedAt: user.onboardingCompletedAt,
           orgCreatedAt: organization?.createdAt,
-          workspaceCount: workspaces.length,
+          firstWorkspaceCreatedAt,
+          // A failed list read is not "no Workspace": it must not open the guide.
+          workspaceCount: listQuery.data ? workspaces.length : null,
           now: Date.now(),
           appBootAt: APP_BOOT_AT,
         })
@@ -178,6 +182,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           isGuideRecent({
             onboardingCompletedAt: user?.onboardingCompletedAt,
             orgCreatedAt: organization?.createdAt,
+            firstWorkspaceCreatedAt,
             now: Date.now(),
           })),
       collapsed: guidePrefs.collapsed ?? asked,
