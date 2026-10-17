@@ -85,7 +85,7 @@ CI is `.github/workflows/mcp-evals.yaml`. It runs nightly, by hand, and on a pul
 4. It runs `run.ts` against `http://localhost:3000/mcp`.
 5. It uploads the results with the pass rates of each model and case, and the logs.
 
-The model provider keys are the only secrets. Only the steps that need them get them. The job runs in the GitHub environment `Preview`. It reads `MODEL_PROVIDER_API_KEY` for the backend, and `ANTHROPIC_API_KEY` and `OPENAI_API_KEY` for the client models. These are spend-capped keys for CI. The production values stay in the `Production` environment. `run.ts` reads each client key as `<PROVIDER>_API_KEY` and stops when a model has no key. The variable `MCP_EVAL_MODELS` names the client models, at least two.
+The model provider key is the only secret. Only the steps that need it get it. The job runs in the GitHub environment `workbench`. It reads `MODEL_PROVIDER_API_KEY` for the backend and for the client models. `run.ts` sends every client model through OpenRouter (`MODEL_PROVIDER_URL`, default `https://openrouter.ai/api/v1`) and maps each id to its OpenRouter id (`models.ts`). OpenRouter BYOK covers the Anthropic and OpenAI models. The key is a spend-capped key for CI. `run.ts` stops when `MODEL_PROVIDER_API_KEY` is missing. The variable `MCP_EVAL_MODELS` names the client models, at least two.
 
 A pull request that changes `apps/backend/src/mcp` does not run the suite, because each run calls paid models. `.github/workflows/mcp-evals-reminder.yaml` adds a comment that asks for the label.
 
@@ -103,7 +103,7 @@ Use a fresh migrated database, live FalkorDB, codesearch, and the backend enviro
 
 ```sh
 bun --env-file=.env.local evals/mcp/run-seed.ts ci local1 /tmp/mcp-eval-fixtures /tmp/mcp-eval-seed.json
-ANTHROPIC_API_KEY=... OPENAI_API_KEY=... bun --env-file=.env.local evals/mcp/run.ts \
+bun --env-file=.env.local evals/mcp/run.ts \
   --url http://localhost:3000/mcp --seed /tmp/mcp-eval-seed.json \
   --models <provider/model>,<provider/model> --out results.json
 ```

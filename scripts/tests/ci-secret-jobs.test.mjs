@@ -341,8 +341,6 @@ const secretJob = (secret, environment, file = "mcp-evals.yaml", job = "evals") 
 test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
   for (const secret of [
     "MODEL_PROVIDER_API_KEY",
-    "ANTHROPIC_API_KEY",
-    "OPENAI_API_KEY",
     "VERCEL_ACCESS_TOKEN",
   ]) {
     for (const environment of [

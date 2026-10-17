@@ -164,12 +164,8 @@ jobs:
         working-directory: apps/backend
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
-          # plain names, so that a missing workbench secret can never fall
-          # back to a repository or organization secret with the plain name.
-          # run.ts stops with "Set <PROVIDER>_API_KEY" when a model of
-          # MCP_EVAL_MODELS has no key.
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # run.ts sends every model of MCP_EVAL_MODELS through OpenRouter
+          # with this key (BYOK covers Anthropic and OpenAI).
           MODELS: ${{ vars.MCP_EVAL_MODELS }}
           UPDATE_BASELINE: ${{ inputs.update_baseline }}
         run: |

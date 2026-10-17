@@ -19,8 +19,8 @@
 //   live contracts that call outside services, with spend-capped or test-scoped
 //   keys.
 //   `Production` is the production deploy.
-//   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY,
-//   ANTHROPIC_API_KEY, OPENAI_API_KEY or VERCEL_ACCESS_TOKEN uses
+//   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY
+//   or VERCEL_ACCESS_TOKEN uses
 //   `environment: workbench`. To add a paid or outside check, put the job in
 //   `workbench`: this guard enforces it.
 // - RAILWAY_API_TOKEN and NEON_API_KEY never go to a job in `workbench`.
@@ -74,7 +74,7 @@ const previewCheckJobs = new Set(["pr-deploy.yaml:cleanup_pr_sandboxes"])
 
 // Secrets that need `environment: workbench` in a job with untrusted code.
 const checkSecrets =
-  /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|VERCEL_ACCESS_TOKEN)\b/
+  /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY|VERCEL_ACCESS_TOKEN)\b/
 
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
@@ -101,11 +101,7 @@ const exceptions = new Map(
     // Evaluates the product MCP with real models.
     // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
-    "mcp-evals.yaml:evals": [
-      "MODEL_PROVIDER_API_KEY",
-      "ANTHROPIC_API_KEY",
-      "OPENAI_API_KEY",
-    ],
+    "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
     "ingestion-v2-proof.yaml:proof": [
       "MODEL_PROVIDER_API_KEY",
