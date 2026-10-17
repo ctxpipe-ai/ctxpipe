@@ -467,6 +467,14 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       ])
     } finally {
       vi.useRealTimers()
+      // Another test file's worker must not claim the queued check.
+      for (const run of (await backend.listWorkflowRuns({ limit: 100 })).data)
+        if (
+          run.workflowName === "workspace-tip-check" &&
+          run.status === "pending" &&
+          (run.input as { orgId?: string })?.orgId === s.orgId
+        )
+          await backend.cancelWorkflowRun({ workflowRunId: run.id })
       await backend.stop()
     }
   })
