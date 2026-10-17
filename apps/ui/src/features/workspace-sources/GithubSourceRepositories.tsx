@@ -2,7 +2,12 @@ import HyperDX from "@hyperdx/browser"
 import { IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useMemo, useState } from "react"
-import { Heading } from "react-aria-components"
+import {
+  Focusable,
+  Heading,
+  Tooltip,
+  TooltipTrigger,
+} from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
@@ -29,6 +34,7 @@ import {
   workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
@@ -85,10 +91,17 @@ function sameName(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
 
-type StatusTag = { label: string; className: string; dotClassName: string }
+type StatusTag = {
+  label: string
+  /** What the status means, for the tip on hover and focus. */
+  hint: string
+  className: string
+  dotClassName: string
+}
 
 const pendingTag: StatusTag = {
   label: "Pending",
+  hint: "ctx| has not read this repository yet. The status changes to Indexing when the read starts.",
   className:
     "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
@@ -101,6 +114,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed && item.indexingStatus === "complete_with_issues") {
     return {
       label: "Indexed with issues",
+      hint: "ctx| indexed the latest commit that it knows, but some parts of the index are incomplete.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 rounded-full bg-amber-300",
@@ -109,6 +123,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed) {
     return {
       label: "Indexed",
+      hint: "ctx| indexed the latest commit of this repository that it knows.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
       dotClassName: "size-1.5 rounded-full bg-teal-300",
@@ -117,6 +132,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (item.desiredSha && item.indexedSha !== item.desiredSha) {
     return {
       label: "Indexing",
+      hint: "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 animate-pulse rounded-full bg-amber-300",
@@ -322,10 +338,28 @@ export function GithubSourceRepositories(props: {
                       )}
                     </p>
                     <span className={sourceRowStatusClassName}>
-                      <span className={status.className}>
-                        <span className={status.dotClassName} aria-hidden />
-                        {status.label}
-                      </span>
+                      <TooltipTrigger delay={200}>
+                        <Focusable>
+                          <span
+                            // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users open the status tip with focus.
+                            tabIndex={0}
+                            className={cn(
+                              status.className,
+                              focusVisibleClassName,
+                            )}
+                          >
+                            <span className={status.dotClassName} aria-hidden />
+                            {status.label}
+                          </span>
+                        </Focusable>
+                        <Tooltip
+                          placement="top"
+                          offset={6}
+                          className="max-w-xs rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100 shadow-md"
+                        >
+                          {status.hint}
+                        </Tooltip>
+                      </TooltipTrigger>
                     </span>
                     <div className={sourceRowActionsClassName}>
                       {canUnlink ? (
@@ -511,6 +545,8 @@ function AddGithubRepositoriesModal(props: {
             ? `${results.length} pull requests opened. Each change applies after its merge.`
             : sourceChangeMessage(),
           {
+            // Long enough to read the text and to press the action.
+            duration: 10_000,
             action: {
               label: "View pull request",
               onClick: () =>

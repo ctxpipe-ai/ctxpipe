@@ -1,6 +1,7 @@
 import {
   IconAlertTriangle,
   IconCursorText,
+  IconExternalLink,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -18,7 +19,6 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
-import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import {
   Skeleton,
@@ -131,20 +131,26 @@ function connectorsSummary(
 
 function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   const { change } = props
+  const label =
+    change.action === "remove"
+      ? "Removal awaiting merge"
+      : change.action === "rename"
+        ? "Rename awaiting merge"
+        : "Awaiting merge"
   return (
-    <TextLink
+    <Link
       href={change.pullRequestUrl}
       target="_blank"
       rel="noreferrer"
-      variant="secondary"
-      className="mt-0.5 inline-block text-xs"
+      aria-label={`${label}. Opens the pull request on GitHub in a new tab.`}
+      className={cn(
+        "mt-0.5 inline-flex items-center gap-1 rounded-md text-xs text-teal-400 underline decoration-teal-400/50 underline-offset-4 transition-colors hover:text-teal-300 hover:decoration-teal-300",
+        focusVisibleClassName,
+      )}
     >
-      {change.action === "remove"
-        ? "Removal awaiting merge"
-        : change.action === "rename"
-          ? "Rename awaiting merge"
-          : "Awaiting merge"}
-    </TextLink>
+      {label}
+      <IconExternalLink className="size-3 shrink-0" aria-hidden />
+    </Link>
   )
 }
 

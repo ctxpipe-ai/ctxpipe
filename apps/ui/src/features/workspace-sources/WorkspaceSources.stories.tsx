@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { Toaster } from "sonner"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { Toaster, toast } from "sonner"
+import { expect, spyOn, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
@@ -405,7 +405,7 @@ export const PendingAdd: Story = {
     await expect(group.getByText("1 awaiting merge")).toBeVisible()
     await expect(group.getByText("New source")).toBeVisible()
     await expect(
-      group.getByRole("link", { name: "Awaiting merge" }),
+      group.getByRole("link", { name: /^Awaiting merge\./ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
   },
 }
@@ -510,13 +510,15 @@ export const AwaitingMerge: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const links = await canvas.findAllByRole("link", { name: "Awaiting merge" })
+    const links = await canvas.findAllByRole("link", {
+      name: /^Awaiting merge\./,
+    })
     await expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "https://github.com/acme/docs/pull/3",
       "https://github.com/acme/docs/pull/5",
     ])
     await expect(
-      canvas.getByRole("link", { name: "Removal awaiting merge" }),
+      canvas.getByRole("link", { name: /^Removal awaiting merge\./ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/4")
     await expect(canvas.getByText("New source")).toBeVisible()
   },
@@ -1419,7 +1421,7 @@ export const PendingRename: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("link", { name: "Rename awaiting merge" }),
+        canvas.getByRole("link", { name: /^Rename awaiting merge\./ }),
       ).toHaveAttribute("href", "https://github.com/acme/docs/pull/8"),
     )
     await expect(
@@ -1570,5 +1572,135 @@ export const AddWithFileName: Story = {
       method: "POST",
       body: { path: "sources/linear/eng-issues.md" },
     })
+  },
+}
+
+const linkedRepository = (
+  name: string,
+  sha: { desired: string | null; indexed: string | null },
+) => ({
+  id: `lnk_${name}`,
+  workspaceId: "ws_story1",
+  gitUrl: `https://github.com/acme/${name}.git`,
+  desiredRef: null,
+  desiredSha: sha.desired,
+  indexedSha: sha.indexed,
+  createdAt: "2026-10-01T10:00:00.000Z",
+})
+
+/** Each repository status explains itself on hover and on keyboard focus. */
+export const StatusExplainsItself: Story = {
+  args: {
+    linkedRepositories: [
+      linkedRepository("api", { desired: null, indexed: null }),
+      linkedRepository("web", { desired: "def", indexed: "abc" }),
+      linkedRepository("cli", { desired: "abc", indexed: "abc" }),
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+                  scopeSummary: "3 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    const page = within(document.body)
+    // A pointer user sees the tip on hover. React Aria shows a hover tip
+    // only after it has seen a pointer event, so press the list first.
+    await userEvent.click(
+      canvas.getByRole("list", { name: "GitHub repositories" }),
+    )
+    await userEvent.hover(list.getByText("Indexing"))
+    await waitFor(() =>
+      expect(
+        page.getByText(
+          "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
+        ),
+      ).toBeVisible(),
+    )
+    await userEvent.unhover(list.getByText("Indexing"))
+    // A keyboard user reaches the status with Tab, and focus shows the tip.
+    for (
+      let step = 0;
+      step < 20 && document.activeElement !== list.getByText("Pending");
+      step++
+    )
+      await userEvent.tab()
+    await waitFor(() => {
+      expect(list.getByText("Pending")).toHaveFocus()
+      expect(page.getByRole("tooltip")).toHaveTextContent(
+        "ctx| has not read this repository yet.",
+      )
+      expect(list.getByText("Pending")).toHaveAccessibleDescription(
+        page.getByRole("tooltip").textContent ?? "",
+      )
+    })
+  },
+}
+
+/** The add toast stays long enough to read, and its action opens the pull request. */
+export const AddToastKeepsItsAction: Story = {
+  parameters: AddSendsChange.parameters,
+  beforeEach: () => {
+    addCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const success = spyOn(toast, "success")
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("checkbox", { name: "acme/api" }),
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await within(document.body).findByRole("button", {
+      name: "View pull request",
+    })
+    await expect(success).toHaveBeenCalledWith(
+      "Pull request opened. The change applies after the merge.",
+      expect.objectContaining({
+        duration: 10000,
+        action: expect.objectContaining({ label: "View pull request" }),
+      }),
+    )
+  },
+}
+
+/** "Awaiting merge" reads as a link: it names the pull request on GitHub. */
+export const AwaitingMergeIsALink: Story = {
+  parameters: PendingAdd.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", {
+      name: /^Awaiting merge.*pull request on GitHub/,
+    })
+    await expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/5",
+    )
+    await expect(link).toHaveAttribute("target", "_blank")
+    await expect(link.querySelector("svg")).not.toBeNull()
   },
 }
