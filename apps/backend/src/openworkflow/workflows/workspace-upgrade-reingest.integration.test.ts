@@ -9,6 +9,7 @@ import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { parseEnv } from "../../config/env.js"
 import {
   closeDb,
   getSystemDb,
@@ -17,6 +18,7 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { objects } from "../../db/schema/objects.js"
 import {
   orgFirstWorkspaces,
   workspaces,
@@ -34,6 +36,9 @@ import {
 } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
+import { bootstrapWorkspaceFiles } from "../../domain/workspaces/bootstrap.js"
+import { ensureOrgRepositoryForGitUrl } from "../../domain/workspaces/ensure-org-repository.js"
+import { resolveWorkspaceReadRevision } from "../../domain/workspaces/resolve-revision.js"
 import { workspaceFormatFile } from "../../domain/workspaces/workspace-format.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
@@ -45,6 +50,7 @@ import {
   listWorkspaceUpgradeRows,
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
+import { listWorkspaceKnowledgeUnits } from "../../models/workspaces.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -54,8 +60,10 @@ import {
 import { standInIngestShardRuntime } from "../../test/ingest-shard-stand-in.js"
 import { openWorkflowNamespaceId } from "../namespace.js"
 import { defineIngestionShardWorkflow } from "./ingestion-shard.js"
+import { repositoryIndex } from "./repository-index.js"
 import { defineRepositoryIngestionV2Workflow } from "./repository-ingestion-v2.js"
 import { defineWorkspaceExtractIngestWorkflow } from "./workspace-extract-ingest.js"
+import { workspaceHydrate } from "./workspace-hydrate.js"
 import { workspaceOwnershipMigration } from "./workspace-ownership-migration.js"
 import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 import {
@@ -91,14 +99,18 @@ const connectionId = generateObjectId("con")
 const suffix = Math.random().toString(36).slice(2, 8)
 const sourceName = `acme/billing-api-${suffix}`
 const otherSource = `acme/ledger-${suffix}`
+/** A source repository with no remote: no run can read it. */
+const goneSource = `acme/gone-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const capSources = [`acme/cap-a-${suffix}`, `acme/cap-b-${suffix}`]
 contexts.push(
   `acme/context-c-${suffix}`,
   `acme/context-d-${suffix}`,
   `acme/context-e-${suffix}`,
+  `acme/context-f-${suffix}`,
 )
-const [ready, behind, capped, wide, yamlOnly] = [
+const [ready, behind, capped, wide, yamlOnly, overlay] = [
+  generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -108,12 +120,14 @@ const [ready, behind, capped, wide, yamlOnly] = [
 // The source repositories of each Workspace. `wide` also links the source
 // of `ready`. `yamlOnly` links its repository only in
 // `.ctxpipe/sources.yaml`, so ingestion v2 has no destination in it.
+// `overlay` has main-era knowledge of its two source repositories.
 const sourcesOf = [
   [sourceName],
   [otherSource],
   capSources,
   [sourceName, otherSource, capSources[0] ?? ""],
   [otherSource],
+  [sourceName, goneSource],
 ]
 /** The USD that each model step of a Workspace reports. */
 const stepCostUsd = new Map<string, number>()
@@ -122,10 +136,29 @@ const noUsage = new Set<string>()
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: string[] = []
 
+/**
+ * The file that a model step writes for a source repository. Each repository
+ * has its own path: two repositories that write one path conflict when one
+ * publish lands after the pin of the other run, and the conflict calls the
+ * merge model, which has no key in this file.
+ */
+function modelFile(repository: string) {
+  const name = (repository.split("/").pop() ?? "")
+    .replace(/\.git$/, "")
+    .replace(`-${suffix}`, "")
+  return {
+    path: `knowledge/services/${name}.md`,
+    content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service sends invoices.\n`,
+  }
+}
+
 const server = setupServer(
   ...githubTokenHandlers(githubLog, () => "fixture-only-github-token"),
   http.post(MODEL_URL, async ({ request }) => {
-    const body = (await request.json()) as { workspaceId: string }
+    const body = (await request.json()) as {
+      workspaceId: string
+      args: string[]
+    }
     modelCalls.push(body.workspaceId)
     const costUsd = stepCostUsd.get(body.workspaceId)
     return HttpResponse.json({
@@ -140,11 +173,7 @@ const server = setupServer(
             },
           }),
       files: [
-        {
-          path: "knowledge/services/billing-api.md",
-          content:
-            "---\nkind: Service\nname: billing-api\n---\n# billing-api\n\nThe billing-api service sends invoices.\n",
-        },
+        modelFile(body.args[body.args.indexOf("--source-url") + 1] ?? ""),
       ],
     })
   }),
@@ -212,6 +241,16 @@ beforeAll(async () => {
     return remote(name, {
       "README.md": "# Context\n",
       [format.path]: format.content,
+      // A hydrate runs on `overlay`: its bootstrap files are current, so
+      // hydrate queues no bootstrap write.
+      ...(i === 5
+        ? Object.fromEntries(
+            bootstrapWorkspaceFiles({
+              displayName: "Re-ingest 5",
+              existing: new Map(),
+            }).map((file) => [file.path, file.content]),
+          )
+        : {}),
       ...(i === 4
         ? {}
         : Object.fromEntries(
@@ -266,6 +305,7 @@ beforeAll(async () => {
     capped,
     wide,
     yamlOnly,
+    overlay,
   ].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
@@ -765,6 +805,17 @@ it(
         ],
       },
     })
+    // A publish of the first repository can land after the pin of the new
+    // run: the cost cap can cancel that run after its push. Force that
+    // order: the new run publishes on a default branch that moved.
+    const work = mkdtempSync(join(folder, "late-"))
+    git(work, "clone", "-q", join(remotes, contexts[2] ?? ""), ".")
+    const late = modelFile(capSources[0] ?? "")
+    mkdirSync(dirname(join(work, late.path)), { recursive: true })
+    writeFileSync(join(work, late.path), late.content)
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "A late publish of the first repository")
+    git(work, "push", "-q", "origin", "HEAD:main")
     expect(await start(capped)).toMatchObject({ kind: "queued" })
     expect(await settled(capped)).toMatchObject({
       status: "completed",
@@ -808,3 +859,164 @@ it("deletes only the superseded rows of the same family", async () => {
     expect(await keys()).toEqual([current])
   })
 })
+
+/*
+ * Main-era knowledge stays in the projection until the re-ingestion did its
+ * repository. This test runs the real hydrate, so it comes last: a hydrate
+ * replaces the source rows of a Workspace from its tree.
+ */
+it(
+  "drops the main-era knowledge of each repository that the re-ingestion did, and keeps the others",
+  { timeout: 420_000 },
+  async () => {
+    vi.stubEnv("MODEL_PROVIDER", "openai-like")
+    vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
+    vi.stubEnv("MODEL_PROVIDER_URL", "https://reingest-embeddings.test/v1")
+    server.use(
+      // Hydrate checks that ctx| can write to the Workspace repository.
+      http.get(`https://api.github.com/repos/${contexts[5]}`, () =>
+        HttpResponse.json({
+          id: 7_000,
+          full_name: contexts[5],
+          default_branch: "main",
+          permissions: { push: true },
+        }),
+      ),
+      http.post(
+        "https://reingest-embeddings.test/v1/embeddings",
+        async ({ request }) => {
+          const body = (await request.json()) as { input: string[] }
+          return HttpResponse.json({
+            data: body.input.map((_, index) => ({
+              index,
+              embedding: Array(2000).fill(0.01),
+            })),
+          })
+        },
+      ),
+    )
+    // The worker gets the hydrate workflow.
+    await worker.stop()
+    runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
+    // The source repository now has an org repository row, so ingestion v2
+    // indexes it first. Codesearch is not in this test: the index is a
+    // stand-in that does nothing.
+    runner.implementWorkflow(
+      repositoryIndex.spec,
+      (async () => null) as unknown as typeof repositoryIndex.fn,
+    )
+    worker = runner.newWorker({ concurrency: 4 })
+    await worker.start()
+
+    // A main-era org: `overlay` is its first Workspace, and each source
+    // repository has an object in Postgres.
+    await withOrgIdContext(org, async () => {
+      for (const [repository, name] of [
+        // Not the path of the file that the re-ingestion writes, so that
+        // only the done mark can drop it.
+        [sourceName, "Billing worker"],
+        [goneSource, "Gone service"],
+      ] as const) {
+        const row = await ensureOrgRepositoryForGitUrl({
+          orgId: org.id,
+          gitUrl: `https://github.com/${repository}.git`,
+        })
+        if (!row) throw new Error("No org repository was created")
+        if (repository === sourceName)
+          await withOrgDbContext(org.id, (db) =>
+            db
+              .insert(orgFirstWorkspaces)
+              .values({
+                orgId: org.id,
+                workspaceId: overlay,
+                sourceRepositoryId: row.id,
+              })
+              // An earlier test of this file set the first Workspace.
+              .onConflictDoUpdate({
+                target: orgFirstWorkspaces.orgId,
+                set: { workspaceId: overlay, sourceRepositoryId: row.id },
+              }),
+          )
+        await withOrgDbContext(org.id, (db) =>
+          db.insert(objects).values({
+            id: generateObjectId("obj"),
+            orgId: org.id,
+            kind: "Service",
+            deduplicationKey: `svc:${row.id}:${name}`,
+            payload: { name, summary: `The ${name}.` },
+          }),
+        )
+      }
+    })
+    const legacyPaths = () =>
+      withOrgIdContext(org, async () =>
+        (await listWorkspaceKnowledgeUnits(overlay)).units
+          .filter((unit) => unit.source === "legacy")
+          .map((unit) => unit.path)
+          .sort(),
+      )
+    try {
+      const revision = await withOrgIdContext(org, () =>
+        resolveWorkspaceReadRevision({
+          orgId: org.id,
+          workspaceId: overlay,
+          env: parseEnv(process.env),
+        }),
+      )
+      if (!revision) throw new Error("The overlay Workspace has no revision")
+      const first = await runner.runWorkflow(workspaceHydrate.spec, {
+        orgId: org.id,
+        workspaceId: overlay,
+        revision: revision.revision,
+      })
+      expect(await first.result({ timeoutMs: 120_000 })).toMatchObject({
+        hydrated: true,
+      })
+      expect(await legacyPaths()).toEqual([
+        "knowledge/services/billing-worker.md",
+        "knowledge/services/gone-service.md",
+      ])
+
+      // The run does the readable repository; it cannot read the other.
+      await runScan()
+      expect(await start(overlay)).toMatchObject({ kind: "queued" })
+      expect(await settled(overlay)).toMatchObject({
+        status: "failed",
+        upgrade: {
+          repositories: [
+            expect.objectContaining({ repository: sourceName, status: "done" }),
+            expect.objectContaining({
+              repository: goneSource,
+              status: "failed",
+            }),
+          ],
+        },
+      })
+      // The run queued a hydrate that drops the overlay of the done
+      // repository. The overlay of the other repository stays.
+      await expect
+        .poll(legacyPaths, { timeout: 120_000, interval: 1_000 })
+        .toEqual(["knowledge/services/gone-service.md"])
+      // Only the step in which the repository became done queued it. The
+      // later record steps changed no done mark.
+      const reprojects = (
+        await backend.listWorkflowRuns({ limit: 1_000 })
+      ).data.filter((workflowRun) => {
+        const queued = workflowRun.input as {
+          workspaceId?: string
+          reproject?: boolean
+        } | null
+        return (
+          workflowRun.workflowName === "workspace-hydrate" &&
+          queued?.workspaceId === overlay &&
+          queued.reproject === true
+        )
+      })
+      expect(reprojects).toHaveLength(1)
+    } finally {
+      await withOrgDbContext(org.id, (db) =>
+        db.delete(objects).where(eq(objects.orgId, org.id)),
+      )
+    }
+  },
+)

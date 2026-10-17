@@ -4,6 +4,7 @@ import {
   desc,
   eq,
   getColumnTable,
+  inArray,
   isNotNull,
   type SQL,
   sql,
@@ -25,7 +26,11 @@ import {
 } from "../db/schema/workspaces.js"
 import { workspaceCheckoutKey } from "../domain/workspaces/derived-stores.js"
 import { firstConnectorTarget } from "../domain/workspaces/dest-workspace-first.js"
-import type { HydrateSkip, HydrateUnit } from "../domain/workspaces/hydrate.js"
+import {
+  type HydrateSkip,
+  type HydrateUnit,
+  LEGACY_UNIT_SOURCE,
+} from "../domain/workspaces/hydrate.js"
 import { initialHydratePhases } from "../domain/workspaces/hydrate-phases.js"
 import {
   type KnowledgeChunkRow,
@@ -1117,6 +1122,59 @@ export async function listWorkspaceKnowledgeFiles(
       .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
       .orderBy(workspaceKnowledgeUnits.path),
   )
+}
+
+/**
+ * The paths of `paths` that are main-era knowledge units of the Workspace
+ * (source `legacy`), with their body: hydrate serves them from Postgres, and
+ * git does not have them. With no `paths`, at most one such unit.
+ */
+export async function legacyKnowledgePaths(
+  workspaceId: string,
+  paths?: readonly string[],
+): Promise<Map<string, string>> {
+  if (paths && paths.length === 0) return new Map()
+  const rows = await orgSql(() =>
+    getOrgDb()
+      .select({
+        path: workspaceKnowledgeUnits.path,
+        body: workspaceKnowledgeUnits.body,
+      })
+      .from(workspaceKnowledgeUnits)
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+          eq(workspaceKnowledgeUnits.source, LEGACY_UNIT_SOURCE),
+          paths ? inArray(workspaceKnowledgeUnits.path, [...paths]) : undefined,
+        ),
+      )
+      .limit(paths ? paths.length : 1),
+  )
+  return new Map(rows.map((row) => [row.path, row.body]))
+}
+
+/**
+ * True when a write to `paths` changes a main-era knowledge unit of the
+ * Workspace. Each path is made canonical before the check (no padding, no
+ * `./` part and no empty part), so that another spelling of a path cannot go
+ * past the check. Every writer (the Files job, the conversation file route
+ * and the conversation publish) calls this one function.
+ */
+export async function writesLegacyKnowledge(
+  workspaceId: string,
+  paths: ReadonlyArray<string | null | undefined>,
+): Promise<boolean> {
+  const canonical = new Set(
+    paths.flatMap((path) => {
+      const parts = (path ?? "")
+        .replaceAll("\\", "/")
+        .split("/")
+        .map((part) => part.trim())
+        .filter((part) => part !== "" && part !== ".")
+      return parts.length ? [parts.join("/")] : []
+    }),
+  )
+  return (await legacyKnowledgePaths(workspaceId, [...canonical])).size > 0
 }
 
 export async function listWorkspaceKnowledgeUnits(

@@ -596,3 +596,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** tooling
 - **Date:** 2026-10-18
 - **Source:** CTO decision for the PR preview secrets work
+
+### Linear has five statuses; "Waiting for human" needs a named action
+- **Rule:** Team CTX uses five statuses. `Backlog` holds ideas that are not ready and need more exploration by humans and agents. `Todo` is ready for an agent. `In Progress` means an agent works on it now, review agents included. `Waiting for human` means blocked until a human answers a question or does an action. `Done` is complete. This replaces the old `In Review` status. An agent moves a ticket to `Waiting for human` only with a comment that names the human action and who does it (the CTO, or the teammate who retests). A ticket that no agent works on and that waits for an event goes to `Todo`, with a comment that says when to pick it up.
+- **Category:** workflow
+- **Date:** 2026-10-18
+- **Source:** CTO decision that changed the Linear workflow

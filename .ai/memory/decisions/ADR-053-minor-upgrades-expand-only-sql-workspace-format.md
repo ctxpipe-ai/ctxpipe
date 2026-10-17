@@ -34,7 +34,8 @@ All deploy paths run the same migrate command before the new code serves traffic
 
 - No file is format 0. One strict schema validates the file for the backend and the UI.
 - Git is the source of truth. The database holds only a cache of the format, which hydrate writes for each revision ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). Thus a rebuilt database gets the same format at the next hydrate.
-- The format file is host-only. Only bootstrap (the root commit of a new repository) and an upgrade pull request write it.
+- The format file is host-only. Only the bootstrap commit and an upgrade pull request write it.
+- The bootstrap commit writes the format file. Bootstrap runs on an empty repository, or on a repository with no ctx| content: no `.ctxpipe/`, no `sources/` and no `repositories/` on the default branch below the Workspace root. It adds one commit on top of the history and keeps the files that are there. A repository with ctx| content keeps its format, and the upgrade pull request changes it.
 - The code declares the newest format that it supports (`CODE_FORMAT`).
   - A format above `CODE_FORMAT` (for example after a rollback) makes the Workspace read-only. Reads continue. No upgrade is offered.
   - A file that does not parse makes the Workspace read-only. Reads continue.
@@ -72,6 +73,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 - An operator upgrades with a version bump and a deploy. The SQL runs automatically and only adds.
 - A rollback to the previous image is possible without a database restore ([ADR-042](ADR-042-postgres-rls-app-role.md) holds the procedure). A Workspace that was upgraded keeps its new format, and the old code shows it as read-only.
 - Below format 3: no ingestion; existing knowledge stays readable. Until an operator merges the upgrade pull request and runs the re-ingestion, MCP and the UI serve only what the Workspace and the org already hold. The UI shows the pending work.
+- Main-era knowledge stays readable with no gap. Hydrate serves it from Postgres as read-only units that are not in git (source `legacy`): below format 3 all of the knowledge that the Workspace gets, and at format 3 or more only the knowledge of each GitHub source repository that no re-ingestion has done yet. Git wins: a path that git has, a connector mirror path, or a path that a commit deleted gets no overlay unit.
 - The code of each minor keeps the dual reads of all older formats. The next major removes them.
 - The format and the upgrade state survive the loss of the database.
 

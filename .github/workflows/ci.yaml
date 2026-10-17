@@ -359,7 +359,10 @@ jobs:
           platforms: arm64
       - uses: ./.github/actions/setup-buildx
       # Only codesearch keeps a layer cache: its toolchain stages are the slow
-      # part, and the repository GHA cache cannot hold all five images.
+      # part, and the repository GHA cache cannot hold all five images. The
+      # cache is best effort: the GHA cache evicts layer blobs, and the export
+      # then fails with "error writing layer blob: not_found" after the image
+      # built. ignore-error keeps that cache failure from failing the build.
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context || '.' }}
@@ -367,7 +370,7 @@ jobs:
           platforms: ${{ matrix.platforms }}
           push: false
           cache-from: ${{ matrix.name == 'codesearch' && 'type=gha,scope=production-codesearch' || '' }}
-          cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,scope=production-codesearch' || '' }}
+          cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,ignore-error=true,scope=production-codesearch' || '' }}
 
   packages:
     timeout-minutes: 20

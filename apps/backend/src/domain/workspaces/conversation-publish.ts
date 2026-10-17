@@ -16,6 +16,7 @@ import { getOrganizationSlugByOrgId } from "../../models/organizations.js"
 import {
   getWorkspaceById,
   getWorkspaceWriteAdmission,
+  writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
@@ -140,6 +141,8 @@ export type SessionPublishSkip =
   | "format_file"
   /** The commits change `sources/` on a Workspace below format 2. */
   | "upgrade_needed"
+  /** The commits write a path of main-era knowledge that is not in git. */
+  | "legacy_knowledge"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
@@ -585,8 +588,22 @@ async function brokerPush(input: {
         throw new PublishRefused("host_only_field")
       // The agent may change files only below the Workspace root folder.
       const rootPath = workspaceRootPath(revision)
-      const refusal = await formatRefusal(directory, packBase, sha, rootPath)
+      const changedPaths = await changedWorkspacePaths(
+        directory,
+        packBase,
+        sha,
+        rootPath,
+      )
+      const refusal = await formatRefusal(
+        directory,
+        packBase,
+        rootPath,
+        changedPaths,
+      )
       if (refusal) throw new PublishRefused(refusal)
+      // Main-era knowledge that hydrate serves from Postgres is read-only.
+      if (await writesLegacyKnowledge(target.workspaceId, changedPaths))
+        throw new PublishRefused("legacy_knowledge")
       if (
         rootPath &&
         (
@@ -710,18 +727,16 @@ async function addsOwnershipField(
 }
 
 /**
- * The refusal of a change that the Workspace format does not allow, or null.
- * The commits must not change the format file. Below format 2, they must not
- * change `sources/`, because the Workspace still reads `.ctxpipe/sources.yaml`.
- * The format comes from the format file at `base`, in the broker's copy.
+ * The paths (relative to the Workspace root) that the change from `base` to
+ * `sha` adds, changes or deletes, in the broker's copy.
  */
-async function formatRefusal(
+async function changedWorkspacePaths(
   directory: string,
   base: string,
   sha: string,
   rootPath: string,
-): Promise<"format_file" | "upgrade_needed" | null> {
-  const changed = (
+): Promise<string[]> {
+  return (
     await nativeGit(directory, [
       "diff-tree",
       "-r",
@@ -738,6 +753,20 @@ async function formatRefusal(
       const relative = path ? workspaceRelativePath(rootPath, path) : null
       return relative === null ? [] : [relative]
     })
+}
+
+/**
+ * The refusal of a change that the Workspace format does not allow, or null.
+ * The commits must not change the format file. Below format 2, they must not
+ * change `sources/`, because the Workspace still reads `.ctxpipe/sources.yaml`.
+ * The format comes from the format file at `base`, in the broker's copy.
+ */
+async function formatRefusal(
+  directory: string,
+  base: string,
+  rootPath: string,
+  changed: readonly string[],
+): Promise<"format_file" | "upgrade_needed" | null> {
   if (changed.includes(WORKSPACE_FORMAT_PATH)) return "format_file"
   if (!changed.some((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`)))
     return null

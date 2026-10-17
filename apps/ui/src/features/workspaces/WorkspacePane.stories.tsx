@@ -546,6 +546,102 @@ export const ReadOnly: Story = {
   },
 }
 
+const legacyPath = "knowledge/services/tools-cli.md"
+const legacyReason =
+  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+
+/** The editor of the open file takes keys only when it is editable. */
+async function expectFileEditable(
+  canvasElement: HTMLElement,
+  body: string,
+  editable: boolean,
+) {
+  // The file shows first: the check below is on a settled page.
+  await waitFor(() => {
+    expect(textInShadows(canvasElement)).toContain(body)
+  })
+  await waitFor(() => {
+    expect(
+      Boolean(findInShadows(canvasElement, "[contenteditable='true']")),
+    ).toBe(editable)
+  })
+}
+
+/** The sandbox of a writable conversation, which can edit its git files. */
+function legacyConversationHandlers() {
+  return [
+    // Not in the sandbox: the server serves it from Postgres, read-only.
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+          new URL(request.url).pathname,
+        ) && new URL(request.url).searchParams.get("path") === legacyPath,
+      () =>
+        HttpResponse.json({
+          path: legacyPath,
+          body: "# Tools CLI\n\nThe release tools.\n",
+          binary: false,
+          readOnlyReason: legacyReason,
+        }),
+    ),
+    // The handlers of `ConversationWritable`.
+    conversationPrepareHandler(),
+    conversationGitTreeHandler(),
+    conversationGitBlobHandler(),
+    conversationGitStatusHandler(),
+    conversationGitDiffHandler(),
+    conversationFilePutHandler(),
+    ...gitFilesHandlers,
+  ]
+}
+
+function conversationFileStory(path: string): Story {
+  return {
+    args: {
+      conversationId: "conv_1",
+      pane: { kind: "file", path },
+      fileTabs: [path],
+      previewPath: path,
+    },
+    parameters: {
+      storyRoute: {
+        pattern: "orgWorkspace",
+        orgSlug: "acme",
+        workspaceSlug: "docs",
+        conversationId: "conv_1",
+        pane: serializePane({ kind: "file", path }),
+      } satisfies StoryRouteParams,
+      msw: { handlers: { page: legacyConversationHandlers() } },
+    },
+  }
+}
+
+/**
+ * Knowledge from before Workspaces that hydrate serves from Postgres. It is
+ * not in git, so the conversation shows the reason and no editor.
+ */
+export const LegacyKnowledgeReadOnly: Story = {
+  ...conversationFileStory(legacyPath),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText(legacyReason)).toBeVisible()
+    })
+    await expectFileEditable(canvasElement, "The release tools.", false)
+  },
+}
+
+/** In the same conversation, a git file opens in the editor. */
+export const GitFileEditable: Story = {
+  ...conversationFileStory(ledgerPath),
+  play: async ({ canvasElement }) => {
+    await expectFileEditable(canvasElement, "Billing ledger", true)
+    expect(
+      within(canvasElement).queryByText(legacyReason),
+    ).not.toBeInTheDocument()
+  },
+}
+
 const manyFileTabs = [
   ...Array.from(
     { length: 14 },

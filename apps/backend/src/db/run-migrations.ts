@@ -3,7 +3,6 @@ import { drizzle } from "drizzle-orm/node-postgres"
 import { migrate } from "drizzle-orm/node-postgres/migrator"
 import { Pool } from "pg"
 import { log } from "../observability/logger.js"
-import { backfillKnowledgePathState } from "./backfill-knowledge-path-state.js"
 import { backfillNullOrgIds } from "./backfill-null-org-ids.js"
 import { backfillRepositoryIngestionRequests } from "./backfill-repository-ingestion-requests.js"
 import { migrateOpenWorkflow } from "./migrate-openworkflow.js"
@@ -48,7 +47,6 @@ export async function runMigrations(options: {
     await migrateOpenWorkflow(options.connectionString)
 
     await backfillNullOrgIds(pool)
-    await backfillKnowledgePathState(pool)
     await backfillRepositoryIngestionRequests(pool)
     const directory = await reconcileConnectionDirectory(pool)
     log.info({

@@ -8,31 +8,31 @@ import {
   planKnowledgeProjection,
   repositoryIdFromDedup,
 } from "./migration-export.js"
-import { INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
+import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { CODE_FORMAT, INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
+
+/** Why an edit of a main-era knowledge path is refused. */
+export const LEGACY_KNOWLEDGE_READ_ONLY =
+  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
 
 /**
- * True when hydrate adds the main-era knowledge to the projection. Below
- * format 3 no ingestion runs, so the knowledge of the Workspace stays as
- * main kept it in Postgres until the operator merges the format upgrade.
- * An invalid format file (-1) gets no overlay.
+ * Which main-era knowledge hydrate adds to the projection at this format.
+ * - `all`: below format 3 no ingestion runs, so the knowledge of the
+ *   Workspace stays as main kept it in Postgres.
+ * - `sources`: at format 3 or more, upgrade step 1 did not export the
+ *   knowledge of the GitHub source repositories, because the re-ingestion
+ *   makes it again. Until the re-ingestion did a repository, hydrate adds
+ *   the knowledge of that repository, so that it has no gap.
+ * - null: an invalid format file (-1) or a format newer than the code.
  */
-export function legacyKnowledgeOverlayApplies(format: number): boolean {
-  return format >= 0 && format < INGESTION_V2_PUBLISH_FORMAT
+export function legacyKnowledgeOverlayScope(
+  format: number,
+): "all" | "sources" | null {
+  if (format < 0 || format > CODE_FORMAT) return null
+  return format < INGESTION_V2_PUBLISH_FORMAT ? "all" : "sources"
 }
 
-/**
- * The main-era objects that this Workspace gets, as Markdown files that are
- * not in git. Hydrate adds them to the git files before it makes units, so
- * that every read tool serves them. It writes nothing to git.
- *
- * Git stays authoritative:
- * - A planned file at a path that git has is dropped.
- * - An object whose payload path is a Markdown file in the tree gets no
- *   file: hydrate makes it from git. A link to it goes to that file.
- *
- * The rendering is the one of upgrade step 1, with no model call. The
- * objects are sorted by id, so the same rows give the same files.
- */
 export async function legacyKnowledgeOverlay(input: {
   workspaceId: string
   workspaceRepositoryUrl: string
@@ -40,6 +40,18 @@ export async function legacyKnowledgeOverlay(input: {
   treePaths: ReadonlySet<string>
   /** The Markdown files of the git tree. */
   files: ReadonlyArray<{ path: string; content: string }>
+  /** The Markdown paths that a commit of the Workspace deleted. */
+  deletedPaths: ReadonlySet<string>
+  /**
+   * When set, only the objects of these repositories (normalized git URLs)
+   * get a file. The other objects are still link targets.
+   */
+  onlyRepositoryUrls?: ReadonlySet<string>
+  /**
+   * The GitHub repositories (`owner/name`, lower case) that a re-ingestion
+   * did. Their objects get no file at any format: git has their knowledge.
+   */
+  reingestedRepositories: ReadonlySet<string>
   source: {
     firstWorkspaceId: string | null
     workspaceByRepositoryId: ReadonlyMap<string, string>
@@ -60,10 +72,25 @@ export async function legacyKnowledgeOverlay(input: {
       ? path
       : null
   }
+  const inScope = (repositoryId: string | null) => {
+    const url = repositoryId
+      ? source.repositoryGitUrlById.get(repositoryId)
+      : undefined
+    const name = url ? githubRepoFullNameFromWorkspaceUrl(url) : null
+    if (name && input.reingestedRepositories.has(name.toLowerCase()))
+      return false
+    if (!input.onlyRepositoryUrls) return true
+    return (
+      !!url &&
+      input.onlyRepositoryUrls.has(normalizeWorkspaceRepositoryUrl(url))
+    )
+  }
   const write = new Set<string>()
   for (const object of objects) {
+    const repositoryId = repositoryIdFromDedup(object.deduplicationKey)
+    if (!inScope(repositoryId)) continue
     const assignment = assignImportedRepository({
-      repositoryId: repositoryIdFromDedup(object.deduplicationKey),
+      repositoryId,
       workspaceByRepositoryId: source.workspaceByRepositoryId,
       firstWorkspaceId: source.firstWorkspaceId,
     })
@@ -101,5 +128,10 @@ export async function legacyKnowledgeOverlay(input: {
     // takes a new file name.
     classifyUnkeyed: async () => "new_name",
   })
-  return knowledge.files.filter((file) => !input.treePaths.has(file.path))
+  return knowledge.files.filter(
+    (file) =>
+      !input.treePaths.has(file.path) &&
+      !isConnectorMirrorPath(file.path) &&
+      !input.deletedPaths.has(file.path),
+  )
 }

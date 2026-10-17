@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { orgSql } from "../../models/workspace-sql.js"
 import {
   deleteSupersededUpgradeRows,
   failStoppedUpgradeRun,
@@ -349,61 +350,69 @@ export async function scanWorkspaceReingest(input: {
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
   const key = reingestUpgradeKey(input.bundle.name)
   await failStoppedUpgradeRun(workspace.id, key)
-  await deleteSupersededUpgradeRows({
-    workspaceId: workspace.id,
-    key,
-    statuses: SCAN_OWNED,
-  })
-  const existing = await getWorkspaceUpgradeRow(workspace.id, key)
-  if (existing && !SCAN_OWNED.includes(existing.status))
-    return { kind: "pending", key, status: existing.status }
   const blocked = reingestBlock({ ...workspace, format })
   const estimate = await estimateReingest({
     orgId: input.orgId,
     repositories,
     bundleSkills: input.bundle.skills,
   })
-  const fields = {
-    estimate,
-    fromFormat: Math.max(format, 0),
-    blockedReason: blocked?.blockedReason,
-    // A failed run keeps its note; a block replaces it.
-    ...(blocked
-      ? { note: blocked.note }
-      : existing?.status === UPGRADE_STATUSES.blocked
-        ? { note: undefined }
-        : {}),
-  }
-  // A failed run waits for the operator to start it again, unless it is
-  // now blocked.
-  const status = blocked
-    ? UPGRADE_STATUSES.blocked
-    : existing?.status === UPGRADE_STATUSES.failed
-      ? UPGRADE_STATUSES.failed
-      : UPGRADE_STATUSES.awaiting_operator
-  if (!existing)
-    await insertWorkspaceUpgradeRow({
-      workspaceId: workspace.id,
-      generation: workspace.desiredGeneration,
-      status,
-      upgrade: {
-        key,
-        targetFormat: REINGEST_REQUIRES_FORMAT,
-        ...fields,
-      } satisfies WorkspaceUpgradePayload,
-    })
-  else
-    await transitionWorkspaceUpgradeRow({
+  // One transaction: the delete of a superseded row and the write of the
+  // row that keeps its done marks. Thus a stop between the two cannot lose
+  // the marks and bring the main-era knowledge back.
+  return orgSql<WorkspaceUpgradeScanResult>(async () => {
+    // The repositories that a removed row did stay done in the new row.
+    const { reingested } = await deleteSupersededUpgradeRows({
       workspaceId: workspace.id,
       key,
-      from: SCAN_OWNED,
-      to: status,
-      generation: workspace.desiredGeneration,
-      upgrade: fields,
+      statuses: SCAN_OWNED,
     })
-  return {
-    kind: "pending",
-    key,
-    status: (await getWorkspaceUpgradeRow(workspace.id, key))?.status ?? status,
-  }
+    const existing = await getWorkspaceUpgradeRow(workspace.id, key)
+    if (existing && !SCAN_OWNED.includes(existing.status))
+      return { kind: "pending", key, status: existing.status }
+    const fields = {
+      estimate,
+      fromFormat: Math.max(format, 0),
+      blockedReason: blocked?.blockedReason,
+      // A failed run keeps its note; a block replaces it.
+      ...(blocked
+        ? { note: blocked.note }
+        : existing?.status === UPGRADE_STATUSES.blocked
+          ? { note: undefined }
+          : {}),
+    }
+    // A failed run waits for the operator to start it again, unless it is
+    // now blocked.
+    const status = blocked
+      ? UPGRADE_STATUSES.blocked
+      : existing?.status === UPGRADE_STATUSES.failed
+        ? UPGRADE_STATUSES.failed
+        : UPGRADE_STATUSES.awaiting_operator
+    if (!existing)
+      await insertWorkspaceUpgradeRow({
+        workspaceId: workspace.id,
+        generation: workspace.desiredGeneration,
+        status,
+        upgrade: {
+          key,
+          targetFormat: REINGEST_REQUIRES_FORMAT,
+          ...fields,
+          ...(reingested.length ? { reingested } : {}),
+        } satisfies WorkspaceUpgradePayload,
+      })
+    else
+      await transitionWorkspaceUpgradeRow({
+        workspaceId: workspace.id,
+        key,
+        from: SCAN_OWNED,
+        to: status,
+        generation: workspace.desiredGeneration,
+        upgrade: fields,
+      })
+    return {
+      kind: "pending",
+      key,
+      status:
+        (await getWorkspaceUpgradeRow(workspace.id, key))?.status ?? status,
+    }
+  })
 }

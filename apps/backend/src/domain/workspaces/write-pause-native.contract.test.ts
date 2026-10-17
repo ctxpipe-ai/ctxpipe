@@ -32,6 +32,7 @@ import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import { enqueueInputFromPausedJob } from "./write-job-intent.js"
 import { WRITE_STATUS_REASONS } from "./write-status.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 async function cancelUnlessAlreadyTerminal(
   runner: Pick<OpenWorkflow, "cancelWorkflowRun">,
@@ -159,7 +160,7 @@ process.exit(result.status ?? 1);
             workflowRunId: handle.workflowRun.id,
           })
           if (run && !["completed", "failed", "canceled"].includes(run.status))
-            await f.runner.cancelWorkflowRun(run.id)
+            await cancelWorkflowRunIfOpen(f.backend, run.id)
           await worker.stop()
           if (priorPath === undefined) delete process.env.PATH
           else process.env.PATH = priorPath

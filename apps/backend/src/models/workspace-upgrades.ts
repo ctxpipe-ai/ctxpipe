@@ -3,6 +3,7 @@ import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { workspaces, workspaceWriteJobs } from "../db/schema/workspaces.js"
 import {
+  reingestedNames,
   UPGRADE_JOB_KIND,
   UPGRADE_STATUSES,
   type UpgradeStatus,
@@ -176,6 +177,10 @@ export async function transitionWorkspaceUpgradeRow(input: {
     const upgrade = { ...current.upgrade, ...input.upgrade }
     for (const [key, value] of Object.entries(upgrade))
       if (value === undefined) delete upgrade[key as keyof typeof upgrade]
+    // A repository that a re-ingestion did stays done, also when the new
+    // reports of a later run do not say so.
+    const reingested = reingestedNames(current.upgrade, input.upgrade)
+    if (reingested.length) upgrade.reingested = reingested
     const payload: NonNullable<typeof row.payload> = {
       ...row.payload,
       upgrade,
@@ -212,25 +217,61 @@ export async function transitionWorkspaceUpgradeRow(input: {
  * `reingest-`, the prefix of `key`) that wait for a click or cannot start:
  * a newer release replaced them. A row with an open pull request or a run
  * stays.
+ *
+ * The repositories that a removed re-ingestion did stay done: they go to
+ * the row of `key` when it exists, and the function returns them for the
+ * row that the caller inserts.
  */
 export async function deleteSupersededUpgradeRows(input: {
   workspaceId: string
   key: string
   statuses: readonly UpgradeStatus[]
-}): Promise<void> {
+}): Promise<{ reingested: string[] }> {
   const family = `${upgradeJobId(input.workspaceId, input.key.split("-")[0] ?? input.key)}-`
-  await orgSql(async () => {
-    await getOrgDb()
+  const id = upgradeJobId(input.workspaceId, input.key)
+  return orgSql(async () => {
+    const db = getOrgDb()
+    // The lock comes first, so that a run cannot write the row meanwhile.
+    const [kept] = await db
+      .select()
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.id, id),
+          eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
+        ),
+      )
+      .for("update")
+    const deleted = await db
       .delete(workspaceWriteJobs)
       .where(
         and(
           eq(workspaceWriteJobs.workspaceId, input.workspaceId),
           eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
-          ne(workspaceWriteJobs.id, upgradeJobId(input.workspaceId, input.key)),
+          ne(workspaceWriteJobs.id, id),
           like(workspaceWriteJobs.id, `${family.replace(/[\\%_]/g, "\\$&")}%`),
           inArray(workspaceWriteJobs.status, [...input.statuses]),
         ),
       )
+      .returning({ payload: workspaceWriteJobs.payload })
+    const reingested = reingestedNames(
+      ...deleted.map(({ payload }) => payload?.upgrade),
+    )
+    const upgrade = kept?.payload?.upgrade
+    if (kept && upgrade && reingested.length)
+      await db
+        .update(workspaceWriteJobs)
+        .set({
+          payload: {
+            ...kept.payload,
+            upgrade: {
+              ...upgrade,
+              reingested: reingestedNames(upgrade, { reingested }),
+            },
+          },
+        })
+        .where(eq(workspaceWriteJobs.id, id))
+    return { reingested }
   })
 }
 

@@ -155,14 +155,10 @@ export async function planUnlinkRetraction(input: {
     else kept.push({ path: file.path, content })
   }
   const retracted = retractExtractionClaims({
-    extraction: {
-      repositoryUrl: input.sourceUrl,
-      claims: [],
-      retraction: { mode: "full", observedAt: input.observedAt },
-    },
+    repositoryUrl: input.sourceUrl,
+    observedAt: input.observedAt,
     workspaceRepositoryUrl: input.workspaceRepositoryUrl,
     files: kept,
-    referencePaths: new Map(),
   })
   const original = new Map(before.map((file) => [file.path, file.content]))
   const files = retracted

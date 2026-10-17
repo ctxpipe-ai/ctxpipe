@@ -56,7 +56,7 @@ export const semanticMergeContentSchema = z
   .object({
     mirror: connectorMirrorSourceSchema.optional(),
     /**
-     * Retired: the handoff of the old pipeline (CTX-642). A run that was
+     * Retired: the handoff of the old pipeline. A run that was
      * queued with it still parses, and it ends with no write.
      */
     extraction: z.record(z.string(), z.unknown()).optional(),
@@ -131,10 +131,14 @@ export const workspaceSemanticMerge = defineWorkflow(
           : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
         if (input.extraction) {
-          // The old pipeline is gone (CTX-642): no ingestion writes to a
+          // The old pipeline is gone: no ingestion writes to a
           // Workspace below format 3. A handoff that it queued ends here.
           await step.run({ name: "complete-retired" }, () =>
-            persistWriteJobStatus(input.jobId, "completed"),
+            persistWriteJobStatus(
+              input.jobId,
+              "completed",
+              "The old ingestion pipeline is retired. Its queued semantic_merge handoff ends with no write; ingestion v2 publishes to a Workspace at format 3 or more.",
+            ),
           )
           return {
             committed: false as const,

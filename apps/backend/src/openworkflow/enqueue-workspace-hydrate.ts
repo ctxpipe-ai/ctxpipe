@@ -12,7 +12,11 @@ export async function enqueueWorkspaceHydrate(
     workspaceId: string
   },
   log: { error: (err: Error) => void },
-  options?: { idempotencyKey: (revision: WorkspaceRevision) => string },
+  options?: {
+    idempotencyKey: (revision: WorkspaceRevision) => string
+    /** Project the revision again, also when it is the active one. */
+    reproject?: true
+  },
 ): Promise<void> {
   assertNotInOrgDbContext()
   let revision: WorkspaceRevision | undefined
@@ -30,6 +34,7 @@ export async function enqueueWorkspaceHydrate(
         orgId: input.orgId,
         workspaceId: revision.workspaceId,
         revision,
+        ...(options?.reproject ? { reproject: true as const } : {}),
       },
       options && { idempotencyKey: options.idempotencyKey(revision) },
     )
