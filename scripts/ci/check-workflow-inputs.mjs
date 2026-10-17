@@ -75,7 +75,7 @@ if (failures.length > 0) {
   console.error(
     [
       ...failures,
-      "Put an outside value (an input, a branch name, PR text) in env: and read it as \"$NAME\" in the script. Give each workflow a permissions: block.",
+      'Put an outside value (an input, a branch name, PR text) in env: and read it as "$NAME" in the script. Give each workflow a permissions: block.',
     ].join("\n"),
   )
   process.exit(1)
