@@ -201,6 +201,10 @@ describe("buildUpgradeCommits", () => {
       targetFormat: 3,
       steps: built.steps,
     })
+    expect(text.body).toContain(
+      "There is one commit for each step, and a last commit that sets the format.",
+    )
+    expect(text.body).toContain("You can use any merge method")
     expect(text.body).toContain("### Format 1: Add notes\n- Added notes/a.md")
     expect(text.body).toContain(
       "### Format 2: Keep the readme\n- No change was necessary.",

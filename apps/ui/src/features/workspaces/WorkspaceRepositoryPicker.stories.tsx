@@ -292,9 +292,11 @@ export const PasteUrl: Story = {
 export const PasteUrlWithRootFolder: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await expect(
-      canvas.getByText(/leave it empty to use the whole repository/i),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/keep several workspaces in one repository/i),
+      ).toBeVisible(),
+    )
     await userEvent.type(
       canvas.getByRole("textbox", { name: /root folder/i }),
       "docs/context/",
@@ -311,6 +313,31 @@ export const PasteUrlWithRootFolder: Story = {
       gitUrl: "https://github.com/acme/platform.git",
       source: "paste",
       rootPath: "docs/context",
+    })
+  },
+}
+
+/** The root folder is optional: an empty field sends "" for the whole repository. */
+export const PasteUrlWithEmptyRootFolder: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText("Leave empty to use the whole repository"),
+      ).toBeVisible(),
+    )
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+    await userEvent.type(
+      canvas.getByLabelText(/git url/i),
+      "https://github.com/acme/platform.git",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create workspace/i }),
+    )
+    await expect(args.onSubmit).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/platform.git",
+      source: "paste",
+      rootPath: "",
     })
   },
 }
