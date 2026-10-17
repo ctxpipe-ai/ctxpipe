@@ -4,7 +4,8 @@
 #   this workflow, never to a step that runs branch code and never into a
 #   preview service variable. The preview backend wakes its worker with a
 #   Railway project token that the deploy creates for the preview environment
-#   only (scripts/preview-own-secrets.sh). No extra secret is necessary.
+#   only (scripts/preview-own-secrets.sh), and that the PR-close cleanup
+#   revokes. No extra secret is necessary.
 # - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: each preview gets its
 #   own random values once, and keeps them for its life. Connection secrets
 #   copied from production do not decrypt on a preview.
@@ -1218,6 +1219,35 @@ jobs:
           max_attempts: 3
           retry_wait_seconds: 15
           command: npm install -g @railway/cli@4.35.2
+
+      - name: Revoke the preview worker-wake token
+        # PR Deploy creates one Railway project token per preview environment
+        # (scripts/preview-own-secrets.sh). Delete each token of this
+        # environment before the environment goes. Prints no token value.
+        env:
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENV: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          gql() {
+            curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$1" --argjson v "$2" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2
+          }
+          ENV_ID="$(gql 'query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
+            "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{id:$id}')" \
+            | jq -r --arg n "$PR_ENV" '[.data.project.environments.edges[]?.node | select(.name == $n) | .id][0] // empty')"
+          if [[ -z "$ENV_ID" ]]; then
+            echo "No Railway environment $PR_ENV; no token to revoke"
+            exit 0
+          fi
+          TOKEN_IDS="$(gql 'query($projectId: String!) { projectTokens(projectId: $projectId, first: 100) { edges { node { id environmentId } } } }' \
+            "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" '{projectId:$p}')" \
+            | jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id')"
+          for id in $TOKEN_IDS; do
+            gql 'mutation($id: String!) { projectTokenDelete(id: $id) }' "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null
+            echo "Revoked Railway project token $id of $PR_ENV"
+          done
 
       - name: Delete Railway environment
         # Railway API/CLI calls can be flaky; retry once before failing.
