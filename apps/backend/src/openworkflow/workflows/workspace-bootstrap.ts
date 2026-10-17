@@ -5,7 +5,10 @@ import {
   bootstrapWorkspaceFiles,
 } from "../../domain/workspaces/bootstrap.js"
 import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
-import { getUnbornBootstrapWorkspace } from "../../domain/workspaces/bootstrap-unborn.js"
+import {
+  getUnbornBootstrapWorkspace,
+  revisionHasCtxpipeContent,
+} from "../../domain/workspaces/bootstrap-unborn.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
@@ -14,6 +17,7 @@ import {
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
+  CTXPIPE_CONTENT_FOLDERS,
   hasCtxpipeContent,
   WORKSPACE_FORMAT_PATH,
   workspaceFormatFile,
@@ -43,7 +47,8 @@ import {
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
 import {
-  listPackBlobs,
+  listTreeBlobs,
+  packRootTree,
   readGitFiles,
   withGitDirectory,
 } from "../../services/git/pack.js"
@@ -341,7 +346,16 @@ export const workspaceBootstrap = defineWorkflow(
                 (
                   await withGitDirectory(
                     acquired.pack.sha,
-                    (directory) => listPackBlobs(directory, acquired.pack),
+                    async (directory) => {
+                      const tree = await packRootTree(directory, acquired.pack)
+                      return tree
+                        ? listTreeBlobs(
+                            directory,
+                            tree,
+                            CTXPIPE_CONTENT_FOLDERS,
+                          )
+                        : []
+                    },
                     acquired.pack,
                   )
                 ).map((blob) => blob.path),
@@ -422,7 +436,20 @@ export const workspaceBootstrap = defineWorkflow(
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
               () =>
-                captureSemanticHandoff(input, revision, committed, env, "host"),
+                captureSemanticHandoff(
+                  input,
+                  revision,
+                  committed,
+                  env,
+                  "host",
+                  // The tip moved after the bind. The format file of a new
+                  // repository must not go onto a tree that now has ctx|
+                  // content: that repository keeps its format (ADR-053).
+                  async (next) =>
+                    (await revisionHasCtxpipeContent(input.orgId, next))
+                      ? [WORKSPACE_FORMAT_PATH]
+                      : [],
+                ),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

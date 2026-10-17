@@ -1,4 +1,6 @@
 import { execFileSync } from "node:child_process"
+import { mkdirSync, writeFileSync } from "node:fs"
+import { join } from "node:path"
 import { HttpResponse, http } from "msw"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -31,7 +33,12 @@ const README = "# Example\nA new repository.\n"
  * each job id at the same time, on the same tip. It returns the results in
  * job order.
  */
-async function bootstrapTogether(f: NativeHydrationFixture, jobs: string[]) {
+async function bootstrapTogether(
+  f: NativeHydrationFixture,
+  jobs: string[],
+  /** Runs after the bind and before the worker starts the runs. */
+  beforeStart?: () => void,
+) {
   const spec = {
     ...workspaceBootstrap.spec,
     retryPolicy: { maximumAttempts: 1 },
@@ -60,9 +67,22 @@ async function bootstrapTogether(f: NativeHydrationFixture, jobs: string[]) {
       )
     }
     // Both runs bind the same tip before the worker starts either of them.
+    beforeStart?.()
     await worker.start()
     return await Promise.all(
-      handles.map((handle) => handle.result({ timeoutMs: 45_000 })),
+      handles.map((handle) =>
+        handle.result({ timeoutMs: 45_000 }).catch(async (error) => {
+          const steps = await f.backend.listStepAttempts({
+            workflowRunId: handle.workflowRun.id,
+          })
+          throw new Error(
+            JSON.stringify({
+              error: String(error),
+              steps: steps.data.map((step) => [step.stepName, step.error]),
+            }),
+          )
+        }),
+      ),
     )
   } finally {
     await worker.stop()
@@ -209,12 +229,15 @@ it(
           f.git("--git-dir", f.remote, "rev-list", "--count", `${f.sha}..main`),
         ).toBe("1")
         const head = tip(f)
-        // The second push loses the race. Its next attempt finds the
-        // bootstrap files and the format file on the new tip.
-        expect(results).toEqual([
-          { committed: true, commitSha: head },
-          { committed: false, reason: "no_changes" },
-        ])
+        // Either run can win. The push of the other loses the race, and its
+        // merge finds the same files on the new tip.
+        expect(results).toHaveLength(2)
+        expect(results).toEqual(
+          expect.arrayContaining([
+            { committed: true, commitSha: head },
+            { committed: false, reason: "no_changes" },
+          ]),
+        )
         expect(remoteFile(f, WORKSPACE_FORMAT_PATH)).toContain("format: 3\n")
         expect(remoteFile(f, "README.md")).toBe(README)
       },
@@ -318,6 +341,57 @@ it(
           outcome: "pull_request",
           path: "sources/linear/eng.md",
         })
+      },
+    )
+  },
+)
+
+it(
+  "does not write the format file when sources arrive on the default branch after the bind",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "README.md", body: README }],
+      },
+      async (f) => {
+        let human = ""
+        const [result] = await bootstrapTogether(f, ["only"], () => {
+          // A person pushes a source file at the old layout.
+          mkdirSync(join(f.directory, "sources/linear"), { recursive: true })
+          writeFileSync(
+            join(f.directory, "sources/linear/eng.md"),
+            "---\nprovider: linear\nconnection: con_linear\nteams: [ENG]\n---\n",
+          )
+          f.git("add", ".")
+          f.git(
+            "-c",
+            "user.name=test",
+            "-c",
+            "user.email=test@example.com",
+            "commit",
+            "-m",
+            "Add a source",
+          )
+          f.git("push", f.remote, "HEAD:refs/heads/main")
+          human = f.git("rev-parse", "HEAD")
+        })
+        expect(result).toMatchObject({ committed: true })
+        expect(
+          f.git(
+            "--git-dir",
+            f.remote,
+            "merge-base",
+            "--is-ancestor",
+            human,
+            "main",
+          ),
+        ).toBe("")
+        expect(remoteFile(f, WORKSPACE_FORMAT_PATH)).toBeNull()
+        expect(remoteFile(f, "AGENTS.md")).toContain("name: Hydration contract")
       },
     )
   },

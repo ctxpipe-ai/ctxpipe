@@ -186,10 +186,6 @@ export async function pushWorkspaceCommit(
         [
           "push",
           "--porcelain",
-          // The remote changes the branch only while its tip is still the
-          // bound revision. A writer that loses a race fails here, and its
-          // next attempt reads the new tip.
-          `--force-with-lease=refs/heads/${revision.defaultBranch}:${revision.sha}`,
           "--",
           revision.remote.url,
           `${committed.sha}:refs/heads/${revision.defaultBranch}`,
@@ -379,12 +375,19 @@ export async function captureSemanticHandoff(
   committed: GitPack,
   env: Env,
   origin: WriteOrigin,
+  /** Paths of the delta that must not go onto the new tip. */
+  dropPaths?: (nextRevision: WorkspaceRevision) => Promise<string[]>,
 ) {
   const { readGitCommitChanges } = await import(
     "../../services/git/write-tree.js"
   )
-  const changes = await readGitCommitChanges(committed, revision.sha)
+  const delta = await readGitCommitChanges(committed, revision.sha)
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
+  const dropped = new Set(dropPaths ? await dropPaths(nextRevision) : [])
+  const changes = {
+    files: delta.files.filter((file) => !dropped.has(file.path)),
+    deletePaths: delta.deletePaths.filter((path) => !dropped.has(path)),
+  }
   const handoff = await persistSemanticHandoff({
     jobId: input.jobId,
     revision,

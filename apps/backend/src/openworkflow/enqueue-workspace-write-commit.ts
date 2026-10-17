@@ -1,7 +1,10 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
-import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
+import {
+  captureUnbornBootstrapBinding,
+  revisionHasCtxpipeContent,
+} from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import {
   resolveRepositoryReadCredential,
@@ -13,8 +16,6 @@ import {
 } from "../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../domain/workspaces/root-path.js"
 import {
-  CTXPIPE_CONTENT_FOLDERS,
-  hasCtxpipeContent,
   INGESTION_V2_PUBLISH_FORMAT,
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
@@ -41,10 +42,7 @@ import {
   persistWriteStatus,
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
-import {
-  listGitPathsAtSha,
-  listMarkdownFilesAtGitSha,
-} from "../services/git/clone-tree.js"
+import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
@@ -168,26 +166,6 @@ async function tipWorkspaceFormat(
     extraPaths: [WORKSPACE_FORMAT_PATH],
   }).then((files) => files.filter((f) => f.path === WORKSPACE_FORMAT_PATH))
   return workspaceFormatCacheValue(readWorkspaceFormat(file?.content ?? null))
-}
-
-/** True when the tree of `revision` has ctx| content (see `hasCtxpipeContent`). */
-async function tipHasCtxpipeContent(
-  orgId: string,
-  revision: WorkspaceRevision,
-): Promise<boolean> {
-  return hasCtxpipeContent(
-    await listGitPathsAtSha({
-      url: revision.remote.url,
-      sha: revision.sha,
-      token: await resolveRepositoryReadCredential({
-        orgId,
-        env: parseEnv(process.env),
-        remote: revision.remote,
-      }),
-      root: workspaceRootPath(revision),
-      folders: CTXPIPE_CONTENT_FOLDERS,
-    }),
-  )
 }
 
 export async function enqueueWriteJob(
@@ -424,7 +402,7 @@ export async function enqueueWriteJob(
           await tipWorkspaceFormat(input.orgId, revision),
           INGESTION_V2_PUBLISH_FORMAT,
         ) &&
-        (await tipHasCtxpipeContent(input.orgId, revision))
+        (await revisionHasCtxpipeContent(input.orgId, revision))
       ) {
         const { enqueueWorkspaceUpgradeScan } = await import(
           "./workflows/workspace-upgrade-scan.js"
