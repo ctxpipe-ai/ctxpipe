@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { relative, resolve } from "node:path"
+import { readFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { readTestConfiguration } from "./test-configuration.mjs"
@@ -125,10 +126,7 @@ function importedMainTestPaths(root) {
 try {
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const classification = new Map(
-    readGate0File(
-      root,
-      "docs/plans/workspace-recovery-gate-0/test-classification.tsv",
-    )
+    readFileSync(join(root, "scripts/ci/test-classification.tsv"), "utf8")
       .trim()
       .split("\n")
       .slice(1)

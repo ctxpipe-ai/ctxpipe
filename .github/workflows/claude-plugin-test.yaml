@@ -18,6 +18,7 @@ permissions:
 
 jobs:
   backend:
+    timeout-minutes: 15
     name: Backend tests
     runs-on: blacksmith-4vcpu-ubuntu-2404
     env:
@@ -60,6 +61,7 @@ jobs:
           src/mcp/transport.test.ts
 
   ui:
+    timeout-minutes: 15
     name: UI tests
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
@@ -78,6 +80,7 @@ jobs:
       - run: pnpm --filter @ctxpipe/ui test
 
   package:
+    timeout-minutes: 15
     name: Validate and install package
     runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
