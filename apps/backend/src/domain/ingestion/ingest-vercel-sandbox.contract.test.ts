@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto"
 import { gunzipSync } from "node:zlib"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { APIError, Sandbox } from "@vercel/sandbox"
+import { APIError, type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -36,7 +36,10 @@ import {
 } from "../../test/ingest-github.js"
 import { VERCEL_INGEST_AGENT_PATH } from "../workspaces/chat-runtime.js"
 import { ingestEgressForwardUrl } from "../workspaces/ingest-egress-proxy.js"
-import { ingestSandboxTags } from "../workspaces/ingest-sandbox-egress.js"
+import {
+  ingestNetworkPolicy,
+  ingestSandboxTags,
+} from "../workspaces/ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
   deleteVercelBuilder,
@@ -520,6 +523,69 @@ async function agentStatus(curlArgs: string): Promise<number> {
 const runtime = hostedIngestShardRuntimeForContract()
 
 describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
+  it("diagnoses which ingest policy parts Vercel accepts", async () => {
+    const scratch = await Sandbox.create({
+      ...credentials,
+      runtime: VERCEL_SANDBOX.runtime,
+      resources: VERCEL_SANDBOX.resources,
+      timeout: 5 * 60_000,
+      tags: { environment, purpose: "ci-contract-diagnosis" },
+    })
+    created.push(scratch.name)
+    const forwardURL = ingestEgressForwardUrl(
+      {
+        sandbox: scratch.name,
+        exp: Date.now() + 60_000,
+        backendHost: tunnelHost,
+        git: [{ token: "not-a-token", repositories: [HELLO] }],
+      },
+      authSecret,
+    )
+    const production = ingestNetworkPolicy({
+      git: [{ token: "not-a-token", repositories: [HELLO] }],
+      backendHost: tunnelHost,
+      secret: authSecret,
+      sandboxName: scratch.name,
+    }) as Exclude<NetworkPolicy, string>
+    const variants: Record<string, NetworkPolicy> = {
+      github: { allow: { "github.com": [{ forwardURL }] } },
+      shortUrl: {
+        allow: { "github.com": [{ forwardURL: `https://${tunnelHost}/x` }] },
+      },
+      both: {
+        allow: {
+          "github.com": [{ forwardURL }],
+          [tunnelHost]: [{ forwardURL }],
+        },
+      },
+      ipv4: {
+        allow: { "github.com": [{ forwardURL }] },
+        subnets: { deny: ["10.0.0.0/8", "169.254.0.0/16"] },
+      },
+      ipv6: {
+        allow: { "github.com": [{ forwardURL }] },
+        subnets: { deny: ["fc00::/7"] },
+      },
+      zero: {
+        allow: { "github.com": [{ forwardURL }] },
+        subnets: { deny: ["0.0.0.0/8"] },
+      },
+      production,
+    }
+    for (const [name, networkPolicy] of Object.entries(variants)) {
+      const outcome = await scratch.update({ networkPolicy }).then(
+        () => "accepted",
+        (error: unknown) =>
+          error instanceof APIError
+            ? `${error.response.status} ${(error.text ?? "").slice(0, 400)}`
+            : String(error),
+      )
+      report(
+        `[vercel] policy ${name} (url ${forwardURL.length} chars): ${outcome}`,
+      )
+    }
+  })
+
   it("runs one shard end to end: prepare, discover-roots, and a model step whose usage comes back, all egress through the backend proxy", async () => {
     const shard = runtime(shardSpec(await readIngestSkillBundle()))
     let started = Date.now()
