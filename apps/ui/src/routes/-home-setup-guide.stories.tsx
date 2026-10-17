@@ -784,3 +784,34 @@ export const GuideStaysAfterFirstWorkspace: Story = {
     await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
   },
 }
+
+/**
+ * A member in an org with no Workspace: only an owner or admin can pick the
+ * repository, so the row asks for an admin and has no Create button.
+ */
+export const GuideMemberNoWorkspace: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers([roleHandler("member")], []),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(guide.getByText("Create your first Workspace")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        guide.getByText("Ask an admin to create a Workspace."),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        guide.queryByRole("button", { name: "Create Workspace" }),
+      ).not.toBeInTheDocument(),
+    )
+  },
+}

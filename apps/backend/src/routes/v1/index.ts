@@ -35,6 +35,7 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
+import { meApiKeysRoutes } from "./me-api-keys.js"
 import { meConnectedAppsRoutes } from "./me-connected-apps.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
@@ -51,6 +52,7 @@ import {
   connectionSyncRoutes,
   connectionUsageRoutes,
 } from "./workspace-sources-routes.js"
+import { orgPendingUpgradeRoutes } from "./workspace-upgrades-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScopedGate = new OpenAPIHono<AppEnv>()
@@ -115,6 +117,7 @@ function createOrgScopedV1<BasePath extends string>(
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/workspaces", workspaceRoutes)
+    .route("/workspace-upgrades", orgPendingUpgradeRoutes)
     .route("/activity", orgActivityRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
@@ -166,6 +169,17 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
       }
       return next()
     })
+    // Only a browser session sets the org set of a personal API key. A key
+    // must not widen its own set.
+    .use("/me/api-keys/*", async (c, next) => {
+      if (
+        c.req.raw.headers.has("authorization") ||
+        c.req.raw.headers.has("x-api-key")
+      ) {
+        return c.json({ error: "Sign in to manage API keys" }, 403)
+      }
+      return next()
+    })
     .use("*", withCookieAuth)
     .use("*", withBearerAuth)
     .use("*", requireAuth)
@@ -175,6 +189,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
     .route("/me/github/installations", meGithubInstallationsRoutes)
     .route("/me/connected-apps", meConnectedAppsRoutes)
+    .route("/me/api-keys", meApiKeysRoutes)
     .route("/connectors/notion", notionOAuthCallbackRoutes)
     .route("/onboarding", userOnboardingRoutes)
 

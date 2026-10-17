@@ -27,7 +27,7 @@ type StartInput = {
 }
 
 /**
- * The shadow trigger (T09): after the old pipeline ingested `sha` of a
+ * The shadow trigger (T09): after `repository-ingestion` indexed `sha` of a
  * repository, queue one ingestion v2 run in shadow mode at the same SHA. The
  * caller checks `ingestionV2ShadowEnabled` first. The trigger run's id is the
  * idempotency key, so a replayed trigger step queues nothing new.
@@ -41,12 +41,12 @@ export function startIngestionV2Shadow(
 }
 
 /**
- * The publish trigger (ADR-052 phase 4, G5): after the old pipeline ingested
- * `sha` of a repository, queue one ingestion v2 run that publishes, when a
- * Workspace that declares the repository is at format 3 or more. The check
- * reads the cached format; the run reads the format of each pinned tree
- * again before it publishes. The old pipeline does not publish to that
- * Workspace, so each Workspace gets one pipeline.
+ * The publish trigger (ADR-052 phase 4, G5): after `repository-ingestion`
+ * indexed `sha` of a repository, queue one ingestion v2 run that publishes,
+ * when a Workspace that declares the repository is at format 3 or more. The
+ * check reads the cached format; the run reads the format of each pinned
+ * tree again before it publishes. No ingestion writes to a Workspace below
+ * format 3.
  */
 export function startIngestionV2Publish(
   input: StartInput,

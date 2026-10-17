@@ -81,7 +81,7 @@ describe("API-key client", () => {
     })
   })
 
-  it("uses the personal key configuration without an organization id", async () => {
+  it("uses the personal key configuration without an organization id, and sends the org set", async () => {
     const { createPersonalApiKey, deletePersonalApiKey, listPersonalApiKeys } =
       await import("./organizationApiKeys")
     fetchMock
@@ -95,6 +95,7 @@ describe("API-key client", () => {
     await createPersonalApiKey({
       name: "my-agent",
       expiresIn: 30 * 24 * 60 * 60,
+      organizationIds: ["org_a", "org_b"],
     })
     await deletePersonalApiKey("key_personal")
 
@@ -106,6 +107,10 @@ describe("API-key client", () => {
       name: "my-agent",
       expiresIn: 2_592_000,
     })
+    // The backend writes this org set before it answers with the secret.
+    expect(requestAt(1).headers.get("x-ctxpipe-api-key-organizations")).toBe(
+      "org_a,org_b",
+    )
     expect(await requestAt(2).json()).toEqual({
       keyId: "key_personal",
       configId: "default",

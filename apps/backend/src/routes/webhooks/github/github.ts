@@ -26,6 +26,10 @@ import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
 import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
+import {
+  logGithubWebhookNoOrganization,
+  logGithubWebhookNoWorkspace,
+} from "./github-webhook-miss.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -240,6 +244,18 @@ async function processPushEvent(
     githubConnectionId,
     ctx.env,
   )
+  const delivery = {
+    event: "push",
+    installationId: installation.id,
+    githubConnectionId,
+  }
+  if (installationRows.length === 0)
+    await logGithubWebhookNoOrganization(delivery, ctx.env, ctx.log)
+  else
+    await logGithubWebhookNoWorkspace(
+      { ...delivery, orgIds: installationRows.map((row) => row.orgId) },
+      ctx.log,
+    )
   for (const installationRow of installationRows) {
     await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
   }
@@ -402,6 +418,8 @@ export async function processGithubWebhookPayload(
       await maybeEnqueueUpgradeScanForPullRequest({
         payload,
         githubConnectionId: opts?.connectionId,
+        env: ctx.env,
+        log: ctx.log,
       })
       await maybeEnqueueGithubPrMirror({
         eventName,

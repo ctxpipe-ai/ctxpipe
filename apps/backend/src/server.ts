@@ -53,7 +53,7 @@ export default {
   idleTimeout: 255,
   fetch: async (request, server) => {
     if (isWorkspaceChatWebSocketRequest(request)) {
-      return handleConversationWebSocket(request, server)
+      return handleConversationWebSocket(request, server, env)
     }
     return (
       handleWebSocketProxy(request, server, env) || app.fetch(request, server)

@@ -26,6 +26,7 @@ import {
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { githubGrantAccessUrls } from "@/lib/github-app-url"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { eligibleInstallationRepos } from "./gitUrl"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
@@ -74,12 +75,19 @@ export function WorkspaceRepositoryPicker(props: {
     .map((connection) => connection.id)
   const noGithubConnection =
     connectionsQuery.isSuccess && githubConnectionIds.length === 0
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, githubConnectionIds),
-    enabled: connectionsQuery.isSuccess && githubConnectionIds.length > 0,
+    enabled:
+      connectionsQuery.isSuccess &&
+      githubConnectionIds.length > 0 &&
+      isAdmin === true,
     refetchOnWindowFocus: "always",
-    // The user makes the repository on GitHub while this tab is open.
-    refetchInterval: mode === "create" ? 4000 : false,
+    // The user makes the repository on GitHub while this tab is open. A
+    // failed read (for example a 403) stops the poll.
+    refetchInterval: (query) =>
+      mode === "create" && query.state.status !== "error" ? 4000 : false,
   })
   // The owner to prefill on GitHub, and the app to give access. With more
   // than one connection, the first one is a good default.
@@ -148,6 +156,7 @@ export function WorkspaceRepositoryPicker(props: {
           <TabPanel id="select" className="p-0">
             <SelectGitHubPanel
               orgSlug={orgSlug}
+              isAdmin={isAdmin}
               noGithubConnection={noGithubConnection}
               onPasteInstead={() => setMode("paste")}
               pending={pending}
@@ -273,6 +282,8 @@ export function WorkspaceRepositoryPickerSkeleton() {
 
 function SelectGitHubPanel(props: {
   orgSlug: string
+  /** `null` while the role loads: the list skeleton shows. */
+  isAdmin: boolean | null
   /** The org has no GitHub connection yet. */
   noGithubConnection: boolean
   onPasteInstead: () => void
@@ -304,6 +315,20 @@ function SelectGitHubPanel(props: {
       manageUrl={props.manageUrl}
     />
   )
+
+  if (props.isAdmin === false) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Ask an admin to pick a GitHub repository, or paste a git URL. Only an
+          owner or admin can list the repositories of the GitHub App.
+        </p>
+        <Button variant="quiet" onPress={props.onPasteInstead}>
+          Paste a git URL
+        </Button>
+      </div>
+    )
+  }
 
   if (props.noGithubConnection) {
     return (

@@ -9,7 +9,6 @@ import {
 } from "../db/schema/workspaces.js"
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
-import type { WorkspaceExtraction } from "../domain/workspaces/extraction.js"
 import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
 import {
   sameWorkspaceRevision,
@@ -191,7 +190,7 @@ export async function persistSemanticHandoff(input: {
   files: GitFileChange[]
   deletePaths: string[]
   mirror?: ConnectorMirrorSource
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
 }) {
   return orgSql(async () => {
     const [row] = await getOrgDb()
@@ -252,7 +251,7 @@ export async function validateSemanticHandoff(
     files: GitFileChange[]
     deletePaths: string[]
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
+    extraction?: Record<string, unknown>
     handoff: { ownerRunId: string; candidateSha: string }
   },
   preparedSha?: string,
@@ -477,7 +476,7 @@ export async function persistBoundWriteJob(input: {
   retractSourcePath?: string
   displayName?: string
   previousSha?: string
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
   ingest?: IngestPublishSource
   mirror?: ConnectorMirrorSource
 }) {
@@ -694,31 +693,6 @@ export async function getCompletedKnowledgePaths(
       .where(eq(workspaceKnowledgePathState.workspaceId, revision.workspaceId))
       .limit(1)
     return row && matchingPathBinding(row.revision, revision) ? row.paths : {}
-  })
-}
-
-export async function persistWriteJobKnowledgePaths(
-  jobId: string,
-  paths: Record<string, string>,
-): Promise<void> {
-  await orgSql(async () => {
-    const [row] = await getOrgDb()
-      .update(workspaceWriteJobs)
-      .set({
-        payload: sql`coalesce(${workspaceWriteJobs.payload}, '{}'::jsonb) || jsonb_build_object('knowledgePaths', ${JSON.stringify(paths)}::jsonb)`,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(workspaceWriteJobs.id, jobId),
-          eq(workspaceWriteJobs.status, WRITE_JOB_STATUSES.running),
-        ),
-      )
-      .returning({ id: workspaceWriteJobs.id })
-    if (!row)
-      throw new Error(
-        "Knowledge path assignments require a running write command",
-      )
   })
 }
 

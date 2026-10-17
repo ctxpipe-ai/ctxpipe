@@ -749,6 +749,7 @@ export async function getPullRequestHeadBranch(
 /**
  * The open pull requests that ctx| opened on a branch that starts with
  * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ * Give `baseBranch` to keep only the pull requests into that base branch.
  *
  * Other people can open a pull request with the same head branch name: from
  * a fork, from the repository itself, or as another GitHub App on the
@@ -760,7 +761,11 @@ export async function getPullRequestHeadBranch(
  * person or App as its own.
  */
 export async function listOpenPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string; exactBranch?: string },
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
   const pulls = await listOpenRepositoryPullRequestsByBranchPrefix(input)
   return pulls
@@ -775,7 +780,11 @@ export async function listOpenPullRequestsByBranchPrefix(
  * branch of this repository, so it is not listed.
  */
 export async function listOpenRepositoryPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string; exactBranch?: string },
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
 ): Promise<
   Array<{ pullUrl: string; branch: string; createdAt: string; ours: boolean }>
 > {
@@ -790,6 +799,7 @@ export async function listOpenRepositoryPullRequestsByBranchPrefix(
       ...(input.exactBranch
         ? { head: `${context.owner}:${input.exactBranch}` }
         : {}),
+      ...(input.baseBranch ? { base: input.baseBranch } : {}),
     }),
   )
   const candidates = pulls.filter(
@@ -797,6 +807,7 @@ export async function listOpenRepositoryPullRequestsByBranchPrefix(
       pull.head.ref.startsWith(input.branchPrefix) &&
       (input.exactBranch === undefined ||
         pull.head.ref === input.exactBranch) &&
+      (input.baseBranch === undefined || pull.base.ref === input.baseBranch) &&
       pull.head.repo?.full_name.toLowerCase() === repository,
   )
   // Ask GitHub for the App login only when a pull request can be ours.
@@ -1068,17 +1079,20 @@ export async function createPullRequestFromBranch(
       error.message.toLowerCase().includes("no commits between")
     )
       return refusal("no_changes", error)
-    const { data: existing } = await context.octokit.rest.pulls.list({
-      owner: context.owner,
-      repo: context.repo,
-      head: `${context.owner}:${input.branch}`,
-      state: "open",
+    // GitHub refuses a second pull request for the same head and base. Keep
+    // only a pull request that ctx| opened on this branch into this base. A
+    // pull request of a collaborator or of another App is not ours to show.
+    const [open] = await listOpenPullRequestsByBranchPrefix({
+      ...input,
+      branchPrefix: input.branch,
+      exactBranch: input.branch,
+      baseBranch: input.baseBranch,
     })
-    const open = existing[0]
-    if (!open) return refusal("pr_refused", error)
+    const pullNumber = open && parseGithubPullNumberFromUrl(open.pullUrl)
+    if (!open || pullNumber === undefined) return refusal("pr_refused", error)
     return {
-      pullNumber: open.number,
-      pullUrl: open.html_url,
+      pullNumber,
+      pullUrl: open.pullUrl,
       branch: input.branch,
       prState: "open",
     }

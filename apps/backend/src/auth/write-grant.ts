@@ -31,7 +31,8 @@ function forbiddenResponse(description: string) {
  * session, or an OAuth token with `ctxpipe:write`. An OAuth token without
  * that scope and an API key get 403. API keys have no permissions, so they
  * cannot hold a write grant. On REST, `requireAuth` refuses an org API key with
- * 401 first, so it never reaches this check. The check stays as defense in
+ * 401, and a personal API key on any method but GET, HEAD and OPTIONS with
+ * this 403, so neither reaches this check. The check stays as defense in
  * depth for a route under /mcp or a route that skips `requireAuth`.
  */
 export const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {

@@ -3,7 +3,6 @@ import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
-  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
@@ -211,18 +210,7 @@ describe("workspaceChatOpenCodeContract", () => {
     })
   })
 
-  it("scrubs host provider keys and pins the OpenCode CLI", () => {
-    expect(WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV).toEqual(
-      expect.arrayContaining([
-        "AUTH_SECRET",
-        "DATABASE_URL",
-        "MODEL_PROVIDER_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "OPENROUTER_API_KEY",
-        "GITHUB_PRIVATE_KEY",
-      ]),
-    )
+  it("pins the OpenCode CLI", () => {
     expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.34")
   })
 

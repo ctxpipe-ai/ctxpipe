@@ -10,6 +10,16 @@ import { gitRemoteEnvironment } from "./clone-tree.js"
 const execute = promisify(execFile)
 
 /**
+ * Native Git processes that have not exited, by repository directory. The
+ * clean-up of a temporary directory waits for them: a process that still
+ * writes into the directory makes the removal fail with ENOTEMPTY.
+ */
+const running = new Map<
+  string,
+  Set<{ kill: () => void; done: Promise<void> }>
+>()
+
+/**
  * Native pack and shallow boundary; no filesystem locator or credential is
  * durable. `root` is the Workspace root folder (CTX-709): the read and write
  * helpers use paths relative to it and never touch a path outside it.
@@ -55,7 +65,18 @@ export async function nativeGit(
 ): Promise<Buffer> {
   const result = execute(
     "git",
-    ["-c", "core.hooksPath=/dev/null", "-C", directory, ...args],
+    [
+      "-c",
+      "core.hooksPath=/dev/null",
+      // No detached `gc --auto` or maintenance task may outlive the command.
+      "-c",
+      "gc.auto=0",
+      "-c",
+      "maintenance.auto=false",
+      "-C",
+      directory,
+      ...args,
+    ],
     {
       encoding: "buffer",
       timeout: 60_000,
@@ -63,6 +84,21 @@ export async function nativeGit(
       env: env ?? { ...process.env, GIT_TERMINAL_PROMPT: "0" },
     },
   )
+  const entry = {
+    kill: () => result.child.kill(),
+    done: result.then(
+      () => undefined,
+      () => undefined,
+    ),
+  }
+  const processes = running.get(directory) ?? new Set()
+  processes.add(entry)
+  running.set(directory, processes)
+  void entry.done.then(() => {
+    processes.delete(entry)
+    if (!processes.size && running.get(directory) === processes)
+      running.delete(directory)
+  })
   if (typeof input === "object" && "file" in input) {
     const stdin = result.child.stdin
     if (!stdin) throw new Error("Native Git did not expose standard input")
@@ -132,7 +168,18 @@ export async function withGitDirectory<T>(
     }
     return await operation(directory)
   } finally {
-    await rm(directory, { recursive: true, force: true })
+    // A Git process that the operation left running (a rejected sibling of a
+    // parallel read) must exit before the removal; it could write meanwhile.
+    const left = [...(running.get(directory) ?? [])]
+    for (const child of left) child.kill()
+    await Promise.all(left.map((child) => child.done))
+    // Second layer only: the cause is handled above.
+    await rm(directory, {
+      recursive: true,
+      force: true,
+      maxRetries: 3,
+      retryDelay: 50,
+    })
   }
 }
 
