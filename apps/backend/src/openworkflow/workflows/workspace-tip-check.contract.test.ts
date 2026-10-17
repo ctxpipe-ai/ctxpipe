@@ -811,15 +811,20 @@ describe("cron write probe and the upgrade scan", () => {
         { github: true, writeStatus: stored, ...github },
         async (f) => {
           await f.publish()
-          const before = await upgradeScanTriggers(f)
+          // The hydrate also queues a scan for the new format, in its own
+          // step: count only the scans of a write access change.
+          const writeAccessScans = async () =>
+            (await upgradeScanTriggers(f)).filter((trigger) =>
+              trigger.startsWith("write-access:"),
+            )
+          expect(await writeAccessScans()).toEqual([])
           await runTipCheck(f, "2026-10-17T01")
-          expect(await upgradeScanTriggers(f)).toEqual([
-            ...before,
+          expect(await writeAccessScans()).toEqual([
             `write-access:2026-10-17T01:${f.workspaceId}:${next}`,
           ])
           // The tip check of the scan sees no change: it queues no second scan.
           await runTipCheck(f, "2026-10-17T01")
-          expect(await upgradeScanTriggers(f)).toHaveLength(before.length + 1)
+          expect(await writeAccessScans()).toHaveLength(1)
         },
       )
     },
