@@ -10,7 +10,7 @@ const noSignals: GuideSignals = {
   role: "admin",
   githubLinked: false,
   workspaceCount: 0,
-  landingBuilding: false,
+  landingBuild: null,
   linkedRepositories: false,
   asked: false,
   toolConnected: false,
@@ -41,11 +41,11 @@ describe("guideRows", () => {
       ...noSignals,
       githubLinked: true,
       workspaceCount: 1,
-      landingBuilding: true,
+      landingBuild: "hydrating",
       teamInvited: true,
     })
     expect(doneIds(rows)).toEqual(["github", "workspace", "invite"])
-    expect(rows.find((row) => row.id === "workspace")?.building).toBe(true)
+    expect(rows.find((row) => row.id === "workspace")?.build).toBe("hydrating")
     const all = guideRows({
       ...noSignals,
       githubLinked: true,
@@ -56,7 +56,27 @@ describe("guideRows", () => {
       teamInvited: true,
     })
     expect(doneIds(all)).toHaveLength(6)
-    expect(all.find((row) => row.id === "workspace")?.building).toBe(false)
+    expect(all.find((row) => row.id === "workspace")?.build).toBeUndefined()
+  })
+
+  it("gives the Workspace row the build state of the first Workspace", () => {
+    const build = (signals: Partial<GuideSignals>) =>
+      guideRows({ ...noSignals, ...signals }).find(
+        (row) => row.id === "workspace",
+      )?.build
+    expect(build({ workspaceCount: 1, landingBuild: "waiting_for_tip" })).toBe(
+      "waiting_for_tip",
+    )
+    expect(build({ workspaceCount: 1, landingBuild: "failed" })).toBe("failed")
+    expect(build({ workspaceCount: 1, landingBuild: "ready" })).toBe("ready")
+    // With no Workspace there is no build to show.
+    expect(build({ workspaceCount: 0, landingBuild: "hydrating" })).toBe(
+      undefined,
+    )
+    // A failed build still counts the row as done: the Workspace exists.
+    expect(
+      guideRows({ ...noSignals, workspaceCount: 1, landingBuild: "failed" }),
+    ).toContainEqual({ id: "workspace", done: true, build: "failed" })
   })
 
   it("never gives a member the GitHub, tool or invite rows", () => {

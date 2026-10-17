@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
-import { workspaceHydrateInFlight } from "@/features/workspaces/projection"
+import {
+  workspaceHydrateInFlight,
+  workspaceHydrateView,
+} from "@/features/workspaces/projection"
 import {
   landingWorkspace,
   workspaceDetailOptions,
@@ -131,7 +134,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
     role,
     githubLinked: githubQuery.data === "linked",
     workspaceCount: workspaces.length,
-    landingBuilding: landing !== null && workspaceHydrateInFlight(landing),
+    landingBuild: landing ? workspaceHydrateView(landing) : null,
     linkedRepositories: (detailQuery.data?.linkedRepositories.length ?? 0) > 0,
     asked,
     toolConnected: (connectionsQuery.data ?? []).some(

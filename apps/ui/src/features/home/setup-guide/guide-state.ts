@@ -1,3 +1,4 @@
+import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import type { OrgGuidePreferences } from "@/lib/user-preferences"
 
 /** Owners and admins get the admin rows. Members get the member rows. */
@@ -17,8 +18,8 @@ export type GuideSignals = {
   role: GuideRole
   githubLinked: boolean
   workspaceCount: number
-  /** The landing Workspace still builds its knowledge repository. */
-  landingBuilding: boolean
+  /** The build state of the landing Workspace; `null` with no Workspace. */
+  landingBuild: WorkspaceHydrateView | null
   /** The landing Workspace has at least one linked code repository. */
   linkedRepositories: boolean
   /** The user sent a message in a Workspace of this organization. */
@@ -34,8 +35,8 @@ export type GuideSignals = {
 export type GuideRow = {
   id: GuideRowId
   done: boolean
-  /** Workspace row only: the knowledge repository is still building. */
-  building?: boolean
+  /** Workspace row only: the build state of the first Workspace. */
+  build?: WorkspaceHydrateView
 }
 
 /** The rows of the guide. Each row counts toward progress. */
@@ -44,7 +45,7 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
   const workspace: GuideRow = {
     id: "workspace",
     done: hasWorkspace,
-    building: hasWorkspace && signals.landingBuilding,
+    build: hasWorkspace ? (signals.landingBuild ?? undefined) : undefined,
   }
   const ask: GuideRow = { id: "ask", done: signals.asked }
   if (signals.role === "member") {

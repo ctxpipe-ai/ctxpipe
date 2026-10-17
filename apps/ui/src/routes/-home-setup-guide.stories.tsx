@@ -5,10 +5,14 @@ import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
 import {
+  createdWorkspace,
+  createdWritableWorkspaceDetail,
   docsWorkspace,
   docsWorkspaceDetail,
   emptyLinkedWorkspaceDetail,
+  failedHydrateWorkspace,
   hydratingWorkspace,
+  waitingForTipWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 import {
   authConfigHandler,
@@ -18,11 +22,17 @@ import {
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
+  githubInstallationReposHandler,
   orgActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -246,8 +256,11 @@ export const GuideAdminWorkspaceBuilding: Story = {
     const guide = await findGuide(canvasElement)
     expect(guide.getByText("2 of 6 done")).toBeVisible()
     expect(guide.getByText("Building")).toBeVisible()
+    expect(guide.getByText("· step 2 of 2")).toBeVisible()
     expect(
-      guide.getByText("You can ask questions while it builds."),
+      guide.getByText(
+        "Loading the files. You can ask questions while it builds.",
+      ),
     ).toBeVisible()
     expect(
       guide.getByRole("button", { name: "Link repositories" }),
@@ -256,6 +269,141 @@ export const GuideAdminWorkspaceBuilding: Story = {
     expect(
       within(canvasElement).getByLabelText("Select workspace"),
     ).toBeVisible()
+  },
+}
+
+const waitingWorkspace: Workspace = {
+  ...waitingForTipWorkspace,
+  mostRecentConversationId: null,
+}
+/** The first Workspace waits for the first commit: build step 1 of 2. */
+export const GuideAdminWorkspaceReadingRepository: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: { ...emptyLinkedWorkspaceDetail, ...waitingWorkspace },
+          }),
+          [waitingWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    expect(guide.getByText("2 of 6 done")).toBeVisible()
+    expect(guide.getByText("· step 1 of 2")).toBeVisible()
+    expect(guide.getByText("Reading the Workspace repository.")).toBeVisible()
+  },
+}
+
+const failedWorkspace: Workspace = {
+  ...failedHydrateWorkspace,
+  mostRecentConversationId: null,
+}
+/** The build of the first Workspace failed: the row says so and links to it. */
+export const GuideAdminWorkspaceBuildFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: { ...emptyLinkedWorkspaceDetail, ...failedWorkspace },
+          }),
+          [failedWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    expect(guide.getByText("2 of 6 done")).toBeVisible()
+    expect(guide.getByText("Build failed")).toBeVisible()
+    expect(guide.getByRole("button", { name: "See the error" })).toBeVisible()
+    expect(guide.queryByText("Building")).not.toBeInTheDocument()
+  },
+}
+
+const createState = { created: false }
+const workspacesPath = ({ request }: { request: Request }) =>
+  /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
+/**
+ * Step 2 of the guide: Create Workspace opens Add Workspace on Home. After
+ * "Done", the guide shows the build of the new Workspace.
+ */
+export const GuideAdminCreatesWorkspaceOnHome: Story = {
+  tags: ["workspace-golden"],
+  beforeEach: () => {
+    createState.created = false
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          http.get(workspacesPath, () =>
+            HttpResponse.json({
+              items: createState.created ? [createdWorkspace] : [],
+              lastUsedWorkspaceId: createState.created
+                ? createdWorkspace.id
+                : null,
+            }),
+          ),
+          http.post(workspacesPath, () => {
+            createState.created = true
+            return HttpResponse.json(createdWorkspace, { status: 201 })
+          }),
+          ...adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github", displayName: "acme" },
+            ]),
+            detail: createdWritableWorkspaceDetail,
+          }),
+          githubInstallationReposHandler(),
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgActivityHandler(),
+          ...workspaceShellHandlers({
+            workspaces: [createdWorkspace],
+            detail: createdWritableWorkspaceDetail,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("1 of 6 done")).toBeVisible())
+    await userEvent.click(
+      guide.getByRole("button", { name: "Create Workspace" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = within(await body.findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("radio", { name: /acme\/handbook/ }),
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Create Workspace" }),
+    )
+    await userEvent.click(await dialog.findByRole("button", { name: "Done" }))
+    await waitFor(() =>
+      expect(body.queryByRole("dialog")).not.toBeInTheDocument(),
+    )
+    // Home stays, and the guide shows the build of the new Workspace.
+    const after = await findGuide(canvasElement)
+    await waitFor(() => expect(after.getByText("2 of 6 done")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        after.getByText("Reading the Workspace repository."),
+      ).toBeVisible(),
+    )
   },
 }
 

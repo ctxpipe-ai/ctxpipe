@@ -3,9 +3,12 @@ import { useRouterState } from "@tanstack/react-router"
 import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import {
   authConfigHandler,
+  githubInstallationLinkedHandler,
+  githubInstallationNoneHandler,
   organizationFullHandler,
   organizationListEmptyHandler,
   organizationListWithOrgHandler,
@@ -247,13 +250,26 @@ function creatorHandlers(
   ]
 }
 
+/** The GitHub slide reads the installation and the hosted App. */
+function githubSlideHandlers(installation: RequestHandler) {
+  return [
+    githubConnectorBootstrapHandler({
+      orgSlug: "acme",
+      hostedDefaultAppInstallUrl:
+        "https://github.com/apps/ctxpipe-agent/installations/new",
+    }),
+    installation,
+  ]
+}
+
 const creatorSession = onboardingSession()
 const creatorState = { orgCreated: false, orgCompleted: false }
 /**
- * A new admin reads How ctx| works, creates the organization, and lands on
- * Home. Onboarding has no GitHub step: the Get started guide on Home has it.
+ * A new admin reads How ctx| works, creates the organization, gets the
+ * Connect GitHub slide, skips it, and lands on Home. Onboarding is complete
+ * before the GitHub slide shows.
  */
-export const AdminFlowCreateOrgLandsOnHome: Story = {
+export const AdminFlowCreateOrgThenSkipGithub: Story = {
   tags: ["workspace-golden"],
   render: () => <OnboardingJourney />,
   beforeEach: () => {
@@ -267,6 +283,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
       handlers: {
         defaults: creatorHandlers(creatorSession, creatorState, [
           workspaceListHandler([]),
+          ...githubSlideHandlers(githubInstallationNoneHandler),
         ]),
       },
     },
@@ -294,9 +311,57 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Create organization" }),
     )
-    await canvas.findByText("Landed on /acme")
-    // The owner's finish also completes the organization.
+    await canvas.findByRole("heading", { name: "Connect GitHub" })
+    // The owner's finish also completes the organization, before GitHub.
     expect(creatorState.orgCompleted).toBe(true)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Connect GitHub" }),
+      ).toBeEnabled(),
+    )
+    await userEvent.click(canvas.getByRole("button", { name: "Skip for now" }))
+    await canvas.findByText("Landed on /acme")
+  },
+}
+
+const linkedSession = onboardingSession()
+const linkedState = { orgCreated: false, orgCompleted: false }
+/**
+ * GitHub is connected already, for example by the App install of another
+ * organization: the slide says so, and Continue opens Home.
+ */
+export const AdminFlowGithubAlreadyConnected: Story = {
+  render: () => <OnboardingJourney />,
+  beforeEach: () => {
+    linkedSession.reset()
+    linkedState.orgCreated = false
+    linkedState.orgCompleted = false
+  },
+  parameters: {
+    storyRoute: onboardingJourneyRoute,
+    msw: {
+      handlers: {
+        defaults: creatorHandlers(linkedSession, linkedState, [
+          workspaceListHandler([]),
+          ...githubSlideHandlers(githubInstallationLinkedHandler),
+        ]),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(await canvas.findByRole("button", { name: "Next" }))
+    const name = await canvas.findByRole("textbox", {
+      name: "Organization name",
+    })
+    await userEvent.clear(name)
+    await userEvent.type(name, "Acme")
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Create organization" }),
+    )
+    await canvas.findByRole("heading", { name: "GitHub is connected" })
+    await userEvent.click(canvas.getByRole("button", { name: "Continue" }))
+    await canvas.findByText("Landed on /acme")
   },
 }
 
@@ -341,6 +406,7 @@ export const AdminFinishFailureContinues: Story = {
           }),
           ...creatorHandlers(retrySession, retryState, [
             workspaceListHandler([]),
+            ...githubSlideHandlers(githubInstallationNoneHandler),
           ]),
         ],
       },
@@ -369,8 +435,10 @@ export const AdminFinishFailureContinues: Story = {
       ).toBeDisabled(),
     )
     await userEvent.click(proceed)
-    await canvas.findByText("Landed on /acme")
+    await canvas.findByRole("heading", { name: "Connect GitHub" })
     expect(retryCreate).toHaveBeenCalledTimes(1)
+    await userEvent.click(canvas.getByRole("button", { name: "Skip for now" }))
+    await canvas.findByText("Landed on /acme")
   },
 }
 

@@ -23,9 +23,14 @@ import {
 /**
  * Add Workspace in two steps. Step 1 chooses the Workspace repository and
  * creates the Workspace. Step 2 adds code repositories and tools to it.
+ * With `onDone`, step 2 ends with "Done" and stays on the page (the Home
+ * guide shows the build); without it, step 2 opens the Workspace.
  */
-export function WorkspaceCreateForm(props: { orgSlug: string }) {
-  const { orgSlug } = props
+export function WorkspaceCreateForm(props: {
+  orgSlug: string
+  onDone?: () => void
+}) {
+  const { orgSlug, onDone } = props
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [createdSlug, setCreatedSlug] = useState<string | null>(null)
@@ -62,7 +67,11 @@ export function WorkspaceCreateForm(props: { orgSlug: string }) {
         currentIndex={createdSlug ? 1 : 0}
       />
       {createdSlug ? (
-        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={createdSlug} />
+        <AddSourcesStep
+          orgSlug={orgSlug}
+          workspaceSlug={createdSlug}
+          onDone={onDone}
+        />
       ) : (
         <>
           <p className="mt-6 text-sm text-muted-foreground">
@@ -94,8 +103,12 @@ export function WorkspaceCreateForm(props: { orgSlug: string }) {
  * The wait stops at the same cap as the Workspace page, which owns
  * "Check again".
  */
-function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
-  const { orgSlug, workspaceSlug } = props
+function AddSourcesStep(props: {
+  orgSlug: string
+  workspaceSlug: string
+  onDone?: () => void
+}) {
+  const { orgSlug, workspaceSlug, onDone } = props
   const navigate = useNavigate()
   const [startedAt] = useState(Date.now)
   const detailQuery = useQuery({
@@ -164,13 +177,17 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
         <Button
           variant="primary"
           onPress={() => {
+            if (onDone) {
+              onDone()
+              return
+            }
             void navigate({
               to: "/$orgSlug/ws/$workspaceSlug",
               params: { orgSlug, workspaceSlug },
             })
           }}
         >
-          Open Workspace
+          {onDone ? "Done" : "Open Workspace"}
         </Button>
       </div>
     </>
