@@ -5,6 +5,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import {
   listOrgWorkspaces,
@@ -13,8 +14,10 @@ import {
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
+import { WRITE_STATUS_REASONS } from "../workspaces/write-status.js"
+import { formatUpgradeKey, GIT_UPGRADE_STEPS } from "./registry.js"
 import { reingestUpgradeKey } from "./reingest.js"
-import { scanWorkspaceReingest } from "./scan.js"
+import { scanWorkspaceReingest, scanWorkspaceUpgrade } from "./scan.js"
 
 it(
   "scans the re-ingestion of a Workspace below format 3 from the repository maps, with no read of the knowledge store",
@@ -108,6 +111,52 @@ it(
         expect(
           row?.upgrade.estimate?.perRepository.map((entry) => entry.repository),
         ).toEqual(["existing/api", "team-a/api"])
+      },
+    )
+  },
+)
+
+it(
+  "blocks the format upgrade of a remote that is not GitHub with the stored reason, not with the GitHub App copy",
+  { timeout: 60_000 },
+  async () => {
+    // No GitHub binding: the remote is a local bare repository.
+    await withNativeHydrationFixture(
+      {
+        writeStatus: "read_only",
+        files: [{ path: "README.md", body: "# Context\n" }],
+      },
+      async (f) => {
+        await f.runner.cancelWorkflowRun(f.handle.workflowRun.id)
+        await withOrgDbContext(f.org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ readOnlyReason: WRITE_STATUS_REASONS.nonGithubHost })
+            .where(eq(workspaces.id, f.workspaceId)),
+        )
+        const [workspace] = (
+          await withOrgDbContext(f.org.id, () => listOrgWorkspaces(f.org.id))
+        ).filter((row) => row.id === f.workspaceId)
+        if (!workspace) throw new Error("The fixture Workspace is missing")
+        await withOrgIdContext(f.org, () =>
+          scanWorkspaceUpgrade({
+            orgId: f.org.id,
+            workspace,
+            steps: GIT_UPGRADE_STEPS,
+            format: 0,
+            env: parseEnv(process.env),
+          }),
+        )
+        const row = await withOrgIdContext(f.org, () =>
+          getWorkspaceUpgradeRow(f.workspaceId, formatUpgradeKey(3)),
+        )
+        expect(row).toMatchObject({
+          status: "blocked",
+          upgrade: {
+            blockedReason: "write_access",
+            note: WRITE_STATUS_REASONS.nonGithubHost,
+          },
+        })
       },
     )
   },
