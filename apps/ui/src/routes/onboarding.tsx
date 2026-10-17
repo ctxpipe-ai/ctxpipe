@@ -87,13 +87,9 @@ export function OnboardingPageContent() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = sessionUser(session)
-  // The Connect GitHub slide, for an organization of this user only. While
-  // `finish` runs, the list can still miss the organization just created.
-  const githubSlug =
-    githubParam &&
-    (completing || organizations?.some((org) => org.slug === githubParam))
-      ? githubParam
-      : undefined
+  // The Connect GitHub slide shows only after onboarding is complete, so a
+  // GitHub flow that leaves the page cannot send the user back here.
+  const githubSlug = user?.onboardingCompletedAt ? githubParam : undefined
   // Onboarding is complete already, for example when the user comes back
   // through the browser history. While `finish` runs, it opens Home or the
   // GitHub slide itself.
@@ -127,13 +123,21 @@ export function OnboardingPageContent() {
   /**
    * Finish onboarding for both paths: make the org active, and mark the user
    * (and, for an owner or admin, the org) complete. Then a joiner opens Home,
-   * and the creator of the organization gets the GitHub slide. Onboarding is
-   * complete before that slide, so a GitHub flow that leaves the page cannot
-   * send the user back here.
+   * and the creator of the organization gets the GitHub slide.
    */
   const finish = async (slug: string) => {
     if (completing) return
     setCompleting(true)
+    // Put the GitHub step in the URL first. The session changes when
+    // onboarding completes, and a page that mounts again then must show the
+    // GitHub slide, not open Home.
+    if (!isJoinerLocked) {
+      await router.navigate({
+        to: "/onboarding",
+        search: { github: slug },
+        replace: true,
+      })
+    }
     const organization = organizations?.find((org) => org.slug === slug)
     try {
       // The request that creates an organization also makes it active.
@@ -149,15 +153,7 @@ export function OnboardingPageContent() {
       toast.error(FINISH_ERROR)
       return
     }
-    if (isJoinerLocked) {
-      openHome(slug)
-      return
-    }
-    void router.navigate({
-      to: "/onboarding",
-      search: { github: slug },
-      replace: true,
-    })
+    if (isJoinerLocked) openHome(slug)
   }
 
   const joinedSlug = organizations?.[0]?.slug
