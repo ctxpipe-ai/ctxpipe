@@ -567,44 +567,61 @@ async function expectFileEditable(
   })
 }
 
+/** The sandbox of a writable conversation, which can edit its git files. */
+function legacyConversationHandlers() {
+  return [
+    // Not in the sandbox: the server serves it from Postgres, read-only.
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+          new URL(request.url).pathname,
+        ) && new URL(request.url).searchParams.get("path") === legacyPath,
+      () =>
+        HttpResponse.json({
+          path: legacyPath,
+          body: "# Tools CLI\n\nThe release tools.\n",
+          binary: false,
+          readOnlyReason: legacyReason,
+        }),
+    ),
+    // The handlers of `ConversationWritable`.
+    conversationPrepareHandler(),
+    conversationGitTreeHandler(),
+    conversationGitBlobHandler(),
+    conversationGitStatusHandler(),
+    conversationGitDiffHandler(),
+    conversationFilePutHandler(),
+    ...gitFilesHandlers,
+  ]
+}
+
+function conversationFileStory(path: string): Story {
+  return {
+    args: {
+      conversationId: "conv_1",
+      pane: { kind: "file", path },
+      fileTabs: [path],
+      previewPath: path,
+    },
+    parameters: {
+      storyRoute: {
+        pattern: "orgWorkspace",
+        orgSlug: "acme",
+        workspaceSlug: "docs",
+        conversationId: "conv_1",
+        pane: serializePane({ kind: "file", path }),
+      } satisfies StoryRouteParams,
+      msw: { handlers: { page: legacyConversationHandlers() } },
+    },
+  }
+}
+
 /**
  * Knowledge from before Workspaces that hydrate serves from Postgres. It is
- * not in git, so the Files pane shows the reason and no editor.
+ * not in git, so the conversation shows the reason and no editor.
  */
 export const LegacyKnowledgeReadOnly: Story = {
-  args: {
-    pane: { kind: "file", path: legacyPath },
-    fileTabs: [legacyPath],
-    previewPath: legacyPath,
-  },
-  parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      pane: serializePane({ kind: "file", path: legacyPath }),
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces\/[^/]+\/files\/blob$/.test(
-                new URL(request.url).pathname,
-              ) && new URL(request.url).searchParams.get("path") === legacyPath,
-            () =>
-              HttpResponse.json({
-                path: legacyPath,
-                body: "# Tools CLI\n\nThe release tools.\n",
-                binary: false,
-                readOnlyReason: legacyReason,
-              }),
-          ),
-          ...gitFilesHandlers,
-        ],
-      },
-    },
-  },
+  ...conversationFileStory(legacyPath),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() => {
@@ -614,34 +631,11 @@ export const LegacyKnowledgeReadOnly: Story = {
   },
 }
 
-/** A file in git of a writable Workspace opens in the editor. */
+/** In the same conversation, a git file opens in the editor. */
 export const GitFileEditable: Story = {
-  args: {
-    pane: { kind: "file", path: ledgerPath },
-    fileTabs: [ledgerPath],
-    previewPath: ledgerPath,
-  },
-  parameters: {
-    storyRoute: {
-      pattern: "orgWorkspace",
-      orgSlug: "acme",
-      workspaceSlug: "docs",
-      pane: serializePane({ kind: "file", path: ledgerPath }),
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: gitFilesHandlers,
-      },
-    },
-  },
+  ...conversationFileStory(ledgerPath),
   play: async ({ canvasElement }) => {
-    const firstLine =
-      (docsWorkspaceGitBlobs[ledgerPath] ?? "").split("\n").find(Boolean) ?? ""
-    await expectFileEditable(
-      canvasElement,
-      firstLine.replace(/^#+\s*/, ""),
-      true,
-    )
+    await expectFileEditable(canvasElement, "Billing ledger", true)
     expect(
       within(canvasElement).queryByText(legacyReason),
     ).not.toBeInTheDocument()

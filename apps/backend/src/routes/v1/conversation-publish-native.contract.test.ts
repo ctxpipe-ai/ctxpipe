@@ -9,10 +9,12 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import {
+  workspaceKnowledgeUnits,
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { shellSingleQuote } from "../../domain/workspaces/conversation-publish.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { destroySandboxesForConversation } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
@@ -311,6 +313,54 @@ done
               status: saved.status,
               body: await saved.json(),
             }).toMatchObject({ status: 200 })
+            // Main-era knowledge is not in the sandbox: the conversation
+            // reads it read-only and cannot write its path.
+            const legacyPath = "knowledge/services/tools-cli.md"
+            await withOrgDbContext(f.org.id, (db) =>
+              db.insert(workspaceKnowledgeUnits).values({
+                servingId: `unit_legacy_${f.id}`,
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                path: legacyPath,
+                source: "legacy",
+                body: "The release tools.",
+                projectionSha: f.sha,
+              }),
+            )
+            const legacy = await app.request(
+              `/conversations/${conversationId}/files/blob?path=${legacyPath}`,
+            )
+            expect({
+              status: legacy.status,
+              body: await legacy.json(),
+            }).toEqual({
+              status: 200,
+              body: {
+                path: legacyPath,
+                body: "The release tools.",
+                binary: false,
+                readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+              },
+            })
+            const refused = await app.request(
+              `/conversations/${conversationId}/files/blob`,
+              {
+                method: "PUT",
+                headers: { "content-type": "application/json" },
+                body: JSON.stringify({
+                  path: ` ${legacyPath}`,
+                  body: "# Changed\n",
+                  expectedWorktreeVersion: worktreeVersion,
+                }),
+              },
+            )
+            expect({
+              status: refused.status,
+              body: await refused.json(),
+            }).toEqual({
+              status: 403,
+              body: { error: LEGACY_KNOWLEDGE_READ_ONLY },
+            })
           }
           if (scenario.startsWith("provider_unavailable")) {
             process.env.SANDBOX_PROVIDER = "vercel"

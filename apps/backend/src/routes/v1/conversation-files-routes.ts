@@ -42,6 +42,7 @@ import { getConversation } from "../../models/conversations.js"
 import {
   getDesiredWorkspaceRevision,
   getWorkspaceById,
+  legacyKnowledgePaths,
   writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { applyAttribution } from "../../observability/attribution.js"
@@ -83,6 +84,10 @@ const ConversationGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    readOnlyReason: z.string().optional().openapi({
+      description:
+        "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
+    }),
   })
   .openapi("ConversationGitBlobResponse")
 
@@ -703,8 +708,22 @@ export const conversationFileRoutes = fileRoutes
       handle = ready.handle
     }
     const blob = await readConversationSandboxFile(handle, path)
-    if (!blob) return c.json({ error: "Not found" }, 404)
-    return c.json(blob, 200)
+    if (blob) return c.json(blob, 200)
+    // A main-era knowledge unit that hydrate serves from Postgres: it is not
+    // in the sandbox, and it is read-only.
+    const legacy = (
+      await legacyKnowledgePaths(loaded.workspace.id, [path])
+    ).get(path)
+    if (legacy === undefined) return c.json({ error: "Not found" }, 404)
+    return c.json(
+      {
+        path,
+        body: legacy,
+        binary: false,
+        readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+      },
+      200,
+    )
   })
   .openapi(getStatusRoute, async (c) => {
     if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
