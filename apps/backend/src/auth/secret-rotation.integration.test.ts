@@ -82,7 +82,28 @@ async function signUpAndReadSession(): Promise<string> {
   // The first JWT signs with (and, if none exists, makes) a JWKS key.
   const session = await getSession(cookie)
   expect(session.status).toBe(200)
+  // A cookie that verifies stays.
+  expect(
+    session.headers
+      .getSetCookie()
+      .filter((part) => part.includes("session_token=;")),
+  ).toHaveLength(0)
   return cookie
+}
+
+function jwtKeyId(response: Response): string | undefined {
+  const token = response.headers.get("set-auth-jwt") ?? ""
+  return (
+    JSON.parse(
+      Buffer.from(token.split(".")[0] ?? "", "base64url").toString(),
+    ) as { kid?: string }
+  ).kid
+}
+
+async function listedKeyIds(): Promise<string[]> {
+  const jwks = await getAuth().handler(new Request(`${authPath}/jwks`))
+  const { keys } = (await jwks.json()) as { keys: { kid: string }[] }
+  return keys.map((key) => key.kid)
 }
 
 /** Use the new secret, as a restarted server does after a rotation. */
@@ -144,7 +165,9 @@ describe("AUTH_SECRET rotation (Postgres)", () => {
   })
 
   it("signs a new session's JWT after the rotation, although the old secret encrypted the newest JWKS key", async () => {
-    await signUpAndReadSession()
+    const oldCookie = await signUpAndReadSession()
+    const oldKid = jwtKeyId(await getSession(oldCookie))
+    expect(oldKid).toBeTruthy()
     rotateSecret()
 
     const freshCookie = await signUpAndReadSession()
@@ -152,13 +175,13 @@ describe("AUTH_SECRET rotation (Postgres)", () => {
 
     expect(response.status).toBe(200)
     expect((await response.json())?.user?.email).toMatch(/^rotation-/)
-    const token = response.headers.get("set-auth-jwt") ?? ""
-    const { kid } = JSON.parse(
-      Buffer.from(token.split(".")[0] ?? "", "base64url").toString(),
-    ) as { kid?: string }
-    const jwks = await getAuth().handler(new Request(`${authPath}/jwks`))
-    const { keys } = (await jwks.json()) as { keys: { kid: string }[] }
-    expect(keys.map((key) => key.kid)).toContain(kid)
+    const kid = jwtKeyId(response)
+    expect(kid).not.toBe(oldKid)
+    // JWKS lists only keys that the current secret can use, so a JWT that
+    // an old key signed does not verify.
+    const listed = await listedKeyIds()
+    expect(listed).toContain(kid)
+    expect(listed).not.toContain(oldKid)
   })
 
   it("signs in with GitHub while the browser still holds a cookie that the old secret signed", async () => {
