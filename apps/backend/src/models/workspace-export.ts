@@ -6,7 +6,15 @@ import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
 import { objects } from "../db/schema/objects.js"
 import { repositories } from "../db/schema/repositories.js"
-import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
+import {
+  orgFirstWorkspaces,
+  workspaces,
+  workspaceWriteJobs,
+} from "../db/schema/workspaces.js"
+import {
+  isReingestUpgradeKey,
+  UPGRADE_JOB_KIND,
+} from "../domain/upgrades/keys.js"
 import type {
   ExportClaimRow,
   ExportObjectRow,
@@ -225,4 +233,35 @@ export async function loadKnowledgeProjectionSource(
         })),
     }
   })
+}
+
+/**
+ * The GitHub source repositories (`owner/name`, lower case) that a
+ * re-ingestion of this Workspace did. Any skill bundle counts: each bundle
+ * makes the knowledge of the repository again, so after a new bundle the
+ * main-era knowledge must not come back.
+ */
+export async function reingestedRepositories(
+  workspaceId: string,
+): Promise<Set<string>> {
+  const rows = await orgSql(() =>
+    getOrgDb()
+      .select({ payload: workspaceWriteJobs.payload })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.workspaceId, workspaceId),
+          eq(workspaceWriteJobs.kind, UPGRADE_JOB_KIND),
+        ),
+      ),
+  )
+  const done = new Set<string>()
+  for (const { payload } of rows) {
+    const upgrade = payload?.upgrade
+    if (!upgrade || !isReingestUpgradeKey(upgrade.key)) continue
+    for (const repository of upgrade.repositories ?? [])
+      if (repository.status === "done")
+        done.add(repository.repository.toLowerCase())
+  }
+  return done
 }

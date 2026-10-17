@@ -136,8 +136,7 @@ export const UPGRADE_BLOCKED_REASONS = {
 export type UpgradeBlockedReason =
   (typeof UPGRADE_BLOCKED_REASONS)[keyof typeof UPGRADE_BLOCKED_REASONS]
 
-/** The write job kind of an upgrade run. */
-export const UPGRADE_JOB_KIND = "upgrade"
+export { UPGRADE_JOB_KIND } from "./keys.js"
 
 /**
  * The highest format that the registered steps reach without a gap. A

@@ -8,7 +8,6 @@ import {
   upgradeJobId,
   type WorkspaceUpgradePayload,
 } from "../domain/upgrades/registry.js"
-import { isReingestUpgradeKey } from "../domain/upgrades/reingest.js"
 import { orgSql } from "./workspace-sql.js"
 
 /** One upgrade row of a Workspace, as the API and the workflows read it. */
@@ -255,23 +254,4 @@ export async function failStoppedUpgradeRun(
         ),
       )
   })
-}
-
-/**
- * The GitHub source repositories (`owner/name`, lower case) that a
- * re-ingestion of this Workspace did. Any skill bundle counts: each bundle
- * makes the knowledge of the repository again, so after a new bundle the
- * main-era knowledge must not come back.
- */
-export async function reingestedRepositories(
-  workspaceId: string,
-): Promise<Set<string>> {
-  const done = new Set<string>()
-  for (const row of await listWorkspaceUpgradeRows(workspaceId)) {
-    if (!isReingestUpgradeKey(row.upgrade.key)) continue
-    for (const repository of row.upgrade.repositories ?? [])
-      if (repository.status === "done")
-        done.add(repository.repository.toLowerCase())
-  }
-  return done
 }

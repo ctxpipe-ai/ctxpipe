@@ -31,8 +31,6 @@ import {
 /** The re-ingestion needs this format or higher (G5). */
 export const REINGEST_REQUIRES_FORMAT = 3
 
-const REINGEST_KEY_PREFIX = "reingest-"
-
 /**
  * The throttle of re-ingestion (ADR-052): one upgrade run of an org at a
  * time, with its repositories one after the other, and a cap of upgrade runs
@@ -78,14 +76,7 @@ const ESTIMATE = {
   usdPerMillionTokens: { input: 3, output: 15 },
 } as const
 
-/** The key of the re-ingestion with a skill bundle (`ingest-<hash>`). */
-export function reingestUpgradeKey(bundleName: string): string {
-  return `${REINGEST_KEY_PREFIX}${bundleName}`
-}
-
-export function isReingestUpgradeKey(key: string): boolean {
-  return key.startsWith(REINGEST_KEY_PREFIX)
-}
+export { isReingestUpgradeKey, reingestUpgradeKey } from "./keys.js"
 
 /**
  * Why this deployment cannot run an ingest sandbox, or null. Ingest needs a

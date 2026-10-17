@@ -45,9 +45,11 @@ import {
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { listOrgConnections } from "../../models/org-connections.js"
-import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
+import {
+  loadKnowledgeProjectionSource,
+  reingestedRepositories,
+} from "../../models/workspace-export.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
-import { reingestedRepositories } from "../../models/workspace-upgrades.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
   commitHydrateProjection,
