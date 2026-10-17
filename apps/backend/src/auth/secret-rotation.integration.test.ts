@@ -63,7 +63,9 @@ async function getSession(cookie: string) {
   const response = await getAuth().handler(
     new Request(`${authPath}/get-session`, { headers: { cookie } }),
   )
-  const kid = jwtKeyId(response)
+  const kid = response.headers.has("set-auth-jwt")
+    ? jwtKeyId(response)
+    : undefined
   if (kid && !keysBefore.includes(kid)) ownKeys.add(kid)
   return response
 }
