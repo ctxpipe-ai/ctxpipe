@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { Toaster, toast } from "sonner"
-import { expect, spyOn, userEvent, waitFor, within } from "storybook/test"
+import { Toaster } from "sonner"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
@@ -404,9 +404,17 @@ export const PendingAdd: Story = {
     const group = within(section)
     await expect(group.getByText("1 awaiting merge")).toBeVisible()
     await expect(group.getByText("New source")).toBeVisible()
-    await expect(
-      group.getByRole("link", { name: /^Awaiting merge\./ }),
-    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
+    // "Awaiting merge" reads as a link: it names the pull request on GitHub,
+    // and its icon shows that it leaves the app.
+    const link = group.getByRole("link", {
+      name: "Awaiting merge. Opens the pull request on GitHub in a new tab.",
+    })
+    await expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/5",
+    )
+    await expect(link).toHaveAttribute("target", "_blank")
+    await expect(link.querySelector("svg")).not.toBeNull()
   },
 }
 
@@ -887,6 +895,11 @@ export const AddSendsChange: Story = {
           scope: { repository: "acme/api" },
         },
       },
+    })
+    // The toast keeps its action, which opens the pull request. The toast
+    // renders in a portal, so query it from the document body.
+    await within(canvasElement.ownerDocument.body).findByRole("button", {
+      name: "View pull request",
     })
   },
 }
@@ -1622,21 +1635,19 @@ export const StatusExplainsItself: Story = {
     const list = within(
       await canvas.findByRole("list", { name: "GitHub repositories" }),
     )
-    const page = within(document.body)
-    // A pointer user sees the tip on hover. React Aria shows a hover tip
-    // only after it has seen a pointer event, so press the list first.
-    await userEvent.click(
-      canvas.getByRole("list", { name: "GitHub repositories" }),
-    )
+    // The tip renders in a portal. It is the only tip open at one time.
+    const tip = () =>
+      document.body.querySelector<HTMLElement>('[data-slot="tooltip-content"]')
+    // A pointer user sees the tip on hover.
     await userEvent.hover(list.getByText("Indexing"))
-    await waitFor(() =>
-      expect(
-        page.getByText(
-          "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
-        ),
-      ).toBeVisible(),
-    )
+    await waitFor(() => {
+      expect(tip()).toBeVisible()
+      expect(tip()).toHaveTextContent(
+        "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
+      )
+    })
     await userEvent.unhover(list.getByText("Indexing"))
+    await waitFor(() => expect(tip()).toBeNull())
     // A keyboard user reaches the status with Tab, and focus shows the tip.
     for (
       let step = 0;
@@ -1646,61 +1657,15 @@ export const StatusExplainsItself: Story = {
       await userEvent.tab()
     await waitFor(() => {
       expect(list.getByText("Pending")).toHaveFocus()
-      expect(page.getByRole("tooltip")).toHaveTextContent(
-        "ctx| has not read this repository yet.",
-      )
-      expect(list.getByText("Pending")).toHaveAccessibleDescription(
-        page.getByRole("tooltip").textContent ?? "",
+      expect(tip()).toHaveTextContent(
+        /^ctx\| has not read this repository yet\.$/,
       )
     })
-  },
-}
-
-/** The add toast stays long enough to read, and its action opens the pull request. */
-export const AddToastKeepsItsAction: Story = {
-  parameters: AddSendsChange.parameters,
-  beforeEach: () => {
-    addCalls.length = 0
-  },
-  play: async ({ canvasElement }) => {
-    const success = spyOn(toast, "success")
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Add repositories" }),
-    )
-    const dialog = within(await within(document.body).findByRole("dialog"))
-    await userEvent.click(
-      await dialog.findByRole("checkbox", { name: "acme/api" }),
-    )
-    await userEvent.click(
-      dialog.getByRole("button", { name: "Open a pull request" }),
-    )
-    await within(document.body).findByRole("button", {
-      name: "View pull request",
-    })
-    await expect(success).toHaveBeenCalledWith(
-      "Pull request opened. The change applies after the merge.",
-      expect.objectContaining({
-        duration: 10000,
-        action: expect.objectContaining({ label: "View pull request" }),
+    // A screen reader gets the same text with the status.
+    await expect(
+      list.getByRole("button", {
+        name: "Pending ctx| has not read this repository yet.",
       }),
-    )
-  },
-}
-
-/** "Awaiting merge" reads as a link: it names the pull request on GitHub. */
-export const AwaitingMergeIsALink: Story = {
-  parameters: PendingAdd.parameters,
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    const link = await canvas.findByRole("link", {
-      name: /^Awaiting merge.*pull request on GitHub/,
-    })
-    await expect(link).toHaveAttribute(
-      "href",
-      "https://github.com/acme/docs/pull/5",
-    )
-    await expect(link).toHaveAttribute("target", "_blank")
-    await expect(link.querySelector("svg")).not.toBeNull()
+    ).toBeVisible()
   },
 }

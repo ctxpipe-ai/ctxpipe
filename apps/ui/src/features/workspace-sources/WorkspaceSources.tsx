@@ -19,6 +19,7 @@ import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link as TextLink } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import {
   Skeleton,
@@ -138,19 +139,16 @@ function AwaitingMergeLink(props: { change: PendingSourceChange }) {
         ? "Rename awaiting merge"
         : "Awaiting merge"
   return (
-    <Link
+    <TextLink
       href={change.pullRequestUrl}
       target="_blank"
       rel="noreferrer"
       aria-label={`${label}. Opens the pull request on GitHub in a new tab.`}
-      className={cn(
-        "mt-0.5 inline-flex items-center gap-1 rounded-md text-xs text-teal-400 underline decoration-teal-400/50 underline-offset-4 transition-colors hover:text-teal-300 hover:decoration-teal-300",
-        focusVisibleClassName,
-      )}
+      className="mt-0.5 inline-flex items-center gap-1 text-xs"
     >
       {label}
       <IconExternalLink className="size-3 shrink-0" aria-hidden />
-    </Link>
+    </TextLink>
   )
 }
 

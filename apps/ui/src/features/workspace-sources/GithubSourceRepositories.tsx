@@ -2,12 +2,7 @@ import HyperDX from "@hyperdx/browser"
 import { IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useMemo, useState } from "react"
-import {
-  Focusable,
-  Heading,
-  Tooltip,
-  TooltipTrigger,
-} from "react-aria-components"
+import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
@@ -15,6 +10,12 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
 import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
@@ -101,7 +102,7 @@ type StatusTag = {
 
 const pendingTag: StatusTag = {
   label: "Pending",
-  hint: "ctx| has not read this repository yet. The status changes to Indexing when the read starts.",
+  hint: "ctx| has not read this repository yet.",
   className:
     "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
@@ -338,11 +339,10 @@ export function GithubSourceRepositories(props: {
                       )}
                     </p>
                     <span className={sourceRowStatusClassName}>
-                      <TooltipTrigger delay={200}>
-                        <Focusable>
-                          <span
-                            // biome-ignore lint/a11y/noNoninteractiveTabindex: keyboard users open the status tip with focus.
-                            tabIndex={0}
+                      <TooltipProvider delay={200}>
+                        <Tooltip>
+                          {/* The trigger is a button, so keyboard focus opens the tip. */}
+                          <TooltipTrigger
                             className={cn(
                               status.className,
                               focusVisibleClassName,
@@ -350,16 +350,14 @@ export function GithubSourceRepositories(props: {
                           >
                             <span className={status.dotClassName} aria-hidden />
                             {status.label}
-                          </span>
-                        </Focusable>
-                        <Tooltip
-                          placement="top"
-                          offset={6}
-                          className="max-w-xs rounded-md bg-zinc-800 px-2 py-1 text-xs text-zinc-100 shadow-md"
-                        >
-                          {status.hint}
+                            {/* Base UI sets no description, so the status carries it. */}
+                            <span className="sr-only">{status.hint}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {status.hint}
+                          </TooltipContent>
                         </Tooltip>
-                      </TooltipTrigger>
+                      </TooltipProvider>
                     </span>
                     <div className={sourceRowActionsClassName}>
                       {canUnlink ? (
