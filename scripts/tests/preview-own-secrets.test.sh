@@ -44,6 +44,8 @@ run_sync() {
     export BACKEND_SERVICE_ID=svc_backend WORKER_SERVICE_ID=svc_worker
     export UI_SERVICE_ID=svc_ui CODESEARCH_SERVICE_ID=svc_codesearch
     export RAILWAY_API_TOKEN=account-token-value
+    # Outside Actions, so the ::add-mask:: lines (which hold values) stay off.
+    export GITHUB_ACTIONS=false
     sync_preview_own_secrets
   )
 }
