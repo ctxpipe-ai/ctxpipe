@@ -10,8 +10,9 @@ import {
  * It holds one integer: the layout version of the Workspace repository. Git
  * is the source of truth. `workspaces.format_version` is only a cache that
  * hydrate writes for each projection. The file is in `.ctxpipe/`, so it is
- * host-only: only bootstrap (in the root commit of a new repository) and an
- * upgrade pull request write it.
+ * host-only: only the bootstrap commit and an upgrade pull request write it.
+ * Bootstrap writes it on an empty repository, and on a repository with no
+ * ctx| content (see {@link hasCtxpipeContent}).
  */
 export const WORKSPACE_FORMAT_PATH = ".ctxpipe/workspace.yaml"
 
@@ -92,7 +93,25 @@ export function workspaceFormatCacheValue(read: WorkspaceFormatRead): number {
   return read.kind === "format" ? read.format : WORKSPACE_FORMAT_INVALID
 }
 
-/** The format file that bootstrap writes in the root commit of a new repository. */
+/**
+ * True when one of `paths` is ctx| content: a file below `.ctxpipe/`,
+ * `sources/` or `repositories/`. The paths are relative to the Workspace root
+ * folder. A repository with no ctx| content is new (for example a new GitHub
+ * repository with only a README), so bootstrap writes the format file in its
+ * commit. A repository with ctx| content keeps its format, and the upgrade
+ * pull request changes it (ADR-053).
+ */
+export function hasCtxpipeContent(paths: Iterable<string>): boolean {
+  for (const path of paths)
+    if (CTXPIPE_CONTENT_FOLDERS.some((folder) => path.startsWith(`${folder}/`)))
+      return true
+  return false
+}
+
+/** The folders that hold ctx| content, relative to the Workspace root folder. */
+export const CTXPIPE_CONTENT_FOLDERS = [".ctxpipe", "sources", "repositories"]
+
+/** The format file that bootstrap writes on a repository with no ctx| content. */
 export function workspaceFormatFile(format = CODE_FORMAT): {
   path: string
   content: string
