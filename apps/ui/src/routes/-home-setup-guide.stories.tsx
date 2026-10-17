@@ -33,6 +33,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
@@ -372,6 +376,8 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
           }),
           githubInstallationReposHandler(),
           workspaceSourcesHandler(workspaceSourceList()),
+          // Without this, the read goes to the network and fails at a random time.
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
           orgActivityHandler(),
           ...workspaceShellHandlers({
             workspaces: [createdWorkspace],
@@ -397,7 +403,10 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     await userEvent.click(
       dialog.getByRole("button", { name: "Create Workspace" }),
     )
-    await userEvent.click(await dialog.findByRole("button", { name: "Done" }))
+    // Step 2 has settled when its sources show. Before that, the card above
+    // Done still changes height, and a click can land on a button that moves.
+    await dialog.findByRole("button", { name: "Add repositories" })
+    await userEvent.click(dialog.getByRole("button", { name: "Done" }))
     await waitFor(() =>
       expect(
         body.queryByRole("dialog", { name: "Add Workspace" }),
