@@ -97,6 +97,13 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 **preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`), starting from a fresh registration — the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
+### GitHub environments
+
+- `Preview`: only the jobs that deploy, roll or delete the Railway PR preview.
+- `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
+- `Production`: the production deploy.
+- A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.
+
 ### Adversarial review
 
 Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).

@@ -7,7 +7,7 @@ name: Ingestion v2 proof (Docker)
 # worker once during the last run, and writes one summary row for each
 # repository. The total model spend stops every run at `spend_cap_usd`.
 #
-# Secrets of the Preview environment (names only):
+# Secrets of the workbench environment (names only):
 #   MODEL_PROVIDER_API_KEY  a spend-capped model key for CI, never the
 #                           production key
 #   GH_APP_ID               the GitHub App id of the test org
@@ -66,20 +66,20 @@ jobs:
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 360
     # GH_APP_ID, GH_PRIVATE_KEY and MODEL_PROVIDER_API_KEY are secrets
-    # of the Preview environment. The job builds images and runs dependency
+    # of the workbench environment. The job builds images and runs dependency
     # code, so it never gets the production model key.
-    environment: Preview
+    environment: workbench
     permissions:
       contents: read
     env:
       COMPOSE_PROFILES: deploy
     steps:
-      - name: Check the Preview model key
+      - name: Check the workbench model key
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
           [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
-            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the Preview environment (Settings > Environments)."
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
             exit 1
           }
       - uses: actions/checkout@v6

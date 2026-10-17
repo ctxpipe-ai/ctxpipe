@@ -334,18 +334,55 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
     )
 })
 
-test("rejects the model key in a job that runs untrusted code without a non-production environment", () => {
-  const evals = (environment) => ({
-    ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
-  })
-  for (const environment of ["", "    environment: Production\n"])
-    rejects(
-      evals(environment),
-      /gives MODEL_PROVIDER_API_KEY to a job that runs untrusted code, and the job has no environment other than production\. Use `environment: Preview`/,
+const secretJob = (secret, environment, file = "mcp-evals.yaml", job = "evals") => ({
+  [`.github/workflows/${file}`]: `on: pull_request\njobs:\n  ${job}:\n${environment}    steps:\n${install}      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: bun evals/run.ts\n`,
+})
+
+test("rejects an outside-service secret in a job with untrusted code outside workbench", () => {
+  for (const secret of [
+    "MODEL_PROVIDER_API_KEY",
+    "ANTHROPIC_API_KEY",
+    "OPENAI_API_KEY",
+    "VERCEL_ACCESS_TOKEN",
+  ]) {
+    for (const environment of [
+      "",
+      "    environment: Production\n",
+      "    environment: Preview\n",
+    ])
+      rejects(
+        secretJob(secret, environment),
+        new RegExp(
+          `gives ${secret} to a job that runs untrusted code, and the job does not use .environment: workbench`,
+        ),
+      )
+    const result = check(secretJob(secret, "    environment: workbench\n"))
+    assert.doesNotMatch(result.stderr, /environment: workbench/)
+  }
+})
+
+test("keeps the preview sandbox cleanup in Preview", () => {
+  const cleanup = (environment) =>
+    secretJob(
+      "VERCEL_ACCESS_TOKEN",
+      environment,
+      "pr-deploy.yaml",
+      "cleanup_pr_sandboxes",
     )
-  const result = check(evals("    environment: Preview\n"))
+  const result = check(cleanup("    environment: Preview\n"))
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
+  rejects(cleanup(""), /does not use .environment: workbench/)
+})
+
+test("rejects the Railway and Neon keys in the workbench environment", () => {
+  for (const secret of ["RAILWAY_API_TOKEN", "NEON_API_KEY"])
+    rejects(
+      {
+        ".github/workflows/w.yaml": `on: pull_request\njobs:\n  check:\n    environment: workbench\n    steps:\n      - env:\n          ${secret}: \${{ secrets.${secret} }}\n        run: echo ok\n`,
+      },
+      new RegExp(`gives ${secret} to a job in the workbench environment`),
+    )
 })
 
 const cacheStep = (action, key, extra = "") =>

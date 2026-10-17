@@ -14,10 +14,16 @@
 //   `secrets[…]`.
 // - NEON_API_KEY and RAILWAY_API_TOKEN never go to a job that runs
 //   untrusted code. No exception covers them.
-// - MODEL_PROVIDER_API_KEY goes to a job that runs untrusted code only when
-//   the job uses an `environment:` other than production (the `Preview`
-//   environment, which holds a spend-capped key for CI). The production
-//   value lives in the `Production` environment, not in a repository secret.
+// - GitHub environments: `Preview` is only for the jobs that deploy, roll or
+//   delete the Railway PR preview. `workbench` is for checks, evals, proofs and
+//   live contracts that call outside services, with spend-capped or test-scoped
+//   keys.
+//   `Production` is the production deploy.
+//   A job that runs untrusted code and reads MODEL_PROVIDER_API_KEY,
+//   ANTHROPIC_API_KEY, OPENAI_API_KEY or VERCEL_ACCESS_TOKEN uses
+//   `environment: workbench`. To add a paid or outside check, put the job in
+//   `workbench`: this guard enforces it.
+// - RAILWAY_API_TOKEN and NEON_API_KEY never go to a job in `workbench`.
 // - A sticky disk or an actions/cache key that a job with a secret mounts or
 //   restores is not written by a job that runs untrusted code. The check
 //   reads each `${{ … }}` part of a key as "any text", and a `restore-keys`
@@ -61,6 +67,15 @@ const productionJobs = new Map(
   }),
 )
 
+// The one job that runs untrusted code with an outside-service secret and
+// stays in `Preview`: it deletes the sandboxes of the Railway PR preview (the
+// preview Vercel project), not the sandboxes that CI contracts make.
+const previewCheckJobs = new Set(["pr-deploy.yaml:cleanup_pr_sandboxes"])
+
+// Secrets that need `environment: workbench` in a job with untrusted code.
+const checkSecrets =
+  /(?<![\w./-])secrets\s*\.\s*(MODEL_PROVIDER_API_KEY|ANTHROPIC_API_KEY|OPENAI_API_KEY|VERCEL_ACCESS_TOKEN)\b/
+
 // Scripts that a job with a secret may run or source. Each runs no package
 // manager; the check reads each one to keep that true.
 const reviewedScripts = new Set([
@@ -84,7 +99,7 @@ const exceptions = new Map(
     // Tests the sandbox provider against the preview Vercel project.
     "ci.yaml:vercel-sandbox": ["VERCEL_ACCESS_TOKEN"],
     // Evaluates the product MCP with real models.
-    // The job uses the Preview environment: its model key is the
+    // The job uses the workbench environment: its model key is the
     // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": [
       "MODEL_PROVIDER_API_KEY",
@@ -327,16 +342,30 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           `${where(number)} reads every secret (toJSON(secrets) or secrets[…]). Name each secret it needs.`,
         )
       const token = accountTokens.exec(text)
-      if (runsUntrusted && token) {
-        if (token[1] !== "MODEL_PROVIDER_API_KEY")
-          failures.push(
-            `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
-          )
-        else if (!environment || /^production$/i.test(environment))
-          failures.push(
-            `${where(number)} gives ${token[1]} to a job that runs untrusted code, and the job has no environment other than production. Use \`environment: Preview\` (a spend-capped CI key), or move the key to a job without such code.`,
-          )
-      }
+      if (runsUntrusted && token && token[1] !== "MODEL_PROVIDER_API_KEY")
+        failures.push(
+          `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
+        )
+      const accountSecret = /secrets\s*\.\s*(NEON_API_KEY|RAILWAY_API_TOKEN)\b/.exec(
+        text,
+      )
+      if (accountSecret && /^workbench$/i.test(environment ?? ""))
+        failures.push(
+          `${where(number)} gives ${accountSecret[1]} to a job in the workbench environment. Only Preview and production jobs may read it.`,
+        )
+      const check = checkSecrets.exec(text)
+      if (
+        runsUntrusted &&
+        check &&
+        !/^workbench$/i.test(environment ?? "") &&
+        !(
+          previewCheckJobs.has(`${name}:${job.name}`) &&
+          /^preview$/i.test(environment ?? "")
+        )
+      )
+        failures.push(
+          `${where(number)} gives ${check[1]} to a job that runs untrusted code, and the job does not use \`environment: workbench\` (spend-capped or test-scoped values). Use it, or move the secret to a job without such code.`,
+        )
     }
 
     const allowed = exceptions.get(`${name}:${job.name}`)

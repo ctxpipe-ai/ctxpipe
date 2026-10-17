@@ -41,11 +41,11 @@ jobs:
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 90
-    # The model keys are secrets of the Preview environment: a spend-capped
+    # The model keys are secrets of the workbench environment: a spend-capped
     # MODEL_PROVIDER_API_KEY for CI. This job runs pnpm install, so it must
     # never get the production key. Settings keep the production value in the
     # Production environment, not in a repository secret.
-    environment: Preview
+    environment: workbench
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -81,12 +81,12 @@ jobs:
       MODEL_PROVIDER_URL: ${{ vars.MODEL_PROVIDER_URL }}
       MODEL_EMBEDDING_NAME: ${{ vars.MODEL_EMBEDDING_NAME }}
     steps:
-      - name: Check the Preview model key
+      - name: Check the workbench model key
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
           [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
-            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the Preview environment (Settings > Environments)."
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
             exit 1
           }
       - uses: actions/checkout@v6
@@ -164,7 +164,7 @@ jobs:
         working-directory: apps/backend
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
-          # Preview names, so that a missing Preview secret can never fall
+          # plain names, so that a missing workbench secret can never fall
           # back to a repository or organization secret with the plain name.
           # run.ts stops with "Set <PROVIDER>_API_KEY" when a model of
           # MCP_EVAL_MODELS has no key.

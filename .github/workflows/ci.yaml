@@ -543,9 +543,9 @@ jobs:
       ((github.event_name == 'pull_request') !=
       (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
-    # Vercel project, never production.
-    environment: Preview
+    # The workbench VERCEL_ACCESS_TOKEN is a test-scoped value for the
+    # preview Vercel project, never production.
+    environment: workbench
     services:
       postgres:
         image: pgvector/pgvector:pg17

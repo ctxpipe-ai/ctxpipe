@@ -1599,7 +1599,8 @@ jobs:
       contents: read
     # The preview Vercel project and token (scripts/preview-sandbox-vars.sh).
     # This job runs pnpm install with that token: a reviewed exception in
-    # scripts/ci/check-secret-jobs.mjs.
+    # scripts/ci/check-secret-jobs.mjs. It stays in Preview: it deletes
+    # the sandboxes of the Railway PR preview, not those of CI contracts.
     environment: Preview
     steps:
       - name: Checkout repository
