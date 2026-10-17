@@ -26,6 +26,7 @@ export type StoryRouteParams =
   | { pattern: "orgIndex"; orgSlug: string; search?: string }
   | { pattern: "orgConnectors"; orgSlug: string; search?: string }
   | { pattern: "orgRepositories"; orgSlug: string }
+  | { pattern: "orgOrganizationView"; orgSlug: string; view: string }
   | { pattern: "orgWorkspaceNew"; orgSlug: string; search?: string }
   | {
       pattern: "orgWorkspace"
@@ -190,6 +191,8 @@ function createStoryRouter(
     path: "$conversationId",
     component: storyRouteStub,
   })
+  const orgOrganizationViewForStory =
+    spec.pattern === "orgOrganizationView" ? StoryRoute : storyRouteStub
   const orgOrganization = createRoute({
     getParentRoute: () => orgRoute,
     path: "organization",
@@ -198,7 +201,7 @@ function createStoryRouter(
   const orgOrganizationView = createRoute({
     getParentRoute: () => orgOrganization,
     path: "$organizationView",
-    component: storyRouteStub,
+    component: orgOrganizationViewForStory,
   })
   /** So `Navigate` from org pages (session/onboarding gates) never hits a missing route before MSW resolves. */
   const authSignInStub = createRoute({
@@ -230,15 +233,17 @@ function createStoryRouter(
   const initialPath =
     spec.pattern === "orgConnectors"
       ? `/${spec.orgSlug}/connectors${spec.search ?? ""}`
-      : spec.pattern === "orgRepositories"
-        ? `/${spec.orgSlug}/repositories`
-        : spec.pattern === "orgWorkspaceNew"
-          ? `/${spec.orgSlug}/workspaces/new${spec.search ?? ""}`
-          : spec.pattern === "orgWorkspace"
-            ? spec.conversationId
-              ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
-              : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
-            : `/${spec.orgSlug}${spec.pattern === "orgIndex" ? (spec.search ?? "") : ""}`
+      : spec.pattern === "orgOrganizationView"
+        ? `/${spec.orgSlug}/organization/${spec.view}`
+        : spec.pattern === "orgRepositories"
+          ? `/${spec.orgSlug}/repositories`
+          : spec.pattern === "orgWorkspaceNew"
+            ? `/${spec.orgSlug}/workspaces/new${spec.search ?? ""}`
+            : spec.pattern === "orgWorkspace"
+              ? spec.conversationId
+                ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
+                : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
+              : `/${spec.orgSlug}${spec.pattern === "orgIndex" ? (spec.search ?? "") : ""}`
   return createRouter({
     routeTree,
     history: createMemoryHistory({ initialEntries: [initialPath] }),

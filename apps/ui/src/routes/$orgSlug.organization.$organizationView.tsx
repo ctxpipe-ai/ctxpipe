@@ -51,7 +51,8 @@ export function OrganizationViewRoutePage() {
  * One frame for every sub-page and for the loading state. The width, the
  * title, and the nav never change, so only the content below moves.
  */
-function OrganizationSettingsShell(props: {
+/** Exported for Storybook, to show the loading state in the same frame. */
+export function OrganizationSettingsShell(props: {
   orgSlug: string
   current: string
   children: ReactNode
