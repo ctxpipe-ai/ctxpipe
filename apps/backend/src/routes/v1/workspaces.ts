@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
+import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
@@ -13,17 +14,13 @@ import {
   workspaceRootPathSchema,
 } from "../../domain/workspaces/root-path.js"
 import {
-  INGESTION_V2_PUBLISH_FORMAT,
-  WORKSPACE_FORMAT_INVALID,
-  workspaceFormatAtLeast,
-} from "../../domain/workspaces/workspace-format.js"
-import {
   createWorkspaceLifecycle,
   relinkWorkspaceLifecycle,
   renameWorkspaceLifecycle,
 } from "../../domain/workspaces/workspace-lifecycle.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
+import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
   deleteWorkspace,
   getWorkspaceBySlug,
@@ -85,10 +82,6 @@ const WorkspaceSchema = z
     hydrateStatus: z.string(),
     hydrateError: z.string().nullable(),
     readOnlyReason: z.string().nullable(),
-    upgradeNeeded: z.boolean().openapi({
-      description:
-        "True when the Workspace format is below 3, or is not read yet. Ingestion v2 does not publish to it, and a source edit refuses below format 2, until an upgrade pull request is merged.",
-    }),
     mostRecentConversationId: z.string().nullable().optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
@@ -182,7 +175,6 @@ function serializeWorkspace(row: {
   hydrateStatus: string
   hydrateError?: string | null
   readOnlyReason: string | null
-  formatVersion?: number | null
   mostRecentConversationId?: string | null
   createdAt: Date
   updatedAt: Date
@@ -208,14 +200,6 @@ function serializeWorkspace(row: {
     hydrateStatus: row.hydrateStatus,
     hydrateError: row.hydrateError ?? null,
     readOnlyReason: row.readOnlyReason,
-    // A format that is not read yet (null) is not known, so the UI shows the
-    // upgrade. A format file that is not valid has its own read-only gate.
-    upgradeNeeded:
-      row.formatVersion !== WORKSPACE_FORMAT_INVALID &&
-      !workspaceFormatAtLeast(
-        row.formatVersion ?? null,
-        INGESTION_V2_PUBLISH_FORMAT,
-      ),
     mostRecentConversationId: row.mostRecentConversationId ?? null,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
@@ -471,12 +455,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       orgId &&
       (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only ||
         (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
-          !workspace.readOnlyReason))
+          !workspace.readOnlyReason) ||
+        (await listWorkspaceUpgradeRows(workspace.id)).some(
+          (row) => row.status === UPGRADE_STATUSES.pr_open,
+        ))
     ) {
       // A read-only Workspace needs a new probe after an admin fix ("Then
       // refresh"). The UI also polls this route while a check runs. Any caller
       // can reach this route, so queue at most one probe per org each minute.
       // A failed check (with a reason) waits for an explicit "Check again".
+      // An open upgrade pull request needs a probe too. A lost webhook leaves
+      // a merged upgrade open. The probe finds the new tip and starts the
+      // hydrate, and the next scan completes the row.
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
         idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })

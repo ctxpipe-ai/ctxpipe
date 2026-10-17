@@ -62,6 +62,13 @@ export function ownershipMigrationFiles(input: {
     index: number
     reason: string
   }) => void
+  /**
+   * Gets the front matter keys that the migration removes from one file: the
+   * keys that ingestion v2 does not know, and a `summary` that is not text
+   * or is longer than 1000 characters. `source` is not in the list: its
+   * repository moves into `sources`.
+   */
+  onRemovedKeys?: (removed: { path: string; keys: string[] }) => void
 }): Array<{ path: string; content: string }> {
   const workspaceUrl = normalizeWorkspaceRepositoryUrl(
     input.workspaceRepositoryUrl,
@@ -99,14 +106,24 @@ export function ownershipMigrationFiles(input: {
           file.path,
         )
         if (!isMap(document.contents)) return
+        const removed: string[] = []
         for (const pair of [...document.contents.items]) {
           const key = isScalar(pair.key) ? pair.key.value : pair.key
-          if (typeof key !== "string" || !V2_KEYS.has(key))
+          if (typeof key !== "string" || !V2_KEYS.has(key)) {
             document.contents.delete(pair.key)
+            if (key !== "source") removed.push(String(key))
+          }
         }
         document.set("name", name)
-        if (typeof summary !== "string" || summary.length > 1000)
+        if (
+          document.has("summary") &&
+          (typeof summary !== "string" || summary.length > 1000)
+        ) {
           document.delete("summary")
+          removed.push("summary")
+        }
+        if (removed.length)
+          input.onRemovedKeys?.({ path: file.path, keys: removed })
         if (claims.length) document.set("claims", claims)
         else document.delete("claims")
         document.set("generated_by", "ctxpipe-extract")

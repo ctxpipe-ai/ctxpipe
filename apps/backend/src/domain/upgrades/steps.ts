@@ -123,6 +123,10 @@ export const ownershipMigrationStep: GitUpgradeStep = {
         files: current().filter((file) => file.path.startsWith("knowledge/")),
         onDroppedClaim: ({ path, index, reason }) =>
           report.push(`${path}: claim ${index + 1} is removed. ${reason}.`),
+        onRemovedKeys: ({ path, keys }) =>
+          report.push(
+            `${path}: removed the front matter keys ${keys.map((key) => `\`${key}\``).join(", ")}. Ingestion v2 does not accept these keys or their values.`,
+          ),
       }),
     )
     const unkeyed = apply(importKeyCleanupFiles(current()))
