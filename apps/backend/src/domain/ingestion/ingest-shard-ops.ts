@@ -114,7 +114,9 @@ export async function prepareIngestShard(
     handle,
     [
       `rm -rf ${sourceClone}`,
-      `git clone -q --filter=blob:none --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone}`,
+      // A repository with no commit in the window fails a `--shallow-since`
+      // clone ("error processing shallow info"): then clone its tip only.
+      `{ git clone -q --filter=blob:none --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && git clone -q --filter=blob:none --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
       // The run's SHA can be older than the history window.
       `(git -C ${sourceClone} cat-file -e ${input.source.sha}^{commit} 2>/dev/null || git -C ${sourceClone} fetch -q --filter=blob:none --depth=1 origin ${input.source.sha})`,
       `git -C ${sourceClone} checkout -q --detach ${input.source.sha}`,
@@ -279,11 +281,12 @@ export async function runIngestShardStep(
 /**
  * The agent's environment: the OpenCode isolation flags, the stage helpers
  * on PATH, and the sandbox's egress proxy settings. `env -i` gives the agent
- * nothing else.
+ * nothing else. `path` replaces the sandbox's own PATH (hosted: the pinned
+ * tools of the agent snapshot).
  */
 export async function ingestAgentEnv(
   root: RootExec,
-  input: { modelProxyUrl: string },
+  input: { modelProxyUrl: string; path?: string },
 ): Promise<Record<string, string>> {
   const result = await root("tr '\\0' '\\n' < /proc/1/environ")
   const keep =
@@ -300,7 +303,7 @@ export async function ingestAgentEnv(
   const { PATH: path = "/usr/local/bin:/usr/bin:/bin", ...proxy } = sandbox
   return {
     ...proxy,
-    ...ingestOpenCodeEnv({ path }),
+    ...ingestOpenCodeEnv({ path: input.path ?? path }),
     CTXPIPE_MODEL_PROXY_URL: input.modelProxyUrl,
   }
 }
