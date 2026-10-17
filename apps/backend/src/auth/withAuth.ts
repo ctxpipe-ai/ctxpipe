@@ -269,16 +269,32 @@ async function resolveSessionToken(
   return row
 }
 
+export type RequestSession = Awaited<
+  ReturnType<ReturnType<typeof getAuth>["api"]["getSession"]>
+>
+
+/**
+ * The Better Auth session of the request headers. The first caller starts the
+ * lookup and keeps it in `c.var`. The evlog identify middleware and
+ * {@link withCookieAuth} share it, so one request reads the session one time.
+ * Both callers run before a route handler, and no handler reads this value, so
+ * a session change in a handler cannot see a stale value.
+ */
+export function requestSession(c: Context<AppEnv>): Promise<RequestSession> {
+  const known = c.get("sessionLookup")
+  if (known) return known
+  const lookup = getAuth().api.getSession({ headers: c.req.raw.headers })
+  c.set("sessionLookup", lookup)
+  return lookup
+}
+
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const started = performance.now()
-  const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
-  let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
+  let authSession: RequestSession = null
   try {
-    authSession = await auth.api.getSession({
-      headers: c.req.raw.headers,
-    })
+    authSession = await requestSession(c)
   } catch (err) {
     // Org keys cannot mock a user session. The user-config session hook may
     // throw when `x-api-key` is an organization key; fall through to verify.

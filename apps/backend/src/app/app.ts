@@ -5,10 +5,10 @@ import {
   createAuthMiddleware,
 } from "evlog/better-auth"
 import { evlog } from "evlog/hono"
-import { contextStorage } from "hono/context-storage"
+import { contextStorage, getContext } from "hono/context-storage"
 import { cors } from "hono/cors"
 import type { ContentfulStatusCode } from "hono/utils/http-status"
-import { getAuth } from "../auth/config.js"
+import { requestSession } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { initDb } from "../db/client.js"
 import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
@@ -52,9 +52,16 @@ export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
 
-  /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
+  /**
+   * Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes.
+   * The lookup is the request's shared one, so `withCookieAuth` does not read the session again.
+   */
   const identifyBetterAuthUser = createAuthMiddleware(
-    getAuth() as unknown as BetterAuthInstance,
+    {
+      api: {
+        getSession: () => requestSession(getContext<AppEnv>()),
+      },
+    } as unknown as BetterAuthInstance,
     {
       exclude: [...betterAuthIdentifyExclude],
       maskEmail: env.NODE_ENV === "production",
