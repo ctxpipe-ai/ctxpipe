@@ -6,6 +6,7 @@ import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
   upgradesFixture,
+  workspaceUpgradeCheckHandler,
   workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
@@ -14,7 +15,8 @@ import type { StoryRouteParams } from "../../../.storybook/decorators/with-story
 import { UpgradeItemCard, WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const startRequests: string[] = []
-const state = { started: false }
+const checkRequests: string[] = []
+const state = { started: false, checked: false }
 
 const meta = {
   title: "Components/Workspaces/Upgrades",
@@ -30,7 +32,9 @@ const meta = {
   ],
   beforeEach: () => {
     startRequests.length = 0
+    checkRequests.length = 0
     state.started = false
+    state.checked = false
   },
   parameters: {
     layout: "fullscreen",
@@ -44,6 +48,7 @@ const meta = {
           activeMemberRoleHandler("owner"),
           workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
           workspaceUpgradeStartHandler({ requests: startRequests }),
+          workspaceUpgradeCheckHandler({ requests: checkRequests }),
         ],
       },
     },
@@ -65,6 +70,7 @@ function withUpgrades(
           activeMemberRoleHandler("owner"),
           ...handlers,
           workspaceUpgradeStartHandler({ requests: startRequests }),
+          workspaceUpgradeCheckHandler({ requests: checkRequests }),
         ],
       },
     },
@@ -265,6 +271,112 @@ export const PullRequestOpen: Story = {
       ).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/** The open item says what it waits for and what happens after the merge. */
+export const WaitingForMerge: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "pr_open",
+          pullRequest: {
+            number: 42,
+            url: "https://github.com/acme/docs/pull/42",
+          },
+        }),
+      ]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          /ctx\| waits for you to merge pull request #42 on GitHub\. After the merge, ctx\| reads the new format/,
+        ),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByRole("button", { name: /^Check again/ })).toBeVisible()
+  },
+}
+
+/** Check again runs the tip check now. The card then shows the applied state. */
+export const CheckAgainAfterMerge: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("admin"),
+          workspaceUpgradesHandler(() =>
+            upgradesFixture([
+              upgradeItemFixture(
+                state.checked
+                  ? { status: "completed" }
+                  : {
+                      status: "pr_open",
+                      pullRequest: {
+                        number: 42,
+                        url: "https://github.com/acme/docs/pull/42",
+                      },
+                    },
+              ),
+            ]),
+          ),
+          workspaceUpgradeCheckHandler({
+            requests: checkRequests,
+            onChecked: () => {
+              state.checked = true
+            },
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const button = await canvas.findByRole("button", { name: /^Check again/ })
+    await userEvent.click(button)
+    await waitFor(() => expect(checkRequests).toHaveLength(1))
+    expect(checkRequests[0]).toMatch(/\/workspaces\/docs\/upgrades\/check$/)
+    await waitFor(async () =>
+      expect(await canvas.findByText("No upgrades are pending.")).toBeVisible(),
+    )
+  },
+}
+
+/** A member cannot run the check. The card gives no button. */
+export const MemberCannotCheck: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("member"),
+          workspaceUpgradesHandler(
+            upgradesFixture([
+              upgradeItemFixture({
+                status: "pr_open",
+                pullRequest: {
+                  number: 42,
+                  url: "https://github.com/acme/docs/pull/42",
+                },
+              }),
+            ]),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
+    )
+    expect(canvas.queryByRole("button", { name: /^Check again/ })).toBeNull()
   },
 }
 
@@ -484,6 +596,24 @@ export const ReingestNeedsFormat: Story = {
     await waitFor(() =>
       expect(canvas.getByText(/needs a newer repository format/)).toBeVisible(),
     )
+  },
+}
+
+/** A blocked re-ingestion names its next step, and an admin can check again. */
+export const ReingestBlockedNextStep: Story = {
+  parameters: blockedReingest("needs_format"),
+  play: async ({ canvasElement }) => {
+    const canvas = await expectReingestCard(
+      canvasElement,
+      "Apply the format upgrade first",
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/Next step: merge the format upgrade pull request/),
+      ).toBeVisible(),
+    )
+    await userEvent.click(canvas.getByRole("button", { name: /^Check again/ }))
+    await waitFor(() => expect(checkRequests).toHaveLength(1))
   },
 }
 

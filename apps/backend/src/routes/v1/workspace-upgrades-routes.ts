@@ -18,6 +18,7 @@ import {
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -261,6 +262,34 @@ const startUpgradeRoute = createRoute(
   ),
 )
 
+const checkUpgradesRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/{workspaceSlug}/upgrades/check",
+      request: { params: WorkspaceSlugParamsSchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": { schema: z.object({ queued: z.boolean() }) },
+          },
+          description:
+            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts. `queued` is false when a check ran in the last minute: that check still writes its result.",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Not found",
+        },
+      },
+    },
+    { orgAdmin: true },
+  ),
+)
+
 const routes = new OpenAPIHono<AppEnv>()
   .openapi(listUpgradesRoute, async (c) => {
     if (!c.get("user") || !c.get("session"))
@@ -279,6 +308,19 @@ const routes = new OpenAPIHono<AppEnv>()
       },
       200,
     )
+  })
+  .openapi(checkUpgradesRoute, async (c) => {
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
+      return c.json({ error: "Unauthorized" }, 401)
+    const { workspaceSlug } = c.req.valid("param")
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    // The tip check reads every Workspace of the org. Start one each minute.
+    const queued = await enqueueWorkspaceTipCheck(orgId, c.get("log"), {
+      idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+    })
+    return c.json({ queued }, 202)
   })
   .openapi(startUpgradeRoute, async (c) => {
     const user = c.get("user")
@@ -319,6 +361,7 @@ const routes = new OpenAPIHono<AppEnv>()
  */
 const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
+gated.use("/:workspaceSlug/upgrades/check", requireOrgAdminOrOwner)
 export const workspaceUpgradeRoutes = gated.route("/", routes)
 
 const PendingWorkspaceUpgradesSchema = z
