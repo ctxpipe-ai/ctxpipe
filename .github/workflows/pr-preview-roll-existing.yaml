@@ -24,9 +24,11 @@ jobs:
       contents: read
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
-    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
-    # Vercel project (scripts/preview-sandbox-vars.sh), never production.
-    environment: Preview
+    # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
+    # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
+    # token reaches only the preview Vercel project
+    # (scripts/preview-sandbox-vars.sh), never production.
+    environment: preview-deploy
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
@@ -56,6 +58,10 @@ jobs:
           set -euo pipefail
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            exit 1
+          }
 
       - uses: actions/checkout@v4
 

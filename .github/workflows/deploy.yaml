@@ -205,7 +205,8 @@ jobs:
       - name: Mount pnpm store (sticky disk)
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Production only: no PR job mounts this key.
+          key: ${{ github.repository }}-pnpm-store-production
           path: ~/.pnpm-store
 
       - uses: useblacksmith/setup-node@v5
@@ -293,7 +294,8 @@ jobs:
       - name: Mount pnpm store (sticky disk)
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Production only: no PR job mounts this key.
+          key: ${{ github.repository }}-pnpm-store-production
           path: ~/.pnpm-store
 
       - uses: useblacksmith/setup-node@v5

@@ -1,17 +1,24 @@
-# Secrets and isolation of a preview. A preview runs branch code that nobody
-# has reviewed, so it holds no production secret and no account-wide token:
-# - RAILWAY_API_TOKEN (Railway account token) goes only to jobs that run no
-#   branch code: no pnpm install, no migrate, no build. These jobs check out
-#   the commit of this workflow file and source only its scripts. Branch code
-#   runs in other jobs, on other runners (see prepare_pr_environment).
-#   scripts/ci/check-railway-token-jobs.mjs keeps this true. The token never
+# Secrets and isolation of a preview. A preview runs code that the team did
+# not write (dependency install scripts, packages, build steps) and branch
+# code. Such code gets no secret except a credential that works on this
+# preview only:
+# - RAILWAY_API_TOKEN (Railway account token) comes from the protected
+#   GitHub environment `preview-deploy`. It goes only to jobs that run no
+#   package manager, no migrate and no build. These jobs check out the commit
+#   of this workflow file and source only reviewed scripts from it.
+# - NEON_API_KEY goes only to prepare_pr_database, deploy_pr_environment and
+#   cleanup_pr_environment, which run no package manager. prepare_pr_database
+#   gives neondb_owner a new password on the preview branch (the copy from
+#   production has the production password), and hands only that branch
+#   owner URL to migrate_pr_database.
+# - scripts/ci/check-secret-jobs.mjs keeps these rules true. The token never
 #   goes into a preview service variable. The preview backend wakes its
 #   worker with a Railway project token that the deploy creates for the
 #   preview environment only (scripts/preview-own-secrets.sh), and that the
-#   PR-close cleanup revokes. No extra secret is necessary.
+#   PR-close cleanup revokes.
 #   Limit: GitHub runs this file from the branch, so a person who can push a
-#   branch can change this file. The boundary stops dependency install
-#   scripts and application code, not a change to the workflow.
+#   branch can change this file. Required reviewers on `preview-deploy` are
+#   the control for that case.
 # - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: each preview gets its
 #   own random values once, and keeps them for its life. Connection secrets
 #   copied from production do not decrypt on a preview.
@@ -127,6 +134,10 @@ jobs:
     if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
+    # Builds branch code: it pushes the PR images and does nothing else.
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -192,6 +203,11 @@ jobs:
     needs: [resolve_pr, build_pr_images]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
+    # Runs branch code. It reads the PR file list and pulls the PR images.
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -201,7 +217,8 @@ jobs:
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Not the production key: branch code writes to this store.
+          key: ${{ github.repository }}-pnpm-store-pr
           path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4
@@ -261,17 +278,18 @@ jobs:
               run apps/backend/src/scripts/verifyConnectorAssetRuntime.ts
           done
 
-  # The deploy is three jobs, because a job is the trust boundary. Each job has
+  # The deploy is four jobs, because a job is the trust boundary. Each job has
   # its own runner. A step that runs branch code (pnpm install with the install
   # scripts of each dependency, migrate) can change the rest of its job: it
-  # can write BASH_ENV or PATH to $GITHUB_ENV, change files on disk, or leave
-  # a process that reads the environment of a later step. Thus the account
-  # token (RAILWAY_API_TOKEN) goes only to prepare_pr_environment and
+  # can write BASH_ENV or PATH to $GITHUB_ENV, change files on disk, leave
+  # a process that reads the environment of a later step, or read the memory
+  # of the runner. Thus the account tokens (RAILWAY_API_TOKEN, NEON_API_KEY)
+  # go only to prepare_pr_environment, prepare_pr_database and
   # deploy_pr_environment, and these jobs run no branch code. They check out
   # the commit of this workflow file (no `ref:`), and run only the scripts that
   # this workflow sources from that checkout. migrate_pr_database runs the
-  # branch code and gets no Railway token.
-  # scripts/ci/check-railway-token-jobs.mjs keeps this true.
+  # branch code and gets only the owner URL of the preview branch.
+  # scripts/ci/check-secret-jobs.mjs keeps this true.
   prepare_pr_environment:
     name: Prepare PR environment (Railway)
     needs: [resolve_pr, build_pr_images, verify_connector_assets]
@@ -286,7 +304,9 @@ jobs:
     concurrency:
       group: pr-deploy-prepare-${{ needs.resolve_pr.outputs.pr_number }}
       cancel-in-progress: false
-    environment: Preview
+    # RAILWAY_API_TOKEN and the preview GitHub App secrets come from this
+    # protected environment.
+    environment: preview-deploy
     env:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
     outputs:
@@ -296,6 +316,15 @@ jobs:
       # holds the account token.
       - name: Checkout workflow commit
         uses: useblacksmith/checkout@v1
+
+      - name: Check the Railway token
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            exit 1
+          }
 
       - name: Check preview GitHub App secrets
         # Fail before the job creates anything: a preview must not run with
@@ -366,68 +395,112 @@ jobs:
             echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
             echo "Railway environment id: $ENV_ID"
 
-  # Runs branch code: pnpm install and migrate. It gets no Railway token.
-  migrate_pr_database:
-    name: Migrate PR Neon branch
+  # Runs no branch code, and holds NEON_API_KEY. It makes the preview branch,
+  # and gives neondb_owner a password that works on this branch only: the
+  # branch copies the role from production, with the production password.
+  # It resets the password on each run, so a password from an older run
+  # stops working. It hands the new owner URL to migrate_pr_database through
+  # the Actions cache, because GitHub drops a job output that holds a masked
+  # value, and prints each `env:` value. The cache is scoped to the branch of
+  # the run, so only runs of this PR can read it.
+  prepare_pr_database:
+    name: Prepare PR Neon branch
     needs: [resolve_pr, prepare_pr_environment]
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    # One group for the password reset, migrate and the roll of a PR. The
+    # workflow group above already runs the runs of one event one at a time;
+    # this group also keeps a manual run apart from a pull_request run, so
+    # that a newer reset or migrate never runs while an older run rolls.
     concurrency:
-      group: pr-deploy-migrate-${{ needs.resolve_pr.outputs.pr_number }}
+      group: pr-deploy-database-${{ needs.resolve_pr.outputs.pr_number }}
       cancel-in-progress: false
     outputs:
-      neon_branch_id: ${{ steps.neon_branch.outputs.branch_id }}
+      handoff_key: ${{ steps.owner.outputs.handoff_key }}
+    steps:
+      # No `ref:`: the commit of this workflow file, not the PR head.
+      - name: Checkout workflow commit
+        uses: useblacksmith/checkout@v1
+
+      - name: Create the Neon branch and reset its owner password
+        id: owner
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+          HANDOFF: ${{ runner.temp }}/preview-db-handoff
+          HANDOFF_KEY: preview-db-handoff-${{ github.run_id }}-${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+          neon_ensure_preview_branch "$PR_NUMBER" "$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')"
+          # The id comes from the branch name, and the lookup refuses the
+          # default branch and the production branch.
+          BRANCH_ID="$(neon_preview_branch_id "$PR_NUMBER")"
+          neon_reset_owner_password "$BRANCH_ID"
+          OWNER_DB_URL="$(neon_owner_url "$BRANCH_ID" false)"
+          echo "::add-mask::$OWNER_DB_URL"
+          # The password alone too: an error message can show it without the URL.
+          echo "::add-mask::$(python3 -c 'import sys, urllib.parse as u; print(u.unquote(u.urlparse(sys.argv[1]).password or ""))' "$OWNER_DB_URL")"
+          umask 077
+          mkdir -p "$HANDOFF"
+          printf '%s' "$OWNER_DB_URL" >"$HANDOFF/owner-db-url"
+          echo "handoff_key=$HANDOFF_KEY" >>"$GITHUB_OUTPUT"
+          echo "Neon branch preview/pr-$PR_NUMBER: $BRANCH_ID, owner password reset"
+
+      - name: Hand the branch owner URL to the migrate job
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/preview-db-handoff
+          key: ${{ steps.owner.outputs.handoff_key }}
+
+  # Runs branch code: pnpm install and migrate. It gets no account token, only
+  # the owner URL of the preview branch, which does not work on production.
+  migrate_pr_database:
+    name: Migrate PR Neon branch
+    needs: [resolve_pr, prepare_pr_database]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    concurrency:
+      group: pr-deploy-database-${{ needs.resolve_pr.outputs.pr_number }}
+      cancel-in-progress: false
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
         with:
           ref: ${{ needs.resolve_pr.outputs.head_sha }}
 
-      - name: Neon branch expiration (14 days)
-        id: neon_expires
-        run: echo "expires_at=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
-
-      - name: Create Neon branch
-        id: neon_branch
-        uses: neondatabase/create-branch-action@v6
+      - name: Receive the branch owner URL
+        uses: actions/cache/restore@v4
         with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
-          parent_branch: production
-          api_key: ${{ secrets.NEON_API_KEY }}
-          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
+          path: ${{ runner.temp }}/preview-db-handoff
+          key: ${{ needs.prepare_pr_database.outputs.handoff_key }}
+          fail-on-cache-miss: true
 
-      - name: Mask Neon credentials for later steps
-        # Before pnpm install, so that the Neon API key is gone before branch
-        # code runs.
+      - name: Mask the branch owner URL for later steps
+        # GITHUB_ENV, not `env:`: GitHub prints each `env:` value.
         env:
-          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-          NEON_BRANCH_ID: ${{ steps.neon_branch.outputs.branch_id }}
-        # The step reads no credential from a step output or an expression:
-        # GitHub prints `env:` and the expanded script before it runs, and the
-        # Neon action does not mask its outputs. The step reads the value from
-        # the Neon API with the masked API key, masks it, and only then writes
-        # it to GITHUB_ENV, so later steps need no `env:` entry for it.
+          HANDOFF: ${{ runner.temp }}/preview-db-handoff
         run: |
           set -euo pipefail
-          # Without a branch id, the Neon API gives the default branch, which
-          # is production. Migrate changes this database, so stop here.
-          [[ -n "$NEON_BRANCH_ID" ]] || { echo "The Neon action returned no preview branch id"; exit 1; }
-          OWNER_DB_URL="$(curl -fsS -G -H "Authorization: Bearer ${NEON_API_KEY}" \
-            "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri" \
-            --data-urlencode "branch_id=${NEON_BRANCH_ID}" \
-            --data-urlencode "database_name=neondb" \
-            --data-urlencode "role_name=neondb_owner" \
-            --data-urlencode "pooled=false" | jq -r '.uri')"
-          [[ -n "$OWNER_DB_URL" && "$OWNER_DB_URL" != "null" ]] || { echo "Neon returned no value for OWNER_DB_URL"; exit 1; }
+          OWNER_DB_URL="$(cat "$HANDOFF/owner-db-url")"
+          rm -rf "$HANDOFF"
+          [[ -n "$OWNER_DB_URL" ]] || { echo "The handoff holds no owner URL"; exit 1; }
           echo "::add-mask::$OWNER_DB_URL"
-          printf 'OWNER_DB_URL=%s\n' "$OWNER_DB_URL" >> "$GITHUB_ENV"
+          # The password alone too: an error message can show it without the URL.
+          echo "::add-mask::$(python3 -c 'import sys, urllib.parse as u; print(u.unquote(u.urlparse(sys.argv[1]).password or ""))' "$OWNER_DB_URL")"
+          printf 'OWNER_DB_URL=%s\n' "$OWNER_DB_URL" >>"$GITHUB_ENV"
 
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Not the production key: branch code writes to this store.
+          key: ${{ github.repository }}-pnpm-store-pr
           path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4
@@ -458,15 +531,19 @@ jobs:
 
   deploy_pr_environment:
     name: Deploy PR environment (Railway + Neon)
-    needs: [resolve_pr, prepare_pr_environment, migrate_pr_database]
+    # Waits for migrate_pr_database of the same run, and shares its
+    # concurrency group (see prepare_pr_database).
+    needs: [resolve_pr, prepare_pr_environment, prepare_pr_database, migrate_pr_database]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 45
     concurrency:
-      group: pr-deploy-environment-${{ needs.resolve_pr.outputs.pr_number }}
+      group: pr-deploy-database-${{ needs.resolve_pr.outputs.pr_number }}
       cancel-in-progress: false
-    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
-    # Vercel project (scripts/preview-sandbox-vars.sh), never production.
-    environment: Preview
+    # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
+    # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
+    # token reaches only the preview Vercel project
+    # (scripts/preview-sandbox-vars.sh), never production.
+    environment: preview-deploy
     env:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
@@ -477,34 +554,37 @@ jobs:
       - name: Checkout workflow commit
         uses: useblacksmith/checkout@v1
 
+      - name: Check the Railway token
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            exit 1
+          }
+
       - name: Read Neon owner credentials
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
-          NEON_BRANCH_ID: ${{ needs.migrate_pr_database.outputs.neon_branch_id }}
-        # Same as the mask step of migrate_pr_database: read each value from
-        # the Neon API, mask it, then write it to GITHUB_ENV.
+        # The branch id comes from the branch name again, not from an output
+        # of migrate_pr_database, which runs branch code. The lookup refuses
+        # the default branch and the production branch: the next step changes
+        # a role password on this branch. Each value is masked before it goes
+        # to GITHUB_ENV.
         run: |
           set -euo pipefail
-          # Without a branch id, the Neon API gives the default branch, which
-          # is production. The next step changes a role password there.
-          [[ -n "$NEON_BRANCH_ID" ]] || { echo "migrate_pr_database returned no preview branch id"; exit 1; }
-          neon_uri() {
-            curl -fsS -G -H "Authorization: Bearer ${NEON_API_KEY}" \
-              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri" \
-              --data-urlencode "branch_id=${NEON_BRANCH_ID}" \
-              --data-urlencode "database_name=neondb" \
-              --data-urlencode "role_name=$1" \
-              --data-urlencode "pooled=$2" | jq -r '.uri'
-          }
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+          NEON_BRANCH_ID="$(neon_preview_branch_id "$PR_NUMBER")"
           export_masked() {
             local name="$1" value="$2"
-            [[ -n "$value" && "$value" != "null" ]] || { echo "Neon returned no value for $name"; exit 1; }
+            [[ -n "$value" ]] || { echo "Neon returned no value for $name"; exit 1; }
             echo "::add-mask::$value"
             printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
           }
-          export_masked OWNER_DB_URL "$(neon_uri neondb_owner false)"
-          export_masked OWNER_DB_URL_POOLED "$(neon_uri neondb_owner true)"
+          export_masked OWNER_DB_URL "$(neon_owner_url "$NEON_BRANCH_ID" false)"
+          export_masked OWNER_DB_URL_POOLED "$(neon_owner_url "$NEON_BRANCH_ID" true)"
 
       - name: Set preview ctxpipe_app password
         # The Neon API cannot show the password of a role that SQL made, so
@@ -1238,10 +1318,19 @@ jobs:
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    # RAILWAY_API_TOKEN comes from this protected environment.
+    environment: preview-deploy
     env:
       NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
     steps:
+      - name: Check the Railway token
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            exit 1
+          }
+
       - name: Delete Neon branch
         run: |
           set -euo pipefail
@@ -1335,7 +1424,11 @@ jobs:
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    # Same project and token as the preview deploy (scripts/preview-sandbox-vars.sh).
+    permissions:
+      contents: read
+    # The preview Vercel project and token (scripts/preview-sandbox-vars.sh).
+    # This job runs pnpm install with that token: a reviewed exception in
+    # scripts/ci/check-secret-jobs.mjs.
     environment: Preview
     steps:
       - name: Checkout repository
@@ -1344,7 +1437,8 @@ jobs:
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Not the production key: branch code writes to this store.
+          key: ${{ github.repository }}-pnpm-store-pr
           path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4

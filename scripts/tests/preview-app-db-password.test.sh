@@ -54,15 +54,19 @@ done
 
 # Without a Neon branch id, OWNER_DB_URL_POOLED is the production URL, and the
 # production DATABASE_URL that the duplicate copies would match its host. The
-# guard must stop the job before this step reads the preview DATABASE_URL.
-# The deploy job reads the Neon URLs again, so take the last guard before the
-# step: the guard of that job.
+# deploy job must take the branch id from the branch name, with the lookup
+# that refuses the default and the production branch
+# (scripts/preview-neon-branch.sh), before this step reads the preview
+# DATABASE_URL. Take the last lookup before the step: the one of that job.
 step_line="$(grep -n 'name: Set preview ctxpipe_app password' "$workflow" | cut -d: -f1)"
 job_line="$(grep -n '^  deploy_pr_environment:' "$workflow" | cut -d: -f1)"
-guard_line="$(grep -n '\[\[ -n "$NEON_BRANCH_ID" \]\] ||' "$workflow" | cut -d: -f1 \
+guard_line="$(grep -n 'NEON_BRANCH_ID="$(neon_preview_branch_id "$PR_NUMBER")"' "$workflow" | cut -d: -f1 \
   | awk -v s="${step_line:-0}" '$1 < s { line = $1 } END { print line }')"
 [[ -n "$guard_line" && -n "$step_line" && -n "$job_line" && "$job_line" -lt "$guard_line" && "$guard_line" -lt "$step_line" ]] \
-  || fail "the deploy job must stop on an empty Neon branch id before it sets the ctxpipe_app password"
+  || fail "the deploy job must look up the preview Neon branch by name before it sets the ctxpipe_app password"
+if grep -Fq 'outputs.neon_branch_id' "$workflow"; then
+  fail "the deploy job must not take the Neon branch id from a job that runs branch code"
+fi
 
 a="$(CURRENT="" run_password 2>/dev/null)"
 b="$(CURRENT="" run_password 2>/dev/null)"
