@@ -34,7 +34,7 @@ describe("workspaceChatWebSocket hydrate", () => {
       interrupts: null,
     })
     expect(fetchMock).toHaveBeenCalledWith(
-      "/acme/api/v1/conversations/conv_1/chat?threadId=conv_1",
+      "/acme/api/v1/conversations/conv_1/chat?",
       expect.objectContaining({ credentials: "include" }),
     )
   })

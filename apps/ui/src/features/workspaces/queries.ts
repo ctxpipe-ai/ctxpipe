@@ -122,12 +122,14 @@ export async function fetchConversation(
     param: { orgSlug, conversationId },
     query: workspaceId ? { workspaceId } : {},
   })
-  // TODO: the conversation route types `messages` as unknown, so the body is cast.
-  return (await readApiJson(res, {
+  const data = await readApiJson(res, {
     emptyOn: [404],
     empty: null,
     message: "Failed to load conversation",
-  })) as unknown as ConversationDetail | null
+  })
+  return data === null
+    ? null
+    : { ...data, messages: data.messages as ConversationDetail["messages"] }
 }
 
 export async function renameConversation(
@@ -198,10 +200,11 @@ export async function fetchWorkspaceFiles(
   ].files.$get({
     param: { orgSlug, workspaceSlug },
   })
-  // TODO: the file tree schema is recursive, so the client types `children` loosely.
-  return (await readApiJson(res, {
+  const data = await readApiJson(res, {
     message: "Failed to load Workspace files",
-  })) as unknown as WorkspaceFilesResponse
+  })
+  // The recursive schema leaves the type of `children` loose.
+  return { ...data, tree: data.tree as WorkspaceFilesResponse["tree"] }
 }
 
 export async function fetchWorkspaceGitTree(
