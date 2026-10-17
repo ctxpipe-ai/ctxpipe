@@ -1224,6 +1224,9 @@ jobs:
         # PR Deploy creates one Railway project token per preview environment
         # (scripts/preview-own-secrets.sh). Delete each token of this
         # environment before the environment goes. Prints no token value.
+        # A failure here must not stop the environment delete, because the
+        # token is scoped to that environment.
+        continue-on-error: true
         env:
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
           PR_ENV: pr-${{ github.event.number }}

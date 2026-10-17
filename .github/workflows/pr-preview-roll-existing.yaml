@@ -81,6 +81,8 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
 
           update_ui() {
             railway_graphql \
@@ -154,6 +156,10 @@ jobs:
           sync_preview_otel_variables
           sync_preview_sandbox_variables
           sync_preview_github_app_variables
+          # A preview from before PR Deploy gave it its own secrets still has
+          # the production AUTH_SECRET and the account token. Replace them
+          # before branch code rolls. A marked preview keeps its values.
+          sync_preview_own_secrets
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
