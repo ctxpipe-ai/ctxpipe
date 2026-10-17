@@ -108,8 +108,9 @@ sources:
     connection: con_example
     repositories: [acme/billing, ${workspaceName}]
 `,
-      "knowledge/services/billing.md":
-        "---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\n---\n\n# Billing\n",
+      // Step 3 removes the keys that ingestion v2 does not know, and a
+      // summary over 1000 characters. The report names them.
+      "knowledge/services/billing.md": `---\nkind: Service\ngenerated_by: ctxpipe\nsource: https://github.com/acme/billing.git#src/index.ts\nowner: team-payments\nsummary: ${"a".repeat(1001)}\n---\n\n# Billing\n`,
       "knowledge/notes.md": "---\nkind: Note\n---\n\nA human note.\n",
       // A link with no claim: hydrate at format 3 adds the claim and its
       // valid_from, so the upgrade pull request adds them.
@@ -138,6 +139,9 @@ sources:
         [2, true],
         [3, true],
       ],
+    )
+    expect(built.steps.find((step) => step.format === 3)?.report).toContain(
+      "knowledge/services/billing.md: removed the front matter keys `owner`, `summary`. Ingestion v2 does not accept these keys or their values.",
     )
     const head = await readCommits(built.pack)
     expect(head.subjects).toEqual([
