@@ -58,6 +58,8 @@ jobs:
         run: node scripts/ci/check-story-play-timing.mjs
       - name: Reject non-Blacksmith runners
         run: node scripts/ci/check-runners.mjs
+      - name: Reject outside values in run scripts and workflows without permissions
+        run: node scripts/ci/check-workflow-inputs.mjs
       - name: CI command regression tests
         run: |
           node --test scripts/tests/ci-*.test.mjs

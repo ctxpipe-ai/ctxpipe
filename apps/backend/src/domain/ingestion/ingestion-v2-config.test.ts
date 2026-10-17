@@ -1,5 +1,10 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
 import {
+  CODE_FORMAT,
+  WORKSPACE_FORMAT_INVALID,
+} from "../workspaces/workspace-format.js"
+import {
+  ingestionV2EnabledFor,
   ingestionV2ShadowEnabled,
   workspacePublishPipeline,
 } from "./ingestion-v2-config.js"
@@ -65,14 +70,24 @@ describe("ingestion v2 shadow switch", () => {
   })
 })
 
-describe("the Workspace format selects the publish pipeline", () => {
-  it("is ingestion v2 at format 3 or more", () => {
+describe("the Workspace format selects the ingestion", () => {
+  it("is ingestion v2 from format 3 to the code format", () => {
     expect(workspacePublishPipeline(3)).toBe("v2")
-    expect(workspacePublishPipeline(4)).toBe("v2")
+    expect(workspacePublishPipeline(CODE_FORMAT)).toBe("v2")
   })
 
-  it("is the old pipeline below 3, for no file, for an invalid file, and before the first read", () => {
-    for (const format of [2, 1, 0, -1, null])
-      expect(workspacePublishPipeline(format)).toBe("legacy")
+  it("is no ingestion below 3, for no file, and before the first read", () => {
+    for (const format of [2, 1, 0, null])
+      expect(workspacePublishPipeline(format)).toBe("none")
+  })
+
+  it("is no ingestion for an invalid format file and for a format above the code format, which are read-only", () => {
+    expect(workspacePublishPipeline(WORKSPACE_FORMAT_INVALID)).toBe("none")
+    expect(workspacePublishPipeline(CODE_FORMAT + 1)).toBe("none")
+    expect(ingestionV2EnabledFor({ formatVersion: -1 })).toBe(false)
+    expect(ingestionV2EnabledFor({ formatVersion: CODE_FORMAT + 1 })).toBe(
+      false,
+    )
+    expect(ingestionV2EnabledFor({ formatVersion: CODE_FORMAT })).toBe(true)
   })
 })

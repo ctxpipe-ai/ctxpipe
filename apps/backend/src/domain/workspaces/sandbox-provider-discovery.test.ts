@@ -2,7 +2,11 @@ import { createServer, type Server } from "node:http"
 import type { AddressInfo } from "node:net"
 import { initLogger } from "evlog"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { discoverSandboxProvider } from "./sandbox-provider.js"
+import {
+  discoverSandboxProvider,
+  lockedSandboxProvider,
+  warnIfUnsandboxed,
+} from "./sandbox-provider.js"
 
 async function listen(server: Server): Promise<number> {
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
@@ -48,6 +52,34 @@ describe("sandbox provider selection (real Docker client)", () => {
     } finally {
       await new Promise<void>((resolve) => daemon.close(() => resolve()))
     }
+  })
+
+  it("refuses unsandboxed in a production process, also at startup", async () => {
+    const production = {
+      SANDBOX_PROVIDER: "unsandboxed",
+      NODE_ENV: "production",
+    }
+    expect(() => lockedSandboxProvider(production)).toThrow(
+      /local development only/,
+    )
+    expect(() => warnIfUnsandboxed(production)).toThrow(
+      /local development only/,
+    )
+    await expect(discoverSandboxProvider(production)).rejects.toThrow(
+      /local development only/,
+    )
+    expect(
+      lockedSandboxProvider({
+        SANDBOX_PROVIDER: "docker",
+        NODE_ENV: "production",
+      }),
+    ).toBe("docker")
+    expect(
+      lockedSandboxProvider({
+        SANDBOX_PROVIDER: "unsandboxed",
+        NODE_ENV: "development",
+      }),
+    ).toBe("unsandboxed")
   })
 
   it("runs unsandboxed only when locked, warning once", async () => {

@@ -529,6 +529,10 @@ async function brokerPush(input: {
       packBytes <= 0
     )
       throw new Error("Invalid conversation Git pack size")
+    // The sandbox reports the size. The copy below reads that many bytes into
+    // this process, so a larger pack is refused before any copy.
+    if (packBytes > 100 * 1024 * 1024)
+      throw new Error("The conversation Git pack is larger than 100 MB")
     writeToken = await getRepoWriteCloneToken(target.orgId, input.env, {
       githubConnectionId: target.connectionId,
       repoFullName: target.repositoryName,

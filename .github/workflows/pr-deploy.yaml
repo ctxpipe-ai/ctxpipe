@@ -72,14 +72,26 @@ jobs:
     steps:
       - name: Resolve
         id: resolve
+        # The run script reads each context value from the environment, never
+        # from an inline expression, so a branch name or an input stays data.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          OWNER: ${{ github.repository_owner }}
+          BRANCH: ${{ github.ref_name }}
+          PUSH_SHA: ${{ github.sha }}
+          EVENT_PR_NUMBER: ${{ github.event.number }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          EVENT_NAME="${{ github.event_name }}"
-          REPO="${{ github.repository }}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            PR_NUMBER="${{ inputs.pr_number }}"
+            PR_NUMBER="${INPUT_PR_NUMBER}"
+            if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              echo "The pr_number input must be a number" >&2
+              exit 1
+            fi
             HEAD_REPO="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.repo.full_name)"
             if [[ "$HEAD_REPO" != "${REPO}" ]]; then
               echo "Refusing to build untrusted fork PR #${PR_NUMBER} (${HEAD_REPO})" >&2
@@ -87,10 +99,8 @@ jobs:
             fi
             HEAD_SHA="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)"
           elif [[ "$EVENT_NAME" == "push" ]]; then
-            OWNER="${{ github.repository_owner }}"
-            BRANCH="${{ github.ref_name }}"
             PR_NUMBER="$(gh api -X GET "repos/${REPO}/pulls?state=open&head=${OWNER}:${BRANCH}" --jq '.[0].number // empty')"
-            HEAD_SHA="${{ github.sha }}"
+            HEAD_SHA="${PUSH_SHA}"
             if [[ -z "$PR_NUMBER" ]]; then
               echo "No open PR for ${OWNER}:${BRANCH}; skipping preview deploy"
               echo "pr_number=" >> "$GITHUB_OUTPUT"
@@ -98,8 +108,8 @@ jobs:
               exit 0
             fi
           else
-            PR_NUMBER="${{ github.event.number }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${EVENT_PR_NUMBER}"
+            HEAD_SHA="${EVENT_HEAD_SHA}"
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
@@ -373,25 +383,12 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Resolve Neon ctxpipe_app URLs
-        id: neon_app_role
-        continue-on-error: true
-        uses: neondatabase/create-branch-action@v6
-        with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
-          parent_branch: production
-          role: ctxpipe_app
-          api_key: ${{ secrets.NEON_API_KEY }}
-          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
-
       - name: Mask Neon credentials for later steps
         id: neon_mask
         env:
           NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
           NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
           NEON_BRANCH_ID: ${{ steps.neon_branch.outputs.branch_id }}
-          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
         # The step reads no credential from a step output or an expression:
         # GitHub prints `env:` and the expanded script before it runs, and the
         # Neon action does not mask its outputs. The step reads each value from
@@ -407,11 +404,6 @@ jobs:
               --data-urlencode "role_name=$1" \
               --data-urlencode "pooled=$2" | jq -r '.uri'
           }
-          neon_password() {
-            curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
-              "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/branches/${NEON_BRANCH_ID}/roles/$1/reveal_password" \
-              | jq -r '.password'
-          }
           export_masked() {
             local name="$1" value="$2"
             [[ -n "$value" && "$value" != "null" ]] || { echo "Neon returned no value for $name"; exit 1; }
@@ -420,29 +412,21 @@ jobs:
           }
           export_masked OWNER_DB_URL "$(neon_uri neondb_owner false)"
           export_masked OWNER_DB_URL_POOLED "$(neon_uri neondb_owner true)"
-          if [[ "$APP_ROLE_OK" == "success" ]]; then
-            export_masked APP_DB_URL_POOLED "$(neon_uri ctxpipe_app true)"
-            export_masked APP_PASSWORD "$(neon_password ctxpipe_app)"
-          fi
 
       - name: Migrate PR Neon branch and provision ctxpipe_app
         id: neon_app
         working-directory: apps/backend
         env:
-          APP_ROLE_OK: ${{ steps.neon_app_role.outcome }}
           # The backfills read OpenWorkflow runs of the namespace that the
           # preview services use, not the production runs on the copied branch.
           OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
         run: |
           set -euo pipefail
-          if [[ "$APP_ROLE_OK" == "success" && -n "${APP_DB_URL_POOLED:-}" && -n "${APP_PASSWORD:-}" ]]; then
-            PASSWORD="$APP_PASSWORD"
-            POOLED="$APP_DB_URL_POOLED"
-          else
-            echo "Neon parent has no ctxpipe_app yet; creating it on this preview branch"
-            PASSWORD="$(openssl rand -base64 24)"
-            POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
-          fi
+          # Migrate creates ctxpipe_app in SQL, or takes over the copy of the
+          # production role, and sets this password (ADR-042 mode a). The Neon
+          # API cannot reveal the password of a role that SQL created.
+          PASSWORD="$(openssl rand -hex 24)"
+          POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
           echo "::add-mask::$PASSWORD"
           echo "::add-mask::$POOLED"
           # The one migrate entry point (the same as production, Compose and

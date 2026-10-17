@@ -1,8 +1,8 @@
-import { tool } from "langchain"
 import { z } from "zod"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { toToon } from "../lib/agentToolRuntime.js"
 import { listRepositoriesForOrg } from "../models/repositories.js"
+import { tool } from "./tool.js"
 
 export const listRepositoriesTool = tool(
   async () => {

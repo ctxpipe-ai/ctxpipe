@@ -21,7 +21,6 @@ try {
   await runMigrations({
     connectionString,
     appRolePassword: process.env.DATABASE_APP_PASSWORD || undefined,
-    env: process.env,
   })
   log.info({ step: "migrate", message: "[migrate] done" })
 } catch (error) {

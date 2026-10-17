@@ -117,14 +117,10 @@ running agents without a sandbox. When `dind` restarts, running sandboxes stop
 with it. The next turn of each conversation starts its container again, or
 creates a new one from the conversation's git branch if the container is gone.
 
-<Callout type="warn" title="Unsandboxed chat is a last resort">
-  If your Docker host cannot run privileged containers, the backend can run
-  chat without a sandbox: set `SANDBOX_PROVIDER: unsandboxed` on `backend` and
-  `worker` in a `docker-compose.override.yml`. The backend logs a warning at
-  startup. The agent then runs as a process inside the backend container with
-  the backend's network access and credentials. Use it only where
-  Docker-in-Docker cannot run at all, and treat every Workspace user as
-  trusted with the backend.
+<Callout type="warn" title="Chat needs a sandbox">
+  The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`: an
+  agent without a sandbox would run with the backend's credentials. If your
+  Docker host cannot run privileged containers, chat answers 503.
 </Callout>
 
 Host dev uses a separate Agent Vault, `agent-vault-dev`, in the `infra`
@@ -148,6 +144,13 @@ Do not treat these as disposable once users depend on the deployment:
 Postgres and FalkorDB have no host ports in the deploy profile. Reach them
 through Compose, for example
 `docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`.
+
+<Callout type="warn" title="Upgrade from an earlier release">
+Earlier releases published Postgres on host port 5433
+(`CTXPIPE_POSTGRES_HOST_PORT`) in the deploy profile. This release does not.
+If a backup job or a tool on the host used that port, change it to the
+`docker compose exec postgres` command above.
+</Callout>
 
 `sandbox_docker`, `sandbox_ca`, and `sandbox_client_certs` need no backup.
 Removing `sandbox_ca` makes `dind` issue new certificates; restart `backend`
