@@ -53,8 +53,6 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        // Only an owner or admin sees the repository pickers.
-        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([docsWorkspace]),
           githubInstallationReposHandler(),
@@ -293,6 +291,10 @@ export const LinkedRepositoryWithIssues: Story = {
 export const AddRepositories: Story = {
   args: {
     workspace: emptyLinkedWorkspaceDetail,
+  },
+  parameters: {
+    // Only an owner or admin sees the repository pickers.
+    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
