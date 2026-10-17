@@ -93,6 +93,7 @@ vi.mock("./github-workspace-tip.js", () => ({
   resolveGithubBranchTip: vi.fn().mockResolvedValue(null),
 }))
 
+import { getOrgDb } from "../../../db/client.js"
 import {
   getGithubConnectionRowByConnectionId,
   getWebhookSecretForGithubConnection,
@@ -108,6 +109,18 @@ const getRowByConMock = vi.mocked(getGithubConnectionRowByConnectionId)
 const registerInstallMock = vi.mocked(registerInstallationOnConnection)
 const getWebhookSecretMock = vi.mocked(getWebhookSecretForGithubConnection)
 const findRepoMock = vi.mocked(findRepositoryByGithubInstallation)
+
+// The push handler reads whether a matched org has a Workspace. Each org in
+// these tests has one.
+beforeEach(() => {
+  vi.mocked(getOrgDb).mockReturnValue({
+    select: () => ({
+      from: () => ({
+        where: () => ({ limit: async () => [{ id: "ws_1" }] }),
+      }),
+    }),
+  } as unknown as ReturnType<typeof getOrgDb>)
+})
 
 const baseInstallationRow = {
   installationId: 999,
