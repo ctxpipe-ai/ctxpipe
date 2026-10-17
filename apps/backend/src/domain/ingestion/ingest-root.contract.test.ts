@@ -150,4 +150,43 @@ describe("dockerRootExec with a step limit", () => {
       }
     },
   )
+
+  it(
+    "does not count a zombie of the agent user whose parent never reaps it",
+    { timeout: 180_000 },
+    async () => {
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-zombie-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        await runAsRoot(
+          root,
+          `useradd --system --user-group --no-create-home --shell /bin/sh ${INGEST_AGENT_USER}`,
+        )
+        // A root process that never reaps starts a child of the agent user.
+        // The child exits at once and stays a zombie, as an orphan does when
+        // PID 1 does not reap it. The stop cannot kill a zombie.
+        const start = await root(
+          `(sh -c 'setpriv --reuid=${INGEST_AGENT_USER} --regid=${INGEST_AGENT_USER} --clear-groups true & exec sleep 86404' </dev/null >/dev/null 2>&1 &)`,
+        )
+        expect(start.exitCode, start.stderr).toBe(0)
+        const zombies = async () =>
+          Number(
+            (
+              await root(
+                `ps -u ${INGEST_AGENT_USER} -o stat= | grep -c '^Z' || true`,
+              )
+            ).stdout.trim(),
+          )
+        while ((await zombies()) < 1) {}
+        // It fails with "Agent processes are left" if it counts the zombie.
+        await stopIngestAgentProcesses(root)
+        expect(await zombies()).toBe(1)
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
 })

@@ -29,7 +29,8 @@ export const INGEST_AGENT_USER = "ctxpipe-agent"
  * so a process that forks while it is stopped is also stopped. The real uid
  * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
  * all found processes first, so none can fork or write while the round kills
- * them. A process can exit before its signal arrives; the script uses
+ * them. A zombie (State `Z`) has nothing left to kill, and PID 1 may never
+ * reap it, so `found` skips it. A process can exit before its signal arrives; the script uses
  * `|| true` there, because under `set -e` that failed `kill` stops the whole
  * script with no message.
  */
@@ -37,7 +38,8 @@ export const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
 found() {
   for d in /proc/[0-9]*; do
     u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null || true)
-    if [ "$u" = "$uid" ]; then echo "\${d#/proc/}"; fi
+    st=$(sed -n 's/^State:[[:space:]]*\\(.\\).*/\\1/p' "$d/status" 2>/dev/null || true)
+    if [ "$u" = "$uid" ] && [ "$st" != "Z" ]; then echo "\${d#/proc/}"; fi
   done
   true
 }
