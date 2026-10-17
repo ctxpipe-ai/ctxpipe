@@ -1,4 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { UPDATE_STORY_ARGS } from "storybook/internal/core-events"
+import { addons } from "storybook/preview-api"
 import { expect, waitFor, within } from "storybook/test"
 import {
   orgApiKeysListEmptyHandler,
@@ -106,5 +108,50 @@ export const ApiKeysMemberForbidden: Story = {
         ],
       },
     },
+  },
+}
+
+export const SubPagesKeepOnePosition: Story = {
+  args: {
+    organizationView: "settings",
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          organizationListWithOrgHandler,
+          organizationFullWithOrgHandler,
+          orgApiKeysListEmptyHandler,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement, id }) => {
+    const canvas = within(canvasElement)
+    await document.fonts.ready
+    const measure = async () => {
+      const nav = await canvas.findByRole("navigation", {
+        name: "Organization settings",
+      })
+      const title = canvas.getByRole("heading", { level: 1 })
+      const box = (el: Element) => {
+        const { left, top, width } = el.getBoundingClientRect()
+        return { left, top, width }
+      }
+      return { title: box(title), nav: box(nav) }
+    }
+    const first = await measure()
+    for (const organizationView of ["members", "api-keys", "settings"]) {
+      addons.getChannel().emit(UPDATE_STORY_ARGS, {
+        storyId: id,
+        updatedArgs: { organizationView },
+      })
+      await waitFor(async () => {
+        await expect(await measure()).toEqual(first)
+      })
+      // Let the new sub-page finish loading, then check again.
+      await new Promise((resolve) => setTimeout(resolve, 300))
+      await expect(await measure()).toEqual(first)
+    }
   },
 }
