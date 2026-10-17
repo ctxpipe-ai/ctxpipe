@@ -9,6 +9,33 @@ export function upgradeIsPending(item: WorkspaceUpgradeItem): boolean {
   return item.status !== "completed"
 }
 
+type UpgradeNotice = NonNullable<
+  WorkspaceUpgradeItem["steps"][number]["notices"]
+>[number]
+
+/**
+ * The lines that the card shows: the notices of every step, each one time,
+ * with the actions first and the risks after them. Each other report line
+ * stays behind Details.
+ */
+export function upgradeNotices(
+  item: Pick<WorkspaceUpgradeItem, "steps">,
+): UpgradeNotice[] {
+  const seen = new Set<string>()
+  const notices = item.steps
+    .flatMap((step) => step.notices ?? [])
+    .filter((notice) => {
+      const key = `${notice.kind}\n${notice.text}`
+      if (seen.has(key)) return false
+      seen.add(key)
+      return true
+    })
+  return [
+    ...notices.filter((notice) => notice.kind === "action"),
+    ...notices.filter((notice) => notice.kind === "risk"),
+  ]
+}
+
 /** The owner or admin can press Start on these. */
 export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"

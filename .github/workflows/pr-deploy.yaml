@@ -72,14 +72,26 @@ jobs:
     steps:
       - name: Resolve
         id: resolve
+        # The run script reads each context value from the environment, never
+        # from an inline expression, so a branch name or an input stays data.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          OWNER: ${{ github.repository_owner }}
+          BRANCH: ${{ github.ref_name }}
+          PUSH_SHA: ${{ github.sha }}
+          EVENT_PR_NUMBER: ${{ github.event.number }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          EVENT_NAME="${{ github.event_name }}"
-          REPO="${{ github.repository }}"
           if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
-            PR_NUMBER="${{ inputs.pr_number }}"
+            PR_NUMBER="${INPUT_PR_NUMBER}"
+            if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              echo "The pr_number input must be a number" >&2
+              exit 1
+            fi
             HEAD_REPO="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.repo.full_name)"
             if [[ "$HEAD_REPO" != "${REPO}" ]]; then
               echo "Refusing to build untrusted fork PR #${PR_NUMBER} (${HEAD_REPO})" >&2
@@ -87,10 +99,8 @@ jobs:
             fi
             HEAD_SHA="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}" --jq .head.sha)"
           elif [[ "$EVENT_NAME" == "push" ]]; then
-            OWNER="${{ github.repository_owner }}"
-            BRANCH="${{ github.ref_name }}"
             PR_NUMBER="$(gh api -X GET "repos/${REPO}/pulls?state=open&head=${OWNER}:${BRANCH}" --jq '.[0].number // empty')"
-            HEAD_SHA="${{ github.sha }}"
+            HEAD_SHA="${PUSH_SHA}"
             if [[ -z "$PR_NUMBER" ]]; then
               echo "No open PR for ${OWNER}:${BRANCH}; skipping preview deploy"
               echo "pr_number=" >> "$GITHUB_OUTPUT"
@@ -98,8 +108,8 @@ jobs:
               exit 0
             fi
           else
-            PR_NUMBER="${{ github.event.number }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${EVENT_PR_NUMBER}"
+            HEAD_SHA="${EVENT_HEAD_SHA}"
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"

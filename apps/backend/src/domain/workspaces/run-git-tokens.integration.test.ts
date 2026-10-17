@@ -17,6 +17,7 @@ import {
 } from "../ingestion/ingestion-run.js"
 import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import {
+  recordedBaseBuildGitToken,
   recordedRunGitToken,
   revokeFinishedIngestGitTokens,
   revokeIdleRunGitTokens,
@@ -164,6 +165,43 @@ it("revokes only one turn's tokens, keeps a token whose revoke failed, and the s
     vi.useRealTimers()
   }
   expect(await store.list(`run:${conversationId}:`)).toEqual([])
+})
+
+it("records a base build's token, revokes it at the end of the build, and the sweep revokes it after a crash", async () => {
+  const workspaceId = `ws_base_${suffix}`
+  const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
+  const finished = recordedBaseBuildGitToken({
+    orgId,
+    workspaceId,
+    mint: async () => "ghs_base_finished",
+  })
+  expect(await finished.mint()).toBe("ghs_base_finished")
+  expect(
+    (await store.list(`run:workspace-base-${workspaceId}:`)).map(
+      (row) => row.token,
+    ),
+  ).toEqual(["ghs_base_finished"])
+  revoked.length = 0
+  await finished.revoke()
+  expect(revoked).toEqual(["token ghs_base_finished"])
+  expect(await store.list(`run:workspace-base-${workspaceId}:`)).toEqual([])
+
+  // A build whose process stopped before its end: only the sweep is left.
+  const crashed = recordedBaseBuildGitToken({
+    orgId,
+    workspaceId,
+    mint: async () => "ghs_base_crashed",
+  })
+  await crashed.mint()
+  revoked.length = 0
+  vi.useFakeTimers({ toFake: ["Date"], now: Date.now() + 3 * 60_000 })
+  try {
+    expect(await revokeIdleRunGitTokens({ orgId })).toBe(false)
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(revoked).toEqual(["token ghs_base_crashed"])
+  expect(await store.list(`run:workspace-base-${workspaceId}:`)).toEqual([])
 })
 
 it("keeps an ingest shard's tokens apart from chat, and the sweep revokes them only after the run", async () => {

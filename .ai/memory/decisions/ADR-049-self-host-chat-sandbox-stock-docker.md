@@ -38,7 +38,7 @@ Earlier PR 280 work had a custom sandbox runner for Compose. It was Docker-in-Do
 ### Fail closed
 
 - When `SANDBOX_PROVIDER` is not set, the provider is Docker. If the daemon does not answer, the turn fails with 503. The backend never falls back to unsandboxed.
-- `unsandboxed` runs only when an operator sets `SANDBOX_PROVIDER=unsandboxed` explicitly. The backend then logs a warning once per process. Compose and CDK never set it. The docs mark it as a last resort.
+- `unsandboxed` runs only when `SANDBOX_PROVIDER=unsandboxed` is set explicitly, and only for local development and tests. A production process (`NODE_ENV=production`, which the backend and worker images set) refuses it at startup and on each provider selection: the agent would run with the backend's credentials. A local process logs a warning once. The agent process keeps only an allow-list of backend variables (2026-10-17).
 
 ### Network policy
 
@@ -74,7 +74,7 @@ Lifecycle, limits, and cleanup are as in [ADR-048](ADR-048-native-postgres-sandb
 ## Consequences
 
 - Self-hosters get sandboxed chat with no extra settings on Compose and on AWS.
-- Compose needs a host that can run a privileged container. Where it cannot, chat fails closed. The operator can select unsandboxed as a last resort.
+- Compose needs a host that can run a privileged container. Where it cannot, chat fails closed.
 - The Compose `sandbox_client_certs` volume and the AWS client TLS secret give root on the Docker host. Only the services that use the Docker API read them: on Compose `backend`, `worker`, and `chat-sandbox-image`; on AWS the backend and worker tasks.
 - Isolation is Docker plus stock policy. This is weaker than the microVMs that hosted uses. A self-host deployment is single-tenant, which decreases this risk.
 - The CDK upgrade only adds resources (host, security groups, secrets, Cloud Map service, alarms). It changes the backend and worker services in place. It replaces nothing that holds data.

@@ -120,6 +120,42 @@ const STEPS: GitUpgradeStep[] = [
 ]
 
 describe("buildUpgradeCommits", () => {
+  it("keeps the notices of each step, each one time, apart from the report", async () => {
+    const base = await fixturePack({ "README.md": "# Readme\n" })
+    const action = { kind: "action" as const, text: "Fix the sources file." }
+    const risk = { kind: "risk" as const, text: "Some links are removed." }
+    const built = await buildUpgradeCommits({
+      pack: base,
+      steps: [
+        {
+          format: 1,
+          title: "Add notes",
+          plan: async () => ({
+            writes: [{ path: "notes/a.md", content: "A\n" }],
+            deletes: [],
+            report: ["notes/a.md: link 1 is removed.", "notes/a.md: link 2"],
+            notices: [risk, action, risk],
+          }),
+        },
+      ],
+      fromFormat: 0,
+      targetFormat: 1,
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
+      createdAt: "2026-10-16T00:00:00.000Z",
+    })
+    expect(built.steps).toEqual([
+      expect.objectContaining({
+        report: ["notes/a.md: link 1 is removed.", "notes/a.md: link 2"],
+        notices: [risk, action],
+      }),
+    ])
+  })
+
   it("makes one commit for each step that changes a file, in order, and bumps the format last", async () => {
     const base = await fixturePack({
       "README.md": "# Readme\n",

@@ -14,28 +14,37 @@ export const SANDBOX_PROVIDERS = ["docker", "vercel", "unsandboxed"] as const
 
 export type SandboxProvider = (typeof SANDBOX_PROVIDERS)[number]
 
-/** The provider `SANDBOX_PROVIDER` locks, if any. */
+/**
+ * The provider `SANDBOX_PROVIDER` locks, if any. A production process (the
+ * backend and worker images set `NODE_ENV=production`: hosted, Compose and
+ * CDK) refuses `unsandboxed`: the agent would run with the backend's
+ * credentials. It stays for local development and tests.
+ */
 export function lockedSandboxProvider(
   env: Record<string, string | undefined> = process.env,
 ): SandboxProvider | undefined {
   const locked = env.SANDBOX_PROVIDER?.trim()
   if (!locked) return undefined
-  if ((SANDBOX_PROVIDERS as readonly string[]).includes(locked))
-    return locked as SandboxProvider
-  throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
+  if (!(SANDBOX_PROVIDERS as readonly string[]).includes(locked))
+    throw new Error(`Unknown SANDBOX_PROVIDER "${locked}"`)
+  if (locked === "unsandboxed" && env.NODE_ENV === "production")
+    throw new Error(
+      "SANDBOX_PROVIDER=unsandboxed is for local development only. Use docker or vercel.",
+    )
+  return locked as SandboxProvider
 }
 
 let warnedUnsandboxed = false
 
 /**
  * Logs once per process when chat is explicitly unsandboxed. Called at
- * startup and on each provider selection.
+ * startup and on each provider selection. Throws for a value that
+ * {@link lockedSandboxProvider} refuses, so such a process does not start.
  */
 export function warnIfUnsandboxed(
   env: Record<string, string | undefined> = process.env,
 ): void {
-  if (warnedUnsandboxed || env.SANDBOX_PROVIDER?.trim() !== "unsandboxed")
-    return
+  if (warnedUnsandboxed || lockedSandboxProvider(env) !== "unsandboxed") return
   warnedUnsandboxed = true
   log.warn({
     step: "sandbox-provider",
