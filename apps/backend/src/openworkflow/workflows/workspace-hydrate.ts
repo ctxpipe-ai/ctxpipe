@@ -16,6 +16,10 @@ import {
   hydrateKnowledgeTree,
 } from "../../domain/workspaces/hydrate.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
+import {
+  legacyKnowledgeOverlay,
+  legacyKnowledgeOverlayApplies,
+} from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
 import {
@@ -37,6 +41,7 @@ import {
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
 import { listOrgConnections } from "../../models/org-connections.js"
+import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -214,6 +219,7 @@ export function defineWorkspaceHydrateWorkflow() {
                     sourcesFile: string | null
                     sourceFiles: SourceFileBlob[]
                     formatFile: string | null
+                    treePaths: Set<string>
                   }>
                 | undefined
               const readTree = () => {
@@ -240,6 +246,7 @@ export function defineWorkspaceHydrateWorkflow() {
                     : []
                   return {
                     ...splitSourcesTree(treeFiles),
+                    treePaths: new Set(treeFiles.map((file) => file.path)),
                     formatFile:
                       treeFiles.find(
                         (file) => file.path === WORKSPACE_FORMAT_PATH,
@@ -374,7 +381,7 @@ export function defineWorkspaceHydrateWorkflow() {
                         .map((connection) => connection.id),
                   )
                 : []
-              const { files, sourcesFile, sourceFiles, formatFile } =
+              const { files, sourcesFile, sourceFiles, formatFile, treePaths } =
                 pending.postgres
                   ? await readTree()
                   : {
@@ -382,7 +389,25 @@ export function defineWorkspaceHydrateWorkflow() {
                       sourcesFile: null,
                       sourceFiles: [],
                       formatFile: null,
+                      treePaths: new Set<string>(),
                     }
+              // Below format 3 no ingestion runs: the main-era knowledge in
+              // Postgres joins the projection as files that are not in git.
+              // Not a step: the rows do not change below format 3, and a
+              // step output would hold all of them.
+              const legacyFiles =
+                pending.postgres &&
+                legacyKnowledgeOverlayApplies(
+                  workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
+                )
+                  ? await legacyKnowledgeOverlay({
+                      workspaceId: workspace.id,
+                      workspaceRepositoryUrl: revision.remote.url,
+                      treePaths,
+                      files,
+                      source: await loadKnowledgeProjectionSource(),
+                    })
+                  : []
               // A Confluence URL joins a mirrored page only on the org's site.
               const confluenceSiteHosts = pending.postgres
                 ? await step.run({ name: "list-confluence-sites" }, async () =>
@@ -417,7 +442,7 @@ export function defineWorkspaceHydrateWorkflow() {
                 ? hydrateKnowledgeTree({
                     workspaceId: workspace.id,
                     workspaceUrl: revision.remote.url,
-                    files,
+                    files: [...files, ...legacyFiles],
                     sourcesFile,
                     sourceFiles,
                     previousSourceRows,
