@@ -13,6 +13,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 it(
   "commits a bound connector's Markdown, binary asset and deletion once without changing its config",
@@ -616,7 +617,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 100 }))
             .data)
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           await worker.stop()
         }
       },
