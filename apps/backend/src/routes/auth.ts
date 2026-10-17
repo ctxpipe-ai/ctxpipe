@@ -126,6 +126,15 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     await next()
   })
 
+  // The API key plugin turns an `x-api-key` header into a session on every
+  // Better Auth endpoint. A key is read-only, so it cannot change an
+  // account, an org, or another key there.
+  app.use("/.auth/api/v1/auth/*", async (c, next) => {
+    if (c.req.method !== "GET" && c.req.raw.headers.has("x-api-key"))
+      return c.json({ error: "API keys are read-only" }, 403)
+    await next()
+  })
+
   app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
     atlassianLinkCallbackFirst(c),
   )
