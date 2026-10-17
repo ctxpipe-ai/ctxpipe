@@ -9,6 +9,7 @@ import {
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
   workspaceSourcesHandler,
@@ -149,6 +150,8 @@ export const AddWorkspaceThenRepositories: Story = {
     msw: {
       handlers: {
         page: [
+          // Only an owner or admin sees the repository picker.
+          activeMemberRoleHandler("owner"),
           workspaceListHandler([docsWorkspace]),
           conversationsListHandler(docsConversations),
           orgConnectionsHandler([

@@ -5,6 +5,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
@@ -33,6 +34,8 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    // Only an owner or admin sees the pickers. A member story sets `role`.
+    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceSources>
@@ -1570,5 +1573,93 @@ export const AddWithFileName: Story = {
       method: "POST",
       body: { path: "sources/linear/eng-issues.md" },
     })
+  },
+}
+
+/** The list requests of the picker that a member must not send. */
+const memberPickerReads: string[] = []
+const recordPickerRead = http.get(
+  ({ request }) =>
+    /\/api\/v1\/(connectors\/linear\/available-scopes|github\/installation\/repositories)$/.test(
+      new URL(request.url).pathname,
+    ),
+  ({ request }) => {
+    memberPickerReads.push(new URL(request.url).pathname)
+    return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+  },
+)
+
+/**
+ * A member can edit a source, but only an owner or admin can list the
+ * Linear teams and projects. The dialog asks for an admin and sends no list
+ * request.
+ */
+export const MemberEditAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Edit sources/linear/eng-issues.md",
+      }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByRole("heading", { name: "Edit Linear source" })
+    await dialog.findByText(/Ask an admin to choose what this source syncs/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: /Engineering/ }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
+  },
+}
+
+/** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
+export const MemberAddRepositoriesAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByText(/Ask an admin to add repositories/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("searchbox", { name: "Search GitHub repositories" }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
   },
 }

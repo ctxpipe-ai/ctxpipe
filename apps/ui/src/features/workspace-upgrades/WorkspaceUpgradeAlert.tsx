@@ -4,7 +4,8 @@ import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { Workspace } from "@/features/workspaces/types"
-import { pendingWorkspaceUpgradesOptions, useIsOrgAdmin } from "./queries"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
+import { pendingWorkspaceUpgradesOptions } from "./queries"
 import { upgradeAlertLines, upgradeIsPending } from "./upgrade-copy"
 
 /**

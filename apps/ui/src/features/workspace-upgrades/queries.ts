@@ -2,8 +2,6 @@ import { queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
-import { useOrgMemberRole } from "@/lib/org-member-role"
-import { isAdminRole } from "@/lib/session-user"
 
 type UpgradesResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspaces"][":workspaceSlug"]["upgrades"]["$get"],
@@ -118,14 +116,4 @@ export async function startWorkspaceUpgrade(
   return readApiJson<WorkspaceUpgradeItem>(res, {
     message: "Failed to start the upgrade",
   })
-}
-
-/**
- * Whether the user is an owner or admin of the org. `null` while the role
- * loads or when it fails: no button shows then, so a member never sees a
- * Start button for a moment.
- */
-export function useIsOrgAdmin(orgSlug: string): boolean | null {
-  const roleQuery = useOrgMemberRole(orgSlug)
-  return roleQuery.isSuccess ? isAdminRole(roleQuery.data?.role) : null
 }

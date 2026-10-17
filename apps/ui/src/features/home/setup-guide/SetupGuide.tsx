@@ -112,13 +112,20 @@ export function SetupGuideCard(props: {
       isPending: github.isSyncing,
       onPress: () => github.start("connect"),
     },
-    workspace: {
-      label: "Create Workspace",
-      onPress: () => {
-        selectNav({ orgSlug, primary: "other" })
-        void navigate({ to: "/$orgSlug/workspaces/new", params: { orgSlug } })
-      },
-    },
+    // Only an owner or admin can pick the repository of a Workspace.
+    workspace:
+      guide.role === "admin"
+        ? {
+            label: "Create Workspace",
+            onPress: () => {
+              selectNav({ orgSlug, primary: "other" })
+              void navigate({
+                to: "/$orgSlug/workspaces/new",
+                params: { orgSlug },
+              })
+            },
+          }
+        : { label: "Ask an admin to create a Workspace." },
     repositories: landing
       ? { label: "Link repositories", onPress: () => openWorkspace("settings") }
       : undefined,
@@ -168,6 +175,13 @@ function ActionButton(props: {
 }) {
   const { action } = props
   if (!action) return null
+  // An action with no press is a note, for example "Ask an admin".
+  if (!action.onPress)
+    return (
+      <p className={cn("text-sm text-muted-foreground", props.className)}>
+        {action.label}
+      </p>
+    )
   return (
     <Button
       variant={props.variant}

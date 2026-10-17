@@ -11,9 +11,9 @@ import {
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   startWorkspaceUpgrade,
-  useIsOrgAdmin,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,

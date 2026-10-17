@@ -8,6 +8,7 @@ import {
   orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
@@ -32,6 +33,8 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        // Only an owner or admin sees the repository pickers.
+        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([docsWorkspace]),
           orgGithubConnectionsHandler(),
@@ -318,5 +321,61 @@ export const PasteUrlWithRootFolder: Story = {
 export const SaveError: Story = {
   args: {
     error: "That git URL is already used by another Workspace.",
+  },
+}
+
+const memberRepoReads: string[] = []
+
+/**
+ * A member: only an owner or admin can list the repositories of the GitHub
+ * App. Select GitHub asks for an admin, and neither tab reads the list.
+ * Paste URL still works.
+ */
+export const MemberAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
+          githubInstallationLinkedHandler,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/github/installation/repositories",
+              ),
+            ({ request }) => {
+              memberRepoReads.push(new URL(request.url).pathname)
+              return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberRepoReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(/Ask an admin to pick a GitHub repository/)
+    await userEvent.click(
+      canvas.getByRole("tab", { name: /create on github/i }),
+    )
+    await canvas.findByRole("link", {
+      name: /create the repository on github/i,
+    })
+    await userEvent.click(canvas.getByRole("tab", { name: /select github/i }))
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Paste a git URL" }),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("tab", { name: /paste url/i })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    )
+    expect(memberRepoReads).toEqual([])
   },
 }

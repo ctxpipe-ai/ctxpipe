@@ -5,6 +5,7 @@ import {
   orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
@@ -25,6 +26,8 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        // Only an owner or admin sees the repository pickers.
+        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([]),
           orgGithubConnectionsHandler(),
