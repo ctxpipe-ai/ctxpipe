@@ -7,6 +7,7 @@ import {
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
@@ -75,6 +76,20 @@ function ingestModels() {
 }
 
 /**
+ * The projection read of a step index. A workflow step has no request org, so
+ * this opens the org's database context. `orgId` comes from the trusted spec.
+ */
+export function stepIndexProjection(
+  orgId: string,
+  workspaceId: string,
+  pinnedRevision: string,
+) {
+  return withOrgDbContext(orgId, () =>
+    listWorkspaceUnitsAtRevision(workspaceId, pinnedRevision),
+  )
+}
+
+/**
  * The T07 context index of each step of one Workspace in a shard (ADR-052
  * section 6): one scratch repository and one projection, kept for the shard
  * on this worker. Each step fetches only its new commits.
@@ -109,7 +124,8 @@ function heldStepIndex(input: {
           repoDir: dir,
           rootPath: input.rootPath,
           projection: () =>
-            listWorkspaceUnitsAtRevision(
+            stepIndexProjection(
+              input.orgId,
               input.workspaceId,
               input.pinnedRevision,
             ),
