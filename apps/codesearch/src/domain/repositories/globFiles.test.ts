@@ -1,3 +1,4 @@
+import { execFileSync } from "node:child_process"
 import { chmod, mkdir, mkdtemp, rm, symlink, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -312,18 +313,21 @@ describe("listCheckoutFilePaths", () => {
     ])
   })
 
-  it("stays cheap when .git is large", async () => {
+  it("returns without entering .git, even for a pipe or an unreadable directory inside it", async () => {
     const root = await setupCheckout()
     const objects = join(root, ".git", "objects")
-    await Promise.all(
-      Array.from({ length: 400 }, (_, i) =>
-        writeFile(join(objects, `obj-${i}`), "x\n"),
-      ),
-    )
-    const started = performance.now()
-    const paths = await listCheckoutFilePaths(root)
-    const elapsedMs = performance.now() - started
-    expect(paths).toHaveLength(4)
-    expect(elapsedMs).toBeLessThan(200)
+    // A read of a pipe with no writer never ends, so a walk that enters .git
+    // makes this test time out. No clock assert is needed.
+    execFileSync("mkfifo", [join(objects, "stuck-pipe")])
+    const locked = join(objects, "locked")
+    await mkdir(locked)
+    await chmod(locked, 0o000)
+    try {
+      const paths = await listCheckoutFilePaths(root)
+      expect(paths).toHaveLength(4)
+      expect(paths.some((path) => path.split("/").includes(".git"))).toBe(false)
+    } finally {
+      await chmod(locked, 0o755)
+    }
   })
 })

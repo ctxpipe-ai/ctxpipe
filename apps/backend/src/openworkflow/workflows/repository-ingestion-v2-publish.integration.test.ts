@@ -89,6 +89,8 @@ let edition = 1
  * `append` gives the run's text plus `resolution`, `delete` deletes the file,
  * and `none` resolves no path (a schema mismatch of the resolver).
  */
+/** When armed, a person unlinks the source from context A during the run. */
+const unlink = { armed: false, sha: "" }
 const sameFile = {
   armed: false,
   sha: "",
@@ -113,6 +115,10 @@ const server = setupServer(
     if (body.workspaceId === workspaceIds[1] && !human.pushed) {
       human.pushed = true
       human.sha = humanCommit(contexts[1] ?? "")
+    }
+    if (body.workspaceId === workspaceIds[0] && unlink.armed) {
+      unlink.armed = false
+      unlink.sha = humanUnlink(contexts[0] ?? "", sourceFileOf(sourceName))
     }
     if (body.workspaceId === workspaceIds[0] && sameFile.armed) {
       sameFile.armed = false
@@ -232,6 +238,26 @@ function humanCommit(name: string): string {
   return git(work, "rev-parse", "HEAD")
 }
 
+/** The source file that links `repository` in each Workspace (ADR-050). */
+function sourceFileOf(repository: string): string {
+  const [owner = "", name = ""] = repository.split("/")
+  return githubSourcePath(owner, name)
+}
+
+function sourceFileText(repository: string): string {
+  return `---\nprovider: github\nconnection: ${connectionId}\nrepository: ${repository}\n---\n`
+}
+
+/** A person deletes the source file `path` of `name`: an unlink. */
+function humanUnlink(name: string, path: string): string {
+  const work = mkdtempSync(join(folder, "human-"))
+  git(work, "clone", "-q", join(remotes, name), ".")
+  git(work, "rm", "-q", path)
+  git(work, "commit", "-q", "-m", "Unlink the source")
+  git(work, "push", "-q", "origin", "main")
+  return git(work, "rev-parse", "HEAD")
+}
+
 /**
  * A person sets the Workspace format of `name` on its default branch: an
  * upgrade pull request, or the revert of one.
@@ -288,6 +314,7 @@ async function resetContexts() {
     )
   }
   Object.assign(human, { pushed: true, sha: "" })
+  Object.assign(unlink, { armed: false, sha: "" })
   Object.assign(sameFile, {
     armed: false,
     sha: "",
@@ -401,13 +428,16 @@ beforeAll(async () => {
     "package.json": '{ "name": "billing-api" }\n',
     "README.md": "# Billing API\n",
   })
-  // Each Workspace is at format 3, where ingestion v2 publishes.
+  // Each Workspace is at format 3, where ingestion v2 publishes, and has a
+  // source file for each repository: the publish checks it.
   const format = workspaceFormatFile(3)
   for (const name of contexts)
     pinned.push(
       remote(name, {
         "README.md": "# Context\n",
         [format.path]: format.content,
+        [sourceFileOf(sourceName)]: sourceFileText(sourceName),
+        [sourceFileOf(wideName)]: sourceFileText(wideName),
       }),
     )
   wideSha = remote(wideName, {
@@ -474,9 +504,8 @@ beforeAll(async () => {
       // One GitHub source file for each repository (ADR-050 revision
       // 2026-10-16).
       rows: [sourceName, wideName].map((repository) => {
-        const [owner = "", name = ""] = repository.split("/")
         return {
-          sourceKey: githubSourcePath(owner, name),
+          sourceKey: sourceFileOf(repository),
           provider: "github" as const,
           connectionId,
           scope: { repository },
@@ -667,6 +696,38 @@ describe("ingestion v2 publish", () => {
         reason: "publish_pipeline_legacy",
       })
       expect(git(bare, "rev-parse", "main")).toBe(reverted)
+    },
+  )
+
+  it(
+    "does not publish to a Workspace whose source was unlinked while the run was in flight",
+    { timeout: 420_000 },
+    async () => {
+      unlink.armed = true
+      const handle = await startRun("2026-10-14T00:00:00.000Z")
+      const result = await handle.result({ timeoutMs: 400_000 })
+      const runId = handle.workflowRun.id
+      expect(unlink.sha).not.toBe("")
+      if (!("workspaces" in result)) throw new Error("The run did not finish")
+      expect(
+        result.workspaces.find((w) => w.workspaceId === workspaceIds[0]),
+      ).toMatchObject({ published: null })
+      // Context A keeps the unlink, and the knowledge does not come back.
+      const bareA = join(remotes, contexts[0] ?? "")
+      expect(git(bareA, "rev-parse", "main")).toBe(unlink.sha)
+      expect(git(bareA, "ls-tree", "-r", "--name-only", "main")).not.toContain(
+        "knowledge/services/billing-api.md",
+      )
+      // Context B still links the source, so it publishes.
+      expect(
+        git(
+          join(remotes, contexts[1] ?? ""),
+          "log",
+          "-1",
+          "--format=%B",
+          "main",
+        ),
+      ).toContain(`Ctxpipe-Run: ${runId}`)
     },
   )
 

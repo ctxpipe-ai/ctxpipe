@@ -42,10 +42,19 @@ CTXPIPE_PUBLIC_APP_URL=https://ctx.example.com
 MODEL_PROVIDER_API_KEY=<model-provider-key>
 ```
 
-Compose wires two Postgres URLs for you: migrate uses `POSTGRES_USER`
-(default `ctxpipe`); backend, worker, and codesearch use `ctxpipe_app` at
-`DATABASE_APP_PASSWORD` (defaults to `POSTGRES_PASSWORD`). You do not add a
-second secret name in `.env` unless you change those passwords.
+Compose wires two Postgres URLs for you. Migrate uses `POSTGRES_USER`
+(default `ctxpipe`). Backend, worker, UI, and codesearch use `ctxpipe_app`.
+Both roles use `POSTGRES_PASSWORD`. Compose passes it to migrate as
+`DATABASE_APP_PASSWORD`. You add no second secret name in `.env`.
+
+To rotate the password, do these steps:
+
+1. Change the owner password in Postgres:
+   `docker compose exec postgres psql -U ctxpipe -c "ALTER ROLE ctxpipe PASSWORD '<new>'"`.
+   Postgres sets the owner password only when it first creates the volume.
+2. Set the same value as `POSTGRES_PASSWORD` in `.env`.
+3. Run `docker compose --profile deploy up -d`. Migrate sets the new
+   `ctxpipe_app` password, and the services restart with it.
 
 Then start the deploy profile:
 
@@ -117,6 +126,12 @@ creates a new one from the conversation's git branch if the container is gone.
   Docker-in-Docker cannot run at all, and treat every Workspace user as
   trusted with the backend.
 </Callout>
+
+Host dev uses a separate Agent Vault, `agent-vault-dev`, in the `infra`
+profile (`pnpm dev:infra`). It is not part of the deploy profile. Use it on a
+trusted machine only. `CTXPIPE_AGENT_VAULT_API_HOST_PORT` (default `14321`,
+bound to `127.0.0.1`) sets its API port. `CTXPIPE_AGENT_VAULT_PROXY_HOST_PORT`
+(default `14322`) sets its proxy port. Change them only if the ports are in use.
 
 ## Persistent state
 

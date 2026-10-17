@@ -28,6 +28,8 @@ import type { StoryRouteParams } from "../../.storybook/decorators/with-story-ro
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const daysAgo = (days: number) =>
+  new Date(Date.now() - days * DAY_MS).toISOString()
 const userId = "user_storybook"
 const authBase = "*/.auth/api/v1/auth"
 
@@ -147,9 +149,10 @@ function adminGuide(input: {
   ]
 }
 
-/** A new Workspace with no conversation of this user yet. */
+/** An old Workspace with no conversation of this user yet. */
 const quietWorkspace: Workspace = {
   ...docsWorkspace,
+  createdAt: new Date(Date.now() - 365 * DAY_MS).toISOString(),
   mostRecentConversationId: null,
 }
 const buildingWorkspace: Workspace = {
@@ -601,5 +604,31 @@ export const GuideEstablishedUserEmptyOrg: Story = {
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+  },
+}
+
+/**
+ * An older organization whose first Workspace is from the last 14 days: the
+ * guide stays, so it does not go away in the middle of the setup.
+ */
+export const GuideStaysAfterFirstWorkspace: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+          }),
+          [{ ...quietWorkspace, createdAt: daysAgo(1) }],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
   },
 }

@@ -93,12 +93,27 @@ const sourceName = `acme/billing-api-${suffix}`
 const otherSource = `acme/ledger-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const capSources = [`acme/cap-a-${suffix}`, `acme/cap-b-${suffix}`]
-contexts.push(`acme/context-c-${suffix}`, `acme/context-d-${suffix}`)
-const [ready, behind, capped, wide] = [
+contexts.push(
+  `acme/context-c-${suffix}`,
+  `acme/context-d-${suffix}`,
+  `acme/context-e-${suffix}`,
+)
+const [ready, behind, capped, wide, yamlOnly] = [
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
+  generateObjectId("ws"),
+]
+// The source repositories of each Workspace. `wide` also links the source
+// of `ready`. `yamlOnly` links its repository only in
+// `.ctxpipe/sources.yaml`, so ingestion v2 has no destination in it.
+const sourcesOf = [
+  [sourceName],
+  [otherSource],
+  capSources,
+  [sourceName, otherSource, capSources[0] ?? ""],
+  [otherSource],
 ]
 /** The USD that each model step of a Workspace reports. */
 const stepCostUsd = new Map<string, number>()
@@ -191,11 +206,23 @@ beforeAll(async () => {
     remote(name, { "package.json": '{ "name": "cap" }\n' })
   // The tree of each Workspace has the format of its row: ingestion v2
   // reads the format at the pinned commit before it publishes (G5).
+  // Each source file is in the tree too: the publish checks it.
   const pinned = contexts.map((name, i) => {
     const format = workspaceFormatFile(i === 1 ? 2 : 3)
     return remote(name, {
       "README.md": "# Context\n",
       [format.path]: format.content,
+      ...(i === 4
+        ? {}
+        : Object.fromEntries(
+            (sourcesOf[i] ?? []).map((repository) => {
+              const [owner = "", repo = ""] = repository.split("/")
+              return [
+                githubSourcePath(owner, repo),
+                `---\nprovider: github\nconnection: ${connectionId}\nrepository: ${repository}\n---\n`,
+              ]
+            }),
+          )),
     })
   })
 
@@ -230,17 +257,16 @@ beforeAll(async () => {
     installationId: 446,
     accountSlug: "acme",
   })
-  // `ready`, `capped` and `wide` are at format 3. `wide` has more source
-  // repositories than the step budget of this file holds.
-  // `ready` and `capped` are at format 3. `behind` is at format 2, so it
-  // must merge the format upgrade first (G5).
-  const sourcesOf = [
-    [sourceName],
-    [otherSource],
-    capSources,
-    [sourceName, otherSource, capSources[0] ?? ""],
-  ]
-  for (const [i, workspaceId] of [ready, behind, capped, wide].entries()) {
+  // `ready`, `capped`, `wide` and `yamlOnly` are at format 3. `wide` has
+  // more source repositories than the step budget of this file holds.
+  // `behind` is at format 2, so it must merge the format upgrade first (G5).
+  for (const [i, workspaceId] of [
+    ready,
+    behind,
+    capped,
+    wide,
+    yamlOnly,
+  ].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
         id: workspaceId,
@@ -264,7 +290,8 @@ beforeAll(async () => {
       rows: (sourcesOf[i] ?? []).map((name) => {
         const [owner = "", repo = ""] = name.split("/")
         return {
-          sourceKey: githubSourcePath(owner, repo),
+          // A `.ctxpipe/sources.yaml` entry has its id as the key.
+          sourceKey: i === 4 ? "ledger" : githubSourcePath(owner, repo),
           provider: "github",
           connectionId,
           scope: { repositories: [name] },
@@ -516,6 +543,18 @@ it(
     expect(runs).toHaveLength(1)
     expect(done?.upgrade.repositories?.[0]?.runId).toBe(runs[0])
     expect(modelCalls).toContain(ready)
+    // `wide` also links the repository, but its operator approved nothing:
+    // the run has no model step for it and no publish to it.
+    expect(modelCalls).not.toContain(wide)
+    expect(
+      git(
+        join(remotes, contexts[3] ?? ""),
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "main",
+      ),
+    ).not.toContain("knowledge/services/billing-api.md")
     expect(
       git(
         join(remotes, contexts[0] ?? ""),
@@ -572,6 +611,32 @@ it(
       },
     })
     expect(await reingestRuns(ready)).toHaveLength(1)
+  },
+)
+
+it(
+  "fails the re-ingestion when the ingestion run has no destination in the Workspace",
+  { timeout: 420_000 },
+  async () => {
+    expect(await row(yamlOnly)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(yamlOnly)).toMatchObject({ kind: "queued" })
+    expect(await settled(yamlOnly)).toMatchObject({
+      status: "failed",
+      failureReason: expect.stringContaining(otherSource),
+      upgrade: {
+        repositories: [
+          expect.objectContaining({
+            repository: otherSource,
+            status: "failed",
+            report: expect.arrayContaining([
+              expect.stringContaining("was not a destination"),
+            ]),
+          }),
+        ],
+      },
+    })
+    expect(await reingestRuns(yamlOnly)).toHaveLength(1)
+    expect(modelCalls).not.toContain(yamlOnly)
   },
 )
 
