@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
+import { UPGRADE_STATUSES } from "../../domain/upgrades/registry.js"
 import { workspaceAllowsConversationEdits } from "../../domain/workspaces/chat-sandbox-policy.js"
 import { HYDRATE_SKIP_REASONS } from "../../domain/workspaces/hydrate.js"
 import {
@@ -24,6 +25,7 @@ import {
 } from "../../domain/workspaces/workspace-lifecycle.js"
 import { withDestroyedWorkspaceSandboxes } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { WORKSPACE_WRITE_STATUSES } from "../../domain/workspaces/write-status.js"
+import { listWorkspaceUpgradeRows } from "../../models/workspace-upgrades.js"
 import {
   deleteWorkspace,
   getWorkspaceBySlug,
@@ -471,12 +473,18 @@ export const workspaceRoutes = new OpenAPIHono<AppEnv>()
       orgId &&
       (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.read_only ||
         (workspace.writeStatus === WORKSPACE_WRITE_STATUSES.unknown &&
-          !workspace.readOnlyReason))
+          !workspace.readOnlyReason) ||
+        (await listWorkspaceUpgradeRows(workspace.id)).some(
+          (row) => row.status === UPGRADE_STATUSES.pr_open,
+        ))
     ) {
       // A read-only Workspace needs a new probe after an admin fix ("Then
       // refresh"). The UI also polls this route while a check runs. Any caller
       // can reach this route, so queue at most one probe per org each minute.
       // A failed check (with a reason) waits for an explicit "Check again".
+      // An open upgrade pull request needs a probe too. A lost webhook leaves
+      // a merged upgrade open. The probe finds the new tip and starts the
+      // hydrate, and the next scan completes the row.
       void enqueueWorkspaceTipCheck(orgId, c.get("log"), {
         idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
       })
