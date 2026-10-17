@@ -1,55 +1,31 @@
+import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { SkeletonRegion } from "@/components/ui/Skeleton"
 import {
-  createFileRoute,
-  Navigate,
-  useNavigate,
-  useSearch,
-} from "@tanstack/react-router"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
-import {
+  WorkspaceCreateFallback,
   WorkspaceCreateForm,
-  WorkspaceCreateFrame,
 } from "@/features/workspaces/WorkspaceCreateForm"
 import { useSession } from "@/lib/auth-client"
 
-/**
- * `?workspace=<slug>` names the Workspace that step 2 adds sources to. It is
- * set when the Workspace is created, so step 1 does not show again for it.
- */
-export function newWorkspaceSearch(search: Record<string, unknown>): {
-  workspace?: string
-} {
-  return typeof search.workspace === "string" && search.workspace !== ""
-    ? { workspace: search.workspace }
-    : {}
-}
-
 export const Route = createFileRoute("/$orgSlug/workspaces/new")({
-  validateSearch: newWorkspaceSearch,
+  // `?workspace=<slug>` names the Workspace that step 2 adds sources to. It is
+  // set when the Workspace is created, so step 1 does not show again for it.
+  validateSearch: (search: Record<string, unknown>): { workspace?: string } =>
+    typeof search.workspace === "string" && search.workspace !== ""
+      ? { workspace: search.workspace }
+      : {},
   component: NewWorkspaceRoute,
 })
 
 const pageClassName = "mx-auto min-h-screen w-full max-w-2xl px-6 py-16"
 
 /**
- * The page before the session answers. It has the same heading, steps, and
- * card as the page, with a skeleton in the card.
+ * The page before the session answers. It shows the step that the URL names,
+ * with the real heading, steps, and card text, and the skeleton of the card.
  */
-export function NewWorkspaceSessionFallback() {
+export function NewWorkspaceSessionFallback(props: { step?: 0 | 1 }) {
   return (
     <main className={pageClassName}>
-      <WorkspaceCreateFrame step={0}>
-        <div aria-busy>
-          <span className="sr-only">Loading new workspace</span>
-          <SkeletonText className="text-sm" boneClassName="w-3/4" />
-          <Skeleton className="mt-4 block h-16 w-full" />
-          <Skeleton className="mt-4 block h-10 w-full" />
-          <div className="mt-3 space-y-2">
-            <Skeleton className="block h-10 w-full" />
-            <Skeleton className="block h-10 w-full" />
-            <Skeleton className="block h-10 w-full" />
-          </div>
-        </div>
-      </WorkspaceCreateFrame>
+      <WorkspaceCreateFallback step={props.step ?? 0} />
     </main>
   )
 }
@@ -57,7 +33,7 @@ export function NewWorkspaceSessionFallback() {
 export function NewWorkspacePageContent(props: { orgSlug: string }) {
   const { orgSlug } = props
   const navigate = useNavigate()
-  const { workspace } = newWorkspaceSearch(useSearch({ strict: false }))
+  const { workspace } = Route.useSearch()
 
   return (
     <main className={pageClassName}>
@@ -74,6 +50,14 @@ export function NewWorkspacePageContent(props: { orgSlug: string }) {
             replace: true,
           })
         }
+        onStartAgain={() =>
+          void navigate({
+            to: "/$orgSlug/workspaces/new",
+            params: { orgSlug },
+            search: {},
+            replace: true,
+          })
+        }
       />
     </main>
   )
@@ -82,11 +66,21 @@ export function NewWorkspacePageContent(props: { orgSlug: string }) {
 /** Waits for the session, then shows the page. Signed-out users go to sign-in. */
 export function NewWorkspaceGate(props: { orgSlug: string }) {
   const { data: session, isPending } = useSession()
+  const { workspace } = Route.useSearch()
 
-  if (isPending) return <NewWorkspaceSessionFallback />
-  if (!session) return <Navigate to="/.auth/sign-in" replace />
+  if (!isPending && !session) return <Navigate to="/.auth/sign-in" replace />
 
-  return <NewWorkspacePageContent orgSlug={props.orgSlug} />
+  // One region holds the skeleton of the fallback and the skeleton of step 1,
+  // so the card does not go blank when the page replaces one with the other.
+  return (
+    <SkeletonRegion>
+      {isPending ? (
+        <NewWorkspaceSessionFallback step={workspace ? 1 : 0} />
+      ) : (
+        <NewWorkspacePageContent orgSlug={props.orgSlug} />
+      )}
+    </SkeletonRegion>
+  )
 }
 
 function NewWorkspaceRoute() {

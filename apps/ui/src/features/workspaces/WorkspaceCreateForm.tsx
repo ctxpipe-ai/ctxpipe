@@ -6,6 +6,7 @@ import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
+import { SkeletonChain } from "@/components/ui/Skeleton"
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
 import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
@@ -19,12 +20,15 @@ import {
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
+  WorkspaceRepositoryPickerSkeleton,
 } from "./WorkspaceRepositoryPicker"
 
 /**
  * The fixed part of Add Workspace: the heading, the two steps, and the card of
  * the current step. The heading and the top of the card never move, so the
  * page does not shift while it loads or when step 2 replaces step 1.
+ * The card is one skeleton chain, so a skeleton in the card can hand over to
+ * the next one (see `SkeletonChain`).
  */
 export function WorkspaceCreateFrame(props: {
   step: 0 | 1
@@ -49,10 +53,53 @@ export function WorkspaceCreateFrame(props: {
         steps={steps}
         currentIndex={props.step}
       />
-      <section aria-label={steps[props.step].label} className="mt-6 min-h-96">
-        {props.children}
+      <section aria-label={steps[props.step].label} className="mt-6">
+        <SkeletonChain id="add-workspace">{props.children}</SkeletonChain>
       </section>
     </div>
+  )
+}
+
+function ChooseRepositoryIntro() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      ctxpipe saves this Workspace’s knowledge in the repository you choose.
+    </p>
+  )
+}
+
+function AddSourcesIntro() {
+  return (
+    <p className="text-sm text-muted-foreground">
+      ctxpipe reads these sources to answer questions. You can change them later
+      under Sources in Workspace settings.
+    </p>
+  )
+}
+
+/**
+ * The page before the session answers: the frame and the card of the step
+ * that the URL names, with the same text and the same wait as the real step.
+ */
+export function WorkspaceCreateFallback(props: { step: 0 | 1 }) {
+  return (
+    <WorkspaceCreateFrame step={props.step}>
+      {props.step === 0 ? (
+        <>
+          <ChooseRepositoryIntro />
+          <div className="mt-4">
+            <WorkspaceRepositoryPickerSkeleton />
+          </div>
+        </>
+      ) : (
+        <>
+          <AddSourcesIntro />
+          <div className="mt-4">
+            <InlineLoader label="Checking write access" />
+          </div>
+        </>
+      )}
+    </WorkspaceCreateFrame>
   )
 }
 
@@ -60,32 +107,32 @@ export function WorkspaceCreateFrame(props: {
  * Add Workspace in two steps. Step 1 chooses the Workspace repository and
  * creates the Workspace. Step 2 adds code repositories and tools to it.
  *
- * On a page, the URL holds the step: the page passes `workspaceSlug` once the
- * Workspace exists and changes the URL in `onCreated`. Without them (the
- * modal), the form keeps the step itself. Step 1 never shows again for a
- * Workspace that exists.
+ * On a page, the URL holds the step: the page passes `onCreated` and, once the
+ * Workspace exists, `workspaceSlug`. The page changes the URL in `onCreated`,
+ * and in `onStartAgain` for a URL whose Workspace does not exist. Without
+ * `onCreated` (the modal), the form keeps the step itself. Step 1 never shows
+ * again for a Workspace that exists.
  */
 export function WorkspaceCreateForm(props: {
   orgSlug: string
   workspaceSlug?: string
   onCreated?: (workspaceSlug: string) => void
+  onStartAgain?: () => void
 }) {
-  const { orgSlug, onCreated } = props
+  const { orgSlug, onCreated, onStartAgain } = props
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [createdSlug, setCreatedSlug] = useState<string | null>(null)
-  const workspaceSlug = props.workspaceSlug ?? createdSlug
+  const workspaceSlug = onCreated ? props.workspaceSlug : createdSlug
 
   const createMutation = useMutation({
     mutationFn: (choice: WorkspaceRepositoryChoice) =>
       createWorkspace(orgSlug, choice),
-    onSuccess: (workspace) => {
+    onSuccess: () => {
       HyperDX.addAction("workspace_created")
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
       })
-      setCreatedSlug(workspace.slug)
-      onCreated?.(workspace.slug)
     },
     onError: (err: Error) => setError(err.message),
   })
@@ -93,13 +140,14 @@ export function WorkspaceCreateForm(props: {
   return (
     <WorkspaceCreateFrame step={workspaceSlug ? 1 : 0}>
       {workspaceSlug ? (
-        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={workspaceSlug} />
+        <AddSourcesOfWorkspace
+          orgSlug={orgSlug}
+          workspaceSlug={workspaceSlug}
+          onStartAgain={onStartAgain}
+        />
       ) : (
         <>
-          <p className="text-sm text-muted-foreground">
-            ctxpipe saves this Workspace’s knowledge in the repository you
-            choose.
-          </p>
+          <ChooseRepositoryIntro />
           <div className="mt-4">
             <WorkspaceRepositoryPicker
               orgSlug={orgSlug}
@@ -108,7 +156,14 @@ export function WorkspaceCreateForm(props: {
               error={error}
               onSubmit={(choice) => {
                 setError(null)
-                createMutation.mutate(choice)
+                // These callbacks do not run after the form has gone. A user
+                // who left while the call ran keeps the page they opened.
+                createMutation.mutate(choice, {
+                  onSuccess: (workspace) => {
+                    if (onCreated) onCreated(workspace.slug)
+                    else setCreatedSlug(workspace.slug)
+                  },
+                })
               }}
             />
           </div>
@@ -116,6 +171,38 @@ export function WorkspaceCreateForm(props: {
       )}
     </WorkspaceCreateFrame>
   )
+}
+
+/** Step 2, or a way back to step 1 when the Workspace does not exist. */
+function AddSourcesOfWorkspace(props: {
+  orgSlug: string
+  workspaceSlug: string
+  onStartAgain?: () => void
+}) {
+  const { orgSlug, workspaceSlug, onStartAgain } = props
+  // The same query as in `AddSourcesStep`, so the two share one request. The
+  // API answers a missing Workspace with 404, and the query holds `null`.
+  const detailQuery = useQuery(workspaceDetailOptions(orgSlug, workspaceSlug))
+
+  if (detailQuery.isSuccess && detailQuery.data === null) {
+    return (
+      <InlineAlert
+        variant="warning"
+        title="Workspace not found"
+        actions={
+          onStartAgain ? (
+            <Button variant="secondary" onPress={onStartAgain}>
+              Start again
+            </Button>
+          ) : undefined
+        }
+      >
+        This Workspace does not exist, or you cannot open it. Start again to
+        create a new Workspace.
+      </InlineAlert>
+    )
+  }
+  return <AddSourcesStep orgSlug={orgSlug} workspaceSlug={workspaceSlug} />
 }
 
 /**
@@ -142,10 +229,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
 
   return (
     <>
-      <p className="text-sm text-muted-foreground">
-        ctxpipe reads these sources to answer questions. You can change them
-        later under Sources in Workspace settings.
-      </p>
+      <AddSourcesIntro />
       <div className="mt-4">
         {detailQuery.isError ? (
           <InlineAlert

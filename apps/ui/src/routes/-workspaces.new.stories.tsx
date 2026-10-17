@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useLocation } from "@tanstack/react-router"
-import { delay, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   createdWorkspace,
@@ -14,7 +14,6 @@ import {
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
-  workspaceCreateHandler,
   workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
@@ -69,7 +68,9 @@ export const Loading: Story = {
     expect(
       canvas.getByRole("navigation", { name: "Main navigation" }),
     ).toBeVisible()
-    expect(canvas.getByText("Loading new workspace")).toBeInTheDocument()
+    // Step 1 shows its own intro and its repository skeleton.
+    expect(canvas.getByText(/saves this Workspace’s knowledge/)).toBeVisible()
+    expect(canvas.getByText("Loading repositories")).toBeInTheDocument()
   },
 }
 
@@ -99,6 +100,9 @@ export const CreateOnGitHub: Story = {
   },
 }
 
+/** How many Workspaces the story created, as the API saw it. */
+const creates = { count: 0 }
+
 /**
  * Step 2 needs the new Workspace, its sources, a GitHub connection, and a
  * Workspace repository that is ready for sources (format 3).
@@ -109,7 +113,14 @@ const stepTwoHandlers = [
     { id: "con_gh", type: "github", displayName: "acme" },
   ]),
   githubInstallationReposHandler(),
-  workspaceCreateHandler(createdWorkspace),
+  http.post(
+    ({ request }) =>
+      /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+    () => {
+      creates.count += 1
+      return HttpResponse.json(createdWorkspace, { status: 201 })
+    },
+  ),
   workspaceSourcesHandler(workspaceSourceList()),
   workspaceDetailHandler(createdWritableWorkspaceDetail),
   workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
@@ -134,9 +145,7 @@ function slowAnswer(match: (pathname: string) => boolean, ms: number) {
 /** The session answers late, so the page shows its session fallback first. */
 const slowSessionDefaults = [
   authConfigHandler,
-  http.get("*/.auth/api/v1/auth/get-session", async () => {
-    await delay(1500)
-  }),
+  slowAnswer((path) => path.endsWith("/.auth/api/v1/auth/get-session"), 1500),
   sessionSignedInHandler({
     id: "user_storybook",
     onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
@@ -154,14 +163,10 @@ export const StepTwoFromUrl: Story = {
     } satisfies StoryRouteParams,
     msw: { handlers: { page: stepTwoHandlers } },
   },
-  render: () => (
-    <>
-      <NewWorkspacePageContent orgSlug={orgSlug} />
-      <LocationProbe />
-    </>
-  ),
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    creates.count = 0
     await canvas.findByRole("button", { name: "Add repositories" })
     await expect(
       canvas.getByText("Add code repositories and tools").closest("li"),
@@ -171,6 +176,7 @@ export const StepTwoFromUrl: Story = {
       canvas.queryByRole("button", { name: "Create Workspace" }),
     ).toBeNull()
     await expect(canvas.queryByRole("tab", { name: /paste url/i })).toBeNull()
+    expect(creates.count).toBe(0)
   },
 }
 
@@ -185,6 +191,7 @@ export const CreateMovesToStepTwoUrl: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    creates.count = 0
     await userEvent.click(
       await canvas.findByRole("radio", { name: /acme\/handbook/ }),
     )
@@ -197,26 +204,77 @@ export const CreateMovesToStepTwoUrl: Story = {
         "?workspace=handbook",
       ),
     )
+    expect(creates.count).toBe(1)
   },
 }
 
-/** The step 1 form stays out of step 2 and does not create a second Workspace. */
-export const NoSecondCreate: Story = {
+/** The user opens a link for a Workspace that does not exist (or is not theirs). */
+export const UnknownWorkspaceInUrl: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspaceNew",
+      orgSlug,
+      search: "?workspace=missing",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [workspaceDetailHandler(null), ...stepTwoHandlers],
+      },
+    },
+  },
+  render: () => (
+    <>
+      <NewWorkspacePageContent orgSlug={orgSlug} />
+      <LocationProbe />
+    </>
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Workspace not found")
+    await userEvent.click(canvas.getByRole("button", { name: "Start again" }))
+    // Step 1 is back, and the URL no longer names the missing Workspace.
+    await canvas.findByRole("list", { name: /repositories/i })
+    await expect(
+      canvas.getByText("Choose the Workspace repository").closest("li"),
+    ).toHaveAttribute("aria-current", "step")
+    await waitFor(() =>
+      expect(canvas.getByTestId("location-search")).toHaveTextContent(/^$/),
+    )
+  },
+}
+
+/**
+ * A reload at the step 2 URL: the session fallback already shows step 2, so
+ * step 1 never flashes before it.
+ */
+export const LoadingStepTwo: Story = {
   parameters: {
     storyRoute: {
       pattern: "orgWorkspaceNew",
       orgSlug,
       search: "?workspace=handbook",
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: stepTwoHandlers } },
+    msw: {
+      handlers: { defaults: slowSessionDefaults, page: stepTwoHandlers },
+    },
   },
-  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  render: () => <NewWorkspaceGate orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("button", { name: "Open Workspace" })
+    // The session answers after 1500 ms, so this is the session fallback.
     await expect(
-      canvas.queryByRole("list", { name: /repositories/i }),
-    ).toBeNull()
+      canvas.getByText("Add code repositories and tools").closest("li"),
+    ).toHaveAttribute("aria-current", "step")
+    await expect(canvas.queryByText("Loading repositories")).toBeNull()
+    await canvas.findByRole(
+      "button",
+      { name: "Add repositories" },
+      // The 1500 ms delayed session answer comes first.
+      { timeout: 5000 },
+    )
+    await expect(
+      canvas.getByText("Add code repositories and tools").closest("li"),
+    ).toHaveAttribute("aria-current", "step")
   },
 }
 
@@ -346,20 +404,42 @@ export const KeepsPlaceBetweenSteps: Story = {
       await document.fonts.ready
       seen.push(placement(canvas))
     }
-    // The session has not answered: the page shows the session fallback.
-    await waitFor(
-      () => expect(canvas.getByText("Loading new workspace")).toBeVisible(),
-      { timeout: 15_000 },
-    )
+    /** The box of the repository skeleton (the parent of its screen reader text). */
+    const skeletonBox = () => {
+      const box = canvas
+        .getByText("Loading repositories")
+        .parentElement?.getBoundingClientRect()
+      return box && { top: box.top, width: box.width, height: box.height }
+    }
+    // The session has not answered: the page shows the session fallback, with
+    // the repository skeleton of step 1.
+    const fallbackSkeleton = await canvas.findByText("Loading repositories")
     await measure()
+    const fallbackBox = skeletonBox()
+    // The 1500 ms delayed session answer: the form mounts, and its own
+    // skeleton replaces the one of the fallback.
+    await waitFor(() => expect(fallbackSkeleton.isConnected).toBe(false), {
+      timeout: 5000,
+    })
     // Step 1 while the repository list loads.
-    await canvas.findByText("Loading repositories", {}, { timeout: 5000 })
+    await canvas.findByText("Loading repositories")
+    // The two skeletons are one chain: the second shows at once, with no
+    // new delay, so the card does not go blank in between.
+    expect(
+      getComputedStyle(
+        canvas
+          .getByText("Loading repositories")
+          .parentElement?.querySelector("[data-skeleton]") as Element,
+      ).visibility,
+    ).toBe("visible")
     await measure()
+    expect(skeletonBox()).toEqual(fallbackBox)
     // Step 1 with the list loaded.
     await userEvent.click(
       await canvas.findByRole(
         "radio",
         { name: /acme\/handbook/ },
+        // The 1500 ms delayed repository list.
         { timeout: 5000 },
       ),
     )
@@ -374,6 +454,7 @@ export const KeepsPlaceBetweenSteps: Story = {
     await canvas.findByRole(
       "button",
       { name: "Add repositories" },
+      // The 1500 ms delayed Workspace answer.
       { timeout: 5000 },
     )
     await measure()

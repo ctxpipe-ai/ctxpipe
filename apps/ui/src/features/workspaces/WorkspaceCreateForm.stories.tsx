@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
+import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
 import {
   githubInstallationReposHandler,
   orgGithubConnectionsHandler,
@@ -245,5 +247,62 @@ export const ReadOnlyRepository: Story = {
     await expect(
       canvas.getByRole("button", { name: "Open Workspace" }),
     ).toBeVisible()
+  },
+}
+
+/** How many times the create call finished. A play reads it to know the answer came. */
+const slowCreate = { answered: 0 }
+
+/** A page that shows the form, and that the user can leave. */
+function LeavablePage(props: { orgSlug: string }) {
+  const [open, setOpen] = useState(true)
+  const [created, setCreated] = useState(0)
+  return (
+    <>
+      <Button onPress={() => setOpen(false)}>Leave</Button>
+      <output>Created calls: {created}</output>
+      {open ? (
+        <WorkspaceCreateForm
+          orgSlug={props.orgSlug}
+          onCreated={() => setCreated((count) => count + 1)}
+        />
+      ) : null}
+    </>
+  )
+}
+
+/**
+ * The user leaves the page while the create call runs. The Workspace still
+ * exists, but the form must not change the page that the user opened since.
+ */
+export const LeaveWhileCreating: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+            async () => {
+              await delay(500)
+              slowCreate.answered += 1
+              return HttpResponse.json(createdWorkspace, { status: 201 })
+            },
+          ),
+          ...stepTwoHandlers,
+        ],
+      },
+    },
+  },
+  render: (args) => <LeavablePage orgSlug={args.orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    slowCreate.answered = 0
+    await createFromGithub(canvasElement)
+    await userEvent.click(canvas.getByRole("button", { name: "Leave" }))
+    await waitFor(() => expect(slowCreate.answered).toBe(1))
+    // Give the query client time to run a late callback, if the form has one.
+    await delay(300)
+    await expect(canvas.getByText("Created calls: 0")).toBeVisible()
   },
 }
