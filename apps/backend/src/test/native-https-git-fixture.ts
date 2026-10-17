@@ -391,7 +391,8 @@ async function waitForListener(
 ): Promise<void> {
   // The nested daemon can take longer than 10s to start the server under load:
   // CI run 39007680133 showed the address listening only after a 10s window.
-  const deadline = Date.now() + 60_000
+  const startedAt = Date.now()
+  const deadline = startedAt + 60_000
   let lastProbeError = "<none>"
   while (true) {
     try {
@@ -400,6 +401,9 @@ async function waitForListener(
         "-e",
         `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(1000);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",(e)=>{console.error(e.code??e.message);process.exit(1)});socket.once("timeout",()=>{console.error("connect timeout");process.exit(1)})`,
       ])
+      console.log(
+        `Native HTTPS Git fixture listen time: ${Date.now() - startedAt}ms`,
+      )
       return
     } catch (error) {
       lastProbeError = String(error)
@@ -421,7 +425,7 @@ async function waitForListener(
         "awk '$4==\"0A\"{print $2}' /proc/net/tcp /proc/net/tcp6 | tr '\\n' ' '",
       ]).catch((error) => `<unreadable: ${String(error)}>`)
       throw new Error(
-        `Native HTTPS Git fixture did not listen on ${host}:${port} within 60s; last probe: ${lastProbeError}; server logs: ${logs || "<empty>"}; listening sockets: ${listeners}`,
+        `Native HTTPS Git fixture did not listen on ${host}:${port} within ${Date.now() - startedAt}ms; last probe: ${lastProbeError}; server logs: ${logs || "<empty>"}; listening sockets: ${listeners}`,
       )
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
