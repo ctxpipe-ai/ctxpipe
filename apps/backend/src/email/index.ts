@@ -29,11 +29,31 @@ export async function sendEmail(
   const html = await render(template)
   const text = await render(template, { plainText: true })
 
-  await transporter.sendMail({
-    from: env.EMAIL_FROM_ADDRESS,
-    to,
-    subject,
-    html,
-    text,
-  })
+  // Never log the recipient or the body: logs leave the process.
+  try {
+    const info = await transporter.sendMail({
+      from: env.EMAIL_FROM_ADDRESS,
+      to,
+      subject,
+      html,
+      text,
+    })
+    log.info({
+      step: "email.sent",
+      message: "[email] SMTP server accepted the message",
+      subject,
+      messageId: info.messageId,
+      accepted: info.accepted.length,
+      rejected: info.rejected.length,
+      response: info.response,
+    })
+  } catch (error) {
+    log.error({
+      step: "email.failed",
+      message: "[email] SMTP send failed",
+      subject,
+      error: error instanceof Error ? error.message : String(error),
+    })
+    throw error
+  }
 }
