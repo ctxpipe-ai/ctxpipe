@@ -9,7 +9,13 @@ Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Li
 - **Milestone.** Add the milestone of the effort (for example "Workspaces (PR 280)") to each issue of that effort. Do not add a milestone to work outside the effort.
 - **Dependencies** are Linear relations (`blockedBy`, `blocks`, `relatedTo`), not text.
 - **No duplicates.** Before you create an issue, search Linear by title words and by the CTX ids that the work names (include archived issues).
-- **Status.** Use the workflow states: `Backlog`, `Todo`, `In Progress`, `In Review`, `Done`, `Canceled`, `Duplicate`. A ticket that is merged into a long-lived feature branch, and that still waits for a preview or human check, stays `In Review` until that branch merges.
+- **Status.** Use the workflow states below. Closed states `Canceled` and `Duplicate` also exist.
+  - `Backlog`: an idea that is not ready to work on. Humans and agents explore it together first.
+  - `Todo`: ready for an agent to pick up.
+  - `In Progress`: an agent works on it now. Review agents count as work.
+  - `Waiting for human`: blocked. The ticket cannot continue until a human answers a question or does an action. (This state was named `In Review` before 2026-10-18.)
+  - `Done`: complete. All work is landed and nothing is open.
+- **Waiting for human.** Before you move a ticket to this state, write a comment that names the human action and who does it (for example the CTO, or the teammate who retests). A ticket that is merged into a long-lived feature branch, and that still waits for a preview or human check, stays here until that branch merges. When the human acts, a ticket with more agent work goes back to `Todo`.
 - **Triage roles** are the `Agent` labels and the `Triage` state (see [triage-labels.md](triage-labels.md)).
 - **Comments** hold progress, decisions, and evidence, newest last. The final comment (or the description) holds the resolution: what shipped, the commits, the proof, and the follow-up issues.
 - **Ticket notes.** The note that an implementing agent writes (what, why, tests, risks) goes in the issue description or a comment, not in a file in the repo.
@@ -17,10 +23,10 @@ Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Li
 
 ## Workflow rules
 
-- **Plan review gate.** A ticket gets a plan (in its description) before work starts. No ticket moves to `Todo` with `ready-for-agent`, or to `In Progress`, before the user approves its plan. A material change of the plan goes back to the user.
+- **Plan review gate.** A ticket gets a plan (in its description) before work starts. No ticket moves to `Todo`, or to `In Progress`, before the user approves its plan. A material change of the plan goes back to the user.
 - **Delegation brief.** Before you give a ticket to a sub-agent, write a brief that a cold agent can work from alone: inputs, files to read first, constraints, acceptance checks, and what to report back. Keep the brief outside the repo. Follow the sub-agent model rules in root `AGENTS.md`. Record the agent in a comment.
 - **Claim.** Set `In Progress` and the assignee before you start. One owner per ticket.
-- **Review before Done.** Each diff gets the three-axis adversarial review (Standards, Spec, Simplicity) through the [code-review skill](../../.agents/skills/code-review/SKILL.md), and the fixes, before the ticket is `In Review` or `Done`.
+- **Review before Done.** Each diff gets the three-axis adversarial review (Standards, Spec, Simplicity) through the [code-review skill](../../.agents/skills/code-review/SKILL.md), and the fixes, before the ticket is `Waiting for human` or `Done`.
 - **Split.** When a ticket grows, create follow-up issues and relate them in both directions.
 
 ## When a skill says "publish to the issue tracker"
