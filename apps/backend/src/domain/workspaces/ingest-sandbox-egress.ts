@@ -12,6 +12,7 @@ import {
   type SandboxGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { log } from "../../observability/logger.js"
 import { type RootExec, vercelRootExec } from "../ingestion/ingest-root.js"
 import {
   type AgentVaultAccess,
@@ -28,6 +29,7 @@ import {
   INGEST_SHARD_LIMIT_MS,
   ingestSandboxThreadId,
 } from "./chat-lifecycle.js"
+import { revokeGithubToken } from "./clone-credentials.js"
 import { ingestEgressForwardUrl } from "./ingest-egress-proxy.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import {
@@ -63,6 +65,20 @@ export function hostedIngestEgressEnabled(
   proven: boolean = VERCEL_INGEST_EGRESS_PROVEN,
 ): boolean {
   return proven && vercelConfigured(env)
+}
+
+/**
+ * Throws until hosted ingest egress is on (see `hostedIngestEgressEnabled`).
+ * Each create, resume, and step of a hosted ingest sandbox calls it first.
+ * Destroy and the sweep do not: they must work while the gate is closed.
+ */
+export function assertHostedIngestEgress(
+  proven: boolean = VERCEL_INGEST_EGRESS_PROVEN,
+): void {
+  if (!hostedIngestEgressEnabled(process.env, proven))
+    throw new Error(
+      "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
+    )
 }
 
 /** A repository that an ingest shard reads, and its GitHub connection. */
@@ -417,7 +433,12 @@ export function ingestNetworkPolicy(input: {
  * `revokeFinishedIngestGitTokens` (after the run) revoke each, as for
  * Docker. Each token has its own record: a rotation adds the new token and
  * keeps the old one until it is revoked, so no token that a sandbox used is
- * ever without a record. `get` and `take` use the newest token.
+ * ever without a record. `get` uses the newest token.
+ *
+ * `take` gives no token and removes no record. A record goes only after
+ * GitHub confirms the revoke: `revokeIngestGitTokens` (at `destroy`, and in
+ * the sweep) revokes each token and then removes its record. Thus a failed
+ * revoke leaves the record for the sweep.
  */
 export function ingestVercelTokenStore(input: {
   orgId: string
@@ -444,10 +465,7 @@ export function ingestVercelTokenStore(input: {
         token,
       )
     },
-    take: async () => {
-      const row = await newest()
-      return row ? store.take(row.key) : null
-    },
+    take: async () => null,
   }
 }
 
@@ -466,7 +484,8 @@ export function ingestSandboxTags(environment: string): Record<string, string> {
  * scripts through the SDK's `sudo` option. `destroy` deletes the sandbox and
  * revokes each token of the shard.
  *
- * It refuses to start until {@link VERCEL_INGEST_EGRESS_PROVEN}.
+ * It refuses to create or resume a sandbox until
+ * {@link VERCEL_INGEST_EGRESS_PROVEN}.
  */
 export function vercelIngestSandboxProvider(input: {
   orgId: string
@@ -533,8 +552,21 @@ export function vercelIngestSandboxProvider(input: {
         })
         if (!token)
           throw new Error("The ingest repositories have no GitHub read token")
-        // Recorded before any use, so a crash leaves it to the sweep.
-        await tokens.put("", token)
+        // Recorded before any use, so a crash leaves it to the sweep. A
+        // token with no record is revoked here, or nothing revokes it.
+        try {
+          await tokens.put("", token)
+        } catch (error) {
+          await revokeGithubToken(token).catch((revokeError: unknown) =>
+            log.warn({
+              step: "ingest-git-token-revoke",
+              message: `Revoking a hosted ingest GitHub token with no record failed: ${String(revokeError)}`,
+              orgId: input.orgId,
+              runId: input.runId,
+            }),
+          )
+          throw error
+        }
         return token
       },
     },
@@ -544,16 +576,14 @@ export function vercelIngestSandboxProvider(input: {
     name: conversation.name,
     capabilities: () => conversation.capabilities(),
     async create(createInput) {
-      if (
-        !hostedIngestEgressEnabled(
-          process.env,
-          input.proven ?? VERCEL_INGEST_EGRESS_PROVEN,
-        )
-      )
-        throw new Error(
-          "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
-        )
+      assertHostedIngestEgress(input.proven)
       return conversation.create(createInput)
+    },
+    // A resume attaches the sandbox and gives it a firewall policy with a
+    // GitHub token: the same gate as create.
+    async resume(resumeInput) {
+      assertHostedIngestEgress(input.proven)
+      return conversation.resume(resumeInput)
     },
     async destroy(destroyInput) {
       try {
