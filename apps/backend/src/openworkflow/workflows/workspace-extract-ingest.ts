@@ -145,7 +145,11 @@ export function defineWorkspaceExtractIngestWorkflow() {
             // The old pipeline is gone: no ingestion writes to a
             // Workspace below format 3. A job that it queued ends here.
             await step.run({ name: "complete-retired" }, () =>
-              persistWriteJobStatus(input.jobId, "completed"),
+              persistWriteJobStatus(
+                input.jobId,
+                "completed",
+                "The old ingestion pipeline is retired. Its queued extract_ingest job ends with no write; ingestion v2 publishes to a Workspace at format 3 or more.",
+              ),
             )
             return {
               committed: false as const,

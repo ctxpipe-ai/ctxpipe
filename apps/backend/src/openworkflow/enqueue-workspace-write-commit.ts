@@ -235,14 +235,12 @@ export async function enqueueWriteJob(
   // own run, not through admission, so admission refuses each extract ingest.
   // A paused job of the old pipeline ends here, so no resume admits it again.
   if (input.kind === "extract_ingest") {
-    log.error(
-      new Error(
-        "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more.",
-      ),
-    )
+    const reason =
+      "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more."
+    log.error(new Error(reason))
     if (input.jobId)
       await withOrgDbContext(input.orgId, () =>
-        persistWriteJobStatus(jobId, "completed"),
+        persistWriteJobStatus(jobId, "completed", reason),
       )
     return { started: false }
   }

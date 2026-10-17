@@ -93,7 +93,6 @@ export async function persistWriteJobStatus(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
   })
 }
 
@@ -170,7 +169,6 @@ export async function persistWriteJobCommitSha(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
   })
 }
 
