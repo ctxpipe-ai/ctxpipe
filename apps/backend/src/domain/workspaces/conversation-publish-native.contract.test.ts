@@ -8,6 +8,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import {
+  workspaceKnowledgeUnits,
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
@@ -492,6 +493,12 @@ it.each([
     reason: "upgrade_needed",
   },
   {
+    name: "writes a path of main-era knowledge that is not in git",
+    legacyPath: "knowledge/services/tools-cli.md",
+    edit: "printf '# Tools\\n' > knowledge/services/tools-cli.md",
+    reason: "legacy_knowledge",
+  },
+  {
     name: "adds a source file at format 2",
     format: 2,
     edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
@@ -503,12 +510,14 @@ it.each([
   sessionIsDefault?: boolean
   /** The Workspace format file at the base, when there is one. */
   format?: number
+  /** A main-era knowledge unit that hydrate serves from Postgres. */
+  legacyPath?: string
   edit: string
   reason: string | null
 }>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
-  async ({ first, edit, sessionIsDefault, format, reason }) => {
+  async ({ first, edit, sessionIsDefault, format, legacyPath, reason }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -552,6 +561,18 @@ it.each([
             "https://github.com/fixture/hydration-contract.git",
           )
           await recordSandbox(f, conversationId, raw.id, f.revision)
+          if (legacyPath)
+            await withOrgDbContext(f.org.id, (db) =>
+              db.insert(workspaceKnowledgeUnits).values({
+                servingId: `unit_legacy_${f.id}`,
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                path: legacyPath,
+                source: "legacy",
+                body: "The release tools.",
+                projectionSha: f.sha,
+              }),
+            )
           const push = () =>
             withOrgIdContext(f.org, () =>
               withUserIdContext(`user_${f.id}`, () =>

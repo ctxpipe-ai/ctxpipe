@@ -119,6 +119,7 @@ export type PublishErrorCode =
   | "outside_root"
   | "format_file"
   | "upgrade_needed"
+  | "legacy_knowledge"
   | "no_write_access"
   | "host_only_field"
   | "no_pr_access"
@@ -160,6 +161,8 @@ const publishErrorMessages: Record<PublishErrorCode, string> = {
     "Only a ctx| upgrade can change .ctxpipe/workspace.yaml. Ask the agent to undo that change.",
   upgrade_needed:
     "This Workspace needs an upgrade before it can use files under sources/. Ask the agent to undo those changes, or upgrade the Workspace first.",
+  legacy_knowledge:
+    "The agent changed a file of knowledge from before Workspaces. That file is read-only until its repository is ingested again. Ask the agent to undo the change.",
   no_write_access: "The ctx| GitHub App can't push to this repository.",
   host_only_field:
     "Only ctx| can set generated_by and sources in front matter. Ask the agent to remove those changes from the branch, then publish again.",

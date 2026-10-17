@@ -137,6 +137,13 @@ export function conversationBranchPushTool(input: {
           uncommitted,
           next: "This Workspace does not use the files under sources/ yet. Undo the changes under sources/ in a new commit, and push again. A person can run the Workspace upgrade first.",
         }
+      if (outcome.status === "skipped" && outcome.reason === "legacy_knowledge")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Your commits write a path of knowledge from before Workspaces. ctx| serves that knowledge from its database, not from git, so it is read-only until the re-ingestion of its repository replaces it. Undo the change to that path in a new commit, write your change at another path, and push again.",
+        }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
   }
