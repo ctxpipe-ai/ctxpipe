@@ -69,7 +69,7 @@ const meta = {
     open: true,
     onClose: fn(),
     onFocus: fn(),
-    onNeighbourSelect: fn(),
+    onNeighborSelect: fn(),
     onOpenSource: fn(),
   },
 } satisfies Meta<typeof NodeDetailDrawer>

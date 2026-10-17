@@ -1,3 +1,6 @@
+import type { InferResponseType } from "hono/client"
+import type { ApiClient } from "@/lib/api"
+
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
 
 export type ChatTextPart = {
@@ -46,14 +49,12 @@ export type ConversationListItem = {
   branchTreeUrl?: string | null
 }
 
-export type ConversationDetail = {
-  conversation: ConversationListItem & {
-    orgId: string
-    userId?: string | null
-    workspaceId?: string | null
-    createdAt: string
-    updatedAt: string
-  }
+type ConversationDetailRead = InferResponseType<
+  ApiClient[":orgSlug"]["api"]["v1"]["conversations"][":conversationId"]["$get"],
+  200
+>
+
+export type ConversationDetail = Omit<ConversationDetailRead, "messages"> & {
   messages: ChatMessage[]
 }
 

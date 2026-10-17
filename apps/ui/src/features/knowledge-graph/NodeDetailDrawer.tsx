@@ -150,7 +150,7 @@ export function NodeDetailDrawer({
   open,
   onClose,
   onFocus,
-  onNeighbourSelect,
+  onNeighborSelect,
   onOpenSource,
 }: {
   node: KnowledgeGraphNode
@@ -162,7 +162,7 @@ export function NodeDetailDrawer({
   open: boolean
   onClose: () => void
   onFocus: () => void
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
   onOpenSource?: (path: string) => void
 }) {
   return (
@@ -186,7 +186,7 @@ export function NodeDetailDrawer({
         peerDegrees={peerDegrees}
         onClose={onClose}
         onFocus={onFocus}
-        onNeighbourSelect={onNeighbourSelect}
+        onNeighborSelect={onNeighborSelect}
         onOpenSource={onOpenSource}
       />
     </aside>
@@ -202,7 +202,7 @@ function NodeDetailDrawerBody({
   peerDegrees,
   onClose,
   onFocus,
-  onNeighbourSelect,
+  onNeighborSelect,
   onOpenSource,
 }: {
   node: KnowledgeGraphNode
@@ -213,7 +213,7 @@ function NodeDetailDrawerBody({
   peerDegrees: number[]
   onClose: () => void
   onFocus: () => void
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
   onOpenSource?: (path: string) => void
 }) {
   const kind = node.kind || "Unknown"
@@ -234,11 +234,11 @@ function NodeDetailDrawerBody({
 
   /** Top 5 neighbors by claim count. Clicking pivots selection to that node. */
   const strongestConnections = useMemo(() => {
-    const byNeighbour = new Map<string, number>()
+    const byNeighbor = new Map<string, number>()
     for (const c of facts.claims) {
-      byNeighbour.set(c.neighborId, (byNeighbour.get(c.neighborId) ?? 0) + 1)
+      byNeighbor.set(c.neighborId, (byNeighbor.get(c.neighborId) ?? 0) + 1)
     }
-    return Array.from(byNeighbour.entries())
+    return Array.from(byNeighbor.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
   }, [facts.claims])
@@ -433,7 +433,7 @@ function NodeDetailDrawerBody({
                   <li key={nid}>
                     <Button
                       variant="ghost"
-                      onPress={() => onNeighbourSelect(nid)}
+                      onPress={() => onNeighborSelect(nid)}
                       className="h-auto w-full justify-start gap-2 px-2 py-1.5"
                     >
                       <span
@@ -503,13 +503,13 @@ function NodeDetailDrawerBody({
               claims={filteredClaims}
               nodeById={nodeById}
               kindColors={kindColors}
-              onNeighbourSelect={onNeighbourSelect}
+              onNeighborSelect={onNeighborSelect}
             />
           </Section>
         ) : null}
 
         {neighborKinds.length > 0 ? (
-          <Section label="Neighbour kinds">
+          <Section label="Neighbor kinds">
             <ul className="flex flex-col gap-1.5">
               {neighborKinds.map(([k, c]) => {
                 const color = kindColors.get(k) ?? KIND_FALLBACK_COLOR
@@ -573,12 +573,12 @@ function ClaimList({
   claims,
   nodeById,
   kindColors,
-  onNeighbourSelect,
+  onNeighborSelect,
 }: {
   claims: NodeClaim[]
   nodeById: Map<string, KnowledgeGraphNode>
   kindColors: Map<string, string>
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
 }) {
   // Most recent first; unknown timestamps sink to the bottom.
   const sorted = [...claims].sort((a, b) => {
@@ -602,7 +602,7 @@ function ClaimList({
           <li key={key}>
             <Button
               variant="ghost"
-              onPress={() => onNeighbourSelect(c.neighborId)}
+              onPress={() => onNeighborSelect(c.neighborId)}
               className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >
               <div className="flex items-center gap-1.5">

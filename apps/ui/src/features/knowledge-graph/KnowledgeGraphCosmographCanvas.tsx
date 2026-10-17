@@ -40,13 +40,13 @@ export type KnowledgeGraphCosmographCanvasHandle = {
   focusNode: (id: string) => void
   /** Zoom so the node and its 1-hop neighbors fit the viewport — contextual
    * framing for deep-link landings, unlike `focusNode` which over-zooms. */
-  focusNeighbourhood: (id: string) => void
+  focusNeighborhood: (id: string) => void
   selectPoints: (ids: string[]) => void
   /** Focus points plus their 1-hop neighbors; used to keep incident edges
    * visually bright while preserving the caller's smaller focus list. */
   selectPointsWithAdjacentEdges: (ids: string[]) => void
   /** Node + its 1-hop neighbors; others dim. */
-  selectNeighbourhood: (id: string) => void
+  selectNeighborhood: (id: string) => void
   unselectAll: () => void
   clearSelectionFilters: () => void
 }
@@ -404,7 +404,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           cosmographRef.current?.fitViewByIndices?.([index], CAMERA_MOVE_MS)
         }
       },
-      focusNeighbourhood: (id: string) => {
+      focusNeighborhood: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index === undefined) return
         const adj =
@@ -430,7 +430,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           indices.size ? Array.from(indices) : [],
         )
       },
-      selectNeighbourhood: (id: string) => {
+      selectNeighborhood: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index === undefined) return
         const adj =
