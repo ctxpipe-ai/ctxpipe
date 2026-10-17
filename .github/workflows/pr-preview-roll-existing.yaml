@@ -15,8 +15,14 @@ on:
         required: true
         type: string
 
+# Only the checkout reads the repository. Railway and Vercel calls use their
+# own secrets, not the GitHub token.
+permissions: {}
+
 jobs:
   roll:
+    permissions:
+      contents: read
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
@@ -29,6 +35,7 @@ jobs:
       WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
       UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
       CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+      PR_NUMBER: ${{ inputs.pr_number }}
       PR_ENV: pr-${{ inputs.pr_number }}
       IMAGE_TAG: pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
@@ -43,7 +50,14 @@ jobs:
       GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
       GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
       GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+      HEAD_SHA: ${{ inputs.head_sha }}
     steps:
+      - name: Check inputs
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
+
       - uses: actions/checkout@v4
 
       - name: Install Railway CLI
@@ -146,7 +160,7 @@ jobs:
           dollar='$'
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${PR_NUMBER}.up.railway.app" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth,AUTH_ALLOWED_ORIGINS:$origins}}}')" >/dev/null
 
           point_preview_backend_at_private_ui
@@ -177,7 +191,7 @@ jobs:
           echo "Rolled preview to $IMAGE_TAG"
 
           smoke_test_preview_ui() {
-            local backend_url="https://backend-pr-${{ inputs.pr_number }}.up.railway.app"
+            local backend_url="https://backend-pr-${PR_NUMBER}.up.railway.app"
             local prod_url="https://app.ctxpipe.ai"
             local deadline html js_path prod_html prod_js_path js_file
             deadline=$(( $(date +%s) + 180 ))
