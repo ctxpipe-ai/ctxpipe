@@ -22,7 +22,7 @@ export function openRouterModelId(model: string): string {
 /** The client settings for one model: base URL from `MODEL_PROVIDER_URL`, key from `MODEL_PROVIDER_API_KEY`. */
 export function openRouterClient(
   model: string,
-  env: { MODEL_PROVIDER_URL?: string; MODEL_PROVIDER_API_KEY?: string },
+  env: Record<string, string | undefined>,
 ) {
   const apiKey = env.MODEL_PROVIDER_API_KEY
   if (!apiKey)
