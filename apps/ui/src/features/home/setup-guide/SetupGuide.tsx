@@ -23,7 +23,6 @@ import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
-import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import type { GuideRow, GuideRowId } from "./guide-state"
@@ -85,22 +84,22 @@ type ReadyGuide = Extract<SetupGuide, { status: "ready" }>
 /**
  * The "Get started" checklist on Home (CTX-552). Each row reads real data;
  * no click marks a row done. `onAsk` fills and focuses the Home composer.
+ * `onCreateWorkspace` opens Add Workspace on Home, so the guide shows the
+ * build after the dialog closes.
  */
 export function SetupGuideCard(props: {
   orgSlug: string
   guide: ReadyGuide
   onAsk?: () => void
+  onCreateWorkspace: () => void
 }) {
-  const { orgSlug, guide, onAsk } = props
+  const { orgSlug, guide, onAsk, onCreateWorkspace } = props
   const navigate = useNavigate()
   const selectNav = useSelectNav()
   // An empty org slug turns off the flow's queries for a member.
   const github = useGithubConnectFlow({
     orgSlug: guide.role === "admin" ? orgSlug : "",
   })
-  // Create Workspace opens Add Workspace on Home, so the guide shows the
-  // build when the user closes it.
-  const [createOpen, setCreateOpen] = useState(false)
   const landing = guide.landing
   const openWorkspace = (pane: string | undefined) => {
     if (!landing) return
@@ -119,7 +118,7 @@ export function SetupGuideCard(props: {
     },
     workspace: {
       label: "Create Workspace",
-      onPress: () => setCreateOpen(true),
+      onPress: onCreateWorkspace,
     },
     repositories: landing
       ? { label: "Link repositories", onPress: () => openWorkspace("settings") }
@@ -163,12 +162,6 @@ export function SetupGuideCard(props: {
         onOpenBuild={() => openWorkspace(undefined)}
       />
       {guide.role === "admin" ? github.SelfHostedWizardModal : null}
-      <WorkspaceCreateModal
-        orgSlug={orgSlug}
-        isOpen={createOpen}
-        onOpenChange={setCreateOpen}
-        onDone={() => setCreateOpen(false)}
-      />
     </>
   )
 }
