@@ -188,7 +188,9 @@ export const EmptyRecentWhileActivityLoads: Story = {
       ).toBeVisible(),
     )
     expect(canvas.getByText("Loading activity")).toBeInTheDocument()
-    expect(canvas.queryByText("Loading recent commits")).toBeNull()
+    await waitFor(() =>
+      expect(canvas.queryByText("Loading recent commits")).toBeNull(),
+    )
   },
   parameters: {
     storyRoute: homeRoute,

@@ -120,12 +120,13 @@ export function WorkspaceActivity(props: {
   }
   const filtered = Object.values(filters).some((value) => value !== undefined)
   const ready = query.data?.status === "ready"
-  // Recent is empty with no Workspace, or when the heatmap read has no
-  // commits and no filter applies. Then it shows the empty text at once,
-  // not commit skeletons that go away.
+  // Recent is empty when the heatmap read has no commits and no filter
+  // applies. Before that read, it is empty when there is no Workspace. Then
+  // it shows the empty text at once, not commit skeletons that go away.
   const noWorkspace = scope === ALL_WORKSPACES && props.workspaces?.length === 0
-  const recentEmpty =
-    noWorkspace || (ready && !filtered && query.data?.recent.length === 0)
+  const recentEmpty = ready
+    ? !filtered && query.data?.recent.length === 0
+    : noWorkspace
   const listQuery = useInfiniteQuery({
     ...activityCommitsOptions(props.orgSlug, scopeSlug(scope), filters),
     enabled: scope !== null && ready && !recentEmpty,
@@ -139,9 +140,7 @@ export function WorkspaceActivity(props: {
   const loading = useSkeletonHold(
     query.isPending || query.data?.status === "pending",
   )
-  const listLoading = useSkeletonHold(
-    ready && !recentEmpty && listQuery.isPending,
-  )
+  const listLoading = useSkeletonHold(listQuery.isLoading)
 
   const activityHeader = (
     <div className="flex items-center justify-between gap-4">
@@ -198,7 +197,10 @@ export function WorkspaceActivity(props: {
 
   const showWorkspace = scope === ALL_WORKSPACES
   const pendingWorkspaces = showWorkspace ? (data.pendingWorkspaces ?? []) : []
-  const commits = listQuery.data?.pages.flatMap((page) => page.recent) ?? []
+  // A list read that is off can still have cached pages.
+  const commits = recentEmpty
+    ? []
+    : (listQuery.data?.pages.flatMap((page) => page.recent) ?? [])
   const emptyText = filtered
     ? search.day && !search.author && !search.since && !search.until
       ? "No commits on this day."
