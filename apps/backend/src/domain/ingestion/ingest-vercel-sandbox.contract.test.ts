@@ -18,6 +18,7 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -84,7 +85,7 @@ const environment = `ci-contract-ingest-${Date.now()}`
 const orgId = generateObjectId("org")
 const orgSlug = `ingest-${orgId.slice(-8)}`
 const connectionId = generateObjectId("con")
-const workspaceId = "ws_hosted_contract"
+const workspaceId = generateObjectId("ws")
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 /** The authorization of each call that reached the stand-in model. */
 const modelCalls: string[] = []
@@ -399,6 +400,19 @@ beforeAll(async () => {
     installationId: 777,
     accountSlug: "octocat",
   })
+  // The shard's sandbox row belongs to a Workspace of the org.
+  await withOrgDbContext(orgId, (db) =>
+    db.insert(workspaces).values({
+      id: workspaceId,
+      orgId,
+      slug: `ws-${workspaceId.slice(-8)}`,
+      displayName: "Hosted ingest contract",
+      workspaceRepositoryUrl: HELLO_URL,
+      desiredGeneration: 1,
+      desiredSha: HELLO_SHA,
+      desiredDefaultBranch: "master",
+    }),
+  )
   backend = await BackendPostgres.connect(databaseUrl, {
     runMigrations: false,
     namespaceId: openWorkflowNamespaceId(),
@@ -444,6 +458,7 @@ afterAll(async () => {
   for (const row of await store.list("ingest:")) await store.take(row.key)
   await withOrgDbContext(orgId, async (db) => {
     await db.delete(sandboxLocks).where(eq(sandboxLocks.orgId, orgId))
+    await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
     await db.delete(connections).where(eq(connections.orgId, orgId))
   })
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
