@@ -4,6 +4,7 @@ import {
   formatHealthLine,
   formatUpgradeEstimate,
   upgradeAlertLines,
+  upgradeBlockedCopy,
   upgradeCanStart,
   upgradeIsPending,
   upgradeStartedMessage,
@@ -61,10 +62,43 @@ describe("upgrade copy", () => {
     ])
     expect(
       upgradeAlertLines(
-        [{ ...item("blocked"), blockedReason: "write_access" }],
+        [{ ...item("blocked"), kind: "format", blockedReason: "write_access" }],
         true,
       )[0],
     ).toMatch(/needs write access through the GitHub App/)
+  })
+
+  it("words a blocked item for its kind and reason, and prefers the note of the server", () => {
+    const blocked = (
+      kind: WorkspaceUpgradeItem["kind"],
+      blockedReason: string | null,
+      note: string | null = null,
+    ) => upgradeBlockedCopy({ kind, blockedReason, note })
+    expect(blocked("format", "write_access").title).toBe(
+      "ctx| cannot open the upgrade pull request",
+    )
+    expect(blocked("reingest", "write_access").title).toBe(
+      "ctx| cannot publish the re-ingestion",
+    )
+    expect(blocked("reingest", "write_access").body).not.toMatch(/pull request/)
+    expect(blocked("reingest", "needs_format").title).toBe(
+      "Apply the format upgrade first",
+    )
+    expect(blocked("reingest", "sandbox_unavailable").body).toMatch(
+      /no ingest sandbox/,
+    )
+    expect(blocked("reingest", "ingestion_v2_off").body).toMatch(
+      /valid format file/,
+    )
+    // A remote that is not GitHub: the note names the cause.
+    expect(
+      blocked("format", "write_access", "This remote is not GitHub.").body,
+    ).toBe("This remote is not GitHub.")
+    // No reason and no note: the body is never empty.
+    expect(blocked("format", null)).toEqual({
+      title: "The upgrade cannot start",
+      body: "ctx| cannot start this item now.",
+    })
   })
 
   it("words the estimate of a re-ingestion as a range", () => {
