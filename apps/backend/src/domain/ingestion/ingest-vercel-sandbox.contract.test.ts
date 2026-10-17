@@ -3,6 +3,7 @@ import { gunzipSync } from "node:zlib"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { APIError, Sandbox } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
+import { decodeJwt } from "jose"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -271,6 +272,15 @@ async function serveJob(
     report(`[tunnel] ${job.method} ${job.url.slice(0, 60)}: ${String(error)}`)
   }
   const forwardedHost = headers.get("vercel-forwarded-host")
+  // A refusal names what the proxy saw: the forwarded request and the
+  // claims of the sandbox's OIDC token (never the token itself).
+  if (status === 403 && forwardedHost) {
+    const oidc = headers.get("vercel-sandbox-oidc-token")
+    const claims = oidc ? decodeJwt(oidc) : {}
+    report(
+      `[tunnel] 403 ${job.method} ${forwardedHost}:${headers.get("vercel-forwarded-port")}${headers.get("vercel-forwarded-path")} at ${job.url.slice(0, 40)}… claims ${JSON.stringify({ iss: claims.iss, aud: claims.aud, team: claims.team_id, project: claims.project_id, sandbox: claims.sandbox_name })} expected ${JSON.stringify({ team: credentials.teamId, project: credentials.projectId, sandbox: sandboxName || "(unknown yet)", audience: `https://${tunnelHost}${job.url.split("?")[0]}` })}`,
+    )
+  }
   served.push({
     forwarded: forwardedHost
       ? `${forwardedHost}${headers.get("vercel-forwarded-path") ?? ""}`
