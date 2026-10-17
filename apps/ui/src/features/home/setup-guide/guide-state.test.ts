@@ -10,7 +10,7 @@ const noSignals: GuideSignals = {
   role: "admin",
   githubLinked: false,
   workspaceCount: 0,
-  landingBuilding: false,
+  landingBuild: null,
   linkedRepositories: false,
   asked: false,
   toolConnected: false,
@@ -41,11 +41,11 @@ describe("guideRows", () => {
       ...noSignals,
       githubLinked: true,
       workspaceCount: 1,
-      landingBuilding: true,
+      landingBuild: "hydrating",
       teamInvited: true,
     })
     expect(doneIds(rows)).toEqual(["github", "workspace", "invite"])
-    expect(rows.find((row) => row.id === "workspace")?.building).toBe(true)
+    expect(rows.find((row) => row.id === "workspace")?.build).toBe("hydrating")
     const all = guideRows({
       ...noSignals,
       githubLinked: true,
@@ -56,7 +56,27 @@ describe("guideRows", () => {
       teamInvited: true,
     })
     expect(doneIds(all)).toHaveLength(6)
-    expect(all.find((row) => row.id === "workspace")?.building).toBe(false)
+    expect(all.find((row) => row.id === "workspace")?.build).toBeUndefined()
+  })
+
+  it("gives the Workspace row the build state of the first Workspace", () => {
+    const build = (signals: Partial<GuideSignals>) =>
+      guideRows({ ...noSignals, ...signals }).find(
+        (row) => row.id === "workspace",
+      )?.build
+    expect(build({ workspaceCount: 1, landingBuild: "waiting_for_tip" })).toBe(
+      "waiting_for_tip",
+    )
+    expect(build({ workspaceCount: 1, landingBuild: "failed" })).toBe("failed")
+    expect(build({ workspaceCount: 1, landingBuild: "ready" })).toBe("ready")
+    // With no Workspace there is no build to show.
+    expect(build({ workspaceCount: 0, landingBuild: "hydrating" })).toBe(
+      undefined,
+    )
+    // A failed build still counts the row as done: the Workspace exists.
+    expect(
+      guideRows({ ...noSignals, workspaceCount: 1, landingBuild: "failed" }),
+    ).toContainEqual({ id: "workspace", done: true, build: "failed" })
   })
 
   it("never gives a member the GitHub, tool or invite rows", () => {
@@ -80,6 +100,7 @@ describe("guideView", () => {
     prefs: {},
     onboardingCompletedAt: newUser,
     orgCreatedAt: "2026-01-01T00:00:00.000Z",
+    firstWorkspaceCreatedAt: undefined,
     workspaceCount: 0,
     now,
     appBootAt,
@@ -183,6 +204,42 @@ describe("guideView", () => {
         orgCreatedAt: "2026-09-27T11:59:00.000Z",
       }),
     ).toEqual({ kind: "hidden" })
+  })
+
+  it("stays open for 14 days after the oldest Workspace, in an old organization", () => {
+    const old = {
+      ...base,
+      rows: guideRows({ ...noSignals, workspaceCount: 1 }),
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      orgCreatedAt: "2026-01-01T00:00:00.000Z",
+      workspaceCount: 1,
+    }
+    expect(
+      guideView({
+        ...old,
+        firstWorkspaceCreatedAt: "2026-09-29T12:00:00.000Z" /* 13 days ago */,
+      }),
+    ).toMatchObject({ kind: "open" })
+    expect(
+      guideView({
+        ...old,
+        firstWorkspaceCreatedAt: "2026-09-27T12:00:00.000Z" /* 15 days ago */,
+      }),
+    ).toEqual({ kind: "hidden" })
+  })
+
+  it("does not open for an old organization when the Workspace list did not load", () => {
+    const old = {
+      ...base,
+      rows: guideRows(noSignals),
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      orgCreatedAt: "2026-01-01T00:00:00.000Z",
+      workspaceCount: null,
+    }
+    expect(guideView(old)).toEqual({ kind: "hidden" })
+    expect(
+      guideView({ ...old, onboardingCompletedAt: "2026-10-10T00:00:00.000Z" }),
+    ).toMatchObject({ kind: "open" })
   })
 
   it("is open in an organization with no Workspace, at any age, until a dismiss", () => {

@@ -151,14 +151,7 @@ export function WorkspaceRepositoryPicker(props: {
         }}
         className="gap-3"
       >
-        <TabList
-          aria-label="How to choose the repository"
-          className="m-0 rounded-md bg-zinc-800 p-1"
-        >
-          <Tab id="select">Select GitHub</Tab>
-          <Tab id="create">Create on GitHub</Tab>
-          <Tab id="paste">Paste URL</Tab>
-        </TabList>
+        <ModeTabList />
         <div className="relative overflow-hidden">
           <TabPanel id="select" className="p-0">
             <SelectGitHubPanel
@@ -245,6 +238,41 @@ export function WorkspaceRepositoryPicker(props: {
                 {submitLabel}
               </Button>
             </form>
+          </TabPanel>
+        </div>
+      </Tabs>
+    </div>
+  )
+}
+
+function ModeTabList() {
+  return (
+    <TabList
+      aria-label="How to choose the repository"
+      className="m-0 rounded-md bg-zinc-800 p-1"
+    >
+      <Tab id="select">Select GitHub</Tab>
+      <Tab id="create">Create on GitHub</Tab>
+      <Tab id="paste">Paste URL</Tab>
+    </TabList>
+  )
+}
+
+/**
+ * The picker while the page cannot load it yet: the same root folder field and
+ * tab strip, with the repository skeleton in the Select GitHub tab.
+ */
+export function WorkspaceRepositoryPickerSkeleton() {
+  return (
+    <div>
+      <div className="mb-4">
+        <WorkspaceRootFolderField value="" onChange={() => {}} isDisabled />
+      </div>
+      <Tabs selectedKey="select" className="gap-3">
+        <ModeTabList />
+        <div className="relative overflow-hidden">
+          <TabPanel id="select" className="p-0">
+            <GithubRepoPickerSkeleton />
           </TabPanel>
         </div>
       </Tabs>

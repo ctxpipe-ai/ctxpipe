@@ -52,6 +52,15 @@ export function upgradePollInterval(
   return false
 }
 
+/** The refetch interval of the upgrades read: no poll after an error. */
+export function upgradesRefetchInterval(query: {
+  state: { status: string; data: WorkspaceUpgrades | undefined }
+}): number | false {
+  return query.state.status === "error"
+    ? false
+    : upgradePollInterval(query.state.data?.items)
+}
+
 export function workspaceUpgradesOptions(
   orgSlug: string,
   workspaceSlug: string,
@@ -68,10 +77,7 @@ export function workspaceUpgradesOptions(
       })
     },
     staleTime: 0,
-    refetchInterval: (query) =>
-      query.state.status === "error"
-        ? false
-        : upgradePollInterval(query.state.data?.items),
+    refetchInterval: upgradesRefetchInterval,
   })
 }
 

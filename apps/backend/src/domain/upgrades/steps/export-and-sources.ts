@@ -1,5 +1,9 @@
 import { parseEnv } from "../../../config/env.js"
-import { loadKnowledgeProjectionSource } from "../../../models/workspace-export.js"
+import {
+  loadKnowledgeProjectionSource,
+  loadRepositoryWorkspaceMaps,
+  type RepositoryWorkspaceMaps,
+} from "../../../models/workspace-export.js"
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
 import { SourceChangeError } from "../../workspace-sources/edit.js"
@@ -301,8 +305,10 @@ export async function formatOneLinkedRepositories(input: {
   /** The text of `.ctxpipe/sources.yaml`, or null when it is absent. */
   sourcesFile: string | null
   repositoryFiles: ReadonlyArray<{ path: string; content: string }>
+  /** The maps when the caller has them. Else it reads only the maps, not the knowledge store. */
+  source?: RepositoryWorkspaceMaps
 }) {
-  const source = await loadKnowledgeProjectionSource()
+  const source = input.source ?? (await loadRepositoryWorkspaceMaps())
   const linkedUrls = migrationLinkedRepositoryUrls({
     workspaceId: input.workspaceId,
     firstWorkspaceId: source.firstWorkspaceId,
@@ -328,7 +334,7 @@ export async function formatOneLinkedRepositories(input: {
       connectionId: connectionByUrl.get(gitUrl) ?? null,
     })),
   })
-  return { source, linkedUrls, linkedRepositories }
+  return { linkedUrls, linkedRepositories }
 }
 
 export function exportAndSourcesStep(
@@ -365,12 +371,14 @@ export function exportAndSourcesStep(
             content: (await tree.read(path)) ?? "",
           })),
       )
-      const { source, linkedUrls, linkedRepositories } =
+      const source = await loadKnowledgeProjectionSource()
+      const { linkedUrls, linkedRepositories } =
         await formatOneLinkedRepositories({
           workspaceId: ctx.workspaceId,
           connectionId,
           sourcesFile,
           repositoryFiles,
+          source,
         })
       const report: string[] = []
       const label = (object: ExportObjectRow) =>

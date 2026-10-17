@@ -22,6 +22,7 @@ import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
 import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
+import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import type { GuideRow, GuideRowId } from "./guide-state"
@@ -83,13 +84,16 @@ type ReadyGuide = Extract<SetupGuide, { status: "ready" }>
 /**
  * The "Get started" checklist on Home (CTX-552). Each row reads real data;
  * no click marks a row done. `onAsk` fills and focuses the Home composer.
+ * `onCreateWorkspace` opens Add Workspace on Home, so the guide shows the
+ * build after the dialog closes.
  */
 export function SetupGuideCard(props: {
   orgSlug: string
   guide: ReadyGuide
   onAsk?: () => void
+  onCreateWorkspace: () => void
 }) {
-  const { orgSlug, guide, onAsk } = props
+  const { orgSlug, guide, onAsk, onCreateWorkspace } = props
   const navigate = useNavigate()
   const selectNav = useSelectNav()
   // An empty org slug turns off the flow's queries for a member.
@@ -115,16 +119,7 @@ export function SetupGuideCard(props: {
     // Only an owner or admin can pick the repository of a Workspace.
     workspace:
       guide.role === "admin"
-        ? {
-            label: "Create Workspace",
-            onPress: () => {
-              selectNav({ orgSlug, primary: "other" })
-              void navigate({
-                to: "/$orgSlug/workspaces/new",
-                params: { orgSlug },
-              })
-            },
-          }
+        ? { label: "Create Workspace", onPress: onCreateWorkspace }
         : { label: "Ask an admin to create a Workspace." },
     repositories: landing
       ? { label: "Link repositories", onPress: () => openWorkspace("settings") }
@@ -162,7 +157,11 @@ export function SetupGuideCard(props: {
   }
   return (
     <>
-      <SetupGuidePanel guide={guide} actions={actions} />
+      <SetupGuidePanel
+        guide={guide}
+        actions={actions}
+        onOpenBuild={() => openWorkspace(undefined)}
+      />
       {guide.role === "admin" ? github.SelfHostedWizardModal : null}
     </>
   )
@@ -212,9 +211,55 @@ function SetupProgress(props: { done: number; total: number }) {
   )
 }
 
+/**
+ * The build of the first Workspace, under its done row. The list data has
+ * two stages: waiting for the first commit, then loading the files.
+ */
+function WorkspaceBuild(props: {
+  build: WorkspaceHydrateView
+  onOpenBuild: () => void
+}) {
+  if (props.build === "ready") return null
+  if (props.build === "failed") {
+    return (
+      <div className="mt-1.5 flex items-center gap-3">
+        <p className="ctx-indexing-failed">
+          <span className="ctx-indexing-failed-dot" aria-hidden />
+          Build failed
+        </p>
+        <Button
+          variant="quiet"
+          className="h-6 px-1 text-xs"
+          onPress={props.onOpenBuild}
+        >
+          See the error
+        </Button>
+      </div>
+    )
+  }
+  const reading = props.build === "waiting_for_tip"
+  return (
+    <div className="mt-1.5 space-y-1">
+      <p className="ctx-indexing">
+        <span className="ctx-indexing-dot" aria-hidden />
+        Building
+        <span className="text-muted-foreground">
+          · step {reading ? 1 : 2} of 2
+        </span>
+      </p>
+      <p className="text-xs text-muted-foreground">
+        {reading
+          ? "Reading the Workspace repository."
+          : "Loading the files. You can ask questions while it builds."}
+      </p>
+    </div>
+  )
+}
+
 function GuideRows(props: {
   rows: GuideRow[]
   actions: GuideActions
+  onOpenBuild: () => void
   /** The first open row gets the one primary action. */
   primaryId?: GuideRowId
 }) {
@@ -230,16 +275,11 @@ function GuideRows(props: {
               </span>
               <div className="min-w-0 flex-1 pt-1">
                 <p className="text-sm text-muted-foreground">{copy.title}</p>
-                {row.building ? (
-                  <div className="mt-1.5 space-y-1">
-                    <p className="ctx-indexing">
-                      <span className="ctx-indexing-dot" aria-hidden />
-                      Building
-                    </p>
-                    <p className="text-xs text-muted-foreground">
-                      You can ask questions while it builds.
-                    </p>
-                  </div>
+                {row.build ? (
+                  <WorkspaceBuild
+                    build={row.build}
+                    onOpenBuild={props.onOpenBuild}
+                  />
                 ) : null}
               </div>
               <span className="pt-1.5 text-xs text-muted-foreground">Done</span>
@@ -291,7 +331,11 @@ function GuideRows(props: {
   )
 }
 
-function SetupGuidePanel(props: { guide: ReadyGuide; actions: GuideActions }) {
+function SetupGuidePanel(props: {
+  guide: ReadyGuide
+  actions: GuideActions
+  onOpenBuild: () => void
+}) {
   const { guide, actions } = props
   const [moreOpen, setMoreOpen] = useState(false)
   const { view } = guide
@@ -387,6 +431,7 @@ function SetupGuidePanel(props: { guide: ReadyGuide; actions: GuideActions }) {
             rows={guide.rows}
             actions={actions}
             primaryId={view.next}
+            onOpenBuild={props.onOpenBuild}
           />
           <Disclosure isExpanded={moreOpen} onExpandedChange={setMoreOpen}>
             <RACButton
