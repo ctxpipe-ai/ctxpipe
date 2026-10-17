@@ -152,7 +152,6 @@ import {
   type WorkspaceChatRunCapabilityPurpose,
 } from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
-import { mintWorkspaceChatToken } from "./workspace-chat-token.js"
 import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 import {
   baseForNewSandbox,
@@ -1066,7 +1065,7 @@ async function resolveWorkspaceChatSession(
   /** Remote sandboxes reach the model proxy at the backend's public origin. */
   publicBaseUrl?: string,
 ): Promise<
-  | { ok: true; runToken: string; proxyUrl: string; orgSlug: string }
+  | { ok: true; proxyUrl: string; orgSlug: string }
   | { ok: false; status: 503; error: string }
 > {
   const authSecret = process.env.AUTH_SECRET?.trim() ?? ""
@@ -1088,13 +1087,6 @@ async function resolveWorkspaceChatSession(
   return {
     ok: true,
     orgSlug,
-    runToken: mintWorkspaceChatToken({
-      authSecret,
-      orgId: input.orgId,
-      orgSlug,
-      conversationId: input.conversationId,
-      runId: input.runId,
-    }),
     proxyUrl: publicBaseUrl
       ? `${publicBaseUrl}/${orgSlug}/api/v1/workspace-chat/openai/v1`
       : workspaceChatCompletionsBaseUrl({
@@ -1285,7 +1277,6 @@ async function buildWorkspaceChatSandbox(
     input,
     cloneToken,
     desiredUrl,
-    runToken: session.runToken,
     proxyUrl: session.proxyUrl,
     modelBase: contract.modelBase,
     proxyEnv: vault?.env,
@@ -1409,7 +1400,6 @@ function conversationSandboxWorkspace(input: {
   input: TanstackWorkspaceChatInput
   cloneToken: string
   desiredUrl: string
-  runToken: string
   proxyUrl: string
   modelBase: string
   /** Docker: the run's proxy session and CA trust. */
@@ -1423,9 +1413,6 @@ function conversationSandboxWorkspace(input: {
   })
   const { cloneToken } = input
   const secrets = createSecrets({
-    ...(input.isolation === "unsandboxed"
-      ? { CTXPIPE_OPENCODE_RUN_TOKEN: input.runToken }
-      : {}),
     CTXPIPE_MODEL_PROXY_URL: input.proxyUrl,
     [WORKSPACE_CHAT_CLONE_URL_SECRET]: originUrlWithoutCredentials(
       input.desiredUrl,
