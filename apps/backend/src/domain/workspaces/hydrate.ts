@@ -43,6 +43,12 @@ export type HydrateClaim = {
   source: string | null
 }
 
+/**
+ * The `source` of a unit that hydrate makes from the main-era knowledge in
+ * Postgres, not from git. Such a unit is read-only.
+ */
+export const LEGACY_UNIT_SOURCE = "legacy"
+
 export type HydrateUnit = {
   path: string
   servingId: string

@@ -116,6 +116,8 @@ export type WorkspaceGitBlobResponse = {
   path: string
   body: string | null
   binary: boolean
+  /** Set for knowledge from before Workspaces that is not in git. */
+  readOnlyReason?: string
 }
 
 export type WorkspaceGitStatus =

@@ -30,9 +30,14 @@ import {
   getWorkspaceUpgradeRow,
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
-import { getWorkspaceById } from "../../models/workspaces.js"
+import {
+  getWorkspaceById,
+  legacyKnowledgePaths,
+} from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
+import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
 
@@ -403,13 +408,32 @@ export function defineWorkspaceUpgradeReingest(
             >,
           ) =>
             step.run({ name }, async () => {
-              await transitionWorkspaceUpgradeRow({
+              const moved = await transitionWorkspaceUpgradeRow({
                 workspaceId,
                 key,
                 from: [UPGRADE_STATUSES.running],
                 ownerRunId: run.id,
                 ...fields,
               })
+              // A repository that is done replaces its main-era knowledge.
+              // Hydrate projects the revision again, so that the overlay of
+              // that repository goes (the publish hydrate can come first).
+              if (
+                moved &&
+                fields.upgrade?.repositories?.some(
+                  (repository) => repository.status === "done",
+                ) &&
+                (await legacyKnowledgePaths(workspaceId)).size
+              )
+                await enqueueWorkspaceHydrate(
+                  { orgId, workspaceId },
+                  getLogger(),
+                  {
+                    idempotencyKey: (revision) =>
+                      `legacy-overlay:${workspaceId}:${run.id}:${name}:${revision.sha}`,
+                    reproject: true,
+                  },
+                )
               return { started: true, status: fields.to }
             })
           try {

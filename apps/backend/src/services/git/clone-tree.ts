@@ -288,6 +288,11 @@ export async function listMarkdownFilesAtGitSha(input: {
   sha: string
   token?: string
   includeIntroducingCommits?: boolean
+  /**
+   * With `includeIntroducingCommits`, the same history walk adds to this set
+   * each Markdown path (relative to `root`) that a commit deleted.
+   */
+  deletedPaths?: Set<string>
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
   /** Folders (`sources/`) whose every blob to read, also a non-Markdown one. */
@@ -372,8 +377,9 @@ export async function listMarkdownFilesAtGitSha(input: {
             "--format=%x00%ct",
             "--raw",
             "-z",
-            // Adds give the introducing commit; edits give the last change.
-            "--diff-filter=AMT",
+            // Adds give the introducing commit; edits give the last change;
+            // deletes give the deleted paths.
+            "--diff-filter=AMTD",
             "--no-renames",
             "FETCH_HEAD",
             "--",
@@ -396,6 +402,11 @@ export async function listMarkdownFilesAtGitSha(input: {
               const path = records[++i]
               if (!path || !timestamp)
                 throw new Error("Invalid introducing-commit record")
+              if (status === "D") {
+                const relative = workspaceRelativePath(input.root ?? "", path)
+                if (relative !== null) input.deletedPaths?.add(relative)
+                continue
+              }
               if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
               if (status === "A" && !introduced.has(path))
                 introduced.set(path, timestamp)

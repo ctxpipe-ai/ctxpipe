@@ -16,6 +16,7 @@ import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
@@ -28,6 +29,7 @@ import { getWorkspaceFileJobStatus } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceBySlug,
   getWorkspaceSearchProjection,
+  legacyKnowledgePaths,
   listWorkspaceKnowledgeFiles,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
@@ -134,6 +136,10 @@ const WorkspaceGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    readOnlyReason: z.string().optional().openapi({
+      description:
+        "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
+    }),
   })
   .openapi("WorkspaceGitBlobResponse")
 
@@ -431,7 +437,22 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
         path,
       })
       const blob = explorerBlobFromGitFile(file)
-      if (!blob) return c.json({ error: "Not found" }, 404)
+      if (!blob) {
+        // A main-era knowledge unit that hydrate serves from Postgres.
+        const legacy = (
+          await legacyKnowledgePaths(loaded.workspace.id, [path])
+        ).get(path)
+        if (legacy === undefined) return c.json({ error: "Not found" }, 404)
+        return c.json(
+          {
+            path,
+            body: legacy,
+            binary: false,
+            readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+          },
+          200,
+        )
+      }
       return c.json({ path, ...blob }, 200)
     } catch (error) {
       const failure = gitExplorerReadFailure(
@@ -455,6 +476,12 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const raw = WorkspaceFileJobRequestSchema.parse(await c.req.json())
     const request = parseWorkspaceFileJobRequest(raw)
     if (!request) return c.json({ error: "A valid file job is required" }, 400)
+    // A main-era knowledge unit is not in git: it is read-only.
+    const legacy = await legacyKnowledgePaths(
+      loaded.workspace.id,
+      [raw.path, raw.from, raw.to].flatMap((path) => path ?? []),
+    )
+    if (legacy.size) return c.json({ error: LEGACY_KNOWLEDGE_READ_ONLY }, 400)
     try {
       const treePaths = await listWorkspaceCheckoutPaths(loaded.input)
       const planned = await planWorkspaceFileJob({

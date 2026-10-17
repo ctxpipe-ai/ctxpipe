@@ -1108,7 +1108,7 @@ function CodesearchGitFilePreview(
   return <GitFilePreviewBody {...props} data={data} />
 }
 
-function GitFilePreviewBody(props: {
+export function GitFilePreviewBody(props: {
   orgSlug: string
   workspaceSlug: string
   conversationId?: string
@@ -1120,7 +1120,12 @@ function GitFilePreviewBody(props: {
   onHistoryChange: (history: FileEditorHistory) => void
   onBlur: () => void
   onChange: (body: string, headBody: string | null) => void
-  data: { path: string; body: string | null; binary: boolean }
+  data: {
+    path: string
+    body: string | null
+    binary: boolean
+    readOnlyReason?: string
+  }
 }) {
   const { data } = props
   const [seenBody, setSeenBody] = useState(data.body)
@@ -1159,6 +1164,11 @@ function GitFilePreviewBody(props: {
   }
   return (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
+      {data.readOnlyReason ? (
+        <output className="block px-3 py-2 text-xs text-muted-foreground">
+          {data.readOnlyReason}
+        </output>
+      ) : null}
       {agentUpdated ? (
         <div className="flex items-center justify-between gap-2 px-3 py-2">
           <p className="text-xs text-amber-200">Agent updated this file.</p>
@@ -1181,7 +1191,7 @@ function GitFilePreviewBody(props: {
           body={workingBody ?? ""}
           oldBody={headBody}
           cacheKey={`${props.conversationId ?? props.sha}:${props.path}:${agentUpdated ? "held" : "live"}`}
-          editable={props.editable}
+          editable={props.editable && !data.readOnlyReason}
           editorHandleRef={props.editorHandleRef}
           onHistoryChange={props.onHistoryChange}
           onBlur={props.onBlur}

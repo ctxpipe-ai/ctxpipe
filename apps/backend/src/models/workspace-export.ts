@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { and, eq, inArray, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
@@ -79,16 +79,71 @@ export async function loadRepositoryWorkspaceMaps(): Promise<RepositoryWorkspace
   })
 }
 
-export async function loadKnowledgeProjectionSource(): Promise<
+/**
+ * The repository id of an object row from its deduplication key, in SQL: the
+ * same pattern as {@link repositoryIdFromDedup}.
+ */
+const dedupRepositoryId = sql`nullif(btrim(substring(btrim(${objects.deduplicationKey}) from '^[^:]+:([^:]+):')), '')`
+
+/**
+ * The SQL filter of the object rows that Workspace `workspaceId` can get.
+ * A row with no deduplication key stays: its repository can come from the
+ * evidence of its claims. The caller applies the exact assignment.
+ */
+function workspaceObjectFilter(input: {
+  workspaceId: string
+  maps: RepositoryWorkspaceMaps
+}): SQL {
+  const ids = (list: readonly string[]) =>
+    sql.join(
+      list.map((id) => sql`${id}`),
+      sql`, `,
+    )
+  const own: string[] = []
+  const other: string[] = []
+  for (const [id, workspaceId] of input.maps.workspaceByRepositoryId)
+    (workspaceId === input.workspaceId ? own : other).push(id)
+  // The first Workspace gets each repository that no other Workspace has.
+  const keyed =
+    input.maps.firstWorkspaceId === input.workspaceId
+      ? other.length
+        ? sql`(${dedupRepositoryId} is null or ${dedupRepositoryId} not in (${ids(other)}))`
+        : sql`true`
+      : own.length
+        ? sql`${dedupRepositoryId} in (${ids(own)})`
+        : sql`false`
+  return sql`(${objects.deduplicationKey} is null or ${keyed})`
+}
+
+/**
+ * The main-era knowledge rows (objects, claims and their evidence keys) with
+ * the repository and Workspace maps. With `workspaceId`, it reads only the
+ * rows that this Workspace can get, so that hydrate does not read all rows
+ * of the org.
+ */
+export async function loadKnowledgeProjectionSource(
+  scope: { workspaceId: string } | null = null,
+): Promise<
   RepositoryWorkspaceMaps & {
     objects: ExportObjectRow[]
     claims: ExportClaimRow[]
   }
 > {
+  const maps = await loadRepositoryWorkspaceMaps()
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
-    const [objectRows, claimRows, evidenceRows, maps] = await Promise.all([
+    const objectFilter = scope
+      ? and(eq(objects.orgId, orgId), workspaceObjectFilter({ ...scope, maps }))
+      : eq(objects.orgId, orgId)
+    const objectIds = db
+      .select({ id: objects.id })
+      .from(objects)
+      .where(objectFilter)
+    const claimFilter = scope
+      ? and(eq(claims.orgId, orgId), inArray(claims.subjectId, objectIds))
+      : eq(claims.orgId, orgId)
+    const [objectRows, claimRows, evidenceRows] = await Promise.all([
       db
         .select({
           id: objects.id,
@@ -97,7 +152,7 @@ export async function loadKnowledgeProjectionSource(): Promise<
           payload: objects.payload,
         })
         .from(objects)
-        .where(eq(objects.orgId, orgId)),
+        .where(objectFilter),
       db
         .select({
           id: claims.id,
@@ -111,15 +166,22 @@ export async function loadKnowledgeProjectionSource(): Promise<
           status: claims.status,
         })
         .from(claims)
-        .where(eq(claims.orgId, orgId)),
+        .where(claimFilter),
       db
         .select({
           claimId: claimEvidence.claimId,
           sourceType: claimEvidence.sourceType,
           logicalSourceKey: claimEvidence.logicalSourceKey,
         })
-        .from(claimEvidence),
-      loadRepositoryWorkspaceMaps(),
+        .from(claimEvidence)
+        .where(
+          scope
+            ? inArray(
+                claimEvidence.claimId,
+                db.select({ id: claims.id }).from(claims).where(claimFilter),
+              )
+            : undefined,
+        ),
     ])
 
     const sourceByClaim = new Map<string, string>()
