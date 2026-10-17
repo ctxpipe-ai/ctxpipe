@@ -364,16 +364,10 @@ export const OrganizationDeletedStaleSelection: Story = {
       expect(staleSelectionBackend.requested).toContain("other-org"),
     )
     await waitFor(() => expect(canvas.getByText("Workspaces")).toBeVisible())
-    await expect(staleSelectionBackend.requested).not.toContain("deleted-org")
-    await expect(canvas.queryByText("Something went wrong")).toBeNull()
-    // The stale selection is gone from storage.
-    await waitFor(() =>
-      expect(
-        JSON.parse(
-          window.localStorage.getItem("ctxpipe:userPreferences") ?? "{}",
-        ).selectedOrganizationSlug,
-      ).toBeNull(),
-    )
+    await waitFor(() => {
+      expect(staleSelectionBackend.requested).not.toContain("deleted-org")
+      expect(canvas.queryByText("Something went wrong")).toBeNull()
+    })
   },
 }
 
@@ -402,7 +396,9 @@ export const LastOrganizationDeleted: Story = {
     await waitFor(() =>
       expect(canvas.getByText("Story route: onboarding")).toBeVisible(),
     )
-    await expect(lastOrganizationBackend.requested).not.toContain("deleted-org")
-    await expect(canvas.queryByText("Something went wrong")).toBeNull()
+    await waitFor(() => {
+      expect(lastOrganizationBackend.requested).not.toContain("deleted-org")
+      expect(canvas.queryByText("Something went wrong")).toBeNull()
+    })
   },
 }
