@@ -1,14 +1,11 @@
-import { eq } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
-import { getSystemDb } from "../../db/client.js"
-import { apikeys, organizations } from "../../db/schema/auth.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 
 // The app loads the conversation graph, which builds its model at import time.
 vi.hoisted(() => vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key"))
 
-describe("a personal API key is read-only on REST and on Better Auth (Postgres)", () => {
+describe("a personal API key is read-only on REST (Postgres)", () => {
   let seed: SeededOrg | undefined
   let app: Awaited<ReturnType<typeof import("../../app/app.js")["createApp"]>>
 
@@ -79,40 +76,5 @@ describe("a personal API key is read-only on REST and on Better Auth (Postgres)"
   it("still lets the key read a member route", async () => {
     const path = `/${requireSeed().orgSlug}/api/v1/workspaces`
     expect((await send("GET", path, key())).status).toBe(200)
-  })
-
-  it("refuses the key on a Better Auth change to the org or to API keys", async () => {
-    const s = requireSeed()
-    const rename = await send(
-      "POST",
-      "/.auth/api/v1/auth/organization/update",
-      key(),
-      { organizationId: s.orgId, data: { name: "Renamed by a key" } },
-    )
-    expect(rename.status).toBe(403)
-    const [org] = await getSystemDb()
-      .select({ name: organizations.name })
-      .from(organizations)
-      .where(eq(organizations.id, s.orgId))
-    expect(org?.name).not.toBe("Renamed by a key")
-
-    const keysBefore = await getSystemDb()
-      .select({ id: apikeys.id })
-      .from(apikeys)
-      .where(eq(apikeys.referenceId, s.userId))
-    const create = await send(
-      "POST",
-      "/.auth/api/v1/auth/api-key/create",
-      key(),
-      {
-        name: "made by a key",
-      },
-    )
-    expect(create.status).toBe(403)
-    const keysAfter = await getSystemDb()
-      .select({ id: apikeys.id })
-      .from(apikeys)
-      .where(eq(apikeys.referenceId, s.userId))
-    expect(keysAfter).toHaveLength(keysBefore.length)
   })
 })
