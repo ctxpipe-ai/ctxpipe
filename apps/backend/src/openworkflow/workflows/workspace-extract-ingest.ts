@@ -1,6 +1,5 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { isConnectorMirrorPath } from "../../domain/codeIngestion/connectorMirrorPaths.js"
 import { IngestRefRefusedError } from "../../domain/ingestion/ingest-refs.js"
 import {
   ingestSourceTree,
@@ -10,16 +9,8 @@ import {
   retiredPublishPipelineField,
   workspacePublishPipeline,
 } from "../../domain/ingestion/ingestion-v2-config.js"
-import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
-import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
-import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import { ingestPublishSourceSchema } from "../../domain/workspaces/extraction-source.js"
-import { isHostOnlyPath } from "../../domain/workspaces/host-only.js"
-import { isLinkedRepositoryDeclaration } from "../../domain/workspaces/layout.js"
-import {
-  sameWorkspaceRevision,
-  workspaceRevisionSchema,
-} from "../../domain/workspaces/revision.js"
+import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -27,7 +18,6 @@ import {
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
-  captureSemanticHandoff,
   mergeWorkspaceIngestPublish,
   publishWorkspaceWriteRevision,
   refreshWorkspaceWriteRevision,
@@ -38,18 +28,16 @@ import {
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
-import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
-  persistWriteJobKnowledgePaths,
   persistWriteJobPreparedCommit,
 } from "../../models/workspace-write-jobs.js"
 import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { type GitPack, readGitFiles } from "../../services/git/pack.js"
+import type { GitPack } from "../../services/git/pack.js"
 import {
   commitGitTree,
   stageGitFiles,
@@ -58,7 +46,6 @@ import {
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { workspaceHydrate } from "./workspace-hydrate.js"
-import { workspaceSemanticMerge } from "./workspace-semantic-merge.js"
 
 /** Native idempotency key of the hydrate an extraction write job admits after publishing. */
 export function extractionHydrateKey(jobId: string): string {
@@ -71,8 +58,11 @@ export const workspaceExtractIngestInputSchema = z
     workspaceId: z.string().min(1),
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
-    /** The old pipeline: a stored extraction capture. */
-    extraction: workspaceExtractionSchema.optional(),
+    /**
+     * Retired: the capture of the old pipeline (CTX-642). A job that was
+     * queued with it still parses, and it ends with no write.
+     */
+    extraction: z.record(z.string(), z.unknown()).optional(),
     /**
      * Ingestion v2 (ADR-052 section 6, T21): the assembled ref tip of a run.
      * `revision.sha` is the run's pinned revision.
@@ -95,11 +85,11 @@ export const workspaceExtractIngestInputSchema = z
   )
 
 /**
- * The Workspace format is the switch (ADR-052 phase 4, G5): a job of the old
- * pipeline (`extraction`) pushes only on a tree below format 3, and an
- * ingestion v2 publish (`ingest`) only on a tree at 3 or more. The check
- * reads the format file of the tree that the job pushes on, so a job that
- * was queued before an upgrade, or before a revert of it, stops.
+ * The Workspace format is the switch (ADR-052 phase 4, G5): an ingestion v2
+ * publish (`ingest`) pushes only on a tree where the format selects `v2`.
+ * The check reads the format file of the tree that the job pushes on, so a
+ * job that was queued before a revert of the upgrade stops. A job of the
+ * retired old pipeline (`extraction`) ends with no write.
  */
 export function defineWorkspaceExtractIngestWorkflow() {
   return defineWorkflow(
@@ -109,9 +99,8 @@ export function defineWorkspaceExtractIngestWorkflow() {
     },
     async ({ input: queuedInput, step, run }) => {
       const input = workspaceExtractIngestInputSchema.parse(queuedInput)
-      const job = input.ingest ? "v2" : "legacy"
       const pipelineStopped = async (pack: GitPack) =>
-        workspacePublishPipeline(await packWorkspaceFormat(pack)) !== job
+        workspacePublishPipeline(await packWorkspaceFormat(pack)) !== "v2"
       return withWorkspaceWriteContext(
         input,
         "workspace-write-extract-ingest",
@@ -132,21 +121,27 @@ export function defineWorkspaceExtractIngestWorkflow() {
             run.id,
           )
           if (completed) return completed
+          const ingestSource = input.ingest
+          if (!ingestSource) {
+            // The old pipeline is gone (CTX-642): no ingestion writes to a
+            // Workspace below format 3. A job that it queued ends here.
+            await step.run({ name: "complete-retired" }, () =>
+              persistWriteJobStatus(input.jobId, "completed"),
+            )
+            return {
+              committed: false as const,
+              reason: "legacy_ingestion_retired" as const,
+            }
+          }
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
               kind: "extract_ingest",
               revision: input.revision,
               workflowRunId: run.id,
-              extraction: input.extraction,
-              ingest: input.ingest,
+              ingest: ingestSource,
             }),
           )
-          const identity = input.extraction
-            ? await step.run({ name: "load-extraction-path-identity" }, () =>
-                loadExtractionPathIdentity(input.revision),
-              )
-            : null
           for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
             let acquired: NonNullable<
               Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -171,113 +166,59 @@ export function defineWorkspaceExtractIngestWorkflow() {
             const transformed = await step.run(
               { name: "transform-extract-ingest" },
               async () => {
-                if (input.ingest) {
-                  const { source, sourcePath, sourceSha, ...ingest } =
-                    input.ingest
-                  // Its own copy of the source tree, for the validator.
-                  const holder = `publish:${input.workspaceId}`
-                  const sourceTree = () =>
-                    ingestSourceTree({
-                      orgId: input.orgId,
-                      runId: ingest.runId,
-                      source,
-                      sha: sourceSha,
-                      env,
-                      holder,
-                    })
-                  try {
-                    return {
-                      ...(await mergeWorkspaceIngestPublish(
-                        {
-                          orgId: input.orgId,
-                          workspaceId: input.workspaceId,
-                          runId: ingest.runId,
-                          pinnedRevision: input.revision.sha,
-                          tip: ingest.tip,
-                          current: revision.sha,
-                          withheldRoots: ingest.withheldRoots,
-                          bundle: ingest.bundle,
-                          semanticMerge: {
-                            resolve: resolveIngestConflicts,
-                            source: { url: source.url, sha: sourceSha },
-                            sourcePath,
-                            sourcePathExists: (path) =>
-                              sourceTree().exists(path),
-                            readSourceFile: (path) => sourceTree().read(path),
-                          },
+                const { source, sourcePath, sourceSha, ...ingest } =
+                  ingestSource
+                // Its own copy of the source tree, for the validator.
+                const holder = `publish:${input.workspaceId}`
+                const sourceTree = () =>
+                  ingestSourceTree({
+                    orgId: input.orgId,
+                    runId: ingest.runId,
+                    source,
+                    sha: sourceSha,
+                    env,
+                    holder,
+                  })
+                try {
+                  return {
+                    ...(await mergeWorkspaceIngestPublish(
+                      {
+                        orgId: input.orgId,
+                        workspaceId: input.workspaceId,
+                        runId: ingest.runId,
+                        pinnedRevision: input.revision.sha,
+                        tip: ingest.tip,
+                        current: revision.sha,
+                        withheldRoots: ingest.withheldRoots,
+                        bundle: ingest.bundle,
+                        semanticMerge: {
+                          resolve: resolveIngestConflicts,
+                          source: { url: source.url, sha: sourceSha },
+                          sourcePath,
+                          sourcePathExists: (path) => sourceTree().exists(path),
+                          readSourceFile: (path) => sourceTree().read(path),
                         },
-                        env,
-                      )),
-                      knowledgePaths: {} as Record<string, string>,
-                    }
-                  } catch (error) {
-                    // A merge that fails the patch validator: the Workspace
-                    // is `partial`, and the publish writes nothing.
-                    if (error instanceof IngestRefRefusedError)
-                      return { refused: error.message.slice(0, 300) }
-                    // A failed semantic merge model: the same, but the run
-                    // keeps the refs.
-                    if (error instanceof SemanticResolveError)
-                      return {
-                        failed: error.message.slice(0, 300),
-                      }
-                    throw error
-                  } finally {
-                    await releaseIngestSourceTree(
-                      ingest.runId,
-                      sourceSha,
-                      holder,
-                    )
+                      },
+                      env,
+                    )),
                   }
-                }
-                // A job of the old pipeline that was queued or paused before
-                // the upgrade to format 3 must not publish (ADR-052 phase 4).
-                if (await pipelineStopped(acquired.pack))
-                  return { stopped: true as const }
-                if (!input.extraction || !identity)
-                  throw new Error("The extraction command has no capture")
-                const extraction = input.extraction
-                const existingKnowledge = await readGitFiles(
-                  acquired.pack,
-                  (path) =>
-                    path.endsWith(".md") && !isConnectorMirrorPath(path),
-                )
-                const plan = await planStoredExtraction({
-                  ...identity,
-                  orgId: input.orgId,
-                  extraction,
-                  workspaceId: input.workspaceId,
-                  workspaceRepositoryUrl: revision.remote.url,
-                  existingKnowledge,
-                })
-                const existing = new Map(
-                  existingKnowledge.map((file) => [file.path, file.content]),
-                )
-                const files = plan.files.filter(
-                  (file) =>
-                    !file.path.startsWith(".agents/") &&
-                    !isHostOnlyPath(file.path) &&
-                    (!isLinkedRepositoryDeclaration(file.path) ||
-                      file.path === extraction.sourceDeclaration?.path) &&
-                    !isConnectorMirrorPath(file.path) &&
-                    existing.get(file.path) !== file.content,
-                )
-                return {
-                  files,
-                  deletePaths: [] as string[],
-                  knowledgePaths: plan.knowledgePaths,
+                } catch (error) {
+                  // A merge that fails the patch validator: the Workspace
+                  // is `partial`, and the publish writes nothing.
+                  if (error instanceof IngestRefRefusedError)
+                    return { refused: error.message.slice(0, 300) }
+                  // A failed semantic merge model: the same, but the run
+                  // keeps the refs.
+                  if (error instanceof SemanticResolveError)
+                    return {
+                      failed: error.message.slice(0, 300),
+                    }
+                  throw error
+                } finally {
+                  await releaseIngestSourceTree(ingest.runId, sourceSha, holder)
                 }
               },
             )
-            if ("stopped" in transformed) {
-              await step.run({ name: "complete-stopped" }, () =>
-                persistWriteJobStatus(input.jobId, "completed"),
-              )
-              return {
-                committed: false as const,
-                reason: "publish_pipeline_v2" as const,
-              }
-            }
             if ("refused" in transformed) {
               await step.run({ name: "refuse-publish" }, () =>
                 persistWriteJobStatus(input.jobId, "failed"),
@@ -298,33 +239,10 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 failed: transformed.failed,
               }
             }
-            if (input.extraction)
-              await step.run({ name: "record-knowledge-paths" }, () =>
-                persistWriteJobKnowledgePaths(
-                  input.jobId,
-                  transformed.knowledgePaths,
-                ),
-              )
             const { files, deletePaths } = transformed
-            if (!files.length && !deletePaths.length && input.ingest) {
+            if (!files.length && !deletePaths.length) {
               // The delta is from the pinned revision, so a later tip cannot
               // add to it: there is nothing to confirm.
-              await step.run({ name: "complete-no-op" }, () =>
-                persistWriteJobStatus(input.jobId, "completed"),
-              )
-              return {
-                committed: false as const,
-                reason: "no_changes" as const,
-              }
-            }
-            if (!files.length && !deletePaths.length) {
-              const refreshed = await step.run({ name: "confirm-no-op" }, () =>
-                refreshWorkspaceWriteRevision(input, revision, env),
-              )
-              if (!sameWorkspaceRevision(refreshed, revision)) {
-                revision = refreshed
-                continue
-              }
               await step.run({ name: "complete-no-op" }, () =>
                 persistWriteJobStatus(input.jobId, "completed"),
               )
@@ -344,24 +262,16 @@ export function defineWorkspaceExtractIngestWorkflow() {
             )
             const subject = await step.run(
               { name: "commit-subject" },
+              // A fixed message: the same run makes the same commit.
               async () =>
-                input.ingest
-                  ? // A fixed message: the same run makes the same commit.
-                    `Update extracted knowledge\n\nCtxpipe-Run: ${input.ingest.runId}`
-                  : generateCommitSubject({
-                      repoName: repositoryName.split("/")[1] ?? repositoryName,
-                      trigger: "extract_ingest",
-                      fileNames: files.map((file) => file.path),
-                    }),
+                `Update extracted knowledge\n\nCtxpipe-Run: ${ingestSource.runId}`,
             )
             const committed = await step.run({ name: "commit" }, async () => {
               const pack = await commitGitTree(staged, {
                 subject,
                 // A replay of a publish is a new workflow run: the run's
                 // author time keeps the SHA.
-                createdAt: input.ingest
-                  ? new Date(input.ingest.authorTime)
-                  : run.createdAt,
+                createdAt: new Date(ingestSource.authorTime),
               })
               await persistWriteJobPreparedCommit(input.jobId, pack.sha)
               return pack
@@ -390,9 +300,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
               if ("stopped" in attempt)
                 return {
                   committed: false as const,
-                  reason: input.ingest
-                    ? ("publish_pipeline_legacy" as const)
-                    : ("publish_pipeline_v2" as const),
+                  reason: "publish_pipeline_stopped" as const,
                 }
               pushed = attempt
               if (pushed.pushed || pushed.reason !== "paused") break
@@ -404,9 +312,9 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 persistWriteJobStatus(input.jobId, "running"),
               )
             }
-            if (!pushed.pushed && input.ingest) {
-              // The default branch moved: replay the delta on the new tip.
-              // The handoff below would push a merge that no validator saw.
+            if (!pushed.pushed) {
+              // The default branch moved: replay the delta on the new tip. A
+              // semantic merge handoff would push a merge that no validator saw.
               await step.run({ name: "discard-unpublished-candidate" }, () =>
                 discardWriteJobPreparedCommit(input.jobId, committed.sha),
               )
@@ -415,31 +323,6 @@ export function defineWorkspaceExtractIngestWorkflow() {
                 () => refreshWorkspaceWriteRevision(input, revision, env),
               )
               continue
-            }
-            if (!pushed.pushed) {
-              const handoff = await step.run(
-                { name: "capture-semantic-handoff" },
-                () =>
-                  captureSemanticHandoff(
-                    input,
-                    revision,
-                    committed,
-                    env,
-                    "extraction",
-                  ),
-              )
-              const result = await step.runWorkflow(
-                workspaceSemanticMerge.spec,
-                handoff,
-                { name: "semantic-merge-child" },
-              )
-              await step.run({ name: "complete-merged-result" }, () =>
-                persistWriteJobCommitSha(
-                  input.jobId,
-                  result.committed ? result.commitSha : null,
-                ),
-              )
-              return result
             }
             const published = await step.run({ name: "publish-result" }, () =>
               publishWorkspaceWriteRevision(input, revision, committed, env),
@@ -460,21 +343,16 @@ export function defineWorkspaceExtractIngestWorkflow() {
             )
             return { committed: true as const, commitSha: committed.sha }
           }
-          if (input.ingest) {
-            // Each attempt lost the push race: publish nothing, and let the
-            // run publish its other Workspaces.
-            await step.run({ name: "fail-raced-publish" }, () =>
-              persistWriteJobStatus(input.jobId, "failed"),
-            )
-            return {
-              committed: false as const,
-              reason: "failed" as const,
-              failed: "The default branch kept changing during the publish",
-            }
-          }
-          throw new Error(
-            "Default branch kept changing during no-op validation",
+          // Each attempt lost the push race: publish nothing, and let the
+          // run publish its other Workspaces.
+          await step.run({ name: "fail-raced-publish" }, () =>
+            persistWriteJobStatus(input.jobId, "failed"),
           )
+          return {
+            committed: false as const,
+            reason: "failed" as const,
+            failed: "The default branch kept changing during the publish",
+          }
         },
       )
     },
