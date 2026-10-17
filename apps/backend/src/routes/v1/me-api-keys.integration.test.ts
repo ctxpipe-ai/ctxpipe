@@ -10,7 +10,7 @@ import type { AppEnv } from "../../app/env.js"
 import { PERSONAL_API_KEY_ORGANIZATIONS_HEADER } from "../../auth/personal-api-key-organizations.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, initDb } from "../../db/client.js"
-import { apikeys, members, organizations } from "../../db/schema/auth.js"
+import { apikeys, members, organizations, users } from "../../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../../db/schema/oauth_grant_organizations.js"
 import { generateObjectId } from "../../lib/id.js"
 import { loadServerInstructions } from "../../mcp/framework/instructions.js"
@@ -188,6 +188,177 @@ describe("personal API key org set (Postgres)", () => {
       },
     )
   }
+
+  /** A call to a Better Auth endpoint, as a client with no cookie makes it. */
+  function authCall(
+    method: "GET" | "POST",
+    path: string,
+    headers: Record<string, string>,
+    body?: unknown,
+  ) {
+    return createApp().request(`${BASE}/.auth/api/v1/auth${path}`, {
+      method,
+      headers: {
+        ...headers,
+        ...(body === undefined ? {} : { "content-type": "application/json" }),
+      },
+      body: body === undefined ? undefined : JSON.stringify(body),
+    })
+  }
+
+  async function keyIdsNamed(name: string): Promise<string[]> {
+    const rows = await getSystemDb()
+      .select({ id: apikeys.id })
+      .from(apikeys)
+      .where(and(eq(apikeys.referenceId, u().userId), eq(apikeys.name, name)))
+    return rows.map((row) => row.id)
+  }
+
+  it("refuses a key that asks for a new key with a larger org set, and keeps no key", async () => {
+    const { key } = await newKey([u().orgId])
+    const name = `escalate-${suffix}`
+    const response = await authCall(
+      "POST",
+      "/api-key/create",
+      {
+        "x-api-key": key,
+        [PERSONAL_API_KEY_ORGANIZATIONS_HEADER]: `${u().orgId},${orgB.id}`,
+      },
+      { name },
+    )
+    expect(response.status).toBe(403)
+    expect(await keyIdsNamed(name)).toEqual([])
+  })
+
+  it("refuses a key on the other key endpoints, and the key does not change", async () => {
+    const { id, key } = await newKey([u().orgId])
+    const headers = { "x-api-key": key }
+    const calls = [
+      await authCall("GET", "/api-key/list", headers),
+      await authCall("GET", `/api-key/get?id=${id}`, headers),
+      await authCall("POST", "/api-key/update", headers, {
+        keyId: id,
+        name: `renamed-${suffix}`,
+      }),
+      await authCall("POST", "/api-key/delete", headers, { keyId: id }),
+    ]
+    expect(calls.map((call) => call.status)).toEqual([403, 403, 403, 403])
+    const [row] = await getSystemDb()
+      .select({ name: apikeys.name })
+      .from(apikeys)
+      .where(eq(apikeys.id, id))
+    expect(row?.name).toBe(`key-${suffix}`)
+  })
+
+  it("refuses a key on each Better Auth endpoint that changes data or reads past its org set", async () => {
+    const { key } = await newKey([u().orgId])
+    const headers = { "x-api-key": key }
+    const slug = `key-made-${suffix}`
+    const endpoints: Array<["GET" | "POST", string, unknown?]> = [
+      ["POST", "/update-user", { name: `changed-${suffix}` }],
+      ["POST", "/change-email", { newEmail: `changed-${suffix}@example.com` }],
+      ["POST", "/change-password", { currentPassword: "x", newPassword: "y" }],
+      ["POST", "/delete-user", {}],
+      ["POST", "/unlink-account", { providerId: "credential" }],
+      ["POST", "/link-social", { provider: "github" }],
+      ["POST", "/revoke-sessions", {}],
+      ["POST", "/revoke-other-sessions", {}],
+      ["POST", "/revoke-session", { token: "x" }],
+      ["GET", "/list-sessions"],
+      ["GET", "/list-accounts"],
+      ["GET", "/token"],
+      ["POST", "/get-access-token", { providerId: "github" }],
+      ["POST", "/organization/create", { name: slug, slug }],
+      [
+        "POST",
+        "/organization/update",
+        { organizationId: u().orgId, data: { name: slug } },
+      ],
+      ["POST", "/organization/delete", { organizationId: orgB.id }],
+      ["POST", "/organization/set-active", { organizationId: orgB.id }],
+      ["POST", "/organization/leave", { organizationId: orgB.id }],
+      [
+        "POST",
+        "/organization/invite-member",
+        {
+          organizationId: u().orgId,
+          email: `${slug}@example.com`,
+          role: "owner",
+        },
+      ],
+      [
+        "POST",
+        "/organization/remove-member",
+        { organizationId: u().orgId, memberIdOrEmail: "x" },
+      ],
+      [
+        "POST",
+        "/organization/update-member-role",
+        { organizationId: u().orgId, memberId: "x", role: "owner" },
+      ],
+      ["POST", "/organization/accept-invitation", { invitationId: "x" }],
+      ["POST", "/organization/cancel-invitation", { invitationId: "x" }],
+      ["GET", "/organization/list"],
+      ["GET", `/organization/get-full-organization?organizationId=${orgB.id}`],
+      ["GET", `/organization/list-members?organizationId=${orgB.id}`],
+      ["POST", "/oauth2/consent", { accept: true }],
+      [
+        "POST",
+        "/oauth2/create-client",
+        { redirect_uris: ["https://example.com/cb"] },
+      ],
+      ["GET", "/oauth2/get-consents"],
+      ["POST", "/oauth2/delete-consent", { id: "x" }],
+      ["POST", "/device/approve", { userCode: "x" }],
+      ["POST", "/two-factor/enable", { password: "x" }],
+      ["GET", "/passkey/generate-register-options"],
+      ["POST", "/update-session", {}],
+    ]
+    const refused: string[] = []
+    for (const [method, path, body] of endpoints) {
+      const response = await authCall(method, path, headers, body)
+      if (response.status !== 403) refused.push(`${path} ${response.status}`)
+    }
+    expect(refused).toEqual([])
+    const [user] = await getSystemDb()
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, u().userId))
+    expect(user?.name).not.toBe(`changed-${suffix}`)
+    const made = await getSystemDb()
+      .select({ id: organizations.id })
+      .from(organizations)
+      .where(eq(organizations.slug, slug))
+    expect(made).toEqual([])
+    // The key still reads its session and its org over REST.
+    expect((await authCall("GET", "/get-session", headers)).status).toBe(200)
+    expect((await rest(key, u().orgSlug)).status).toBe(200)
+  })
+
+  it("lets a browser session list, update, and delete its keys", async () => {
+    const { id } = await newKey([u().orgId])
+    const headers = { cookie: u().cookie, origin: BASE }
+    const listed = await authCall("GET", "/api-key/list", headers)
+    expect(listed.status).toBe(200)
+    expect(
+      (await authCall("GET", `/api-key/get?id=${id}`, headers)).status,
+    ).toBe(200)
+    const name = `renamed-${suffix}`
+    expect(
+      (
+        await authCall("POST", "/api-key/update", headers, {
+          keyId: id,
+          name,
+        })
+      ).status,
+    ).toBe(200)
+    expect(await keyIdsNamed(name)).toEqual([id])
+    expect(
+      (await authCall("POST", "/api-key/delete", headers, { keyId: id }))
+        .status,
+    ).toBe(200)
+    expect(await keyIdsNamed(name)).toEqual([])
+  })
 
   it("writes the set at creation, and the key reaches only that org over REST and MCP", async () => {
     const { id, key } = await newKey([u().orgId])
