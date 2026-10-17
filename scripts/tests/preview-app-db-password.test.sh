@@ -55,10 +55,14 @@ done
 # Without a Neon branch id, OWNER_DB_URL_POOLED is the production URL, and the
 # production DATABASE_URL that the duplicate copies would match its host. The
 # guard must stop the job before this step reads the preview DATABASE_URL.
-guard_line="$(grep -n '\[\[ -n "$NEON_BRANCH_ID" \]\] ||' "$workflow" | cut -d: -f1)"
-step_line="$(grep -n 'name: Choose preview ctxpipe_app password' "$workflow" | cut -d: -f1)"
-[[ -n "$guard_line" && -n "$step_line" && "$guard_line" -lt "$step_line" ]] \
-  || fail "pr-deploy.yaml must stop on an empty Neon branch id before it chooses the ctxpipe_app password"
+# The deploy job reads the Neon URLs again, so take the last guard before the
+# step: the guard of that job.
+step_line="$(grep -n 'name: Set preview ctxpipe_app password' "$workflow" | cut -d: -f1)"
+job_line="$(grep -n '^  deploy_pr_environment:' "$workflow" | cut -d: -f1)"
+guard_line="$(grep -n '\[\[ -n "$NEON_BRANCH_ID" \]\] ||' "$workflow" | cut -d: -f1 \
+  | awk -v s="${step_line:-0}" '$1 < s { line = $1 } END { print line }')"
+[[ -n "$guard_line" && -n "$step_line" && -n "$job_line" && "$job_line" -lt "$guard_line" && "$guard_line" -lt "$step_line" ]] \
+  || fail "the deploy job must stop on an empty Neon branch id before it sets the ctxpipe_app password"
 
 a="$(CURRENT="" run_password 2>/dev/null)"
 b="$(CURRENT="" run_password 2>/dev/null)"
@@ -66,8 +70,13 @@ b="$(CURRENT="" run_password 2>/dev/null)"
 
 grep -Fq 'PASSWORD="$(preview_app_db_password)"' "$workflow" \
   || fail "pr-deploy.yaml must take the ctxpipe_app password from preview_app_db_password"
-grep -Fq 'PASSWORD="$PREVIEW_APP_DB_PASSWORD"' "$workflow" \
-  || fail "pr-deploy.yaml migrate must use the chosen ctxpipe_app password"
+grep -Fq 'PREVIEW_APP_DB_PASSWORD="$PASSWORD" psql "$OWNER_DB_URL"' "$workflow" \
+  || fail "pr-deploy.yaml must set the chosen ctxpipe_app password on the Neon branch"
+# Migrate runs branch code in a job without the Railway token, so it cannot
+# read the chosen password. It must not set one.
+if grep -Fq 'DATABASE_APP_PASSWORD=' "$workflow"; then
+  fail "pr-deploy.yaml migrate must not set the ctxpipe_app password"
+fi
 if grep -Fq 'PASSWORD="$(openssl rand' "$workflow"; then
   fail "pr-deploy.yaml must not make a new ctxpipe_app password on each run"
 fi
