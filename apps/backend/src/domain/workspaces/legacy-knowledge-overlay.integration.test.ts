@@ -23,6 +23,7 @@ import {
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
 import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
+import { reingestedNames, upgradeJobId } from "../upgrades/registry.js"
 import { reingestUpgradeKey } from "../upgrades/reingest.js"
 import { scanWorkspaceReingest } from "../upgrades/scan.js"
 import { workspaceFormatFile } from "./workspace-format.js"
@@ -240,18 +241,53 @@ it(
               (row) => row.id === f.workspaceId,
             )
             if (!workspace) throw new Error("The fixture Workspace is missing")
-            expect(
-              await scanWorkspaceReingest({
+            const scan = () =>
+              scanWorkspaceReingest({
                 orgId: f.org.id,
                 workspace,
                 bundle,
                 format: 3,
                 env: parseEnv(process.env),
-              }),
-            ).toMatchObject({ kind: "pending" })
+              })
+            const newKey = reingestUpgradeKey(bundle.name)
+            // The insert of the new row fails after the delete of the old
+            // row. The old row and its done mark stay.
+            const { default: postgres } = await import("postgres")
+            const ownerUrl = new URL(process.env.DATABASE_URL ?? "")
+            ownerUrl.username = "ctxpipe"
+            const owner = postgres(ownerUrl.toString(), { max: 1 })
+            const fixtureName = `fixture_fail_upgrade_insert_${Date.now()}`
+            try {
+              await owner.unsafe(
+                `CREATE FUNCTION public.${fixtureName}() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'fixture insert failure'; END; $$`,
+              )
+              await owner.unsafe(
+                `CREATE TRIGGER ${fixtureName} BEFORE INSERT ON public.workspace_write_jobs FOR EACH ROW WHEN (NEW.id = '${upgradeJobId(f.workspaceId, newKey)}') EXECUTE FUNCTION public.${fixtureName}()`,
+              )
+              await expect(scan()).rejects.toThrow()
+            } finally {
+              await owner.unsafe(
+                `DROP TRIGGER IF EXISTS ${fixtureName} ON public.workspace_write_jobs`,
+              )
+              await owner.unsafe(
+                `DROP FUNCTION IF EXISTS public.${fixtureName}()`,
+              )
+              await owner.end()
+            }
+            expect(
+              reingestedNames(
+                (await getWorkspaceUpgradeRow(f.workspaceId, oldKey))?.upgrade,
+              ),
+            ).toEqual(["example/tools"])
+
+            expect(await scan()).toMatchObject({ kind: "pending" })
             expect(
               await getWorkspaceUpgradeRow(f.workspaceId, oldKey),
             ).toBeNull()
+            expect(
+              (await getWorkspaceUpgradeRow(f.workspaceId, newKey))?.upgrade
+                .reingested,
+            ).toEqual(["example/tools"])
           })
 
           expect(await reproject(f)).toMatchObject({ hydrated: true })
