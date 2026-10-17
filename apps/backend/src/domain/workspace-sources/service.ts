@@ -308,12 +308,19 @@ async function assertConnection(
   provider: SourceProvider,
   connectionId: string,
 ) {
+  const expected = SOURCE_SCOPES[provider].connectionType
+  // A plain git source has no connection; a person adds its file with a
+  // pull request (CTX-815).
+  if (expected === null)
+    throw new SourceChangeError(
+      400,
+      "A plain git source has no connection. Add or change its file under sources/git/ with a pull request.",
+    )
   const connection = (await listOrgConnections(orgId)).find(
     (item) => item.id === connectionId,
   )
   if (!connection)
     throw new SourceChangeError(400, "The connection does not exist")
-  const expected = SOURCE_SCOPES[provider].connectionType
   if (connection.type !== expected)
     throw new SourceChangeError(
       400,

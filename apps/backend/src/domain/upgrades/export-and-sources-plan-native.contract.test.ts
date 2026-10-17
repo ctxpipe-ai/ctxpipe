@@ -168,11 +168,13 @@ it(
             "https://github.com/team-a/api.git",
             other,
           )
-          // A GitHub repository with no connection: nothing links it.
+          // A GitHub repository with no connection: main read it as a
+          // public repository, so it becomes a plain git source (CTX-815).
           const lost = await repository(f, "https://github.com/team-b/lost.git")
+          // A port that is not the default: no source links it.
           const gitlab = await repository(
             f,
-            "https://gitlab.com/team-c/tools.git",
+            "https://gitlab.com:8443/team-c/tools.git",
           )
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
@@ -203,7 +205,7 @@ it(
           })
           await seed(f, "Service", `svc:${lost.id}:worker`, {
             name: "Lost worker",
-            summary: "A repository that no source links.",
+            summary: "A plain git source links this repository.",
           })
           await link(f, tools.id, library.id, "USES")
           await link(f, tools.id, issue.id, "TRACKED_IN")
@@ -227,8 +229,14 @@ it(
         ).toEqual(["team-a/api"])
         expect(sources).toContain("team-a/api")
         expect(sources).not.toContain("team-b/lost")
+        expect(tree.text.get("sources/git/github.com/team-b-lost.md")).toBe(
+          "---\nprovider: git\nurl: https://github.com/team-b/lost\n---\n",
+        )
         expect(report).toContain(
-          "Not linked: https://github.com/team-b/lost. The repository has no GitHub connection.",
+          "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
+        )
+        expect(report).toContain(
+          "Not linked: https://gitlab.com:8443/team-c/tools. A plain git URL must use the default HTTPS port, so ctx| does not read it as a plain git source.",
         )
 
         const exported = tree.paths.filter((path) =>
@@ -236,18 +244,19 @@ it(
         )
         const all = exported.map((path) => tree.text.get(path)).join("\n")
         // Kept: the GitLab service, each object of the Workspace repository
-        // that no Markdown file backs, whatever its key prefix, the
-        // CODEOWNERS team, and the GitHub repository that no source links.
+        // that no Markdown file backs, whatever its key prefix, and the
+        // CODEOWNERS team. The re-ingestion makes the knowledge of the
+        // plain git source again.
         expect(all).toContain("Tools CLI")
         expect(all).toContain("Context service")
         expect(all).toContain("Workspace helpers")
         expect(all).toContain("Platform team")
-        expect(all).toContain("Lost worker")
+        expect(all).not.toContain("Lost worker")
         expect(all).not.toContain("Parser library")
         expect(report).toEqual(
           expect.arrayContaining([
             expect.stringMatching(
-              /^Kept 1 knowledge item\(s\) from https:\/\/github\.com\/team-b\/lost .*does not link this repository/,
+              /^Kept 1 knowledge item\(s\) from https:\/\/gitlab\.com:8443\/team-c\/tools .*public HTTPS git repositories/,
             ),
             expect.stringMatching(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,

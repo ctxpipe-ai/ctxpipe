@@ -75,6 +75,8 @@ export async function resolveGitRemoteTip(input: {
   url: string
   branch?: string | null
   token?: string
+  /** The git environment of a checked plain git remote (CTX-815). */
+  env?: NodeJS.ProcessEnv
 }): Promise<{ sha: string; branch: string } | null> {
   const requested = input.branch?.trim()
   const refs = requested
@@ -92,7 +94,12 @@ export async function resolveGitRemoteTip(input: {
       input.url,
       ...(requested ? refs : ["HEAD"]),
     ],
-    { timeout: 60_000, env: gitRemoteEnvironment(input) },
+    {
+      timeout: 60_000,
+      env: input.env
+        ? { ...process.env, ...input.env }
+        : gitRemoteEnvironment(input),
+    },
   ).catch((error: unknown) => {
     const stderr = String((error as { stderr?: unknown }).stderr ?? "")
     if (

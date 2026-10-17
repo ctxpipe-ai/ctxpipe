@@ -207,7 +207,12 @@ function frontList(yaml, key) {
 /** `owner/repository` of a source URL, or null. */
 export function repositoryName(url) {
   try {
-    const [owner, name] = new URL(url).pathname.split("/").filter(Boolean)
+    // `owner/name` from the last two path segments. A plain git URL can have
+    // more segments (a group) or one (then the host is the owner).
+    const parsed = new URL(url)
+    const parts = parsed.pathname.split("/").filter(Boolean)
+    const name = parts.at(-1)
+    const owner = parts.length > 1 ? parts.at(-2) : parsed.hostname
     const clean = (name ?? "").replace(/\.git$/i, "")
     return owner && clean && SAFE_NAME.test(owner) && SAFE_NAME.test(clean)
       ? `${owner}/${clean}`

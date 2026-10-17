@@ -24,6 +24,14 @@ import {
   sandboxEgressGuard,
 } from "./sandbox-egress.js"
 
+/** The DNS answers of the plain git hosts (the environment of the test). */
+const dnsAnswers = new Map<string, string[]>([
+  ["git.example.org", ["93.184.215.14"]],
+  ["private.example.org", ["93.184.215.14", "169.254.169.254"]],
+])
+const lookup = async (host: string) =>
+  (dnsAnswers.get(host) ?? []).map((address) => ({ address }))
+
 const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
 const teamSlug = "egress-test"
@@ -81,6 +89,8 @@ const server = setupServer(
     HttpResponse.json({ id: project, accountId: team }),
   ),
   http.all("https://github.com/*", record),
+  http.all("https://git.example.org/*", record),
+  http.all("https://private.example.org/*", record),
   http.all(`https://${backendHost}/*`, record),
 )
 
@@ -117,7 +127,7 @@ function egressApp() {
     c.set("env", env)
     await next()
   })
-  registerSandboxEgressRoute(app)
+  registerSandboxEgressRoute(app, { lookup })
   // Another backend route, as the sandbox must never reach it.
   app.all("/:orgSlug/api/v1/*", (c) => c.text("reached"))
   return app
@@ -631,5 +641,112 @@ describe("the ingest egress proxy route", () => {
     const denied = await forwarded(target)
     expect(denied.status).toBe(403)
     expect(await denied.text()).toBe("Forbidden")
+  })
+})
+
+describe("the ingest egress proxy route for a plain git source (CTX-815)", () => {
+  const plainScope: IngestEgressScope = {
+    ...scope,
+    plainGit: [
+      { host: "git.example.org", path: "/team/app.git" },
+      { host: "private.example.org", path: "/team/app.git" },
+    ],
+  }
+  const sealed = () => sealIngestEgressScope(plainScope, secret)
+
+  it("forwards a Git fetch of the repository with no credential, also when the sandbox sends one", async () => {
+    const refs = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      {
+        sealed: sealed(),
+        headers: { authorization: "Basic c2FuZGJveDpzZWNyZXQ=" },
+      },
+    )
+    const pack = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      { sealed: sealed(), method: "POST", body: "0032want abc\n0000" },
+    )
+    expect([refs.status, pack.status]).toEqual([200, 200])
+    expect(seen).toEqual([
+      {
+        method: "GET",
+        url: "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        authorization: null,
+        body: "",
+      },
+      {
+        method: "POST",
+        url: "https://git.example.org/team/app.git/git-upload-pack",
+        authorization: null,
+        body: "0032want abc\n0000",
+      },
+    ])
+  })
+
+  it("refuses another host, another path, a push, and another method", async () => {
+    for (const [target, method] of [
+      [
+        "https://other.example.org/team/app.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      [
+        "https://git.example.org/team/other.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      [
+        "https://git.example.org/team/app.git.evil/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      ["https://git.example.org/team/app.git", "GET"],
+      ["https://git.example.org/team/app.git/git-receive-pack", "POST"],
+      [
+        "https://git.example.org/team/app.git/info/refs?service=git-receive-pack",
+        "GET",
+      ],
+      ["https://git.example.org/team/app.git/git-upload-pack", "GET"],
+      [
+        "https://github.com/team/app.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+    ] as const) {
+      const response = await forwarded(target, {
+        sealed: sealed(),
+        method,
+        ...(method === "POST" ? { body: "0000" } : {}),
+      })
+      expect(response.status, `${method} ${target}`).toBe(403)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it("refuses a plain git host that resolves to a private address", async () => {
+    const response = await forwarded(
+      "https://private.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed() },
+    )
+    expect(response.status).toBe(403)
+    expect(seen).toEqual([])
+  })
+
+  it("does not follow a redirect of the plain git host", async () => {
+    server.use(
+      http.get("https://git.example.org/team/app.git/info/refs", () =>
+        HttpResponse.text("", {
+          status: 301,
+          headers: {
+            location:
+              "https://private.example.org/team/app.git/info/refs?service=git-upload-pack",
+          },
+        }),
+      ),
+    )
+    const response = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed() },
+    )
+    expect(response.status).toBe(301)
+    expect(
+      outbound.filter((url) => url.includes("private.example.org")),
+    ).toEqual([])
   })
 })

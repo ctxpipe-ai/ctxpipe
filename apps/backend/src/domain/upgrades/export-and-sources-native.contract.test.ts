@@ -27,7 +27,7 @@ import {
   UPGRADE_JOB_KIND,
   upgradeBranch,
 } from "./registry.js"
-import { reingestUpgradeKey } from "./reingest.js"
+import { reingestUpgradeKey, workspaceSourceRepositories } from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
 
 const KEY = "format-3"
@@ -71,11 +71,18 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
       orgId: f.org.id,
       gitUrl: "https://github.com/team-a/api.git",
     })
+    // A port that is not the default: ctx| does not read it as plain git.
     const gitlab = await ensureOrgRepositoryForGitUrl({
       orgId: f.org.id,
-      gitUrl: "https://gitlab.com/team-c/tools.git",
+      gitUrl: "https://gitlab.com:8443/team-c/tools.git",
     })
-    if (!own || !github || !gitlab)
+    // A public HTTPS repository with no GitHub connection: main read it
+    // with no credential, and step 1 makes it a plain git source (CTX-815).
+    const plain = await ensureOrgRepositoryForGitUrl({
+      orgId: f.org.id,
+      gitUrl: "https://git.example.org/team-d/plain.git",
+    })
+    if (!own || !github || !gitlab || !plain)
       throw new Error("The org repositories were not created")
     // Main recorded the GitHub connection of each GitHub repository.
     await withOrgDbContext(f.org.id, (db) =>
@@ -115,7 +122,7 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
           payload,
         }),
       )
-    // Kept: fresh ingestion reads only GitHub repositories.
+    // Kept: fresh ingestion cannot read this repository.
     const tools = await seed("Service", `svc:${gitlab.id}:tools`, {
       name: "Tools CLI",
       summary: "The release tools.",
@@ -128,6 +135,10 @@ async function seedMainEraOrg(f: NativeHydrationFixture) {
     // Not exported: the re-ingestion upgrade makes them again.
     await seed("Service", `svc:${github.id}:api`, {
       name: "Public API",
+      summary: "Old pipeline text.",
+    })
+    await seed("Service", `svc:${plain.id}:plain`, {
+      name: "Plain service",
       summary: "Old pipeline text.",
     })
     // Kept: ingestion v2 does not ingest the Workspace repository.
@@ -277,8 +288,9 @@ it(
             upgrade: { fromFormat: 0, targetFormat: 3, branch: BRANCH },
           })
           // The Workspace has no source rows yet. The re-ingestion shows the
-          // GitHub repositories that step 1 links (the org repository and
-          // the repository file, not the GitLab ones), blocked on the format.
+          // repositories that step 1 links (the GitHub org repository, the
+          // repository file, and the plain git org repository; not the
+          // GitLab ones), blocked on the format.
           const reingest = await withOrgIdContext(f.org, async () =>
             getWorkspaceUpgradeRow(
               f.workspaceId,
@@ -297,7 +309,11 @@ it(
             reingest?.upgrade.estimate?.perRepository.map(
               (entry) => entry.repository,
             ),
-          ).toEqual(["existing/api", "team-a/api"])
+          ).toEqual([
+            "existing/api",
+            "git.example.org/team-d/plain",
+            "team-a/api",
+          ])
 
           // The click of an owner or admin.
           expect(
@@ -361,7 +377,11 @@ it(
             expect.arrayContaining([
               "sources/github/team-a/api.md",
               "sources/github/existing/api.md",
+              "sources/git/git.example.org/team-d-plain.md",
             ]),
+          )
+          expect(show("sources/git/git.example.org/team-d-plain.md")).toBe(
+            "---\nprovider: git\nurl: https://git.example.org/team-d/plain\n---",
           )
           expect(sources).not.toContain("gitlab.com")
           expect(sources).toContain("provider: linear")
@@ -378,8 +398,8 @@ it(
           expect(files).toContain(KNOWLEDGE_SKILL_PATH)
           expect(show("AGENTS.md")).toContain("## Folder Structure")
 
-          // Knowledge: only the items of the repository that is not on
-          // GitHub. The file of the person stays as it is.
+          // Knowledge: only the items of the repository that fresh
+          // ingestion cannot read. The file of the person stays as it is.
           expect(show("knowledge/services/tools-cli.md")).toBe(
             "# Tools CLI\nWritten by a person.",
           )
@@ -405,22 +425,22 @@ it(
           expect(toolsText).toContain("The release tools.")
           expect(toolsText).toContain("predicate: USES")
           expect(toolsText).toContain(
-            "https://gitlab.com/team-c/tools.git#cmd/tools/main.go",
+            "https://gitlab.com:8443/team-c/tools.git#cmd/tools/main.go",
           )
           // The code knowledge of the Workspace repository is kept too.
           expect(exported.map(show).join("\n")).toContain("Context notes")
           for (const path of exported)
-            expect(show(path)).not.toMatch(/Public API|ENG-1/)
+            expect(show(path)).not.toMatch(/Public API|Plain service|ENG-1/)
 
           // The pull request body has the list of kept and rebuilt content.
           expect(opened).toHaveLength(1)
           expect(opened[0]).toMatchObject({ head: BRANCH, base: "main" })
           const body = opened[0]?.body ?? ""
           expect(body).toContain(
-            "Kept 2 knowledge item(s) from https://gitlab.com/team-c/tools in `knowledge/`",
+            "Kept 2 knowledge item(s) from https://gitlab.com:8443/team-c/tools in `knowledge/`",
           )
           expect(body).toContain(
-            "Not exported, because ctx| makes it again: 1 item(s) from GitHub repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
+            "Not exported, because ctx| makes it again: 2 item(s) from source repositories (the re-ingestion upgrade), 0 item(s) from Workspace repositories and 1 connector item(s)",
           )
           expect(body).toContain(
             "Not exported: 1 item(s) from a deleted repository.",
@@ -430,6 +450,12 @@ it(
             "Not linked: repositories/tools.md. ctx| links only GitHub repositories.",
           )
           expect(body).toContain("Added a Linear source")
+          expect(body).toContain(
+            "Linked https://git.example.org/team-d/plain as a plain git source in `sources/git/git.example.org/team-d-plain.md`.",
+          )
+          expect(body).toContain(
+            "Not linked: https://gitlab.com:8443/team-c/tools. A plain git URL must use the default HTTPS port, so ctx| does not read it as a plain git source.",
+          )
 
           // A second plan of each step, on the commit that it made, changes
           // nothing.
@@ -527,6 +553,17 @@ it(
           expect(
             workspacePublishPipeline(workspace?.formatVersion ?? null),
           ).toBe("v2")
+          // After the merge, the re-ingestion reads the projected source
+          // files: the main-era plain git repository is in its list.
+          expect(
+            (await workspaceSourceRepositories(f.org.id, f.workspaceId)).map(
+              (entry) => [entry.repository, entry.githubConnectionId],
+            ),
+          ).toEqual([
+            ["existing/api", f.connectionId],
+            ["git.example.org/team-d/plain", null],
+            ["team-a/api", f.connectionId],
+          ])
         } finally {
           await worker.stop()
           await backend.stop()

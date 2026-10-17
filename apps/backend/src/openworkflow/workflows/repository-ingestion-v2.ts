@@ -233,7 +233,11 @@ export function defineRepositoryIngestionV2Workflow(
               repositoryId: sourceRepositoryId,
               orgId: input.orgId,
               targetHash: input.sha,
-              githubConnectionId: input.source.githubConnectionId,
+              // A plain git source has no connection; codesearch reads it
+              // with no credential, as on main (CTX-815).
+              ...(input.source.kind === "github"
+                ? { githubConnectionId: input.source.githubConnectionId }
+                : {}),
             },
             { name: "index" },
           )

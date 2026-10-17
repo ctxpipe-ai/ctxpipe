@@ -25,7 +25,9 @@ index, so search in one Workspace never returns another Workspace's code.
 
     Choose **Add repositories**. Search the repositories the ctx| GitHub App can
     see (sort by recently pushed, newest, oldest, or name) and select one or
-    more. Only GitHub repositories can be linked.
+    more. This list shows only GitHub repositories. To link a public
+    repository on another git host, see
+    [Plain git repositories](#plain-git-repositories).
   </Step>
 
   <Step>
@@ -69,7 +71,42 @@ other repositories to its first Workspace. The knowledge export adds them to
 the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml` of that
 Workspace. The same commit moves each `repositories/*.md` file of a GitHub
 repository into that source, with its `branch` as `ref`, and deletes the file.
-A repository that is not on GitHub is not linked.
+An organization repository that has no GitHub connection becomes a plain git
+source when its URL is a public HTTPS git URL (see below). ctx| does not link
+the other repositories, and the upgrade pull request names each one.
+
+## Plain git repositories
+
+ctx| can also read a public repository on another git host, or a public
+GitHub repository with no GitHub connection. Add a source file for it under
+`sources/git/` in the workspace repository with a pull request:
+
+```markdown
+---
+provider: git
+url: https://git.example.org/team/tools.git
+---
+```
+
+ctx| reads the repository with git over HTTPS, with no credential. The URL
+must obey these rules:
+
+- It uses `https://` and the default port.
+- It has no user name, password, query, or fragment.
+- Its host is a domain name, not an IP address or a private name such as
+  `localhost` or a `.local` or `.internal` name.
+- Each address of the host is public. ctx| does not read a host that
+  resolves to a private, loopback, or link-local address.
+
+ctx| does not follow a redirect. Use the exact clone URL of the repository.
+Private repositories on other git hosts are not supported.
+
+The source file links the repository to the Workspace. As before Workspaces,
+ctx| indexes a plain git repository when you add it with the repositories
+API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
+when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
+Each index of the repository also updates the knowledge of each Workspace
+whose source file names it.
 
 ## Indexing status
 

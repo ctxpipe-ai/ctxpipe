@@ -7,11 +7,17 @@ import {
 import { defineSandboxProxy, type ProxyMeta } from "@vercel/sandbox/proxy"
 import { decodeJwt } from "jose"
 import { log } from "../../observability/logger.js"
+import {
+  type PlainGitLookup,
+  resolvePlainGitRemote,
+} from "../../services/git/plain-git-remote.js"
 import type { IngestGitAccess } from "./ingest-sandbox-egress.js"
 import {
   bearerUrlRule,
   githubFetchCredentialRules,
   modelProxyCredentialRules,
+  type PlainGitRepository,
+  plainGitFetchRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
 import {
@@ -36,6 +42,8 @@ export type IngestEgressScope = {
   exp: number
   backendHost: string
   git: IngestGitAccess[]
+  /** Public plain git repositories: Git fetch with no credential (CTX-815). */
+  plainGit?: PlainGitRepository[]
   /** The running step's credentials; without a step, Git fetch only. */
   step?: HostedTurnCredentials
 }
@@ -96,11 +104,24 @@ export function ingestEgressForwardUrl(
   return `https://${scope.backendHost}${INGEST_EGRESS_PATH}/${sealIngestEgressScope(scope, secret)}`
 }
 
-/** A credential rule with the methods and the query it allows. */
-type EgressRule = SandboxCredentialRule & {
+/**
+ * A rule with the methods and the query it allows. A rule with no
+ * `authorization` adds no credential (a public plain git repository).
+ */
+type EgressRule = Omit<SandboxCredentialRule, "authorization"> & {
+  authorization?: string
   methods: string[]
   /** The exact query (with `?`); without it, no query. */
   query?: string
+}
+
+/** Git fetch only: `info/refs` for `git-upload-pack`, then `git-upload-pack`. */
+function fetchOnly<T extends { path?: string }>(
+  rule: T,
+): T & { methods: string[]; query?: string } {
+  return rule.path?.endsWith("/info/refs")
+    ? { ...rule, methods: ["GET"], query: "?service=git-upload-pack" }
+    : { ...rule, methods: ["POST"] }
 }
 
 /**
@@ -111,13 +132,16 @@ type EgressRule = SandboxCredentialRule & {
  */
 function egressRules(scope: IngestEgressScope): EgressRule[] {
   const { step, backendHost } = scope
-  const git = scope.git.flatMap((entry) =>
-    githubFetchCredentialRules(entry.token, entry.repositories).map((rule) =>
-      rule.path?.endsWith("/info/refs")
-        ? { ...rule, methods: ["GET"], query: "?service=git-upload-pack" }
-        : { ...rule, methods: ["POST"] },
+  const git: EgressRule[] = [
+    ...scope.git.flatMap((entry) =>
+      githubFetchCredentialRules(entry.token, entry.repositories).map(
+        fetchOnly,
+      ),
     ),
-  )
+    ...(scope.plainGit ?? []).flatMap((repository) =>
+      plainGitFetchRules(repository).map(fetchOnly),
+    ),
+  ]
   if (!step) return git
   const [chat, models] = modelProxyCredentialRules(
     `https://${backendHost}${step.modelProxyPath}`,
@@ -226,6 +250,8 @@ export async function ingestEgressProxy(input: {
   secret: string
   /** The team and project of our sandboxes. */
   vercel: () => Promise<{ teamId: string; projectId: string }>
+  /** The DNS lookup of a plain git host; defaults to the system resolver. */
+  lookup?: PlainGitLookup
 }): Promise<Response> {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
   if (forwardedPath !== null && hasDotSegment(forwardedPath))
@@ -269,7 +295,21 @@ export async function ingestEgressProxy(input: {
       if (!rule)
         return refuse(`${request.method} ${url.host}${url.pathname}`, meta)
       const headers = forwardedHeaders(request.headers)
-      headers.set("authorization", rule.authorization)
+      if (rule.authorization) headers.set("authorization", rule.authorization)
+      // A plain git host must resolve only to public addresses (CTX-815).
+      // The proxy follows no redirect, and a redirect to another path or
+      // host has no rule.
+      else {
+        const refused = await resolvePlainGitRemote(
+          `https://${url.host}${url.pathname}`,
+          input.lookup,
+        ).then(
+          () => null,
+          (error: unknown) =>
+            error instanceof Error ? error.message : String(error),
+        )
+        if (refused !== null) return refuse(`${url.host}: ${refused}`, meta)
+      }
       let upstream: Response
       try {
         upstream = await fetch(url, {

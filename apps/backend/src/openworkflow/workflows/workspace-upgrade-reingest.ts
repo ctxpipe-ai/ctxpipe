@@ -18,6 +18,7 @@ import {
   reingestPollSeconds,
   reingestRunKey,
   reingestSlotTurn,
+  reingestSource,
   workspaceSourceRepositories,
 } from "../../domain/upgrades/reingest.js"
 import {
@@ -36,6 +37,7 @@ import {
   legacyKnowledgePaths,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import { resolvePlainGitTip } from "../../services/git/plain-git-remote.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
@@ -83,7 +85,8 @@ const repositoryInputSchema = z
     upgradeRunId: z.string().min(1),
     repository: z.string().min(1),
     url: z.string().min(1),
-    githubConnectionId: z.string().min(1),
+    /** Null for a plain git repository (CTX-815). */
+    githubConnectionId: z.string().min(1).nullable(),
     sha: z.string().min(1),
     authorTime: z.string().min(1),
     /** Stop the ingestion run when its spend passes this (USD). Null: no cap. */
@@ -187,10 +190,7 @@ export function defineWorkspaceUpgradeReingestRepository(
           {
             orgId: input.orgId,
             shadow: false,
-            source: {
-              url: input.url,
-              githubConnectionId: input.githubConnectionId,
-            },
+            source: reingestSource(input),
             sha: input.sha,
             authorTime: input.authorTime,
             // Only this Workspace: the other Workspaces of the repository
@@ -269,7 +269,7 @@ const plannedSchema = z.union([
       z.object({
         repository: z.string(),
         url: z.string(),
-        githubConnectionId: z.string(),
+        githubConnectionId: z.string().nullable(),
         sha: z.string().nullable(),
         /** Done at this commit by an earlier run of this upgrade. */
         done: z
@@ -315,11 +315,16 @@ async function planReingest(input: {
     input.workspaceId,
   )) {
     // A repository that ctx| cannot read gets no run; the report names it.
-    const tip = await resolveRepositoryReadTip({
-      orgId: input.orgId,
-      env,
-      remote: { url: source.url, connectionId: source.githubConnectionId },
-    }).catch(() => null)
+    // A plain git repository is read with no credential, from a checked
+    // public host (CTX-815).
+    const tip = await (source.githubConnectionId
+      ? resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env,
+          remote: { url: source.url, connectionId: source.githubConnectionId },
+        })
+      : resolvePlainGitTip(source.url)
+    ).catch(() => null)
     const sha = tip?.sha ?? null
     const before = earlier.get(source.repository)
     repositories.push({

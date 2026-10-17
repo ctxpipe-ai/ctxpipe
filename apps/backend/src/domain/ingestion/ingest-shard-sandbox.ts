@@ -11,6 +11,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
+import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import {
   VERCEL_INGEST_AGENT_PATH,
@@ -21,6 +22,7 @@ import {
   assertHostedIngestEgress,
   dockerIngestSandboxProvider,
   type IngestEgress,
+  type IngestRepository,
   ingestSandboxTags,
   refreshIngestSandboxEgress,
   revokeIngestGitTokens,
@@ -184,19 +186,26 @@ export function releaseIngestStepIndexes(
   return releaseScratch(`index:${runId}:${shard}:`)
 }
 
-/** The GitHub repositories of a shard: the source and each destination. */
-function shardRepositories(spec: IngestShardSpec) {
-  return [
-    {
-      url: spec.source.url,
-      githubConnectionId: spec.source.githubConnectionId,
-    },
-    ...spec.destinations,
-  ].map((repo) => {
+/**
+ * The repositories of a shard: the source and each destination. Each
+ * destination is a GitHub repository. The source is a GitHub repository, or
+ * a public plain git repository whose host must resolve only to public
+ * addresses (CTX-815); the sandbox reads it with no credential.
+ */
+async function shardRepositories(
+  spec: IngestShardSpec,
+): Promise<IngestRepository[]> {
+  const github = (repo: { url: string; githubConnectionId: string }) => {
     const fullName = githubRepoFullNameFromWorkspaceUrl(repo.url)
-    if (!fullName) throw new Error("Ingest repositories must be on GitHub")
+    if (!fullName)
+      throw new Error("Ingest destination repositories must be on GitHub")
     return { fullName, githubConnectionId: repo.githubConnectionId }
-  })
+  }
+  if (spec.source.kind !== "git")
+    return [github(spec.source), ...spec.destinations.map(github)]
+  const { host, path } = await resolvePlainGitRemote(spec.source.url)
+  const source: IngestRepository = { kind: "git", host, path }
+  return [source, ...spec.destinations.map(github)]
 }
 
 /**
@@ -252,7 +261,7 @@ export async function ingestShardStepEgress(input: {
     ),
   ]
   return {
-    repositories: shardRepositories(spec),
+    repositories: await shardRepositories(spec),
     modelProxyUrl,
     capability: await mintWorkspaceIngestRunCapability(claims),
     bridge: {

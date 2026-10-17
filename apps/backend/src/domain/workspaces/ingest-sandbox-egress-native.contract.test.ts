@@ -135,8 +135,14 @@ describe("the Docker ingest sandbox has closed egress", () => {
         const runId = `run_${crypto.randomUUID()}`
         const egress = (
           step: number,
-          repositories = [
+          repositories: IngestEgress["repositories"] = [
             { fullName: "git/repo", githubConnectionId: connectionId },
+            // A public plain git source: fetch with no credential (CTX-815).
+            {
+              kind: "git",
+              host: `${fixture.upstream}:8080`,
+              path: "/public/repo.git",
+            },
           ],
         ): IngestEgress => ({
           repositories,
@@ -189,6 +195,18 @@ echo
 echo "== other-path"
 ${code(`${base}/echo/other`)}
 echo
+echo "== plain-fetch"
+git ls-remote ${base}/public/repo.git refs/heads/main 2>&1 | cut -f2
+echo "== plain-other-path"
+${code(`${base}/public/other.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== plain-other-host"
+${code("http://example.com/public/repo.git/info/refs?service=git-upload-pack")}
+echo
+echo "== plain-push"
+cd /tmp/clone && git push ${base}/public/repo.git HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSED
+cd /
+echo
 echo "== direct"
 ${code("--noproxy '*' https://example.com/")}
 echo
@@ -212,6 +230,12 @@ echo
           expect(result.push, output).toContain("403")
           expect(result.push, output).toContain("REFUSED")
           expect(result["github-push"], output).toContain("REFUSED")
+          // The plain git source: only Git fetch of its own path, with no
+          // credential. The Git server would take the push with no auth.
+          expect(result["plain-fetch"], output).toBe("refs/heads/main")
+          expect(result["plain-other-path"], output).toBe("403")
+          expect(result["plain-other-host"], output).toBe("403")
+          expect(result["plain-push"], output).toContain("REFUSED")
           for (const name of [
             "github-receive-pack",
             "github-api",

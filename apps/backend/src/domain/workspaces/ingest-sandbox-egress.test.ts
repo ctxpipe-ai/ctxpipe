@@ -4,6 +4,7 @@ import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import {
   hostedIngestEgressEnabled,
+  ingestCredentialRules,
   ingestNetworkPolicy,
   VERCEL_INGEST_EGRESS_PROVEN,
 } from "./ingest-sandbox-egress.js"
@@ -71,6 +72,26 @@ describe("ingestNetworkPolicy", () => {
       expect(JSON.stringify(policy)).not.toContain(value)
   })
 
+  it("forwards the host of each plain git repository to the egress proxy too, with the repository in the sealed scope (CTX-815)", () => {
+    const plainGit = [{ host: "git.example.org", path: "/team/app.git" }]
+    const policy = ingestNetworkPolicy({
+      git,
+      plainGit,
+      backendHost,
+      secret,
+      sandboxName: "sbx-ingest",
+    })
+    const allow = allowOf(policy)
+    expect(Object.keys(allow).sort()).toEqual([
+      backendHost,
+      "git.example.org",
+      "github.com",
+    ])
+    const url = new URL(allow["git.example.org"]?.[0]?.forwardURL ?? "")
+    const sealed = url.pathname.replace("/api/v1/sandbox-egress/", "")
+    expect(openIngestEgressScope(sealed, secret)?.plainGit).toEqual(plainGit)
+  })
+
   it("denies private and link-local subnets", () => {
     const policy = ingestNetworkPolicy({
       git,
@@ -120,5 +141,38 @@ describe("hostedIngestEgressEnabled", () => {
 
   it("stays closed in the product until the live proof", () => {
     expect(VERCEL_INGEST_EGRESS_PROVEN).toBe(false)
+  })
+})
+
+describe("ingestCredentialRules", () => {
+  it("allows Git fetch of a plain git repository with no credential, and adds the token only to GitHub (CTX-815)", () => {
+    const rules = ingestCredentialRules(
+      {
+        repositories: [
+          { fullName: "acme/context", githubConnectionId: "con_1" },
+          { kind: "git", host: "git.example.org", path: "/team/app.git" },
+        ],
+        modelProxyUrl: `https://${backendHost}/acme/api/v1/workspace-chat/openai/v1`,
+        capability: "ingest-capability",
+        bridge: { url: `https://${backendHost}/bridge`, token: "bridge-token" },
+      },
+      [{ token: "git-1", repositories: ["acme/context"] }],
+    )
+    const plain = rules.filter((rule) => rule.host === "git.example.org")
+    expect(
+      plain.map(({ path, authorization }) => [path, authorization]),
+    ).toEqual([
+      ["/team/app.git/info/refs", null],
+      ["/team/app.git/git-upload-pack", null],
+    ])
+    expect(
+      rules
+        .filter((rule) => rule.host === "github.com")
+        .every((rule) => rule.authorization?.startsWith("Basic ")),
+    ).toBe(true)
+    // No rule allows a push or another path of the plain git host.
+    expect(rules.some((rule) => rule.path?.includes("receive-pack"))).toBe(
+      false,
+    )
   })
 })

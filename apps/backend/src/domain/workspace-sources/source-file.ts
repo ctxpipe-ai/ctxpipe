@@ -1,4 +1,5 @@
 import type { z } from "zod"
+import { checkPlainGitUrl } from "./providers/git.js"
 import { githubFileSourceScope } from "./providers/github.js"
 import type { SourceScopeDefinition } from "./providers/scope.js"
 import {
@@ -48,7 +49,8 @@ export type SourceFile = {
   /** The path of the file, relative to the Workspace root folder. */
   path: string
   provider: SourceProvider
-  connectionId: string
+  /** Null only for a plain git source, which has no connection (CTX-815). */
+  connectionId: string | null
   scope: Record<string, unknown>
 }
 
@@ -124,6 +126,34 @@ export function githubSourcePath(owner: string, name: string): string {
     ? `dot-${lower.slice(1)}`
     : lower.replace(/^dot(0*)-/, (_, zeros: string) => `dot${zeros}0-`)
   return `${SOURCE_FILES_FOLDER}/github/${owner.toLowerCase()}/${repo}.md`
+}
+
+/**
+ * The path of a new plain git source file: `sources/git/<host>/<name>.md`.
+ * The name comes from the repository path, with no `.git` at the end. When
+ * the path is in `taken`, the name gets the first free suffix. Null when the
+ * URL is not a plain git URL ({@link checkPlainGitUrl}).
+ */
+export function gitSourcePath(
+  url: string,
+  taken: ReadonlySet<string> = new Set(),
+): string | null {
+  const checked = checkPlainGitUrl(url)
+  if (!checked.ok) return null
+  const host = toSegment(checked.host)
+  const name =
+    toSegment(
+      checked.path
+        .replace(/\.git$/i, "")
+        .split("/")
+        .filter(Boolean)
+        .join("-"),
+    ).slice(0, 90) || "repository"
+  const pathOf = (stem: string) =>
+    `${SOURCE_FILES_FOLDER}/git/${host}/${stem}.md`
+  if (!taken.has(pathOf(name))) return pathOf(name)
+  for (let n = 2; ; n++)
+    if (!taken.has(pathOf(`${name}-${n}`))) return pathOf(`${name}-${n}`)
 }
 
 /**
@@ -208,7 +238,12 @@ export function parseSourceFrontMatter(
     return fail(
       `provider: ${provider.data} is not the provider folder ${checked.provider}`,
     )
-  if (!connection.success)
+  // A plain git source reads a public URL with no credential, so it has no
+  // connection (CTX-815). Each other provider needs one.
+  const needsConnection = SOURCE_FILE_SCOPES[provider.data].connectionType
+  if (needsConnection === null && "connection" in record)
+    return fail("connection: a plain git source has no connection")
+  if (needsConnection !== null && !connection.success)
     return fail(`connection: ${issuesText(connection.error)}`)
   // The provider equals the provider of the path, so `scope` is its scope.
   if (!scope?.success)
@@ -221,7 +256,7 @@ export function parseSourceFrontMatter(
     source: {
       path,
       provider: provider.data,
-      connectionId: connection.data,
+      connectionId: needsConnection === null ? null : (connection.data ?? null),
       scope: scope.data,
     },
     body,

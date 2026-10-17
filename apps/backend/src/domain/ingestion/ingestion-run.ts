@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { plainGitUrlSchema } from "../workspace-sources/providers/git.js"
 
 /**
  * The ingestion v2 parent workflow (ADR-052, T09). Its run id is the
@@ -25,15 +26,37 @@ export type IngestionV2RunInput = {
 
 const sha = z.string().regex(/^[0-9a-f]{40}$/)
 
+/**
+ * The source repository of a run: a GitHub repository with the connection
+ * that reads it, or a plain git repository that ctx| reads over public
+ * HTTPS with no credential (CTX-815). An input from before CTX-815 has no
+ * `kind`; it is a GitHub source.
+ */
+export const ingestSourceSchema = z.preprocess(
+  (value) =>
+    value &&
+    typeof value === "object" &&
+    !("kind" in value) &&
+    "githubConnectionId" in value
+      ? { ...value, kind: "github" }
+      : value,
+  z.discriminatedUnion("kind", [
+    z.object({
+      kind: z.literal("github"),
+      url: z.string().url(),
+      githubConnectionId: z.string().min(1),
+    }),
+    z.object({ kind: z.literal("git"), url: plainGitUrlSchema }),
+  ]),
+)
+
+export type IngestSource = z.infer<typeof ingestSourceSchema>
+
 /** The full input of the parent workflow; it holds the run contract above. */
 export const ingestionV2InputSchema = z.object({
   orgId: z.string().min(1),
   shadow: z.boolean(),
-  /** The source repository: a GitHub URL and the connection that reads it. */
-  source: z.object({
-    url: z.string().url(),
-    githubConnectionId: z.string().min(1),
-  }),
+  source: ingestSourceSchema,
   /** The source commit. Both pipelines read the same SHA (T20). */
   sha,
   /** The author time of each step commit, so a replay makes the same SHA. */

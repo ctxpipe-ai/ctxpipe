@@ -16,7 +16,8 @@ const docker = async (...args: string[]) =>
  * An upstream on the test network: it echoes the request headers at
  * `/echo/*` (HTTP) and at every path over HTTPS on 443 (a GitHub API stand-in
  * for `gh`), and serves the bare repository `/srv/repo.git` with
- * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`.
+ * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`,
+ * and at `/public/*` with no auth (a public plain git repository, CTX-815).
  */
 const UPSTREAM = `
 const http = require("node:http")
@@ -34,7 +35,8 @@ http.createServer((req, res) => {
     return
   }
   const expected = "Basic " + Buffer.from("x-access-token:" + process.env.GIT_TOKEN).toString("base64")
-  if (req.headers.authorization !== expected) {
+  const open = req.url.startsWith("/public/")
+  if (!open && req.headers.authorization !== expected) {
     res.writeHead(401, { "www-authenticate": 'Basic realm="git"' })
     res.end()
     return
@@ -46,7 +48,7 @@ http.createServer((req, res) => {
     GIT_HTTP_EXPORT_ALL: "1",
     REMOTE_USER: "x-access-token",
     REQUEST_METHOD: req.method,
-    PATH_INFO: url.pathname.replace(/^\\/git/, ""),
+    PATH_INFO: url.pathname.replace(/^\\/(git|public)/, ""),
     QUERY_STRING: url.search.slice(1),
     CONTENT_TYPE: req.headers["content-type"] || "",
     HTTP_CONTENT_ENCODING: req.headers["content-encoding"] || "",

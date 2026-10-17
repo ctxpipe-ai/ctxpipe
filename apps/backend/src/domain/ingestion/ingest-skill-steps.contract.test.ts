@@ -351,6 +351,7 @@ async function hostSkill(input: {
       runId: RUN_ID,
       bundle: "ingest-contract",
       source: {
+        kind: "github" as const,
         url: SOURCE_URL,
         githubConnectionId: "con_contract",
         sha: source.sha,
@@ -847,6 +848,7 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
         runId: RUN_ID,
         bundle: "ingest-contract",
         source: {
+          kind: "github" as const,
           url: SOURCE_URL,
           githubConnectionId: "con_contract",
           sha: source.sha,

@@ -35,7 +35,10 @@ import {
   plannedIngestSkills,
   skillStepName,
 } from "../../domain/ingestion/ingestion-plan.js"
-import { INGESTION_SHARD_WORKFLOW_NAME } from "../../domain/ingestion/ingestion-run.js"
+import {
+  INGESTION_SHARD_WORKFLOW_NAME,
+  ingestSourceSchema,
+} from "../../domain/ingestion/ingestion-run.js"
 import { withIngestionOrg } from "../../domain/ingestion/ingestion-v2-resolve.js"
 import type { PatchStepResult } from "../../domain/ingestion/patch-validator.js"
 import {
@@ -110,12 +113,10 @@ export const ingestionShardInputSchema = z.object({
   roots: z.array(ingestionRootSchema),
   /** The bundle name that the parent planned with. */
   bundle: z.string().min(1),
-  source: z.object({
-    url: z.string().url(),
-    githubConnectionId: z.string().min(1),
-    sha,
-    repositoryId: z.string().nullable(),
-  }),
+  /** A GitHub or a plain git source (CTX-815), at the run's SHA. */
+  source: ingestSourceSchema.and(
+    z.object({ sha, repositoryId: z.string().nullable() }),
+  ),
   authorTime: z.string().datetime(),
   destinations: z.array(ingestionDestinationSchema).min(1),
   /**

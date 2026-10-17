@@ -21,6 +21,7 @@ import {
   deleteRunVault,
   openRunVault,
   type RunVault,
+  type RunVaultRule,
   runVaultName,
   setRunVaultRules,
   writeProxyCa,
@@ -36,7 +37,8 @@ import {
   bearerUrlRule,
   githubFetchCredentialRules,
   modelProxyCredentialRules,
-  type SandboxCredentialRule,
+  type PlainGitRepository,
+  plainGitFetchRules,
 } from "./sandbox-credential-rules.js"
 import {
   type ConversationFirewall,
@@ -81,11 +83,43 @@ export function assertHostedIngestEgress(
     )
 }
 
-/** A repository that an ingest shard reads, and its GitHub connection. */
-export type IngestRepository = {
-  /** `owner/name`, as the sandbox writes it in `https://<host>/<owner>/<name>.git`. */
-  fullName: string
-  githubConnectionId: string
+/**
+ * A repository that an ingest shard reads: a GitHub repository and its
+ * connection, or a public plain git repository that the shard reads with no
+ * credential (CTX-815).
+ */
+export type IngestRepository =
+  | {
+      kind?: "github"
+      /** `owner/name`, as the sandbox writes it in `https://<host>/<owner>/<name>.git`. */
+      fullName: string
+      githubConnectionId: string
+    }
+  | ({ kind: "git" } & PlainGitRepository)
+
+type GithubIngestRepository = Exclude<IngestRepository, { kind: "git" }>
+
+function githubIngestRepositories(
+  repositories: readonly IngestRepository[],
+): GithubIngestRepository[] {
+  return repositories.filter(
+    (repository): repository is GithubIngestRepository =>
+      repository.kind !== "git",
+  )
+}
+
+/** The plain git repositories of a shard, each once. */
+export function plainGitIngestRepositories(
+  repositories: readonly IngestRepository[],
+): PlainGitRepository[] {
+  const found = new Map<string, PlainGitRepository>()
+  for (const repository of repositories)
+    if (repository.kind === "git")
+      found.set(`${repository.host}${repository.path}`, {
+        host: repository.host,
+        path: repository.path,
+      })
+  return [...found.values()]
 }
 
 /**
@@ -95,7 +129,8 @@ export type IngestRepository = {
 export type IngestEgress = {
   /**
    * The run's source repository and each destination Workspace repository.
-   * The sandbox can only fetch them (the run's ingest refs too).
+   * The sandbox can only fetch them (the run's ingest refs too). A plain git
+   * source is fetched with no credential.
    */
   repositories: IngestRepository[]
   /** The model proxy base URL as the sandbox sees it (`…/openai/v1`). */
@@ -121,7 +156,7 @@ async function coveredRepositoryGroups(
   repositories: IngestRepository[],
 ): Promise<Map<string, string[]>> {
   const groups = new Map<string, string[]>()
-  for (const repository of repositories) {
+  for (const repository of githubIngestRepositories(repositories)) {
     const names = groups.get(repository.githubConnectionId) ?? []
     groups.set(repository.githubConnectionId, names)
     if (!names.includes(repository.fullName)) names.push(repository.fullName)
@@ -193,11 +228,14 @@ export function revokeIngestGitTokens(input: {
   })
 }
 
-/** The credential rules of one ingest step; the only requests it can send. */
+/**
+ * The credential rules of one ingest step; the only requests it can send.
+ * The rules of a plain git repository have no credential.
+ */
 export function ingestCredentialRules(
   egress: IngestEgress,
   git: IngestGitAccess[],
-): SandboxCredentialRule[] {
+): RunVaultRule[] {
   return [
     ...git.flatMap((entry) =>
       githubFetchCredentialRules(
@@ -205,6 +243,12 @@ export function ingestCredentialRules(
         entry.repositories,
         egress.gitHost,
       ),
+    ),
+    ...plainGitIngestRepositories(egress.repositories).flatMap((repository) =>
+      plainGitFetchRules(repository).map((rule) => ({
+        ...rule,
+        authorization: null,
+      })),
     ),
     ...modelProxyCredentialRules(egress.modelProxyUrl, egress.capability),
     bearerUrlRule("tool-bridge", egress.bridge.url, egress.bridge.token),
@@ -388,17 +432,20 @@ const PRIVATE_SUBNETS = [
 ]
 
 /**
- * The hosted firewall of an ingest sandbox (T03b). It allows two hosts,
- * `github.com` and the backend host, and forwards each request to them to
- * the backend egress proxy (`ingestEgressProxy`). The proxy allows only Git
- * fetch of the shard's repositories and, during a step, the step's model
- * proxy and tool bridge, and it adds each credential. Each other request
+ * The hosted firewall of an ingest sandbox (T03b). It allows `github.com`,
+ * the host of each plain git repository of the shard (CTX-815), and the
+ * backend host, and forwards each request to them to the backend egress
+ * proxy (`ingestEgressProxy`). The proxy allows only Git fetch of the
+ * shard's repositories and, during a step, the step's model proxy and tool
+ * bridge, and it adds each credential. Each other request
  * gets 403; each other host is not allowed. The forward URL carries the
  * sealed scope, bound to the sandbox name, so no credential is in the
  * policy. A sandbox with no name yet (at create) gets `"deny-all"`.
  */
 export function ingestNetworkPolicy(input: {
   git: IngestGitAccess[]
+  /** The public plain git repositories of the shard (CTX-815). */
+  plainGit?: PlainGitRepository[]
   backendHost: string
   step?: HostedTurnCredentials
   /** The Vercel sandbox name; the egress proxy refuses other sandboxes. */
@@ -414,6 +461,7 @@ export function ingestNetworkPolicy(input: {
       exp: Date.now() + INGEST_SHARD_LIMIT_MS,
       backendHost: input.backendHost,
       git: input.git,
+      ...(input.plainGit?.length ? { plainGit: input.plainGit } : {}),
       ...(input.step ? { step: input.step } : {}),
     },
     input.secret,
@@ -421,6 +469,14 @@ export function ingestNetworkPolicy(input: {
   return {
     allow: {
       "github.com": [{ forwardURL }],
+      // Each plain git host goes to the egress proxy too, which allows only
+      // Git fetch of the shard's repository paths on it.
+      ...Object.fromEntries(
+        (input.plainGit ?? []).map((repository) => [
+          repository.host,
+          [{ forwardURL }],
+        ]),
+      ),
       [input.backendHost]: [{ forwardURL }],
     },
     subnets: { deny: PRIVATE_SUBNETS },
@@ -509,13 +565,19 @@ export function vercelIngestSandboxProvider(input: {
 } {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const names = [
-    ...new Set(input.repositories.map((repository) => repository.fullName)),
+    ...new Set(
+      githubIngestRepositories(input.repositories).map(
+        (repository) => repository.fullName,
+      ),
+    ),
   ]
+  const plainGit = plainGitIngestRepositories(input.repositories)
   const firewall = conversationFirewall(
     input.backendHost,
     (policy: HostedPolicyInput) =>
       ingestNetworkPolicy({
         git: [{ token: policy.gitToken, repositories: names }],
+        plainGit,
         backendHost: input.backendHost,
         secret: env.AUTH_SECRET,
         ...(policy.sandboxName ? { sandboxName: policy.sandboxName } : {}),

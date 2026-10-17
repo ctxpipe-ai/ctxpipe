@@ -49,7 +49,18 @@ it(
             orgId: f.org.id,
             gitUrl: "https://github.com/team-a/api.git",
           })
-          if (!own || !api) throw new Error("No org repository was created")
+          // A main-era plain git repository: public HTTPS, no connection
+          // (CTX-815). The one with a port is not read as plain git.
+          const plain = await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: "https://git.example.org/team-d/plain.git",
+          })
+          const refused = await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: "https://git.example.org:8443/team-d/refused.git",
+          })
+          if (!own || !api || !plain || !refused)
+            throw new Error("No org repository was created")
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(repositories)
@@ -110,7 +121,11 @@ it(
         expect(row?.upgrade.blockedReason).toBe("needs_format")
         expect(
           row?.upgrade.estimate?.perRepository.map((entry) => entry.repository),
-        ).toEqual(["existing/api", "team-a/api"])
+        ).toEqual([
+          "existing/api",
+          "git.example.org/team-d/plain",
+          "team-a/api",
+        ])
       },
     )
   },
