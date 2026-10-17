@@ -72,7 +72,7 @@ Source text must go through to the files, so injection cannot be fully prevented
 - **Context index at the step base:** the index of a step is the projection at the pinned revision, changed by the files between the pinned revision and the step base (the earlier steps of the run). A written file gets a new entry from its text, and a deleted file loses its entry. A worker keeps one scratch repository and one projection for each Workspace of a shard. Each step fetches only the commits that the scratch repository does not have, and parses again only the files that changed since the last step base. Thus a step finds a file that an earlier step of the same run wrote (the `Service` file for `apis`, a store for `datasources-infra`, and the targets of `dependencies`).
 - **Root on package units:** the host gives the root of each root step to the validator. Thus the host `root` of each `Service`, `App`, and `Library` file is the root of the step. A `Repository` file always gets `root: .`. The semantic merge validates a merged package unit with the root that its shard step gave it.
 - **Paging, one channel:** every skill, script or model, writes `more` in `patch.json` when files wait (`ctxpipe-finish --more`, or a script that writes `patch.json` with `more: true`; `ctxpipe-finish` keeps the value). The patch validator reads it with the ops of `patch.json`, and the host adds the trailer `Ctxpipe-More: true` to the step commit, so that a resumed step can read it. While `more` is true, the host runs the same skill again on the new tip, for at most 20 pages; then the skill is `partial`. A page that says `more` but has no accepted op also stops the skill as `partial`: the next page would start from the same tip. A page writes at most 30 files and is additive. `/ctxpipe/home` lives only for one step, so a skill that needs a plan across pages computes the plan again from the tip.
-- **Graph names:** each claim uses a triple of `allowedConnections.ts`. An area file is kind `InstructionUnit`, and a `Repository`, `Service`, `App`, or `Library` file `FOLLOWS` it. `Repository USES_LIBRARY Library` and the `App` triples of `datasources-infra` (`READS_FROM`, `WRITES_TO`, `DEPENDS_ON`, `RUNS_ON`) are allowed. `HAS_INSTRUCTION` stays for the old pipeline until phase 5.
+- **Graph names:** each claim uses a triple of `allowedConnections.ts`. An area file is kind `InstructionUnit`, and a `Repository`, `Service`, `App`, or `Library` file `FOLLOWS` it. `Repository USES_LIBRARY Library` and the `App` triples of `datasources-infra` (`READS_FROM`, `WRITES_TO`, `DEPENDS_ON`, `RUNS_ON`) are allowed. `HAS_INSTRUCTION` is not written any more, because the old pipeline is deleted.
 - **The broker stays the only pusher.** A ref push is a new job kind: only the ref names of the job's run, in the job's Workspace repository; no force (the push names the expected old tip); the section 2 validator runs again; no hydrate, no CAS activation, and no default-branch change. Hydrate reads only the default branch, so a ref is never served.
 - **Publish:** `publish:<workspaceId>` gives the assembled tip to `workspace-write-extract-ingest`. It replays the delta from the pinned revision on the current default tip as one commit, with the existing replay and semantic merge ([ADR-047](ADR-047-native-durable-write-workflows.md)). Then an idempotent step deletes the run's refs.
 - **Resume:** a step that crashed after its push finds its own `Ctxpipe-Step` trailer on the ref tip and returns that SHA with no model run. A step that crashed before its push runs again from the tip. A lost sandbox is made again and fetches the ref.
@@ -91,19 +91,9 @@ Source text must go through to the files, so injection cannot be fully prevented
 - **Codesearch:** no index in the sandbox. TanStack server tools go through the tool bridge, bound read-only to the run's checkout keys, with a run-scoped token. [ADR-027](ADR-027-codesearch-openworkflow-concurrency.md) budgets limit the load. These budgets are the only limit on the tool bridge for each shard; the bridge has no rate limit of its own.
 - **Shared with chat:** providers, stores, model proxy, credential rules, `opencodeText`, the bridge, and OTel. **Different from chat:** one non-interactive `chat()` call for each step, no persistence, closed egress, and no idle stop. Tracing: one span for each step and one Langfuse session for each run.
 
-### 8. Phases and deletions
-
-[ADR-051](ADR-051-mcp-read-surface.md) ticket L1 removes LangGraph first. Then:
-
-1. **Gate:** turn off the legacy sync-repository ingestion for connections that moved to Workspace sources. The other CTX-582 fixes are dropped, because they break nothing today.
-2. **Foundation in shadow mode:** sandbox, capability and egress, bridge, bundle, validator, context index, ref jobs, the workflow, and `discover-roots`, `libraries`, `ownership`. Steps commit to refs; nothing publishes.
-3. **Port and compare:** the other skills, injection fixtures, and a comparison with the old output. Exit: recall at least 90%, no injection fixture passes, reject rate under 5%, and cost and p95 time no worse than the old pipeline.
-4. **Switch:** publish, and migrate ownership.
-5. **Delete:** the old pipeline goes in the same release as the switch: the ReAct agents, `createAgent`, the ingestion use of `repoExplorerTools`, `withIngestAgentContext`, `getLangfuseHandler`, `extractInstructionUnits`, `EXTRACTOR_VERSION`, and the object renderer of `plan-extraction`. No code reads or writes `repository_extraction_captures`; the next major drops the table (ADR-053). The legacy sync-repository ingestion goes with ADR-050 phase 3.
-
 ## Supersedes
 
-- [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) (code ingestion ReAct agents). The agents stay until phase 5.
+- [ADR-016](ADR-016-code-ingestion-react-agent-limits.md) (code ingestion ReAct agents). The agents are deleted.
 - The extraction capture parts of [ADR-047](ADR-047-native-durable-write-workflows.md) ("Extraction captures are stored by reference", "Paid roots are reused across runs"), after the switch.
 
 ## Consequences
@@ -128,7 +118,11 @@ Source text must go through to the files, so injection cannot be fully prevented
 
 ## Revision 2026-10-16: the publish gate and re-ingestion in the upgrade ([ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md))
 
-- **Phase 4 publishes for each Workspace.** The ingestion v2 publish runs for a Workspace only when its format is 3 or higher. Below format 3: no ingestion; existing knowledge stays readable. The Workspace format is the one switch. No global switch exists.
+- **The publish runs for each Workspace.** The ingestion v2 publish runs for a Workspace only when its format is 3 or higher. Below format 3: no ingestion; existing knowledge stays readable. The Workspace format is the one switch. No global switch exists.
 - **The ownership migration of section 3** ("a one-time migration at the switch") is git upgrade step 3. It goes into the upgrade pull request, and its commit sets `format: 3`.
 - **Fresh re-ingestion is a standard upgrade step.** Every upgrade from main runs a fresh ingestion of the source repositories of each Workspace. An operator click starts it, after the UI shows a cost estimate (a p50 to p90 range). Nothing starts it automatically, also not on hosted. A unit needs it when it has the legacy `generated_by: ctxpipe`, or a `bundle` that is not the current bundle hash.
 - **Throttle.** Re-ingestion is throttled for each org: one re-ingestion of an org runs at a time, and it runs its source repositories one after the other, inside the limit of ingest sandboxes. An instance runs a small number of re-ingestions at a time. A cost cap stops a run when its model spend goes above 2 times the p90 estimate (`failed`, reason `cost_cap`); the operator can start it again, and the new run skips each repository that is done at the same commit. Without a sandbox runtime, the upgrade item is `blocked: sandbox_unavailable`.
+
+## Revision 2026-10-17: no rollback to the old pipeline
+
+- The committed rollback to the old pipeline is gone. The old pipeline is deleted in the switch release. A revert of the upgrade pull request stops ingestion for that Workspace until the upgrade merges again.

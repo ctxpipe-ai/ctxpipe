@@ -72,6 +72,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 - An operator upgrades with a version bump and a deploy. The SQL runs automatically and only adds.
 - A rollback to the previous image is possible without a database restore ([ADR-042](ADR-042-postgres-rls-app-role.md) holds the procedure). A Workspace that was upgraded keeps its new format, and the old code shows it as read-only.
 - Below format 3: no ingestion; existing knowledge stays readable. Until an operator merges the upgrade pull request and runs the re-ingestion, MCP and the UI serve only what the Workspace and the org already hold. The UI shows the pending work.
+- Main-era knowledge stays readable with no gap. Hydrate serves it from Postgres as read-only units that are not in git (source `legacy`): below format 3 all of the knowledge that the Workspace gets, and at format 3 or more only the knowledge of each GitHub source repository that no re-ingestion has done yet. Git wins: a path that git has, a connector mirror path, or a path that a commit deleted gets no overlay unit.
 - The code of each minor keeps the dual reads of all older formats. The next major removes them.
 - The format and the upgrade state survive the loss of the database.
 
