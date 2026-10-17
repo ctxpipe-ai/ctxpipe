@@ -26,8 +26,9 @@ import {
 const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
 const teamSlug = "egress-test"
-const issuer = `https://oidc.vercel.com/${teamSlug}`
 const team = "team_egress"
+// A real sandbox token's issuer names the team id, not its slug.
+const issuer = `https://oidc.vercel.com/${team}`
 const project = "prj_egress"
 const step = {
   modelProxyPath: "/acme/api/v1/workspace-chat/openai/v1",
@@ -484,27 +485,32 @@ describe("the ingest egress proxy route", () => {
     expect(seen).toEqual([])
   })
 
-  it("refuses a token from another issuer without a fetch", async () => {
+  it("refuses a token from another issuer without fetching its keys", async () => {
     const target =
       "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
     for (const other of [
-      "https://oidc.vercel.com/another-team",
-      `https://oidc.vercel.com/${teamSlug}/x`,
+      "https://oidc.vercel.com/team_another",
+      // The slug is not the issuer of a sandbox token.
+      `https://oidc.vercel.com/${teamSlug}`,
+      `https://oidc.vercel.com/${team}/x`,
       "https://attacker.example.test",
     ]) {
       const response = await forwarded(target, { issuer: other })
       expect(response.status, other).toBe(403)
     }
-    expect(outbound).toEqual([])
+    expect(outbound.filter((url) => url.includes("jwks"))).toEqual([])
+    expect(seen).toEqual([])
   })
 
-  it("refuses each request when the team is configured by id, as its issuer is not known", async () => {
+  it("accepts the team configured by id, with no project lookup", async () => {
     vi.stubEnv("VERCEL_TEAM_ID", team)
     const response = await forwarded(
       "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
     )
-    expect(response.status).toBe(403)
-    expect(outbound).toEqual([])
+    expect(response.status).toBe(200)
+    expect(
+      outbound.filter((url) => url.startsWith("https://api.vercel.com")),
+    ).toEqual([])
   })
 
   it("refuses an expired scope", async () => {

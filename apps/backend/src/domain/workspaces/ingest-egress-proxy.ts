@@ -14,7 +14,10 @@ import {
   modelProxyCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
-import type { HostedTurnCredentials } from "./vercel-sandbox-provider.js"
+import {
+  type HostedTurnCredentials,
+  vercelOidcIssuer,
+} from "./vercel-sandbox-provider.js"
 
 /**
  * The backend egress proxy of hosted (Vercel) ingest sandboxes (ADR-052).
@@ -208,34 +211,33 @@ function unverifiedIssuer(token: string | null): string | undefined {
  * credential on the server side and does not follow redirects. Each other
  * request gets 403.
  *
- * Before the library verifies the token, the token's issuer must be ours:
- * the library fetches and keeps the keys of each issuer that it sees.
+ * Before the library verifies the token, the token's issuer must be ours
+ * (`vercelOidcIssuer` of our team id): the library fetches and keeps the
+ * keys of each issuer that it sees.
  */
 export async function ingestEgressProxy(input: {
   request: Request
   sealed: string
   secret: string
-  /** Our team's OIDC issuer (`vercelOidcIssuer`). */
-  issuer: string
   /** The team and project of our sandboxes. */
   vercel: () => Promise<{ teamId: string; projectId: string }>
 }): Promise<Response> {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
   if (forwardedPath !== null && hasDotSegment(forwardedPath))
     return refuse("a dot segment in the path")
+  let vercel: { teamId: string; projectId: string }
+  try {
+    vercel = await input.vercel()
+  } catch (error) {
+    return refuse(`no Vercel credentials: ${String(error)}`)
+  }
   if (
     unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER)) !==
-    input.issuer
+    vercelOidcIssuer(vercel.teamId)
   )
     return refuse("another OIDC issuer")
   const handle = defineSandboxProxy(
     async (request, meta) => {
-      let vercel: { teamId: string; projectId: string }
-      try {
-        vercel = await input.vercel()
-      } catch (error) {
-        return refuse(`no Vercel credentials: ${String(error)}`, meta)
-      }
       if (meta.teamId !== vercel.teamId || meta.projectId !== vercel.projectId)
         return refuse("another Vercel team or project", meta)
       const scope = openIngestEgressScope(input.sealed, input.secret)

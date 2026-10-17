@@ -389,7 +389,6 @@ beforeAll(async () => {
   vi.stubEnv("SANDBOX_PROVIDER", "vercel")
   vi.stubEnv("AUTH_BASE_URL", `https://${tunnelHost}`)
   vi.stubEnv("SANDBOX_CALLBACK_HOST", "")
-  // The team slug gives the OIDC issuer (`vercelOidcIssuer`).
   vi.stubEnv("VERCEL_TEAM_ID", team)
   vi.stubEnv("VERCEL_PROJECT_ID", project)
   vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", environment)

@@ -92,16 +92,12 @@ export type VercelCredentials = {
 let resolvedScope: Promise<VercelCredentials> | undefined
 
 /**
- * The OIDC issuer of our team's sandbox tokens, `https://oidc.vercel.com/<team
- * slug>`. Only a slug in `VERCEL_TEAM_ID` gives it: a team-scoped token
- * cannot read the team to find the slug of an id.
+ * The OIDC issuer of our team's sandbox tokens: `https://oidc.vercel.com/`
+ * and the team id (`team_…`), as a real sandbox's token shows. The deploy
+ * may name the team by slug; `vercelCredentials` gives the id.
  */
-export function vercelOidcIssuer(
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-  const team = env.VERCEL_TEAM_ID?.trim()
-  if (!team || team.startsWith("team_")) return undefined
-  return `https://oidc.vercel.com/${team}`
+export function vercelOidcIssuer(teamId: string): string {
+  return `https://oidc.vercel.com/${teamId}`
 }
 
 /** True when the backend can start Vercel sandboxes. */

@@ -44,7 +44,6 @@ import {
   type VercelCredentials,
   vercelConfigured,
   vercelConversationProvider,
-  vercelOidcIssuer,
 } from "./vercel-sandbox-provider.js"
 
 /**
@@ -63,7 +62,7 @@ export function hostedIngestEgressEnabled(
   env: NodeJS.ProcessEnv = process.env,
   proven: boolean = VERCEL_INGEST_EGRESS_PROVEN,
 ): boolean {
-  return proven && vercelConfigured(env) && Boolean(vercelOidcIssuer(env))
+  return proven && vercelConfigured(env)
 }
 
 /** A repository that an ingest shard reads, and its GitHub connection. */
