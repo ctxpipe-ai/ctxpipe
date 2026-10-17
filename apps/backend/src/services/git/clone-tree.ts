@@ -3,7 +3,10 @@ import { mkdtemp, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { workspaceRelativePath } from "./root-folder.js"
+import {
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "./root-folder.js"
 
 const execFileAsync = promisify(execFile)
 
@@ -330,6 +333,17 @@ export async function listMarkdownFilesAtGitSha(input: {
   sha: string
   token?: string
   includeIntroducingCommits?: boolean
+  /**
+   * With `includeIntroducingCommits`, the same history walk adds to this set
+   * each Markdown path (relative to `root`) that a commit deleted.
+   */
+  deletedPaths?: Set<string>
+  /**
+   * A path (relative to `root`) whose change marks a layout commit, such as
+   * an upgrade or its revert. The deletes of such a commit do not go to
+   * `deletedPaths`, because a person did not delete those files.
+   */
+  layoutPath?: string
   /** Exact non-Markdown paths to read in the same fetch. */
   extraPaths?: readonly string[]
   /** Folders (`sources/`) whose every blob to read, also a non-Markdown one. */
@@ -404,6 +418,9 @@ export async function listMarkdownFilesAtGitSha(input: {
       const introduced = new Map<string, string>()
       const lastChanged = new Map<string, string>()
       if (input.includeIntroducingCommits) {
+        const layoutPath = input.layoutPath
+          ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
+          : undefined
         // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
         const { stdout: history } = await gitExec(
           [
@@ -414,22 +431,37 @@ export async function listMarkdownFilesAtGitSha(input: {
             "--format=%x00%ct",
             "--raw",
             "-z",
-            // Adds give the introducing commit; edits give the last change.
-            "--diff-filter=AMT",
+            // Adds give the introducing commit; edits give the last change;
+            // deletes give the deleted paths.
+            "--diff-filter=AMTD",
             "--no-renames",
             "FETCH_HEAD",
             "--",
             "*.md",
+            ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
           ],
           { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
         )
         const records = history.toString("utf8").split("\0")
         let timestamp: string | undefined
+        // The deletes of the current commit, kept until the commit ends.
+        let deletes: string[] = []
+        let layoutCommit = false
+        const endCommit = () => {
+          if (!layoutCommit)
+            for (const path of deletes) {
+              const relative = workspaceRelativePath(input.root ?? "", path)
+              if (relative !== null) input.deletedPaths?.add(relative)
+            }
+          deletes = []
+          layoutCommit = false
+        }
         for (let i = 0; i < records.length; i++) {
           const record = records[i] ?? ""
-          if (/^[0-9]+$/.test(record))
+          if (/^[0-9]+$/.test(record)) {
+            endCommit()
             timestamp = new Date(Number(record) * 1000).toISOString()
-          else {
+          } else {
             const status =
               /^\n?:[0-7]{6} [0-7]{6} [0-9a-f]+ [0-9a-f]+ ([A-Z])[0-9]*$/.exec(
                 record,
@@ -438,12 +470,21 @@ export async function listMarkdownFilesAtGitSha(input: {
               const path = records[++i]
               if (!path || !timestamp)
                 throw new Error("Invalid introducing-commit record")
+              if (path === layoutPath) {
+                layoutCommit = true
+                continue
+              }
+              if (status === "D") {
+                deletes.push(path)
+                continue
+              }
               if (!lastChanged.has(path)) lastChanged.set(path, timestamp)
               if (status === "A" && !introduced.has(path))
                 introduced.set(path, timestamp)
             } else if (record) throw new Error("Invalid Git history response")
           }
         }
+        endCommit()
       }
       let offset = 0
       const read = entries.map((entry) => {

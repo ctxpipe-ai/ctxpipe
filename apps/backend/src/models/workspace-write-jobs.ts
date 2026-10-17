@@ -2,11 +2,7 @@ import { isDeepStrictEqual } from "node:util"
 import { and, eq, inArray, lt, ne, type SQL, sql } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { getOrgDb } from "../db/client.js"
-import {
-  workspaceKnowledgePathState,
-  workspaces,
-  workspaceWriteJobs,
-} from "../db/schema/workspaces.js"
+import { workspaceWriteJobs } from "../db/schema/workspaces.js"
 import type { UnbornBootstrapBinding } from "../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../domain/workspaces/connector-mirror.js"
 import type { IngestPublishSource } from "../domain/workspaces/extraction-source.js"
@@ -80,7 +76,7 @@ export async function persistWriteJobStatus(
   failureReason?: string,
 ): Promise<void> {
   await orgSql(async () => {
-    const [row] = await getOrgDb()
+    await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
         status,
@@ -97,9 +93,6 @@ export async function persistWriteJobStatus(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
-    if (row?.status === WRITE_JOB_STATUSES.completed)
-      await projectCompletedKnowledgePaths(row)
   })
 }
 
@@ -163,7 +156,7 @@ export async function persistWriteJobCommitSha(
   commitSha: string | null,
 ): Promise<void> {
   await orgSql(async () => {
-    const [row] = await getOrgDb()
+    await getOrgDb()
       .update(workspaceWriteJobs)
       .set({
         commitSha,
@@ -176,8 +169,6 @@ export async function persistWriteJobCommitSha(
           ne(workspaceWriteJobs.status, WRITE_JOB_STATUSES.completed),
         ),
       )
-      .returning()
-    if (row) await projectCompletedKnowledgePaths(row)
   })
 }
 
@@ -625,74 +616,6 @@ export async function reconcileWriteJobAdmission(
         ),
       )
     return false
-  })
-}
-
-function matchingPathBinding(
-  stored: WorkspaceRevision,
-  revision: WorkspaceRevision,
-): boolean {
-  return sameWorkspaceRevision(
-    { ...stored, sha: revision.sha, access: revision.access },
-    revision,
-  )
-}
-
-/** Publish result metadata in the same short transaction as command completion. */
-async function projectCompletedKnowledgePaths(
-  row: typeof workspaceWriteJobs.$inferSelect,
-): Promise<void> {
-  const revision = row.payload?.revision
-  const paths = row.payload?.knowledgePaths
-  if (!revision || !paths) return
-  const db = getOrgDb()
-  const [workspace] = await db
-    .select()
-    .from(workspaces)
-    .where(eq(workspaces.id, row.workspaceId))
-    .for("update")
-  if (
-    !workspace ||
-    workspace.desiredGeneration !== revision.generation ||
-    workspace.workspaceRepositoryUrl !== revision.remote.url ||
-    workspace.githubConnectionId !== revision.remote.connectionId ||
-    workspace.desiredDefaultBranch !== revision.defaultBranch
-  )
-    return
-  const [previous] = await db
-    .select()
-    .from(workspaceKnowledgePathState)
-    .where(eq(workspaceKnowledgePathState.workspaceId, row.workspaceId))
-    .limit(1)
-  const state = {
-    revision,
-    paths: {
-      ...(previous && matchingPathBinding(previous.revision, revision)
-        ? previous.paths
-        : {}),
-      ...paths,
-    },
-  }
-  await db
-    .insert(workspaceKnowledgePathState)
-    .values({ workspaceId: row.workspaceId, orgId: row.orgId, ...state })
-    .onConflictDoUpdate({
-      target: workspaceKnowledgePathState.workspaceId,
-      set: state,
-    })
-}
-
-/** Read one current binding's compact completed-result metadata, independent of job history. */
-export async function getCompletedKnowledgePaths(
-  revision: WorkspaceRevision,
-): Promise<Record<string, string>> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select()
-      .from(workspaceKnowledgePathState)
-      .where(eq(workspaceKnowledgePathState.workspaceId, revision.workspaceId))
-      .limit(1)
-    return row && matchingPathBinding(row.revision, revision) ? row.paths : {}
   })
 }
 

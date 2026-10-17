@@ -22,7 +22,7 @@ import { readFileTool } from "./read-file.js"
 import { searchKnowledgeTool } from "./search-knowledge.js"
 
 /**
- * CTX-642: below format 3 no ingestion runs. The read tools serve the
+ * Below format 3 no ingestion runs. The read tools serve the
  * main-era knowledge that Postgres holds for a Workspace at format 0.
  */
 it(

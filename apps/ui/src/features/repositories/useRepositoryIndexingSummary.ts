@@ -16,7 +16,7 @@ export type RepositoryIndexingSummary = {
   failedCount: number
   /**
    * When exactly one active (queued/running) repository has step data,
-   * this is its formatted step label (e.g. `"embedding 7/22"`).
+   * this is its formatted step label (e.g. `"finalizing 7/22"`).
    * Null when there are zero or multiple active repos, or no step data.
    */
   singleActiveStepLabel: string | null

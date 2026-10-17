@@ -2,6 +2,7 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { githubSourceRepositories } from "../../domain/workspace-sources/github-sources.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import {
@@ -14,11 +15,12 @@ import {
   applyEffectiveValidFromToUnits,
   displayNameFromAgentsMarkdown,
   hydrateKnowledgeTree,
+  LEGACY_UNIT_SOURCE,
 } from "../../domain/workspaces/hydrate.js"
 import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner.js"
 import {
   legacyKnowledgeOverlay,
-  legacyKnowledgeOverlayApplies,
+  legacyKnowledgeOverlayScope,
 } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
@@ -34,14 +36,19 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   formatChangeNeedsScan,
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { listOrgConnections } from "../../models/org-connections.js"
-import { loadKnowledgeProjectionSource } from "../../models/workspace-export.js"
+import {
+  loadKnowledgeProjectionSource,
+  reingestedRepositories,
+} from "../../models/workspace-export.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { reserveHydrateWrites } from "../../models/workspace-write-planning.js"
 import {
@@ -74,6 +81,12 @@ const workspaceHydrateInputSchema = z
     orgId: z.string().min(1),
     workspaceId: z.string().min(1),
     revision: workspaceRevisionSchema,
+    /**
+     * Project the revision again, also when it is the active one. A
+     * re-ingestion sets it when it did a repository, so that the main-era
+     * knowledge of that repository leaves the projection.
+     */
+    reproject: z.literal(true).optional(),
   })
   .strict()
   .refine(
@@ -130,6 +143,7 @@ export function defineWorkspaceHydrateWorkflow() {
         orgId: queuedInput.orgId,
         workspaceId: queuedInput.workspaceId,
         revision: queuedInput.revision,
+        ...(queuedInput.reproject ? { reproject: queuedInput.reproject } : {}),
       })
       if (!parsedInput.success) {
         // A retry cannot repair the input. A failed step without retries ends
@@ -183,7 +197,8 @@ export function defineWorkspaceHydrateWorkflow() {
               const active =
                 projection?.kind === "active" &&
                 sameWorkspaceRevision(projection.revision, revision) &&
-                !snapshot.chunksMissing
+                !snapshot.chunksMissing &&
+                !input.reproject
                   ? projection
                   : null
               const pending = {
@@ -220,13 +235,19 @@ export function defineWorkspaceHydrateWorkflow() {
                     sourceFiles: SourceFileBlob[]
                     formatFile: string | null
                     treePaths: Set<string>
+                    deletedPaths: Set<string>
                   }>
                 | undefined
               const readTree = () => {
                 tree ??= (async () => {
+                  const deletedPaths = new Set<string>()
                   const treeFiles = planning.needed
                     ? await listMarkdownFilesAtGitSha({
                         includeIntroducingCommits: true,
+                        deletedPaths,
+                        // An upgrade or its revert moves files: its deletes
+                        // are not deletes of a person.
+                        layoutPath: WORKSPACE_FORMAT_PATH,
                         ...SOURCES_TREE_READ,
                         extraPaths: [
                           ...SOURCES_TREE_READ.extraPaths,
@@ -247,6 +268,7 @@ export function defineWorkspaceHydrateWorkflow() {
                   return {
                     ...splitSourcesTree(treeFiles),
                     treePaths: new Set(treeFiles.map((file) => file.path)),
+                    deletedPaths,
                     formatFile:
                       treeFiles.find(
                         (file) => file.path === WORKSPACE_FORMAT_PATH,
@@ -381,33 +403,23 @@ export function defineWorkspaceHydrateWorkflow() {
                         .map((connection) => connection.id),
                   )
                 : []
-              const { files, sourcesFile, sourceFiles, formatFile, treePaths } =
-                pending.postgres
-                  ? await readTree()
-                  : {
-                      files: [],
-                      sourcesFile: null,
-                      sourceFiles: [],
-                      formatFile: null,
-                      treePaths: new Set<string>(),
-                    }
-              // Below format 3 no ingestion runs: the main-era knowledge in
-              // Postgres joins the projection as files that are not in git.
-              // Not a step: the rows do not change below format 3, and a
-              // step output would hold all of them.
-              const legacyFiles =
-                pending.postgres &&
-                legacyKnowledgeOverlayApplies(
-                  workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
-                )
-                  ? await legacyKnowledgeOverlay({
-                      workspaceId: workspace.id,
-                      workspaceRepositoryUrl: revision.remote.url,
-                      treePaths,
-                      files,
-                      source: await loadKnowledgeProjectionSource(),
-                    })
-                  : []
+              const {
+                files,
+                sourcesFile,
+                sourceFiles,
+                formatFile,
+                treePaths,
+                deletedPaths,
+              } = pending.postgres
+                ? await readTree()
+                : {
+                    files: [],
+                    sourcesFile: null,
+                    sourceFiles: [],
+                    formatFile: null,
+                    treePaths: new Set<string>(),
+                    deletedPaths: new Set<string>(),
+                  }
               // A Confluence URL joins a mirrored page only on the org's site.
               const confluenceSiteHosts = pending.postgres
                 ? await step.run({ name: "list-confluence-sites" }, async () =>
@@ -438,6 +450,50 @@ export function defineWorkspaceHydrateWorkflow() {
                       })),
                   )
                 : []
+              // The main-era knowledge in Postgres joins the projection as
+              // read-only files that are not in git: below format 3 all of
+              // it, and at format 3 or more that of each GitHub source
+              // repository that no re-ingestion did yet. Not a step: the rows
+              // do not change, and a step output would hold all of them.
+              const overlayScope = pending.postgres
+                ? legacyKnowledgeOverlayScope(
+                    workspaceFormatCacheValue(readWorkspaceFormat(formatFile)),
+                  )
+                : null
+              // A repository that a re-ingestion did gets no overlay at any
+              // scope: a revert of the upgrade must not show it twice.
+              const done = overlayScope
+                ? await reingestedRepositories(workspace.id)
+                : new Set<string>()
+              let onlyRepositoryUrls: Set<string> | undefined
+              if (overlayScope === "sources") {
+                onlyRepositoryUrls = new Set(
+                  githubSourceRepositories(sourcesFile, null, sourceFiles, {
+                    previousRows: previousSourceRows,
+                    workspaceUrl: revision.remote.url,
+                  }).flatMap((source) => {
+                    const url = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+                    const name = githubRepoFullNameFromWorkspaceUrl(url)
+                    return name && !done.has(name.toLowerCase()) ? [url] : []
+                  }),
+                )
+              }
+              const legacyFiles =
+                overlayScope && (!onlyRepositoryUrls || onlyRepositoryUrls.size)
+                  ? await legacyKnowledgeOverlay({
+                      workspaceId: workspace.id,
+                      workspaceRepositoryUrl: revision.remote.url,
+                      treePaths,
+                      deletedPaths,
+                      files,
+                      onlyRepositoryUrls,
+                      reingestedRepositories: done,
+                      source: await loadKnowledgeProjectionSource({
+                        workspaceId: workspace.id,
+                      }),
+                    })
+                  : []
+              const legacyPaths = new Set(legacyFiles.map((file) => file.path))
               const parsed = pending.postgres
                 ? hydrateKnowledgeTree({
                     workspaceId: workspace.id,
@@ -450,6 +506,10 @@ export function defineWorkspaceHydrateWorkflow() {
                     confluenceSiteHosts: new Set(confluenceSiteHosts),
                   })
                 : { units: snapshot.units, linked: [], skipped: [] }
+              if (legacyPaths.size)
+                for (const unit of parsed.units)
+                  if (legacyPaths.has(unit.path))
+                    unit.source = LEGACY_UNIT_SOURCE
               const agents = files.find((file) => file.path === "AGENTS.md")
               const displayName = agents
                 ? displayNameFromAgentsMarkdown(agents.content)

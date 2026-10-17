@@ -643,7 +643,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         )
 
         // Below format 3 no ingestion runs, and MCP still serves the
-        // knowledge of main from Postgres (CTX-642).
+        // knowledge of main from Postgres.
         phase("search the knowledge of main through MCP")
         const { getAuth } = await import("../auth/config.js")
         const { callTool, connectToolClient } = await import(

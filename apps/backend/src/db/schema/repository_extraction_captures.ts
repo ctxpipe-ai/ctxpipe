@@ -1,5 +1,5 @@
 /**
- * Retired (CTX-642): the extractor output of the old ingestion pipeline. No
+ * Retired: the extractor output of the old ingestion pipeline. No
  * code reads or writes this table any more. A minor release only adds
  * (ADR-053), so the table stays until the next major release drops it.
  */

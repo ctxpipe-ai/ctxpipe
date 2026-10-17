@@ -117,7 +117,7 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
   // An organization whose setup started in the last 14 days also gets Home,
-  // so the guide stays after the first Workspace (CTX-796).
+  // so the guide stays after the first Workspace.
   if (isWithinGuideWindow(oldestCreatedAt(data.items), Date.now())) {
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }

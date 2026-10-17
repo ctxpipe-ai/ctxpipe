@@ -13,17 +13,17 @@ describe("RepositoryStatus", () => {
   ])("uses indexingDetail as the label for %s", (status) => {
     expect(
       renderToStaticMarkup(
-        <RepositoryStatus status={status} indexingDetail="embedding 7/22" />,
+        <RepositoryStatus status={status} indexingDetail="finalizing 7/22" />,
       ),
-    ).toContain("embedding 7/22")
+    ).toContain("finalizing 7/22")
   })
 
   it("ignores indexingDetail for non-active statuses", () => {
     expect(
       renderToStaticMarkup(
-        <RepositoryStatus status="failed" indexingDetail="embedding 7/22" />,
+        <RepositoryStatus status="failed" indexingDetail="finalizing 7/22" />,
       ),
-    ).not.toContain("embedding 7/22")
+    ).not.toContain("finalizing 7/22")
   })
 
   it("appends relative time for ready when indexedAt is set", () => {

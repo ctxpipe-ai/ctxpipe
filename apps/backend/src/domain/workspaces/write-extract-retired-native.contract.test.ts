@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm"
+import { eq, sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -8,7 +8,7 @@ import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-comm
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
-// The payload that the old pipeline queued (CTX-642 deletes that pipeline).
+// The payload that the old pipeline queued.
 function oldExtraction(f: { workspaceUrl: string; sha: string }) {
   return {
     repositoryId: "repo_captured",
@@ -22,11 +22,16 @@ function oldExtraction(f: { workspaceUrl: string; sha: string }) {
 async function jobStatus(orgId: string, jobId: string) {
   const [row] = await withOrgDbContext(orgId, (db) =>
     db
-      .select({ status: workspaceWriteJobs.status })
+      .select({
+        status: workspaceWriteJobs.status,
+        reason: sql<
+          string | null
+        >`${workspaceWriteJobs.payload}->>'failureReason'`,
+      })
       .from(workspaceWriteJobs)
       .where(eq(workspaceWriteJobs.id, jobId)),
   )
-  return row?.status
+  return row
 }
 
 it(
@@ -69,7 +74,12 @@ it(
         expect(errors.map((error) => error.message)).toEqual([
           "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more.",
         ])
-        expect(await jobStatus(f.org.id, jobId)).toBe("completed")
+        expect(await jobStatus(f.org.id, jobId)).toEqual({
+          status: "completed",
+          reason: expect.stringContaining(
+            "The old ingestion pipeline is retired.",
+          ),
+        })
       },
     )
   },
@@ -158,7 +168,12 @@ it.each(["extract-ingest", "semantic-merge"] as const)(
             reason: "legacy_ingestion_retired",
           })
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
-          expect(await jobStatus(f.org.id, jobId)).toBe("completed")
+          expect(await jobStatus(f.org.id, jobId)).toEqual({
+            status: "completed",
+            reason: expect.stringContaining(
+              "The old ingestion pipeline is retired.",
+            ),
+          })
         } finally {
           await worker.stop()
           await backend.stop()

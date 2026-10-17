@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 import {
   legacyKnowledgeOverlay,
-  legacyKnowledgeOverlayApplies,
+  legacyKnowledgeOverlayScope,
 } from "./legacy-knowledge-overlay.js"
 
 const source = {
@@ -60,26 +60,58 @@ const source = {
 function overlay(
   files: Array<{ path: string; content: string }>,
   objects = source.objects,
+  options: {
+    deletedPaths?: ReadonlySet<string>
+    onlyRepositoryUrls?: ReadonlySet<string>
+  } = {},
 ) {
   return legacyKnowledgeOverlay({
     workspaceId: "ws_first",
     workspaceRepositoryUrl: "https://github.com/example/context",
     treePaths: new Set(files.map((file) => file.path)),
     files,
+    deletedPaths: options.deletedPaths ?? new Set(),
+    onlyRepositoryUrls: options.onlyRepositoryUrls,
+    reingestedRepositories: new Set(),
     source: { ...source, objects },
   })
 }
 
 describe("legacyKnowledgeOverlay", () => {
-  it("applies only to a valid format below 3", () => {
-    expect([-1, 0, 1, 2, 3, 4].map(legacyKnowledgeOverlayApplies)).toEqual([
-      false,
-      true,
-      true,
-      true,
-      false,
-      false,
+  it("gives all knowledge below format 3, and only source repositories up to the code format", () => {
+    expect([-1, 0, 1, 2, 3, 4].map(legacyKnowledgeOverlayScope)).toEqual([
+      null,
+      "all",
+      "all",
+      "all",
+      "sources",
+      null,
     ])
+  })
+
+  it("does not bring back a file that a commit deleted", async () => {
+    const first = await overlay([])
+    const parser = first.find((file) => file.path.endsWith("parser.md"))
+    if (!parser) throw new Error("Expected a parser file")
+    const after = await overlay([], source.objects, {
+      deletedPaths: new Set([parser.path]),
+    })
+    expect(after.map((file) => file.path)).toEqual(
+      first.map((file) => file.path).filter((path) => path !== parser.path),
+    )
+  })
+
+  it("gives only the objects of the named repositories", async () => {
+    const files = await overlay([], source.objects, {
+      onlyRepositoryUrls: new Set(["https://github.com/example/missing"]),
+    })
+    expect(files).toEqual([])
+    const tools = await overlay([], source.objects, {
+      onlyRepositoryUrls: new Set(["https://gitlab.com/example/tools"]),
+    })
+    // Each object of the fixture is of that repository, except the one of
+    // another Workspace.
+    expect(tools).toEqual(await overlay([]))
   })
 
   it("gives the objects of the Workspace as files, with their links, and not those of another Workspace", async () => {
