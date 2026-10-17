@@ -343,6 +343,7 @@ export const OpeningLogKeepsScroll: Story = {
         scroller.scrollHeight - scroller.scrollTop - scroller.clientHeight,
       ).toBeLessThan(4)
     })
+    await document.fonts.ready
     const top = log.getBoundingClientRect().top
     await userEvent.click(log)
     await waitFor(() => expect(log).toHaveAttribute("aria-expanded", "true"))
@@ -601,6 +602,7 @@ export const PushEntryUnderCard: Story = {
     const entry = await canvas.findByRole("region", {
       name: /^Pushed 1 file to/,
     })
+    await document.fonts.ready
     const frame = canvas.getByTestId("push-frame")
     // The entry sits under the card at a narrow and at a wide width.
     for (const width of ["26rem", "64rem"]) {

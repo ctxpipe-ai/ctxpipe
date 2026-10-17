@@ -29,7 +29,7 @@ function interquartileRange(values: number[]): number {
 }
 
 /**
- * Choose a camera-fit subset for lasso, search, and neighbourhood focus.
+ * Choose a camera-fit subset for lasso, search, and neighborhood focus.
  * Keep most focused nodes in frame, but trim positional outliers so one
  * far-away match does not shrink the rest unreadably.
  */

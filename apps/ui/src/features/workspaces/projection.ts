@@ -7,12 +7,8 @@ export type WorkspaceHydrateView =
   | "ready"
 
 export function workspaceProjectionReady(input: {
-  hydrateStatus: string
   activeProjectionSha: string | null
-  writeStatus?: string | null
 }): boolean {
-  void input.hydrateStatus
-  void input.writeStatus
   return Boolean(input.activeProjectionSha)
 }
 
@@ -59,9 +55,7 @@ export function workspacePrepareNeedsPoll(input: {
 }): boolean {
   if (
     workspaceProjectionReady({
-      hydrateStatus: input.hydrateStatus,
       activeProjectionSha: input.activeProjectionSha ?? null,
-      writeStatus: input.writeStatus,
     })
   ) {
     return (

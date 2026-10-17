@@ -6,6 +6,8 @@
 //   3. An absence check (`expect(…queryBy…/querySelector…).not.toBeInTheDocument()`, `.toBeNull()`,
 //      or `queryAllBy…` with `toHaveLength(0)`) with no earlier settled wait in the same play.
 //      A settled wait is `findBy…`, `getBy…` (it throws when the element is missing), an awaited helper named `expect…`, `wait…` or `find…` (for example `expectWorkspaceFiles`), or a `waitFor` whose callback holds no absence check.
+//   4. A layout measure (`scrollWidth`, `clientWidth`, `getBoundingClientRect`) in a story with no earlier
+//      `await document.fonts.ready`. A font that loads later moves the text, so the size or position changes.
 // A line that ends with `// play-timing: ok <reason>` is exempt.
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
@@ -139,6 +141,23 @@ for (const file of files) {
     if (!hasFind && !hasWait)
       problems.push(
         `${file}:${line}: absence check with no earlier settled wait in this play. First wait for a positive sign (findBy… or waitFor on a loaded element or an answered request), then assert absence.`,
+      )
+  }
+
+  // Layout measures. A story is a top-level `export const` object; a helper outside it is not checked.
+  for (const story of text.matchAll(/\nexport const \w+[^=\n]*=/g)) {
+    const end = text.indexOf("\n}\n", story.index)
+    const body = text.slice(story.index, end === -1 ? text.length : end)
+    const measure =
+      /\b(?:scrollWidth|clientWidth)\b|\bgetBoundingClientRect\(/.exec(body)
+    if (!measure) continue
+    const at = story.index + measure.index
+    const line = lineOf(at)
+    if (exempt(line)) continue
+    const fonts = body.indexOf("document.fonts.ready")
+    if (fonts === -1 || fonts > measure.index)
+      problems.push(
+        `${file}:${line}: layout measure before \`await document.fonts.ready\`. A font that loads later moves the text. Wait for fonts first.`,
       )
   }
 }

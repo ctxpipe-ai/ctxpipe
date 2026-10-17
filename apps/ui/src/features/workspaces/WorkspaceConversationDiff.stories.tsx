@@ -164,6 +164,7 @@ export const DiffPaneExpandedFile: Story = {
       name: /ADR-001-decision\.md, /,
     })
     await expect(other.parentElement).not.toHaveClass("bg-zinc-800")
+    await document.fonts.ready
     // The focused row scrolls into view inside the list.
     await waitFor(() => {
       const list = focused.closest(".overflow-auto") as HTMLElement
@@ -228,6 +229,7 @@ export const DiffPaneLongPaths: Story = {
     })
     const label = row.querySelector(`[title="${longPath}"]`) as HTMLElement
     await expect(label).toHaveAttribute("dir", "rtl")
+    await document.fonts.ready
     // The path is cut, and the start is cut (right to left), so the file
     // name stays in view.
     await expect(label.scrollWidth).toBeGreaterThan(label.clientWidth)
