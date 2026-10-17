@@ -31,13 +31,18 @@ preview_app_db_password() {
   done
   current="$(service_vars "$ENV_ID" "$BACKEND_SERVICE_ID" DATABASE_URL \
     | jq -r '.DATABASE_URL // ""')" || return 1
+  # A URL that does not parse gets a new password. The except clause prints
+  # nothing, so a parse error cannot show a value.
   password="$(CURRENT_URL="$current" python3 -c '
 import os
 from urllib.parse import urlparse, unquote
-current = urlparse(os.environ["CURRENT_URL"])
-owner = urlparse(os.environ["OWNER_DB_URL_POOLED"])
-if current.username == "ctxpipe_app" and current.password and current.hostname and current.hostname == owner.hostname:
-    print(unquote(current.password))
+try:
+    current = urlparse(os.environ["CURRENT_URL"])
+    owner = urlparse(os.environ["OWNER_DB_URL_POOLED"])
+    if current.username == "ctxpipe_app" and current.password and current.hostname and current.hostname == owner.hostname:
+        print(unquote(current.password))
+except Exception:
+    pass
 ')" || return 1
   if [[ -n "$password" ]]; then
     echo "preview-app-db-password: the preview keeps its ctxpipe_app password" >&2

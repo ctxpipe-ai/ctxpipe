@@ -43,11 +43,22 @@ for current in \
   "" \
   "postgresql://ctxpipe_app:production-secret@ep-production-pooler.example.test/neondb?sslmode=require" \
   "postgresql://neondb_owner:owner-secret@ep-preview-pooler.example.test/neondb?sslmode=require" \
+  "postgresql://ctxpipe_app:lookalike-secret@ep-preview-pooler.example.test.other.test/neondb?sslmode=require" \
+  "postgresql://ctxpipe_app:broken-secret@[ep-preview-pooler.example.test/neondb" \
   "postgresql://ctxpipe_app@ep-preview-pooler.example.test/neondb"; do
   fresh="$(CURRENT="$current" run_password 2>"$err")" || fail "a new password must not fail ($current)"
-  [[ "$fresh" =~ ^[0-9a-f]{48}$ ]] || fail "a URL of an other host, user or no password must get a new password"
+  [[ "$fresh" =~ ^[0-9a-f]{48}$ ]] || fail "a URL of an other host, user or no password, or a URL that does not parse, must get a new password"
   grep -Fq "new" "$err" || fail "the step should say that it makes a new password"
+  if grep -Fq "secret" "$err"; then fail "stderr must not hold a value"; fi
 done
+
+# Without a Neon branch id, OWNER_DB_URL_POOLED is the production URL, and the
+# production DATABASE_URL that the duplicate copies would match its host. The
+# guard must stop the job before this step reads the preview DATABASE_URL.
+guard_line="$(grep -n '\[\[ -n "$NEON_BRANCH_ID" \]\] ||' "$workflow" | cut -d: -f1)"
+step_line="$(grep -n 'name: Choose preview ctxpipe_app password' "$workflow" | cut -d: -f1)"
+[[ -n "$guard_line" && -n "$step_line" && "$guard_line" -lt "$step_line" ]] \
+  || fail "pr-deploy.yaml must stop on an empty Neon branch id before it chooses the ctxpipe_app password"
 
 a="$(CURRENT="" run_password 2>/dev/null)"
 b="$(CURRENT="" run_password 2>/dev/null)"
