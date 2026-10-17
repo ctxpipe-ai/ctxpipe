@@ -81,10 +81,12 @@ export const VERCEL_INGEST_TOOLS = {
 export const VERCEL_INGEST_TOOLS_ROOT = "/opt/ctxpipe-ingest"
 
 /**
- * The PATH of the ingest agent in a hosted sandbox: the pinned tools, then
- * the Node runtime of the agent snapshot.
+ * The PATH of the ingest agent in a hosted sandbox: the pinned tools, the
+ * Node runtime of the agent snapshot, and the sandbox's Git in /opt/git, the
+ * Git that root uses. Its system config holds the `safe.directory` entry of
+ * each sealed checkout; another Git on the PATH refuses the checkouts.
  */
-export const VERCEL_INGEST_AGENT_PATH = `${VERCEL_INGEST_TOOLS_ROOT}/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/usr/local/bin:/usr/bin:/bin`
+export const VERCEL_INGEST_AGENT_PATH = `${VERCEL_INGEST_TOOLS_ROOT}/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/opt/git/bin:/usr/local/bin:/usr/bin:/bin`
 
 /**
  * The Vercel Node runtime has no OpenCode, and its user cannot write the
