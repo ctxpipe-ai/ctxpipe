@@ -28,43 +28,6 @@ permissions:
 # Cloud Agent (`cursor[bot]` / `cursoragent`): push only.
 # Humans: pull_request only.
 jobs:
-  falkordb-probe:
-    name: falkordb probe ${{ matrix.tag }}
-    if: github.ref == 'refs/heads/build/falkordb-wedge'
-    runs-on: blacksmith-4vcpu-ubuntu-2404
-    timeout-minutes: 30
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - tag: v4.16.6
-            image: falkordb/falkordb@sha256:52b6583afe7b5ba6bbf5b5f0290bdaa765bd97477b310a590771dc33ebc7b5f5
-          - tag: v4.22.1
-            image: falkordb/falkordb:v4.22.1
-          - tag: v4.20.7
-            image: falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
-    steps:
-      - run: sudo sysctl -w vm.overcommit_memory=1
-      - run: |
-          for _ in 1 2 3 4; do (yes > /dev/null &) ; done
-          probe() {
-            n=$1; port=$((6400+n))
-            docker run -d --name fk$n -p $port:6379 "${{ matrix.image }}" > /dev/null
-            for _ in $(seq 1 15); do
-              if timeout 3 docker exec fk$n sh -c "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'" > /dev/null 2>&1; then docker rm -f fk$n > /dev/null; return 0; fi
-              sleep 1
-            done
-            echo "WEDGED $n"
-            docker top fk$n -eLo pid,tid,stat,wchan,pcpu,comm | head -14
-            docker logs fk$n 2>&1 | tail -8
-            docker rm -f fk$n > /dev/null
-          }
-          for round in $(seq 1 30); do
-            for n in 1 2 3 4 5 6; do probe $n & done
-            wait
-          done | tee /tmp/probe.out
-          echo "RESULT ${{ matrix.tag }}: $(grep -c WEDGED /tmp/probe.out) wedged of 180 starts under CPU load"
-
   lint:
     timeout-minutes: 15
     name: Biome
