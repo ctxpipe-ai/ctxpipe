@@ -94,12 +94,29 @@ const runOutputSchema = z
   .object({
     status: z.enum(["done", "partial", "skipped"]),
     reason: z.string().optional(),
+    workspaces: z
+      .array(
+        z
+          .object({
+            workspaceId: z.string(),
+            partial: z.number(),
+            refused: z.string().optional(),
+          })
+          .passthrough(),
+      )
+      .optional(),
   })
   .passthrough()
 
-/** The report of one finished ingestion v2 run. */
+/**
+ * The report of one finished ingestion v2 run for the Workspace of the
+ * re-ingestion. It reads the result of this Workspace, not the status of
+ * the run: a run that skipped the Workspace, or did not reach it, failed
+ * for it.
+ */
 function runReport(
   state: Extract<Awaited<ReturnType<typeof ingestionRunState>>, { done: true }>,
+  workspaceId: string,
 ): Pick<ReingestRepositoryReport, "status" | "report"> {
   if (state.status !== "completed")
     return {
@@ -111,11 +128,29 @@ function runReport(
       ],
     }
   const output = runOutputSchema.safeParse(state.output)
-  if (!output.success) return { status: "done", report: [] }
-  return {
-    status: output.data.status,
-    report: output.data.reason ? [output.data.reason] : [],
-  }
+  if (!output.success)
+    return {
+      status: "failed",
+      report: ["ctx| cannot read the result of the ingestion run."],
+    }
+  const reason = output.data.reason ? [output.data.reason] : []
+  const result = output.data.workspaces?.find(
+    (w) => w.workspaceId === workspaceId,
+  )
+  if (!result)
+    return {
+      status: "failed",
+      report: [
+        ...reason,
+        "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
+      ],
+    }
+  if (result.refused !== undefined || result.partial > 0)
+    return {
+      status: "partial",
+      report: result.refused !== undefined ? [result.refused] : reason,
+    }
+  return { status: "done", report: [] }
 }
 
 const usd = (value: number) => `$${value.toFixed(2)}`
@@ -152,6 +187,9 @@ export function defineWorkspaceUpgradeReingestRepository(
             },
             sha: input.sha,
             authorTime: input.authorTime,
+            // Only this Workspace: the other Workspaces of the repository
+            // did not approve a publish, and the cap counts only this one.
+            destinations: [input.workspaceId],
           } satisfies IngestionV2Input,
           {
             idempotencyKey: reingestRunKey({
@@ -175,7 +213,7 @@ export function defineWorkspaceUpgradeReingestRepository(
             const spendUnknown = spend.unknown
             if (state.done)
               return {
-                ...runReport(state),
+                ...runReport(state, input.workspaceId),
                 runId,
                 spendUsd,
                 spendUnknown,
@@ -308,8 +346,8 @@ async function planReingest(input: {
  * (`workspace-upgrade-reingest-repository`), so that each repository has its
  * own step budget. The model spend of the runs adds up; when it passes 2
  * times the p90 estimate, the run stops with `failed` and the spend. The row
- * is `completed` when no repository failed, else `failed` with the
- * repositories that failed; the operator can start it again, and the next run
+ * is `completed` when each repository is `done` for this Workspace, else
+ * `failed` with the other repositories; the operator can start it again, and the next run
  * skips each repository that is done at the same commit.
  */
 export function defineWorkspaceUpgradeReingest(
@@ -534,11 +572,13 @@ export function defineWorkspaceUpgradeReingest(
                 failureReason: `The re-ingestion stopped at the cost cap (cost_cap): the model spend is ${usd(spent)}, and the cap is ${usd(planned.capUsd ?? 0)} (2 times the p90 estimate).`,
                 upgrade: { repositories: reports, stopReason: "cost_cap" },
               })
-            const failed = reports.filter((r) => r.status === "failed")
+            // Only a run that published all of its work to this Workspace
+            // is done. A `partial` or `skipped` repository fails the row.
+            const failed = reports.filter((r) => r.status !== "done")
             if (failed.length)
               return record("record-failed", {
                 to: UPGRADE_STATUSES.failed,
-                failureReason: `The re-ingestion failed for ${failed.map((r) => r.repository).join(", ")}. Start it again.`,
+                failureReason: `The re-ingestion did not finish for ${failed.map((r) => r.repository).join(", ")}. Start it again.`,
                 upgrade: { repositories: reports },
               })
             return record("record-completed", {

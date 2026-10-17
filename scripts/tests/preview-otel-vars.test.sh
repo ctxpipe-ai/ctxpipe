@@ -300,4 +300,21 @@ if (
   fail "sync should fail when the production Railway environment cannot be resolved"
 fi
 
+narrow="$(
+  set -euo pipefail
+  # shellcheck disable=SC1091
+  source "$script"
+  railway_graphql() {
+    case "$1" in
+      (*environments*) jq -n '{data:{project:{environments:{edges:[{node:{id:"env_prod",name:"production"}}]}}}}' ;;
+      (*"query variables"*) jq -nc --argjson vars "$prod_complete" '{data:{variables:$vars}}' ;;
+      (*) echo "unexpected query $1" >&2; return 1 ;;
+    esac
+  }
+  export RAILWAY_PROJECT_ID=proj_test BACKEND_SERVICE_ID=svc_backend
+  production_backend_vars OTEL_EXPORTER_OTLP_HEADERS NOT_SET_IN_PRODUCTION
+)" || fail "production_backend_vars should succeed"
+[[ "$narrow" == '{"OTEL_EXPORTER_OTLP_HEADERS":"authorization=from-prod"}' ]] \
+  || fail "production_backend_vars must return only the named variables that exist (got keys: $(printf '%s' "$narrow" | jq -c keys))"
+
 echo "preview-otel-vars tests passed"

@@ -22,8 +22,8 @@ import {
   formatHealthLine,
   formatUpgradeEstimate,
   MEMBER_ASK_ADMIN,
-  UPGRADE_BLOCKED_COPY,
   UPGRADE_STATUS_TAG,
+  upgradeBlockedCopy,
   upgradeCanStart,
   upgradeStartedMessage,
 } from "./upgrade-copy"
@@ -51,8 +51,9 @@ export function UpgradeItemCard(props: {
         <div className="min-w-0">
           <h3 className="text-sm font-medium text-foreground">{item.title}</h3>
           <p className="mt-1 text-xs text-muted-foreground">
-            Format {item.fromFormat} to format {item.targetFormat}. ctx| opens
-            one pull request. Nothing changes until you merge it.
+            {item.kind === "reingest"
+              ? "ctx| reads each source repository again and publishes the new knowledge to the Workspace."
+              : `Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
         <StatusTag {...UPGRADE_STATUS_TAG[item.status]} />
@@ -98,13 +99,8 @@ export function UpgradeItemCard(props: {
 
       {item.status === "blocked" ? (
         <div className="mt-3">
-          <InlineAlert variant="warning" title="This upgrade cannot start">
-            <p>
-              {item.blockedReason
-                ? UPGRADE_BLOCKED_COPY[item.blockedReason]
-                : "ctx| cannot start this upgrade now."}
-            </p>
-            {item.note ? <p className="mt-1">{item.note}</p> : null}
+          <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
+            <p>{upgradeBlockedCopy(item).body}</p>
           </InlineAlert>
         </div>
       ) : item.note ? (

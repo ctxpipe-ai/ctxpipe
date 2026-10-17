@@ -10,6 +10,8 @@ import {
   retiredPublishPipelineField,
   workspacePublishPipeline,
 } from "../../domain/ingestion/ingestion-v2-config.js"
+import { githubRepositoryUrls } from "../../domain/workspace-sources/providers/github.js"
+import { parseSourceFile } from "../../domain/workspace-sources/source-file-text.js"
 import { planStoredExtraction } from "../../domain/workspaces/captured-extraction.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
@@ -24,6 +26,7 @@ import {
   resolveIngestConflicts,
   SemanticResolveError,
 } from "../../domain/workspaces/semantic-merge.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
@@ -112,6 +115,22 @@ export function defineWorkspaceExtractIngestWorkflow() {
       const job = input.ingest ? "v2" : "legacy"
       const pipelineStopped = async (pack: GitPack) =>
         workspacePublishPipeline(await packWorkspaceFormat(pack)) !== job
+      // An ingestion v2 publish needs its source file in the tree that it
+      // pushes on, and the file must still name the source repository. Else
+      // the repository was unlinked while the run was in flight.
+      const sourceUnlinked = async (pack: GitPack) => {
+        if (!input.ingest) return false
+        const { sourcePath, source } = input.ingest
+        const [file] = await readGitFiles(pack, (path) => path === sourcePath)
+        if (!file || file.omitted) return true
+        const parsed = parseSourceFile(file.path, file.content)
+        return (
+          !parsed.ok ||
+          !githubRepositoryUrls(parsed.source).includes(
+            normalizeWorkspaceRepositoryUrl(source.url),
+          )
+        )
+      }
       return withWorkspaceWriteContext(
         input,
         "workspace-write-extract-ingest",
@@ -384,9 +403,22 @@ export function defineWorkspaceExtractIngestWorkflow() {
                     await persistWriteJobStatus(input.jobId, "completed")
                     return { stopped: true as const }
                   }
+                  if (await sourceUnlinked(committed)) {
+                    await discardWriteJobPreparedCommit(
+                      input.jobId,
+                      committed.sha,
+                    )
+                    await persistWriteJobStatus(input.jobId, "completed")
+                    return { unlinked: true as const }
+                  }
                   return attemptWorkspaceCommit(input, revision, committed, env)
                 },
               )
+              if ("unlinked" in attempt)
+                return {
+                  committed: false as const,
+                  reason: "source_unlinked" as const,
+                }
               if ("stopped" in attempt)
                 return {
                   committed: false as const,
