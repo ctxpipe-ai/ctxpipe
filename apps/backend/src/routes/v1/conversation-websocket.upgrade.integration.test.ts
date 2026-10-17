@@ -48,7 +48,7 @@ it("upgrades a signed-in chat socket from AUTH_BASE_URL or an allowed origin", a
 })
 
 it("refuses a chat socket from another origin or with no origin", async () => {
-  for (const headers of [
+  for (const headers of <Record<string, string>[]>[
     { cookie: seed?.cookie ?? "", origin: "https://other.example.test" },
     { cookie: seed?.cookie ?? "", origin: "null" },
     { cookie: seed?.cookie ?? "" },

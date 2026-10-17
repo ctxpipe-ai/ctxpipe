@@ -116,6 +116,11 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
   "NODE_EXTRA_CA_CERTS",
   "SSL_CERT_FILE",
   "SSL_CERT_DIR",
+  // Paths of the Git configuration files and of the Git trace; no secret.
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_TRACE2_EVENT",
   // The run sets these itself. The scrub runs after the run's own values
   // are added, so it must not remove them.
   "XDG_CONFIG_HOME",
