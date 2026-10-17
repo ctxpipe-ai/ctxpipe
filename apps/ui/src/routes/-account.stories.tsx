@@ -1,7 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import {
+  entryPageInnerDecorators,
+  orgPageDecorators,
+} from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
   authConfigHandler,
@@ -282,5 +285,124 @@ export const ConnectedAppsEmpty: Story = {
     await expect(
       canvas.getByRole("link", { name: "Connected apps" }),
     ).toBeVisible()
+  },
+}
+
+/**
+ * The user deleted an organization, and the stored selection still names it.
+ * The Workspace list of that organization answers 404, as the backend does.
+ * `requested` records every Workspace list request by organization slug.
+ */
+function deletedOrganizationBackend(
+  organizations: { id: string; name: string; slug: string }[],
+) {
+  const requested: string[] = []
+  return {
+    requested,
+    reset: () => {
+      requested.length = 0
+      window.localStorage.setItem(
+        "ctxpipe:userPreferences",
+        JSON.stringify({ selectedOrganizationSlug: "deleted-org" }),
+      )
+    },
+    handlers: [
+      authConfigHandler,
+      sessionSignedInHandler({
+        id: "user_storybook",
+        onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
+      }),
+      organizationListHandler(organizations),
+    ],
+    page: [
+      http.get("*/:orgSlug/api/v1/workspaces", ({ params }) => {
+        requested.push(String(params.orgSlug))
+        if (params.orgSlug === "deleted-org") {
+          return HttpResponse.json({ error: "Not found" }, { status: 404 })
+        }
+        return HttpResponse.json({ items: [], lastUsedWorkspaceId: null })
+      }),
+    ],
+  }
+}
+
+const staleSelectionBackend = deletedOrganizationBackend([
+  { id: "org_other", name: "Other Org", slug: "other-org" },
+])
+
+/**
+ * The page that the organization delete dialog opens. The stored selection
+ * is an organization that no longer exists. The shell falls back to the
+ * first organization, and the page does not show the error screen.
+ */
+export const OrganizationDeletedStaleSelection: Story = {
+  tags: ["workspace-golden"],
+  args: { accountView: "organizations" },
+  decorators: orgPageDecorators,
+  beforeEach: staleSelectionBackend.reset,
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/organizations",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        defaults: staleSelectionBackend.handlers,
+        page: staleSelectionBackend.page,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "user account" }),
+      ).toBeVisible(),
+    )
+    // The first organization replaces the stale one in the shell.
+    await waitFor(() =>
+      expect(staleSelectionBackend.requested).toContain("other-org"),
+    )
+    await waitFor(() => expect(canvas.getByText("Workspaces")).toBeVisible())
+    await expect(staleSelectionBackend.requested).not.toContain("deleted-org")
+    await expect(canvas.queryByText("Something went wrong")).toBeNull()
+    // The stale selection is gone from storage.
+    await waitFor(() =>
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("ctxpipe:userPreferences") ?? "{}",
+        ).selectedOrganizationSlug,
+      ).toBeNull(),
+    )
+  },
+}
+
+const lastOrganizationBackend = deletedOrganizationBackend([])
+
+/** The last organization is deleted: the user lands on onboarding. */
+export const LastOrganizationDeleted: Story = {
+  tags: ["workspace-golden"],
+  args: { accountView: "organizations" },
+  decorators: orgPageDecorators,
+  beforeEach: lastOrganizationBackend.reset,
+  parameters: {
+    storyRoute: {
+      pattern: "flat",
+      path: "/.auth/account/organizations",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        defaults: lastOrganizationBackend.handlers,
+        page: lastOrganizationBackend.page,
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByText("Story route: onboarding")).toBeVisible(),
+    )
+    await expect(lastOrganizationBackend.requested).not.toContain("deleted-org")
+    await expect(canvas.queryByText("Something went wrong")).toBeNull()
   },
 }

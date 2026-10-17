@@ -92,17 +92,29 @@ function createStoryRouter(
       path: spec.path,
       component: StoryRoute,
     })
-    const siblings =
-      spec.path === "/.auth/sign-in"
-        ? [leaf]
+    const siblings = [
+      ...(spec.path === "/.auth/sign-in"
+        ? []
         : [
             createRoute({
               getParentRoute: () => rootRoute,
               path: "/.auth/sign-in",
               component: storyRouteStub,
             }),
-            leaf,
-          ]
+          ]),
+      // A page that sends the user to onboarding lands on this marker, so a
+      // play can see where the user arrived.
+      ...(spec.path === "/onboarding"
+        ? []
+        : [
+            createRoute({
+              getParentRoute: () => rootRoute,
+              path: "/onboarding",
+              component: () => <p>Story route: onboarding</p>,
+            }),
+          ]),
+      leaf,
+    ]
     const extra = (spec.alsoAt ?? []).map((path) =>
       createRoute({
         getParentRoute: () => rootRoute,
