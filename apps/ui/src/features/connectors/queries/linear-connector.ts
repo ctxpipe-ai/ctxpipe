@@ -1,29 +1,15 @@
-export type LinearScope = {
-  externalId: string
-  type: "team" | "project" | "document" | "initiative"
-  title: string
-  url?: string | null
-  parentExternalId?: string | null
-  teamId?: string | null
-  teamKey?: string | null
-}
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
-/** The fields of the status read that the UI uses. */
-export type LinearConnectorStatus = {
-  isInstalled: boolean
-  installationStatus: string | null
-  workspaceName: string | null
-}
+export type LinearScope = Awaited<
+  ReturnType<typeof fetchLinearAvailableScopes>
+>[number]
 
-export type LinearOauthApp = {
-  linearOauthConfigured: boolean
-  globalLinearOauthConfigured: boolean
-  oauthCallbackUrl: string
-  linearWebhookUrl: string
-  linearCreateUrl: string
-  oauthAppSaved: boolean
-  oauthClientId: string | null
-}
+export type LinearConnectorStatus = Awaited<
+  ReturnType<typeof fetchLinearConnectorStatus>
+>
+
+export type LinearOauthApp = Awaited<ReturnType<typeof fetchLinearOauthApp>>
 
 export const linearConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
@@ -36,23 +22,23 @@ export const linearConnectorKeys = {
     ["linear-oauth-app", orgSlug, connectionId ?? "default"] as const,
 }
 
-import { apiFetch, readApiJson } from "@/lib/api-result"
-
-function connectionQuery(connectionId?: string): string {
+function connectionQuery(connectionId?: string) {
   return connectionId
-    ? `?${new URLSearchParams({ connectionId }).toString()}`
-    : ""
+    ? ({ query: { connectionId } } as const)
+    : ({ query: {} } as const)
 }
 
 export async function fetchLinearConnectorStatus(
   orgSlug: string,
   connectionId?: string,
-): Promise<LinearConnectorStatus> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/status${connectionQuery(connectionId)}`,
-    { credentials: "include" },
-  )
-  return readApiJson<LinearConnectorStatus>(response, {
+) {
+  const response = await client[
+    ":orgSlug"
+  ].api.v1.connectors.linear.status.$get({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+  })
+  return readApiJson(response, {
     message: "Failed to load Linear connector status",
   })
 }
@@ -60,12 +46,14 @@ export async function fetchLinearConnectorStatus(
 export async function fetchLinearAvailableScopes(
   orgSlug: string,
   connectionId: string,
-): Promise<LinearScope[]> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/available-scopes${connectionQuery(connectionId)}`,
-    { credentials: "include" },
-  )
-  const body = await readApiJson<{ items: LinearScope[] }>(response, {
+) {
+  const response = await client[":orgSlug"].api.v1.connectors.linear[
+    "available-scopes"
+  ].$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  const body = await readApiJson(response, {
     message: "Failed to discover Linear content",
   })
   return body.items
@@ -74,12 +62,14 @@ export async function fetchLinearAvailableScopes(
 export async function fetchLinearOAuthStart(
   orgSlug: string,
   connectionId?: string,
-): Promise<{ authorizationUrl: string }> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/oauth/start${connectionQuery(connectionId)}`,
-    { credentials: "include" },
-  )
-  return readApiJson<{ authorizationUrl: string }>(response, {
+) {
+  const response = await client[
+    ":orgSlug"
+  ].api.v1.connectors.linear.oauth.start.$get({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+  })
+  return readApiJson(response, {
     message: "Failed to start Linear connection",
   })
 }
@@ -87,27 +77,25 @@ export async function fetchLinearOAuthStart(
 export async function fetchLinearOauthApp(
   orgSlug: string,
   connectionId?: string,
-): Promise<LinearOauthApp> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
-    { credentials: "include" },
-  )
-  return readApiJson<LinearOauthApp>(response, {
+) {
+  const response = await client[":orgSlug"].api.v1.connectors.linear[
+    "oauth-app"
+  ].$get({
+    param: { orgSlug },
+    ...connectionQuery(connectionId),
+  })
+  return readApiJson(response, {
     message: "Failed to load Linear OAuth app settings",
   })
 }
 
-export async function createLinearDraft(
-  orgSlug: string,
-): Promise<{ connectionId: string }> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/draft`,
-    {
-      method: "POST",
-      credentials: "include",
-    },
-  )
-  return readApiJson<{ connectionId: string }>(response, {
+export async function createLinearDraft(orgSlug: string) {
+  const response = await client[
+    ":orgSlug"
+  ].api.v1.connectors.linear.draft.$post({
+    param: { orgSlug },
+  })
+  return readApiJson(response, {
     message: "Failed to start Linear setup",
   })
 }
@@ -117,16 +105,14 @@ export async function saveLinearOauthApp(
   connectionId: string,
   body: { clientId: string; clientSecret?: string; webhookSecret?: string },
 ): Promise<void> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear/oauth-app${connectionQuery(connectionId)}`,
-    {
-      method: "PUT",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  )
-  await readApiJson<void>(response, {
+  const response = await client[":orgSlug"].api.v1.connectors.linear[
+    "oauth-app"
+  ].$put({
+    param: { orgSlug },
+    query: { connectionId },
+    json: body,
+  })
+  await readApiJson(response, {
     message: "Failed to save Linear OAuth app",
   })
 }
@@ -135,11 +121,11 @@ export async function deleteLinearConnector(
   orgSlug: string,
   connectionId: string,
 ): Promise<void> {
-  const response = await apiFetch(
-    `/${orgSlug}/api/v1/connectors/linear${connectionQuery(connectionId)}`,
-    { method: "DELETE", credentials: "include" },
-  )
-  await readApiJson<void>(response, {
+  const response = await client[":orgSlug"].api.v1.connectors.linear.$delete({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  await readApiJson(response, {
     message: "Failed to remove Linear connector",
   })
 }
