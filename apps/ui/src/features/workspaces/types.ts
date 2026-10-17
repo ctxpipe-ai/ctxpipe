@@ -1,6 +1,8 @@
 import type { InferResponseType } from "hono/client"
 import type { ApiClient } from "@/lib/api"
 
+type WithOptional<T, K extends keyof T> = Omit<T, K> & Partial<Pick<T, K>>
+
 type V1 = ApiClient[":orgSlug"]["api"]["v1"]
 type WorkspaceRoutes = V1["workspaces"][":workspaceSlug"]
 type ConversationRoutes = V1["conversations"][":conversationId"]
@@ -11,25 +13,27 @@ export type WorkspaceListResponse = InferResponseType<
   200
 >
 
-export type Workspace = WorkspaceListResponse["items"][number]
+/** `conversationWritable`: older responses omit it, and the UI falls back to the write status. */
+export type Workspace = WithOptional<
+  WorkspaceListResponse["items"][number],
+  "conversationWritable"
+>
 
 type WorkspaceDetailRead = InferResponseType<WorkspaceRoutes["$get"], 200>
 
 /** `skippedFiles` and `hydratePhases` are absent on a detail seeded from the list. */
-export type WorkspaceDetail = Omit<
+export type WorkspaceDetail = WithOptional<
   WorkspaceDetailRead,
-  "skippedFiles" | "hydratePhases"
-> &
-  Partial<Pick<WorkspaceDetailRead, "skippedFiles" | "hydratePhases">>
+  "skippedFiles" | "hydratePhases" | "conversationWritable"
+>
 
 type LinkedRepositoryRead = WorkspaceDetailRead["linkedRepositories"][number]
 
 /** The org repository index health is absent when the repository has no index row. */
-export type WorkspaceLinkedRepository = Omit<
+export type WorkspaceLinkedRepository = WithOptional<
   LinkedRepositoryRead,
   "indexingStatus" | "indexingError"
-> &
-  Partial<Pick<LinkedRepositoryRead, "indexingStatus" | "indexingError">>
+>
 
 export type WorkspaceSkippedFile = NonNullable<
   WorkspaceDetailRead["skippedFiles"]
@@ -49,14 +53,23 @@ export type WorkspaceActivityDay = WorkspaceActivityResponse["days"][number]
 export type WorkspaceActivityCommit =
   WorkspaceActivityResponse["recent"][number]
 
-export type WorkspaceFilesResponse = InferResponseType<
+type WorkspaceFilesRead = InferResponseType<
   WorkspaceRoutes["files"]["$get"],
   200
 >
 
-export type WorkspaceFile = WorkspaceFilesResponse["items"][number]
+export type WorkspaceFile = WorkspaceFilesRead["items"][number]
 
-export type WorkspaceFileTreeNode = WorkspaceFilesResponse["tree"][number]
+/** The route schema is recursive, so the client type of `children` is loose. */
+export type WorkspaceFileTreeNode = {
+  name: string
+  path: string
+  children?: WorkspaceFileTreeNode[]
+}
+
+export type WorkspaceFilesResponse = Omit<WorkspaceFilesRead, "tree"> & {
+  tree: WorkspaceFileTreeNode[]
+}
 
 export type WorkspaceGitTreeResponse = InferResponseType<
   WorkspaceRoutes["files"]["tree"]["$get"],
@@ -93,16 +106,14 @@ type ConversationGitStatusRead = InferResponseType<
   200
 >
 
+/** `items`: the route types the file status as a string; the sandbox sends the known values. */
 export type ConversationGitStatusResponse = Omit<
-  ConversationGitStatusRead,
-  "sha" | "desiredSha" | "stale" | "worktreeVersion"
-> &
-  Partial<
-    Pick<
-      ConversationGitStatusRead,
-      "sha" | "desiredSha" | "stale" | "worktreeVersion"
-    >
-  >
+  WithOptional<
+    ConversationGitStatusRead,
+    "sha" | "desiredSha" | "stale" | "worktreeVersion"
+  >,
+  "items"
+> & { items: WorkspaceGitStatusItem[] }
 
 /** A diff read. `gone`: the turn's snapshots are no longer in the sandbox (410). */
 type ConversationGitDiffRead = InferResponseType<

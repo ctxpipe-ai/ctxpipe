@@ -1,12 +1,23 @@
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
-export type LinearScope = Awaited<
+type LinearScopeRead = Awaited<
   ReturnType<typeof fetchLinearAvailableScopes>
 >[number]
 
-export type LinearConnectorStatus = Awaited<
-  ReturnType<typeof fetchLinearConnectorStatus>
+/** The optional fields are absent in a scope that has no parent, team, or link. */
+export type LinearScope = Omit<
+  LinearScopeRead,
+  "url" | "parentExternalId" | "teamId" | "teamKey"
+> &
+  Partial<
+    Pick<LinearScopeRead, "url" | "parentExternalId" | "teamId" | "teamKey">
+  >
+
+/** The fields of the status read that the UI uses. */
+export type LinearConnectorStatus = Pick<
+  Awaited<ReturnType<typeof fetchLinearConnectorStatus>>,
+  "isInstalled" | "installationStatus" | "workspaceName"
 >
 
 export type LinearOauthApp = Awaited<ReturnType<typeof fetchLinearOauthApp>>

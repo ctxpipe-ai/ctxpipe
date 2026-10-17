@@ -198,9 +198,10 @@ export async function fetchWorkspaceFiles(
   ].files.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson(res, {
+  // TODO: the file tree schema is recursive, so the client types `children` loosely.
+  return (await readApiJson(res, {
     message: "Failed to load Workspace files",
-  })
+  })) as unknown as WorkspaceFilesResponse
 }
 
 export async function fetchWorkspaceGitTree(
@@ -606,9 +607,10 @@ export async function fetchConversationGitStatus(
     param: { orgSlug, conversationId },
   })
   if (res.status === 409) return readConversationFilesBlocked(res)
-  return readApiJson(res, {
+  // TODO: the route types the file status as a string, so the body is cast.
+  return (await readApiJson(res, {
     message: "Failed to load conversation git status",
-  })
+  })) as ConversationGitStatusResponse
 }
 
 export async function fetchConversationGitDiff(
