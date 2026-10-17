@@ -14,8 +14,8 @@ import {
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { conversationSessionBranch } from "../../domain/workspaces/chat-lifecycle.js"
-import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { shellSingleQuote } from "../../domain/workspaces/conversation-publish.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { destroySandboxesForConversation } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { getConversation } from "../../models/conversations.js"
