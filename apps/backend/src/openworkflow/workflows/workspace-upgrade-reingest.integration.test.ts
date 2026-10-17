@@ -136,10 +136,29 @@ const noUsage = new Set<string>()
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 const modelCalls: string[] = []
 
+/**
+ * The file that a model step writes for a source repository. Each repository
+ * has its own path: two repositories that write one path conflict when one
+ * publish lands after the pin of the other run, and the conflict calls the
+ * merge model, which has no key in this file.
+ */
+function modelFile(repository: string) {
+  const name = (repository.split("/").pop() ?? "")
+    .replace(/\.git$/, "")
+    .replace(`-${suffix}`, "")
+  return {
+    path: `knowledge/services/${name}.md`,
+    content: `---\nkind: Service\nname: ${name}\n---\n# ${name}\n\nThe ${name} service sends invoices.\n`,
+  }
+}
+
 const server = setupServer(
   ...githubTokenHandlers(githubLog, () => "fixture-only-github-token"),
   http.post(MODEL_URL, async ({ request }) => {
-    const body = (await request.json()) as { workspaceId: string }
+    const body = (await request.json()) as {
+      workspaceId: string
+      args: string[]
+    }
     modelCalls.push(body.workspaceId)
     const costUsd = stepCostUsd.get(body.workspaceId)
     return HttpResponse.json({
@@ -154,11 +173,7 @@ const server = setupServer(
             },
           }),
       files: [
-        {
-          path: "knowledge/services/billing-api.md",
-          content:
-            "---\nkind: Service\nname: billing-api\n---\n# billing-api\n\nThe billing-api service sends invoices.\n",
-        },
+        modelFile(body.args[body.args.indexOf("--source-url") + 1] ?? ""),
       ],
     })
   }),
@@ -790,6 +805,17 @@ it(
         ],
       },
     })
+    // A publish of the first repository can land after the pin of the new
+    // run: the cost cap can cancel that run after its push. Force that
+    // order: the new run publishes on a default branch that moved.
+    const work = mkdtempSync(join(folder, "late-"))
+    git(work, "clone", "-q", join(remotes, contexts[2] ?? ""), ".")
+    const late = modelFile(capSources[0] ?? "")
+    mkdirSync(dirname(join(work, late.path)), { recursive: true })
+    writeFileSync(join(work, late.path), late.content)
+    git(work, "add", "-A")
+    git(work, "commit", "-q", "-m", "A late publish of the first repository")
+    git(work, "push", "-q", "origin", "HEAD:main")
     expect(await start(capped)).toMatchObject({ kind: "queued" })
     expect(await settled(capped)).toMatchObject({
       status: "completed",
