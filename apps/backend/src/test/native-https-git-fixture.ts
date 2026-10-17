@@ -389,24 +389,17 @@ async function waitForListener(
   host: string,
   port: number,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000
-  let lastProbeError = "<none>"
+  // The server writes {"port":N} to stdout from its listen callback, so the log
+  // line is the readiness signal. A node start inside a busy nested daemon can
+  // take longer than any short probe window, and each exec probe is slow too.
+  const deadline = Date.now() + 60_000
   while (true) {
-    try {
-      await runExec(container, [
-        "node",
-        "-e",
-        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(1000);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",(e)=>{console.error(e.code??e.message);process.exit(1)});socket.once("timeout",()=>{console.error("connect timeout");process.exit(1)})`,
-      ])
-      return
-    } catch (error) {
-      lastProbeError = String(error)
-    }
     const info = await container.inspect()
     const logs = (await container.logs({ stdout: true, stderr: true }))
       .toString()
       .replaceAll(/[^\x20-\x7e\n]/g, "")
       .trim()
+    if (logs.includes(`{"port":${port}}`)) return
     if (!info.State.Running)
       throw new Error(
         `Native HTTPS Git fixture exited (code ${info.State.ExitCode}) before it listened on ${host}:${port}; server logs: ${logs || "<empty>"}`,
@@ -419,7 +412,7 @@ async function waitForListener(
         "awk '$4==\"0A\"{print $2}' /proc/net/tcp /proc/net/tcp6 | tr '\\n' ' '",
       ]).catch((error) => `<unreadable: ${String(error)}>`)
       throw new Error(
-        `Native HTTPS Git fixture did not listen on ${host}:${port} within 10s; last probe: ${lastProbeError}; server logs: ${logs || "<empty>"}; listening sockets: ${listeners}`,
+        `Native HTTPS Git fixture did not listen on ${host}:${port} within 60s; server logs: ${logs || "<empty>"}; listening sockets: ${listeners}`,
       )
     }
     await new Promise((resolve) => setTimeout(resolve, 100))
