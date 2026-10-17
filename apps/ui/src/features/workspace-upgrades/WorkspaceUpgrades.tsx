@@ -1,8 +1,17 @@
-import { IconGitPullRequest } from "@tabler/icons-react"
+import {
+  IconAlertTriangle,
+  IconArrowRight,
+  IconGitPullRequest,
+} from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import type { ReactNode } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
+import {
+  Disclosure,
+  DisclosureHeader,
+  DisclosurePanel,
+} from "@/components/ui/Disclosure"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Link as TextLink } from "@/components/ui/Link"
 import {
@@ -25,6 +34,8 @@ import {
   UPGRADE_STATUS_TAG,
   upgradeBlockedCopy,
   upgradeCanStart,
+  upgradeIsPending,
+  upgradeNotices,
   upgradeStartedMessage,
 } from "./upgrade-copy"
 
@@ -41,7 +52,8 @@ export function UpgradeItemCard(props: {
   estimate?: ReactNode
 }) {
   const { item, isAdmin, onStart, isStarting, estimate } = props
-  const stepsWithNotes = item.steps.filter((step) => step.report.length > 0)
+  const notices = upgradeNotices(item)
+  const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
     <li
       className="rounded-md border border-white/[0.06] px-4 py-3"
@@ -80,17 +92,69 @@ export function UpgradeItemCard(props: {
         </ol>
       ) : null}
 
-      {stepsWithNotes.length > 0 ? (
+      {notices.length > 0 ? (
         <div className="mt-3 rounded-md bg-white/[0.03] px-3 py-2">
           <p className="text-xs font-medium text-foreground">Notes</p>
-          <ul className="mt-1 flex flex-col gap-1 text-xs text-muted-foreground">
-            {stepsWithNotes.flatMap((step) =>
-              step.report.map((line, index) => (
-                <li key={`${step.format}-${index}`}>{line}</li>
-              )),
-            )}
+          <ul
+            className="mt-1.5 flex flex-col gap-1.5 text-xs"
+            aria-label={`Notes of ${item.title}`}
+          >
+            {notices.map((notice) => (
+              <li
+                key={`${notice.kind}-${notice.text}`}
+                className="flex items-start gap-2"
+              >
+                {notice.kind === "action" ? (
+                  <IconArrowRight
+                    className="mt-px size-3.5 shrink-0 text-foreground"
+                    aria-hidden
+                  />
+                ) : (
+                  <IconAlertTriangle
+                    className="mt-px size-3.5 shrink-0 text-amber-300"
+                    aria-hidden
+                  />
+                )}
+                <span
+                  className={
+                    notice.kind === "action"
+                      ? "text-foreground"
+                      : "text-muted-foreground"
+                  }
+                >
+                  <span className="sr-only">
+                    {notice.kind === "action" ? "Action: " : "Risk: "}
+                  </span>
+                  {notice.text}
+                </span>
+              </li>
+            ))}
           </ul>
         </div>
+      ) : null}
+
+      {stepsWithReport.length > 0 ? (
+        <Disclosure className="mt-2 -mx-2">
+          <DisclosureHeader>
+            <span className="text-xs text-muted-foreground">Details</span>
+          </DisclosureHeader>
+          <DisclosurePanel className="px-2">
+            <div className="flex flex-col gap-2 pb-1">
+              {stepsWithReport.map((step) => (
+                <div key={step.format}>
+                  <p className="text-xs text-foreground">
+                    Format {step.format}: {step.title}
+                  </p>
+                  <ul className="mt-1 flex flex-col gap-1 text-xs break-words text-muted-foreground">
+                    {step.report.map((line, index) => (
+                      <li key={`${step.format}-${index}`}>{line}</li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+          </DisclosurePanel>
+        </Disclosure>
       ) : null}
 
       {estimate ? (
@@ -209,6 +273,8 @@ export function WorkspaceUpgrades(props: {
   const loading = useSkeletonHold(upgradesQuery.isPending)
   const isAdmin = useIsOrgAdmin(orgSlug)
   const data = upgradesQuery.data
+  const pending = data?.items.filter(upgradeIsPending) ?? []
+  const applied = data?.items.filter((item) => !upgradeIsPending(item)) ?? []
 
   return (
     <section aria-labelledby="workspace-upgrades">
@@ -217,8 +283,8 @@ export function WorkspaceUpgrades(props: {
         Upgrades
       </h2>
       <p className="mt-1 text-xs text-muted-foreground">
-        An upgrade changes the layout of the Workspace repository. An owner or
-        admin starts each one. ctx| never changes your default branch.
+        Upgrades move your Workspace repository to the layout that this version
+        of ctx| reads. Nothing changes until you merge the pull request.
       </p>
       <div className="mt-3 flex flex-col gap-3">
         {loading ? (
@@ -242,13 +308,13 @@ export function WorkspaceUpgrades(props: {
             <p className="text-xs text-muted-foreground">
               {formatHealthLine(data.formatVersion, data.codeFormat)}
             </p>
-            {data.items.length === 0 ? (
+            {pending.length === 0 ? (
               <p className="text-sm text-muted-foreground">
                 No upgrades are pending.
               </p>
             ) : (
               <ul className="flex flex-col gap-3">
-                {data.items.map((item) => (
+                {pending.map((item) => (
                   <UpgradeItemRow
                     key={item.key}
                     item={item}
@@ -259,6 +325,29 @@ export function WorkspaceUpgrades(props: {
                 ))}
               </ul>
             )}
+            {applied.length > 0 ? (
+              <Disclosure className="-mx-2">
+                <DisclosureHeader>
+                  <span className="text-xs text-muted-foreground">History</span>
+                </DisclosureHeader>
+                <DisclosurePanel className="px-2">
+                  <ul
+                    className="flex flex-col gap-3 pt-1"
+                    aria-label="Applied upgrades"
+                  >
+                    {applied.map((item) => (
+                      <UpgradeItemRow
+                        key={item.key}
+                        item={item}
+                        orgSlug={orgSlug}
+                        workspaceSlug={workspaceSlug}
+                        isAdmin={isAdmin}
+                      />
+                    ))}
+                  </ul>
+                </DisclosurePanel>
+              </Disclosure>
+            ) : null}
           </>
         ) : null}
       </div>

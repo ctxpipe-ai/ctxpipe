@@ -7,6 +7,7 @@ import {
   upgradeBlockedCopy,
   upgradeCanStart,
   upgradeIsPending,
+  upgradeNotices,
   upgradeStartedMessage,
 } from "./upgrade-copy"
 
@@ -19,6 +20,32 @@ describe("upgrade copy", () => {
     expect(upgradeIsPending(item("awaiting_operator"))).toBe(true)
     expect(upgradeIsPending(item("pr_open"))).toBe(true)
     expect(upgradeIsPending(item("blocked"))).toBe(true)
+  })
+
+  it("shows each notice one time, actions first, and keeps report lines out", () => {
+    const risk = { kind: "risk" as const, text: "Some links are removed." }
+    const action = { kind: "action" as const, text: "Fix the sources file." }
+    const notices = upgradeNotices({
+      steps: [
+        {
+          format: 1,
+          title: "Export and sources",
+          commitSha: null,
+          report: ["notes/a.md: link 1 is removed."],
+          notices: [risk, action],
+        },
+        // A step of a run before notices has none.
+        { format: 2, title: "Sources", commitSha: null, report: ["x"] },
+        {
+          format: 3,
+          title: "Ownership",
+          commitSha: null,
+          report: [],
+          notices: [risk],
+        },
+      ],
+    })
+    expect(notices).toEqual([action, risk])
   })
 
   it("words the start toast for each item kind", () => {
