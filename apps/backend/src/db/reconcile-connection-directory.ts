@@ -9,8 +9,7 @@ import { connectionDirectory, connections } from "./schema/connections.js"
  * type. Code from before the directory writes `connections` only, so in each
  * rollback window and each deploy window the directory can miss a new
  * connection or keep a deleted one. Then webhooks drop with no error. Run it as
- * the table owner, which RLS does not filter. A second run changes no
- * identity.
+ * the table owner, which RLS does not filter. A second run changes no row.
  */
 export async function reconcileConnectionDirectory(
   pool: Pool,
@@ -55,6 +54,20 @@ export async function reconcileConnectionDirectory(
             forgeInstallationId: sql`excluded.forge_installation_id`,
             updatedAt: sql`excluded.updated_at`,
           },
+          // A row that already agrees keeps its updated_at, so a second
+          // migrate writes nothing.
+          setWhere: sql`(
+            ${connectionDirectory.orgId}, ${connectionDirectory.type},
+            ${connectionDirectory.githubInstallationId}, ${connectionDirectory.slackTeamId},
+            ${connectionDirectory.linearWorkspaceId}, ${connectionDirectory.notionWorkspaceId},
+            ${connectionDirectory.notionBotId}, ${connectionDirectory.forgeCloudId},
+            ${connectionDirectory.forgeInstallationId}
+          ) IS DISTINCT FROM (
+            excluded.org_id, excluded.type, excluded.github_installation_id,
+            excluded.slack_team_id, excluded.linear_workspace_id,
+            excluded.notion_workspace_id, excluded.notion_bot_id,
+            excluded.forge_cloud_id, excluded.forge_installation_id
+          )`,
         })
     }
     // After the upsert: this statement sees a connection that old code
@@ -66,7 +79,9 @@ export async function reconcileConnectionDirectory(
           tx
             .select({ id: connections.id })
             .from(connections)
-            .where(sql`${connections.id} = ${connectionDirectory.connectionId}`),
+            .where(
+              sql`${connections.id} = ${connectionDirectory.connectionId}`,
+            ),
         ),
       )
       .returning({ connectionId: connectionDirectory.connectionId })

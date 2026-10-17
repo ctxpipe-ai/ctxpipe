@@ -98,16 +98,31 @@ describeWithDatabase("reconcileConnectionDirectory (Postgres)", () => {
         type: "notion",
         notion_workspace_id: "ws-1",
       },
-      { ...empty, connection_id: ids.slack, type: "slack", slack_team_id: "T_NEW" },
+      {
+        ...empty,
+        connection_id: ids.slack,
+        type: "slack",
+        slack_team_id: "T_NEW",
+      },
     ]
       .map((row) => ({ ...row, org_id: orgId }))
       .sort((a, b) => a.connection_id.localeCompare(b.connection_id))
 
     await reconcileConnectionDirectory(owner)
     expect(await directory()).toEqual(expected)
+    const stamps = async () =>
+      (
+        await owner.query(
+          `SELECT connection_id, updated_at FROM connection_directory WHERE org_id = $1 ORDER BY connection_id`,
+          [orgId],
+        )
+      ).rows
+    const before = await stamps()
 
     await reconcileConnectionDirectory(owner)
     expect(await directory()).toEqual(expected)
+    // A second run writes nothing, not even updated_at.
+    expect(await stamps()).toEqual(before)
   })
 
   it("refuses a role that RLS filters, so it never empties the directory", async () => {
