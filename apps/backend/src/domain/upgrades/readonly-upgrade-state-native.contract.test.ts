@@ -31,6 +31,10 @@ it(
         `)
         expect(queued.rows[0]).toMatchObject({ runs: 1 })
 
+        // The fixture worker does not know the scan. If it claimed the scan
+        // run, it would put the run back for 5 s, then 10 s, and so on. Only
+        // the scan worker may claim it.
+        await f.worker.stop()
         const scan = defineWorkspaceUpgradeScan(GIT_UPGRADE_STEPS)
         f.runner.implementWorkflow(scan.spec, scan.fn)
         const scanWorker = f.runner.newWorker({ concurrency: 1 })
