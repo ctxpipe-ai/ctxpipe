@@ -8,7 +8,7 @@
 //      A settled wait is `findBy…`, `getBy…` (it throws when the element is missing), an awaited helper named `expect…`, `wait…` or `find…` (for example `expectWorkspaceFiles`), or a `waitFor` whose callback holds no absence check.
 //   4. A layout measure (`scrollWidth`, `clientWidth`, `getBoundingClientRect`) in a story with no earlier
 //      `await document.fonts.ready`. A font that loads later moves the text, so the size or position changes.
-// A line that ends with `// play-timing: ok <reason>` is exempt.
+// A line that ends with `// play-timing: ok <reason>`, or the line before one, is exempt.
 import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 
@@ -50,7 +50,9 @@ for (const file of files) {
   }
   const inWaitFor = (offset) => spans.some(([a, b]) => offset > a && offset < b)
   const lineOf = (offset) => text.slice(0, offset).split("\n").length
-  const exempt = (line) => /play-timing: ok/.test(lines[line - 1] ?? "")
+  // The formatter can move the marker from the end of `expect(` to the next line.
+  const exempt = (line) =>
+    /play-timing: ok/.test(`${lines[line - 1] ?? ""}\n${lines[line] ?? ""}`)
 
   for (const m of text.matchAll(
     /expect\(\s*await\s+[\w.]*\.find(?:All)?By\w*\(/g,
