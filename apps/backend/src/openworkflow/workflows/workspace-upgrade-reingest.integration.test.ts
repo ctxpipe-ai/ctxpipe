@@ -971,6 +971,22 @@ it(
       await expect
         .poll(legacyPaths, { timeout: 120_000, interval: 1_000 })
         .toEqual(["knowledge/services/gone-service.md"])
+      // Only the step in which the repository became done queued it. The
+      // later record steps changed no done mark.
+      const reprojects = (
+        await backend.listWorkflowRuns({ limit: 1_000 })
+      ).data.filter((workflowRun) => {
+        const queued = workflowRun.input as {
+          workspaceId?: string
+          reproject?: boolean
+        } | null
+        return (
+          workflowRun.workflowName === "workspace-hydrate" &&
+          queued?.workspaceId === overlay &&
+          queued.reproject === true
+        )
+      })
+      expect(reprojects).toHaveLength(1)
     } finally {
       await withOrgDbContext(org.id, (db) =>
         db.delete(objects).where(eq(objects.orgId, org.id)),

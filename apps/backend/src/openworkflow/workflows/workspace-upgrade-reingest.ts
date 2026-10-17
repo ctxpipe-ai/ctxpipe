@@ -3,6 +3,7 @@ import { parseEnv } from "../../config/env.js"
 import type { IngestionV2Input } from "../../domain/ingestion/ingestion-run.js"
 import {
   type ReingestRepositoryReport,
+  reingestedNames,
   UPGRADE_STATUSES,
   type UpgradeBlockedReason,
   upgradeJobId,
@@ -408,6 +409,11 @@ export function defineWorkspaceUpgradeReingest(
             >,
           ) =>
             step.run({ name }, async () => {
+              const before = fields.upgrade?.repositories
+                ? reingestedNames(
+                    (await getWorkspaceUpgradeRow(workspaceId, key))?.upgrade,
+                  )
+                : []
               const moved = await transitionWorkspaceUpgradeRow({
                 workspaceId,
                 key,
@@ -415,13 +421,14 @@ export function defineWorkspaceUpgradeReingest(
                 ownerRunId: run.id,
                 ...fields,
               })
-              // A repository that is done replaces its main-era knowledge.
-              // Hydrate projects the revision again, so that the overlay of
-              // that repository goes (the publish hydrate can come first).
+              // A repository that becomes done in this step replaces its
+              // main-era knowledge. Hydrate projects the revision again, so
+              // that the overlay of that repository goes (the publish
+              // hydrate can come first).
               if (
                 moved &&
-                fields.upgrade?.repositories?.some(
-                  (repository) => repository.status === "done",
+                reingestedNames(moved.upgrade).some(
+                  (name) => !before.includes(name),
                 ) &&
                 (await legacyKnowledgePaths(workspaceId)).size
               )
