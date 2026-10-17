@@ -1,12 +1,19 @@
 export type WriteStatusTone =
   | "writable"
+  | "pull_request"
   | "read_only"
   | "pending"
   | "check_failed"
 
+/**
+ * The write access label of a Workspace. `conversationWritable` is true when
+ * the default branch is protected but a conversation can still push its own
+ * branch and open a pull request: that is a normal state, not a fault.
+ */
 export function writeStatusLabel(
   status: string,
   readOnlyReason?: string | null,
+  conversationWritable?: boolean,
 ): {
   label: string
   tone: WriteStatusTone
@@ -32,6 +39,14 @@ export function writeStatusLabel(
       tone: "pending",
       description:
         "Checking whether the GitHub App can push to this repository",
+    }
+  }
+  if (status === "read_only" && conversationWritable) {
+    return {
+      label: "Changes by pull request",
+      tone: "pull_request",
+      description:
+        "The default branch is protected. A conversation pushes its own branch and opens a pull request.",
     }
   }
   return {

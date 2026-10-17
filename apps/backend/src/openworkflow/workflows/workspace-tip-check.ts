@@ -38,6 +38,7 @@ import {
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
 import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
+import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
@@ -123,6 +124,8 @@ export const workspaceTipCheck = defineWorkflow(
       const quietLog = { error: () => undefined }
       const writeStatusById = new Map<string, string>()
       const writeCommitsToEnqueue: EnqueueWorkspaceWriteCommitInput[] = []
+      /** The Workspaces whose stored write access changed, as `id:status`. */
+      const writeAccessChanges: string[] = []
       for (const workspace of workspaces) {
         const probe = await probeWorkspaceWriteAccess({
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
@@ -139,8 +142,15 @@ export const workspaceTipCheck = defineWorkflow(
           probe,
         })
         const claimed = await withOrgDbContext(input.orgId, async () => {
+          // An upgrade run that stopped without its result shows as
+          // `failed`. The upgrades read writes nothing, so this check does it.
+          await failStoppedUpgradeRun(workspace.id)
           if (!(await persistWriteStatus(workspace, write, input.orgId)))
             return []
+          // The scan reads the stored status to block or open the upgrades,
+          // so a change in write access must queue the scan again.
+          if (write.writeStatus !== workspace.writeStatus)
+            writeAccessChanges.push(`${workspace.id}:${write.writeStatus}`)
           // The format gate is on top of the stored probe result.
           const gated = withFormatWriteGate({
             ...write,
@@ -177,6 +187,20 @@ export const workspaceTipCheck = defineWorkflow(
       }
       for (const args of writeCommitsToEnqueue) {
         await enqueueWorkspaceWriteCommit(args, quietLog)
+      }
+      if (writeAccessChanges.length) {
+        // Import at the admission boundary: the scan module queues this
+        // workflow.
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workspace-upgrade-scan.js"
+        )
+        // The hour and the changes make the key: the same change in the
+        // same hour queues no second scan, so the tip check of that scan
+        // cannot loop.
+        await enqueueWorkspaceUpgradeScan({
+          orgId: input.orgId,
+          trigger: `write-access:${input.hour ?? new Date().toISOString().slice(0, 13)}:${writeAccessChanges.join(",")}`,
+        })
       }
       const updated: Array<{
         workspaceId: string

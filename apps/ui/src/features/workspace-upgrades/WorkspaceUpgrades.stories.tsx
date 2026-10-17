@@ -101,6 +101,23 @@ export const UpToDate: Story = {
   },
 }
 
+/** The section says in one line what an upgrade is and when it applies. */
+export const PurposeLine: Story = {
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Ready to start")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "Upgrades move your Workspace repository to the layout that this version of ctx| reads. Nothing changes until you merge the pull request.",
+        ),
+      ).toBeVisible(),
+    )
+  },
+}
+
 /** An admin sees Start. The click queues the item and shows the new status. */
 export const AdminStartsUpgrade: Story = {
   parameters: {
@@ -206,7 +223,20 @@ export const PullRequestOpen: Story = {
               format: 1,
               title: "Export and sources",
               commitSha: "a1b2c3d4e5f6",
-              report: ["2 sources could not move. They stay in place."],
+              report: [
+                "Not moved: a Slack connection. It has no Workspace.",
+                "Kept 219 knowledge item(s) from https://gitlab.example.com/acme/legacy in `knowledge/`. Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+              ],
+              notices: [
+                {
+                  kind: "risk",
+                  text: "ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+                },
+                {
+                  kind: "action",
+                  text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+                },
+              ],
             },
             {
               format: 2,
@@ -231,15 +261,63 @@ export const PullRequestOpen: Story = {
     await waitFor(async () => expect(canvas.getByText("a1b2c3d")).toBeVisible())
     await waitFor(async () =>
       expect(
-        canvas.getByText("2 sources could not move. They stay in place."),
-      ).toBeVisible(),
-    )
-    await waitFor(async () =>
-      expect(
         canvas.getByText("Merge the pull request to apply the upgrade."),
       ).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/**
+ * The card shows only the actions and the risks, the action first. The
+ * report lines, with their paths and counts, stay behind Details until the
+ * user opens it.
+ */
+export const NotesWithDetails: Story = {
+  parameters: PullRequestOpen.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const notes = () =>
+      within(canvas.getByRole("list", { name: "Notes of Upgrade to format 3" }))
+    await waitFor(async () =>
+      expect(await canvas.findByText("Waiting for merge")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        notes()
+          .getAllByRole("listitem")
+          .map((row) => row.textContent),
+      ).toEqual([
+        "Action: Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+        "Risk: ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+      ]),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Details" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByText(
+          "Not moved: a Slack connection. It has no Workspace.",
+        ),
+      ).not.toBeVisible(),
+    )
+
+    await userEvent.click(canvas.getByRole("button", { name: "Details" }))
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Not moved: a Slack connection. It has no Workspace."),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/^Kept 219 knowledge item/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Format 1: Export and sources")).toBeVisible(),
+    )
   },
 }
 
@@ -289,12 +367,7 @@ export const Blocked: Story = {
     const canvas = within(canvasElement)
     await waitFor(async () =>
       expect(
-        await canvas.findByText("This upgrade cannot start"),
-      ).toBeVisible(),
-    )
-    await waitFor(async () =>
-      expect(
-        canvas.getByText(/ctx\| needs write access through the GitHub App/),
+        await canvas.findByText("ctx| cannot open the upgrade pull request"),
       ).toBeVisible(),
     )
     await waitFor(async () =>
@@ -303,6 +376,140 @@ export const Blocked: Story = {
       ).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/** A remote that is not GitHub: the note names the cause, with no GitHub App text. */
+export const BlockedNotGithub: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "blocked",
+          blockedReason: "write_access",
+          note: "This remote is not GitHub. v1 can hydrate, search, and chat, but cannot commit or push. Relink to a GitHub repository the App can write.",
+        }),
+      ]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(/This remote is not GitHub/),
+      ).toBeVisible(),
+    )
+    expect(canvas.queryByText(/Connect the Workspace repository/)).toBeNull()
+  },
+}
+
+/** No reason and no note: the alert still says why, with no empty line. */
+export const BlockedWithoutReason: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([upgradeItemFixture({ status: "blocked" })]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("The upgrade cannot start")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText("ctx| cannot start this item now."),
+      ).toBeVisible(),
+    )
+  },
+}
+
+/** A blocked re-ingestion item, with no note from the server. */
+function blockedReingest(blockedReason: string) {
+  return withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture(
+        [
+          upgradeItemFixture({
+            key: "reingest-bundle",
+            kind: "reingest",
+            title: "Fresh re-ingestion of the source repositories",
+            steps: [],
+            status: "blocked",
+            blockedReason,
+          }),
+        ],
+        { formatVersion: 3 },
+      ),
+    ),
+  )
+}
+
+/** The re-ingestion card never uses the pull request copy of a format upgrade. */
+async function expectReingestCard(canvasElement: HTMLElement, title: string) {
+  const canvas = within(canvasElement)
+  await waitFor(async () =>
+    expect(await canvas.findByText(title)).toBeVisible(),
+  )
+  await waitFor(() =>
+    expect(
+      canvas.getByText(/reads each source repository again/),
+    ).toBeVisible(),
+  )
+  expect(canvas.queryByText(/opens one pull request/)).toBeNull()
+  return canvas
+}
+
+export const ReingestBlockedOnWriteAccess: Story = {
+  parameters: blockedReingest("write_access"),
+  play: async ({ canvasElement }) => {
+    const canvas = await expectReingestCard(
+      canvasElement,
+      "ctx| cannot publish the re-ingestion",
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/write access through the GitHub App to publish/),
+      ).toBeVisible(),
+    )
+  },
+}
+
+export const ReingestNeedsFormat: Story = {
+  parameters: blockedReingest("needs_format"),
+  play: async ({ canvasElement }) => {
+    const canvas = await expectReingestCard(
+      canvasElement,
+      "Apply the format upgrade first",
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/needs a newer repository format/)).toBeVisible(),
+    )
+  },
+}
+
+export const ReingestSandboxUnavailable: Story = {
+  parameters: blockedReingest("sandbox_unavailable"),
+  play: async ({ canvasElement }) => {
+    const canvas = await expectReingestCard(
+      canvasElement,
+      "This deployment cannot run the re-ingestion",
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/no ingest sandbox/)).toBeVisible(),
+    )
+  },
+}
+
+export const ReingestIngestionV2Off: Story = {
+  parameters: blockedReingest("ingestion_v2_off"),
+  play: async ({ canvasElement }) => {
+    const canvas = await expectReingestCard(
+      canvasElement,
+      "The re-ingestion cannot run here yet",
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/valid format file/)).toBeVisible(),
+    )
   },
 }
 
@@ -320,6 +527,7 @@ export const ReadOnlyBelowFormat: Story = {
           key: "reingest-bundle",
           kind: "reingest",
           title: "Fresh re-ingestion of the source repositories",
+          steps: [],
           status: "blocked",
           blockedReason: "needs_format",
           note: "Re-ingestion needs format 3. ctx| needs write access through the GitHub App to open the format upgrade pull request.",
@@ -330,7 +538,12 @@ export const ReadOnlyBelowFormat: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(canvas.getAllByText("This upgrade cannot start")).toHaveLength(2),
+      expect(
+        canvas.getByText("ctx| cannot open the upgrade pull request"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Apply the format upgrade first")).toBeVisible(),
     )
     expect(canvas.queryByText(/No upgrades are pending/)).toBeNull()
     expect(
@@ -340,7 +553,11 @@ export const ReadOnlyBelowFormat: Story = {
   },
 }
 
-export const Completed: Story = {
+/**
+ * An applied upgrade leaves the list. It waits in History, which starts
+ * collapsed, so the section says only that the repository is up to date.
+ */
+export const HistoryWithAppliedUpgrade: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture([upgradeItemFixture({ status: "completed" })], {
@@ -351,9 +568,26 @@ export const Completed: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await waitFor(async () =>
-      expect(await canvas.findByText("Applied")).toBeVisible(),
+      expect(await canvas.findByText("No upgrades are pending.")).toBeVisible(),
     )
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "History" })).toHaveAttribute(
+        "aria-expanded",
+        "false",
+      ),
+    )
+    await waitFor(() => expect(canvas.queryByText("Applied")).not.toBeVisible())
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+
+    await userEvent.click(canvas.getByRole("button", { name: "History" }))
+    await waitFor(() => expect(canvas.getByText("Applied")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        within(
+          canvas.getByRole("list", { name: "Applied upgrades" }),
+        ).getByRole("heading", { name: "Upgrade to format 3" }),
+      ).toBeVisible(),
+    )
   },
 }
 

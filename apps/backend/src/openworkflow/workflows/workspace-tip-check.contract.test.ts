@@ -773,3 +773,60 @@ it(
     )
   },
 )
+
+/** The triggers of the upgrade scans that are queued for the org of the fixture. */
+async function upgradeScanTriggers(f: NativeHydrationFixture) {
+  const result = await getSystemDb().execute(sql`
+    select input->>'trigger' as trigger from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'workspace-upgrade-scan'
+      and input->>'orgId' = ${f.org.id}
+  `)
+  return (result.rows as Array<{ trigger: string }>).map((row) => row.trigger)
+}
+
+describe("cron write probe and the upgrade scan", () => {
+  it.each([
+    {
+      name: "read-only to writable (an admin fixed the access)",
+      stored: "read_only" as const,
+      github: { githubWriteView: "writable" as const },
+      next: "writable",
+    },
+    {
+      name: "writable to read-only (the App lost Contents: write)",
+      stored: "writable" as const,
+      github: {
+        githubWriteView: "writable" as const,
+        githubRepoPermissions: { push: false },
+        githubInstallationPermissions: { contents: "read" },
+      },
+      next: "read_only",
+    },
+  ])(
+    "queues the upgrade scan when the stored write access changes from $name",
+    { timeout: 60_000 },
+    async ({ stored, github, next }) => {
+      await withNativeHydrationFixture(
+        { github: true, writeStatus: stored, ...github },
+        async (f) => {
+          await f.publish()
+          // The hydrate also queues a scan for the new format, in its own
+          // step: count only the scans of a write access change.
+          const writeAccessScans = async () =>
+            (await upgradeScanTriggers(f)).filter((trigger) =>
+              trigger.startsWith("write-access:"),
+            )
+          expect(await writeAccessScans()).toEqual([])
+          await runTipCheck(f, "2026-10-17T01")
+          expect(await writeAccessScans()).toEqual([
+            `write-access:2026-10-17T01:${f.workspaceId}:${next}`,
+          ])
+          // The tip check of the scan sees no change: it queues no second scan.
+          await runTipCheck(f, "2026-10-17T01")
+          expect(await writeAccessScans()).toHaveLength(1)
+        },
+      )
+    },
+  )
+})

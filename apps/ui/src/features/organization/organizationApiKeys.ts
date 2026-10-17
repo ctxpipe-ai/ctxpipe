@@ -1,3 +1,5 @@
+import { userClient } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { authClient } from "@/lib/auth-client"
 
 const ORG_API_KEY_CONFIG_ID = "organization"
@@ -8,6 +10,12 @@ export type ApiKey = {
   name?: string | null
   start?: string | null
   expiresAt?: Date | string | null
+}
+
+export type PersonalApiKeyOrganization = {
+  id: string
+  slug: string
+  name: string
 }
 
 type ApiKeyOwner =
@@ -43,12 +51,21 @@ async function createApiKey(input: {
   owner: ApiKeyOwner
   name: string
   expiresIn: number | null
+  /** Personal keys: the org set. The backend writes it before it answers. */
+  organizationIds?: string[]
 }) {
   const created = (await authClient.apiKey.create({
     ...apiKeyOwnerFields(input.owner),
     name: input.name,
     expiresIn: input.expiresIn ?? undefined,
-    fetchOptions: { throw: true },
+    fetchOptions: {
+      throw: true,
+      headers: input.organizationIds
+        ? {
+            "x-ctxpipe-api-key-organizations": input.organizationIds.join(","),
+          }
+        : undefined,
+    },
   })) as ApiKey & { key?: string; id: string }
 
   if (input.expiresIn === null && created.id) {
@@ -81,8 +98,38 @@ export function listPersonalApiKeys() {
 export function createPersonalApiKey(input: {
   name: string
   expiresIn: number | null
+  organizationIds: string[]
 }) {
   return createApiKey({ ...input, owner: { kind: "personal" } })
+}
+
+/**
+ * The org set of each personal key, by key id. `null`: a key from before org
+ * sets, which reaches every organization of the user.
+ */
+export async function listPersonalApiKeyOrganizations(): Promise<
+  Map<string, PersonalApiKeyOrganization[] | null>
+> {
+  const res = await userClient.api.v1.me["api-keys"].$get()
+  const body = await readApiJson(res, {
+    message: "Could not load the organizations of the keys",
+  })
+  return new Map(body.keys.map((key) => [key.id, key.organizations]))
+}
+
+export async function setPersonalApiKeyOrganizations(input: {
+  keyId: string
+  organizationIds: string[]
+}) {
+  const res = await userClient.api.v1.me["api-keys"][
+    ":keyId"
+  ].organizations.$put({
+    param: { keyId: input.keyId },
+    json: { organizationIds: input.organizationIds },
+  })
+  await readApiJson(res, {
+    message: "Could not save the organizations",
+  })
 }
 
 export function deletePersonalApiKey(keyId: string) {

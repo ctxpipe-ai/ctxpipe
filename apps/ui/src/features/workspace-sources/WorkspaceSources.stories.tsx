@@ -5,6 +5,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
@@ -33,6 +34,8 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    // Only an owner or admin sees the pickers. A member story sets `role`.
+    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceSources>
@@ -404,9 +407,17 @@ export const PendingAdd: Story = {
     const group = within(section)
     await expect(group.getByText("1 awaiting merge")).toBeVisible()
     await expect(group.getByText("New source")).toBeVisible()
-    await expect(
-      group.getByRole("link", { name: "Awaiting merge" }),
-    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
+    // "Awaiting merge" reads as a link: it names the pull request on GitHub,
+    // and its icon shows that it leaves the app.
+    const link = group.getByRole("link", {
+      name: "Awaiting merge. Opens the pull request on GitHub in a new tab.",
+    })
+    await expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/5",
+    )
+    await expect(link).toHaveAttribute("target", "_blank")
+    await expect(link.querySelector("svg")).not.toBeNull()
   },
 }
 
@@ -510,13 +521,15 @@ export const AwaitingMerge: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const links = await canvas.findAllByRole("link", { name: "Awaiting merge" })
+    const links = await canvas.findAllByRole("link", {
+      name: /^Awaiting merge\./,
+    })
     await expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "https://github.com/acme/docs/pull/3",
       "https://github.com/acme/docs/pull/5",
     ])
     await expect(
-      canvas.getByRole("link", { name: "Removal awaiting merge" }),
+      canvas.getByRole("link", { name: /^Removal awaiting merge\./ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/4")
     await expect(canvas.getByText("New source")).toBeVisible()
   },
@@ -572,6 +585,7 @@ export const ScrollsToSourceAnchor: Story = {
       canvasElement.querySelector<HTMLElement>("#source-confluence")
     if (!root || !section) throw new Error("Missing scroll root or section")
     await waitFor(() => expect(root.scrollTop).toBeGreaterThan(0))
+    await document.fonts.ready
     const offset =
       section.getBoundingClientRect().top - root.getBoundingClientRect().top
     await expect(Math.abs(offset)).toBeLessThan(40)
@@ -885,6 +899,11 @@ export const AddSendsChange: Story = {
           scope: { repository: "acme/api" },
         },
       },
+    })
+    // The toast keeps its action, which opens the pull request. The toast
+    // renders in a portal, so query it from the document body.
+    await within(canvasElement.ownerDocument.body).findByRole("button", {
+      name: "View pull request",
     })
   },
 }
@@ -1419,7 +1438,7 @@ export const PendingRename: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("link", { name: "Rename awaiting merge" }),
+        canvas.getByRole("link", { name: /^Rename awaiting merge\./ }),
       ).toHaveAttribute("href", "https://github.com/acme/docs/pull/8"),
     )
     await expect(
@@ -1570,5 +1589,175 @@ export const AddWithFileName: Story = {
       method: "POST",
       body: { path: "sources/linear/eng-issues.md" },
     })
+  },
+}
+
+const linkedRepository = (
+  name: string,
+  sha: { desired: string | null; indexed: string | null },
+) => ({
+  id: `lnk_${name}`,
+  workspaceId: "ws_story1",
+  gitUrl: `https://github.com/acme/${name}.git`,
+  desiredRef: null,
+  desiredSha: sha.desired,
+  indexedSha: sha.indexed,
+  createdAt: "2026-10-01T10:00:00.000Z",
+})
+
+/** Each repository status explains itself on hover and on keyboard focus. */
+export const StatusExplainsItself: Story = {
+  args: {
+    linkedRepositories: [
+      linkedRepository("api", { desired: null, indexed: null }),
+      linkedRepository("web", { desired: "def", indexed: "abc" }),
+      linkedRepository("cli", { desired: "abc", indexed: "abc" }),
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+                  scopeSummary: "3 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    // The tip renders in a portal. It is the only tip open at one time.
+    const tip = () =>
+      document.body.querySelector<HTMLElement>('[data-slot="tooltip-content"]')
+    // A pointer user sees the tip on hover.
+    await userEvent.hover(list.getByText("Indexing"))
+    await waitFor(() => {
+      expect(tip()).toBeVisible()
+      expect(tip()).toHaveTextContent(
+        "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
+      )
+    })
+    await userEvent.unhover(list.getByText("Indexing"))
+    await waitFor(() => expect(tip()).toBeNull())
+    // A keyboard user reaches the status with Tab, and focus shows the tip.
+    for (
+      let step = 0;
+      step < 20 && document.activeElement !== list.getByText("Pending");
+      step++
+    )
+      await userEvent.tab()
+    await waitFor(() => {
+      expect(list.getByText("Pending")).toHaveFocus()
+      expect(tip()).toHaveTextContent(
+        /^ctx\| has not read this repository yet\.$/,
+      )
+    })
+    // A screen reader gets the same text with the status.
+    await expect(
+      list.getByRole("button", {
+        name: "Pending ctx| has not read this repository yet.",
+      }),
+    ).toBeVisible()
+  },
+}
+
+/** The list requests of the picker that a member must not send. */
+const memberPickerReads: string[] = []
+const recordPickerRead = http.get(
+  ({ request }) =>
+    /\/api\/v1\/(connectors\/linear\/available-scopes|github\/installation\/repositories)$/.test(
+      new URL(request.url).pathname,
+    ),
+  ({ request }) => {
+    memberPickerReads.push(new URL(request.url).pathname)
+    return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+  },
+)
+
+/**
+ * A member can edit a source, but only an owner or admin can list the
+ * Linear teams and projects. The dialog asks for an admin and sends no list
+ * request.
+ */
+export const MemberEditAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Edit sources/linear/eng-issues.md",
+      }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByRole("heading", { name: "Edit Linear source" })
+    await dialog.findByText(/Ask an admin to choose what this source syncs/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: /Engineering/ }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
+  },
+}
+
+/** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
+export const MemberAddRepositoriesAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByText(/Ask an admin to add repositories/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("searchbox", { name: "Search GitHub repositories" }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
   },
 }

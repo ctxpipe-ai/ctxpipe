@@ -16,7 +16,7 @@ import {
   validFromPersistFiles,
   validFromPersistRemainder,
 } from "../workspaces/hydrate-write-jobs.js"
-import type { GitUpgradeStep } from "./registry.js"
+import type { GitUpgradeStep, UpgradeNotice } from "./registry.js"
 
 type UpgradeTree = Parameters<GitUpgradeStep["plan"]>[0]
 type UpgradeContext = Parameters<GitUpgradeStep["plan"]>[1]
@@ -98,6 +98,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
     )
     const sourceFiles = await readSourceFiles(tree)
     const report: string[] = []
+    const notices: UpgradeNotice[] = []
     const content = new Map(markdown.map((file) => [file.path, file.content]))
     const writes = new Map<string, { path: string; content: string }>()
     const apply = (files: ReadonlyArray<{ path: string; content: string }>) => {
@@ -121,8 +122,17 @@ export const ownershipMigrationStep: GitUpgradeStep = {
           }),
         ),
         files: current().filter((file) => file.path.startsWith("knowledge/")),
-        onDroppedClaim: ({ path, index, reason }) =>
-          report.push(`${path}: claim ${index + 1} is removed. ${reason}.`),
+        onDroppedClaim: ({ path, index, reason }) => {
+          report.push(`${path}: claim ${index + 1} is removed. ${reason}.`)
+          notices.push({
+            kind: "risk",
+            text: "ctx| removed some claims that ingestion v2 cannot keep.",
+          })
+        },
+        onRemovedKeys: ({ path, keys }) =>
+          report.push(
+            `${path}: removed the front matter keys ${keys.map((key) => `\`${key}\``).join(", ")}. Ingestion v2 does not accept these keys or their values.`,
+          ),
       }),
     )
     const unkeyed = apply(importKeyCleanupFiles(current()))
@@ -177,6 +187,6 @@ export const ownershipMigrationStep: GitUpgradeStep = {
       report.push(
         "Updated the ctx| instructions for agents: AGENTS.md and the knowledge skill.",
       )
-    return { writes: [...writes.values()], deletes: [], report }
+    return { writes: [...writes.values()], deletes: [], report, notices }
   },
 }

@@ -49,7 +49,7 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-039](ADR-039-production-image-deploys-one-environment.md) | Production image deploys stay on one Railway environment | Accepted |
 | [ADR-040](ADR-040-pierre-files-pane-chrome.md) | Pierre trees/diffs as Workspace Files explorer chrome | Accepted |
 | [ADR-041](ADR-041-short-org-sql-unique-sandbox-rows.md) | Short org SQL transactions, no held connections | Accepted |
-| [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-16: one migrate entry point, role modes, rollback runbook) |
+| [ADR-042](ADR-042-postgres-rls-app-role.md) | Postgres RLS with a non-owner app role | Accepted (revised 2026-10-17: one migrate entry point, role modes, SQL-made hosted role, owner URL kept for rollback, directory reconcile) |
 | [ADR-043](ADR-043-workspace-chat-keep-alive-serve.md) | In-sandbox keep-alive OpenCode serve | Superseded by [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) |
 | [ADR-044](ADR-044-workspace-chat-stock-tanstack.md) | Stock TanStack workspace chat | Accepted |
 | [ADR-045](ADR-045-required-recovery-ci.md) | CI proves what ran | Accepted |

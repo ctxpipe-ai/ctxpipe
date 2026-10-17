@@ -1,3 +1,4 @@
+import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import type { OrgGuidePreferences } from "@/lib/user-preferences"
 
 /** Owners and admins get the admin rows. Members get the member rows. */
@@ -17,8 +18,8 @@ export type GuideSignals = {
   role: GuideRole
   githubLinked: boolean
   workspaceCount: number
-  /** The landing Workspace still builds its knowledge repository. */
-  landingBuilding: boolean
+  /** The build state of the landing Workspace; `null` with no Workspace. */
+  landingBuild: WorkspaceHydrateView | null
   /** The landing Workspace has at least one linked code repository. */
   linkedRepositories: boolean
   /** The user sent a message in a Workspace of this organization. */
@@ -34,8 +35,8 @@ export type GuideSignals = {
 export type GuideRow = {
   id: GuideRowId
   done: boolean
-  /** Workspace row only: the knowledge repository is still building. */
-  building?: boolean
+  /** Workspace row only: the build state of the first Workspace. */
+  build?: WorkspaceHydrateView
 }
 
 /** The rows of the guide. Each row counts toward progress. */
@@ -44,7 +45,7 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
   const workspace: GuideRow = {
     id: "workspace",
     done: hasWorkspace,
-    building: hasWorkspace && signals.landingBuilding,
+    build: hasWorkspace ? (signals.landingBuild ?? undefined) : undefined,
   }
   const ask: GuideRow = { id: "ask", done: signals.asked }
   if (signals.role === "member") {
@@ -67,7 +68,7 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
 /** The guide and the hints are for users who finished onboarding recently. */
 const GUIDE_WINDOW_MS = 14 * 24 * 60 * 60 * 1000
 
-/** True when `startedAt` (onboarding, or an organization's creation) is in the last 14 days. */
+/** True when `startedAt` (onboarding, an organization's creation, or its first Workspace) is in the last 14 days. */
 export function isWithinGuideWindow(
   startedAt: Date | string | null | undefined,
   now: number,
@@ -80,23 +81,40 @@ export function isWithinGuideWindow(
 type GuideStart = {
   onboardingCompletedAt: Date | string | null | undefined
   orgCreatedAt: Date | string | null | undefined
+  /** When the oldest Workspace of the organization was created. */
+  firstWorkspaceCreatedAt?: string
   now: number
 }
 
-/** The 14 days after the user's onboarding, or after the organization's creation. */
+/** The oldest `createdAt` of `workspaces`, or undefined when there is none. */
+export function oldestCreatedAt(
+  workspaces: readonly { createdAt: string }[],
+): string | undefined {
+  return workspaces
+    .map((workspace) => workspace.createdAt)
+    .sort((a, b) => Date.parse(a) - Date.parse(b))[0]
+}
+
+/**
+ * The 14 days after the user's onboarding, after the organization's
+ * creation, or after the first Workspace. The last one keeps the guide open
+ * when the user makes the first Workspace in an older organization.
+ */
 export function isGuideRecent(input: GuideStart): boolean {
   return (
     isWithinGuideWindow(input.onboardingCompletedAt, input.now) ||
-    isWithinGuideWindow(input.orgCreatedAt, input.now)
+    isWithinGuideWindow(input.orgCreatedAt, input.now) ||
+    isWithinGuideWindow(input.firstWorkspaceCreatedAt, input.now)
   )
 }
 
 /**
  * The guide is for a start: the recent days (`isGuideRecent`), and an
- * organization with no Workspace at any age.
+ * organization with no Workspace at any age. `workspaceCount` is null when
+ * the Workspace list did not load. Then only the recent days open the guide.
  */
 export function isGuideWindowOpen(
-  input: GuideStart & { workspaceCount: number },
+  input: GuideStart & { workspaceCount: number | null },
 ): boolean {
   return input.workspaceCount === 0 || isGuideRecent(input)
 }
@@ -124,7 +142,9 @@ export function guideView(input: {
   prefs: OrgGuidePreferences
   onboardingCompletedAt: Date | string | null | undefined
   orgCreatedAt: Date | string | null | undefined
-  workspaceCount: number
+  firstWorkspaceCreatedAt: string | undefined
+  /** Null when the Workspace list did not load. */
+  workspaceCount: number | null
   now: number
   /** When this app load started. */
   appBootAt: number

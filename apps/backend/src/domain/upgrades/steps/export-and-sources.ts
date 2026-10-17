@@ -1,5 +1,9 @@
 import { parseEnv } from "../../../config/env.js"
-import { loadKnowledgeProjectionSource } from "../../../models/workspace-export.js"
+import {
+  loadKnowledgeProjectionSource,
+  loadRepositoryWorkspaceMaps,
+  type RepositoryWorkspaceMaps,
+} from "../../../models/workspace-export.js"
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
 import { SourceChangeError } from "../../workspace-sources/edit.js"
@@ -33,6 +37,7 @@ import { normalizeWorkspaceRepositoryUrl } from "../../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../workspaces/write-status.js"
 import type {
   GitUpgradeStep,
+  UpgradeNotice,
   UpgradeStepPlan,
   UpgradeTreeReader,
 } from "../registry.js"
@@ -149,6 +154,7 @@ async function connectorSources(input: {
   deletes: string[]
   moves: Map<string, string>
   report: string[]
+  notices: UpgradeNotice[]
 }> {
   const hooks = Object.values(input.hooks)
   const env = parseEnv(process.env)
@@ -190,6 +196,14 @@ async function connectorSources(input: {
       (item) =>
         `Not moved: a ${PROVIDER_NAMES[item.provider]} connection. ${item.reason}.`,
     )
+  const notices: UpgradeNotice[] = report.length
+    ? [
+        {
+          kind: "action",
+          text: "Some connections did not move to this Workspace. Check the Sources of the Workspace after the merge.",
+        },
+      ]
+    : []
   let sourcesFile = input.sourcesFile
   try {
     for (const change of plan.changes.get(input.workspaceId) ?? []) {
@@ -208,6 +222,12 @@ async function connectorSources(input: {
       moves: new Map(),
       report: [
         `Not moved: the connection settings. \`${SOURCES_FILE_PATH}\` is not a valid version 1 file (${error.message}). Fix the file, then start the upgrade again.`,
+      ],
+      notices: [
+        {
+          kind: "action",
+          text: "The sources file of the Workspace is not valid, so ctx| did not move the connection settings. Fix the file, then start the upgrade again.",
+        },
       ],
     }
   }
@@ -251,6 +271,10 @@ async function connectorSources(input: {
         report.push(
           `Not moved: \`${move.from}\`. The tree already has \`${move.to}\`, so the old file stays. Compare the two files, then delete the old file.`,
         )
+        notices.push({
+          kind: "action",
+          text: "Some old connector files stay next to their new files. Compare each pair, then delete the old file.",
+        })
         continue
       }
       writes.push({
@@ -267,7 +291,7 @@ async function connectorSources(input: {
     report.push(
       `Moved ${deletes.length} old connector file(s) to the paths that their sources manage. Git keeps their history.`,
     )
-  return { sourcesFile, writes, deletes, moves, report }
+  return { sourcesFile, writes, deletes, moves, report, notices }
 }
 
 /**
@@ -301,8 +325,10 @@ export async function formatOneLinkedRepositories(input: {
   /** The text of `.ctxpipe/sources.yaml`, or null when it is absent. */
   sourcesFile: string | null
   repositoryFiles: ReadonlyArray<{ path: string; content: string }>
+  /** The maps when the caller has them. Else it reads only the maps, not the knowledge store. */
+  source?: RepositoryWorkspaceMaps
 }) {
-  const source = await loadKnowledgeProjectionSource()
+  const source = input.source ?? (await loadRepositoryWorkspaceMaps())
   const linkedUrls = migrationLinkedRepositoryUrls({
     workspaceId: input.workspaceId,
     firstWorkspaceId: source.firstWorkspaceId,
@@ -328,7 +354,7 @@ export async function formatOneLinkedRepositories(input: {
       connectionId: connectionByUrl.get(gitUrl) ?? null,
     })),
   })
-  return { source, linkedUrls, linkedRepositories }
+  return { linkedUrls, linkedRepositories }
 }
 
 export function exportAndSourcesStep(
@@ -365,20 +391,24 @@ export function exportAndSourcesStep(
             content: (await tree.read(path)) ?? "",
           })),
       )
-      const { source, linkedUrls, linkedRepositories } =
+      const source = await loadKnowledgeProjectionSource()
+      const { linkedUrls, linkedRepositories } =
         await formatOneLinkedRepositories({
           workspaceId: ctx.workspaceId,
           connectionId,
           sourcesFile,
           repositoryFiles,
+          source,
         })
       const report: string[] = []
+      const notices: UpgradeNotice[] = []
       const label = (object: ExportObjectRow) =>
         `"${objectTitleFromPayload(object.payload)}" (${object.deduplicationKey ?? object.id})`
 
       // With no first Workspace, no Workspace gets the org repositories and
       // their knowledge. Each Workspace names them.
       if (!source.firstWorkspaceId) {
+        const before = report.length
         for (const [id, gitUrl] of source.repositoryGitUrlById)
           if (!source.workspaceByRepositoryId.has(id))
             report.push(
@@ -396,6 +426,11 @@ export function exportAndSourcesStep(
             report.push(
               `Not exported: ${label(object)}. The org has no first Workspace, so no Workspace gets this item.`,
             )
+        if (report.length > before)
+          notices.push({
+            kind: "risk",
+            text: "The organization has no first Workspace, so some repositories and their knowledge go to no Workspace.",
+          })
       }
 
       // 1. GitHub repositories: the org repositories under their own GitHub
@@ -409,6 +444,11 @@ export function exportAndSourcesStep(
         report.push(`Removed \`${path}\`: its repository is now a source.`)
       for (const skipped of linkedRepositories.skipped)
         report.push(`Not linked: ${skipped.item}. ${skipped.reason}.`)
+      if (linkedRepositories.skipped.length)
+        notices.push({
+          kind: "risk",
+          text: "ctx| could not link some repositories as sources. Fresh ingestion does not read them.",
+        })
 
       // 2. The connection scopes.
       const connectors = await connectorSources({
@@ -428,6 +468,7 @@ export function exportAndSourcesStep(
         hooks,
       })
       report.push(...connectors.report)
+      notices.push(...connectors.notices)
 
       // 3. Only the knowledge that fresh ingestion cannot make again. An
       //    object is `github` only when the final sources text links its
@@ -535,23 +576,38 @@ export function exportAndSourcesStep(
         // stays, and the export takes a new file name.
         classifyUnkeyed: async () => "new_name",
       })
-      if (knowledge.files.length)
+      if (knowledge.files.length && keptByRepository.size) {
         for (const [url, { count, reason }] of [...keptByRepository].sort())
           report.push(
             `Kept ${count} knowledge item(s) from ${url} in \`knowledge/\`. ${reason}`,
           )
+        notices.push({
+          kind: "risk",
+          text: "ctx| kept some knowledge as files, because fresh ingestion cannot make it again. Do not delete these files.",
+        })
+      }
       for (const link of knowledge.droppedLinks)
         report.push(
           `Dropped a link: ${label(link.from)} ${link.predicate} ${link.to ? label(link.to) : "an item that this Workspace does not get"}. After the upgrade, no file of this Workspace holds the target.`,
         )
+      if (knowledge.droppedLinks.length)
+        notices.push({
+          kind: "risk",
+          text: "ctx| removed some links between knowledge items, because this Workspace does not get their target.",
+        })
       report.push(
         `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
       )
 
-      if (counts.deleted_repository)
+      if (counts.deleted_repository) {
         report.push(
           `Not exported: ${counts.deleted_repository} item(s) from a deleted repository. The org does not have the repository any more, so no source reads it.`,
         )
+        notices.push({
+          kind: "risk",
+          text: "Knowledge from a deleted repository is not exported.",
+        })
+      }
 
       const writes: UpgradeStepPlan["writes"] = [...knowledge.files]
       if (sourcesText !== null && sourcesText !== sourcesFile)
@@ -561,6 +617,7 @@ export function exportAndSourcesStep(
         writes,
         deletes: [...linkedRepositories.deletePaths, ...connectors.deletes],
         report,
+        notices,
       }
     },
   }

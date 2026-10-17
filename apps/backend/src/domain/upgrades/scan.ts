@@ -48,7 +48,6 @@ import {
   workspaceSourceRepositories,
 } from "./reingest.js"
 import { formatOneLinkedRepositories } from "./steps/export-and-sources.js"
-import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
@@ -232,8 +231,10 @@ export async function scanWorkspaceUpgrade(input: {
   if (!github || workspace.writeStatus === "read_only")
     return record(UPGRADE_STATUSES.blocked, SCAN_OWNED, {
       blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
+      // The stored reason names the cause, also for a remote that is not
+      // GitHub.
       note:
-        (github ? workspace.readOnlyReason : null) ??
+        workspace.readOnlyReason ??
         "ctx| needs write access through the GitHub App to open the upgrade pull request.",
     })
   // A failed run waits for the operator to start it again.
@@ -348,7 +349,6 @@ export async function scanWorkspaceReingest(input: {
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
   const key = reingestUpgradeKey(input.bundle.name)
   await failStoppedUpgradeRun(workspace.id, key)
-  await stopOrphanedReingestRuns()
   await deleteSupersededUpgradeRows({
     workspaceId: workspace.id,
     key,

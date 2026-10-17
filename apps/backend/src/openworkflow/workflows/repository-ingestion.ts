@@ -1,28 +1,8 @@
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
-import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { resolveRepositoryRef } from "../../domain/codeIngestion/queue.js"
 import { isRepositoryGoneError } from "../../domain/codeIngestion/repositoryGone.js"
-import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
-import { captureRepositoryExtractionTarget } from "../../domain/workspaces/capture-repository-extraction.js"
-import {
-  extractionRetraction,
-  extractionRootsSchema,
-  partialRetractionPaths,
-  workspaceExtractionSchema,
-} from "../../domain/workspaces/extraction.js"
-import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-tree.js"
-import { repoRootInstructionOwner } from "../../graphs/codeIngestionGraph/nodes/extractInstructionUnits.js"
-import { identifyRoots } from "../../graphs/codeIngestionGraph/nodes/identifyRoots.js"
-import {
-  EXTRACTOR_VERSION,
-  runExtractKindForRoot,
-  runIdentifyPhaseForRoot,
-  stableRootStepId,
-} from "../../graphs/codeIngestionGraph/runExtractRoot.js"
-import type { CodeIngestionState } from "../../graphs/codeIngestionGraph/schemas.js"
-import { withIngestAgentContext } from "../../graphs/codeIngestionGraph/withIngestAgentContext.js"
 import {
   markRepositoryIndexingIssues,
   markRepositoryIndexingReady,
@@ -31,19 +11,7 @@ import {
   repositoryIngestionBlockedByDeletion,
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
-import {
-  deleteExtractionCapture,
-  deleteRepositoryExtractionCaptures,
-  type ExtractionCaptureKey,
-} from "../../models/repository-extraction-captures.js"
-import {
-  assertRepositoryIngestionRequest,
-  captureRepositoryIngestionRequest,
-} from "../../models/repository-ingestion-requests.js"
-import {
-  runWithLangfuseContext,
-  withLangfuseObservation,
-} from "../../observability/langfuse.js"
+import { captureRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
 import {
   createLogger,
   flushWorkflowLog,
@@ -55,7 +23,6 @@ import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { indexingOutcome } from "../indexing-outcome.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
 import { repositoryIndex } from "./repository-index.js"
-import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 
 const repositoryIngestionInputSchema = z.object({
   repositoryId: z.string().min(1),
@@ -66,14 +33,9 @@ const repositoryIngestionInputSchema = z.object({
   requestId: z.string().min(1).optional(),
   /** Checkpointed with connector writes so replay cannot switch installations. */
   githubConnectionId: z.string().nullable().optional(),
-  /** Ignore the last ingested commit: full codesearch mode plus the unobserved-evidence sweep. */
+  /** Ignore the last ingested commit: index in full codesearch mode. */
   fullReingest: z.boolean().optional(),
 })
-
-/** The extraction write job one repository-ingestion run publishes through. */
-export function extractionWriteJobId(repositoryIngestionRunId: string): string {
-  return `wjob_${repositoryIngestionRunId}_extract`
-}
 
 const REPOSITORY_INGESTION_STOPPED = {
   repositoryIngestionStopped: true,
@@ -103,13 +65,6 @@ function continueIngestion<T>(
 ): Exclude<T, typeof REPOSITORY_INGESTION_STOPPED> {
   if (isIngestionStopped(value)) throw new IngestionAborted()
   return value as Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>
-}
-
-const extractRetryPolicy = {
-  maximumAttempts: 3,
-  initialInterval: "30s" as const,
-  backoffCoefficient: 2,
-  maximumInterval: "2m" as const,
 }
 
 /** Milestone log inside `withLogger` — uses getLogger + immediate emit. */
@@ -256,15 +211,6 @@ export const repositoryIngestion = defineWorkflow(
               const fromHash = input.fullReingest
                 ? undefined
                 : (repository.lastIngestedHash ?? undefined)
-              const destination = await step.run(
-                { name: "capture-extraction-destination" },
-                () =>
-                  captureRepositoryExtractionTarget({
-                    orgId: input.orgId,
-                    repositoryUrl: repository.gitUrl,
-                    env: parseEnv(process.env),
-                  }),
-              )
               logWorkflowMilestone("repository-ingestion.repository-loaded", {
                 repositoryId: input.repositoryId,
                 lastIngestedHash: repository.lastIngestedHash,
@@ -359,331 +305,6 @@ export const repositoryIngestion = defineWorkflow(
                 changedPathsCount: reindexState.changedPaths?.length ?? 0,
                 deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
                 renamesCount: reindexState.renames?.length ?? 0,
-              })
-
-              logWorkflowMilestone("repository-ingestion.step.ingest.start", {
-                repositoryId: input.repositoryId,
-                targetHash: reindexState.targetHash ?? resolved.hash,
-              })
-
-              const partialPaths =
-                reindexState.ingestMode === "partial"
-                  ? partialRetractionPaths(reindexState)
-                  : null
-              const baseIngestState: CodeIngestionState = {
-                requestId,
-                repositoryId: input.repositoryId,
-                orgId: input.orgId,
-                githubConnectionId: githubConnectionId ?? undefined,
-                fromHash,
-                targetHash: reindexState.targetHash ?? resolved.hash,
-                indexedAt: reindexState.indexedAt,
-                ...(partialPaths
-                  ? {
-                      ingestMode: "partial",
-                      changedPaths: reindexState.changedPaths,
-                      deletedPaths: reindexState.deletedPaths,
-                      renames: reindexState.renames,
-                    }
-                  : { ingestMode: "full" }),
-                roots: [],
-                extractedObjects: [],
-                extractedClaims: [],
-              }
-
-              const captureKey: ExtractionCaptureKey = {
-                orgId: input.orgId,
-                repositoryId: input.repositoryId,
-                sourceSha: baseIngestState.targetHash,
-                // A partial capture holds only the changed paths since its base commit.
-                scope:
-                  baseIngestState.ingestMode === "partial"
-                    ? `since:${baseIngestState.fromHash ?? ""}`
-                    : "full",
-                extractorVersion: EXTRACTOR_VERSION,
-              }
-              if (input.fullReingest)
-                // A full re-index extracts each root again; it reuses no stored root.
-                await step.run({ name: "discard-extraction-capture" }, () =>
-                  deleteExtractionCapture(captureKey),
-                )
-
-              const workflowRunId = run?.id ?? "unknown"
-              const ingestionRunId = `repository-ingestion:${workflowRunId}`
-              const baseLangfuseMetadata = {
-                workflow: "repository-ingestion",
-                ingestionRunId,
-                workflowRunId,
-                repositoryId: input.repositoryId,
-                orgId: input.orgId,
-                targetHash: baseIngestState.targetHash,
-                fromHash: baseIngestState.fromHash ?? null,
-                ingestMode: baseIngestState.ingestMode ?? null,
-                rootId: null,
-                root: null,
-              }
-              const langfuseAttrs = {
-                sessionId: ingestionRunId,
-                tags: ["repository-ingestion"],
-                traceMetadata: baseLangfuseMetadata,
-              }
-
-              const extractResult = destination
-                ? await runWithLangfuseContext(langfuseAttrs, async () => {
-                    const rootsPartial = await step.run(
-                      {
-                        name: "identify-roots",
-                        retryPolicy: extractRetryPolicy,
-                      },
-                      () =>
-                        wls("identify-roots", () =>
-                          withLangfuseObservation(
-                            {
-                              name: "repository-ingestion.identify-roots",
-                              input: {
-                                repositoryId: input.repositoryId,
-                                targetHash: baseIngestState.targetHash,
-                              },
-                              metadata: {
-                                ...baseLangfuseMetadata,
-                                workflowStepName: "identify-roots",
-                                rootId: null,
-                                root: null,
-                              },
-                            },
-                            () =>
-                              withIngestAgentContext(
-                                {
-                                  ...langfuseAttrs,
-                                  source: {
-                                    orgId: input.orgId,
-                                    repositoryId: input.repositoryId,
-                                    sha: resolved.hash,
-                                  },
-                                  runName:
-                                    "repository-ingestion.identify-roots",
-                                  metadata: {
-                                    workflowStepName: "identify-roots",
-                                    rootId: null,
-                                    root: null,
-                                  },
-                                },
-                                () => identifyRoots(baseIngestState),
-                              ),
-                          ),
-                        ),
-                    )
-
-                    const roots = extractionRootsSchema.parse(
-                      rootsPartial.roots ?? [],
-                    )
-                    const repoRootOwner = repoRootInstructionOwner(roots)
-                    logWorkflowMilestone(
-                      "repository-ingestion.step.identify-roots.done",
-                      {
-                        repositoryId: input.repositoryId,
-                        rootsCount: roots.length,
-                        roots,
-                      },
-                    )
-
-                    let extractedObjectsCount = 0
-                    let extractedClaimsCount = 0
-                    let skippedFiles = 0
-                    // Two roots at a time bound provider fan-out before the next batch is allocated.
-                    for (let offset = 0; offset < roots.length; offset += 2) {
-                      const rootExtractResults = await Promise.all(
-                        roots.slice(offset, offset + 2).map(async (root) => {
-                          const rootId = stableRootStepId(root)
-                          const kindPartial = await step.run(
-                            {
-                              name: `extract-kind:${rootId}`,
-                              retryPolicy: extractRetryPolicy,
-                            },
-                            () =>
-                              wls(`extract-kind:${rootId}`, () =>
-                                withLangfuseObservation(
-                                  {
-                                    name: "repository-ingestion.extract-kind",
-                                    input: { rootId, root },
-                                    metadata: {
-                                      ...baseLangfuseMetadata,
-                                      workflowStepName: `extract-kind:${rootId}`,
-                                      rootId,
-                                      root,
-                                    },
-                                  },
-                                  () =>
-                                    withIngestAgentContext(
-                                      {
-                                        ...langfuseAttrs,
-                                        source: {
-                                          orgId: input.orgId,
-                                          repositoryId: input.repositoryId,
-                                          sha: resolved.hash,
-                                        },
-                                        runName:
-                                          "repository-ingestion.extract-kind",
-                                        metadata: {
-                                          workflowStepName: `extract-kind:${rootId}`,
-                                          rootId,
-                                          root,
-                                        },
-                                      },
-                                      () =>
-                                        runExtractKindForRoot(
-                                          baseIngestState,
-                                          root,
-                                          root === repoRootOwner,
-                                          captureKey,
-                                        ),
-                                    ),
-                                ),
-                              ),
-                          )
-
-                          // Coarsen identify_* into one durable step per root (kind
-                          // boundary stays durable). Avoids WORKFLOW_STEP_LIMIT blowups
-                          // on large monorepos while preserving extractKind-before-
-                          // identify ordering and cross-root parallelism.
-                          return step.run(
-                            {
-                              name: `identify:${rootId}`,
-                              retryPolicy: extractRetryPolicy,
-                            },
-                            () =>
-                              wls(`identify:${rootId}`, () =>
-                                withLangfuseObservation(
-                                  {
-                                    name: "repository-ingestion.identify",
-                                    input: { rootId, root },
-                                    metadata: {
-                                      ...baseLangfuseMetadata,
-                                      workflowStepName: `identify:${rootId}`,
-                                      rootId,
-                                      root,
-                                    },
-                                  },
-                                  () =>
-                                    withIngestAgentContext(
-                                      {
-                                        ...langfuseAttrs,
-                                        source: {
-                                          orgId: input.orgId,
-                                          repositoryId: input.repositoryId,
-                                          sha: resolved.hash,
-                                        },
-                                        runName:
-                                          "repository-ingestion.identify",
-                                        metadata: {
-                                          workflowStepName: `identify:${rootId}`,
-                                          rootId,
-                                          root,
-                                        },
-                                      },
-                                      () =>
-                                        runIdentifyPhaseForRoot(
-                                          baseIngestState,
-                                          root,
-                                          root === repoRootOwner,
-                                          kindPartial,
-                                          captureKey,
-                                        ),
-                                    ),
-                                ),
-                              ),
-                          )
-                        }),
-                      )
-
-                      for (const counts of rootExtractResults) {
-                        extractedObjectsCount += counts.objects
-                        extractedClaimsCount += counts.claims
-                        skippedFiles += counts.skippedFiles
-                      }
-                    }
-                    return {
-                      roots,
-                      extractedObjectsCount,
-                      extractedClaimsCount,
-                      skippedFiles,
-                    }
-                  })
-                : {
-                    roots: [],
-                    extractedObjectsCount: 0,
-                    extractedClaimsCount: 0,
-                    skippedFiles: 0,
-                  }
-
-              const {
-                roots,
-                extractedObjectsCount,
-                extractedClaimsCount,
-                skippedFiles,
-              } = extractResult
-              if (destination) {
-                await assertRepositoryIngestionRequest({
-                  ...input,
-                  requestId,
-                  repositoryUrl: repository.gitUrl,
-                  githubConnectionId: repository.githubConnectionId,
-                })
-                const extraction = workspaceExtractionSchema.parse({
-                  ingestionRequestId: requestId,
-                  repositoryId: input.repositoryId,
-                  repositoryUrl: repository.gitUrl,
-                  sourceSha: captureKey.sourceSha,
-                  sourceDeclaration: destination.sourceDeclaration,
-                  retraction: extractionRetraction({
-                    partialPaths,
-                    observedAt:
-                      reindexState.indexedAt ?? run.createdAt.toISOString(),
-                    skippedFiles,
-                  }),
-                  capture: {
-                    scope: captureKey.scope,
-                    extractorVersion: captureKey.extractorVersion,
-                    roots,
-                  },
-                })
-                // A destination at format 3 or more gets ingestion v2
-                // (ADR-052 phase 4, G5). The old pipeline does not write
-                // there: its writes would take the files back from v2. The
-                // job reads the format again from the tree that it pushes on.
-                const destinationFormat = await step.run(
-                  { name: "read-destination-format" },
-                  () =>
-                    readWorkspaceFormatAt({
-                      orgId: input.orgId,
-                      env: parseEnv(process.env),
-                      revision: destination.revision,
-                    }),
-                )
-                if (workspacePublishPipeline(destinationFormat) === "legacy")
-                  await step.runWorkflow(
-                    workspaceExtractIngest.spec,
-                    {
-                      orgId: input.orgId,
-                      workspaceId: destination.workspaceId,
-                      revision: destination.revision,
-                      jobId: extractionWriteJobId(run.id),
-                      extraction,
-                    },
-                    { name: "publish-extracted-knowledge" },
-                  )
-                await step.run({ name: "delete-extraction-capture" }, () =>
-                  deleteRepositoryExtractionCaptures(captureKey, run.createdAt),
-                )
-              }
-
-              logWorkflowMilestone("repository-ingestion.extract.complete", {
-                repositoryId: input.repositoryId,
-                orgId: input.orgId,
-                targetHash: reindexState.targetHash ?? resolved.hash,
-                rootsCount: roots.length,
-                extractedObjectsCount,
-                extractedClaimsCount,
               })
 
               const result = {

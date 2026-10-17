@@ -9,10 +9,15 @@ import {
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceNavList } from "./WorkspaceNavList"
@@ -149,6 +154,8 @@ export const AddWorkspaceThenRepositories: Story = {
     msw: {
       handlers: {
         page: [
+          // Only an owner or admin sees the repository picker.
+          activeMemberRoleHandler("owner"),
           workspaceListHandler([docsWorkspace]),
           conversationsListHandler(docsConversations),
           orgConnectionsHandler([
@@ -158,6 +165,7 @@ export const AddWorkspaceThenRepositories: Story = {
           workspaceCreateHandler(createdWorkspace),
           workspaceDetailHandler(createdWritableWorkspaceDetail),
           workspaceSourcesHandler(workspaceSourceList()),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
         ],
       },
     },

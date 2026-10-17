@@ -1,12 +1,12 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { expect, waitFor, within } from "storybook/test"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
+  pendingWorkspaceUpgradesHandler,
   upgradeItemFixture,
-  upgradesFixture,
-  workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
@@ -35,12 +35,13 @@ const meta = {
 export default meta
 
 const answered: string[] = []
+const perWorkspaceReads: string[] = []
 
 type Story = StoryObj<typeof meta>
 
 function homeHandlers(
   role: string,
-  upgrades: ReturnType<typeof workspaceUpgradesHandler>[],
+  upgrades: ReturnType<typeof pendingWorkspaceUpgradesHandler>,
 ) {
   return {
     msw: {
@@ -48,7 +49,12 @@ function homeHandlers(
         page: [
           activeMemberRoleHandler(role),
           ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
-          ...upgrades,
+          upgrades,
+          // The home reads the org once. A read of one Workspace fails the story.
+          http.get(/\/workspaces\/[^/]+\/upgrades$/, () => {
+            perWorkspaceReads.push("upgrades")
+            return HttpResponse.json({ error: "Not expected" }, { status: 500 })
+          }),
         ],
       },
     },
@@ -57,13 +63,20 @@ function homeHandlers(
 
 /** Only the Workspace with a pending item gets an alert. */
 export const AlertForPendingWorkspace: Story = {
-  parameters: homeHandlers("owner", [
-    workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()]), "docs"),
-    workspaceUpgradesHandler(
-      upgradesFixture([upgradeItemFixture({ status: "completed" })]),
-      "handbook",
+  parameters: homeHandlers(
+    "owner",
+    pendingWorkspaceUpgradesHandler(
+      {
+        docs: [upgradeItemFixture()],
+        handbook: [upgradeItemFixture({ status: "completed" })],
+      },
+      answered,
     ),
-  ]),
+  ),
+  beforeEach: () => {
+    answered.length = 0
+    perWorkspaceReads.length = 0
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const alert = await canvas.findByRole("alert")
@@ -84,20 +97,22 @@ export const AlertForPendingWorkspace: Story = {
         within(alert).getByRole("button", { name: "Review upgrades" }),
       ).toBeVisible(),
     )
+    // One read for the org, and no read for each Workspace.
+    expect(answered).not.toHaveLength(0)
+    expect(perWorkspaceReads).toEqual([])
   },
 }
 
 export const AlertForMember: Story = {
-  parameters: homeHandlers("member", [
-    workspaceUpgradesHandler(
-      upgradesFixture([
+  parameters: homeHandlers(
+    "member",
+    pendingWorkspaceUpgradesHandler({
+      docs: [
         upgradeItemFixture(),
         upgradeItemFixture({ key: "reingest", title: "Ingest again" }),
-      ]),
-      "docs",
-    ),
-    workspaceUpgradesHandler(upgradesFixture([]), "handbook"),
-  ]),
+      ],
+    }),
+  ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const alert = await canvas.findByRole("alert")
@@ -120,13 +135,10 @@ function singleItemStory(
   text: string,
 ): Story {
   return {
-    parameters: homeHandlers("owner", [
-      workspaceUpgradesHandler(
-        upgradesFixture([upgradeItemFixture(item)]),
-        "docs",
-      ),
-      workspaceUpgradesHandler(upgradesFixture([]), "handbook"),
-    ]),
+    parameters: homeHandlers(
+      "owner",
+      pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture(item)] }),
+    ),
     play: async ({ canvasElement }) => {
       const canvas = within(canvasElement)
       const alert = await canvas.findByRole("alert")
@@ -164,14 +176,13 @@ export const AlertForBlockedUpgrade = singleItemStory(
 
 /** No pending item in any Workspace: no alert. */
 export const NoAlertWhenNothingPending: Story = {
-  parameters: homeHandlers("owner", [
-    workspaceUpgradesHandler(
-      upgradesFixture([upgradeItemFixture({ status: "completed" })]),
-      "docs",
+  parameters: homeHandlers(
+    "owner",
+    pendingWorkspaceUpgradesHandler(
+      { docs: [upgradeItemFixture({ status: "completed" })] },
       answered,
     ),
-    workspaceUpgradesHandler(upgradesFixture([]), "handbook", answered),
-  ]),
+  ),
   beforeEach: () => {
     answered.length = 0
   },
@@ -180,8 +191,8 @@ export const NoAlertWhenNothingPending: Story = {
     await waitFor(async () =>
       expect(await canvas.findByText("Activity")).toBeVisible(),
     )
-    // Both lists must be answered before the check, or it passes too early.
-    await waitFor(() => expect(answered).toHaveLength(2))
+    // The read must be answered before the check, or it passes too early.
+    await waitFor(() => expect(answered).toHaveLength(1))
     await waitFor(() => expect(canvas.queryByText(/to finish/)).toBeNull())
   },
 }

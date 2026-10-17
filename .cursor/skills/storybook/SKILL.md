@@ -90,7 +90,7 @@ Keep security and request-contract assertions in focused Vitest tests. Use
 
 ## Play timing
 
-- Before a play measures layout (sizes or positions), run `await document.fonts.ready`.
+- Before a play measures layout (sizes or positions), run `await document.fonts.ready`. The play-timing guard fails a story that reads `scrollWidth`, `clientWidth`, or `getBoundingClientRect` before that line.
 - Assert visibility or style inside `waitFor(() => expect(...))`. Do not assert right after `findBy...`. A fade or a re-render can then not fail the check.
 - Never keep an element from `findBy...` or `getBy...` in a variable and check it after an `await userEvent...`. A re-render can replace the node. Query it again inside `waitFor`.
 - To close a dialog, press Close inside `waitFor` and wait until the dialog is gone. A press on a node that a re-render replaced is lost.

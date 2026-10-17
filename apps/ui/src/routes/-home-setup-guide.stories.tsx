@@ -5,10 +5,14 @@ import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
 import {
+  createdWorkspace,
+  createdWritableWorkspaceDetail,
   docsWorkspace,
   docsWorkspaceDetail,
   emptyLinkedWorkspaceDetail,
+  failedHydrateWorkspace,
   hydratingWorkspace,
+  waitingForTipWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 import {
   authConfigHandler,
@@ -18,16 +22,24 @@ import {
   sessionSignedInHandler,
 } from "@/mocks/handlers"
 import {
+  githubInstallationReposHandler,
   orgActivityHandler,
   workspaceDetailHandler,
   workspaceListHandler,
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
+import {
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const daysAgo = (days: number) =>
+  new Date(Date.now() - days * DAY_MS).toISOString()
 const userId = "user_storybook"
 const authBase = "*/.auth/api/v1/auth"
 
@@ -147,9 +159,10 @@ function adminGuide(input: {
   ]
 }
 
-/** A new Workspace with no conversation of this user yet. */
+/** An old Workspace with no conversation of this user yet. */
 const quietWorkspace: Workspace = {
   ...docsWorkspace,
+  createdAt: new Date(Date.now() - 365 * DAY_MS).toISOString(),
   mostRecentConversationId: null,
 }
 const buildingWorkspace: Workspace = {
@@ -246,8 +259,11 @@ export const GuideAdminWorkspaceBuilding: Story = {
     const guide = await findGuide(canvasElement)
     expect(guide.getByText("2 of 6 done")).toBeVisible()
     expect(guide.getByText("Building")).toBeVisible()
+    expect(guide.getByText("· step 2 of 2")).toBeVisible()
     expect(
-      guide.getByText("You can ask questions while it builds."),
+      guide.getByText(
+        "Loading the files. You can ask questions while it builds.",
+      ),
     ).toBeVisible()
     expect(
       guide.getByRole("button", { name: "Link repositories" }),
@@ -256,6 +272,145 @@ export const GuideAdminWorkspaceBuilding: Story = {
     expect(
       within(canvasElement).getByLabelText("Select workspace"),
     ).toBeVisible()
+  },
+}
+
+const waitingWorkspace: Workspace = {
+  ...waitingForTipWorkspace,
+  mostRecentConversationId: null,
+}
+/** The first Workspace waits for the first commit: build step 1 of 2. */
+export const GuideAdminWorkspaceReadingRepository: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: { ...emptyLinkedWorkspaceDetail, ...waitingWorkspace },
+          }),
+          [waitingWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    expect(guide.getByText("2 of 6 done")).toBeVisible()
+    expect(guide.getByText("· step 1 of 2")).toBeVisible()
+    expect(guide.getByText("Reading the Workspace repository.")).toBeVisible()
+  },
+}
+
+const failedWorkspace: Workspace = {
+  ...failedHydrateWorkspace,
+  mostRecentConversationId: null,
+}
+/** The build of the first Workspace failed: the row says so and links to it. */
+export const GuideAdminWorkspaceBuildFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+            detail: { ...emptyLinkedWorkspaceDetail, ...failedWorkspace },
+          }),
+          [failedWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    expect(guide.getByText("2 of 6 done")).toBeVisible()
+    expect(guide.getByText("Build failed")).toBeVisible()
+    expect(guide.getByRole("button", { name: "See the error" })).toBeVisible()
+    expect(guide.queryByText("Building")).not.toBeInTheDocument()
+  },
+}
+
+const createState = { created: false }
+const workspacesPath = ({ request }: { request: Request }) =>
+  /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
+/**
+ * Step 2 of the guide: Create Workspace opens Add Workspace on Home. After
+ * "Done", the guide shows the build of the new Workspace.
+ */
+export const GuideAdminCreatesWorkspaceOnHome: Story = {
+  tags: ["workspace-golden"],
+  beforeEach: () => {
+    createState.created = false
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          http.get(workspacesPath, () =>
+            HttpResponse.json({
+              items: createState.created ? [createdWorkspace] : [],
+              lastUsedWorkspaceId: createState.created
+                ? createdWorkspace.id
+                : null,
+            }),
+          ),
+          http.post(workspacesPath, () => {
+            createState.created = true
+            return HttpResponse.json(createdWorkspace, { status: 201 })
+          }),
+          ...adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github", displayName: "acme" },
+            ]),
+            detail: createdWritableWorkspaceDetail,
+          }),
+          githubInstallationReposHandler(),
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgActivityHandler(),
+          ...workspaceShellHandlers({
+            workspaces: [createdWorkspace],
+            detail: createdWritableWorkspaceDetail,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("1 of 6 done")).toBeVisible())
+    await userEvent.click(
+      guide.getByRole("button", { name: "Create Workspace" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = within(
+      await body.findByRole("dialog", { name: "Add Workspace" }),
+    )
+    await userEvent.click(
+      await dialog.findByRole("radio", { name: /acme\/handbook/ }),
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Create Workspace" }),
+    )
+    await userEvent.click(await dialog.findByRole("button", { name: "Done" }))
+    await waitFor(() =>
+      expect(
+        body.queryByRole("dialog", { name: "Add Workspace" }),
+      ).not.toBeInTheDocument(),
+    )
+    // Home stays, and the guide shows the build of the new Workspace.
+    const after = await findGuide(canvasElement)
+    await waitFor(() => expect(after.getByText("2 of 6 done")).toBeVisible())
+    await waitFor(() =>
+      expect(
+        after.getByText("Reading the Workspace repository."),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -601,5 +756,62 @@ export const GuideEstablishedUserEmptyOrg: Story = {
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+  },
+}
+
+/**
+ * An older organization whose first Workspace is from the last 14 days: the
+ * guide stays, so it does not go away in the middle of the setup.
+ */
+export const GuideStaysAfterFirstWorkspace: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+          }),
+          [{ ...quietWorkspace, createdAt: daysAgo(1) }],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+  },
+}
+
+/**
+ * A member in an org with no Workspace: only an owner or admin can pick the
+ * repository, so the row asks for an admin and has no Create button.
+ */
+export const GuideMemberNoWorkspace: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: homeHandlers([roleHandler("member")], []),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(guide.getByText("Create your first Workspace")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        guide.getByText("Ask an admin to create a Workspace."),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        guide.queryByRole("button", { name: "Create Workspace" }),
+      ).not.toBeInTheDocument(),
+    )
   },
 }

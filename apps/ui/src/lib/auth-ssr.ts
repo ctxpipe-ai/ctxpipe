@@ -48,11 +48,12 @@ export async function fetchSsrSession(): Promise<SsrSession> {
     `${authBaseUrl()}/.auth/api/v1/auth/get-session`,
     init,
   )
-  const data = await readApiJson<SsrSession>(res, {
+  // TODO: Better Auth routes are outside the Hono client, so the body is unknown.
+  const data = (await readApiJson(res, {
     emptyOn: [401],
     empty: null,
     message: "Session check failed",
-  })
+  })) as SsrSession | null
   if (!data?.session || !data.user) return null
   return data
 }
@@ -68,10 +69,11 @@ export async function fetchSsrOrganizations(): Promise<SsrOrganization[]> {
     `${authBaseUrl()}/.auth/api/v1/auth/organization/list`,
     init,
   )
-  const data = await readApiJson<SsrOrganization[] | null>(res, {
+  // TODO: Better Auth routes are outside the Hono client, so the body is unknown.
+  const data = (await readApiJson(res, {
     emptyOn: [401],
     empty: [],
     message: "Organization list failed",
-  })
+  })) as SsrOrganization[] | null
   return Array.isArray(data) ? data : []
 }

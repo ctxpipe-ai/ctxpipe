@@ -8,9 +8,11 @@ import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
 import { TextField } from "@/components/ui/TextField"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   createWorkspaceSource,
   sourceChangeMessage,
@@ -56,7 +58,11 @@ export function SourceEditorDialog(props: {
   )
   const [name, setName] = useState("")
   const [description, setDescription] = useState(editing?.description ?? "")
-  const { ScopeEditor } = SOURCE_PROVIDER_UI[provider]
+  const { ScopeEditor, memberCanPick } = SOURCE_PROVIDER_UI[provider]
+  // Most editors list content through an admin-only route, so a member
+  // gets a note in place of the editor. While the role loads, a loader
+  // shows, so a member sends no list request.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const label = sourceProviderLabel(provider)
   const valid =
     connectionId != null &&
@@ -136,7 +142,11 @@ export function SourceEditorDialog(props: {
               ))}
             </Select>
           ) : null}
-          {connectionId ? (
+          {!connectionId ? (
+            <p className="text-sm text-muted-foreground">
+              Connect {label} on the Connectors page first.
+            </p>
+          ) : memberCanPick || isAdmin === true ? (
             <ScopeEditor
               key={connectionId}
               orgSlug={orgSlug}
@@ -145,10 +155,13 @@ export function SourceEditorDialog(props: {
               initialScope={editing?.scope ?? {}}
               onChange={setScope}
             />
-          ) : (
+          ) : isAdmin === false ? (
             <p className="text-sm text-muted-foreground">
-              Connect {label} on the Connectors page first.
+              Ask an admin to choose what this source syncs. Only an owner or
+              admin can list the {label} content.
             </p>
+          ) : (
+            <InlineLoader label={`Loading the ${label} options`} />
           )}
         </div>
         <div className="mt-4 flex flex-col gap-4">

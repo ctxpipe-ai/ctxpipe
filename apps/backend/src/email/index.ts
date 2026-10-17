@@ -29,11 +29,38 @@ export async function sendEmail(
   const html = await render(template)
   const text = await render(template, { plainText: true })
 
-  await transporter.sendMail({
-    from: env.EMAIL_FROM_ADDRESS,
-    to,
-    subject,
-    html,
-    text,
-  })
+  // In this SMTP branch, never log the recipient or the body. Logs leave the process.
+  // An SMTP reply or a nodemailer error message can repeat the recipient, so log only its code fields.
+  try {
+    const info = await transporter.sendMail({
+      from: env.EMAIL_FROM_ADDRESS,
+      to,
+      subject,
+      html,
+      text,
+    })
+    log.info({
+      step: "email.sent",
+      message: "[email] SMTP server accepted the message",
+      subject,
+      messageId: info.messageId,
+      response: info.response,
+    })
+  } catch (error) {
+    const { code, responseCode, command } = error as {
+      code?: string
+      responseCode?: number
+      command?: string
+    }
+    log.error({
+      step: "email.failed",
+      message: "[email] SMTP send failed",
+      subject,
+      code,
+      responseCode,
+      command,
+    })
+    // The nodemailer error holds the recipient. Callers only need to know that the send failed.
+    throw new Error(`SMTP send failed (${code ?? "no code"})`)
+  }
 }

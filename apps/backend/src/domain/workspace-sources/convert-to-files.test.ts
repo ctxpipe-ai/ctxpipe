@@ -131,6 +131,7 @@ describe("planSourcesConversion", () => {
       ],
       deletes: [".ctxpipe/sources.yaml"],
       report: [],
+      notices: [],
     })
   })
 
@@ -206,7 +207,12 @@ sources:
     })
     expect(
       planSourcesConversion({ ...after, sourcesYaml: ALL_PROVIDERS }),
-    ).toEqual({ writes: [], deletes: [".ctxpipe/sources.yaml"], report: [] })
+    ).toEqual({
+      writes: [],
+      deletes: [".ctxpipe/sources.yaml"],
+      report: [],
+      notices: [],
+    })
   })
 
   it("keeps each invalid entry in an unconverted file with its reason, and it stays invalid", () => {
@@ -247,6 +253,11 @@ sources:
       "sources/unconverted/wrong.md",
     ])
     expect(plan.report).toHaveLength(6)
+    // The user sees one action in plain words; the report keeps each path.
+    expect(new Set(plan.notices?.map((notice) => notice.kind))).toEqual(
+      new Set(["action"]),
+    )
+    expect(plan.notices?.[0]?.text).not.toMatch(/sources\//)
     const wrong = plan.writes.find((write) =>
       write.path.endsWith("/wrong.md"),
     )?.content
@@ -390,7 +401,12 @@ sources:
     expect(linked(after)).toEqual(linked(tree))
     expect(
       planSourcesConversion({ ...after, sourcesYaml: ALL_PROVIDERS }),
-    ).toEqual({ writes: [], deletes: [".ctxpipe/sources.yaml"], report: [] })
+    ).toEqual({
+      writes: [],
+      deletes: [".ctxpipe/sources.yaml"],
+      report: [],
+      notices: [],
+    })
   })
 
   it("does not give a second active file to a repository that a file or an earlier entry links", () => {
@@ -467,6 +483,12 @@ sources:
     ])
     expect(plan.report).toEqual([
       ".ctxpipe/sources.yaml had comments that are not above an entry, and they are not converted:\n> The sources of this Workspace.\n> The end.",
+    ])
+    expect(plan.notices).toEqual([
+      {
+        kind: "risk",
+        text: "Some settings or comments of the old sources file are not converted.",
+      },
     ])
   })
 })

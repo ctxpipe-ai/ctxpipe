@@ -21,6 +21,7 @@ import {
   landingWorkspace,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
+import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
@@ -54,6 +55,10 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   const workspaces = listQuery.data?.items ?? []
   const guide = useSetupGuide(orgSlug)
   const [composerKey, setComposerKey] = useState(0)
+  // Add Workspace from the guide. The dialog lives here, not in the guide:
+  // the first Workspace moves the guide below the composer, and that
+  // remounts the guide.
+  const [createOpen, setCreateOpen] = useState(false)
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -87,7 +92,12 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     : undefined
   const guideCard =
     guide.status === "ready" ? (
-      <SetupGuideCard orgSlug={orgSlug} guide={guide} onAsk={ask} />
+      <SetupGuideCard
+        orgSlug={orgSlug}
+        guide={guide}
+        onAsk={ask}
+        onCreateWorkspace={() => setCreateOpen(true)}
+      />
     ) : guide.mayShow ? (
       <SetupGuideSkeleton collapsed={guide.collapsed} />
     ) : null
@@ -138,6 +148,12 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           />
         </div>
       </div>
+      <WorkspaceCreateModal
+        orgSlug={orgSlug}
+        isOpen={createOpen}
+        onOpenChange={setCreateOpen}
+        onDone={() => setCreateOpen(false)}
+      />
     </div>
   )
 }

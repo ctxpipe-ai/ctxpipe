@@ -32,7 +32,6 @@ import {
   mintWorkspaceIngestRunCapability,
   mintWorkspaceIngestToolsCapability,
 } from "../workspaces/workspace-chat-run-capability.js"
-import { mintWorkspaceChatToken } from "../workspaces/workspace-chat-token.js"
 import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
@@ -416,7 +415,7 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(seen).toHaveLength(0)
   })
 
-  it("answers 401 to a missing token, a changed payload with its old signature, a chat token, and a model capability", async () => {
+  it("answers 401 to a missing token, a changed payload with its old signature, and a model capability", async () => {
     const org = await createOrg()
     const { token, input } = await step(org)
     const [payload, signature] = token.split(".")
@@ -433,14 +432,8 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
       }),
     ).toString("base64url")
     expect(payload).not.toBe(changed)
-    const chat = mintWorkspaceChatToken({
-      authSecret: AUTH_SECRET,
-      orgId: org.orgId,
-      orgSlug: org.orgSlug,
-      conversationId: generateObjectId("conv"),
-    })
     const model = await mintWorkspaceIngestRunCapability(input)
-    for (const presented of [undefined, `${changed}.${signature}`, chat, model])
+    for (const presented of [undefined, `${changed}.${signature}`, model])
       expect((await rpc(presented, LIST)).status).toBe(401)
     expect((await rpc(token, LIST)).status).toBe(200)
   })

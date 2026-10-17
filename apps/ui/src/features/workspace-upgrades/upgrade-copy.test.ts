@@ -4,8 +4,10 @@ import {
   formatHealthLine,
   formatUpgradeEstimate,
   upgradeAlertLines,
+  upgradeBlockedCopy,
   upgradeCanStart,
   upgradeIsPending,
+  upgradeNotices,
   upgradeStartedMessage,
 } from "./upgrade-copy"
 
@@ -18,6 +20,32 @@ describe("upgrade copy", () => {
     expect(upgradeIsPending(item("awaiting_operator"))).toBe(true)
     expect(upgradeIsPending(item("pr_open"))).toBe(true)
     expect(upgradeIsPending(item("blocked"))).toBe(true)
+  })
+
+  it("shows each notice one time, actions first, and keeps report lines out", () => {
+    const risk = { kind: "risk" as const, text: "Some links are removed." }
+    const action = { kind: "action" as const, text: "Fix the sources file." }
+    const notices = upgradeNotices({
+      steps: [
+        {
+          format: 1,
+          title: "Export and sources",
+          commitSha: null,
+          report: ["notes/a.md: link 1 is removed."],
+          notices: [risk, action],
+        },
+        // A step of a run before notices has none.
+        { format: 2, title: "Sources", commitSha: null, report: ["x"] },
+        {
+          format: 3,
+          title: "Ownership",
+          commitSha: null,
+          report: [],
+          notices: [risk],
+        },
+      ],
+    })
+    expect(notices).toEqual([action, risk])
   })
 
   it("words the start toast for each item kind", () => {
@@ -41,6 +69,9 @@ describe("upgrade copy", () => {
       "The repository uses format 1. ctx| reads format 3.",
     )
     expect(formatHealthLine(3, 3)).toMatch(/up to date/)
+    expect(formatHealthLine(4, 3)).toBe(
+      "The repository uses format 4. ctx| reads format 3. This Workspace needs a newer ctx| version.",
+    )
   })
 
   it("words the alert from the statuses that are present", () => {
@@ -61,10 +92,43 @@ describe("upgrade copy", () => {
     ])
     expect(
       upgradeAlertLines(
-        [{ ...item("blocked"), blockedReason: "write_access" }],
+        [{ ...item("blocked"), kind: "format", blockedReason: "write_access" }],
         true,
       )[0],
     ).toMatch(/needs write access through the GitHub App/)
+  })
+
+  it("words a blocked item for its kind and reason, and prefers the note of the server", () => {
+    const blocked = (
+      kind: WorkspaceUpgradeItem["kind"],
+      blockedReason: string | null,
+      note: string | null = null,
+    ) => upgradeBlockedCopy({ kind, blockedReason, note })
+    expect(blocked("format", "write_access").title).toBe(
+      "ctx| cannot open the upgrade pull request",
+    )
+    expect(blocked("reingest", "write_access").title).toBe(
+      "ctx| cannot publish the re-ingestion",
+    )
+    expect(blocked("reingest", "write_access").body).not.toMatch(/pull request/)
+    expect(blocked("reingest", "needs_format").title).toBe(
+      "Apply the format upgrade first",
+    )
+    expect(blocked("reingest", "sandbox_unavailable").body).toMatch(
+      /no ingest sandbox/,
+    )
+    expect(blocked("reingest", "ingestion_v2_off").body).toMatch(
+      /valid format file/,
+    )
+    // A remote that is not GitHub: the note names the cause.
+    expect(
+      blocked("format", "write_access", "This remote is not GitHub.").body,
+    ).toBe("This remote is not GitHub.")
+    // No reason and no note: the body is never empty.
+    expect(blocked("format", null)).toEqual({
+      title: "The upgrade cannot start",
+      body: "ctx| cannot start this item now.",
+    })
   })
 
   it("words the estimate of a re-ingestion as a range", () => {
