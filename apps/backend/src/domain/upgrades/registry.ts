@@ -58,7 +58,19 @@ export type UpgradeStepPlan = {
   deletes: string[]
   /** Lines for the pull request body, for example an entry that the step could not move. */
   report: string[]
+  /**
+   * The lines that the user must read in the Workspace settings: an action
+   * to do, or a risk to know. Plain words, with no paths, ids or counts: the
+   * `report` holds those details.
+   */
+  notices?: UpgradeNotice[]
 }
+
+/**
+ * A line for the user. `action`: the user must do something. `risk`: ctx|
+ * cannot keep or make again some knowledge or setting.
+ */
+export type UpgradeNotice = { kind: "action" | "risk"; text: string }
 
 export type GitUpgradeStep = {
   /** The format that this step gives. Steps are contiguous from 1. */
@@ -220,6 +232,8 @@ export type WorkspaceUpgradePayload = {
     title: string
     sha: string | null
     report: string[]
+    /** Not on a run before notices existed. */
+    notices?: UpgradeNotice[]
   }>
   /** Only on a re-ingestion: the estimate that the operator saw before the click. */
   estimate?: ReingestEstimate

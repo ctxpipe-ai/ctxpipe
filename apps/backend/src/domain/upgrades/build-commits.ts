@@ -20,6 +20,7 @@ import {
 import {
   type GitUpgradeStep,
   pendingUpgradeSteps,
+  type UpgradeNotice,
   type UpgradeStepContext,
   type UpgradeStepPlan,
   type UpgradeTreeReader,
@@ -31,6 +32,19 @@ export type UpgradeStepResult = {
   /** The commit of the step, or null when the step changed no file. */
   sha: string | null
   report: string[]
+  /** The notices of the step, each one time. A run before notices has none. */
+  notices?: UpgradeNotice[]
+}
+
+/** Each notice one time, in the order of its first use. */
+function uniqueNotices(notices: readonly UpgradeNotice[]): UpgradeNotice[] {
+  const seen = new Set<string>()
+  return notices.filter((notice) => {
+    const key = `${notice.kind}\n${notice.text}`
+    if (seen.has(key)) return false
+    seen.add(key)
+    return true
+  })
 }
 
 /** Run `operation` with a reader of the pack's tree below its root folder. */
@@ -114,6 +128,7 @@ async function effectiveChange(
       writes,
       deletes: plan.deletes.filter((path) => existing.has(path)),
       report: plan.report,
+      notices: uniqueNotices(plan.notices ?? []),
     }
   })
 }
@@ -159,8 +174,19 @@ export async function buildUpgradeCommits(input: {
         subject: `ctx| upgrade to format ${step.format}: ${step.title}`,
         createdAt: input.createdAt,
       })
-      results.push({ ...step, sha: pack.sha, report: change.report })
-    } else results.push({ ...step, sha: null, report: change.report })
+      results.push({
+        ...step,
+        sha: pack.sha,
+        report: change.report,
+        notices: change.notices,
+      })
+    } else
+      results.push({
+        ...step,
+        sha: null,
+        report: change.report,
+        notices: change.notices,
+      })
   }
   const formatFile = workspaceFormatFile(input.targetFormat)
   const currentFormatFile = await withTreeReader(pack, (tree) =>
@@ -179,11 +205,12 @@ export async function buildUpgradeCommits(input: {
     )
   return {
     pack,
-    steps: results.map(({ format, title, sha, report }) => ({
+    steps: results.map(({ format, title, sha, report, notices }) => ({
       format,
       title,
       sha,
       report,
+      notices,
     })),
   }
 }

@@ -1,5 +1,3 @@
-import type { LLMResult } from "@langchain/core/outputs"
-import { CallbackHandler } from "@langfuse/langchain"
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
 import { readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
@@ -10,43 +8,6 @@ export type LangfuseContextAttrs = {
   tags?: string[]
   /** Merged onto the Langfuse trace (e.g. repositoryId, workflow). */
   traceMetadata?: Record<string, unknown>
-}
-
-/**
- * `@langchain/core` 1.2.1 `_mergeDicts` concatenates `model_name` across
- * stream chunks. `id`, `name`, `output_version`, and `model_provider` are
- * the only protected string keys.
- */
-export class CtxpipeCallbackHandler extends CallbackHandler {
-  // LangChain runs handlers on a background queue by default, which drops the
-  // active OTel span. Inline so generations parent to that span and inherit
-  // propagateAttributes.
-  awaitHandlers = true
-
-  override async handleLLMEnd(
-    output: LLMResult,
-    runId: string,
-    parentRunId?: string,
-  ): Promise<void> {
-    for (const group of output.generations) {
-      for (const generation of group) {
-        const meta = (
-          generation as {
-            message?: { response_metadata?: { model_name?: unknown } }
-          }
-        ).message?.response_metadata
-        const name = meta?.model_name
-        const unit =
-          typeof name === "string" ? /^(.+?)\1+$/.exec(name)?.[1] : undefined
-        if (meta && unit) meta.model_name = unit
-      }
-    }
-    return super.handleLLMEnd(output, runId, parentRunId)
-  }
-}
-
-export function getLangfuseHandler(): CallbackHandler {
-  return new CtxpipeCallbackHandler()
 }
 
 function uniqueTags(tags: string[]): string[] {

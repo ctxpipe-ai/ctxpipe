@@ -30,6 +30,7 @@ import { generateObjectId } from "../lib/id.js"
 import {
   persistBoundWriteJob,
   persistUnbornBootstrapJob,
+  persistWriteJobStatus,
   reconcileWorkspaceWriteJob,
   reconcileWriteJobAdmission,
 } from "../models/workspace-write-jobs.js"
@@ -47,10 +48,6 @@ import {
   workspaceConnectorMirror,
   workspaceConnectorMirrorInputSchema,
 } from "./workflows/workspace-connector-mirror.js"
-import {
-  workspaceExtractIngest,
-  workspaceExtractIngestInputSchema,
-} from "./workflows/workspace-extract-ingest.js"
 import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
@@ -234,20 +231,34 @@ export async function enqueueWriteJob(
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
   }
-  // The Workspace format selects the publish pipeline (ADR-052 phase 4, G5).
-  // An old extract ingest is legacy; an unlink retraction and an ownership
-  // migration are ingestion v2. Admission reads the cached format; the job
-  // reads it again from the tree that it pushes on.
+  // The old pipeline is gone (CTX-642). Ingestion v2 publishes through its
+  // own run, not through admission, so admission refuses each extract ingest.
+  // A paused job of the old pipeline ends here, so no resume admits it again.
+  if (input.kind === "extract_ingest") {
+    log.error(
+      new Error(
+        "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more.",
+      ),
+    )
+    if (input.jobId)
+      await withOrgDbContext(input.orgId, () =>
+        persistWriteJobStatus(jobId, "completed"),
+      )
+    return { started: false }
+  }
+  // The Workspace format selects the ingestion (ADR-052 phase 4, G5). An
+  // unlink retraction and an ownership migration are ingestion v2. Admission
+  // reads the cached format; the job reads it again from the tree that it
+  // pushes on.
   const pipeline = workspacePublishPipeline(formatVersion)
   if (
-    (input.kind === "extract_ingest" && pipeline !== "legacy") ||
-    ((input.kind === "unlink_retraction" ||
+    (input.kind === "unlink_retraction" ||
       input.kind === "ownership_migration") &&
-      pipeline !== "v2")
+    pipeline !== "v2"
   ) {
     log.error(
       new Error(
-        `The Workspace format selects the ${pipeline} publish pipeline. It refuses the ${input.kind} write.`,
+        `The Workspace format selects no ingestion (${pipeline}). It refuses the ${input.kind} write.`,
       ),
     )
     return { started: false }
@@ -269,7 +280,6 @@ export async function enqueueWriteJob(
   if (
     input.kind === "bootstrap" ||
     snapshotWorkflow ||
-    input.kind === "extract_ingest" ||
     input.kind === "ui_file_edit" ||
     input.kind === "rename_rewrite" ||
     input.kind === "connector_mirror" ||
@@ -397,27 +407,6 @@ export async function enqueueWriteJob(
           trigger: `bind:${input.workspaceId}:${revision.sha}`,
         })
         return { started: false }
-      }
-      if (input.kind === "extract_ingest") {
-        const command = workspaceExtractIngestInputSchema.parse({
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          jobId,
-          revision,
-          extraction: input.extraction,
-        })
-        await persistBoundWriteJob({
-          admissionStatus,
-          id: jobId,
-          kind: input.kind,
-          revision,
-          extraction: command.extraction,
-        })
-        bound = true
-        await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
-          idempotencyKey: jobId,
-        })
-        return { started: true }
       }
       if (input.kind === "semantic_merge") {
         const command = workspaceSemanticMergeInputSchema.parse({
