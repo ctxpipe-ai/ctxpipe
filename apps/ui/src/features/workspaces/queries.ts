@@ -122,11 +122,12 @@ export async function fetchConversation(
     param: { orgSlug, conversationId },
     query: workspaceId ? { workspaceId } : {},
   })
-  return readApiJson(res, {
+  // TODO: the conversation route types `messages` as unknown, so the body is cast.
+  return (await readApiJson(res, {
     emptyOn: [404],
     empty: null,
     message: "Failed to load conversation",
-  })
+  })) as unknown as ConversationDetail | null
 }
 
 export async function renameConversation(

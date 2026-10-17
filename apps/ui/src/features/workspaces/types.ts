@@ -13,17 +13,30 @@ export type WorkspaceListResponse = InferResponseType<
 
 export type Workspace = WorkspaceListResponse["items"][number]
 
-export type WorkspaceDetail = InferResponseType<WorkspaceRoutes["$get"], 200>
+type WorkspaceDetailRead = InferResponseType<WorkspaceRoutes["$get"], 200>
 
-export type WorkspaceLinkedRepository =
-  WorkspaceDetail["linkedRepositories"][number]
+/** `skippedFiles` and `hydratePhases` are absent on a detail seeded from the list. */
+export type WorkspaceDetail = Omit<
+  WorkspaceDetailRead,
+  "skippedFiles" | "hydratePhases"
+> &
+  Partial<Pick<WorkspaceDetailRead, "skippedFiles" | "hydratePhases">>
+
+type LinkedRepositoryRead = WorkspaceDetailRead["linkedRepositories"][number]
+
+/** The org repository index health is absent when the repository has no index row. */
+export type WorkspaceLinkedRepository = Omit<
+  LinkedRepositoryRead,
+  "indexingStatus" | "indexingError"
+> &
+  Partial<Pick<LinkedRepositoryRead, "indexingStatus" | "indexingError">>
 
 export type WorkspaceSkippedFile = NonNullable<
-  WorkspaceDetail["skippedFiles"]
+  WorkspaceDetailRead["skippedFiles"]
 >[number]
 
 export type WorkspaceStorePhase = NonNullable<
-  WorkspaceDetail["hydratePhases"]
+  WorkspaceDetailRead["hydratePhases"]
 >["graph"]
 
 export type WorkspaceActivityResponse = InferResponseType<
@@ -50,10 +63,16 @@ export type WorkspaceGitTreeResponse = InferResponseType<
   200
 >
 
-export type ConversationGitTreeResponse = InferResponseType<
+type ConversationGitTreeRead = InferResponseType<
   ConversationRoutes["files"]["tree"]["$get"],
   200
 >
+
+/** `ready` is set by a poll that waits for the sandbox; a cached tree has no `worktreeVersion`. */
+export type ConversationGitTreeResponse = Omit<
+  ConversationGitTreeRead,
+  "worktreeVersion"
+> & { worktreeVersion?: string; ready?: boolean }
 
 export type WorkspaceGitBlobResponse = InferResponseType<
   WorkspaceRoutes["files"]["blob"]["$get"],
@@ -69,16 +88,35 @@ export type WorkspaceGitStatusItem = WorkspaceGitStatusResponse["items"][number]
 
 export type WorkspaceGitStatus = WorkspaceGitStatusItem["status"]
 
-export type ConversationGitStatusResponse = InferResponseType<
+type ConversationGitStatusRead = InferResponseType<
   ConversationRoutes["files"]["status"]["$get"],
   200
 >
 
+export type ConversationGitStatusResponse = Omit<
+  ConversationGitStatusRead,
+  "sha" | "desiredSha" | "stale" | "worktreeVersion"
+> &
+  Partial<
+    Pick<
+      ConversationGitStatusRead,
+      "sha" | "desiredSha" | "stale" | "worktreeVersion"
+    >
+  >
+
 /** A diff read. `gone`: the turn's snapshots are no longer in the sandbox (410). */
-export type ConversationGitDiffResponse = InferResponseType<
+type ConversationGitDiffRead = InferResponseType<
   ConversationRoutes["files"]["diff"]["$get"],
   200
-> & { gone?: boolean }
+>
+
+export type ConversationGitDiffResponse = Omit<
+  ConversationGitDiffRead,
+  "base"
+> & {
+  base?: string
+  gone?: boolean
+}
 
 export type ConversationGitDiffItem =
   ConversationGitDiffResponse["items"][number]

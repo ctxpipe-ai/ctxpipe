@@ -811,7 +811,7 @@ export const notionOauthAppReadRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
+const notionOAuthStartRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -968,7 +968,8 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-notionConnectorRoutes
+// One chain: the Hono client types come from the returned value.
+export const notionConnectorRoutes = notionOAuthStartRoutes
   .openapi(postDraftRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
