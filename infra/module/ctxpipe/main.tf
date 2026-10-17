@@ -8,5 +8,9 @@ terraform {
       source  = "kislerdm/neon"
       version = "0.13.0"
     }
+    random = {
+      source  = "hashicorp/random"
+      version = "3.7.2"
+    }
   }
 }

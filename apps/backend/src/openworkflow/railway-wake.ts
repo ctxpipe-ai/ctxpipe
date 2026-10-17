@@ -24,7 +24,9 @@ async function railwayGraphql(
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      // RAILWAY_TOKEN is a Railway project token scoped to this preview
+      // environment. Railway reads a project token from this header only.
+      "Project-Access-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
@@ -104,7 +106,9 @@ async function deployWorkerService(
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      // RAILWAY_TOKEN is a Railway project token scoped to this preview
+      // environment. Railway reads a project token from this header only.
+      "Project-Access-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),

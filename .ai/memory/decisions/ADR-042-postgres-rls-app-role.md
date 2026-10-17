@@ -1,6 +1,6 @@
 # ADR-042: Postgres RLS with a non-owner app role
 
-**Status:** Accepted (revised 2026-10-16) | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
+**Status:** Accepted (revised 2026-10-17) | **Date:** 2026-08-22 | **Tags:** postgres, rls, neon, aws-cdk, railway, compose
 
 ## Context
 
@@ -17,8 +17,8 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 - **Webhook bootstrap** uses unRLS’d `connection_directory` (`connection_id`, `org_id`, `type`, external ids; no secrets). Look up the directory, then `withOrgDbContext` for tenant `connections`. No SECURITY DEFINER.
 - **Tenant SQL** goes through `withOrgDbContext` / `orgSql` / `getOrgDb()`. Keep `getSystemDb()` for Better Auth tables, `organizations` slug lookup, `members`, `invitations`, and `connection_directory`.
 - **No org GUC policies** on Better Auth tables, **`organizations`**, **`members`**, **`invitations`**, LangGraph `checkpoint_*`, or `openworkflow.*`. Disk shards stay `REPO_CACHE_DIR/<orgId>/`.
-- **AWS:** Secrets Manager keeps a `ctxpipe_app` password (generated once). The migrate task provisions the role, migrates as owner, then rewrites the runtime `DATABASE_URL` secret. Operators run `pnpm update @ctxpipe/aws-cdk` then `cdk deploy`. Image-tag-only rolls without a construct bump do not create the role.
-- **Hosted Neon / Compose:** terraform `neon_role` `ctxpipe_app`; Railway migrate uses the owner URL; app services use the app pooler URL. Compose migrate uses `ctxpipe`; app services use `ctxpipe_app`.
+- **AWS:** Secrets Manager keeps a `ctxpipe_app` password (generated once). The migrate task provisions the role and migrates as owner. Then a separate runtime secret gets the app URL. The `DATABASE_URL` secret of earlier releases keeps the owner URL, because the task definitions of earlier releases read it. Operators run `pnpm update @ctxpipe/aws-cdk` then `cdk deploy`. Image-tag-only rolls without a construct bump do not create the role.
+- **Hosted Neon / Compose:** migrate creates `ctxpipe_app` in SQL. Terraform keeps only its password (`random_password`), not a Neon API role: the Neon API makes each role a member of `neon_superuser`, which has `BYPASSRLS`. Railway migrate uses the owner URL; app services use the app pooler URL. Compose migrate uses `ctxpipe`; app services use `ctxpipe_app`.
 
 ## Consequences
 
@@ -39,12 +39,15 @@ AWS self-hosters must keep the existing upgrade path: bump `@ctxpipe/aws-cdk` an
 
 - **One entry point.** Hosted, Compose and CDK run `bun run apps/backend/src/db/migrate.ts`. Hosted no longer runs `drizzle-kit migrate` directly, so it runs the same backfills as the other paths.
 - **Role modes.** `provision-app-role.ts` stays in code. It is not a Drizzle migration.
-  - (a) A password is given: create or alter `ctxpipe_app`, then grant. Compose gives `POSTGRES_PASSWORD`. CDK gives the password from its secret.
-  - (b) No password, and the role exists: grants and `ALTER DEFAULT PRIVILEGES` only. Hosted uses this mode, because Terraform `neon_role.app` owns the password.
+  - (a) A password is given: create `ctxpipe_app`, or take back the groups and rights of a role that something else made. Then set the password and grant. Every deploy path uses this mode: Compose gives `POSTGRES_PASSWORD`, CDK gives the password from its secret, and hosted gives the Terraform password.
+  - (b) No password, and the role exists: grants and `ALTER DEFAULT PRIVILEGES` only.
   - (c) No password, and no role: migrate stops with exit code 1 and prints the fix for each deploy path. Migrate never skips the role in silence.
-- **Hosted order.** The deploy workflow runs `terraform apply -target=module.ctxpipe.neon_role.app` before it migrates the production database.
-- **Rollback runbook.** To go back to the previous image, put back the previous image and the owner `DATABASE_URL` on every runtime service. Main code does not set `app.organization_id`, so on `ctxpipe_app` it sees no rows. On CDK, deploy the previous `@ctxpipe/aws-cdk` package and restore the previous runtime secret. The minor sets no `NOT NULL` that main code breaks, so main code can write again on the owner URL.
+- **Hosted order.** The password exists in Terraform state before migrate runs, and the app URL reaches the services only after migrate. Terraform forgets an earlier Neon API role and does not drop it.
+- **Directory reconcile.** Code from before `connection_directory` writes `connections` only. So each migrate makes the directory agree with `connections` for every connection type: it adds and updates rows, and deletes rows with no connection. That closes the drift of each rollback window and each deploy window.
+- **Rollback runbook.** To go back to the previous image, put back the previous image and the owner `DATABASE_URL` on every runtime service. Main code does not set `app.organization_id`, so on `ctxpipe_app` it sees no rows. On CDK, a rollback to the previous task definitions needs no secret change, because they read the owner URL secret. The minor sets no `NOT NULL` that main code breaks, so main code can write again on the owner URL.
 
 ### Alternatives considered (revision)
 
-- **A Drizzle migration with `CREATE ROLE … NOLOGIN`:** rejected. The role needs a password and the safety checks. On Neon, Terraform owns the role, so a SQL `CREATE ROLE` makes `terraform apply` fail on a new preview branch.
+- **A Drizzle migration with `CREATE ROLE … NOLOGIN`:** rejected. The role needs a password and the safety checks.
+- **Terraform `neon_role` for `ctxpipe_app`:** rejected. The Neon API makes the role a member of `neon_superuser`, so the safety check refuses it.
+- **The app URL in the `DATABASE_URL` secret of earlier releases (CDK):** rejected. A rollback then starts the earlier tasks as `ctxpipe_app`, which sees no tenant rows.

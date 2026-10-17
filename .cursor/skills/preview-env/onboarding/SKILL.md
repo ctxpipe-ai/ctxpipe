@@ -22,14 +22,15 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 **Budget** 3 s / 10 s, submit to onboarding visible.
 **Evidence** `ONB-1-1.png` (form), `ONB-1-2.png` (How ctx| works slide); trace of the sign-up request.
 
-### ONB-2 Create the org and land on Home
+### ONB-2 Create the org, skip GitHub, and land on Home
 **Requires** ONB-1.
 **Steps**
 1. Click **Next** on **How ctx| works**.
 2. On **Create your organization**, first submit a 33-character slug and read the error; then enter name `preview-env {run-id}` and slug `pe-{YYYYMMDDHHMMSS}` and submit (Enter or the create button).
-3. Observe where the browser lands.
+3. On **Connect GitHub**, click **Skip for now**. ONB-3 connects GitHub from the guide.
+4. Observe where the browser lands.
 
-**Expect (UI)** two slides (How ctx| works, create-org) and no GitHub slide; the 33-character slug shows an inline validation error and creates nothing. After the create, the browser lands on Home (`/{orgSlug}`): the **Get started** guide shows **0 of 6 done** with **Connect GitHub** as the open row, and the **Activity** region below it is empty (**No commits on the default branch yet.**).
+**Expect (UI)** three slides (How ctx| works, create-org, Connect GitHub); the 33-character slug shows an inline validation error and creates nothing. Onboarding is complete before the Connect GitHub slide shows. After **Skip for now**, the browser lands on Home (`/{orgSlug}`): the **Get started** guide shows **0 of 6 done** with **Connect GitHub** as the open row, and the **Activity** region below it is empty (**No commits on the default branch yet.**).
 **Expect (backend)** `organizations` row with the slug; `members` row for A with the owner role; A's active organization set; `users.onboardingCompletedAt` set for A; `org_onboarding` row for the org.
 **Budget** 3 s / 10 s, submit to Home visible.
 **Evidence** `ONB-2-1.png` (validation error), `ONB-2-2.png` (Home with the guide); trace of the org-create request and the two onboarding-complete requests.
@@ -53,10 +54,12 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 1. In the **Get started** guide, click **Create Workspace**.
 2. On **Add Workspace**, stay on **Select GitHub**, search `pe-{run-id}-ws`, select it.
 3. Click **Create Workspace**.
+4. On step 2 (**Add code repositories and tools**), click **Done**.
+5. In the sidebar, open the Workspace.
 
-**Expect (UI)** redirect to `/{orgSlug}/ws/{slug}` (slug defaults to the repository name); the composer is visible; the sidebar lists the Workspace; **Settings** shows **Writable** and a hydrate chip (**Hydrate pending** or **Hydrating**; later flows wait for **Hydrate ready**).
+**Expect (UI)** **Add Workspace** opens as a dialog on Home. After **Done**, the dialog closes and Home stays: the guide shows **2 of 6 done**, and the Workspace row shows **Building · step 1 of 2** or **step 2 of 2**. The Workspace (slug defaults to the repository name) shows the composer; the sidebar lists it; **Settings** shows **Writable** and a hydrate chip (**Hydrate pending** or **Hydrating**; later flows wait for **Hydrate ready**).
 **Expect (backend)** `workspaces` row (`ws_*`, slug unique per org); a `workspace-bootstrap` run; on a writable repo, one setup commit on the default branch adding `.agents/skills/ctxpipe-knowledge/SKILL.md` (the template deliberately has none) and possibly normalizing `AGENTS.md` front matter and its folder map; a `workspace-hydrate` run enqueued.
-**Budget** 3 s / 10 s, **Create Workspace** to composer visible. Bootstrap commit and hydrate are timed in [HYD-1](../hydrate/SKILL.md).
+**Budget** 3 s / 10 s, **Create Workspace** to step 2 visible. Bootstrap commit and hydrate are timed in [HYD-1](../hydrate/SKILL.md).
 **Evidence** `ONB-4-1.png` (composer and sidebar); `gh api` commit list of the repo; trace of the create request and the `openworkflow.run.id` of `workspace-bootstrap`.
 
 ## Status
