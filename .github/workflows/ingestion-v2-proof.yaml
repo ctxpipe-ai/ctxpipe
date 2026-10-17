@@ -9,14 +9,27 @@ name: Ingestion v2 proof (Docker)
 #
 # Repository secrets (names only):
 #   MODEL_PROVIDER_API_KEY  the model provider key
-#   GH_APP_ID               the GitHub App id of the test org
-#   GH_PRIVATE_KEY          the GitHub App private key (PEM)
+#   GH_APP_ID               the GitHub App id of the test org (Preview environment)
+#   GH_PRIVATE_KEY          the GitHub App private key, PEM (Preview environment)
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
+# How to start a run (GitHub runs workflow_dispatch only for a workflow file on
+# the default branch, so use the push trigger until this file is on main):
+#   1. Create a branch named proof/ingestion-v2-<anything> from the branch
+#      that holds this workflow.
+#   2. Fill in .github/ingestion-v2-proof.json: repos (a list of fork URLs,
+#      the largest last), workspace_repo, spend_cap_usd.
+#   3. Push the branch. The push starts one run. Push again to start another.
+# Anyone who can push such a branch can spend the model key, so keep branch
+# protection on proof/*. After this file is on main, workflow_dispatch works
+# with the same inputs.
 # The GitHub App must be installed on the owner of every repository and of
 # the Workspace repository, with access to all of them.
 
 on:
+  push:
+    branches:
+      - "proof/ingestion-v2-*"
   workflow_dispatch:
     inputs:
       repos:
@@ -51,6 +64,8 @@ jobs:
     name: Ingestion v2 proof (Docker)
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 360
+    # GH_APP_ID and GH_PRIVATE_KEY are secrets of the Preview environment.
+    environment: Preview
     permissions:
       contents: read
     env:
@@ -116,15 +131,41 @@ jobs:
           docker compose logs backend
           echo "::error::The backend did not answer after 300 s"
           exit 1
+      - name: Read the inputs
+        env:
+          INPUT_REPOS: ${{ inputs.repos }}
+          INPUT_WORKSPACE_REPO: ${{ inputs.workspace_repo }}
+          INPUT_SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
+          INPUT_MODE: ${{ inputs.mode }}
+          EVENT_NAME: ${{ github.event_name }}
+        run: |
+          if [ "$EVENT_NAME" = push ]; then
+            file=.github/ingestion-v2-proof.json
+            repos=$(jq -r '.repos | join(",")' "$file")
+            workspace_repo=$(jq -r '.workspace_repo' "$file")
+            cap=$(jq -r '.spend_cap_usd // 30' "$file")
+            mode=shadow
+          else
+            repos=$INPUT_REPOS
+            workspace_repo=$INPUT_WORKSPACE_REPO
+            cap=$INPUT_SPEND_CAP_USD
+            mode=$INPUT_MODE
+          fi
+          [ -n "$repos" ] && [ -n "$workspace_repo" ] || {
+            echo "::error::Fill in repos and workspace_repo"
+            exit 1
+          }
+          {
+            printf 'REPOS<<PROOF_EOF\n%s\nPROOF_EOF\n' "$repos"
+            echo "WORKSPACE_REPO=$workspace_repo"
+            echo "SPEND_CAP_USD=$cap"
+            echo "MODE=$mode"
+          } >> "$GITHUB_ENV"
       - name: Run ingestion v2 for each repository
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
           GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
-          REPOS: ${{ inputs.repos }}
-          WORKSPACE_REPO: ${{ inputs.workspace_repo }}
-          SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
-          MODE: ${{ inputs.mode }}
         run: bash scripts/ci/ingestion-v2-proof.sh
       - name: Stack logs
         if: always()
