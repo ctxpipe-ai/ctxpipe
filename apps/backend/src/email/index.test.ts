@@ -1,4 +1,3 @@
-import { createServer, type Server } from "node:net"
 import { initLogger } from "evlog"
 import { createElement } from "react"
 import {
@@ -10,69 +9,34 @@ import {
   it,
   vi,
 } from "vitest"
+import { type FakeSmtp, startFakeSmtp } from "../test/fake-smtp.js"
 import { sendEmail } from "./index.js"
 
-const mails: { to: string; subject: string }[] = []
 const records: Record<string, unknown>[] = []
-let refuse = false
-let smtp: Server
-let smtpPort = 0
+let smtp: FakeSmtp
 
 const template = createElement("div", null, "Hello")
 
-/** Just enough SMTP for nodemailer: accept or refuse every recipient. */
-function startSmtp(): Promise<void> {
-  smtp = createServer((socket) => {
-    let buffer = ""
-    let inData = false
-    let to = ""
-    socket.write("220 localhost\r\n")
-    socket.on("data", (chunk) => {
-      buffer += chunk.toString("utf8")
-      for (;;) {
-        if (inData) {
-          const end = buffer.indexOf("\r\n.\r\n")
-          if (end === -1) return
-          const subject = /^Subject: (.*)$/m.exec(buffer.slice(0, end))?.[1]
-          mails.push({ to, subject: subject ?? "" })
-          buffer = buffer.slice(end + 5)
-          inData = false
-          socket.write("250 2.0.0 Queued as TEST123\r\n")
-          continue
-        }
-        const eol = buffer.indexOf("\r\n")
-        if (eol === -1) return
-        const line = buffer.slice(0, eol)
-        buffer = buffer.slice(eol + 2)
-        const command = line.slice(0, 4).toUpperCase()
-        if (command === "RCPT") {
-          to = /<([^>]+)>/.exec(line)?.[1] ?? ""
-          if (refuse) {
-            socket.write("550 5.1.1 Mailbox unavailable\r\n")
-            continue
-          }
-        }
-        if (command === "QUIT") return void socket.end("221 Bye\r\n")
-        if (command === "DATA") {
-          inData = true
-          socket.write("354 Go ahead\r\n")
-          continue
-        }
-        socket.write("250 OK\r\n")
-      }
-    })
-  })
-  return new Promise((resolve) =>
-    smtp.listen(0, "127.0.0.1", () => {
-      const address = smtp.address()
-      smtpPort = typeof address === "object" && address ? address.port : 0
-      resolve()
-    }),
-  )
+/** Every field and nested value of an error, as text. */
+function everythingOf(error: unknown): string {
+  const seen = new Set<unknown>()
+  const parts: string[] = []
+  const visit = (value: unknown) => {
+    if (typeof value === "string") return void parts.push(value)
+    if (typeof value !== "object" || value === null || seen.has(value)) return
+    seen.add(value)
+    if (value instanceof Error) parts.push(value.name, value.message)
+    for (const key of Object.getOwnPropertyNames(value)) {
+      parts.push(key)
+      visit((value as Record<string, unknown>)[key])
+    }
+  }
+  visit(error)
+  return parts.join("\n")
 }
 
 beforeAll(async () => {
-  await startSmtp()
+  smtp = await startFakeSmtp()
   initLogger({
     env: { service: "ctxpipe-backend-test" },
     pretty: false,
@@ -87,12 +51,12 @@ beforeAll(async () => {
 })
 
 beforeEach(() => {
-  refuse = false
-  mails.length = 0
+  smtp.refuse = false
+  smtp.mails.length = 0
   records.length = 0
   vi.stubEnv("DATABASE_URL", "postgres://unused@localhost/unused")
   vi.stubEnv("AUTH_SECRET", "x".repeat(32))
-  vi.stubEnv("SMTP_CONNECTION_URL", `smtp://127.0.0.1:${smtpPort}`)
+  vi.stubEnv("SMTP_CONNECTION_URL", `smtp://127.0.0.1:${smtp.port}`)
   vi.stubEnv("EMAIL_FROM_ADDRESS", "noreply@example.com")
 })
 
@@ -102,35 +66,43 @@ afterEach(() => {
 
 afterAll(async () => {
   initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
-  await new Promise((resolve) => smtp.close(resolve))
+  await smtp.close()
 })
 
 it("logs what the SMTP server answered, without the recipient", async () => {
   await sendEmail("invitee@example.com", "Invitation", template)
 
-  expect(mails).toEqual([{ to: "invitee@example.com", subject: "Invitation" }])
+  expect(smtp.mails).toMatchObject([
+    { to: "invitee@example.com", subject: "Invitation" },
+  ])
   const sent = records.find((record) => record.step === "email.sent")
   expect(sent).toMatchObject({
     level: "info",
     subject: "Invitation",
-    accepted: 1,
-    rejected: 0,
     response: expect.stringContaining("TEST123"),
   })
   expect(sent?.messageId).toEqual(expect.any(String))
   expect(JSON.stringify(records)).not.toContain("invitee@example.com")
 })
 
-it("logs a failure without the recipient and throws the error again", async () => {
-  refuse = true
+it("logs a refusal and throws an error, and neither names the recipient", async () => {
+  smtp.refuse = true
 
-  await expect(
-    sendEmail("invitee@example.com", "Invitation", template),
-  ).rejects.toThrow()
+  const error = await sendEmail("invitee@example.com", "Invitation", template)
+    .then(() => null)
+    .catch((caught: unknown) => caught)
 
+  expect(error).toBeInstanceOf(Error)
+  expect(everythingOf(error)).not.toContain("invitee")
   expect(
     records.find((record) => record.step === "email.failed"),
-  ).toMatchObject({ level: "error", subject: "Invitation" })
+  ).toMatchObject({
+    level: "error",
+    subject: "Invitation",
+    code: "EENVELOPE",
+    responseCode: 550,
+    command: "RCPT TO",
+  })
   expect(records.some((record) => record.step === "email.sent")).toBe(false)
-  expect(JSON.stringify(records)).not.toContain("invitee@example.com")
+  expect(JSON.stringify(records)).not.toContain("invitee")
 })
