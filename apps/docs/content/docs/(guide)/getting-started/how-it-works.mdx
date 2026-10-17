@@ -1,86 +1,71 @@
 ---
 title: How ctx| works
-description: End-to-end flow from repository connection to agent context via MCP.
+description: How knowledge moves from your sources into a Workspace and out to people and agents.
 ---
 
-ctx| sits between your team's source systems and the AI agents that need to
-understand them. You connect the sources your team relies on, ctx| turns them
-into searchable context, and agents query that context through MCP when they
-need it.
-
-The important idea is that ctx| does not ask agents to read everything from
-scratch. It prepares your code, documentation, and working context ahead of
-time, then gives agents a controlled way to ask useful questions about it.
+ctx| sits between your team's sources and the people and agents who need to
+understand them. It keeps that knowledge as files in git, keeps the files
+current, and builds an index so questions get grounded answers quickly.
 
 ## Flow
 
 <Steps>
   <Step>
-    ### Connect sources
+    ### Knowledge lives in a workspace repository
 
-    Start by connecting repositories, docs, and other team knowledge sources to
-    a ctx| organization. For GitHub, that usually means installing the GitHub
-    app and choosing the repositories ctx| should be allowed to read.
-
-    Each connection is scoped to your organization, so ctx| can keep context,
-    permissions, and agent access aligned with the team that owns the source.
+    Each [Workspace](/docs/workspaces) has one git repository of Markdown
+    knowledge. You and your agents write to it like any other repository. Its
+    files and their links and claims are the source of truth.
   </Step>
 
   <Step>
-    ### Build useful context
+    ### ctx| keeps it current
 
-    ctx| ingests connected sources so agents can search and reason over them
-    quickly. For repositories, that means cloning the default branch, building
-    search indexes, and extracting services, apps, APIs, libraries,
-    infrastructure, streams, patterns, and repository instructions into the
-    knowledge graph.
+    ctx| commits to the workspace repository on your behalf:
 
-    Product knowledge matters too. Files like `AGENTS.md`, skills, ADRs, and
-    other team instructions help ctx| answer in a way that matches how your
-    organization works, not just what appears in a single search result.
+    - [connectors](/docs/connections) mirror the Linear, Notion, Confluence,
+      PagerDuty, and GitHub content you selected, and capture Slack threads
+      when someone mentions the bot;
+    - [linked repositories](/docs/workspaces/linked-repositories) are indexed,
+      and the services, APIs, and libraries found in them are written back as
+      knowledge files.
+
+    Each change is a small commit to the default branch with a clear message.
   </Step>
 
   <Step>
-    ### Give agents one place to ask
+    ### ctx| indexes every new commit
 
-    Agents connect to ctx| through MCP. Instead of wiring every agent directly
-    to every repo, document store, and internal convention, you give them access
-    to ctx| and let ctx| broker the context they need.
-
-    The main tool is **`ctx_advisor`**. An agent asks a question, ctx| consults
-    the organization context it has built, and the agent receives an answer
-    grounded in your connected sources.
+    When the default branch changes, ctx| reads the files and rebuilds the
+    Workspace's search index and knowledge graph. Reading never changes your
+    files, and the previous index keeps serving until the new one is ready.
   </Step>
 
   <Step>
-    ### Keep context current
+    ### People and agents ask
 
-    ctx| tracks readiness as sources are indexed and ingested. When connected
-    sources change, ctx| can ingest them again so agents are not stuck with stale
-    context.
-
-    The update path depends on the source. GitHub repositories are ingested
-    directly. Linear, Notion, and Confluence mirror approved scope into Git.
-    Slack captures one existing thread when someone mentions the ctx| bot inside
-    that thread.
+    [Workspace chat](/docs/workspaces/chat) answers from the Workspace's
+    knowledge, graph, and linked code, and can propose changes as a pull
+    request. Coding agents reach the same context through
+    [MCP](/docs/mcp/mcp-docs).
   </Step>
 </Steps>
 
 ## Verify consequential answers
 
-ctx| answers can combine code search, repository files, and extracted graph
-claims. For consequential work, ask for supporting source paths and check the
-current code before changing behavior.
+Answers combine retrieved files, graph claims, and code search. For
+consequential work, ask for the files behind an answer and check the current
+code before changing behavior.
 
 <Callout title="Self-hosting">
-  Self-hosted deployments use the same product model with your own backend, UI,
-  worker, codesearch, Postgres, and graph database. See the
-  [self-hosting section](/docs/self-hosting) for deployment-specific details.
+  Self-hosted deployments use the same model with your own backend, UI,
+  worker, codesearch, Postgres, graph database, and chat sandboxes. See the
+  [self-hosting section](/docs/self-hosting).
 </Callout>
 
 <Cards>
-  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Connect a repository and configure an MCP client." />
-  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare direct Git, scoped mirrors, and intent capture." />
+  <Card title="Hosted quickstart" href="/docs/getting-started/quickstart" description="Create your first Workspace." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files become the knowledge graph." />
+  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Compare mirrors and Slack capture." />
   <Card title="Remote MCP" href="/docs/mcp/mcp-docs" description="Connect ctx| to your coding agents." />
-  <Card title="Knowledge graph" href="/docs/knowledge-graph" description="Inspect the relationships behind agent context." />
 </Cards>

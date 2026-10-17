@@ -1,20 +1,15 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardPrimaryCta,
   getConfluenceCardStepDefs,
 } from "../confluence-setup-model"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
+import { resolveConnectorHealth } from "../connectorHealth"
 import {
   atlassianConnectorKeys,
   deleteAtlassianConnector,
@@ -23,28 +18,20 @@ import {
 } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
-import {
-  ConnectorListItem,
-  ConnectorRemoveMenu,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem } from "./ConnectorListItem"
 
 type ConfluenceConnectionCardProps = {
   orgSlug: string
   connectionId: string
   onOpenWizard: () => void
-  onOpenScope: () => void
 }
 
 export function ConfluenceConnectionCard({
   orgSlug,
   connectionId,
   onOpenWizard,
-  onOpenScope,
 }: ConfluenceConnectionCardProps) {
   const queryClient = useQueryClient()
-  const navigate = useNavigate()
-  const [removeOpen, setRemoveOpen] = useState(false)
 
   const {
     data: status,
@@ -75,12 +62,8 @@ export function ConfluenceConnectionCard({
         queryKey: atlassianConnectorKeys.status(orgSlug, connectionId),
       })
       await queryClient.invalidateQueries({
-        queryKey: atlassianConnectorKeys.config(orgSlug, connectionId),
-      })
-      await queryClient.invalidateQueries({
         queryKey: orgConnectionsKeys.list(orgSlug),
       })
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
@@ -90,79 +73,63 @@ export function ConfluenceConnectionCard({
     ? getConfluenceCardCurrentIndex(status, oauthForCard)
     : 0
   const primary = getConfluenceCardPrimaryCta(currentIndex, stepDefs)
-  const complete = status ? currentIndex >= stepDefs.length : false
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status || oauthPending,
     setupPhase: status?.setupPhase,
-    connected: complete,
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
+  })
+
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "confluence",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Atlassian Confluence"
-        icon={
-          <ConfluenceMark
-            className="size-5 text-foreground"
-            variant="outline"
-          />
-        }
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Confluence connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={status?.isLinked ? "Atlassian" : "—"}
-        scope={
-          status ? formatSelectedItemCount(status.selectedSpaceCount) : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : isPending || oauthPending
-              ? undefined
-              : primary.label
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : isPending || oauthPending
-              ? undefined
-              : () => {
-                  if (primary.kind === "open_wizard") onOpenWizard()
-                  else if (primary.kind === "navigate_repositories") {
-                    void navigate({
-                      to: "/$orgSlug/repositories",
-                      params: { orgSlug },
-                    })
-                  } else onOpenScope()
-                }
-        }
-      >
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove Confluence connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This removes the Forge installation and Confluence scope for this
-          organisation. Your Atlassian account may stay linked to your user
-          profile.
-        </AlertDialog>
-      </Modal>
-    </>
+    <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="confluence"
+        />
+      }
+      sync={sync}
+      name="Atlassian Confluence"
+      icon={
+        <ConfluenceMark className="size-5 text-foreground" variant="outline" />
+      }
+      health={health}
+      remove={{
+        description:
+          "This removes the Forge installation and Confluence scope for this organization. Your Atlassian account may stay linked to your user profile.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={status?.isLinked ? "Atlassian" : "—"}
+      actionLabel={
+        isError
+          ? "Retry"
+          : isPending || oauthPending
+            ? undefined
+            : primary.label
+      }
+      onAction={
+        isError
+          ? () => void refetch()
+          : isPending || oauthPending
+            ? undefined
+            : onOpenWizard
+      }
+    >
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

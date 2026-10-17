@@ -93,10 +93,16 @@ describe("PagerDuty PKCE cookie", () => {
       codeVerifier: "verifier-1",
     })
     expect(
-      pagerdutyPkceCookieFromHeader(`${PAGERDUTY_PKCE_COOKIE}=${value}`, "nonce-1"),
+      pagerdutyPkceCookieFromHeader(
+        `${PAGERDUTY_PKCE_COOKIE}=${value}`,
+        "nonce-1",
+      ),
     ).toBe("verifier-1")
     expect(
-      pagerdutyPkceCookieFromHeader(`${PAGERDUTY_PKCE_COOKIE}=${value}`, "other"),
+      pagerdutyPkceCookieFromHeader(
+        `${PAGERDUTY_PKCE_COOKIE}=${value}`,
+        "other",
+      ),
     ).toBeUndefined()
     expect(pagerdutyPkceCookieFromHeader(undefined, "nonce-1")).toBeUndefined()
   })

@@ -1,13 +1,18 @@
 import { and, eq, inArray } from "drizzle-orm"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
-import { getOrgDb, withOrgDbContext } from "../../db/client.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
+import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
-import { readCodesearchError } from "../../lib/codesearchError.js"
+import {
+  type CodesearchHttpOptions,
+  readCodesearchError,
+} from "../../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
-import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
+import { publishedRepositoryCheckoutKey } from "../../models/repositories.js"
+import { getWorkspaceSearchProjection } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 
 /**
@@ -16,6 +21,11 @@ import { log } from "../../observability/logger.js"
  */
 export function zoektLiteralQuery(text: string): string {
   return `"${text.replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`
+}
+
+/** Zoekt rejected the query. Only `strict` calls get it; others retry as a literal. */
+export class CodeSearchRejectedError extends Error {
+  override readonly name = "CodeSearchRejectedError"
 }
 
 export type CodeSearchResult = {
@@ -135,53 +145,59 @@ export async function codeSearch(
   params: {
     query: string
     repositoryIds?: string[]
+    workspaceId?: string
+    workspaceSnapshot?: Awaited<ReturnType<typeof getWorkspaceSearchProjection>>
+    /** Repositories that the caller already resolved; skips the checkout query. */
+    repositories?: Array<{ id: string; name: string; zoektRepoId: number }>
+    /** Throw {@link CodeSearchRejectedError} on a rejected query, with no literal retry. */
+    strict?: boolean
+    transport?: CodesearchHttpOptions
   },
 ): Promise<CodeSearchResult[]> {
+  const workspace = params.workspaceId
+    ? (params.workspaceSnapshot ??
+      (await withOrgDbContext(orgId, () =>
+        getWorkspaceSearchProjection(params.workspaceId as string),
+      )))
+    : null
   const baseWhere = eq(repositories.orgId, orgId)
   const where = params.repositoryIds?.length
     ? and(baseWhere, inArray(repositories.id, params.repositoryIds))
     : baseWhere
 
-  let repos: { id: string; name: string; zoektRepoId: number }[]
-  try {
-    const db = getOrgDb()
-    repos = await db
-      .select({
-        id: repositories.id,
-        name: repositories.name,
-        zoektRepoId: repositoryCheckouts.zoektRepoId,
-      })
-      .from(repositories)
-      .innerJoin(
-        repositoryCheckouts,
-        and(
-          eq(repositoryCheckouts.repositoryId, repositories.id),
-          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-        ),
-      )
-      .where(where)
-  } catch {
-    repos = await withOrgDbContext(orgId, async (db) =>
-      db
-        .select({
-          id: repositories.id,
-          name: repositories.name,
-          zoektRepoId: repositoryCheckouts.zoektRepoId,
-        })
-        .from(repositories)
-        .innerJoin(
-          repositoryCheckouts,
-          and(
-            eq(repositoryCheckouts.repositoryId, repositories.id),
-            eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-          ),
+  const repos = params.repositories
+    ? params.repositories
+    : workspace
+      ? workspace.repositories.filter(
+          (repo) =>
+            !params.repositoryIds?.length ||
+            params.repositoryIds.includes(repo.id),
         )
-        .where(where),
-    )
-  }
+      : await withOrgDbContext(orgId, async (db) =>
+          db
+            .select({
+              id: repositories.id,
+              name: repositories.name,
+              gitUrl: repositories.gitUrl,
+              zoektRepoId: repositoryCheckouts.zoektRepoId,
+            })
+            .from(repositories)
+            .innerJoin(
+              repositoryCheckouts,
+              and(
+                eq(repositoryCheckouts.repositoryId, repositories.id),
+                eq(
+                  repositoryCheckouts.checkoutKey,
+                  publishedRepositoryCheckoutKey(),
+                ),
+              ),
+            )
+            .where(where),
+        )
 
   if (repos.length === 0) return []
 
+  assertNotInOrgDbContext()
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -190,6 +206,23 @@ export async function codeSearch(
       sub: `org:${orgId}`,
       orgId,
       principal: "service",
+      ...(params.workspaceId ? { workspaceId: params.workspaceId } : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "legacy"
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace &&
+      publishedProjection(workspace.projection)?.kind === "active"
+        ? {
+            workspaceRevisions: workspace.repositories
+              .filter((repo) =>
+                repos.some(
+                  (selected) => selected.zoektRepoId === repo.zoektRepoId,
+                ),
+              )
+              .map((repo) => ({ repositoryId: repo.id, sha: repo.sha })),
+          }
+        : {}),
     },
   })
   const repoIds = repos.map((r) => r.zoektRepoId)
@@ -207,8 +240,13 @@ export async function codeSearch(
             Q: query,
             RepoIDs: repoIds,
           }),
+          signal: params.transport?.signal,
         }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+      params.transport?.retry ?? {
+        retries: 10,
+        baseDelayMs: 200,
+        maxDelayMs: 30_000,
+      },
     )
 
   const readRejection = async (response: Response) => {
@@ -220,6 +258,9 @@ export async function codeSearch(
   let query = params.query
   let res = await postSearch(query)
   let rejected = await readRejection(res)
+  if (rejected && params.strict) {
+    throw new CodeSearchRejectedError(rejected.message)
+  }
   if (rejected) {
     const literal = zoektLiteralQuery(params.query)
     if (literal !== params.query) {
@@ -242,9 +283,32 @@ export async function codeSearch(
     throw new Error(`codesearch failed with status ${res.status}`)
   }
 
-  const searchResponse = (await res.json()) as Record<string, unknown>
-
-  return repos.map((r) => ({
+  const rawResponse = (await res.json()) as Record<string, unknown>
+  const result =
+    rawResponse.Result && typeof rawResponse.Result === "object"
+      ? (rawResponse.Result as Record<string, unknown>)
+      : rawResponse
+  let searchResponse = result
+  let matchingRepos = repos
+  if (workspace) {
+    const expected = new Map(
+      workspace.repositories
+        .filter((repo) => repos.some((selected) => selected.id === repo.id))
+        .map((repo) => [repo.zoektRepoId, repo.sha]),
+    )
+    const files = (Array.isArray(result.Files) ? result.Files : []).filter(
+      (file) =>
+        file &&
+        typeof file === "object" &&
+        typeof file.Version === "string" &&
+        expected.get(file.RepositoryID) === file.Version,
+    )
+    if (files.length === 0) return []
+    const matchingIds = new Set(files.map((file) => file.RepositoryID))
+    matchingRepos = repos.filter((repo) => matchingIds.has(repo.zoektRepoId))
+    searchResponse = { Files: files }
+  }
+  return matchingRepos.map((r) => ({
     repositoryId: r.id,
     repositoryName: r.name,
     zoektRepoId: r.zoektRepoId,

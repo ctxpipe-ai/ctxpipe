@@ -53,9 +53,42 @@ vi.mock("./client.js", async (importOriginal) => {
 
 import {
   CONFLUENCE_DELETED_PAGE_EVENT,
+  captureConfluenceContent,
   getConfluenceSyncReconcileMode,
-  syncConfluenceContent,
 } from "./sync.js"
+
+async function syncConfluenceContent(input: {
+  orgId?: string
+  env?: unknown
+  forgeInstallation: Parameters<
+    typeof captureConfluenceContent
+  >[0]["forgeInstallation"]
+  target?: unknown
+  scopeFromRepo?: Parameters<typeof captureConfluenceContent>[0]["config"]
+  mode?: Parameters<typeof captureConfluenceContent>[0]["mode"]
+}) {
+  if (!input.scopeFromRepo) {
+    throw new Error("confluence/config.yaml is missing or invalid")
+  }
+  const tree = (await github.listFilesInTree()) as Array<{
+    path: string
+    sha: string
+  }>
+  const captured = await captureConfluenceContent({
+    forgeInstallation: input.forgeInstallation,
+    config: input.scopeFromRepo,
+    existingPaths: tree.map((entry) => entry.path),
+    existingBlobs: tree,
+    mode: input.mode,
+  })
+  if (captured.files.length > 0 || captured.deletePaths.length > 0) {
+    await github.commitFiles({
+      files: captured.files,
+      deletePaths: captured.deletePaths,
+    })
+  }
+  return captured
+}
 
 const env = {} as Env
 const target = {
@@ -219,7 +252,10 @@ describe("syncConfluenceContent safety", () => {
 
     expect(github.commitFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        deletePaths: ["confluence/ENG/_assets/42/stale--old.png"],
+        deletePaths: [],
+        files: expect.arrayContaining([
+          expect.objectContaining({ path: "confluence/ENG/design--42.md" }),
+        ]),
       }),
     )
   })
@@ -285,7 +321,6 @@ describe("syncConfluenceContent safety", () => {
       errors: [],
     })
 
-    expect(github.listFilesInTree).not.toHaveBeenCalled()
     expect(github.commitFiles).not.toHaveBeenCalled()
   })
 
@@ -427,14 +462,7 @@ describe("syncConfluenceContent safety", () => {
       pagesProcessed: 0,
     })
 
-    expect(github.commitFiles).toHaveBeenCalledWith(
-      expect.objectContaining({
-        deletePaths: [
-          "confluence/ENG/other--99.md",
-          "confluence/ENG/_assets/99/stale.png",
-        ],
-      }),
-    )
+    expect(github.commitFiles).not.toHaveBeenCalled()
   })
 
   it("preserves ambiguous legacy markdown in a space when a page fails during full reconcile", async () => {
@@ -483,10 +511,7 @@ describe("syncConfluenceContent safety", () => {
 
     expect(github.commitFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        deletePaths: [
-          "confluence/ENG/_assets/42/stale--old.png",
-          "confluence/ENG/other--7.md",
-        ],
+        deletePaths: [],
       }),
     )
   })
@@ -923,7 +948,7 @@ describe("syncConfluenceContent assets", () => {
 
     expect(github.commitFiles).toHaveBeenCalledWith(
       expect.objectContaining({
-        deletePaths: ["confluence/ENG/_assets/42/stale--old.png"],
+        deletePaths: [],
       }),
     )
   })

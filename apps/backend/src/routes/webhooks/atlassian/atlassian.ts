@@ -3,6 +3,7 @@ import type { Context } from "hono"
 import { createRemoteJWKSet, type JWTPayload, jwtVerify } from "jose"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { parseAtlassianApiBaseUrlFromFitPayload } from "../../../lib/atlassian-api-base-url.js"
 import {
   getForgeInstallationByForgeInstallationId,
@@ -13,6 +14,7 @@ import {
 import { getLogger } from "../../../observability/logger.js"
 import { handleForgeConfluenceContentEvent } from "../../../services/confluence/forge-confluence-webhook.js"
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
+import type { ConfluenceSourceEvent } from "../../../services/confluence/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
@@ -371,6 +373,25 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
       if (targets.length === 0) {
         log.warn("forge_confluence_webhook_missing_space_key", { eventType })
         return c.body(null, 202)
+      }
+      // ADR-050: Workspace sources sync once for each connection.
+      try {
+        await enqueueConnectionSourcesSync({
+          orgId: installation.orgId,
+          connectionId: installation.id,
+          provider: "confluence",
+          event: {
+            spaceKeys: targets.map((target) => target.spaceKey),
+            pageId: targets[0]?.pageId,
+            eventType,
+          } satisfies ConfluenceSourceEvent,
+        })
+      } catch (error) {
+        log.error("forge_confluence_webhook_sources_enqueue_failed", {
+          eventType,
+          connectionId: installation.id,
+          message: error instanceof Error ? error.message : String(error),
+        })
       }
       let enqueued = false
       let reset = false

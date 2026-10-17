@@ -1,0 +1,30 @@
+[
+  {
+    "name": "backend",
+    "project": "apps/backend/tsconfig.json"
+  },
+  {
+    "name": "ui",
+    "project": "apps/ui/tsconfig.json"
+  },
+  {
+    "name": "codesearch",
+    "project": "apps/codesearch/tsconfig.json"
+  },
+  {
+    "name": "aws-cdk",
+    "project": "packages/aws-cdk/tsconfig.json"
+  },
+  {
+    "name": "cli",
+    "project": "packages/cli/tsconfig.json"
+  },
+  {
+    "name": "self-host",
+    "project": "examples/aws-cdk-self-host/tsconfig.json"
+  },
+  {
+    "name": "docs",
+    "project": "apps/docs/tsconfig.json"
+  }
+]

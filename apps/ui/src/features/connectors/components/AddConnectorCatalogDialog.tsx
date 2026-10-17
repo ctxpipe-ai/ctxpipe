@@ -31,13 +31,13 @@ export function AddConnectorCatalogDialog({
               Add connection
             </h2>
             <p className="mt-2 text-sm text-muted-foreground">
-              Choose a source to connect to this organisation.
+              Choose a source to connect to this organization.
             </p>
           </div>
           <Button
             variant="ghost"
             size="icon-sm"
-            className="rounded-none"
+            className="rounded-md"
             aria-label="Close"
             onPress={() => onOpenChange(false)}
           >

@@ -1,19 +1,44 @@
 import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
 import { BackendPostgres } from "openworkflow/postgres"
-import { parseEnv } from "./src/config/env.js"
 import { initDb } from "./src/db/client.js"
-import { createLogger, flushEvlog } from "./src/observability/logger.js"
+import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
-import { backfillGithubAppSecretsFromEnv } from "./src/scripts/backfillGithubConnectionSecrets.js"
+import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
+import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
+import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl) throw new Error("DATABASE_URL is required for the worker")
 initDb(databaseUrl)
-const env = parseEnv(process.env as Record<string, string | undefined>)
-await backfillGithubAppSecretsFromEnv(env)
+// Restart sandbox sweep chains that a failed schedule or crash left behind,
+// and sweep dormant orgs (on Docker each sweep also prunes the host).
+void scheduleSweepsForOrgsNeedingIt().catch((error: unknown) =>
+  log.error({
+    step: "conversation-sandbox-sweep-backstop",
+    message: `Startup sandbox sweep failed: ${String(error)}`,
+  }),
+)
+// Start the daily Workspace sources sync chain. The key is per day, so a
+// restart on the same day queues nothing new.
+void scheduleDailySourcesSync(new Date()).catch((error: unknown) =>
+  log.error({
+    step: "workspace-sources-daily-sync-start",
+    message: `Scheduling the daily sources sync failed: ${String(error)}`,
+  }),
+)
+// Find the pending Workspace upgrades of each org after a deploy (ADR-053).
+// The key is per org and release, so a restart on the same day queues no
+// second scan. The scans only record the upgrades; each one waits for an
+// owner or admin.
+void scheduleUpgradeScansForAllOrgs().catch((error: unknown) =>
+  log.error({
+    step: "workspace-upgrade-scan-backstop",
+    message: `Scheduling the upgrade scans failed: ${String(error)}`,
+  }),
+)
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {
@@ -47,6 +72,7 @@ bootstrapLog.emit()
 export default defineConfig({
   backend: await BackendPostgres.connect(databaseUrl, {
     namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
   }),
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).

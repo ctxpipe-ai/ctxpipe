@@ -45,6 +45,7 @@ describe("phaseMergeScip", () => {
       orgId: "org_mock123",
       repoId: "repo_aaaaaa",
       repoGitUrl: "https://github.com/acme/web.git",
+      checkoutKey: "default",
       clonePath: directory,
       scipIndexPath: outputPath,
       zoektRepoId: 1,

@@ -31,3 +31,22 @@ export async function readCodesearchError(
   }
   return { status: res.status, message, code }
 }
+
+/** A codesearch answer that is not 2xx, with its status for the caller to map. */
+export class CodesearchHttpError extends Error {
+  override readonly name = "CodesearchHttpError"
+
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly detail: string,
+  ) {
+    super(message)
+  }
+}
+
+/** Transport options for one codesearch request: a deadline and a retry budget. */
+export type CodesearchHttpOptions = {
+  signal?: AbortSignal
+  retry?: { retries: number; baseDelayMs: number; maxDelayMs: number }
+}

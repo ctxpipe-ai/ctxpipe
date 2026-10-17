@@ -9,16 +9,24 @@ on:
         description: Pull request number
         required: true
         type: string
-        default: "280"
       head_sha:
         description: Full git SHA already published to GHCR as pr-<N>-<sha>
         required: true
         type: string
 
+# Only the checkout reads the repository. Railway and Vercel calls use their
+# own secrets, not the GitHub token.
+permissions: {}
+
 jobs:
   roll:
-    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
+    # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
+    # Vercel project (scripts/preview-sandbox-vars.sh), never production.
+    environment: Preview
     env:
       RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
@@ -26,13 +34,29 @@ jobs:
       WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
       UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
       CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+      PR_NUMBER: ${{ inputs.pr_number }}
       PR_ENV: pr-${{ inputs.pr_number }}
       IMAGE_TAG: pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       UI_IMAGE: ghcr.io/ctxpipe-ai/ui:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
+      OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+      VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+      GH_APP_ID: ${{ secrets.GH_APP_ID }}
+      GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+      GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+      GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+      GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+      GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+      HEAD_SHA: ${{ inputs.head_sha }}
     steps:
+      - name: Check inputs
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
+
       - uses: actions/checkout@v4
 
       - name: Install Railway CLI
@@ -62,6 +86,16 @@ jobs:
           set -euo pipefail
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
 
           update_ui() {
             railway_graphql \
@@ -119,15 +153,33 @@ jobs:
             done
           }
 
-          # Bind UI to all interfaces for later healthchecks if re-enabled.
+          # Bind UI + SSR API origin: the backend private domain, as in
+          # pr-deploy.yaml, on port 8080 (the backend PORT that Terraform sets
+          # in production). AUTH_ALLOWED_ORIGINS gives the UI browser OTEL
+          # proxy the public origin. `dollar` keeps GitHub Actions from reading
+          # the Railway reference as an expression.
+          dollar='$'
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" \
-              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0"}}}')" >/dev/null
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${PR_NUMBER}.up.railway.app" \
+              '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth,AUTH_ALLOWED_ORIGINS:$origins}}}')" >/dev/null
+
+          point_preview_backend_at_private_ui
+
+          sync_preview_otel_variables
+          sync_preview_sandbox_variables
+          sync_preview_github_app_variables
+          # A preview from before PR Deploy gave it its own secrets still has
+          # the production AUTH_SECRET and the account token. Replace them
+          # before branch code rolls. A marked preview keeps its values.
+          sync_preview_own_secrets
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
           wait_ok backend "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+          # The backend now proxies to the UI private domain, so the UI
+          # needs no public domain. Production UI has none either.
+          remove_preview_ui_public_domains
 
           update_img "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
           deploy "$WORKER_SERVICE_ID"
@@ -142,3 +194,5 @@ jobs:
           wait_ok codesearch "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
           echo "Rolled preview to $IMAGE_TAG"
+
+          bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"

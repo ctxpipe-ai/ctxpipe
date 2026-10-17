@@ -1,14 +1,20 @@
 export type ZoektRepositoryIdentity = {
   orgId: string
   repoId: string
+  checkoutKey?: string
 }
 
 /**
  * Stable Zoekt repository Name. Keep display names out of this identity: two
  * orgs can have the same `owner/repo`, and repository display names can move.
+ * Workspace checkouts append the checkout key so two Workspaces do not share a shard.
  */
 export function zoektRepositoryName(identity: ZoektRepositoryIdentity): string {
-  return `ctxpipe:v1:org:${identity.orgId}:repo:${identity.repoId}`
+  const base = `ctxpipe:v1:org:${identity.orgId}:repo:${identity.repoId}`
+  if (identity.checkoutKey && identity.checkoutKey !== "default") {
+    return `${base}:checkout:${identity.checkoutKey}`
+  }
+  return base
 }
 
 /**

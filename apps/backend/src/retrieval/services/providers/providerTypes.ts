@@ -1,6 +1,5 @@
-import type { BaseChatModel } from "@langchain/core/language_models/chat_models"
-
 import type { ModelParams } from "../modelParams.js"
+import type { HostTextAdapter } from "./hostTextAdapter.js"
 
 export type ModelProviderKind =
   | "openai-like"
@@ -10,7 +9,7 @@ export type ModelProviderKind =
 
 export type ModelTier = "fast" | "medium" | "high"
 
-/** OpenAI client `configuration.fetch` / embeddings transport. */
+/** HTTP transport for chat and embeddings. */
 export type OpenAiCompatibleFetch = (
   input: string | URL | Request,
   init?: RequestInit,
@@ -30,17 +29,17 @@ export type ProviderCallOpts = {
   env: ProviderCallEnv
   /** Passed into chat model constructors; omit or `undefined` for embeddings. */
   temperature?: number
-  /**
-   * Whether the chat model uses streaming transport.
-   * Defaults to `true`. Set `false` for invoke-only paths (e.g. code ingestion)
-   * to avoid ConverseStream idle watchdogs.
-   */
+  /** Legacy transport setting. Host calls always use a single response. */
   streaming?: boolean
+  /** Langfuse generation name of the call. */
+  name?: string
+  /** Name of the forced structured output tool. */
+  outputName?: string
 }
 
 export type ProviderCallResult = {
-  chat: BaseChatModel
+  chat: HostTextAdapter
   fetch: OpenAiCompatibleFetch
   /** Native embedding path when the provider does not use OpenAI-compatible HTTP. */
-  embed?: (text: string) => Promise<number[]>
+  embed?: (text: string, signal?: AbortSignal) => Promise<number[]>
 }

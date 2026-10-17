@@ -40,12 +40,14 @@ One key per concept. Resource attributes: `service.name` (`backend`, `openworkfl
 | `traceId` / `spanId` | Active span, top-level on the evlog event. There is no `trace_id` attribute. |
 | `enduser.id` | User id from auth. Omitted for actor `org_api_key`. |
 | `ctxpipe.org.id` / `ctxpipe.org.slug` | Org from auth. |
+| `ctxpipe.mcp.org.slug_hash` | MCP tool and resource spans: hash of the org slug of the call (ADR-051). |
 | `ctxpipe.actor.type` | `user`, `org_api_key`, `oauth_client`, `webhook`, `job`. |
 | `ctxpipe.api_key.id` | Key id. The secret is not an attribute. |
 | `ctxpipe.oauth.client_id` | OAuth client id. |
 | `ctxpipe.mcp.tool` | MCP tool name on that request. |
 | `ctxpipe.conversation.id` | Conversation or thread id. |
 | `ctxpipe.repository.id` / `ctxpipe.connection.id` | Present when the request or job input has them. |
+| `ctxpipe.ingest.*` | Ingestion v2 (ADR-052). Spans `ingestion.run` (`source.sha`, `bundle`, `status`, `shards`, `ops`, `rejects`, `partial`), `ingestion.shard`, and `ingestion.step` (`run.id`, `shard`, `step`, `skill`, `ref.base`, `ref.tip`, `ops`, `rejects`, `validation`, `attempts`, `partial`). The model proxy writes an `ingestion.model_call` generation with token usage in the Langfuse session `ingest:<run id>`. Each rejected op and each `partial` reason is a log event with `step` `ingestion-v2.op-rejected`, `ingestion-v2.step-partial`, `ingestion-v2.step-mostly-rejected`, or `ingestion-v2.partial`. No span or log holds source text. |
 
 HTTP on logs matches spans: `http.request.method`, `url.path` (no query string), `http.response.status_code`. A call this service made uses `upstream.status_code`. Wide-event `duration` is milliseconds.
 
@@ -55,7 +57,7 @@ Rows already stored may still use `requestId`, `userId`, or `environment`. New w
 
 ## Localhost OTLP
 
-Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry). A shared export uses `RAILWAY_ENVIRONMENT_NAME=local-<name>` and is never the default.
+Export stays off until `OTEL_EXPORTER_OTLP_*` is set. `pnpm dev` leaves it unset. Laptop collector and the opt-in shared collector: [USING.md](../../../ops/observability/USING.md#localhost-telemetry).
 
 ## Instrument
 
@@ -73,10 +75,22 @@ Export stays off the request and job path. evlog logs go through `createDrainPip
 
 Tests sit next to the module. Assert telemetry through the OTel SDK in-memory exporters and outbound calls through msw: attribute names present; params, query strings, emails, and secrets absent. Mocking rules: root AGENTS.md → Testing.
 
+### Workspace chat hang (composer spins, no assistant text)
+
+Do **not** export Better Stack **CSV**. Mixed-service CSV drops HTTP `message`, splits TanStack ANSI across `info` rows, and hides the OpenCode 500 body.
+
+1. Prefer HyperDX (MCP `hyperdx`) JSON/JSONL for `ServiceName=backend`, or Railway MCP JSON/JSONL when the process never exported. Better Stack only if you can export **JSON or JSONL**.
+2. Filter `step` in (`opencode.chatStream`, `tanstack-workspace-chat`, `attach-chat-sandbox-handle`) plus the conversation `POST /:orgSlug/api/v1/conversations/:conversationId` `request.id`.
+3. The conversation `POST` is **200** when the stream opens (~17–18s). That is not a successful turn. The chat-attempt event is a **second** row with `step=opencode.chatStream` after Hono emits the HTTP event.
+4. If you see `[evlog] log.set() called after the wide event was emitted` dropping `step, conversationId, workspaceId, status, bodyExcerpt`, that deploy still writes to the sealed request logger — the chat-attempt fields never land.
+5. The chat-attempt event must include `conversationId`, `status`, and `bodyExcerpt` (OpenCode/TanStack fatal). Grep `opencode.chatStream`, not `message == ""`.
+6. Redact session tokens and emails before pasting. Do not add a second drain or a new env var.
+
+Out of scope unless that body names them: codesearch `POST /search` 503 (Zoekt warmup) and `SANDBOX_PROVIDER=railway` fail-closed.
+
 ## Gotchas
 
 - `@opentelemetry/sdk-node` does not patch `Bun.serve` or Bun's `fetch`. The server span is `backendOtelMiddleware`. The client span is `tracedOutgoingFetch`. pg, undici, net, dns, and fs auto-instrumentation is off; Postgres spans come from `dbTrace`.
 - A PR flush exports after `span.end()`. An empty preview has no metric series until the next request or job.
 - Under Bun there are no `v8js.*` runtime metrics.
-- `CtxpipeCallbackHandler` (`observability/langfuse.ts`) collapses a repeated `model_name` before Langfuse records the generation.
 - `AttributionUrlSpanProcessor` strips a Drizzle `params:` line from exception messages, stacks, and status text as the span ends. Bound values stay off the exported span when a library calls `recordException` with the original error.

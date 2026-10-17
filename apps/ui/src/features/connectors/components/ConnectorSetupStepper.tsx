@@ -71,7 +71,7 @@ export function ConnectorSetupStepper({
         const icon =
           state === "done" || state === "done_after" ? (
             <span
-              className={`flex size-5 shrink-0 items-center justify-center rounded-none border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
+              className={`flex size-5 shrink-0 items-center justify-center rounded-md border border-emerald-500 bg-zinc-900 ${state === "done_after" ? "opacity-60" : ""}`}
               aria-hidden
             >
               <IconCheck className="size-3.5 text-emerald-500" stroke={2.5} />
@@ -80,8 +80,8 @@ export function ConnectorSetupStepper({
             <span
               className={
                 state === "current"
-                  ? "flex size-5 shrink-0 items-center justify-center rounded-none border border-primary bg-zinc-900 text-xs font-medium text-primary"
-                  : "flex size-5 shrink-0 items-center justify-center rounded-none border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
+                  ? "flex size-5 shrink-0 items-center justify-center rounded-md border border-primary bg-zinc-900 text-xs font-medium text-primary"
+                  : "flex size-5 shrink-0 items-center justify-center rounded-md border border-zinc-600 bg-zinc-900 text-xs text-muted-foreground"
               }
             >
               {i + 1}
@@ -102,7 +102,7 @@ export function ConnectorSetupStepper({
             {isInteractive ? (
               <button
                 type="button"
-                className={`flex w-full min-w-0 gap-3 rounded-none text-left outline-none transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
+                className={`flex w-full min-w-0 gap-3 rounded-md text-left outline-none transition hover:bg-foreground/[0.06] focus-visible:ring-2 focus-visible:ring-primary/50 ${state === "done_after" ? "opacity-90" : ""}`}
                 onClick={() => onStepSelect(i)}
               >
                 <span className="mt-0.5 shrink-0">{icon}</span>

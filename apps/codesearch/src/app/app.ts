@@ -6,6 +6,7 @@ import { cors } from "hono/cors"
 import { verifyCodesearchJwt } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import { createDb } from "../db/client.js"
+import { httpWideEventMessage } from "../observability/http-wide-event-message.js"
 import {
   applyCodesearchLogContract,
   createEvlogDrain,
@@ -19,15 +20,21 @@ import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
 
-export function useObservability(app: OpenAPIHono<AppEnv>) {
+export function useObservability(app: OpenAPIHono<AppEnv>, env?: Env) {
   app.use("*", httpInstrumentationMiddleware())
   app.use("*", cors())
   app.use(contextStorage())
   app.use(
     evlog({
-      drain: createEvlogDrain(),
+      drain: createEvlogDrain(env),
       enrich: (ctx) => {
         applyCodesearchLogContract(ctx.event as Record<string, unknown>)
+        const message = httpWideEventMessage({
+          method: ctx.event.method ?? ctx.request?.method,
+          path: ctx.event.path ?? ctx.request?.path,
+          status: ctx.event.status ?? ctx.response?.status,
+        })
+        if (message) ctx.event.message = message
       },
     }),
   )
@@ -37,7 +44,7 @@ export function createApp(env: Env) {
   const app = new OpenAPIHono<AppEnv>()
   const db = env.DATABASE_URL ? createDb(env) : null
 
-  useObservability(app)
+  useObservability(app, env)
   app.use("*", async (c, next) => {
     c.set("db", db)
     c.set("env", env)
@@ -55,7 +62,7 @@ export function createApp(env: Env) {
       return c.json({ error: "Unauthorized" }, 401)
     }
     c.set("auth", verified)
-    await next()
+    return next()
   })
   registerSearchRoutes(api)
   registerRepoRoutes(api)

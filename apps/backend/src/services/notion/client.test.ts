@@ -219,7 +219,9 @@ describe("Notion OAuth token HTTP", () => {
 
   it("refreshes a token with explicit row credentials when env is unset", async () => {
     const fetchMock = vi.fn<typeof fetch>().mockResolvedValue(
-      new Response(JSON.stringify({ access_token: "fresh" }), { status: 200 }),
+      new Response(JSON.stringify({ access_token: "fresh" }), {
+        status: 200,
+      }),
     )
     vi.stubGlobal("fetch", fetchMock)
 

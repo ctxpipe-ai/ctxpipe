@@ -1,0 +1,212 @@
+name: MCP evals
+
+# MCPJam evals for the public MCP tools (CTX-574, ADR-051 section 10).
+# The job starts its own backend from the checked-out code, with Postgres and
+# FalkorDB as service containers and made-up fixture data. It never reaches a
+# preview or production. Runs: nightly, by hand, and on a pull request with the
+# label `mcp-evals`. A model call costs money, so a pull request does not run
+# the suite by default; see mcp-evals-reminder.yaml.
+on:
+  schedule:
+    - cron: "17 3 * * *"
+  pull_request:
+    branches:
+      - main
+    types:
+      - labeled
+      - synchronize
+  workflow_dispatch:
+    inputs:
+      update_baseline:
+        description: "Write the pass rates to baseline.json (in the artifact). Commit that file."
+        required: false
+        type: boolean
+        default: false
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  evals:
+    name: MCPJam evals
+    if: |
+      github.event_name != 'pull_request' ||
+      (github.event.action == 'labeled' && github.event.label.name == 'mcp-evals') ||
+      (github.event.action == 'synchronize' &&
+      contains(github.event.pull_request.labels.*.name, 'mcp-evals')
+      )
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 90
+    services:
+      postgres:
+        image: pgvector/pgvector:pg17
+        env:
+          POSTGRES_USER: ctxpipe
+          POSTGRES_PASSWORD: ctxpipe
+          POSTGRES_DB: ctxpipe
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U ctxpipe -d ctxpipe"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+      falkordb:
+        image: falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 12
+    # Local values only. Secrets stay on the eval steps that need them.
+    env:
+      MCPJAM_TELEMETRY_DISABLED: "1"
+      DATABASE_URL: postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe
+      GRAPH_DB_URI: redis://127.0.0.1:6379
+      AUTH_SECRET: mcp-eval-auth-secret-must-be-at-least-32-chars
+      AUTH_BASE_URL: http://localhost:3000
+      CODESEARCH_URL: http://127.0.0.1:3001
+      MODEL_PROVIDER: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
+      MODEL_PROVIDER_URL: ${{ vars.MODEL_PROVIDER_URL }}
+      MODEL_EMBEDDING_NAME: ${{ vars.MODEL_EMBEDDING_NAME }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: 22
+          cache: pnpm
+      - uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+      - run: pnpm install --frozen-lockfile
+      - name: Install the SCIP TypeScript indexer
+        run: npm install --global @sourcegraph/scip-typescript@0.4.0
+      - name: Restore native revision index tools
+        id: zoekt
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/ctxpipe-zoekt
+          key: zoekt-${{ runner.os }}-${{ runner.arch }}-go1.25.12-596c362fcf1388fe0082acfcfc80c4d172efb7c1
+      - uses: actions/setup-go@v5
+        if: steps.zoekt.outputs.cache-hit != 'true'
+        with:
+          go-version: 1.25.12
+          cache: false
+      - name: Native revision index tools
+        run: |
+          npm install --global @ast-grep/cli@0.45.0
+          if [ ! -x "$RUNNER_TEMP/ctxpipe-zoekt/zoekt-webserver" ]; then
+            mkdir -p "$RUNNER_TEMP/ctxpipe-zoekt"
+            for tool in zoekt-index zoekt-webserver; do
+              GOBIN="$RUNNER_TEMP/ctxpipe-zoekt" go install \
+                "github.com/sourcegraph/zoekt/cmd/${tool}@596c362fcf1388fe0082acfcfc80c4d172efb7c1"
+            done
+          fi
+          echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
+      - name: Migrate the schema
+        env:
+          DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/ctxpipe
+          DATABASE_APP_PASSWORD: ctxpipe
+        working-directory: apps/backend
+        run: |
+          pnpm exec tsx src/db/migrate.ts
+      - name: Start codesearch
+        run: |
+          nohup bash scripts/codesearch-host-dev.sh > "$RUNNER_TEMP/codesearch.log" 2>&1 &
+          for _ in $(seq 60); do
+            code="$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3001/ || true)"
+            [[ "$code" =~ ^2[0-9][0-9]$ ]] && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Start the backend from this checkout
+        working-directory: apps/backend
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+        run: |
+          nohup bun run src/server.ts > "$RUNNER_TEMP/backend.log" 2>&1 &
+          for _ in $(seq 60); do
+            code="$(curl --max-time 5 -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/mcp || true)"
+            [[ "$code" == "401" || "$code" =~ ^2[0-9][0-9]$ ]] && exit 0
+            sleep 2
+          done
+          exit 1
+      - name: Seed the fixture organizations and create the eval key
+        working-directory: apps/backend
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+        run: |
+          set -euo pipefail
+          bun evals/mcp/run-seed.ts ci "ci${{ github.run_id }}" "$RUNNER_TEMP/mcp-eval-fixtures" "$RUNNER_TEMP/mcp-eval-seed.json"
+      - name: Run the evals
+        working-directory: apps/backend
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          MODELS: ${{ vars.MCP_EVAL_MODELS }}
+          UPDATE_BASELINE: ${{ inputs.update_baseline }}
+        run: |
+          set -euo pipefail
+          EXTRA=()
+          [[ "$UPDATE_BASELINE" == "true" ]] && EXTRA+=(--update-baseline)
+          bun evals/mcp/run.ts \
+            --url http://localhost:3000/mcp \
+            --seed "$RUNNER_TEMP/mcp-eval-seed.json" \
+            --models "$MODELS" \
+            --iterations 3 \
+            --out "$RUNNER_TEMP/mcp-eval-results.json" \
+            "${EXTRA[@]}"
+      - name: FalkorDB diagnostics
+        if: failure()
+        continue-on-error: true
+        run: |
+          # The server log alone shows nothing when the main thread stalls, so
+          # also record what the server process and the runner were doing.
+          id=$(docker ps -q --filter publish=6379 | head -n 1)
+          docker ps -a
+          docker stats --no-stream
+          uptime
+          free -m
+          docker exec "$id" sh -c 'cat /proc/sys/vm/overcommit_memory; ps -eLo pid,tid,stat,wchan:30,pcpu,comm | head -40'
+          timeout 5 docker exec "$id" redis-cli INFO server clients memory cpu || echo "INFO did not answer"
+          timeout 5 docker exec "$id" redis-cli GRAPH.LIST || echo "GRAPH.LIST did not answer"
+          timeout 5 docker exec "$id" redis-cli GRAPH.INFO || echo "GRAPH.INFO did not answer"
+      - name: Summary
+        if: always()
+        run: |
+          {
+            echo "## MCP evals"
+            if [ "$(tr -d '[:space:]' < apps/backend/evals/mcp/baseline.json)" = "null" ]; then
+              echo "No baseline.json is committed. Only the 0.9 pass-rate floor applies."
+            fi
+            if [ -f "$RUNNER_TEMP/mcp-eval-results.json" ]; then
+              echo '```json'
+              jq '.report' "$RUNNER_TEMP/mcp-eval-results.json"
+              echo '```'
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"
+      - name: Prepare public results
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/mcp-eval-results.json" ]; then
+            jq '{result: {iterations: .result.iterations, passes: .result.passes}, rates: .rates, report: {passed: .report.passed, aggregates: .report.aggregates}}' "$RUNNER_TEMP/mcp-eval-results.json" > "$RUNNER_TEMP/mcp-eval-public-results.json"
+          fi
+      - name: Upload pass rates
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mcp-eval-results
+          path: |
+            ${{ runner.temp }}/mcp-eval-public-results.json
+            apps/backend/evals/mcp/baseline.json
+          if-no-files-found: ignore

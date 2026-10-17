@@ -1,9 +1,4 @@
 export { AddRepositoryModal } from "./components/AddRepositoryModal"
-export {
-  type GitHubRepositorySetupData,
-  GitHubRepositorySetupForm,
-  type GitHubRepositorySetupStep,
-} from "./components/GitHubRepositorySetupForm"
 export { RepositoryCard } from "./components/RepositoryCard"
 export {
   RepositoryStatus,
@@ -20,5 +15,6 @@ export {
 export {
   getRepositoryIndexingSummary,
   type RepositoryIndexingSummary,
+  repositoriesListOptions,
   useRepositoryIndexingSummary,
 } from "./useRepositoryIndexingSummary"

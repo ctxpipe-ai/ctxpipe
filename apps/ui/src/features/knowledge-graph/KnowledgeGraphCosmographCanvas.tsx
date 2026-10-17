@@ -10,6 +10,7 @@ import {
   CosmographTypeColorLegend,
   prepareCosmographData,
 } from "@cosmograph/react"
+import { IconAlertTriangle, IconHelp } from "@tabler/icons-react"
 import {
   type CSSProperties,
   forwardRef,
@@ -21,7 +22,9 @@ import {
   useRef,
   useState,
 } from "react"
-import { ProgressLoader } from "@/components/ui/InlineLoader"
+import { Button } from "@/components/ui/Button"
+import { cn } from "@/lib/utils"
+import { GraphWaitState } from "./GraphWaitState"
 import { buildFocusFitTarget } from "./knowledgeGraphFocusFit"
 import {
   KIND_FALLBACK_COLOR,
@@ -35,15 +38,15 @@ export type KnowledgeGraphCosmographCanvasHandle = {
   fitView: () => void
   fitToIds: (ids: string[], options?: FitToIdsOptions) => void
   focusNode: (id: string) => void
-  /** Zoom so the node and its 1-hop neighbours fit the viewport — contextual
+  /** Zoom so the node and its 1-hop neighbors fit the viewport — contextual
    * framing for deep-link landings, unlike `focusNode` which over-zooms. */
-  focusNeighbourhood: (id: string) => void
+  focusNeighborhood: (id: string) => void
   selectPoints: (ids: string[]) => void
-  /** Focus points plus their 1-hop neighbours; used to keep incident edges
+  /** Focus points plus their 1-hop neighbors; used to keep incident edges
    * visually bright while preserving the caller's smaller focus list. */
   selectPointsWithAdjacentEdges: (ids: string[]) => void
-  /** Node + its 1-hop neighbours; others dim. */
-  selectNeighbourhood: (id: string) => void
+  /** Node + its 1-hop neighbors; others dim. */
+  selectNeighborhood: (id: string) => void
   unselectAll: () => void
   clearSelectionFilters: () => void
 }
@@ -85,6 +88,13 @@ type KnowledgeGraphCosmographCanvasProps = {
   links: GraphLinkRow[]
   centerControls?: ReactNode
   footerMetadata?: ReactNode
+  /** Opens or closes the tips panel; renders a third rail under zoom. */
+  onTips?: () => void
+  tipsActive?: boolean
+  tipsPanel?: ReactNode
+  /** Dims the search and the timeline, so the open node drawer is the focused
+   * layer. */
+  drawerOpen?: boolean
   /** `null` when the click missed a point. */
   onPointClick: (id: string | null) => void
   onBackgroundClick: () => void
@@ -100,6 +110,11 @@ type TimelineSelection =
 const REVEAL_AFTER_FIT_MS = 80
 const REVEAL_AFTER_REBUILD_MS = 250
 const FOCUS_FIT_PADDING = 0.12
+/**
+ * Camera moves help the user follow a node, so they animate, but for 250 ms
+ * at most (DESIGN.md "Motion").
+ */
+const CAMERA_MOVE_MS = 250
 const INITIAL_EXTENTS_FIT_PADDING = 0.1
 const GRAPH_SIMULATION_RESTART_ALPHA = 0.35
 const INITIAL_SIMULATION_AUTO_SETTLE_MS = 7000
@@ -124,6 +139,10 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     links,
     centerControls,
     footerMetadata,
+    onTips,
+    tipsActive = false,
+    tipsPanel,
+    drawerOpen = false,
     onPointClick,
     onBackgroundClick,
     onSelectionChange,
@@ -131,15 +150,27 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
   ref,
 ) {
   const cosmographRef = useRef<CosmographRef>(undefined)
+  const hostRef = useRef<HTMLDivElement>(null)
   const timelineRef = useRef<CosmographTimelineRef>(undefined)
   const [config, setConfig] = useState<CosmographConfig | null>(null)
   const [isSettled, setIsSettled] = useState(false)
   const [isSimulationRunning, setIsSimulationRunning] = useState(false)
   const [isLassoActive, setIsLassoActive] = useState(false)
+  const [isTimelineReady, setIsTimelineReady] = useState(false)
+  const [isTimelinePlaying, setIsTimelinePlaying] = useState(false)
   const [prepStage, setPrepStage] = useState<"idle" | "preparing" | "error">(
     "idle",
   )
   const [prepError, setPrepError] = useState<string | null>(null)
+  // Cosmograph draws with WebGL 2. Check on the client only, so that the
+  // server render and the first client render agree.
+  const [webglMissing, setWebglMissing] = useState(false)
+  useEffect(() => {
+    const probe = document.createElement("canvas").getContext("webgl2")
+    setWebglMissing(!probe)
+    // Give the probe context back; browsers allow only a few at a time.
+    probe?.getExtension("WEBGL_lose_context")?.loseContext()
+  }, [])
   const hasInitialFitRef = useRef(false)
   const manualSimulationControlRef = useRef(false)
   const initialAutoSettleArmedRef = useRef(false)
@@ -175,7 +206,11 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       const indices = getPointIndicesForIds(ids)
       if (indices.length === 0) return
       cosmographRef.current?.selectPoints?.(indices)
-      cosmographRef.current?.fitViewByIndices?.(indices, 500, FOCUS_FIT_PADDING)
+      cosmographRef.current?.fitViewByIndices?.(
+        indices,
+        CAMERA_MOVE_MS,
+        FOCUS_FIT_PADDING,
+      )
     },
     [getPointIndicesForIds],
   )
@@ -208,6 +243,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     isLassoActiveRef.current = false
     setIsLassoActive(false)
     cosmographRef.current?.unselectAllPoints?.()
+    timelineRef.current?.pauseAnimation?.()
     timelineRef.current?.setSelection?.()
     if (!manualSimulationControlRef.current) {
       cosmographRef.current?.pause?.()
@@ -247,12 +283,45 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
 
   const handleTimelineAnimationPause = useCallback(
     (_isAnimationRunning: boolean, selection: TimelineSelection) => {
+      // The timeline also pauses when its data loads. Before that, a new
+      // selection is lost when the data arrives, so play waits for it.
+      setIsTimelineReady(true)
+      setIsTimelinePlaying(false)
       if (!selection) {
         onSelectionChangeRef.current(null)
       }
     },
     [],
   )
+
+  const observedRange = useMemo(() => {
+    let from = Number.POSITIVE_INFINITY
+    let to = Number.NEGATIVE_INFINITY
+    for (const link of links) {
+      const at = link.lastObservedAtMs
+      if (at == null || !Number.isFinite(at)) continue
+      from = Math.min(from, at)
+      to = Math.max(to, at)
+    }
+    return from < to ? { from, to } : null
+  }, [links])
+
+  // Cosmograph's own play control does nothing until the user brushes a
+  // range. With no range, start from the first tenth of the history, then
+  // let the timeline move that window to the end.
+  const toggleTimelinePlayback = useCallback(() => {
+    const timeline = timelineRef.current
+    if (!timeline || !observedRange) return
+    if (timeline.getIsAnimationRunning()) {
+      timeline.pauseAnimation()
+      return
+    }
+    if (!timeline.getCurrentSelection()) {
+      const { from, to } = observedRange
+      timeline.setSelection([from, from + (to - from) / 10])
+    }
+    timeline.playAnimation()
+  }, [observedRange])
 
   const emitLassoSelection = useCallback((selectedIndices: number[]) => {
     if (!isLassoActiveRef.current) return
@@ -302,7 +371,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     ref,
     () => ({
       fitView: () => {
-        cosmographRef.current?.fitView?.(400)
+        cosmographRef.current?.fitView?.(CAMERA_MOVE_MS)
       },
       fitToIds: (ids: string[], options?: FitToIdsOptions) => {
         const indices = getPointIndicesForIds(ids)
@@ -317,14 +386,14 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           if (coordinates.length >= 4) {
             cosmographRef.current?.fitViewByCoordinates?.(
               coordinates,
-              600,
+              CAMERA_MOVE_MS,
               options?.padding ?? FOCUS_FIT_PADDING,
             )
             return
           }
           cosmographRef.current?.fitViewByIndices?.(
             fitIndices,
-            600,
+            CAMERA_MOVE_MS,
             options?.padding ?? FOCUS_FIT_PADDING,
           )
         }
@@ -332,15 +401,18 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
       focusNode: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index !== undefined) {
-          cosmographRef.current?.fitViewByIndices?.([index], 500)
+          cosmographRef.current?.fitViewByIndices?.([index], CAMERA_MOVE_MS)
         }
       },
-      focusNeighbourhood: (id: string) => {
+      focusNeighborhood: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index === undefined) return
         const adj =
           cosmographRef.current?.getConnectedPointIndices?.(index) ?? []
-        cosmographRef.current?.fitViewByIndices?.([index, ...adj], 700)
+        cosmographRef.current?.fitViewByIndices?.(
+          [index, ...adj],
+          CAMERA_MOVE_MS,
+        )
       },
       selectPoints: (ids: string[]) => {
         const indices = getPointIndicesForIds(ids)
@@ -358,7 +430,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
           indices.size ? Array.from(indices) : [],
         )
       },
-      selectNeighbourhood: (id: string) => {
+      selectNeighborhood: (id: string) => {
         const index = pointIndexByIdRef.current.get(id)
         if (index === undefined) return
         const adj =
@@ -372,6 +444,33 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     }),
     [clearSelectionFilters, getPointIndicesForIds],
   )
+
+  useEffect(() => {
+    const host = hostRef.current
+    if (!host || !isSettled) return
+    let width = host.clientWidth
+    let height = host.clientHeight
+    let timer = 0
+    const observer = new ResizeObserver((entries) => {
+      const next = entries[0]?.contentRect
+      if (!next) return
+      if (next.width === width && next.height === height) return
+      width = next.width
+      height = next.height
+      window.clearTimeout(timer)
+      timer = window.setTimeout(() => {
+        const zoom = cosmographRef.current?.getZoomLevel?.()
+        if (typeof zoom === "number") {
+          cosmographRef.current?.setZoomLevel?.(zoom, 0)
+        }
+      }, 150)
+    })
+    observer.observe(host)
+    return () => {
+      window.clearTimeout(timer)
+      observer.disconnect()
+    }
+  }, [isSettled])
 
   useEffect(() => {
     if (points.length === 0) {
@@ -390,6 +489,7 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     isLassoActiveRef.current = false
     setIsLassoActive(false)
     setIsSettled(false)
+    setIsTimelineReady(false)
     setPrepStage("preparing")
     setPrepError(null)
     pointIdsRef.current = points.map((p) => p.id)
@@ -592,162 +692,217 @@ export const KnowledgeGraphCosmographCanvas = forwardRef<
     handlePolygonSelected,
   ])
 
+  if (webglMissing) {
+    return (
+      <div
+        className="absolute inset-0 flex items-center justify-center px-6"
+        style={{ backgroundColor: PAGE_BG }}
+      >
+        <GraphUnavailable
+          title="This browser cannot show the graph"
+          message="The graph needs WebGL 2. Turn on hardware acceleration in the browser settings, or use a browser that supports WebGL 2."
+        />
+      </div>
+    )
+  }
+
   if (!config) {
     /* Visible state so the user isn't staring at a black screen if
      * `prepareCosmographData` throws or silently returns nothing. */
     return (
       <div
-        className="absolute inset-0 flex flex-col items-center justify-center gap-2"
+        className="absolute inset-0 flex items-center justify-center px-6"
         style={{ backgroundColor: PAGE_BG }}
       >
         {prepStage === "preparing" ? (
-          <>
-            <div className="flex items-center gap-2 font-mono text-[12px] uppercase tracking-[0.24em] text-teal-400">
-              <span className="inline-block h-2 w-2 animate-pulse bg-teal-400" />
-              <span>Preparing graph data</span>
-            </div>
-            <p className="text-[12px] text-zinc-500 tabular-nums">
-              {points.length.toLocaleString()} nodes ·{" "}
-              {links.length.toLocaleString()} edges
-            </p>
-          </>
+          <GraphWaitState
+            title="Preparing graph"
+            detail={`${points.length.toLocaleString()} nodes · ${links.length.toLocaleString()} edges`}
+            status="Building view"
+          />
         ) : null}
-        {prepStage === "error" ? (
-          <div className="max-w-md border border-red-500/35 bg-red-950/40 px-4 py-3 text-[13px] text-red-200">
-            <p className="font-semibold uppercase tracking-[0.14em] text-red-300">
-              Graph prep failed
-            </p>
-            <p className="mt-2 break-words">{prepError}</p>
-          </div>
-        ) : null}
+        {prepStage === "error" ? <GraphPrepFailed message={prepError} /> : null}
       </div>
     )
   }
 
   return (
     <CosmographProvider>
-      <div
-        className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none transition-opacity duration-300 ease-out [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none motion-reduce:transition-none"
-        style={{
-          backgroundColor: PAGE_BG,
-          opacity: isSettled ? 1 : 0,
-        }}
-      >
-        <Cosmograph
-          ref={cosmographRef}
-          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none"
+      <div ref={hostRef} className="relative h-full min-h-0 w-full min-w-0">
+        <div
+          className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none [&_canvas]:outline-none [&_canvas]:focus:outline-none [&_canvas]:focus-visible:outline-none"
           style={{
             backgroundColor: PAGE_BG,
-            outline: "none",
-            touchAction: "none",
+            opacity: isSettled ? 1 : 0,
           }}
-          {...config}
-        />
-      </div>
-      {isSettled ? (
-        <>
-          <div className="pointer-events-auto absolute left-2 top-2 z-10 flex flex-col gap-2">
-            <ToolRail>
-              <GraphControlButton
-                active={isLassoActive}
-                label={isLassoActive ? "Return to cursor" : "Lasso select"}
-                onClick={toggleLasso}
-              >
-                <LassoIcon />
-              </GraphControlButton>
-              <GraphControlButton
-                label={isSimulationRunning ? "Pause layout" : "Play layout"}
-                onClick={toggleSimulation}
-              >
-                {isSimulationRunning ? <PauseIcon /> : <PlayIcon />}
-              </GraphControlButton>
-              <GraphControlButton
-                label="Reset selections"
-                onClick={() => {
-                  clearSelectionFilters()
-                  onBackgroundClickRef.current()
-                }}
-              >
-                <ClearIcon />
-              </GraphControlButton>
-              <GraphControlButton
-                label="Capture screenshot"
-                onClick={() =>
-                  cosmographRef.current?.captureScreenshot(
-                    "ctxpipe-knowledge-graph.png",
-                  )
-                }
-              >
-                <CameraIcon />
-              </GraphControlButton>
-            </ToolRail>
-            <ToolRail>
-              <GraphControlButton
-                label="Zoom in"
-                onClick={() => {
-                  const zoom = cosmographRef.current?.getZoomLevel?.() ?? 1
-                  cosmographRef.current?.setZoomLevel?.(zoom * 1.25, 180)
-                }}
-              >
-                <ZoomInIcon />
-              </GraphControlButton>
-              <GraphControlButton
-                label="Zoom out"
-                onClick={() => {
-                  const zoom = cosmographRef.current?.getZoomLevel?.() ?? 1
-                  cosmographRef.current?.setZoomLevel?.(zoom / 1.25, 180)
-                }}
-              >
-                <ZoomOutIcon />
-              </GraphControlButton>
-              <GraphControlButton
-                label="Reset view"
-                onClick={() => cosmographRef.current?.fitView?.(300, 0.15)}
-              >
-                <ResetViewIcon />
-              </GraphControlButton>
-            </ToolRail>
-          </div>
-
-          <LegendDock />
-
-          <div className="pointer-events-auto absolute left-1/2 top-2 z-10 flex h-10 w-[min(40rem,calc(100vw-8rem))] -translate-x-1/2 items-stretch gap-3 max-sm:w-[calc(100vw-4rem)]">
-            <div className="min-w-0 flex-1 border border-zinc-800/95 bg-zinc-950/88 px-3 py-1.5 shadow-xl shadow-black/30 backdrop-blur">
-              <FallbackGraphSearch
-                points={points}
-                onFocusIds={focusSearchIds}
-              />
-            </div>
-            {centerControls ? (
-              <div className="flex items-center" aria-hidden>
-                <div className="h-5 w-px bg-zinc-800/95" />
-              </div>
-            ) : null}
-            {centerControls}
-          </div>
-
-          <div className="pointer-events-auto absolute bottom-2 left-2 right-2 z-10">
-            <StockPanel className="px-2 py-1">
-              <NativeObservationTimeline
-                ref={timelineRef}
-                onAnimationPause={handleTimelineAnimationPause}
-                onSelectionChange={handleTimelineSelection}
-              />
-              {footerMetadata ? (
-                <div className="mt-1 border-t border-zinc-800/60 pt-1 font-mono text-[11px] uppercase tracking-[0.16em] text-zinc-600">
-                  {footerMetadata}
+        >
+          <Cosmograph
+            ref={cosmographRef}
+            className="absolute inset-0 h-full min-h-0 w-full min-w-0 outline-none"
+            style={{
+              backgroundColor: PAGE_BG,
+              outline: "none",
+              touchAction: "none",
+            }}
+            {...config}
+          />
+        </div>
+        {isSettled ? (
+          <>
+            <div className="pointer-events-auto absolute left-2 top-2 z-20 flex flex-col gap-2">
+              <ToolRail>
+                <GraphControlButton
+                  active={isLassoActive}
+                  label={isLassoActive ? "Return to cursor" : "Lasso select"}
+                  onClick={toggleLasso}
+                >
+                  <LassoIcon />
+                </GraphControlButton>
+                <GraphControlButton
+                  label={isSimulationRunning ? "Pause layout" : "Play layout"}
+                  onClick={toggleSimulation}
+                >
+                  {isSimulationRunning ? <PauseIcon /> : <PlayIcon />}
+                </GraphControlButton>
+                <GraphControlButton
+                  label="Reset selections"
+                  onClick={() => {
+                    clearSelectionFilters()
+                    onBackgroundClickRef.current()
+                  }}
+                >
+                  <ClearIcon />
+                </GraphControlButton>
+                <GraphControlButton
+                  label="Capture screenshot"
+                  onClick={() =>
+                    cosmographRef.current?.captureScreenshot(
+                      "ctxpipe-knowledge-graph.png",
+                    )
+                  }
+                >
+                  <CameraIcon />
+                </GraphControlButton>
+              </ToolRail>
+              <ToolRail>
+                <GraphControlButton
+                  label="Zoom in"
+                  onClick={() => {
+                    const zoom = cosmographRef.current?.getZoomLevel?.() ?? 1
+                    cosmographRef.current?.setZoomLevel?.(zoom * 1.25, 180)
+                  }}
+                >
+                  <ZoomInIcon />
+                </GraphControlButton>
+                <GraphControlButton
+                  label="Zoom out"
+                  onClick={() => {
+                    const zoom = cosmographRef.current?.getZoomLevel?.() ?? 1
+                    cosmographRef.current?.setZoomLevel?.(zoom / 1.25, 180)
+                  }}
+                >
+                  <ZoomOutIcon />
+                </GraphControlButton>
+                <GraphControlButton
+                  label="Reset view"
+                  onClick={() =>
+                    cosmographRef.current?.fitView?.(CAMERA_MOVE_MS, 0.15)
+                  }
+                >
+                  <ResetViewIcon />
+                </GraphControlButton>
+              </ToolRail>
+              {onTips ? (
+                <div className="relative">
+                  <ToolRail>
+                    <GraphControlButton
+                      active={tipsActive}
+                      label={tipsActive ? "Hide tips" : "Show tips"}
+                      onClick={onTips}
+                    >
+                      <IconHelp className="size-[18px]" aria-hidden />
+                    </GraphControlButton>
+                  </ToolRail>
+                  {tipsActive && tipsPanel ? (
+                    <div className="pointer-events-auto absolute left-full top-0 z-30 ml-2 w-80 max-w-[min(20rem,calc(100cqw-4.5rem))]">
+                      {tipsPanel}
+                    </div>
+                  ) : null}
                 </div>
               ) : null}
-            </StockPanel>
-          </div>
-        </>
-      ) : null}
-      <LayoutProgressOverlay
-        hidden={isSettled}
-        nodeCount={points.length}
-        edgeCount={links.length}
-        estimatedMs={REVEAL_AFTER_REBUILD_MS + REVEAL_AFTER_FIT_MS}
-      />
+            </div>
+
+            <div
+              className={cn(
+                "pointer-events-auto absolute left-16 right-2 top-2 z-10 flex h-10 justify-center transition-opacity",
+                drawerOpen && "opacity-40",
+              )}
+              inert={drawerOpen}
+            >
+              <div className="flex h-10 w-full max-w-xl items-stretch gap-3">
+                <div className="min-w-0 flex-1 rounded-md border border-border bg-zinc-900/95 px-3 py-1.5">
+                  <FallbackGraphSearch
+                    points={points}
+                    onFocusIds={focusSearchIds}
+                  />
+                </div>
+                {centerControls ? (
+                  <div className="flex items-center" aria-hidden>
+                    <div className="h-5 w-px bg-zinc-800/95" />
+                  </div>
+                ) : null}
+                {centerControls}
+              </div>
+            </div>
+
+            <div
+              className={cn(
+                "pointer-events-none absolute inset-x-2 bottom-2 z-10 flex flex-col gap-2 transition-opacity",
+                drawerOpen && "opacity-40",
+              )}
+              inert={drawerOpen}
+            >
+              <LegendDock />
+              <div className="pointer-events-auto">
+                <StockPanel className="px-2 py-1">
+                  <div className="flex items-center gap-1">
+                    {observedRange ? (
+                      <GraphControlButton
+                        isDisabled={!isTimelineReady}
+                        label={
+                          isTimelinePlaying ? "Pause history" : "Play history"
+                        }
+                        onClick={toggleTimelinePlayback}
+                      >
+                        {isTimelinePlaying ? <PauseIcon /> : <PlayIcon />}
+                      </GraphControlButton>
+                    ) : null}
+                    <div className="min-w-0 flex-1">
+                      <NativeObservationTimeline
+                        ref={timelineRef}
+                        onAnimationPlay={() => setIsTimelinePlaying(true)}
+                        onAnimationPause={handleTimelineAnimationPause}
+                        onSelectionChange={handleTimelineSelection}
+                      />
+                    </div>
+                  </div>
+                  {footerMetadata ? (
+                    <div className="mt-1 border-t border-border pt-1 text-xs text-muted-foreground">
+                      {footerMetadata}
+                    </div>
+                  ) : null}
+                </StockPanel>
+              </div>
+            </div>
+          </>
+        ) : null}
+        <LayoutProgressOverlay
+          hidden={isSettled}
+          nodeCount={points.length}
+          edgeCount={links.length}
+          estimatedMs={REVEAL_AFTER_REBUILD_MS + REVEAL_AFTER_FIT_MS}
+        />
+      </div>
     </CosmographProvider>
   )
 })
@@ -798,16 +953,16 @@ function FallbackGraphSearch({
           if (event.key === "Enter") focusMatches()
         }}
         placeholder="Search nodes"
-        className="h-7 w-full border-0 bg-transparent pr-2 text-[13px] leading-7 text-zinc-100 outline-none placeholder:text-zinc-500"
+        className="h-7 w-full border-0 bg-transparent pr-2 text-sm leading-7 text-foreground outline-none placeholder:text-muted-foreground"
       />
       {trimmed ? (
-        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto border border-zinc-800 bg-zinc-950/95 p-1 shadow-xl shadow-black/40 backdrop-blur-md">
+        <div className="absolute left-0 right-0 top-full z-50 mt-2 max-h-72 overflow-y-auto rounded-md border border-border bg-zinc-900 p-1">
           {matches.length > 0 ? (
             <>
               <button
                 type="button"
                 onClick={focusMatches}
-                className="mb-1 w-full border border-teal-500/30 bg-teal-500/10 px-2 py-1.5 text-left text-[12px] text-teal-200 hover:bg-teal-500/15"
+                className="mb-1 w-full rounded-md border border-teal-500/30 bg-teal-500/10 px-2 py-1.5 text-left text-sm text-teal-200 hover:bg-teal-500/15"
               >
                 Focus {matches.length.toLocaleString()} result
                 {matches.length === 1 ? "" : "s"}
@@ -817,19 +972,19 @@ function FallbackGraphSearch({
                   key={point.id}
                   type="button"
                   onClick={() => onFocusIds([point.id])}
-                  className="block w-full px-2 py-1.5 text-left hover:bg-white/5"
+                  className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-white/5"
                 >
-                  <span className="block truncate text-[13px] text-zinc-100">
+                  <span className="block truncate text-sm text-foreground">
                     {point.label}
                   </span>
-                  <span className="block truncate text-[11px] text-zinc-500">
+                  <span className="block truncate text-xs text-muted-foreground">
                     {point.kind}
                   </span>
                 </button>
               ))}
             </>
           ) : (
-            <p className="px-2 py-1.5 text-[12px] text-zinc-500">
+            <p className="px-2 py-1.5 text-sm text-muted-foreground">
               No matching nodes
             </p>
           )}
@@ -842,25 +997,34 @@ function FallbackGraphSearch({
 function LegendDock() {
   return (
     <div
-      className="pointer-events-none absolute right-2 bottom-[5.75rem] left-2 z-10 flex items-end justify-between gap-6"
+      className="pointer-events-none flex items-end justify-between gap-6 font-sans text-xs font-normal text-muted-foreground [&_*]:font-normal [&_.name]:!font-medium [&_.name]:!text-xs [&_.name]:tracking-normal [&_.name]:text-foreground [&_.label]:tracking-normal [&_.sublabel]:opacity-70"
       style={
         {
           "--cosmograph-ui-background": "transparent",
           "--cosmograph-ui-text": "rgb(161, 161, 170)",
-          "--cosmograph-ui-font-family": "var(--font-mono)",
-          "--cosmograph-ui-font-size": "11px",
+          "--cosmograph-ui-font-family": "var(--font-sans)",
+          "--cosmograph-ui-font-size": "12px",
+          "--cosmograph-ui-tick-font-size": "12px",
           "--cosmograph-ui-highlighted-element-color": "rgb(228, 228, 231)",
+          "--cosmograph-color-legend-type-font-size": "12px",
+          "--cosmograph-color-legend-type-font-family": "var(--font-sans)",
+          "--cosmograph-size-legend-font-family": "var(--font-sans)",
+          "--cosmograph-size-legend-font-size": "12px",
+          "--cosmograph-size-legend-sublabel-font-size": "12px",
+          "--cosmograph-color-legend-range-font-family": "var(--font-sans)",
+          "--cosmograph-color-legend-range-font-size": "12px",
+          "--cosmograph-color-legend-range-sublabel-font-size": "12px",
         } as CSSProperties
       }
     >
-      <div className="pointer-events-auto max-h-48 w-56 max-w-[calc(50vw-1.5rem)] overflow-hidden">
+      <div className="pointer-events-auto max-h-48 w-56 max-w-[calc(50%-0.75rem)] overflow-hidden">
         <CosmographTypeColorLegend
           showLabel
           labelResolver="node colours"
           maxDisplayedItems={8}
         />
       </div>
-      <div className="pointer-events-auto flex max-w-[calc(50vw-1.5rem)] items-end gap-8">
+      <div className="pointer-events-auto flex max-w-[calc(50%-0.75rem)] items-end gap-8 @max-[32rem]:hidden">
         <CosmographSizeLegend
           useLinksData
           selectOnClick={false}
@@ -884,6 +1048,7 @@ function LegendDock() {
 const NativeObservationTimeline = forwardRef<
   CosmographTimelineRef,
   {
+    onAnimationPlay: () => void
     onAnimationPause: (
       isAnimationRunning: boolean,
       selection: TimelineSelection,
@@ -891,7 +1056,7 @@ const NativeObservationTimeline = forwardRef<
     onSelectionChange: (selection: TimelineSelection) => void
   }
 >(function NativeObservationTimeline(
-  { onAnimationPause, onSelectionChange },
+  { onAnimationPlay, onAnimationPause, onSelectionChange },
   ref,
 ) {
   const timelineStyle = {
@@ -899,15 +1064,16 @@ const NativeObservationTimeline = forwardRef<
     "--cosmograph-timeline-background": "transparent",
     "--cosmograph-timeline-bar-color": "rgba(113, 113, 122, 0.58)",
     "--cosmograph-timeline-highlighted-bar-color": "rgba(212, 212, 216, 0.5)",
-    "--cosmograph-timeline-text-color": "rgb(82, 82, 91)",
-    "--cosmograph-timeline-axis-color": "rgb(82, 82, 91)",
+    "--cosmograph-timeline-text-color": "rgb(161, 161, 170)",
+    "--cosmograph-timeline-axis-color": "rgb(161, 161, 170)",
     "--cosmograph-timeline-selection-color": "rgba(45, 212, 191, 0.55)",
     "--cosmograph-timeline-selection-opacity": "0.28",
-    "--cosmograph-ui-tick-font-size": "11px",
+    "--cosmograph-ui-tick-font-size": "12px",
+    "--cosmograph-ui-font-family": "var(--font-sans)",
   } as CSSProperties
 
   return (
-    <div className="h-12 overflow-hidden px-1">
+    <div className="h-12 overflow-hidden px-1 font-sans text-xs font-normal [&_*]:font-normal">
       <CosmographTimeline
         ref={ref}
         className="h-full min-h-0 w-full overflow-hidden [&_svg]:h-full [&_svg]:w-full"
@@ -927,9 +1093,11 @@ const NativeObservationTimeline = forwardRef<
         selectionPadding={2}
         selectionRadius={0}
         highlightSelectedData={false}
-        showAnimationControls
+        // The canvas renders its own play button. Each animation tick already
+        // calls `onSelection`, so `onAnimationTick` is not used.
+        showAnimationControls={false}
         onSelection={onSelectionChange}
-        onAnimationTick={onSelectionChange}
+        onAnimationPlay={onAnimationPlay}
         onAnimationPause={onAnimationPause}
         formatter={(value) =>
           new Date(value).toLocaleDateString(undefined, {
@@ -951,7 +1119,10 @@ function StockPanel({
 }) {
   return (
     <div
-      className={`rounded-none border border-zinc-800/95 bg-zinc-950/90 p-3 text-zinc-200 shadow-xl shadow-black/40 backdrop-blur-md ${className}`}
+      className={cn(
+        "rounded-md border border-border bg-zinc-900/95 p-3 text-foreground",
+        className,
+      )}
     >
       {children}
     </div>
@@ -961,33 +1132,34 @@ function StockPanel({
 function GraphControlButton({
   active = false,
   children,
+  isDisabled,
   label,
   onClick,
 }: {
   active?: boolean
   children: ReactNode
+  isDisabled?: boolean
   label: string
   onClick: () => void
 }) {
   return (
-    <button
-      type="button"
+    <Button
+      variant="ghost"
+      size="icon-sm"
       aria-label={label}
       aria-pressed={active}
-      title={label}
-      onClick={onClick}
-      className={`flex h-7 w-7 items-center justify-center transition-colors hover:bg-white/5 hover:text-zinc-200 focus:outline-none focus-visible:ring-1 focus-visible:ring-teal-400/70 ${
-        active ? "bg-teal-400/10 text-teal-200" : "text-zinc-500"
-      }`}
+      isDisabled={isDisabled}
+      onPress={onClick}
+      className={active ? "bg-teal-400/10 text-teal-200" : undefined}
     >
       {children}
-    </button>
+    </Button>
   )
 }
 
 function ToolRail({ children }: { children: ReactNode }) {
   return (
-    <div className="flex w-9 flex-col items-center gap-1 border border-zinc-800/80 bg-zinc-950/55 p-1 text-zinc-500 shadow-xl shadow-black/30 backdrop-blur-sm">
+    <div className="flex flex-col items-center gap-0.5 rounded-md border border-border bg-zinc-900/95 p-0.5 text-muted-foreground">
       {children}
     </div>
   )
@@ -1141,16 +1313,42 @@ function ResetViewIcon() {
  * staged progress, but the rotation gives the user a "something's happening"
  * signal without lying about percentage. */
 const LAYOUT_PHASES = [
-  "Preparing force simulation",
-  "Computing node positions",
-  "Clustering connected components",
-  "Settling layout",
+  "Preparing layout",
+  "Placing nodes",
+  "Grouping connections",
+  "Settling",
 ]
 const PHASE_ROTATION_MS = 2800
 
-/** Thin wrapper around the shared `ProgressLoader` that manages the elapsed
- * timer + phase rotation for the brief first-fit window. We hide only the
- * initial random scramble, then reveal while Cosmograph continues simulating. */
+function GraphPrepFailed({ message }: { message: string | null }) {
+  return <GraphUnavailable title="Couldn’t prepare graph" message={message} />
+}
+
+function GraphUnavailable({
+  title,
+  message,
+}: {
+  title: string
+  message: string | null
+}) {
+  return (
+    <div className="flex w-full max-w-sm flex-col items-center gap-3 text-center">
+      <span className="ctx-node text-red-300" aria-hidden>
+        <IconAlertTriangle className="size-4" aria-hidden />
+      </span>
+      <div className="w-full space-y-1 rounded-md border border-red-500/40 bg-red-950/35 px-4 py-3 text-left">
+        <p className="text-sm font-medium text-red-50">{title}</p>
+        {message ? (
+          <p className="break-words text-sm text-red-200">{message}</p>
+        ) : null}
+      </div>
+    </div>
+  )
+}
+
+/** Thin wrapper around `GraphWaitState` that manages the elapsed timer +
+ * phase rotation for the brief first-fit window. We hide only the initial
+ * random scramble, then reveal while Cosmograph continues simulating. */
 function LayoutProgressOverlay({
   hidden,
   nodeCount,
@@ -1185,23 +1383,25 @@ function LayoutProgressOverlay({
         Math.floor(elapsed / PHASE_ROTATION_MS),
       )
     ] ?? LAYOUT_PHASES[0]
-  const sublabel =
+  const detail =
     nodeCount > 0
       ? `${nodeCount.toLocaleString()} nodes · ${edgeCount.toLocaleString()} edges · ${(elapsed / 1000).toFixed(1)} s`
       : undefined
 
   return (
     <div
-      className="pointer-events-none absolute inset-0 flex items-center justify-center transition-opacity duration-300 ease-out motion-reduce:transition-none"
+      className="pointer-events-none absolute inset-0 flex items-center justify-center px-6"
       style={{
         backgroundColor: PAGE_BG,
         opacity: hidden ? 0 : 1,
       }}
-      aria-hidden
+      role={hidden ? undefined : "status"}
+      aria-hidden={hidden}
     >
-      <ProgressLoader
-        label={phase ?? "Laying out graph"}
-        sublabel={sublabel}
+      <GraphWaitState
+        title="Laying out graph"
+        detail={detail}
+        status={phase ?? "Settling"}
         progress={progress}
       />
     </div>

@@ -1,3 +1,4 @@
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
   type ConnectorAssetBudget,
@@ -61,6 +62,7 @@ async function fetchConfluence<T>(
     onResponse?: (response: Response) => void
   },
 ): Promise<T> {
+  assertNotInOrgDbContext()
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
   for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(`${base}${path}`, {

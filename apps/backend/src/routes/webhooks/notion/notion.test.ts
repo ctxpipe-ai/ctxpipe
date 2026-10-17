@@ -1,11 +1,12 @@
 import { createHmac } from "node:crypto"
 import { createLogger } from "evlog"
 import { Hono } from "hono"
-import { contextStorage } from "hono/context-storage"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../../app/env.js"
-import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
-import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../../test/hono-test-logger.js"
 
 const connectionsMock = vi.hoisted(() => vi.fn())
 const getRowMock = vi.hoisted(() => vi.fn())
@@ -19,6 +20,10 @@ const provisioningToken = createHmac("sha256", notionClientSecret)
   .digest("base64url")
 
 vi.mock("../../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/notion-connector.js", () => ({
@@ -33,6 +38,8 @@ vi.mock("../../../openworkflow/workflows/notion-sync-entity.js", () => ({
   notionSyncEntity: { spec: { name: "notion-sync-entity" } },
 }))
 
+import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
+import { encryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import type { NotionConnection } from "../../../models/notion-connector.js"
 import { registerNotionWebhookRoute } from "./notion.js"
 
@@ -69,6 +76,7 @@ function testApp(
 ) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
     c.set("env", {
       ...envBase,
@@ -467,6 +475,30 @@ describe("Notion webhook", () => {
 
     expect(response.status).toBe(204)
     expect(runWorkflowMock).not.toHaveBeenCalled()
+  })
+
+  it("still enqueues the legacy sync when the Workspace sources lookup fails", async () => {
+    // The mocked database has no query builder, so the sources lookup fails.
+    const body = JSON.stringify({
+      id: "event_sources_down",
+      integration_id: "bot_1",
+      type: "page.content_updated",
+      entity: { id: "page_1", type: "page" },
+    })
+
+    const response = await testApp().request("/api/v1/webhook/notion", {
+      method: "POST",
+      headers: { "x-notion-signature": sign(body, webhookSecret) },
+      body,
+    })
+
+    expect(response.status).toBe(200)
+    expect(runWorkflowMock).toHaveBeenCalledTimes(1)
+    expect(runWorkflowMock).toHaveBeenCalledWith(
+      { name: "notion-sync-entity" },
+      expect.objectContaining({ connectionId: "con_1" }),
+      { idempotencyKey: "notion:con_1:event_sources_down" },
+    )
   })
 
   it("enqueues one job per org when one integration is connected twice", async () => {

@@ -33,6 +33,7 @@ type IndexInput = {
   orgId: string
   repoId: string
   repoGitUrl: string
+  checkoutKey: string
   clonePath: string
   scipIndexPath: string
   githubToken?: string
@@ -81,12 +82,14 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     orgId: input.orgId,
     repoId: input.repoId,
     repoGitUrl: input.repoGitUrl,
+    checkoutKey: input.checkoutKey,
     clonePath: input.clonePath,
     scipIndexPath: input.scipIndexPath,
     zoektRepoId: input.zoektRepoId,
     zoektName: zoektRepositoryName({
       orgId: input.orgId,
       repoId: input.repoId,
+      checkoutKey: input.checkoutKey,
     }),
     repoName: input.repoName,
     repoUrl: input.repoUrl,
@@ -106,7 +109,13 @@ export async function cloneAndIndexRepository(
   return withRepositoryIndexOperation(input.repoId, () =>
     withIndexConcurrency(
       () => cloneAndIndexRepositoryInner(input),
-      () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+      () =>
+        trySetRepositoryIndexingStep(
+          input.db,
+          input.orgId,
+          input.repoId,
+          "index_queue",
+        ),
     ),
   )
 }

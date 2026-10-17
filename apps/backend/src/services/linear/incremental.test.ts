@@ -16,7 +16,7 @@ import {
   buildLinearIncrementalChanges,
   type LinearEntityChange,
 } from "./incremental.js"
-import { syncLinearIncrementalContent } from "./sync.js"
+import { captureLinearIncrementalContent } from "./sync.js"
 
 const calls: LinearGraphqlCall[] = []
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
@@ -187,46 +187,28 @@ describe("buildLinearIncrementalChanges", () => {
       contentType: "image/png",
     })
 
-    const result = await syncLinearIncrementalContent({
-      orgId: "org_1",
+    const result = await captureLinearIncrementalContent({
       env: {} as Env,
       connection,
-      target: {
-        id: "con_linear",
-        orgId: "org_1",
-        connectionId: "con_linear",
-        repositoryId: "repo_1",
-        repositoryName: "acme/context",
-        githubConnectionId: "con_github",
-        branch: "main",
-        enabled: true,
-        setupPhase: "live",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        createdAt: new Date(),
-        updatedAt: new Date(),
-      },
       config: selectedConfig,
+      existingPaths: [],
       entity: issueChange,
     })
 
-    expect(result.commitSha).toBe("commit-sha")
-    expect(github.commitFiles).toHaveBeenCalledWith(
-      expect.objectContaining({
-        files: expect.arrayContaining([
-          expect.objectContaining({
-            path: "linear/issues/pro-1--issue-1.md",
-            content: expect.stringContaining(
-              "![diagram](pro-1--issue-1/assets/attachment-1--diagram.png)",
-            ),
-          }),
-          {
-            path: "linear/issues/pro-1--issue-1/assets/attachment-1--diagram.png",
-            content: Buffer.from("diagram-bytes").toString("base64"),
-            encoding: "base64",
-          },
-        ]),
-      }),
+    expect(result.files).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: "linear/issues/pro-1--issue-1.md",
+          content: expect.stringContaining(
+            "![diagram](pro-1--issue-1/assets/attachment-1--diagram.png)",
+          ),
+        }),
+        {
+          path: "linear/issues/pro-1--issue-1/assets/attachment-1--diagram.png",
+          content: Buffer.from("diagram-bytes").toString("base64"),
+          encoding: "base64",
+        },
+      ]),
     )
   })
 

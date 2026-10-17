@@ -307,3 +307,27 @@ describe("Confluence asset paths", () => {
     ).toBe(confluenceExternalSourceKey("https://cdn.example.com/logo.png"))
   })
 })
+
+describe("Confluence tables", () => {
+  it("renders a storage-format table as a Markdown table", () => {
+    const file = leafFile(
+      [
+        "<p>Errors:</p>",
+        "<table><colgroup><col /><col /></colgroup><tbody>",
+        "<tr><th><p>Status</p></th><th><p>Meaning</p></th></tr>",
+        "<tr><td><p>401</p></td><td><p>Token a|b is<br />invalid &amp; old</p></td></tr>",
+        "</tbody></table>",
+      ].join(""),
+    )
+
+    expect(file.content).toContain(
+      [
+        "| Status | Meaning |",
+        "| --- | --- |",
+        "| 401 | Token a\\|b is invalid & old |",
+      ].join("\n"),
+    )
+    // The cells of a row do not run together.
+    expect(file.content).not.toContain("StatusMeaning")
+  })
+})

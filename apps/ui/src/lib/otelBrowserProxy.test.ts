@@ -122,6 +122,8 @@ describe("POST /.otel/v1/$signal", () => {
     )
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", "pr-343")
     vi.stubEnv("OTEL_RESOURCE_ATTRIBUTES", "")
+    vi.stubEnv("AUTH_BASE_URL", "https://app.example")
+    vi.stubEnv("AUTH_ALLOWED_ORIGINS", "https://backend-pr-343.up.railway.app")
     captured = null
     upstreamPosts = 0
   })
@@ -302,6 +304,49 @@ describe("POST /.otel/v1/$signal", () => {
     )
   })
 
+  it("keeps console warn spans and drops console log, info and debug spans", async () => {
+    const consoleSpan = (type: string, level = type) => ({
+      name: `console.${type}`,
+      attributes: [
+        { key: "component", value: { stringValue: "console" } },
+        { key: "level", value: { stringValue: level } },
+      ],
+    })
+    const response = await postSignal(
+      "traces",
+      sameOriginRequest("https://app.example/.otel/v1/traces", {
+        body: JSON.stringify({
+          resourceSpans: [
+            {
+              scopeSpans: [
+                {
+                  scope: { name: "console" },
+                  spans: [
+                    consoleSpan("info"),
+                    consoleSpan("debug"),
+                    // `console.log({ level: "warn" })` overwrites the attribute.
+                    consoleSpan("log", "warn"),
+                    consoleSpan("warn"),
+                    { name: "documentLoad", attributes: [] },
+                  ],
+                },
+              ],
+            },
+          ],
+        }),
+      }),
+    )
+    expect(response.status).toBe(200)
+    const body = captured?.body as {
+      resourceSpans: Array<{
+        scopeSpans: Array<{ spans: Array<{ name: string }> }>
+      }>
+    }
+    expect(
+      body.resourceSpans[0]?.scopeSpans[0]?.spans.map((span) => span.name),
+    ).toEqual(["console.warn", "documentLoad"])
+  })
+
   it("posts logs to OTEL_EXPORTER_OTLP_LOGS_ENDPOINT", async () => {
     vi.stubEnv(
       "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
@@ -324,6 +369,34 @@ describe("POST /.otel/v1/$signal", () => {
     expect(upstreamPosts).toBe(1)
   })
 
+  it("admits the public origin only from AUTH_ALLOWED_ORIGINS when AUTH_BASE_URL is the private backend", async () => {
+    // Production Terraform sets the UI AUTH_BASE_URL to the private backend.
+    vi.stubEnv("AUTH_BASE_URL", "http://backend.railway.internal:8080")
+    const fromPublicSite = () =>
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          origin: "https://app.example",
+          "content-type": "application/json",
+          "content-length": "2",
+        },
+        body: "{}",
+      })
+
+    vi.stubEnv("AUTH_ALLOWED_ORIGINS", "")
+    const privateOnly = await postSignal("traces", fromPublicSite())
+    expect(privateOnly.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
+
+    vi.stubEnv(
+      "AUTH_ALLOWED_ORIGINS",
+      "https://app.example,https://backend.up.railway.app",
+    )
+    const withPublic = await postSignal("traces", fromPublicSite())
+    expect(withPublic.status).toBe(200)
+    expect(upstreamPosts).toBe(1)
+  })
+
   it("rejects a request with no Origin", async () => {
     const response = await postSignal(
       "traces",
@@ -333,6 +406,46 @@ describe("POST /.otel/v1/$signal", () => {
           "content-type": "application/json",
           "content-length": "2",
           referer: "https://app.example/org/chat",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(403)
+    expect(upstreamPosts).toBe(0)
+  })
+
+  it("accepts the configured public origin when forwarded proto is the http edge hop", async () => {
+    vi.stubEnv("AUTH_BASE_URL", "https://backend-pr-280.up.railway.app")
+    const response = await postSignal(
+      "traces",
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          origin: "https://backend-pr-280.up.railway.app",
+          "content-type": "application/json",
+          "content-length": "2",
+          "x-forwarded-host": "backend-pr-280.up.railway.app",
+          "x-forwarded-proto": "http",
+        },
+        body: "{}",
+      }),
+    )
+    expect(response.status).toBe(200)
+    expect(upstreamPosts).toBe(1)
+  })
+
+  it("rejects a foreign origin even when forwarded host and proto match that origin", async () => {
+    vi.stubEnv("AUTH_BASE_URL", "https://backend-pr-280.up.railway.app")
+    const response = await postSignal(
+      "traces",
+      new Request("http://ui.railway.internal:3002/.otel/v1/traces", {
+        method: "POST",
+        headers: {
+          Origin: "https://evil.example",
+          "content-type": "application/json",
+          "content-length": "2",
+          "x-forwarded-host": "evil.example",
+          "x-forwarded-proto": "https",
         },
         body: "{}",
       }),

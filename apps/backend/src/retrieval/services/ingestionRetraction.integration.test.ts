@@ -12,6 +12,7 @@ import { eq, sql } from "drizzle-orm"
 import { drizzle } from "drizzle-orm/node-postgres"
 import { Pool } from "pg"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import type { Db } from "../../db/client.js"
 import { claimEvidence } from "../../db/schema/claim_evidence.js"
 import { claims } from "../../db/schema/claims.js"
 import { objects } from "../../db/schema/objects.js"
@@ -38,19 +39,26 @@ const CHECKOUT_A = generateObjectId("co")
 const CHECKOUT_B = generateObjectId("co")
 
 let pool: Pool
-let db: ReturnType<typeof drizzle>
+let db: Db
 
 beforeAll(() => {
-  pool = new Pool({ connectionString })
+  // Every connection in this dedicated fixture pool uses the same tenant.
+  // Keep the application role and its RLS policies active during the proof.
+  pool = new Pool({
+    connectionString,
+    options: `-c app.organization_id=${ORG_ID}`,
+  })
   db = drizzle({ client: pool, schema, relations })
 })
 
 afterAll(async () => {
-  // Clean up seeded data
-  await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
-  await db.delete(claims).where(eq(claims.orgId, ORG_ID))
-  await db.delete(objects).where(eq(objects.orgId, ORG_ID))
-  await pool.end()
+  try {
+    await db.delete(repositories).where(eq(repositories.orgId, ORG_ID))
+    await db.delete(claims).where(eq(claims.orgId, ORG_ID))
+    await db.delete(objects).where(eq(objects.orgId, ORG_ID))
+  } finally {
+    await pool.end()
+  }
 })
 
 const objA = generateObjectId("obj")
@@ -76,8 +84,18 @@ async function seed() {
     },
   ])
   await db.insert(repositoryCheckouts).values([
-    { id: CHECKOUT_A, repositoryId: REPO_A, checkoutKey: "default" },
-    { id: CHECKOUT_B, repositoryId: REPO_B, checkoutKey: "default" },
+    {
+      id: CHECKOUT_A,
+      orgId: ORG_ID,
+      repositoryId: REPO_A,
+      checkoutKey: "default",
+    },
+    {
+      id: CHECKOUT_B,
+      orgId: ORG_ID,
+      repositoryId: REPO_B,
+      checkoutKey: "default",
+    },
   ])
   await db.insert(objects).values([
     { id: objA, orgId: ORG_ID, kind: "Service", payload: {} },
@@ -113,6 +131,7 @@ async function seed() {
   await db.insert(claimEvidence).values([
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAB,
       sourceType: "git",
       sourceId: `identifyLibraries:${REPO_A}:main`,
@@ -123,6 +142,7 @@ async function seed() {
     },
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAB,
       sourceType: "git",
       sourceId: `identifyLibraries:${REPO_B}:main`,
@@ -133,6 +153,7 @@ async function seed() {
     },
     {
       id: generateObjectId("cev"),
+      orgId: ORG_ID,
       claimId: claimAC,
       sourceType: "git",
       sourceId: `extractIU:${REPO_A}:main`,

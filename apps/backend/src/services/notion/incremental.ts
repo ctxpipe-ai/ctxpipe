@@ -22,7 +22,7 @@ import {
 } from "./converter.js"
 import { listBlocksDeep, listNotionPageTree } from "./page-tree.js"
 
-/** File the mirror wants to write, matching the shape `commitFiles` expects. */
+/** File captured by the Notion mirror for its typed workspace write. */
 export type NotionMirrorFile = CommitFile
 
 /**
@@ -45,7 +45,7 @@ export type NotionIncrementalChanges = {
   failures: Array<{ type: string; id: string; message: string }>
 }
 
-const NOTION_PARENT_WALK_MAX_DEPTH = 25
+export const NOTION_PARENT_WALK_MAX_DEPTH = 25
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -136,7 +136,7 @@ function resourceMaps(config: ParsedNotionRepoConfig): {
   return { pages, databases }
 }
 
-function parentDatabaseLikeId(page: NotionPage): string | undefined {
+export function parentDatabaseLikeId(page: NotionPage): string | undefined {
   const parent = page.parent as Record<string, unknown> | undefined
   if (!parent) return undefined
   for (const key of ["data_source_id", "database_id"]) {
@@ -155,7 +155,7 @@ function parentDatabaseLikeId(page: NotionPage): string | undefined {
   return undefined
 }
 
-function parentPageId(page: NotionPage): string | undefined {
+export function parentPageId(page: NotionPage): string | undefined {
   const parent = page.parent as Record<string, unknown> | undefined
   if (!parent || parent.type !== "page_id") return undefined
   const value = parent.page_id
@@ -166,6 +166,34 @@ type ResolvedTarget =
   | { kind: "page"; resource: NotionScopeResource }
   | { kind: "database"; resource: NotionScopeResource }
   | undefined
+
+/**
+ * A page, then each parent page above it, read one at a time as the caller
+ * asks for the next. It stops at a page whose parent is a database or data
+ * source (the caller reads that parent from the page), at the workspace, or
+ * at {@link NOTION_PARENT_WALK_MAX_DEPTH}.
+ */
+export async function* notionPageAncestry(input: {
+  env: Env
+  connection: NotionConnection
+  page: NotionPage
+  onTokenRefresh?: NotionTokenRefreshHandler
+}): AsyncGenerator<NotionPage> {
+  let current = input.page
+  for (let depth = 0; depth < NOTION_PARENT_WALK_MAX_DEPTH; depth += 1) {
+    yield current
+    const parentId = parentDatabaseLikeId(current)
+      ? undefined
+      : parentPageId(current)
+    if (!parentId) return
+    current = await retrieveNotionPage({
+      env: input.env,
+      connection: input.connection,
+      pageId: parentId,
+      onTokenRefresh: input.onTokenRefresh,
+    })
+  }
+}
 
 /**
  * Walk a page's ancestors to find the selected root that owns it. A page is in
@@ -181,26 +209,19 @@ async function resolvePageTarget(input: {
   databases: Map<string, NotionScopeResource>
   onTokenRefresh?: NotionTokenRefreshHandler
 }): Promise<ResolvedTarget> {
-  const selfPage = input.pages.get(notionIdKey(input.page.id))
-  if (selfPage) return { kind: "page", resource: selfPage }
-
-  let current = input.page
-  for (let depth = 0; depth < NOTION_PARENT_WALK_MAX_DEPTH; depth += 1) {
-    const dbLikeId = parentDatabaseLikeId(current)
+  for await (const page of notionPageAncestry(input)) {
+    const selfPage = input.pages.get(notionIdKey(page.id))
+    if (selfPage) return { kind: "page", resource: selfPage }
+    const dbLikeId = parentDatabaseLikeId(page)
     if (dbLikeId) {
       const database = input.databases.get(notionIdKey(dbLikeId))
       return database ? { kind: "database", resource: database } : undefined
     }
-    const parentId = parentPageId(current)
-    if (!parentId) return undefined
-    const parentResource = input.pages.get(notionIdKey(parentId))
+    const parentId = parentPageId(page)
+    const parentResource = parentId
+      ? input.pages.get(notionIdKey(parentId))
+      : undefined
     if (parentResource) return { kind: "page", resource: parentResource }
-    current = await retrieveNotionPage({
-      env: input.env,
-      connection: input.connection,
-      pageId: parentId,
-      onTokenRefresh: input.onTokenRefresh,
-    })
   }
   return undefined
 }

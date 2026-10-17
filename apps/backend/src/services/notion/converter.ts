@@ -9,7 +9,7 @@ import { getNotionPageTitle } from "./client.js"
 
 const MANAGED_ROOT = "notion"
 
-function titleSlug(title: string): string {
+export function titleSlug(title: string): string {
   const s = slugify(title, { lowercase: true })
   return s.length > 0 ? s : "untitled"
 }
@@ -17,8 +17,10 @@ function titleSlug(title: string): string {
 export function getNotionPagePath(input: {
   page: NotionPage
   ancestors?: Array<{ id: string; title: string }>
+  /** Name the folder with this title, not the page title. */
+  title?: string
 }): string {
-  const title = getNotionPageTitle(input.page)
+  const title = input.title ?? getNotionPageTitle(input.page)
   const segments = [
     ...(input.ancestors ?? []).map(
       (ancestor) => `${titleSlug(ancestor.title)}--${ancestor.id}`,
@@ -242,6 +244,31 @@ function blockText(block: NotionBlock, context: NotionLinkContext): string {
   return richTextMarkdown(data.rich_text, context)
 }
 
+/**
+ * A Notion table keeps its cells in its `table_row` children. Markdown needs
+ * a header row, so the first row is the header.
+ */
+function markdownTable(
+  block: NotionBlock,
+  context: NotionLinkContext,
+  indent: string,
+): string {
+  const rows = (block.children ?? []).map((row) => {
+    const data = row.table_row as { cells?: unknown } | undefined
+    const cells = Array.isArray(data?.cells) ? data.cells : []
+    return cells.map((cell) =>
+      richTextMarkdown(cell, context)
+        .replaceAll("|", "\\|")
+        .replace(/[\r\n]+/g, " "),
+    )
+  })
+  const [header, ...body] = rows
+  if (!header) return ""
+  return [header, header.map(() => "---"), ...body]
+    .map((cells) => `${indent}| ${cells.join(" | ")} |`)
+    .join("\n")
+}
+
 function markdownLabel(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
@@ -297,6 +324,7 @@ function markdownForBlock(
   context: NotionLinkContext,
   indent = "",
 ): string {
+  if (block.type === "table") return markdownTable(block, context, indent)
   const text = blockText(block, context)
   let line: string
   switch (block.type) {

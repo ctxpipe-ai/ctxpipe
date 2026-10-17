@@ -26,6 +26,7 @@ import { NodeSDK } from "@opentelemetry/sdk-node"
 import {
   BatchSpanProcessor,
   type ReadableSpan,
+  SimpleSpanProcessor,
   type Span,
   type SpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
@@ -33,6 +34,7 @@ import { log } from "evlog"
 import type { Env } from "../config/env.js"
 import { baggageWithAttribution, copyAttributionToSpan } from "./attribution.js"
 import { BetterAuthSpanFilter } from "./betterAuthSpanFilter.js"
+import { EvlogSpanExporter } from "./evlog-span-exporter.js"
 import { FlushOnDemandMetricReader } from "./flushOnDemandMetricReader.js"
 import { LangfuseContextSpanProcessor } from "./langfuseContextProcessor.js"
 import { scrubExportedSpan } from "./scrubDbError.js"
@@ -151,12 +153,26 @@ export class AttributionUrlSpanProcessor implements SpanProcessor {
 
 /**
  * Initialize OpenTelemetry tracing and metrics before other tracing imports.
- * PR (`pr-N`) metrics flush on demand. Env detection lives in
+ * Always starts a tracer so workspace-chat spans can dump to evlog. When
+ * OTEL_EXPORTER_OTLP_TRACES_ENDPOINT is set, traces are also exported via
+ * OTLP. PR (`pr-N`) metrics flush on demand. Env detection lives in
  * `backendResource`; process and host detectors still run here.
  */
 export function initOtel(env: Env): void {
+  if (started) return
   const tracesEndpoint = env.OTEL_EXPORTER_OTLP_TRACES_ENDPOINT
-  if (!tracesEndpoint || started) return
+  const evlogProcessor = new SimpleSpanProcessor(new EvlogSpanExporter())
+
+  if (!tracesEndpoint) {
+    sdk = new NodeSDK({
+      resource: backendResource(),
+      resourceDetectors: [processDetector, hostDetector],
+      spanProcessors: [new AttributionUrlSpanProcessor(), evlogProcessor],
+    })
+    sdk.start()
+    started = true
+    return
+  }
 
   const traceExporter = new OTLPTraceExporter({
     url: tracesEndpoint,
@@ -176,6 +192,7 @@ export function initOtel(env: Env): void {
     spanProcessors: [
       new AttributionUrlSpanProcessor(),
       new LangfuseContextSpanProcessor(),
+      evlogProcessor,
       spanProcessor,
     ],
     instrumentations: [
@@ -183,7 +200,7 @@ export function initOtel(env: Env): void {
         requireParentforOutgoingSpans: true,
         ignoreIncomingRequestHook: () => true,
       }),
-      ...(typeof Bun === "undefined" ? [new RuntimeNodeInstrumentation()] : []),
+      ...("Bun" in globalThis ? [] : [new RuntimeNodeInstrumentation()]),
     ],
     ...(metricReader ? { metricReaders: [metricReader] } : {}),
   })

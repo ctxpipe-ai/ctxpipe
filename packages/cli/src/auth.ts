@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { AsyncEntry } from "@napi-rs/keyring"
 import { log, spinner } from "@clack/prompts"
+import { AsyncEntry } from "@napi-rs/keyring"
 import {
   AUTH_CLIENT_ID,
-  DEVICE_GRANT_TYPE,
   DEFAULT_BASE_URL,
+  DEVICE_GRANT_TYPE,
 } from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
 import { isObject } from "./mcp/json.js"
@@ -63,9 +63,13 @@ function storedAuthFromJsonData(
 ): StoredAuth | null {
   if (typeof data.accessToken !== "string" || !data.accessToken) return null
   return {
-    baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : normalizeBaseUrl(baseUrl),
+    baseUrl:
+      typeof data.baseUrl === "string"
+        ? data.baseUrl
+        : normalizeBaseUrl(baseUrl),
     accessToken: data.accessToken,
-    refreshToken: typeof data.refreshToken === "string" ? data.refreshToken : null,
+    refreshToken:
+      typeof data.refreshToken === "string" ? data.refreshToken : null,
     tokenType: typeof data.tokenType === "string" ? data.tokenType : "Bearer",
     expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : null,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
@@ -91,10 +95,12 @@ function removeStoredAuthFromFile(baseUrl: string): void {
   if (existsSync(path)) unlinkSync(path)
 }
 
-export async function readStoredAuth(baseUrl: string): Promise<StoredAuth | null> {
+export async function readStoredAuth(
+  baseUrl: string,
+): Promise<StoredAuth | null> {
   try {
     const password = await authEntry(baseUrl).getPassword()
-    if (password && password.trim()) {
+    if (password?.trim()) {
       const parsed: unknown = JSON.parse(password)
       if (isObject(parsed)) {
         const fromKeyring = storedAuthFromJsonData(parsed, baseUrl)
@@ -191,7 +197,9 @@ export async function loginWithDeviceFlow({
   return auth
 }
 
-async function requestDeviceCode(baseUrl: string): Promise<Record<string, unknown>> {
+async function requestDeviceCode(
+  baseUrl: string,
+): Promise<Record<string, unknown>> {
   const response = await authFetch(baseUrl, "/device/code", {
     method: "POST",
     body: {
@@ -275,7 +283,10 @@ export async function ensureFreshAccessToken({
   if (!isExpiringSoon(auth, now)) return auth
   if (!auth.refreshToken) return auth
   try {
-    const refreshed = await refreshAccessToken({ baseUrl, refreshToken: auth.refreshToken })
+    const refreshed = await refreshAccessToken({
+      baseUrl,
+      refreshToken: auth.refreshToken,
+    })
     await writeStoredAuth(refreshed)
     return refreshed
   } catch {
@@ -310,7 +321,9 @@ async function refreshAccessToken({
   })
   const json = await response.json().catch(() => ({}))
   if (!response.ok) {
-    throw new Error(authErrorMessage(json, "Could not refresh ctx| access token"))
+    throw new Error(
+      authErrorMessage(json, "Could not refresh ctx| access token"),
+    )
   }
   const data = unwrapBetterAuthData(json)
   if (!isObject(data) || typeof data.access_token !== "string") {
@@ -320,7 +333,9 @@ async function refreshAccessToken({
     baseUrl: normalizeBaseUrl(baseUrl),
     accessToken: data.access_token,
     refreshToken:
-      typeof data.refresh_token === "string" ? data.refresh_token : refreshToken,
+      typeof data.refresh_token === "string"
+        ? data.refresh_token
+        : refreshToken,
     tokenType: typeof data.token_type === "string" ? data.token_type : "Bearer",
     expiresAt:
       typeof data.expires_in === "number"
@@ -469,7 +484,8 @@ export function authErrorCode(json: unknown): string | null {
 
 export function authErrorMessage(json: unknown, fallback: string): string {
   if (isObject(json)) {
-    if (typeof json.error_description === "string") return json.error_description
+    if (typeof json.error_description === "string")
+      return json.error_description
     if (typeof json.message === "string") return json.message
     if (typeof json.error === "string") return json.error
     if (isObject(json.error)) {
@@ -484,10 +500,14 @@ export function authErrorMessage(json: unknown, fallback: string): string {
 }
 
 export function orgLabel(org: Organization): string {
-  return org.name && org.name !== org.slug ? `${org.name} (${org.slug})` : org.slug
+  return org.name && org.name !== org.slug
+    ? `${org.name} (${org.slug})`
+    : org.slug
 }
 
-export function userLabel(session: Record<string, unknown> | null): string | null {
+export function userLabel(
+  session: Record<string, unknown> | null,
+): string | null {
   const user = sessionUser(session)
   if (!user) return null
   return (
@@ -508,7 +528,10 @@ function absoluteUrl(value: string, baseUrl: string): string {
   return new URL(value, baseUrl).toString()
 }
 
-function stringField(value: Record<string, unknown>, key: string): string | null {
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
   return typeof value[key] === "string" ? value[key] : null
 }
 

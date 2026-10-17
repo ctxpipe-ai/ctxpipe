@@ -54,12 +54,13 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 
 | Capability | What it gives you |
 |---|---|
-| Cross-repo code search | Connect multiple repositories and let agents search across the codebase, not just the files currently open in an editor. |
-| Product and engineering connectors | Bring in GitHub, Confluence, Linear, Slack, and Notion, with source material synced into Git-backed context your team can inspect. |
-| Single org-scoped knowledge graph | Turn services, APIs, libraries, decisions, standards, and relationships into one shared graph for the organization. |
+| Git-backed Workspaces | Keep a team's knowledge as Markdown in a git repository you own; ctx\| keeps it current with small, reviewable commits. |
+| Cross-repo code search | Link code repositories to a Workspace and let agents search across them, not just the files currently open in an editor. |
+| Product and engineering connectors | Bring in GitHub, Confluence, Linear, Notion, PagerDuty, and Slack as Markdown files in a Workspace your team can inspect. |
+| Knowledge graph per Workspace | Turn links and claims in knowledge files, plus services, APIs, and libraries extracted from linked code, into a graph you can explore. |
 | One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint for ctx\| context. |
-| Chat/MCP UI | Give new team members a place to ask questions about code, systems, and decisions without hunting through repos and docs. See agent interactions via MCP filter. |
-| Human-readable context surfaces | Use Chat, repository management, and the [knowledge graph](https://docs.ctxpipe.ai/docs/knowledge-graph) to see what agents can use before they act. |
+| Workspace chat | A coding agent per conversation that answers questions about code, systems, and decisions, and proposes knowledge changes as pull requests. |
+| Human-readable context surfaces | Use a Workspace's Files, Diff, and [Graph](https://docs.ctxpipe.ai/docs/workspaces/graph) panes to see what agents can use before they act. |
 | CLI setup and local memory | Install ctx\| MCP with `npx ctxpipe init`, or add early repo-local memory with `npx ctxpipe memory init`. |
 
 ## Early CLI releases
@@ -126,6 +127,10 @@ pnpm trust
 For backend API, OpenAPI, MCP, and package scripts, see
 [apps/backend/README.md](apps/backend/README.md).
 
+### Required backend contract checks
+
+Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI` pointing to disposable development services. The lane checks PostgreSQL, a writable FalkorDB graph, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. CI provisions PostgreSQL and a pinned FalkorDB image. Native graph contracts create scoped ACL users and delete their own tenant graphs, so their FalkorDB test connection needs ACL administration permissions.
+
 ## Documentation
 
 - [Product docs](https://docs.ctxpipe.ai)
@@ -133,7 +138,7 @@ For backend API, OpenAPI, MCP, and package scripts, see
 - **Local memory from the terminal:** select local memory in `npx ctxpipe init`, or run `npx ctxpipe memory init` for memory-only setup (see [packages/cli/README.md](packages/cli/README.md))
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
-- [Git repositories](https://docs.ctxpipe.ai/docs/git-repositories)
+- [Workspaces](https://docs.ctxpipe.ai/docs/workspaces)
 - [MCP setup](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)
 - [Self-hosting](https://docs.ctxpipe.ai/docs/self-hosting)
 

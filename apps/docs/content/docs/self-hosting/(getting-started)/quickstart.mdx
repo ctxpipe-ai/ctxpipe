@@ -5,7 +5,7 @@ description: Choose a deployment path, establish the public origin, and prove th
 
 This quickstart is the common path across Docker, Terraform, and AWS. Choose the
 runtime first, then validate the same product workflow: sign in, connect GitHub,
-index one repository, and call `ctx_advisor`.
+index one repository, and search it from an agent with the MCP tools.
 
 ## 1. Choose how you will run ctx|
 
@@ -47,15 +47,16 @@ Before adding a source:
 See [Authentication](/docs/self-hosting/authentication) for the auth secret,
 origin, SMTP, and optional social providers.
 
-## 3. Create your GitHub App and index one repository
+## 3. Create your GitHub App and a Workspace
 
 Open **Connectors → Add connection → GitHub**. The self-hosted wizard guides an
 operator through creating a deployment-owned GitHub App with connection-specific
 callback and webhook URLs.
 
-Follow [Self-host GitHub](/docs/self-hosting/github), install the App on a narrow
-repository scope, then choose one repository under **Repositories → Select
-repositories**. Wait until it reaches **Indexed**.
+Follow [Self-host GitHub](/docs/self-hosting/github) and install the App on a
+narrow repository scope. Then [create a Workspace](/docs/workspaces/create-workspace)
+and [link one code repository](/docs/workspaces/linked-repositories) from its
+**Settings**. Wait until it reaches **Indexed**.
 
 ## 4. Connect an MCP client
 
@@ -80,14 +81,15 @@ requested organization.
 Ask the agent explicitly to use ctx|:
 
 ```text
-Use ctx_advisor before planning. Identify the relevant architecture,
-standards, and source files, and label what still needs code verification.
+Use ctxpipe before planning. Call list_workspaces, then search_knowledge and
+search_code. Name the relevant architecture, standards, and source files, and
+say what still needs code verification.
 ```
 
 You are ready to invite a team when:
 
-- `ctx_advisor` returns an organization-scoped answer,
-- that answer identifies useful source paths,
+- `list_workspaces` lists your organization and its Workspaces,
+- `search_knowledge` and `search_code` return useful refs and source paths,
 - a repository retry succeeds,
 - backups and logs are configured,
 - and your rollback procedure matches the deployment path.
@@ -98,5 +100,5 @@ You are ready to invite a team when:
   <Card title="Architecture" href="/docs/self-hosting/architecture" description="Services, state, and request flow." />
   <Card title="Configuration" href="/docs/self-hosting/configuration" description="Required variables and connector secrets." />
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Origins, callbacks, persistence, and preflight checks." />
-  <Card title="MCP diagnostics" href="/docs/self-hosting/mcp" description="Verify discovery, OAuth, and ctx_advisor." />
+  <Card title="MCP diagnostics" href="/docs/self-hosting/mcp" description="Verify discovery, OAuth, and the MCP tools." />
 </Cards>

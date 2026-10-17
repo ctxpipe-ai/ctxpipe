@@ -1,6 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { entryPageInnerDecorators } from "../../.storybook/decorators/entry-page-decorators"
+import { expect, userEvent, waitFor, within } from "storybook/test"
+import { workspaceListHandler } from "@/mocks/workspace-handlers"
+import { connectionUsageHandler } from "@/mocks/workspace-sources-handlers"
+import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import { ConnectorsPageContent } from "./$orgSlug.connectors"
 
@@ -8,7 +11,7 @@ const orgSlug = "acme"
 
 const meta = {
   title: "Pages/Connections",
-  decorators: entryPageInnerDecorators,
+  decorators: orgPageDecorators,
   parameters: {
     layout: "fullscreen",
   },
@@ -43,6 +46,18 @@ export const Empty: Story = {
 
 export const Loading: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
+  },
   parameters: {
     storyRoute: {
       pattern: "orgConnectors",
@@ -351,7 +366,26 @@ export const Full: Story = {
     linearStatusHandler(linearStatusComplete),
     slackStatusHandler(slackStatusComplete),
     pagerdutyStatusHandler(pagerdutyStatusComplete),
+    // An expanded card reads "Used in" and the Workspace list.
+    connectionUsageHandler([]),
+    workspaceListHandler([]),
   ]),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: "Expand Notion" })
+    // The main navigation has an "Expand navigation" button when an earlier
+    // story left it collapsed. Count the connector cards only.
+    const expanders = canvas.getAllByRole("button", {
+      name: /^Expand (?!navigation)/,
+    })
+    for (const expander of expanders) await userEvent.click(expander)
+    // A connection has no scope of its own: each Workspace has one, and
+    // "Used in" lists it (ADR-050). The card shows the account only.
+    await waitFor(() =>
+      expect(canvas.getAllByText("Account")).toHaveLength(expanders.length),
+    )
+    await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
+  },
 }
 
 export const InProgress: Story = {
@@ -454,4 +488,57 @@ export const CouldntLoad: Story = {
     statusFailed("/api/v1/connectors/slack/status", slackId),
     statusFailed("/api/v1/connectors/pagerduty/status", pagerdutyId),
   ]),
+}
+
+/** The Atlassian account link returns here and opens the wizard again. */
+export const ReopensConfluenceWizardAfterAccountLink: Story = {
+  render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    // The dialog can mount again while the status loads, which detaches the
+    // first heading. Query again on each try, so the check reads the live one.
+    await waitFor(() =>
+      expect(
+        page.getByRole("heading", { name: "Set up Confluence connector" }),
+      ).toBeVisible(),
+    )
+  },
+  parameters: {
+    storyRoute: {
+      pattern: "orgConnectors",
+      orgSlug,
+      search: "?atlassianConnectionId=con_forge_story",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+            () => HttpResponse.json({ items: [] }),
+          ),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/connectors/atlassian/status",
+              ),
+            () =>
+              HttpResponse.json({
+                isLinked: true,
+                isInstalled: false,
+                installationStatus: null,
+                isGithubLinked: false,
+                selectedSpaceCount: 0,
+                syncTargetConfigured: false,
+                setupPhase: "draft",
+                pendingConfigPullUrl: null,
+                pendingConfigPrCreating: false,
+                syncTarget: null,
+                selectedSpaces: [],
+              }),
+          ),
+        ],
+      },
+    },
+  },
 }

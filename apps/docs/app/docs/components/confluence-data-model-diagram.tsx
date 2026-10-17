@@ -130,7 +130,7 @@ export function ConfluenceDataModelDiagram() {
             label="Interface"
             title="ctx| MCP"
             tone="mcp"
-            artifacts={[{ text: "ctx_advisor and ctx| tools" }]}
+            artifacts={[{ text: "ctx| read tools" }]}
           />
           <div className="confluence-model-small-arrow" aria-hidden="true">
             <div className="confluence-model-small-arrow-line" />

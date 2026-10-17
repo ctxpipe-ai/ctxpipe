@@ -1,6 +1,6 @@
 # ADR-030: Organization-owned MCP API keys
 
-**Status:** Accepted (amended 2026-09-22) | **Date:** 2026-09-14 | **Tags:** mcp, auth, api-keys, better-auth, organizations
+**Status:** Accepted (amended 2026-09-27: OpenCode HOME hashing; amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md): `org` argument, personal-key org sets, `ctx_advisor` removed) | **Date:** 2026-09-14 | **Tags:** mcp, auth, api-keys, better-auth, organizations
 
 ## Context
 
@@ -26,6 +26,13 @@ narrow compatibility path without turning API keys into general REST bearer
 credentials or allowing an API key to shadow a valid OAuth access token.
 
 ## Decision
+
+**Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md) section 3):**
+
+- An org key stays one org. Each MCP call names its org with the `org` tool argument, and the argument must match the key's org.
+- A personal key no longer needs `?orgSlug=`. The server accepts that parameter and ignores it. A later release removes it.
+- A personal key gets an org set when it is made (`oauth_grant_organizations`, `api_key_id` column). An existing personal key with no set acts as the set of all current memberships of its user.
+- `ctx_advisor` is removed, so the advisor items below (item 5 and its amendment) apply only until that release. The MCP read tools run no chat thread.
 
 1. **True org-owned keys.** Better Auth `apiKey()` registers two configs:
    - `configId: "default"`, `references: "user"`, `enableSessionForAPIKeys: true`
@@ -60,10 +67,25 @@ credentials or allowing an API key to shadow a valid OAuth access token.
 5. **Advisor is org-service.** `currentMcpActor()` is
    `{ type: "org-service"; orgId }` or `{ type: "user"; userId }`. Org-service
    `ctx_advisor` threads use `${orgId}_org_${slugify(project)}_${conversationId}`
-   and insert conversations with **`userId` null**. No bot user row, no creator
-   stamp. Product chat list stays per signed-in user; admin/owner may filter
-   **MCP service** (`source=mcp` AND `userId IS NULL`). Langfuse tags include
-   `mcp-org-key`.
+   and insert conversations with **`userId` null**. Member threads use
+   `${orgId}_${userId}_${slugify(project)}_${conversationId}`. No bot user row,
+   no creator stamp. Product chat list stays per signed-in user; admin/owner
+   may filter **MCP service** (`source=mcp` AND `userId IS NULL`). Langfuse
+   tags include `mcp-org-key`. The persisted string is also the workspace-chat
+   conversation id, Langfuse `sessionId`, and `ctxpipe.conversation.id`.
+
+   **Amendment (2026-09-27):** OpenCode HOME is a separate runtime mapping,
+   not a new persisted identity. `workspaceChatOpenCodeHomeSlug` keeps a short
+   path-safe id and hashes unsafe or overlong conversation ids so `a/b` vs
+   `a?b` and NAME_MAX stay filesystem-safe without changing existing thread
+   rows. `ctx_advisor` caps `conversationId` (256) and `currentProjectName`
+   (128) at the tool schema so new ids stay reasonable; ordinary existing
+   client ids are unchanged. Blank-only `conversationId` means omitted (new
+   thread); a nonblank value is used raw (not trimmed). Do not digest or
+   re-prefix persisted ids. A member whose `userId` is the literal `org`
+   would share the org-service actor key. Better Auth user ids are `user_*`;
+   we do not silently rekey existing threads to close that theoretical
+   collision.
 
 6. **Who mints.** Organization plugin access control: owner and **admin** get
    `apiKey: ["create","read","update","delete"]`; members get none. Keys are
@@ -87,6 +109,12 @@ credentials or allowing an API key to shadow a valid OAuth access token.
   a future scope decision.
 - Chat UI must treat null-`userId` MCP threads as service conversations, not
   as a member's personal list.
+- Advisor persisted thread ids stay the shipped
+  `${orgId}_${actorKey}_${slugify(project)}_${conversationId}` join so the same
+  client `conversationId` resumes history after deploy. OpenCode HOME slugs
+  hash unsafe or overlong ids; that mapping is runtime-only. A theoretical
+  member `userId` of `org` shares the org-service actor key and is not
+  silently rekeyed.
 - Bearer-only MCP hosts can use API keys, but the fallback is intentionally
   absent from REST and runs only after OAuth resolution fails.
 - Self-host uses the same Better Auth rows in that deployment's DB; no extra

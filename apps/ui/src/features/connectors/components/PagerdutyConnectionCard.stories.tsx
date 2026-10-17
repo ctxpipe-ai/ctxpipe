@@ -1,8 +1,17 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { expect, fn, userEvent, within } from "storybook/test"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
+import {
+  pendingSetupHandlers,
+  playPendingSetup,
+} from "../mocks/pending-setup-stories"
 import { PagerdutyConnectionCard } from "./PagerdutyConnectionCard"
 
 const orgSlug = "acme"
@@ -47,8 +56,25 @@ function pagerdutyStatus(status: object) {
 const meta = {
   title: "Components/Connections/PagerdutyCard",
   component: PagerdutyConnectionCard,
+  args: {
+    orgSlug,
+    connectionId,
+    onOpenSetup: () => {},
+  },
   decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+            }),
+          ]),
+        ],
+      },
+    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -63,12 +89,14 @@ type Story = StoryObj<typeof meta>
 
 const shell = (story: ReactNode) => <div className="max-w-xl p-6">{story}</div>
 
+const onOpenSetup = fn()
+
 function card() {
   return (
     <PagerdutyConnectionCard
       orgSlug={orgSlug}
       connectionId={connectionId}
-      onOpenSetup={() => {}}
+      onOpenSetup={onOpenSetup}
     />
   )
 }
@@ -121,12 +149,21 @@ export const CouldntLoad: Story = {
   },
 }
 
-export const NotYetConnected: Story = {
+const statusReads = fn()
+const deleted = fn()
+
+export const PendingSetup: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
+          ...pendingSetupHandlers({
+            orgSlug,
+            provider: "pagerduty",
+            statusReads,
+            deleted,
+          }),
           pagerdutyStatus({
             isInstalled: false,
             installationStatus: null,
@@ -145,30 +182,102 @@ export const NotYetConnected: Story = {
       },
     },
   },
+  play: ({ canvasElement }) =>
+    playPendingSetup({
+      canvasElement,
+      name: "PagerDuty",
+      onOpen: onOpenSetup,
+      statusReads,
+      deleted,
+    }),
 }
 
-export const SyncFailed: Story = {
+export const RevokedLive: Story = {
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
-          pagerdutyStatus({ ...statusComplete, setupPhase: "sync_failed" }),
+          pagerdutyStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
         ],
       },
     },
   },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Connected")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "PagerDuty connector actions" }),
+    ).toBeVisible()
+  },
 }
 
-export const ConfigurationPullRequestFailed: Story = {
+export const ConnectedWithoutSyncRepository: Story = {
+  name: "Connected, scope set in each Workspace",
   render: () => shell(card()),
   parameters: {
     msw: {
       handlers: {
         page: [
-          pagerdutyStatus({ ...statusComplete, setupPhase: "config_failed" }),
+          pagerdutyStatus({
+            ...statusComplete,
+            setupPhase: "draft",
+            isGithubLinked: false,
+            selectedServiceCount: null,
+            syncTargetConfigured: false,
+            syncTarget: null,
+          }),
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Account")).toBeInTheDocument()
+    // Each Workspace has its own scope, so the card shows none (ADR-050).
+    await expect(canvas.queryAllByText("Scope")).toHaveLength(0)
+    // Auth is done, so the card has no setup action; Manage adds sources.
+    await expect(
+      canvas.queryByRole("button", {
+        name: /Set up|Connect PagerDuty|Manage scope|Choose services/,
+      }),
+    ).toBeNull()
+  },
+}
+
+export const RevokedOpensReconnect: Story = {
+  name: "Revoked, reconnect opens setup",
+  render: () => shell(card()),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          pagerdutyStatus({
+            ...statusComplete,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
+    onOpenSetup.mockClear()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Expand PagerDuty" }),
+    )
+    const [reconnect] = await canvas.findAllByRole("button", {
+      name: /^Reconnect PagerDuty/,
+    })
+    if (!reconnect) throw new Error("No Reconnect PagerDuty action")
+    await userEvent.click(reconnect)
+    await expect(onOpenSetup).toHaveBeenCalledTimes(1)
   },
 }

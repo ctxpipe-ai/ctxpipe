@@ -1,8 +1,12 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
+import { ApiError, readApiJson } from "@/lib/api-result"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
@@ -283,7 +287,7 @@ export async function handleGithubSetupPopupResult(
         (typeof popupFlowNonce === "string" &&
           popupFlowNonce.length > 0 &&
           popupFlowNonce === activePopupFlow.nonce)
-      if (installationId && orgSlug) {
+      if (githubInstallationIsLinked({ installationId }) && orgSlug) {
         if (nonceMatches) {
           const response = await client[
             ":orgSlug"
@@ -294,22 +298,25 @@ export async function handleGithubSetupPopupResult(
               ...(connectionId ? { connectionId } : {}),
             },
           })
-          status = response.ok ? "registered" : "registration_failed"
-          if (response.status === 403) {
-            const body = (await response.json().catch(() => null)) as {
-              why?: string
-            } | null
-            if (body?.why === "github_not_linked") {
-              // Its not-linked view links GitHub, then registers again.
-              status = "redirected"
-              window.location.assign(
-                `/.github/setup?${new URLSearchParams({
-                  installation_id: String(installationId),
-                  orgSlug,
-                  ...(connectionId ? { connectionId } : {}),
-                })}`,
-              )
-            }
+          try {
+            await readApiJson(response)
+            status = "registered"
+          } catch (e) {
+            if (!(e instanceof ApiError && e.body.why === "github_not_linked"))
+              throw e
+            // Its not-linked view links GitHub, then registers again.
+            status = "redirected"
+            // End the flow first. The navigation unloads this page before the
+            // clear below runs, and a live flow makes /.github/setup act as
+            // the popup and close itself.
+            clearGithubPopupFlow()
+            window.location.assign(
+              `/.github/setup?${new URLSearchParams({
+                installation_id: String(installationId),
+                orgSlug,
+                ...(connectionId ? { connectionId } : {}),
+              })}`,
+            )
           }
         }
       }
@@ -356,12 +363,11 @@ export async function handleGithubSetupPopupResult(
       const response = await client[":orgSlug"].api.v1.github.installation.$get(
         {
           param: { orgSlug },
+          query: {},
         },
       )
-      if (response.ok) {
-        const linked = (await response.json()) as { id: string } | null
-        if (linked) status = "registered"
-      }
+      const linked = await readApiJson(response)
+      if (githubInstallationIsLinked(linked)) status = "registered"
     } catch {
       // Keep "no_result" and let caller decide UX.
     }
@@ -406,7 +412,10 @@ export function consumePagerdutySetupPopupResult(): PagerdutySetupPopupResult {
       error?: unknown
       type?: unknown
     }
-    if (parsed.type === "pagerduty-oauth-error" && typeof parsed.error === "string") {
+    if (
+      parsed.type === "pagerduty-oauth-error" &&
+      typeof parsed.error === "string"
+    ) {
       return { status: "error", error: parsed.error }
     }
     if (typeof parsed.connectionId === "string" && parsed.connectionId) {

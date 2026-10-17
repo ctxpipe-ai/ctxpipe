@@ -79,7 +79,9 @@ function coerceQueryValue(value: string): string | number | boolean {
   return value
 }
 
-function nestQueryParams(params: Record<string, string>): Record<string, unknown> {
+function nestQueryParams(
+  params: Record<string, string>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {}
 
   for (const [key, rawValue] of Object.entries(params)) {
@@ -113,7 +115,9 @@ function nestQueryParams(params: Record<string, string>): Record<string, unknown
   return out
 }
 
-export function paramsToModelParams(params: Record<string, string>): ModelParams {
+export function paramsToModelParams(
+  params: Record<string, string>,
+): ModelParams {
   const nested = nestQueryParams(params)
   const parsed = modelParamsSchema.safeParse(nested)
   if (!parsed.success) {

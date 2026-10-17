@@ -1,0 +1,104 @@
+---
+title: Linked repositories
+description: Add code repositories to a Workspace so chat and agents can search them.
+---
+
+**Linked repositories** are code repositories a Workspace searches. ctx|
+indexes each one for code search and extracts services, APIs, libraries, and
+their relationships into the workspace repository as knowledge files.
+
+A repository can be linked to several Workspaces. Each Workspace keeps its own
+index, so search in one Workspace never returns another Workspace's code.
+
+## Link repositories
+
+<Steps>
+  <Step>
+    ### Open Settings
+
+    In the Workspace, open the **Settings** tab and find **GitHub** under
+    **Sources**.
+  </Step>
+
+  <Step>
+    ### Add repositories
+
+    Choose **Add repositories**. Search the repositories the ctx| GitHub App can
+    see (sort by recently pushed, newest, oldest, or name) and select one or
+    more. Only GitHub repositories can be linked.
+  </Step>
+
+  <Step>
+    ### Wait for indexing
+
+    ctx| adds each repository to a GitHub source in `.ctxpipe/sources.yaml` of
+    the workspace repository, as a commit or a pull request. When the change
+    is on the default branch, ctx| queues each repository for indexing.
+  </Step>
+</Steps>
+
+To remove a repository, choose the unlink button on its row. ctx| removes it
+from `.ctxpipe/sources.yaml` and stops searching it.
+
+## Edit the file with git
+
+You can also change `.ctxpipe/sources.yaml` directly with git. Each item of
+`repositories` in a GitHub source is `owner/name`, or a map with a `ref`. A
+`ref` is a branch or a tag. Without a `ref`, ctx| reads the default branch of
+the repository.
+
+```yaml
+version: 1
+sources:
+  - id: linked-repositories
+    provider: github
+    connection: con_example
+    repositories:
+      - acme/checkout-service
+      - name: acme/payments
+        ref: release
+```
+
+A repository that the Workspace repository is, or that an earlier GitHub
+source already links, is linked only one time.
+
+## Repositories from before Workspaces
+
+When an organization moves to Workspaces, ctx| links the organization's
+other repositories to its first Workspace. The knowledge export adds them to
+the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml` of that
+Workspace. The same commit moves each `repositories/*.md` file of a GitHub
+repository into that source, with its `branch` as `ref`, and deletes the file.
+A repository that is not on GitHub is not linked.
+
+## Indexing status
+
+| Status | Meaning |
+| --- | --- |
+| **Pending** | Linked, waiting to be indexed. |
+| **Indexing** | ctx| is building search and extracting knowledge. Answers may be incomplete. |
+| **Indexed** | Search and extraction finished for the current commit. |
+| **Indexed with issues** | Search works, but part of the index failed, usually code navigation for one language. The reason is shown on the row. |
+
+Indexing runs again when the linked branch or tag of the repository changes.
+
+## What indexing builds
+
+- **Code search**: text, file, and symbol search over the default branch.
+- **Code navigation**: definitions and references for supported languages.
+- **Extracted knowledge**: services, APIs, libraries, infrastructure, and
+  instructions such as `AGENTS.md`, skills, and ADRs, committed to the
+  workspace repository as knowledge files with claims.
+
+Extraction uses models on parts of the code. Treat extracted claims like any
+other knowledge file: review them in git and correct them when they are wrong.
+
+## Closed pull requests
+
+For a linked GitHub repository, ctx| also mirrors its closed pull requests,
+merged or not, into `github/pulls/` in the workspace repository. When ctx|
+first reads a link, whether you added it in **Settings** or committed it to
+`.ctxpipe/sources.yaml` with git, it backfills up to 200 recent closed pull requests;
+after that, each pull request that closes arrives as GitHub reports it.
+Unlinking stops new pull requests and keeps the files already mirrored. See
+[GitHub connector](/docs/connections/source-connectors/github).

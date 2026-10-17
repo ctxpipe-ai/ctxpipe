@@ -2,6 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import { and, eq } from "drizzle-orm"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import { decryptConnectionSecret } from "../../lib/connection-secrets.js"
@@ -14,8 +15,6 @@ import {
 } from "../../lib/notion-oauth.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
-  claimNotionConfigPrCreation,
-  claimNotionContentSyncRetry,
   createDraftNotionConnection,
   deleteNotionConnectionById,
   getNotionBindingWithRepoByConnectionId,
@@ -25,15 +24,14 @@ import {
   patchNotionConnectorConfig,
   patchNotionOauthApp,
   refreshNotionConnectionTokensWithLock,
-  releaseNotionConfigPrCreationClaim,
   resolveNotionConnectionForOrgDetailed,
   transitionNotionBindingState,
   upsertNotionConnectionFromOAuth,
 } from "../../models/notion-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
+import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { notionSyncConfig } from "../../openworkflow/workflows/notion-sync-config.js"
 import { notionSyncContent } from "../../openworkflow/workflows/notion-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -175,7 +173,7 @@ const getOAuthCallbackRoute = createRoute({
     },
     403: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not a member of the organisation in state",
+      description: "Not a member of the organization in state",
     },
     503: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -397,53 +395,58 @@ const getConfigRoute = createRoute({
   },
 })
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: NotionPatchConfigRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: NotionPatchConfigRequestSchema },
+          },
         },
       },
-      description: "Config patched; opens/updates Notion config PR",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description: "Config patched; opens/updates Notion config PR",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid request or ambiguous connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown connectionId",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Notion connection is not installed",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue configuration pull request",
+        },
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or ambiguous connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Notion connection is not installed",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue configuration pull request",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteNotionConnectorRoute = createRoute({
   method: "delete",
@@ -466,37 +469,42 @@ const deleteNotionConnectorRoute = createRoute({
   },
 })
 
-const retryNotionSyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryNotionSyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Retry a failed Notion content sync",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Ambiguous or non-failed Notion connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete Notion connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Notion content sync retry already claimed",
         },
       },
-      description: "Retry a failed Notion content sync",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Ambiguous or non-failed Notion connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete Notion connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Notion content sync retry already claimed",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const retryNotionConfigRoute = createRoute({
   method: "post",
@@ -803,7 +811,7 @@ export const notionOauthAppReadRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-export const notionConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
+const notionOAuthStartRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -913,9 +921,8 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!state.connectionId) {
       return c.json({ error: "Invalid Notion OAuth state" }, 400)
     }
-    const stored = await getNotionStoredConfigByConnectionId(
-      state.orgId,
-      state.connectionId,
+    const stored = await withOrgDbContext(state.orgId, () =>
+      getNotionStoredConfigByConnectionId(state.orgId, state.connectionId),
     )
     if (!stored) {
       return c.json({ error: "Unknown Notion connection" }, 404)
@@ -961,7 +968,8 @@ export const notionOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-notionConnectorRoutes
+// One chain: the Hono client types come from the returned value.
+export const notionConnectorRoutes = notionOAuthStartRoutes
   .openapi(postDraftRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -1199,6 +1207,8 @@ notionConnectorRoutes
     }
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
+    if (!orgSlug) return c.json({ error: "Missing org slug" }, 400)
     const { connectionId } = ConnectionIdQuerySchema.parse({
       connectionId: c.req.query("connectionId") ?? undefined,
     })
@@ -1235,50 +1245,32 @@ notionConnectorRoutes
     // but still needs its initial content sync.
     const resourcesChanged = body.resources !== undefined && !resourcesMatch
 
-    const saved = await patchNotionConnectorConfig({
+    await patchNotionConnectorConfig({
       orgId,
       connectionId: installed.connection.id,
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
 
-    if (body.syncTarget !== undefined) {
-      await enqueueGithubPrMirrorEnsureForOrg(orgId)
-    }
-    if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
-        {
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-          ...(saved.repositoryIngestion.targetBranch !== undefined
-            ? { targetBranch: saved.repositoryIngestion.targetBranch }
-            : {}),
-        },
-        {
-          error: (err) =>
-            getLogger().error(err, { step: "repositoryIngestion.enqueue" }),
-        },
-      )
-    }
-
-    const previousConfigPrState = resourcesChanged
-      ? await claimNotionConfigPrCreation({
-          connectionId: installed.connection.id,
-        })
-      : undefined
-    const configPrEnqueued = Boolean(previousConfigPrState)
-    if (previousConfigPrState && body.resources !== undefined) {
+    let configPrEnqueued = false
+    if (resourcesChanged && body.resources !== undefined) {
       try {
-        await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+        const admission = await enqueueConnectorConfigSync({
+          provider: "notion",
           orgId,
-          orgSlug: c.req.param("orgSlug"),
+          orgSlug,
           connectionId: installed.connection.id,
           resources: body.resources,
         })
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Notion configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
       } catch (err) {
-        await releaseNotionConfigPrCreationClaim({
-          connectionId: installed.connection.id,
-          previousState: previousConfigPrState,
-        })
         getLogger().error(err instanceof Error ? err : new Error(String(err)), {
           step: "notionSyncConfig.enqueue",
           connectionId: installed.connection.id,
@@ -1371,7 +1363,10 @@ notionConnectorRoutes
       orgId,
       installed.connection.id,
     )
-    if (binding?.setupPhase !== "config_failed") {
+    if (
+      !binding ||
+      !["config_failed", "awaiting_merge"].includes(binding.setupPhase)
+    ) {
       return c.json(
         { error: "Notion configuration pull request is not in a failed state" },
         400,
@@ -1397,30 +1392,25 @@ notionConnectorRoutes
         400,
       )
     }
-    const previousState = await claimNotionConfigPrCreation({
-      connectionId: installed.connection.id,
-    })
-    if (!previousState) {
-      return c.json(
-        {
-          error:
-            "Notion configuration pull request creation is already in progress",
-        },
-        409,
-      )
-    }
     try {
-      await runWorkflowWithWorkerWake(notionSyncConfig.spec, {
+      const admission = await enqueueConnectorConfigSync({
+        provider: "notion",
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
         resources,
       })
+      if (!admission.accepted)
+        return c.json(
+          {
+            error:
+              "Notion configuration changed or a proposal is already in progress",
+          },
+          409,
+        )
     } catch (error) {
-      await releaseNotionConfigPrCreationClaim({
-        connectionId: installed.connection.id,
-        previousState,
-      })
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
         {
@@ -1468,31 +1458,19 @@ notionConnectorRoutes
         400,
       )
     }
-    if (!(await claimNotionContentSyncRetry(installed.connection.id))) {
+    const accepted = await enqueueConnectorContentSync({
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      connectionId: installed.connection.id,
+      provider: "notion",
+      repositoryId: binding.repositoryId,
+      branch: binding.branch,
+    })
+    if (!accepted)
       return c.json(
         { error: "Notion content sync is already being retried" },
         409,
       )
-    }
-    try {
-      await runWorkflowWithWorkerWake(notionSyncContent.spec, {
-        orgId,
-        orgSlug: c.req.param("orgSlug"),
-        connectionId: installed.connection.id,
-      })
-    } catch (error) {
-      await transitionNotionBindingState({
-        connectionId: installed.connection.id,
-        expectedSetupPhase: "initial_sync",
-        expectedPendingConfigPrCreating: false,
-        repositoryId: binding.repositoryId,
-        branch: binding.branch,
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        setupPhase: "sync_failed",
-      })
-      throw error
-    }
     return c.json({ accepted: true as const }, 202)
   })
   .openapi(deleteNotionConnectorRoute, async (c) => {

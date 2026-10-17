@@ -16,30 +16,6 @@ function trimNullableConnectionString(v: unknown): unknown {
   return t.length > 0 ? t : null
 }
 
-export const GITHUB_PR_MIRROR_SETUP_PHASES = [
-  "draft",
-  "awaiting_merge",
-  "config_failed",
-  "initial_sync",
-  "sync_failed",
-  "live",
-] as const
-
-export type GithubPrMirrorSetupPhase =
-  (typeof GITHUB_PR_MIRROR_SETUP_PHASES)[number]
-
-export const githubPrMirrorConfigSchema = z.object({
-  repositoryId: z.string().min(1).nullable().optional(),
-  branch: z.string().min(1).nullable().optional(),
-  enabled: z.boolean().optional(),
-  setupPhase: z.enum(GITHUB_PR_MIRROR_SETUP_PHASES).optional(),
-  pendingConfigPullUrl: z.string().nullable().optional(),
-})
-
-export type GithubPrMirrorConfigStored = z.infer<
-  typeof githubPrMirrorConfigSchema
->
-
 /** Stored in `connections.config` for `type === "github"` (includes ciphertext fields). */
 export const githubConnectionConfigStoredSchema = z.object({
   /** Set after GitHub redirects back from app installation. */
@@ -54,8 +30,6 @@ export const githubConnectionConfigStoredSchema = z.object({
   /** AES-GCM ciphertext (see `encryptConnectionSecret`). */
   privateKeyEnc: z.string().min(1).optional(),
   webhookSecretEnc: z.string().min(1).optional(),
-  /** Optional scoped mirror of pull requests into a context repository. */
-  prMirror: githubPrMirrorConfigSchema.optional(),
 })
 
 export type GithubConnectionConfigStored = z.infer<
@@ -297,6 +271,67 @@ export function decodeLinearTokens(
   }
 }
 
+/**
+ * The roots of a connection that failed in the Workspace sources sync
+ * (ADR-050). `tries` counts sync cycles; `countedAt` is the time of the last
+ * count, so that a burst of webhook syncs counts one time.
+ */
+export const sourceSyncFailuresSchema = z
+  .record(
+    z.string(),
+    z.object({
+      tries: z.number().int().positive(),
+      detail: z.string(),
+      countedAt: z.string().optional(),
+    }),
+  )
+  .default({})
+export type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
+
+/**
+ * Count one more failed sync cycle of `key` in `failures` (changed in
+ * place), and give the new entry. A key that was counted in the last hour
+ * is not counted again (a burst of webhook syncs), and gives null. With
+ * `count: false` (a "Sync now" sync), nothing changes, and it gives null.
+ */
+export function countSourceFailure(input: {
+  failures: SourceSyncFailures
+  key: string
+  now: Date
+  detail: (tries: number) => string
+  count: boolean
+}): { tries: number; detail: string } | null {
+  const previous = input.failures[input.key]
+  if (
+    !input.count ||
+    (previous?.countedAt &&
+      input.now.getTime() - Date.parse(previous.countedAt) < 60 * 60 * 1000)
+  )
+    return null
+  const tries = (previous?.tries ?? 0) + 1
+  const detail = input.detail(tries)
+  input.failures[input.key] = {
+    tries,
+    detail,
+    countedAt: input.now.toISOString(),
+  }
+  return { tries, detail }
+}
+
+/**
+ * The Workspace sources sync state of a Forge connection (ADR-050): the
+ * cursor of each space, shared by all Workspaces, and the pages and spaces
+ * that failed. The legacy `confluence_spaces` scope does not hold it.
+ */
+export const forgeSourceSyncSchema = z.object({
+  spaces: z
+    .record(z.string(), z.object({ lastSyncedAt: z.string() }))
+    .default({}),
+  /** Keyed `space:<KEY>` or `page:<KEY>:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type ForgeSourceSync = z.infer<typeof forgeSourceSyncSchema>
+
 /** Typed slice of `connections.config` for `type === "forge"`. */
 const provisionStatusSchema = z.enum(["idle", "running", "succeeded", "failed"])
 
@@ -333,6 +368,9 @@ export const forgeConnectionConfigSchema = z
       trimNullableConnectionString,
       z.string().nullable().optional(),
     ),
+    sourceSync: forgeSourceSyncSchema.optional(),
+    /** When the user opened the Forge install: the Marketplace may still bind it. */
+    installOpenedAt: z.string().nullable().optional(),
   })
   .transform((c) => ({
     ...c,
@@ -353,6 +391,17 @@ export const NOTION_SETUP_PHASES = [
 ] as const
 
 export type NotionSetupPhase = (typeof NOTION_SETUP_PHASES)[number]
+
+/**
+ * The Workspace sources sync state of a Notion connection (ADR-050). It
+ * counts the sync cycles in which a selected root failed, so a root that is
+ * gone for good stops after a bounded number of tries.
+ */
+export const notionSourceSyncSchema = z.object({
+  /** Keyed `page:<id>` or `database:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type NotionSourceSync = z.infer<typeof notionSourceSyncSchema>
 
 /** Typed slice of `connections.config` for `type === "notion"`. */
 export const notionConnectionConfigSchema = z
@@ -388,6 +437,7 @@ export const notionConnectionConfigSchema = z
     oauthClientSecretEnc: z.string().min(1).optional(),
     /** AES-GCM ciphertext of the Notion webhook verification token. */
     webhookSecretEnc: z.string().min(1).optional(),
+    sourceSync: notionSourceSyncSchema.optional(),
   })
   .transform((c) => ({
     ...c,
@@ -648,6 +698,17 @@ export type PagerdutySetupPhase = (typeof PAGERDUTY_SETUP_PHASES)[number]
 export const PAGERDUTY_REGIONS = ["us", "eu"] as const
 export type PagerdutyRegion = (typeof PAGERDUTY_REGIONS)[number]
 
+/**
+ * The Workspace sources sync state of a PagerDuty connection (ADR-050). It
+ * counts the sync cycles in which a selected service failed for good, so a
+ * deleted or unreadable service stops after a bounded number of tries.
+ */
+export const pagerdutySourceSyncSchema = z.object({
+  /** Keyed `service:<id>`. */
+  failures: sourceSyncFailuresSchema,
+})
+export type PagerdutySourceSync = z.infer<typeof pagerdutySourceSyncSchema>
+
 /** Stored in `connections.config` for `type === "pagerduty"`. */
 export const pagerdutyConnectionConfigStoredSchema = z
   .object({
@@ -671,6 +732,7 @@ export const pagerdutyConnectionConfigStoredSchema = z
     webhookSecretEnc: z.string().min(1).optional(),
     oauthClientId: z.string().min(1).optional(),
     oauthClientSecretEnc: z.string().min(1).optional(),
+    sourceSync: pagerdutySourceSyncSchema.optional(),
   })
   .transform((config) => ({
     ...config,
@@ -702,19 +764,15 @@ export function parsePagerdutyConnectionStored(
 export function serialisePagerdutyConnectionConfigForDb(
   input: z.input<typeof pagerdutyConnectionConfigStoredSchema>,
 ): Record<string, unknown> {
-  return pagerdutyConnectionConfigStoredSchema.parse(input) as unknown as Record<
-    string,
-    unknown
-  >
+  return pagerdutyConnectionConfigStoredSchema.parse(
+    input,
+  ) as unknown as Record<string, unknown>
 }
 
 export function encodePagerdutyTokensForDb(
   input: PagerdutyConnectionTokens,
   env: Env,
-): Pick<
-  PagerdutyConnectionConfigStored,
-  "accessTokenEnc" | "refreshTokenEnc"
-> {
+): Pick<PagerdutyConnectionConfigStored, "accessTokenEnc" | "refreshTokenEnc"> {
   return {
     accessTokenEnc: encryptConnectionSecret(input.accessToken.trim(), env),
     refreshTokenEnc: input.refreshToken

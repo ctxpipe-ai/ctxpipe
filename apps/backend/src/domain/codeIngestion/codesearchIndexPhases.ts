@@ -57,6 +57,9 @@ export function isCodesearchAdmissionBusyError(
 export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
+  repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
+  workspaceId?: string
+  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 async function authorizedCodesearchFetch(
@@ -72,6 +75,13 @@ async function authorizedCodesearchFetch(
       sub: `repo:${auth.repositoryId}`,
       orgId: auth.orgId,
       principal: "service",
+      ...(auth.repositoryRevisions
+        ? { repositoryRevisions: auth.repositoryRevisions }
+        : {}),
+      ...(auth.workspaceRevisions
+        ? { workspaceRevisions: auth.workspaceRevisions }
+        : {}),
+      ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
     },
   })
   return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
@@ -148,6 +158,7 @@ export async function codesearchIndexCloneCheckout(
     githubToken?: string
     targetHash?: string
     fromHash?: string
+    checkoutKey?: string
   },
 ): Promise<{
   targetHash: string

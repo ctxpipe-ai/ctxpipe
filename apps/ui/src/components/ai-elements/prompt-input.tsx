@@ -1,6 +1,18 @@
 "use client";
 
-import type { ChatStatus, FileUIPart, SourceDocumentUIPart } from "ai";
+type ChatStatus = "submitted" | "streaming" | "ready" | "error";
+type FileUIPart = {
+  type: "file";
+  url?: string;
+  mediaType?: string;
+  filename?: string;
+};
+type SourceDocumentUIPart = {
+  type: "source-document";
+  sourceId?: string;
+  title?: string;
+  url?: string;
+};
 import type {
   ChangeEvent,
   ChangeEventHandler,
@@ -1117,7 +1129,7 @@ export const PromptInputSubmit = ({
 
   return (
     <InputGroupButton
-      aria-label={isGenerating ? "Stop" : "Submit"}
+      aria-label={isGenerating ? "Stop" : "Send"}
       className={cn(className)}
       onClick={handleClick}
       size={size}

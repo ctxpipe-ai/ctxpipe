@@ -34,15 +34,11 @@ describe("languageZoektClause", () => {
 
 describe("buildSymbolDefinitionQuery", () => {
   it("builds sym query with lang", () => {
-    expect(buildSymbolDefinitionQuery("MyFn", "go")).toBe(
-      'sym:"MyFn" lang:go',
-    )
+    expect(buildSymbolDefinitionQuery("MyFn", "go")).toBe('sym:"MyFn" lang:go')
   })
 
   it("rejects empty symbol", () => {
-    expect(() => buildSymbolDefinitionQuery("  ", "go")).toThrow(
-      "non-empty",
-    )
+    expect(() => buildSymbolDefinitionQuery("  ", "go")).toThrow("non-empty")
   })
 })
 

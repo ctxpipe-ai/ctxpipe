@@ -4,15 +4,20 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  betterAuthAuthViewClassNames,
+  betterAuthEmailPlaceholder,
+} from "@/features/auth/betterAuthShellClassNames"
 import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import {
   decideInviteAccept,
   inviteSignInHref,
   inviteSignOutHref,
 } from "@/features/auth/invite-accept-decision"
+import { apiFetch, readApiJson } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
@@ -84,12 +89,14 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const invitationEmailQuery = useQuery({
     queryKey: ["public-invitation-details", invitationId],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         `/.auth/api/v1/public/invitations/${encodeURIComponent(invitationId)}`,
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error("Invitation not found or expired")
-      const json = (await res.json()) as InvitationDetails
+      // TODO: the public invitation route is outside the Hono client, so the body is unknown.
+      const json = (await readApiJson(res, {
+        message: "Invitation not found or expired",
+      })) as InvitationDetails
       return {
         email: json.email,
         organizationName: json.organizationName,
@@ -169,7 +176,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     acceptInviteMutation,
   ])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return <PageBodySkeleton label="Loading sign-in" />
+  }
   if (decision.kind === "wrong-account") {
     return (
       <InviteWrongAccountNotice
@@ -202,7 +211,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         Open it to finish joining
         {invitationEmailQuery.data?.organizationName
           ? ` ${invitationEmailQuery.data.organizationName}`
-          : " the organisation"}
+          : " the organization"}
         . No email, or the link expired?{" "}
         <a
           href={inviteSignInHref(invitationId, verifyEmailFor)}
@@ -219,7 +228,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     signUpMutation.isPending ||
     acceptInviteMutation.isPending
   ) {
-    return <AuthStatusMessage message="Accepting organisation invite…" />
+    return <AuthStatusMessage message="Accepting organization invite…" />
   }
 
   if (!invitationId) {
@@ -231,7 +240,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   }
 
   if (invitationEmailQuery.isPending) {
-    return <AuthStatusMessage message="Loading invitation…" />
+    return <PageBodySkeleton label="Loading invitation" />
   }
 
   if (invitationEmailQuery.error || !invitationEmailQuery.data) {
@@ -276,12 +285,12 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         .
       </p>
       <label className="grid gap-1 text-sm">
-        <span className="text-zinc-300">Organisation</span>
+        <span className="text-zinc-300">Organization</span>
         <input
           type="text"
           value={invitationEmailQuery.data.organizationName}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -290,7 +299,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="email"
           value={invitationEmailQuery.data.email}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -299,7 +308,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -308,7 +317,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -317,13 +326,13 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       <Button
         type="submit"
-        className="w-full rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+        className="w-full rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
         isDisabled={signUpMutation.isPending || acceptInviteMutation.isPending}
       >
         {signUpMutation.isPending || acceptInviteMutation.isPending
@@ -507,7 +516,7 @@ function AuthViewRoute() {
             </div>
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
               <h2 className="mb-3 text-lg font-semibold text-zinc-100">
-                Join organisation
+                Join organization
               </h2>
               <InviteAcceptSignUp
                 invitationId={inviteFromRedirect.invitationId}
@@ -545,6 +554,7 @@ function AuthViewRoute() {
               callbackURL={continuation?.redirectTo}
               className={showBranding ? "pt-24" : undefined}
               classNames={betterAuthAuthViewClassNames}
+              localization={{ EMAIL_PLACEHOLDER: betterAuthEmailPlaceholder }}
             />
           )}
         </div>

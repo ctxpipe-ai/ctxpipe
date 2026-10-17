@@ -1,8 +1,10 @@
 import { expireCookie } from "better-auth/cookies"
 import { setTokenUtil } from "better-auth/oauth2"
+import { and, eq } from "drizzle-orm"
 import type { Context } from "hono"
 import { parseEnv } from "../config/env.js"
 import { getSystemDb } from "../db/client.js"
+import { accounts } from "../db/schema/auth.js"
 import { pendingAccounts } from "../db/schema/pending_accounts.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
@@ -224,7 +226,16 @@ export async function atlassianLinkCallbackFirst(c: Context) {
     return redirect302(withErrorQuery(errorBase, "email_doesn't_match"))
   }
 
-  const existing = await bCtx.internalAdapter.findAccount(String(userInfo.id))
+  const [existing] = await getSystemDb()
+    .select()
+    .from(accounts)
+    .where(
+      and(
+        eq(accounts.accountId, String(userInfo.id)),
+        eq(accounts.providerId, "atlassian"),
+      ),
+    )
+    .limit(1)
 
   if (existing && existing.userId.toString() !== link.userId.toString()) {
     // No org in this OAuth callback (only `userId` in link state) — not under withNetworkOrgContext.

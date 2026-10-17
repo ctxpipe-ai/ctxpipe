@@ -1,16 +1,13 @@
-import {
-  paramsToModelParams,
-  type ModelParams,
-} from "./modelParams.js"
+import { type ModelParams, paramsToModelParams } from "./modelParams.js"
 
 export {
+  type ModelParams,
   mergeModelParams,
   paramsToModelParams,
   REASONING_EFFORT_VALUES,
-  type ModelParams,
   type ReasoningEffort,
-  type Verbosity,
   VERBOSITY_VALUES,
+  type Verbosity,
 } from "./modelParams.js"
 
 export type ParsedModelSpec = {
@@ -27,7 +24,9 @@ export function parseModelSpec(raw: string): ParsedModelSpec {
 
   const modelId = trimmed.slice(0, queryIndex).trim()
   const params: Record<string, string> = {}
-  for (const [key, value] of new URLSearchParams(trimmed.slice(queryIndex + 1))) {
+  for (const [key, value] of new URLSearchParams(
+    trimmed.slice(queryIndex + 1),
+  )) {
     params[key] = value
   }
 

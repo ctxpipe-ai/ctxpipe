@@ -1,6 +1,6 @@
 # ADR-025: Slack connector as intent-based git-native capture
 
-**Status:** Accepted | **Date:** 2026-08-05 | **Updated:** 2026-08-21 | **Tags:** connectors, slack, github, multi-tenant, mcp
+**Status:** Accepted (the bound repository is superseded by Workspace sources, [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-05 | **Updated:** 2026-10-12 | **Tags:** connectors, slack, github, multi-tenant, mcp
 
 ## Context
 
@@ -23,6 +23,20 @@ Separately, teams that want broad, query-time access to a Slack workspace should
 9. **Two-prong product story:**
    - **ctx| Slack connector** — connect the workspace, bind a context repo, capture specific threads (decisions, incidents, design debates) into git for durable indexed context.
    - **Slack MCP** (external) — for general workspace search/read in a developer agent environment; document and link [Slack MCP server](https://docs.slack.dev/ai/slack-mcp-server) / [Slack’s MCP guide](https://slack.com/help/articles/48855576908307-Guide-to-Model-Context-Protocol-in-Slack). ctx| does not replace Slack MCP and does not ingest the whole workspace on behalf of MCP.
+
+## Update 2026-10-12: Workspace sources ([ADR-050](ADR-050-workspace-sources-config-file.md))
+
+Slack stays capture-only. Workspace sources replace the single bound repository of decision 5:
+
+- A Slack source in `.ctxpipe/sources.yaml` holds a channel list (`{ channels: [C…|G…] }`). The list routes captures. It does not start a sync.
+- When the mention agent captures a thread, it writes the thread into each Workspace whose `ok` Slack source of the same connection lists the channel. The sources frame makes one commit for each Workspace, under the managed path `slack/channels/<channelId>/threads/<yyyy>/<mm>/<threadTs>/`. The channel id is the directory, so a channel rename does not move it. The snapshot rules of decisions 4 and 6 stay: overwrite by thread root `ts`, a cap of 500 messages, assets in the thread directory, and no status reply in the snapshot.
+- When no Workspace lists the channel, the capture writes nothing. The in-thread status tells the user to add the channel to a Slack source in the Workspace settings.
+- The capture reply links each Workspace that got the thread to the thread file in the app (`AUTH_BASE_URL/<org>/ws/<workspace>?pane=file:<path>`), where the user can edit it. It does not link GitHub. Only the old bound repository keeps its GitHub link until the migration turns it off.
+- The webhook starts the mention agent for each `installed` connection. It does not read the old binding, because setup does not write one and the migration turns it off.
+- A source stays `ok` when at least one of its channels is usable; its status detail names the other channels. It is out of access only when no channel is usable.
+- There is still no backfill and no continuous sync. A sources sync reads nothing from Slack. The Slack app subscribes only to `app_mention`.
+- Migration: the hook reads the channel ids of the captured threads in the old bound repository. When that repository is the own repository of a Workspace, the Workspace gets a Slack source with those channels, and the migration PR moves each old capture directory `slack/channels/<slug>--<id>/` to `slack/channels/<id>/` with the same blobs. A Workspace that only links the repository gets nothing. Otherwise the report names the connection as unmapped. After the PR merges and the source projects in that Workspace, `disableLegacy` sets `enabled: false` on the old binding, so the capture then writes only through sources. Until then, a capture also writes to the old repository, except when a source of the same Workspace already got the thread.
+- Removing a channel from a source stops new captures into that Workspace but keeps its captured threads, because a capture cannot be fetched again (the adapter sets `keepFilesOnRemove`).
 
 ## Consequences
 

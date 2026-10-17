@@ -51,7 +51,7 @@ export function RepositoryCard({
     <div className="ctx-repo-row group">
       <div className="flex min-w-0 flex-1 items-center gap-4">
         <div
-          className={`ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] duration-150 ease-out [&_svg]:h-4 [&_svg]:w-4 [&_svg]:transition-colors ${
+          className={`ctx-node h-10 w-10 shrink-0 transition-[color,background-color,border-color] ease-out [&_svg]:h-4 [&_svg]:w-4 [&_svg]:transition-colors ${
             displayStatus === "ready"
               ? "border-teal-400 bg-teal-400/5 [&_svg]:text-teal-400"
               : isCompleteWithIssues
@@ -95,12 +95,12 @@ export function RepositoryCard({
         {interactive ? (
           <MenuTrigger
             placement="bottom end"
-            popoverClassName="rounded-none border-border bg-card"
+            popoverClassName="rounded-md border-border bg-card"
           >
             <Button
               variant="ghost"
               size="icon-sm"
-              className="rounded-none"
+              className="rounded-md"
               aria-label="Repository actions"
               isDisabled={isRetrying || isDeleting}
             >

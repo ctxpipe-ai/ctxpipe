@@ -51,6 +51,7 @@ module "ctxpipe" {
   pagerduty_redirect_uri  = var.pagerduty_redirect_uri
   falkordb_password       = var.falkordb_password
   otel_otlp_headers       = var.otel_otlp_headers
+  vercel_access_token     = var.vercel_access_token
 
   neon_project = {
     name                      = "ctxpipe"

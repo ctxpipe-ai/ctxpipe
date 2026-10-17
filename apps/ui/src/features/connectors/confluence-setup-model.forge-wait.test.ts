@@ -52,41 +52,49 @@ describe("getConfluenceWizardBodyId Forge / wait coherence", () => {
 })
 
 describe("Confluence card primary action", () => {
-  const configuredStatus: AtlassianConnectorStatus = {
+  const installedStatus: AtlassianConnectorStatus = {
     ...baseStatus,
     isInstalled: true,
     installationStatus: "installed",
-    isGithubLinked: true,
-    selectedSpaceCount: 1,
-    syncTargetConfigured: true,
-    setupPhase: "awaiting_merge",
   }
 
-  it("continues setup while configuration is awaiting merge or syncing", () => {
+  it("goes to the Workspaces step after the install, with no sync repository or scope", () => {
+    expect(
+      getConfluenceWizardBodyId(
+        installedStatus,
+        { waitForInstall: false },
+        undefined,
+      ),
+    ).toBe("workspaces")
+    expect(
+      getConfluenceWizardBodyId(
+        installedStatus,
+        { waitForInstall: false, workspacesDone: true },
+        undefined,
+      ),
+    ).toBe("complete")
+  })
+
+  it("manages the connection once it is installed", () => {
     const currentIndex = getConfluenceCardCurrentIndex(
-      configuredStatus,
+      installedStatus,
       undefined,
     )
-
+    expect(MANAGED_CONFLUENCE_WIZARD_STEPS[currentIndex]?.id).toBe("workspaces")
     expect(
       getConfluenceCardPrimaryCta(
         currentIndex,
+        MANAGED_CONFLUENCE_WIZARD_STEPS,
+      ),
+    ).toEqual({ kind: "open_wizard", label: "Manage" })
+  })
+
+  it("continues setup until the Forge app is installed", () => {
+    expect(
+      getConfluenceCardPrimaryCta(
+        getConfluenceCardCurrentIndex(baseStatus, undefined),
         MANAGED_CONFLUENCE_WIZARD_STEPS,
       ),
     ).toEqual({ kind: "open_wizard", label: "Continue setup" })
-  })
-
-  it("manages scope after the connector is live", () => {
-    const currentIndex = getConfluenceCardCurrentIndex(
-      { ...configuredStatus, setupPhase: "live" },
-      undefined,
-    )
-
-    expect(
-      getConfluenceCardPrimaryCta(
-        currentIndex,
-        MANAGED_CONFLUENCE_WIZARD_STEPS,
-      ),
-    ).toEqual({ kind: "open_scope", label: "Manage scope" })
   })
 })

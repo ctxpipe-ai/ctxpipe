@@ -1,0 +1,282 @@
+import type { Pool, PoolClient } from "pg"
+import { log } from "../observability/logger.js"
+
+export const APP_ROLE_NAME = "ctxpipe_app"
+
+// Hyphens are safe inside a double-quoted identifier; worktree databases are
+// named `ctxpipe_<branch>` and branch names carry them (scripts/worktree-db.sh).
+const SAFE_IDENT = /^[a-z_][a-z0-9_-]*$/
+const APP_SCHEMAS = new Set(["public", "openworkflow"])
+
+function quoteIdent(name: string): string {
+  if (!SAFE_IDENT.test(name)) {
+    throw new Error(`refusing unsafe SQL identifier: ${name}`)
+  }
+  return `"${name}"`
+}
+
+function isAppSchema(nspname: string): boolean {
+  return APP_SCHEMAS.has(nspname)
+}
+
+async function alterRolePassword(
+  client: PoolClient,
+  roleName: string,
+  password: string,
+): Promise<void> {
+  const formatted = await client.query<{ sql: string }>(
+    "SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', $1::text, $2::text) AS sql",
+    [roleName, password],
+  )
+  const sql = formatted.rows[0]?.sql
+  if (!sql) {
+    throw new Error("format() returned empty ALTER ROLE")
+  }
+  await client.query(sql)
+}
+
+async function assertAppRoleSafe(
+  client: PoolClient,
+  roleName: string,
+): Promise<void> {
+  const attrs = await client.query<{
+    rolsuper: boolean
+    rolbypassrls: boolean
+    rolcreatedb: boolean
+    rolcreaterole: boolean
+    rolreplication: boolean
+    rolcanlogin: boolean
+  }>(
+    `SELECT rolsuper, rolbypassrls, rolcreatedb, rolcreaterole, rolreplication, rolcanlogin
+     FROM pg_catalog.pg_roles
+     WHERE rolname = $1`,
+    [roleName],
+  )
+  const role = attrs.rows[0]
+  if (!role) {
+    throw new Error(`app role ${roleName} missing after CREATE ROLE`)
+  }
+  if (
+    role.rolsuper ||
+    role.rolbypassrls ||
+    role.rolcreatedb ||
+    role.rolcreaterole ||
+    role.rolreplication
+  ) {
+    throw new Error(
+      `app role ${roleName} has elevated attributes (bypassrls=${role.rolbypassrls} super=${role.rolsuper}); refusing to continue`,
+    )
+  }
+  if (!role.rolcanlogin) {
+    throw new Error(`app role ${roleName} cannot LOGIN`)
+  }
+
+  const ownedRelation = await client.query<{ n: string }>(
+    `SELECT c.relname AS n
+     FROM pg_catalog.pg_class c
+     JOIN pg_catalog.pg_roles r ON r.oid = c.relowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedRelation.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns relation ${ownedRelation.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedSchema = await client.query<{ n: string }>(
+    `SELECT n.nspname AS n
+     FROM pg_catalog.pg_namespace n
+     JOIN pg_catalog.pg_roles r ON r.oid = n.nspowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedSchema.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns schema ${ownedSchema.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedDatabase = await client.query<{ n: string }>(
+    `SELECT d.datname AS n
+     FROM pg_catalog.pg_database d
+     JOIN pg_catalog.pg_roles r ON r.oid = d.datdba
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedDatabase.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns database ${ownedDatabase.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const ownedFunction = await client.query<{ n: string }>(
+    `SELECT p.proname AS n
+     FROM pg_catalog.pg_proc p
+     JOIN pg_catalog.pg_roles r ON r.oid = p.proowner
+     WHERE r.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (ownedFunction.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} owns function ${ownedFunction.rows[0]?.n}; runtime role must own nothing`,
+    )
+  }
+
+  const membership = await client.query<{ n: string }>(
+    `SELECT r.rolname AS n
+     FROM pg_catalog.pg_auth_members m
+     JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+     JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+     WHERE mbr.rolname = $1
+     LIMIT 1`,
+    [roleName],
+  )
+  if (membership.rows.length > 0) {
+    throw new Error(
+      `app role ${roleName} is a member of ${membership.rows[0]?.n}; runtime role must not SET ROLE. Drop the role, then run migrate again with DATABASE_APP_PASSWORD: migrate creates the role in SQL.`,
+    )
+  }
+}
+
+/**
+ * Take back the rights that a role made outside migrate can hold. The Neon API,
+ * for example, makes each role a member of `neon_superuser`, which has
+ * BYPASSRLS. A step that this role may not do stays as it is, and
+ * `assertAppRoleSafe` then stops migrate with the fix.
+ */
+async function stripAppRoleRights(
+  client: PoolClient,
+  roleName: string,
+): Promise<void> {
+  const groups = await client.query<{ sql: string }>(
+    `SELECT format('REVOKE %I FROM %I', r.rolname, mbr.rolname) AS sql
+     FROM pg_catalog.pg_auth_members m
+     JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+     JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+     WHERE mbr.rolname = $1`,
+    [roleName],
+  )
+  const attributes = await client.query<{ sql: string }>(
+    `SELECT format('ALTER ROLE %I NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', rolname) AS sql
+     FROM pg_catalog.pg_roles
+     WHERE rolname = $1
+       AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)`,
+    [roleName],
+  )
+  for (const { sql } of [...groups.rows, ...attributes.rows]) {
+    try {
+      await client.query(sql)
+    } catch (error) {
+      log.warn({
+        step: "migrate",
+        message: "[migrate] could not take a right back from the app role",
+        role: roleName,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+}
+
+/** Fix text for each deploy path when the app role is missing and has no password. */
+export function appRoleMissingMessage(roleName: string): string {
+  return [
+    `[migrate] The role ${roleName} does not exist and DATABASE_APP_PASSWORD is not set. Migrate stopped before it changed the database.`,
+    "Do one of these steps, then run migrate again:",
+    "- Docker Compose: set POSTGRES_PASSWORD in the root .env file. The migrate service sends it as DATABASE_APP_PASSWORD.",
+    "- AWS CDK: deploy the stack again. The migrate task reads DATABASE_APP_PASSWORD from the app database credentials secret.",
+    "- Hosted (Neon): run `terraform apply -target=module.ctxpipe.random_password.app_database`, then give `terraform output -raw ctxpipe_app_password` as DATABASE_APP_PASSWORD.",
+    `- Other: set DATABASE_APP_PASSWORD to the password for ${roleName}. Migrate creates the role with it.`,
+  ].join("\n")
+}
+
+/**
+ * Make `ctxpipe_app` (LOGIN, no BYPASSRLS) ready and grant DML on the
+ * application schemas. Runs as the table owner before and after drizzle migrate.
+ * - With a password: create the role if it is missing, or take back the
+ *   rights of a role that something else made. Then set the password.
+ * - With no password and an existing role: grants only.
+ * - With no password and no role: throw `appRoleMissingMessage`.
+ * Postgres `format(%L)` quotes the password. JS never interpolates it.
+ */
+export async function provisionAppRole(
+  pool: Pool,
+  password: string | undefined,
+  roleName: string = APP_ROLE_NAME,
+): Promise<void> {
+  const role = quoteIdent(roleName)
+  const client = await pool.connect()
+  try {
+    const existing = await client.query(
+      "SELECT 1 FROM pg_catalog.pg_roles WHERE rolname = $1",
+      [roleName],
+    )
+    if ((existing.rowCount ?? 0) === 0) {
+      if (!password) throw new Error(appRoleMissingMessage(roleName))
+      await client.query(
+        `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
+      )
+    } else if (password) {
+      await stripAppRoleRights(client, roleName)
+    }
+    // Before the password, so that no unsafe role gets a password from migrate.
+    await assertAppRoleSafe(client, roleName)
+    if (password) await alterRolePassword(client, roleName, password)
+
+    const databaseName = (
+      await client.query<{ current_database: string }>(
+        "SELECT current_database()",
+      )
+    ).rows[0]?.current_database
+    if (!databaseName) {
+      throw new Error("current_database() returned empty")
+    }
+    await client.query(
+      `GRANT CONNECT ON DATABASE ${quoteIdent(databaseName)} TO ${role}`,
+    )
+
+    const schemas = (
+      await client.query<{ nspname: string }>(
+        "SELECT nspname FROM pg_catalog.pg_namespace",
+      )
+    ).rows
+      .map((row) => row.nspname)
+      .filter(isAppSchema)
+
+    for (const schemaName of schemas) {
+      const schema = quoteIdent(schemaName)
+      await client.query(`GRANT USAGE ON SCHEMA ${schema} TO ${role}`)
+      await client.query(
+        `GRANT SELECT, INSERT, UPDATE, DELETE ON ALL TABLES IN SCHEMA ${schema} TO ${role}`,
+      )
+      await client.query(
+        `GRANT USAGE, SELECT ON ALL SEQUENCES IN SCHEMA ${schema} TO ${role}`,
+      )
+      await client.query(
+        `GRANT EXECUTE ON ALL FUNCTIONS IN SCHEMA ${schema} TO ${role}`,
+      )
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT SELECT, INSERT, UPDATE, DELETE ON TABLES TO ${role}`,
+      )
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT USAGE, SELECT ON SEQUENCES TO ${role}`,
+      )
+      await client.query(
+        `ALTER DEFAULT PRIVILEGES IN SCHEMA ${schema} GRANT EXECUTE ON FUNCTIONS TO ${role}`,
+      )
+    }
+
+    log.info({
+      step: "migrate",
+      message: "[migrate] provisioned app role",
+      role: roleName,
+      schemaCount: schemas.length,
+    })
+  } finally {
+    client.release()
+  }
+}

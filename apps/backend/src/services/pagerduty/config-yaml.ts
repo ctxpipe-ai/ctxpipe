@@ -97,8 +97,20 @@ export function pagerdutyServicesEqual(
   right: PagerdutyConfigService[],
 ): boolean {
   return (
-    JSON.stringify(sortServices(left).map((service) => [service.id, service.name, service.url ?? ""])) ===
-    JSON.stringify(sortServices(right).map((service) => [service.id, service.name, service.url ?? ""]))
+    JSON.stringify(
+      sortServices(left).map((service) => [
+        service.id,
+        service.name,
+        service.url ?? "",
+      ]),
+    ) ===
+    JSON.stringify(
+      sortServices(right).map((service) => [
+        service.id,
+        service.name,
+        service.url ?? "",
+      ]),
+    )
   )
 }
 

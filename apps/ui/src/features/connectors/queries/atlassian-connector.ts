@@ -1,8 +1,5 @@
 import { client } from "@/lib/api"
-import type {
-  AtlassianConnectorConfig,
-  AtlassianConnectorStatus,
-} from "../types"
+import { readApiJson } from "@/lib/api-result"
 
 export const atlassianConnectorKeys = {
   capabilities: (orgSlug: string, connectionId: string) =>
@@ -18,14 +15,6 @@ export const atlassianConnectorKeys = {
   /** Prefix to invalidate every Forge row’s status for an org (e.g. after account link claim). */
   allStatusForOrg: (orgSlug: string) =>
     ["atlassian-connector-status", orgSlug] as const,
-  config: (orgSlug: string, atlassianConnectionId?: string) =>
-    [
-      "atlassian-connector-config",
-      orgSlug,
-      atlassianConnectionId ?? "default",
-    ] as const,
-  allConfigForOrg: (orgSlug: string) =>
-    ["atlassian-connector-config", orgSlug] as const,
   githubRepos: (orgSlug: string, q: string, githubConnectionId?: string) =>
     [
       "github-repos-search",
@@ -40,102 +29,66 @@ export const atlassianConnectorKeys = {
 function atlassianConnectionQuery(atlassianConnectionId?: string) {
   return atlassianConnectionId
     ? ({ query: { connectionId: atlassianConnectionId } } as const)
-    : ({} as const)
+    : ({ query: {} } as const)
 }
+
+export type OrgAtlassianOauthGet = Awaited<
+  ReturnType<typeof fetchOrgAtlassianOauth>
+>
 
 export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
-
-export type OrgAtlassianOauthGet = {
-  oauthAppSaved: boolean
-  atlassianOAuthClientId: string | null
-  globalAtlassianOAuthConfigured: boolean
-  oauthCallbackUrl: string
-  atlassianCreateUrl: string
-}
 
 export async function fetchOrgCapabilities(
   orgSlug: string,
   connectionId: string,
-): Promise<OrgCapabilities> {
-  const q = new URLSearchParams({ connectionId })
-  const res = await fetch(`/${orgSlug}/api/v1/capabilities?${q.toString()}`, {
-    credentials: "include",
+) {
+  const res = await client[":orgSlug"].api.v1.capabilities.$get({
+    param: { orgSlug },
+    query: { connectionId },
   })
-  if (!res.ok) throw new Error("Failed to load org capabilities")
-  return res.json() as Promise<OrgCapabilities>
+  // TODO: the capabilities route has no response schema, so the body is unknown.
+  return (await readApiJson(res, {
+    message: "Failed to load org capabilities",
+  })) as OrgCapabilities
 }
 
 export async function fetchOrgAtlassianOauth(
   orgSlug: string,
   connectionId: string,
-): Promise<OrgAtlassianOauthGet> {
-  const q = new URLSearchParams({ connectionId })
-  const res = await fetch(
-    `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
-    { credentials: "include" },
-  )
-  if (!res.ok) throw new Error("Failed to load org Atlassian OAuth settings")
-  return res.json() as Promise<OrgAtlassianOauthGet>
+) {
+  const res = await client[":orgSlug"].api.v1.org["atlassian-oauth"].$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  return readApiJson(res, {
+    message: "Failed to load org Atlassian OAuth settings",
+  })
+}
+
+export async function saveOrgAtlassianOauth(
+  orgSlug: string,
+  connectionId: string,
+  body: { clientId: string; clientSecret?: string },
+): Promise<void> {
+  const res = await client[":orgSlug"].api.v1.org["atlassian-oauth"].$put({
+    param: { orgSlug },
+    query: { connectionId },
+    json: body,
+  })
+  await readApiJson(res, { message: "Failed to save the Atlassian OAuth app" })
 }
 
 export async function fetchAtlassianConnectorStatus(
   orgSlug: string,
   atlassianConnectionId?: string,
-): Promise<AtlassianConnectorStatus> {
+) {
   const res = await client[":orgSlug"].api.v1.connectors.atlassian.status.$get({
     param: { orgSlug },
     ...atlassianConnectionQuery(atlassianConnectionId),
   })
-  if (!res.ok) throw new Error("Failed to fetch Atlassian connector status")
-  return res.json() as Promise<AtlassianConnectorStatus>
-}
-
-/** 409 → `null` (Forge not installed yet). */
-export async function fetchAtlassianConnectorConfig(
-  orgSlug: string,
-  atlassianConnectionId?: string,
-): Promise<AtlassianConnectorConfig | null> {
-  const res = await client[":orgSlug"].api.v1.connectors.atlassian.config.$get({
-    param: { orgSlug },
-    ...atlassianConnectionQuery(atlassianConnectionId),
+  return readApiJson(res, {
+    message: "Failed to fetch Atlassian connector status",
   })
-  if (res.status === 409) return null
-  if (!res.ok) throw new Error("Failed to load connector config")
-  return res.json() as Promise<AtlassianConnectorConfig>
-}
-
-export async function patchAtlassianConnectorConfig(
-  orgSlug: string,
-  body: { spaces?: unknown; syncTarget?: unknown },
-  atlassianConnectionId?: string,
-): Promise<{
-  accepted: true
-  savedCount: number
-  configPrEnqueued: boolean
-  workflowName?: string
-}> {
-  const qs = atlassianConnectionId
-    ? `?${new URLSearchParams({ connectionId: atlassianConnectionId }).toString()}`
-    : ""
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/atlassian/config${qs}`,
-    {
-      method: "PATCH",
-      credentials: "include",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify(body),
-    },
-  )
-  if (!res.ok) {
-    const errBody = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(errBody.error ?? "Failed to save connector config")
-  }
-  return res.json() as Promise<{
-    accepted: true
-    savedCount: number
-    configPrEnqueued: boolean
-    workflowName?: string
-  }>
 }
 
 export async function deleteAtlassianConnector(
@@ -146,10 +99,7 @@ export async function deleteAtlassianConnector(
     param: { orgSlug },
     ...atlassianConnectionQuery(atlassianConnectionId),
   })
-  if (!res.ok) {
-    const errBody = (await res.json().catch(() => ({}))) as { error?: string }
-    throw new Error(errBody.error ?? "Failed to remove connector")
-  }
+  await readApiJson(res, { message: "Failed to remove connector" })
 }
 
 export type ForgeProvisionStatusPayload = {
@@ -162,14 +112,17 @@ export type ForgeProvisionStatusPayload = {
 export async function fetchForgeProvisionStatus(
   orgSlug: string,
   connectionId: string,
-): Promise<ForgeProvisionStatusPayload> {
-  const q = new URLSearchParams({ connectionId })
-  const res = await fetch(
-    `/${orgSlug}/api/v1/connectors/atlassian/provision-status?${q.toString()}`,
-    { credentials: "include" },
-  )
-  if (!res.ok) throw new Error("Failed to load Forge provision status")
-  return res.json() as Promise<ForgeProvisionStatusPayload>
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.atlassian[
+    "provision-status"
+  ].$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  // TODO: the provision-status route has no response schema, so the body is unknown.
+  return (await readApiJson(res, {
+    message: "Failed to load Forge provision status",
+  })) as ForgeProvisionStatusPayload
 }
 
 export type ForgeProvisionRequestBody = {
@@ -183,77 +136,67 @@ export type ForgeProvisionRequestBody = {
 export async function postForgeProvision(
   orgSlug: string,
   body: ForgeProvisionRequestBody,
-): Promise<{ accepted: true; workflowName?: string }> {
-  const res = await fetch(`/${orgSlug}/api/v1/connectors/atlassian/provision`, {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+) {
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.connectors.atlassian.provision.$post({
+    param: { orgSlug },
+    json: body,
   })
-  if (!res.ok) {
-    const errBody = (await res.json().catch(() => ({}))) as {
-      error?: string
-      message?: string
-    }
-    throw new Error(
-      errBody.message ?? errBody.error ?? "Failed to start Forge provisioning",
-    )
-  }
-  return res.json() as Promise<{ accepted: true; workflowName?: string }>
+  // TODO: the provision route has no response schema, so the body is unknown.
+  return (await readApiJson(res, {
+    message: "Failed to start Forge provisioning",
+  })) as { accepted: true; workflowName?: string }
 }
 
 export async function registerAtlassianInstallIntent(
   orgSlug: string,
+  options: {
+    /** The user opens the Forge install: a cancel then keeps the draft. */
+    installOpened?: boolean
+  } = {},
 ): Promise<{ id: string }> {
   const res = await client[
     ":orgSlug"
   ].api.v1.connectors.atlassian.installation.$post({
     param: { orgSlug },
+    query: options.installOpened ? { installOpened: "true" } : {},
   })
-  if (!res.ok) {
-    const body = (await res.json().catch(() => ({}))) as {
-      message?: string
-      error?: string
-    }
-    throw new Error(
-      body.message ?? body.error ?? "Failed to register install intent",
-    )
-  }
-  const json = (await res.json()) as { id: string }
+  const json = await readApiJson(res, {
+    message: "Failed to register install intent",
+  })
   if (!json.id) throw new Error("Missing connection id from install response")
   return { id: json.id }
 }
 
-type GitHubRepoItem = {
-  id: number
-  full_name: string
-  html_url: string
-  clone_url: string
-  name: string
-  default_branch: string
+/**
+ * Cancel a setup: the server deletes the pending connection only while it is
+ * empty. A 409 means the setup has progress, so it stays.
+ */
+export async function cancelAtlassianSetup(
+  orgSlug: string,
+  atlassianConnectionId: string,
+): Promise<void> {
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.connectors.atlassian.installation.$delete({
+    param: { orgSlug },
+    query: { connectionId: atlassianConnectionId },
+  })
+  await readApiJson(res, {
+    emptyOn: [409],
+    message: "Failed to cancel the Confluence setup",
+  })
 }
 
 export async function searchGithubInstallationRepos(
   orgSlug: string,
   q: string,
   githubConnectionId?: string,
-): Promise<{
-  repositories: GitHubRepoItem[]
-  repositorySelection: string
-  manageUrl: string | null
-  hasMore: boolean
-  warning?: string
-}> {
-  const res = await (
-    client[":orgSlug"].api.v1.github.installation.repositories.$get as (arg: {
-      param: { orgSlug: string }
-      query: {
-        q: string
-        per_page: string
-        connectionId?: string
-      }
-    }) => Promise<Response>
-  )({
+) {
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.github.installation.repositories.$get({
     param: { orgSlug },
     query: {
       q,
@@ -261,12 +204,62 @@ export async function searchGithubInstallationRepos(
       ...(githubConnectionId ? { connectionId: githubConnectionId } : {}),
     },
   })
-  if (!res.ok) throw new Error("Failed to search repositories")
-  return res.json() as Promise<{
-    repositories: GitHubRepoItem[]
-    repositorySelection: string
-    manageUrl: string | null
-    hasMore: boolean
-    warning?: string
-  }>
+  return readApiJson(res, { message: "Failed to search repositories" })
+}
+
+export async function fetchAtlassianSpaces(
+  orgSlug: string,
+  atlassianConnectionId?: string,
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.atlassian[
+    "available-spaces"
+  ].$get({
+    param: { orgSlug },
+    ...atlassianConnectionQuery(atlassianConnectionId),
+  })
+  const json = await readApiJson(res, { message: "Failed to fetch spaces" })
+  return json.items
+}
+
+/** The top-level pages of a space, or the children of `parentId`. */
+export async function fetchAtlassianSpacePages(
+  orgSlug: string,
+  spaceKey: string,
+  atlassianConnectionId?: string,
+  parentId?: string,
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.atlassian[
+    "available-spaces"
+  ][":spaceKey"].pages.$get({
+    param: { orgSlug, spaceKey },
+    query: {
+      ...(parentId ? { parentId } : {}),
+      ...(atlassianConnectionId ? { connectionId: atlassianConnectionId } : {}),
+    },
+  })
+  const json = await readApiJson(res, {
+    message: "Failed to fetch pages",
+  })
+  return json.items
+}
+
+export async function searchAtlassianSpacePages(
+  orgSlug: string,
+  spaceKey: string,
+  q: string,
+  atlassianConnectionId?: string,
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.atlassian[
+    "available-spaces"
+  ][":spaceKey"].search.$get({
+    param: { orgSlug, spaceKey },
+    query: {
+      q,
+      ...(atlassianConnectionId ? { connectionId: atlassianConnectionId } : {}),
+    },
+  })
+  const json = await readApiJson(res, {
+    message: "Failed to search pages",
+  })
+  return json.items
 }

@@ -4,6 +4,7 @@ import {
   SimpleSpanProcessor,
 } from "@opentelemetry/sdk-trace-base"
 import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
+import { initLogger } from "evlog"
 import { type EvlogVariables, evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
@@ -21,6 +22,14 @@ const provider = new NodeTracerProvider({
 })
 
 beforeAll(() => {
+  // setup-evlog uses enabled:false, which makes evlog/hono skip attaching
+  // c.var.log and skip enrich. These tests need the real request logger.
+  initLogger({
+    enabled: true,
+    pretty: false,
+    env: { service: "ctxpipe-backend-test" },
+    drain: async () => {},
+  })
   provider.register()
 })
 
@@ -29,6 +38,10 @@ beforeEach(() => {
 })
 
 afterAll(async () => {
+  initLogger({
+    enabled: false,
+    env: { service: "ctxpipe-backend-test" },
+  })
   await provider.shutdown()
 })
 
@@ -141,6 +154,40 @@ describe("backendOtelMiddleware", () => {
     expect(serverSpans().map((span) => span.name)).toEqual([
       "GET /future-product-route",
     ])
+  })
+
+  it("traces a page document on the UI catch-all and gives the browser its traceparent", async () => {
+    const app = createApp()
+    const tracer = trace.getTracer("test")
+    app.all("*", () => {
+      // Stands in for the DB query a server render can make on the backend.
+      tracer.startSpan("SELECT sessions").end()
+      // The UI proxy returns its own Response, not one built through `c`.
+      return new Response("page", { headers: { "content-type": "text/html" } })
+    })
+
+    const res = await app.request("http://backend.test/onboarding", {
+      headers: {
+        "x-request-id": "doc_1",
+        "sec-fetch-dest": "document",
+        accept: "text/html,application/xhtml+xml",
+      },
+    })
+
+    expect(res.status).toBe(200)
+    const span = serverSpans()[0]
+    expect(span?.attributes).toMatchObject({
+      "url.path": "/onboarding",
+      "request.id": "doc_1",
+    })
+    const { traceId, spanId } = span?.spanContext() ?? {}
+    const child = exporter
+      .getFinishedSpans()
+      .find((s) => s.name === "SELECT sessions")
+    expect(child?.parentSpanContext?.spanId).toBe(spanId)
+    expect(res.headers.get("server-timing")).toBe(
+      `traceparent;desc="00-${traceId}-${spanId}-01"`,
+    )
   })
 
   it("strips the query string from url attributes", async () => {
@@ -307,5 +354,47 @@ describe("backendOtelMiddleware", () => {
     const res = await app.request("http://backend.test/.status")
     expect(res.status).toBe(200)
     expect(enrichTraceId).toBe(serverSpans()[0]?.spanContext().traceId)
+  })
+
+  it("covers a streamed response with a child span that ends with the stream", async () => {
+    const app = createApp()
+    app.post("/mcp", () => {
+      const encoder = new TextEncoder()
+      const body = new ReadableStream<Uint8Array>({
+        async start(controller) {
+          controller.enqueue(encoder.encode("data: one\n\n"))
+          await new Promise((resolve) => setTimeout(resolve, 60))
+          controller.enqueue(encoder.encode("data: two\n\n"))
+          controller.close()
+        },
+      })
+      return new Response(body, {
+        headers: { "content-type": "text/event-stream" },
+      })
+    })
+
+    const res = await app.request("/mcp", { method: "POST" })
+    expect(await res.text()).toBe("data: one\n\ndata: two\n\n")
+
+    const [server] = serverSpans()
+    const stream = exporter
+      .getFinishedSpans()
+      .find((span) => span.name === "http.response.stream")
+    expect(stream?.parentSpanContext?.spanId).toBe(server?.spanContext().spanId)
+    expect(stream?.status.code).toBe(SpanStatusCode.UNSET)
+    const durationMs = (span: typeof stream) =>
+      (span?.duration[0] ?? 0) * 1000 + (span?.duration[1] ?? 0) / 1e6
+    expect(durationMs(stream)).toBeGreaterThanOrEqual(50)
+  })
+
+  it("adds no stream span to a JSON response", async () => {
+    const app = createApp()
+    app.get("/plain", (c) => c.json({ ok: true }))
+    await (await app.request("/plain")).json()
+    expect(
+      exporter
+        .getFinishedSpans()
+        .some((span) => span.name === "http.response.stream"),
+    ).toBe(false)
   })
 })

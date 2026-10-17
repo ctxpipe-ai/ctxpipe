@@ -1,6 +1,9 @@
 import { realpath } from "node:fs/promises"
 import { isAbsolute, relative, resolve, sep } from "node:path"
-import { hasGitSegment } from "../repositories/paths.js"
+import {
+  hasGitSegment,
+  resolveContainedRealPath,
+} from "../repositories/paths.js"
 
 export type StructuralSearchMatch = Record<string, unknown>
 
@@ -22,18 +25,11 @@ export async function resolveStructuralSearchPaths(
   checkoutPath: string,
   paths: readonly string[],
 ): Promise<{ checkoutPath: string; paths: string[] }> {
-  const resolvedCheckoutPath = await realpath(checkoutPath)
-  const resolvedPaths = await Promise.all(
-    paths.map(async (path) => {
-      const resolvedPath = await realpath(resolve(resolvedCheckoutPath, path))
-      assertWithinCheckout(resolvedCheckoutPath, resolvedPath)
-      if (hasGitSegment(relative(resolvedCheckoutPath, resolvedPath))) {
-        throw new Error("Structural search path is inside .git")
-      }
-      return resolvedPath
-    }),
-  )
-  return { checkoutPath: resolvedCheckoutPath, paths: resolvedPaths }
+  const [resolvedCheckoutPath, ...resolvedPaths] = await Promise.all([
+    realpath(checkoutPath),
+    ...paths.map((path) => resolveContainedRealPath(checkoutPath, path)),
+  ])
+  return { checkoutPath: resolvedCheckoutPath as string, paths: resolvedPaths }
 }
 
 export function buildAstGrepArgv(input: {
@@ -57,8 +53,8 @@ export function buildAstGrepArgv(input: {
   for (const glob of input.globs ?? []) {
     argv.push("--globs", glob)
   }
-  // A user glob makes ast-grep include hidden paths. The last matching glob
-  // wins, so this exclusion must come after every user glob.
+  // A user glob skips the hidden file check. The last matching glob wins, so
+  // this exclusion must come after every user glob.
   argv.push("--globs", "!.git", "--", ...input.paths)
   return argv
 }
@@ -78,7 +74,7 @@ async function parseMatch(
     resolve(checkoutPath, (value as StructuralSearchMatch).file as string),
   )
   assertWithinCheckout(checkoutPath, matchPath)
-  // The glob above is case-sensitive, so also drop a match in `.GIT`.
+  // Drop a .git match, because .git/config can hold a clone token.
   if (hasGitSegment(relative(checkoutPath, matchPath))) return undefined
   return value as StructuralSearchMatch
 }

@@ -4,9 +4,16 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
-import type { UIMessage } from "ai"
+export type ChatMessageRole = "system" | "user" | "assistant"
+
+import { IconExternalLink } from "@tabler/icons-react"
 import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react"
+import type {
+  ComponentProps,
+  HTMLAttributes,
+  ReactElement,
+  ReactNode,
+} from "react"
 import {
   createContext,
   memo,
@@ -16,7 +23,8 @@ import {
   useMemo,
   useState,
 } from "react"
-import { Streamdown } from "streamdown"
+import { Button as AriaButton } from "react-aria-components"
+import { defaultRehypePlugins, Streamdown } from "streamdown"
 import { Button } from "@/components/ui/Button"
 import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
 import {
@@ -25,10 +33,12 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { workspaceFilePath } from "@/lib/workspace-file-path"
 
 export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"]
+  from: ChatMessageRole
 }
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
@@ -51,15 +61,15 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-full min-w-0 max-w-full flex-col gap-2 text-[15px] leading-relaxed",
-      /* User bubble: clip to rounded box. Assistant: no overflow-y clip so Streamdown code
+      "flex w-full min-w-0 max-w-full flex-col gap-2 text-sm leading-relaxed",
+      /* User bubble: clip to rounded-md box. Assistant: no overflow-y clip so Streamdown code
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",
-      "group-[.is-user]:rounded-none group-[.is-user]:border-0 group-[.is-user]:bg-white/[0.05] group-[.is-user]:p-4 group-[.is-user]:text-foreground",
+      "group-[.is-user]:rounded-md group-[.is-user]:bg-zinc-900 group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-foreground",
       /* Assistant: do not set text colour on this wrapper — it flattens Streamdown/Shiki token
          spans that use color: var(--sdm-c, inherit). Body copy colour comes from Streamdown + CSS. */
-      "group-[.is-assistant]:rounded-none group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
+      "group-[.is-assistant]:rounded-md group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
       className,
     )}
     {...props}
@@ -266,8 +276,8 @@ export const MessageBranchPrevious = ({
   return (
     <Button
       aria-label="Previous branch"
-      disabled={totalBranches <= 1}
-      onClick={goToPrevious}
+      isDisabled={totalBranches <= 1}
+      onPress={goToPrevious}
       size="icon-sm"
       type="button"
       variant="ghost"
@@ -289,8 +299,8 @@ export const MessageBranchNext = ({
   return (
     <Button
       aria-label="Next branch"
-      disabled={totalBranches <= 1}
-      onClick={goToNext}
+      isDisabled={totalBranches <= 1}
+      onPress={goToNext}
       size="icon-sm"
       type="button"
       variant="ghost"
@@ -322,36 +332,152 @@ export const MessageBranchPage = ({
   )
 }
 
-export type MessageResponseProps = ComponentProps<typeof Streamdown>
+export type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+  /** Opens a workspace file. When set, file paths in the answer become buttons. */
+  onOpenFile?: (path: string) => void
+}
 
 const streamdownPlugins = { cjk, code, math, mermaid }
 
 /** Light + dark Shiki themes (required pair for codeToTokens); app is `.dark` so dark slot colours apply. */
 const streamdownShikiTheme = ["github-light", "github-dark-dimmed"] as const
 
+type HastNode = {
+  type: string
+  tagName?: string
+  properties?: Record<string, unknown>
+  children?: HastNode[]
+  value?: string
+}
+
+function hastText(node: HastNode): string {
+  if (node.type === "text") return node.value ?? ""
+  return (node.children ?? []).map(hastText).join("")
+}
+
+function fileLinkNode(path: string, children: HastNode[]): HastNode {
+  return {
+    type: "element",
+    tagName: "ctx-file-link",
+    properties: { path },
+    children,
+  }
+}
+
+/**
+ * Rehype plugin. It adds an icon to off-site links. With `files`, it changes
+ * file paths in inline code and relative links into `ctx-file-link` elements.
+ * It runs after sanitize, so model HTML cannot make these elements, and
+ * before harden, which blocks relative links.
+ */
+function markAnswerLinks(options: { files: boolean }) {
+  const visit = (parent: HastNode) => {
+    parent.children = parent.children?.map((node) => {
+      if (node.type !== "element") return node
+      if (node.tagName === "a") {
+        const href = String(node.properties?.href ?? "")
+        if (/^https?:\/\//.test(href)) {
+          node.children = [
+            ...(node.children ?? []),
+            {
+              type: "element",
+              tagName: "ctx-external-link-icon",
+              properties: {},
+              children: [],
+            },
+          ]
+          return node
+        }
+        const path = options.files ? workspaceFilePath(href) : null
+        if (path) return fileLinkNode(path, node.children ?? [])
+      }
+      if (
+        node.tagName === "code" &&
+        parent.tagName !== "pre" &&
+        options.files
+      ) {
+        const path = workspaceFilePath(hastText(node))
+        if (path) return fileLinkNode(path, [node])
+      }
+      visit(node)
+      return node
+    })
+  }
+  return visit
+}
+
+const answerRehypePlugins = (
+  files: boolean,
+): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
+  defaultRehypePlugins.raw,
+  defaultRehypePlugins.sanitize,
+  [markAnswerLinks, { files }],
+  defaultRehypePlugins.harden,
+]
+const chatRehypePlugins = answerRehypePlugins(false)
+const workspaceRehypePlugins = answerRehypePlugins(true)
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      {...props}
-      className={cn(
-        "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
-        "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
-        "*:data-[streamdown='table-wrapper']:bg-transparent",
-        "*:data-[streamdown='table-wrapper']:my-4",
-        "*:data-[streamdown='table-wrapper']:p-0",
-        "*:data-[streamdown='table-wrapper']:border-0",
-        "*:data-[streamdown='table-wrapper']:gap-1",
-        "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:h-3",
-        "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
-        className,
-      )}
-      controls={{ code: true, mermaid: true, table: true }}
-      isAnimating={false}
-      plugins={streamdownPlugins}
-      shikiTheme={streamdownShikiTheme}
-    />
-  ),
+  ({
+    className,
+    isAnimating = false,
+    onOpenFile,
+    ...props
+  }: MessageResponseProps) => {
+    const components = useMemo(
+      () => ({
+        "ctx-external-link-icon": () => (
+          <IconExternalLink
+            aria-hidden
+            className="ml-0.5 inline size-3.5 align-text-bottom"
+          />
+        ),
+        "ctx-file-link": ({
+          path,
+          children,
+        }: {
+          path?: unknown
+          children?: ReactNode
+        }) => (
+          <AriaButton
+            data-ctx-file-link=""
+            onPress={() => onOpenFile?.(String(path))}
+            className={cn(
+              "inline cursor-pointer rounded-md text-left text-teal-400 underline decoration-teal-400/40 underline-offset-2 transition-colors hover:decoration-teal-400",
+              focusVisibleClassName,
+            )}
+          >
+            {children}
+          </AriaButton>
+        ),
+      }),
+      [onOpenFile],
+    )
+    return (
+      <Streamdown
+        {...props}
+        className={cn(
+          "ctx-streamdown size-full text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
+          "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
+          "*:data-[streamdown='table-wrapper']:bg-transparent",
+          "*:data-[streamdown='table-wrapper']:my-4",
+          "*:data-[streamdown='table-wrapper']:p-0",
+          "*:data-[streamdown='table-wrapper']:border-0",
+          "*:data-[streamdown='table-wrapper']:gap-1",
+          "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:h-3",
+          "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
+          className,
+        )}
+        components={components}
+        controls={{ code: true, mermaid: true, table: true }}
+        isAnimating={isAnimating}
+        plugins={streamdownPlugins}
+        rehypePlugins={onOpenFile ? workspaceRehypePlugins : chatRehypePlugins}
+        shikiTheme={streamdownShikiTheme}
+      />
+    )
+  },
   // Re-render on every streaming delta (children string grows); strict equality hid updates.
 )
 

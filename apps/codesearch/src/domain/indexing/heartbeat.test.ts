@@ -47,7 +47,16 @@ describe("SCIP indexer heartbeat", () => {
     vi.stubGlobal("Bun", {
       spawn: vi.fn().mockImplementation((argv: string[]) => {
         writeFileSync(argv.at(-1) as string, "fake-scip-index")
-        return { pid: 1234, exited, stdout: null, stderr: null }
+        return {
+          pid: 1234,
+          exited,
+          stdout: null,
+          stderr: null,
+          resourceUsage: () => ({
+            maxRSS: 0,
+            cpuTime: { user: 0n, system: 0n, total: 0n },
+          }),
+        }
       }),
     })
 
@@ -61,9 +70,7 @@ describe("SCIP indexer heartbeat", () => {
     // Wait until the heartbeat interval has been registered (i.e. Bun.spawn was called
     // and the setInterval call inside runIndexerProcess has been reached).
     await vi.waitFor(() => {
-      expect(
-        capturedIntervals.some((i) => i.ms === 30_000),
-      ).toBe(true)
+      expect(capturedIntervals.some((i) => i.ms === 30_000)).toBe(true)
     })
 
     // Manually fire the heartbeat callback — simulates the child being alive for 30 s.
@@ -108,7 +115,16 @@ describe("SCIP indexer heartbeat", () => {
     vi.stubGlobal("Bun", {
       spawn: vi.fn().mockImplementation((argv: string[]) => {
         writeFileSync(argv.at(-1) as string, "fake-scip-index")
-        return { pid: 5678, exited: Promise.resolve(0), stdout: null, stderr: null }
+        return {
+          pid: 5678,
+          exited: Promise.resolve(0),
+          stdout: null,
+          stderr: null,
+          resourceUsage: () => ({
+            maxRSS: 0,
+            cpuTime: { user: 0n, system: 0n, total: 0n },
+          }),
+        }
       }),
     })
 

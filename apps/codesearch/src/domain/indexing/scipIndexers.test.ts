@@ -25,6 +25,10 @@ function fakeSubprocess(
     exited,
     stdout: stdout === undefined ? null : new Response(stdout).body,
     stderr: null,
+    resourceUsage: () => ({
+      maxRSS: 0,
+      cpuTime: { user: 0n, system: 0n, total: 0n },
+    }),
   } as unknown as ReturnType<typeof Bun.spawn>
 }
 

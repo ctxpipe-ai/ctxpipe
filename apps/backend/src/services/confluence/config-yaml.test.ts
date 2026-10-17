@@ -14,8 +14,8 @@ describe("parseConfluenceConfigYamlContent", () => {
     })
     const parsed = parseConfluenceConfigYamlContent(yaml)
     expect(parsed?.spaces).toEqual([
-      { spaceKey: "ENG", selectedPageIds: ["1", "2"] },
       { spaceKey: "DOC", selectedPageIds: [] },
+      { spaceKey: "ENG", selectedPageIds: ["1", "2"] },
     ])
   })
 

@@ -2,7 +2,6 @@
   "title": "Connections",
   "pages": [
     "index",
-    "context-repository",
     "connected-sources",
     "source-connectors",
     "ingestion",

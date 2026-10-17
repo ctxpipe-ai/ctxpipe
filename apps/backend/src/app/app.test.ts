@@ -52,7 +52,8 @@ vi.mock("../routes/webhooks.js", () => ({
   registerWebhookRoutes: vi.fn(),
 }))
 
-import { createApp } from "./app.js"
+import { createAuthMiddleware } from "evlog/better-auth"
+import { betterAuthIdentifyExclude, createApp } from "./app.js"
 
 const AUTH_SECRET = "abcdefghijklmnopqrstuvwxyz123456"
 
@@ -97,6 +98,46 @@ describe("UI fallback proxy for unmatched backend routes", () => {
     const [target] = fetchSpy.mock.calls[0] as [Request]
     expect(target.url).toBe("http://ui:3002/dashboard?tab=home")
     expect(target.method).toBe("GET")
+  })
+
+  it("refuses a sandbox-forwarded request outside the egress path, also after dot segments", async () => {
+    const fetchSpy = vi.spyOn(globalThis, "fetch")
+    const app = createApp()
+    for (const [path, headers] of [
+      [
+        "/api/v1/sandbox-egress/sealed/%2e%2e/%2e%2e/%2e%2e/acme/api/v1/health",
+        { "vercel-sandbox-oidc-token": "token", "x-api-key": "sandbox-key" },
+      ],
+      [
+        "/api/v1/sandbox-egress/sealed/../../../acme/api/v1/health",
+        { "vercel-sandbox-oidc-token": "token" },
+      ],
+      ["/acme/api/v1/health", { "vercel-forwarded-host": "github.com" }],
+      ["/dashboard", { "vercel-forwarded-path": "/dashboard" }],
+    ] as const) {
+      const res = await app.request(path, { headers })
+      expect(res.status, path).toBe(403)
+    }
+    expect(getSessionMock).not.toHaveBeenCalled()
+    expect(fetchSpy).not.toHaveBeenCalled()
+  })
+
+  it("does not resolve Better Auth sessions for static asset paths", async () => {
+    const getSession = vi.fn().mockResolvedValue(null)
+    const identify = createAuthMiddleware(
+      { api: { getSession } },
+      { exclude: [...betterAuthIdentifyExclude] },
+    )
+    const log = { set: vi.fn() }
+
+    await identify(log as never, new Headers(), "/assets/index-abc.js")
+    await identify(log as never, new Headers(), "/fonts/Inter.woff2")
+    await identify(log as never, new Headers(), "/favicon.ico")
+    await identify(log as never, new Headers(), "/@vite/client")
+    expect(getSession).not.toHaveBeenCalled()
+
+    await identify(log as never, new Headers(), "/acme/api/v1/workspaces")
+    expect(getSession).toHaveBeenCalledTimes(1)
   })
 
   it("forwards method, query, headers, and body for non-GET routes", async () => {

@@ -1,26 +1,22 @@
 import { createServer, type Server } from "node:http"
-import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import { OpenAPIHono } from "@hono/zod-openapi"
+import {
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import type { AppEnv } from "../../app/env.js"
-
-const mockChatInvoke = vi.hoisted(() =>
-  vi.fn(async () => ({ content: "from bedrock" })),
-)
-const mockChatStream = vi.hoisted(() => vi.fn())
-const chatBedrockConverseConstructor = vi.hoisted(() => {
-  class MockChatBedrockConverse {
-    invoke = mockChatInvoke
-    stream = mockChatStream
-    constructor(_fields: unknown) {}
-  }
-  return vi.fn(MockChatBedrockConverse)
-})
+import { parseEnv } from "../../config/env.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 
 const mockBedrockSend = vi.hoisted(() => vi.fn())
-
-vi.mock("@langchain/aws", () => ({
-  ChatBedrockConverse: chatBedrockConverseConstructor,
-}))
 
 vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   class MockInvokeModelCommand {
@@ -31,22 +27,17 @@ vi.mock("@aws-sdk/client-bedrock-runtime", () => {
   }
   class MockBedrockRuntimeClient {
     send = mockBedrockSend
-    constructor(_config: unknown) {}
+    config: unknown
+    constructor(config: unknown) {
+      this.config = config
+    }
+    destroy() {}
   }
   return {
     BedrockRuntimeClient: MockBedrockRuntimeClient,
     InvokeModelCommand: MockInvokeModelCommand,
   }
 })
-
-vi.mock("../../observability/logger.js", () => ({
-  getLogger: () => ({
-    error: vi.fn(),
-    warn: vi.fn(),
-    info: vi.fn(),
-  }),
-  log: { error: vi.fn(), warn: vi.fn(), info: vi.fn() },
-}))
 
 let openaiRoutes: typeof import("./openai.js").openaiRoutes
 
@@ -120,6 +111,10 @@ type AppOpts = {
 function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   const env: Partial<Record<string, string>> = {
     AUTH_BASE_URL: "https://backend.example.com",
+    NODE_ENV: "test",
+    DATABASE_URL: "postgresql://fixture:fixture@localhost:5432/fixture",
+    GRAPH_DB_URI: "redis://localhost:6379",
+    AUTH_SECRET: "fixture-openai-proxy-secret-minimum-32-chars",
   }
   if (opts.upstreamUrl) env.MODEL_PROVIDER_URL = opts.upstreamUrl
   if (opts.apiKey) env.MODEL_PROVIDER_API_KEY = opts.apiKey
@@ -132,9 +127,12 @@ function appWithRoutes(opts: AppOpts): OpenAPIHono<AppEnv> {
   const embeddings = opts.allowedEmbeddingModels ?? ["text-embedding-3-small"]
   if (embeddings[0]) env.MODEL_EMBEDDING_NAME = embeddings[0]
 
+  const parsedEnv = parseEnv(env)
   const app = new OpenAPIHono<AppEnv>().basePath("/:orgSlug/api/v1/openai")
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
   app.use("*", async (c, next) => {
-    c.set("env", env as AppEnv["Variables"]["env"])
+    c.set("env", parsedEnv)
     if (opts.authed) {
       c.set("user", {
         id: "user_test",
@@ -161,8 +159,6 @@ describe("v1/openai proxy", () => {
 
   beforeEach(() => {
     upstream = null
-    chatBedrockConverseConstructor.mockClear()
-    mockChatInvoke.mockClear()
     mockBedrockSend.mockReset()
   })
   afterEach(async () => {
@@ -187,14 +183,17 @@ describe("v1/openai proxy", () => {
 
   it("returns 404 when the org slug isn't bound (withNetworkOrgContext upstream sets orgId=null)", async () => {
     const app = appWithRoutes({ authed: true, orgId: null })
-    const res = await app.request("/missing/api/v1/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-nano",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    })
+    const res = await app.request(
+      "/missing/api/v1/openai/v1/chat/completions",
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          model: "gpt-5.4-nano",
+          messages: [{ role: "user", content: "hi" }],
+        }),
+      },
+    )
     expect(res.status).toBe(404)
   })
 
@@ -209,7 +208,11 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(503)
-    const body = (await res.json()) as { status: string; reason: string; message: string }
+    const body = (await res.json()) as {
+      status: string
+      reason: string
+      message: string
+    }
     expect(body.status).toBe("enhanced-memory-unavailable")
     expect(body.reason).toBe("no-upstream-key")
     expect(body.message).toMatch(/MODEL_PROVIDER_API_KEY/)
@@ -234,7 +237,10 @@ describe("v1/openai proxy", () => {
       }),
     })
     expect(res.status).toBe(400)
-    const body = (await res.json()) as { error: string; allowedModels: string[] }
+    const body = (await res.json()) as {
+      error: string
+      allowedModels: string[]
+    }
     expect(body.error).toMatch(/model not allowed/i)
     expect(body.allowedModels).toContain("gpt-5.4-nano")
   })
@@ -296,36 +302,6 @@ describe("v1/openai proxy", () => {
     expect(res.status).toBe(400)
     const body = (await res.json()) as { allowedModels: string[] }
     expect(body.allowedModels).toEqual(["openai/gpt-5.5"])
-  })
-
-  it("handles Bedrock chat via native ChatBedrockConverse when MODEL_PROVIDER=bedrock", async () => {
-    const app = appWithRoutes({
-      authed: true,
-      orgId: "org_acme",
-      modelProvider: "bedrock",
-      bedrockRegion: "us-east-1",
-    })
-    const res = await app.request("/acme/api/v1/openai/v1/chat/completions", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "gpt-5.4-nano",
-        messages: [{ role: "user", content: "hi" }],
-      }),
-    })
-    expect(res.status).toBe(200)
-    expect(chatBedrockConverseConstructor).toHaveBeenCalled()
-    expect(mockChatInvoke).toHaveBeenCalled()
-    const call = chatBedrockConverseConstructor.mock.calls[0]?.[0] as {
-      model?: string
-      region?: string
-    }
-    expect(call?.model).toBe("gpt-5.4-nano")
-    expect(call?.region).toBe("us-east-1")
-    const body = (await res.json()) as {
-      choices: Array<{ message: { content: string } }>
-    }
-    expect(body.choices[0]?.message.content).toBe("from bedrock")
   })
 
   it("forwards chat completions to upstream with the server-side API key", async () => {

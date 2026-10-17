@@ -1,35 +1,54 @@
-'use client';
-import { IconChevronDown } from '@tabler/icons-react';
-import type { ReactNode } from 'react';
-import { ComboBox as AriaComboBox, ListBox } from 'react-aria-components';
-import type { ComboBoxProps as AriaComboBoxProps, ListBoxItemProps, ValidationResult } from 'react-aria-components';
-import { Description, FieldError, FieldGroup, Input, Label } from '@/components/ui/Field';
-import { DropdownItem, DropdownSection } from '@/components/ui/ListBox';
-import type { DropdownSectionProps } from '@/components/ui/ListBox';
-import { Popover } from '@/components/ui/Popover';
-import { composeTailwindRenderProps } from '@/lib/react-aria-utils';
-import { FieldButton } from '@/components/ui/FieldButton';
+"use client"
+import { IconChevronDown } from "@tabler/icons-react"
+import type { ReactNode } from "react"
+import type {
+  ComboBoxProps as AriaComboBoxProps,
+  ListBoxItemProps,
+  ValidationResult,
+} from "react-aria-components"
+import { ComboBox as AriaComboBox, ListBox } from "react-aria-components"
+import {
+  Description,
+  FieldError,
+  FieldGroup,
+  Input,
+  Label,
+} from "@/components/ui/Field"
+import { FieldButton } from "@/components/ui/FieldButton"
+import type { DropdownSectionProps } from "@/components/ui/ListBox"
+import { DropdownItem, DropdownSection } from "@/components/ui/ListBox"
+import { Popover } from "@/components/ui/Popover"
+import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
-export interface ComboBoxProps<T extends object> extends Omit<AriaComboBoxProps<T>, 'children'> {
-  label?: string;
-  description?: string | null;
-  errorMessage?: string | ((validation: ValidationResult) => string);
-  placeholder?: string;
-  children: ReactNode | ((item: T) => ReactNode);
+export interface ComboBoxProps<T extends object>
+  extends Omit<AriaComboBoxProps<T>, "children"> {
+  label?: string
+  description?: string | null
+  errorMessage?: string | ((validation: ValidationResult) => string)
+  placeholder?: string
+  children: ReactNode | ((item: T) => ReactNode)
 }
 
-export function ComboBox<T extends object>(
-  { label, description, errorMessage, children, items, ...props }: ComboBoxProps<T>
-) {
+export function ComboBox<T extends object>({
+  label,
+  description,
+  errorMessage,
+  children,
+  items,
+  ...props
+}: ComboBoxProps<T>) {
   return (
-    <AriaComboBox 
-      {...props} 
+    <AriaComboBox
+      {...props}
       menuTrigger="focus"
       allowsEmptyCollection
-      className={composeTailwindRenderProps(props.className, 'group flex flex-col gap-1 font-sans')}
+      className={composeTailwindRenderProps(
+        props.className,
+        "group flex flex-col gap-1 font-sans",
+      )}
     >
       <Label>{label}</Label>
-      <FieldGroup className="rounded-none">
+      <FieldGroup className="rounded-md">
         <Input className="ps-3 pe-1" />
         <FieldButton className="w-6 mr-1 outline-offset-0">
           <IconChevronDown aria-hidden className="w-4 h-4" />
@@ -38,18 +57,23 @@ export function ComboBox<T extends object>(
       {description && <Description>{description}</Description>}
       <FieldError>{errorMessage}</FieldError>
       <Popover className="w-(--trigger-width) max-h-80">
-        <ListBox items={items} className="outline-0 p-1 box-border max-h-72 overflow-auto">
+        <ListBox
+          items={items}
+          className="outline-0 p-1 box-border max-h-72 overflow-auto"
+        >
           {children}
         </ListBox>
       </Popover>
     </AriaComboBox>
-  );
+  )
 }
 
 export function ComboBoxItem(props: ListBoxItemProps) {
-  return <DropdownItem {...props} />;
+  return <DropdownItem {...props} />
 }
 
-export function ComboBoxSection<T extends object>(props: DropdownSectionProps<T>) {
-  return <DropdownSection {...props} />;
+export function ComboBoxSection<T extends object>(
+  props: DropdownSectionProps<T>,
+) {
+  return <DropdownSection {...props} />
 }

@@ -121,7 +121,7 @@ export function RegisterNotionOauthStep({
         <div className="flex flex-wrap gap-2">
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={save.isPending}
             isDisabled={
               meta.isPending || !clientId.trim() || !clientSecret.trim()
@@ -140,7 +140,7 @@ export function RegisterNotionOauthStep({
             actions={
               <Button
                 variant="secondary"
-                className="rounded-none"
+                className="rounded-md"
                 isPending={save.isPending}
                 onPress={() => {
                   void save.mutateAsync()

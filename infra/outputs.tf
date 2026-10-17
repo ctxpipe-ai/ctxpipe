@@ -18,3 +18,8 @@ output "neon_default_branch_id" {
   value = module.ctxpipe.neon_default_branch_id
 }
 
+output "ctxpipe_app_password" {
+  value     = module.ctxpipe.ctxpipe_app_password
+  sensitive = true
+}
+

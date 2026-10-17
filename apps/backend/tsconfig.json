@@ -10,14 +10,16 @@
     "noImplicitReturns": true,
     "noUnusedLocals": true,
     "resolveJsonModule": true,
+    "allowJs": true,
     "baseUrl": ".",
     "noEmit": true,
     "noErrorTruncation": true,
     "skipLibCheck": true,
-    "jsx": "react"
+    "jsx": "react-jsx"
   },
   "include": [
     "src/**/*",
+    "evals/mcp/**/*.ts",
     "test/setup.ts",
     "drizzle.config.ts",
     "openworkflow.config.ts"

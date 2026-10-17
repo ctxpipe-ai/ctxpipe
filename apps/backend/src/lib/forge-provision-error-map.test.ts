@@ -20,7 +20,7 @@ describe("mapForgeCliOutputToErrorCode", () => {
     ).toBe("unknown")
   })
 
-  it('maps Forge CLI explicit invalid token message to forge_auth_failed', () => {
+  it("maps Forge CLI explicit invalid token message to forge_auth_failed", () => {
     expect(
       mapForgeCliOutputToErrorCode(
         1,
@@ -40,7 +40,10 @@ describe("mapForgeCliOutputToErrorCode", () => {
 
   it("maps network errors", () => {
     expect(
-      mapForgeCliOutputToErrorCode(1, "getaddrinfo ENOTFOUND auth.atlassian.com"),
+      mapForgeCliOutputToErrorCode(
+        1,
+        "getaddrinfo ENOTFOUND auth.atlassian.com",
+      ),
     ).toBe("network")
   })
 

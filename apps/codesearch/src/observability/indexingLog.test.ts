@@ -19,7 +19,7 @@ describe("tryEmitIndexEvent", () => {
     const warn = vi.spyOn(console, "warn").mockImplementation(() => {})
 
     // Both timers are created before the first flush and fire after it.
-    const after = (ms: number, step: string) =>
+    const emitAfter = (ms: number, step: string) =>
       new Promise<void>((resolve) => {
         setTimeout(() => {
           tryEmitIndexEvent(step)
@@ -27,8 +27,8 @@ describe("tryEmitIndexEvent", () => {
         }, ms)
       })
     await withLogger(createLogger({ repoId: "repo_1" }), async () => {
-      const heartbeat = after(20, "codesearch.index.phase.heartbeat")
-      const end = after(40, "codesearch.index.phase.end")
+      const heartbeat = emitAfter(20, "codesearch.index.phase.heartbeat")
+      const end = emitAfter(40, "codesearch.index.phase.end")
       tryEmitIndexEvent("codesearch.index.phase.start", { phase: "zoekt" })
       await Promise.all([heartbeat, end])
     })

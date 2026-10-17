@@ -1,7 +1,27 @@
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { NotionConnection } from "../../models/notion-connector.js"
 
 const NOTION_API_BASE = "https://api.notion.com/v1"
+
+/** A Notion API response that is not OK. `status` is the HTTP status. */
+export class NotionApiError extends Error {
+  constructor(
+    readonly status: number,
+    message = `Notion API request failed (${status})`,
+  ) {
+    super(message)
+    this.name = "NotionApiError"
+  }
+}
+
+/**
+ * Notion refuses the token, or the refresh of an expired token fails with an
+ * invalid grant: the install is revoked, and only a reconnect helps.
+ */
+export function isNotionAuthFailure(error: unknown): boolean {
+  return error instanceof NotionApiError && error.status === 401
+}
 const NOTION_VERSION = "2026-03-11"
 
 type NotionParent =
@@ -114,7 +134,10 @@ export async function refreshNotionOAuthToken(input: {
     }),
   })
   if (!res.ok) {
-    throw new Error(`Notion OAuth token refresh failed (${res.status})`)
+    throw new NotionApiError(
+      res.status,
+      `Notion OAuth token refresh failed (${res.status})`,
+    )
   }
   return (await res.json()) as Pick<
     NotionTokenResponse,
@@ -131,6 +154,7 @@ async function fetchNotion<T>(
   path: string,
   init?: RequestInit,
 ): Promise<T> {
+  assertNotInOrgDbContext()
   if (!input.connection.accessToken) {
     throw new Error("Notion connection has no access token")
   }
@@ -172,10 +196,10 @@ async function fetchNotion<T>(
   } else if (res.status === 401 && input.connection.refreshToken) {
     const expectedRefreshToken = input.connection.refreshToken
     const expectedAccessToken = input.connection.accessToken
-    const tokens = input.onTokenRefresh
-      ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
+    const tokens = await (input.onTokenRefresh
+      ? input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
       : input.env.NOTION_CLIENT_ID && input.env.NOTION_CLIENT_SECRET
-        ? await refreshNotionOAuthToken({
+        ? refreshNotionOAuthToken({
             clientId: input.env.NOTION_CLIENT_ID,
             clientSecret: input.env.NOTION_CLIENT_SECRET,
             refreshToken: expectedRefreshToken,
@@ -183,15 +207,22 @@ async function fetchNotion<T>(
             accessToken: refreshed.access_token,
             refreshToken: refreshed.refresh_token ?? expectedRefreshToken,
           }))
-        : (() => {
-            throw new Error("Notion OAuth is not configured")
-          })()
+        : Promise.reject(new Error("Notion OAuth is not configured"))
+    ).catch((error: unknown) => {
+      // An invalid grant: the refresh token is revoked too.
+      if (
+        error instanceof NotionApiError &&
+        (error.status === 400 || error.status === 401)
+      )
+        throw new NotionApiError(401, error.message)
+      throw error
+    })
     input.connection.accessToken = tokens.accessToken
     input.connection.refreshToken = tokens.refreshToken
     res = await request(input.connection.accessToken)
   }
   if (!res.ok) {
-    throw new Error(`Notion API request failed (${res.status})`)
+    throw new NotionApiError(res.status)
   }
   return (await res.json()) as T
 }
@@ -319,6 +350,23 @@ export async function retrieveNotionPage(input: {
       onTokenRefresh: input.onTokenRefresh,
     },
     `/pages/${encodeURIComponent(input.pageId)}`,
+  )
+}
+
+/** Read one data source (a database), to check that ctx| can reach it. */
+export async function retrieveNotionDataSource(input: {
+  env: Env
+  connection: NotionConnection
+  dataSourceId: string
+  onTokenRefresh?: NotionTokenRefreshHandler
+}): Promise<{ id: string }> {
+  return fetchNotion<{ id: string }>(
+    {
+      env: input.env,
+      connection: input.connection,
+      onTokenRefresh: input.onTokenRefresh,
+    },
+    `/data_sources/${encodeURIComponent(input.dataSourceId)}`,
   )
 }
 

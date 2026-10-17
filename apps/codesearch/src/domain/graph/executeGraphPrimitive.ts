@@ -3,6 +3,7 @@ import { resolve } from "node:path"
 import { decodeScipField, scipIndexFields } from "./scipProto.js"
 
 export type GraphPrimitiveName =
+  | "find_references"
   | "find_symbol"
   | "get_callers"
   | "get_callees"
@@ -28,6 +29,8 @@ export type ScipGraphResult = {
   results: Record<string, unknown>[]
   note?: string
   error?: string
+  /** Set when the SCIP index is missing or does not load, so a caller does not read "no results" as "no symbol". */
+  index?: "missing" | "unreadable"
 }
 
 type WireSingleLineRange = {
@@ -574,6 +577,7 @@ export async function executeScipGraphQuery(
       ok: false,
       results: [],
       error: `Failed to read SCIP index: ${errorMessage(error)}`,
+      index: "unreadable",
     }
   }
 
@@ -582,11 +586,17 @@ export async function executeScipGraphQuery(
       ok: true,
       results: [],
       note: "SCIP index unavailable for this checkout; use search or find_symbol_references instead.",
+      index: "missing",
     }
   }
   const index = loaded.index
   if (!index) {
-    return { ok: false, results: [], error: "SCIP index could not be loaded" }
+    return {
+      ok: false,
+      results: [],
+      error: "SCIP index could not be loaded",
+      index: "unreadable",
+    }
   }
 
   const limit = Math.max(1, Math.min(payload.limit ?? 50, 200))
@@ -648,6 +658,30 @@ export async function executeScipGraphQuery(
       results: [],
       error: `${payload.primitive} requires symbol`,
     }
+  }
+
+  if (payload.primitive === "find_references") {
+    const anchor = payload.symbol
+    const rows: Record<string, unknown>[] = []
+    for (const occurrence of index.occurrences) {
+      // A reference is each occurrence without the SCIP Definition role.
+      if (
+        (occurrence.symbolRoles & 1) !== 0 ||
+        !fileMatches(
+          payload.repoPath,
+          occurrence.documentPath,
+          payload.filePath,
+        ) ||
+        !matchesSymbol(index, occurrence.symbol, anchor, true)
+      ) {
+        continue
+      }
+      rows.push(
+        symbolResult(index, payload.repoPath, occurrence.symbol, occurrence),
+      )
+      if (rows.length >= limit) break
+    }
+    return { ok: true, results: rows }
   }
 
   if (payload.primitive === "get_callees") {

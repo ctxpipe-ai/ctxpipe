@@ -8,20 +8,18 @@ import {
 import { useQuery } from "@tanstack/react-query"
 import { useCallback, useEffect, useState } from "react"
 import { Checkbox } from "@/components/ui/Checkbox"
+import {
+  Skeleton,
+  SkeletonRow,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
+import {
+  fetchAtlassianSpacePages,
+  fetchAtlassianSpaces,
+  searchAtlassianSpacePages,
+} from "./queries/atlassian-connector"
 import type { ConfluencePage, ConfluenceSpace, SpaceScopeItem } from "./types"
-
-function connectorsAtlassianUrl(
-  orgSlug: string,
-  suffix: string,
-  atlassianConnectionId: string | undefined,
-  params?: Record<string, string>,
-) {
-  const p = new URLSearchParams(params ?? {})
-  if (atlassianConnectionId) p.set("connectionId", atlassianConnectionId)
-  const qs = p.toString()
-  const path = `/${orgSlug}/api/v1/connectors/atlassian${suffix}`
-  return qs ? `${path}?${qs}` : path
-}
 
 /** `undefined` = space not in scope; `null` = all pages in space; array = specific pages */
 type PageScopeSelection = string[] | null | undefined
@@ -62,20 +60,13 @@ function PageNode({
       spaceKey,
       page.id,
     ],
-    queryFn: async () => {
-      const res = await fetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(spaceKey)}/pages`,
-          atlassianConnectionId,
-          { parentId: page.id },
-        ),
-        { credentials: "include" },
-      )
-      if (!res.ok) throw new Error(`HTTP ${res.status}`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
-      return json.items
-    },
+    queryFn: () =>
+      fetchAtlassianSpacePages(
+        orgSlug,
+        spaceKey,
+        atlassianConnectionId,
+        page.id,
+      ),
     enabled: expanded,
     throwOnError: false,
   })
@@ -94,14 +85,14 @@ function PageNode({
   return (
     <div>
       <div
-        className="flex min-w-0 items-center gap-1.5 rounded-none py-1 hover:bg-foreground/[0.04]"
+        className="flex min-w-0 items-center gap-1.5 rounded-md py-1 hover:bg-foreground/[0.04]"
         style={{ paddingLeft: `${8 + depth * 16}px` }}
       >
         <button
           type="button"
           onClick={() => !isLeaf && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground hover:text-foreground",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
             isLeaf ? "pointer-events-none opacity-0" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand"}
@@ -111,7 +102,7 @@ function PageNode({
           ) : (
             <IconChevronRight
               className={[
-                "h-3.5 w-3.5 transition-transform duration-150",
+                "h-3.5 w-3.5 transition-transform",
                 expanded ? "rotate-90" : "",
               ].join(" ")}
             />
@@ -199,19 +190,8 @@ function SpaceNode({
       atlassianConnectionId ?? "default",
       space.key,
     ],
-    queryFn: async () => {
-      const res = await fetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(space.key)}/pages`,
-          atlassianConnectionId,
-        ),
-        { credentials: "include" },
-      )
-      if (!res.ok) throw new Error(`Failed to fetch pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
-      return json.items
-    },
+    queryFn: () =>
+      fetchAtlassianSpacePages(orgSlug, space.key, atlassianConnectionId),
     enabled: expanded && !isSearching,
     throwOnError: false,
   })
@@ -224,20 +204,13 @@ function SpaceNode({
       space.key,
       search,
     ],
-    queryFn: async () => {
-      const res = await fetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          `/available-spaces/${encodeURIComponent(space.key)}/search`,
-          atlassianConnectionId,
-          { q: search },
-        ),
-        { credentials: "include" },
-      )
-      if (!res.ok) throw new Error(`Failed to search pages (${res.status})`)
-      const json = (await res.json()) as { items: ConfluencePage[] }
-      return json.items
-    },
+    queryFn: () =>
+      searchAtlassianSpacePages(
+        orgSlug,
+        space.key,
+        search,
+        atlassianConnectionId,
+      ),
     enabled: isSearching,
     throwOnError: false,
   })
@@ -260,7 +233,7 @@ function SpaceNode({
           type="button"
           onClick={() => !isSearching && setExpanded((value) => !value)}
           className={[
-            "flex h-5 w-5 shrink-0 items-center justify-center rounded-none text-muted-foreground transition-colors hover:text-foreground",
+            "flex h-5 w-5 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:text-foreground",
             isSearching ? "pointer-events-none opacity-30" : "",
           ].join(" ")}
           aria-label={expanded ? "Collapse" : "Expand pages"}
@@ -270,7 +243,7 @@ function SpaceNode({
           ) : (
             <IconChevronRight
               className={[
-                "h-3.5 w-3.5 transition-transform duration-150",
+                "h-3.5 w-3.5 transition-transform",
                 showPanel ? "rotate-90" : "",
               ].join(" ")}
             />
@@ -297,7 +270,7 @@ function SpaceNode({
           <IconLoader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-zinc-500" />
         ) : null}
         {statusLabel && !isFetchingSearch ? (
-          <span className="shrink-0 rounded-none border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
+          <span className="shrink-0 rounded-md border border-border px-1.5 py-0.5 text-xs text-muted-foreground">
             {statusLabel}
           </span>
         ) : null}
@@ -313,7 +286,6 @@ function SpaceNode({
               </span>
             </p>
           ) : null}
-
           {isSpecific && !isSearching ? (
             <p className="px-4 pb-1 pt-2 text-xs text-zinc-600">
               Specific pages selected.{" "}
@@ -326,14 +298,16 @@ function SpaceNode({
               </button>
             </p>
           ) : null}
-
           {isFetching && displayPages.length === 0 ? (
-            <div className="flex items-center gap-2 px-4 py-2 text-xs text-zinc-500">
-              <IconLoader2 className="h-3.5 w-3.5 animate-spin" />
-              {isSearching ? "Searching..." : "Loading pages..."}
+            <div className="space-y-0.5 px-2 py-1" aria-busy>
+              <span className="sr-only">
+                {isSearching ? "Searching pages" : "Loading pages"}
+              </span>
+              <SkeletonRow className="h-7 pl-4" />
+              <SkeletonRow className="h-7 pl-8" />
+              <SkeletonRow className="h-7 pl-8" />
             </div>
           ) : null}
-
           {!isFetching && displayPages.length === 0 ? (
             <p className="px-4 py-2 text-xs text-zinc-600">
               {isSearching
@@ -341,12 +315,11 @@ function SpaceNode({
                 : "No root-level pages found."}
             </p>
           ) : null}
-
           {isSearching
             ? displayPages.map((page) => (
                 <div
                   key={page.id}
-                  className="flex min-w-0 items-center gap-1.5 rounded-none py-1 pl-4 hover:bg-foreground/[0.04]"
+                  className="flex min-w-0 items-center gap-1.5 rounded-md py-1 pl-4 hover:bg-foreground/[0.04]"
                 >
                   <div className="h-5 w-5 shrink-0" />
                   <IconFileText className="h-3.5 w-3.5 shrink-0 text-zinc-500" />
@@ -409,7 +382,7 @@ function PersonalSpacesGroup({
   const selectedCount = spaces.filter((space) => getScope(space.key)).length
 
   return (
-    <div className="overflow-hidden rounded-none border border-border">
+    <div className="overflow-hidden rounded-md border border-border">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
@@ -418,7 +391,7 @@ function PersonalSpacesGroup({
         <span className="flex min-w-0 items-center gap-2">
           <IconChevronRight
             className={[
-              "h-3.5 w-3.5 transition-transform duration-150",
+              "h-3.5 w-3.5 transition-transform",
               open ? "rotate-90" : "",
             ].join(" ")}
           />
@@ -426,7 +399,7 @@ function PersonalSpacesGroup({
           <span className="text-xs text-zinc-600">({spaces.length})</span>
         </span>
         {selectedCount > 0 ? (
-          <span className="rounded-none border border-border px-1.5 py-0.5 text-xs text-foreground">
+          <span className="rounded-md border border-border px-1.5 py-0.5 text-xs text-foreground">
             {selectedCount} selected
           </span>
         ) : null}
@@ -484,21 +457,7 @@ export function SpacePageTree({
       orgSlug,
       atlassianConnectionId ?? "default",
     ],
-    queryFn: async () => {
-      const res = await fetch(
-        connectorsAtlassianUrl(
-          orgSlug,
-          "/available-spaces",
-          atlassianConnectionId,
-        ),
-        {
-          credentials: "include",
-        },
-      )
-      if (!res.ok) throw new Error("Failed to fetch spaces")
-      const json = (await res.json()) as { items: ConfluenceSpace[] }
-      return json.items
-    },
+    queryFn: () => fetchAtlassianSpaces(orgSlug, atlassianConnectionId),
     throwOnError: false,
   })
 
@@ -563,12 +522,26 @@ export function SpacePageTree({
     },
     [value, onChange],
   )
+  const showSkeleton = useSkeletonHold(isLoading)
 
-  if (isLoading) {
+  if (showSkeleton) {
     return (
-      <div className="flex items-center gap-2 py-4 text-sm text-zinc-400">
-        <IconLoader2 className="h-4 w-4 animate-spin" />
-        Loading spaces...
+      // The box of the loaded list: the search field, then rows of space height.
+      <div className="flex h-full min-w-0 flex-col gap-3" aria-busy>
+        <span className="sr-only">Loading spaces</span>
+        <Skeleton className="block h-[34px] w-full shrink-0" />
+        <div className="min-w-0 overflow-hidden rounded-md border border-border">
+          {[0, 1, 2, 3].map((row) => (
+            <div
+              key={row}
+              className="flex items-center gap-2 border-b border-zinc-800 px-3 py-2.5 last:border-b-0"
+            >
+              <Skeleton className="size-5 shrink-0" />
+              <Skeleton className="size-4 shrink-0" />
+              <SkeletonText className="min-w-0 flex-1" boneClassName="w-40" />
+            </div>
+          ))}
+        </div>
       </div>
     )
   }
@@ -597,12 +570,12 @@ export function SpacePageTree({
           placeholder="Search spaces and pages..."
           value={search}
           onChange={(event) => setSearch(event.target.value)}
-          className="w-full rounded-none border border-border bg-transparent py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
+          className="w-full rounded-md border border-border bg-transparent py-1.5 pl-8 pr-3 text-sm text-foreground placeholder:text-muted-foreground focus:border-ring focus:outline-none"
         />
       </div>
 
       <div className="min-h-0 min-w-0 flex-1 space-y-2 overflow-x-hidden overflow-y-auto">
-        <div className="min-w-0 overflow-hidden rounded-none border border-border">
+        <div className="min-w-0 overflow-hidden rounded-md border border-border">
           {globalSpaces.length === 0 ? (
             <p className="px-3 py-2 text-sm text-zinc-500">
               No team spaces found.

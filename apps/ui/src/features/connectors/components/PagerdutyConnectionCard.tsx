@@ -1,36 +1,24 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
-import {
-  getPagerdutyCardCtaLabel,
-  getPagerdutyFailureAction,
-} from "../pagerduty-setup-model"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
+import { resolveConnectorHealth } from "../connectorHealth"
+import { getPagerdutyCardCtaLabel } from "../pagerduty-setup-model"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   deletePagerdutyConnector,
   fetchPagerdutyConnectorStatus,
   pagerdutyConnectorKeys,
 } from "../queries/pagerduty-connector"
-import {
-  ConnectorListItem,
-  ConnectorRemoveMenu,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 import { PagerdutyMark } from "./PagerdutyMark"
 
 type PagerdutyConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (manageScope: boolean) => void
+  onOpenSetup: () => void
 }
 
 export function PagerdutyConnectionCard({
@@ -39,7 +27,6 @@ export function PagerdutyConnectionCard({
   onOpenSetup,
 }: PagerdutyConnectionCardProps) {
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const {
     data: status,
     isPending,
@@ -59,108 +46,72 @@ export function PagerdutyConnectionCard({
           queryKey: pagerdutyConnectorKeys.status(orgSlug, connectionId),
         }),
         queryClient.invalidateQueries({
-          queryKey: pagerdutyConnectorKeys.config(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (error: Error) => toast.error(error.message),
   })
-  const failureAction = status ? getPagerdutyFailureAction(status) : null
-  const live = status?.setupPhase === "live"
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
-    connected: live,
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
+  })
+  const actionLabel = status
+    ? getPagerdutyCardCtaLabel(status, {
+        globalPagerdutyOAuthConfigured: status.globalPagerdutyOAuthConfigured,
+        oauthAppSaved: status.oauthAppSaved,
+      })
+    : null
+
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "pagerduty",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="PagerDuty"
-        icon={<PagerdutyMark className="size-5 text-foreground" />}
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="PagerDuty connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={connectorDash(status?.accountName)}
-        scope={
-          status?.selectedServiceCount != null
-            ? formatSelectedItemCount(status.selectedServiceCount)
-            : live
-              ? "Configured"
-              : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : status
-              ? getPagerdutyCardCtaLabel(status, {
-                  globalPagerdutyOAuthConfigured:
-                    status.globalPagerdutyOAuthConfigured,
-                  oauthAppSaved: status.oauthAppSaved,
-                })
-              : undefined
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : status
-              ? () => onOpenSetup(live)
-              : undefined
-        }
-      >
-        {status?.installationStatus === "revoked" ? (
-          <p className="text-sm text-muted-foreground">
-            PagerDuty authorization is revoked; reconnect the account.
-          </p>
-        ) : null}
-        {failureAction ? (
-          <p className="text-sm text-muted-foreground">
-            {failureAction === "retry_content"
-              ? "Content mirror failed. Open setup to retry."
-              : "Configuration pull request failed. Open setup to retry."}
-          </p>
-        ) : null}
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-        {!failureAction &&
-        status &&
-        status.setupPhase !== "live" &&
-        (status.selectedServiceCount ?? 0) > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Merge the open pull request for{" "}
-            <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-              pagerduty/config.yaml
-            </code>{" "}
-            to enable syncing.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove PagerDuty connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This removes the PagerDuty connection and sync target for this
-          organisation. Existing mirrored files in GitHub are left in place.
-        </AlertDialog>
-      </Modal>
-    </>
+    <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="pagerduty"
+        />
+      }
+      sync={sync}
+      name="PagerDuty"
+      icon={<PagerdutyMark className="size-5 text-foreground" />}
+      health={health}
+      remove={{
+        description:
+          "This removes the PagerDuty connection for this organization. The Workspace sources that use it stop syncing. Existing mirrored files in GitHub stay in place.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(status?.accountName)}
+      actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
+      onAction={
+        isError
+          ? () => void refetch()
+          : actionLabel
+            ? () => onOpenSetup()
+            : undefined
+      }
+    >
+      {status?.installationStatus === "revoked" ? (
+        <p className="text-sm text-muted-foreground">
+          PagerDuty authorization is revoked. Reconnect the account.
+        </p>
+      ) : null}
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

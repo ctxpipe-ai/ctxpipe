@@ -33,6 +33,7 @@ reason to expose other services.
 | `codesearch` | Private |
 | `postgres` | Private |
 | `falkordb` or graph database | Private |
+| `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
 Telemetry export is outbound only. There is no collector to expose. Set
 `OTEL_EXPORTER_OTLP_*` to your own endpoint when you want traces, logs, or
@@ -134,6 +135,9 @@ Before inviting users:
 - A user can create or select an organization.
 - A repository can be added and reaches indexed state.
 - Chat or MCP can answer a question grounded in the repository.
+- A Workspace chat answers in a sandbox, and `SANDBOX_PROVIDER` is not
+  `unsandboxed`. See [Operations](/docs/self-hosting/operations) for the
+  sandbox checks.
 - Backend, worker, and codesearch logs are collected.
 - Postgres and graph database backups are configured.
 - Upgrade and rollback steps are written down for the current deployment shape.

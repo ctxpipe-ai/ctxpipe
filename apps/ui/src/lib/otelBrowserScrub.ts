@@ -88,18 +88,33 @@ export function restrictBrowserResourceAttributes(
   }
 }
 
-/** Parse OTLP/JSON and scrub every string. Throws SyntaxError on malformed JSON. */
+/**
+ * Parse OTLP/JSON and scrub every string. Throws SyntaxError on malformed JSON.
+ *
+ * The HyperDX console capture has no level option. It names each span
+ * `console.<method>`, and a logged object can overwrite its `level`
+ * attribute, so the filter reads the name. `console.warn` stays;
+ * `console.error` comes from the error instrumentation, not this capture.
+ */
 export function scrubOtlpJsonText(text: string): unknown {
+  const verboseConsoleSpans = new Set([
+    "console.log",
+    "console.info",
+    "console.debug",
+  ])
   const emptyIdentityKeys = new Set([
-    "userId",
-    "teamId",
-    "teamName",
     "enduser.id",
     "ctxpipe.org.id",
     "ctxpipe.org.slug",
   ])
   return JSON.parse(text, (key, value: unknown) => {
     if (typeof value === "string") return scrubTelemetryString(value)
+    if (key === "spans" && Array.isArray(value)) {
+      return value.filter(
+        (span) =>
+          !verboseConsoleSpans.has((span as JsonRecord | null)?.name as string),
+      )
+    }
     if (key !== "attributes" || !Array.isArray(value)) return value
     return value.filter((attribute) => {
       if (!attribute || typeof attribute !== "object") return true

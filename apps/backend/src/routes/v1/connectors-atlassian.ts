@@ -6,13 +6,13 @@ import {
   userMessageForProvisionError,
 } from "../../lib/forge-provision-error-map.js"
 import {
+  cancelForgeSetupDraft,
   deleteForgeConnectionById,
   deleteForgeInstallationByOrgId,
   type ForgeInstallation,
   getAtlassianUserAccessToken,
   getPendingForgeInstallationForUserInOtherOrg,
   listConfluenceSpacesByConnectionId,
-  patchAtlassianConnectorConfig,
   patchForgeConnectionTypedConfig,
   resolveForgeInstallationForOrg,
   upsertPendingForgeInstallation,
@@ -20,19 +20,11 @@ import {
 import {
   getConfluenceSyncTargetWithRepoByConnectionId,
   getConfluenceSyncTargetWithRepoByOrgId,
-  markAwaitingConfigMergeSetup,
-  markConfluenceSyncTargetInitialSync,
-  updateConfluenceSyncTargetPrState,
 } from "../../models/confluence-sync-target.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { confluenceSyncConfig } from "../../openworkflow/workflows/confluence-sync-config.js"
-import { confluenceSyncContent } from "../../openworkflow/workflows/confluence-sync-content.js"
 import { forgeProvision } from "../../openworkflow/workflows/forge-provision.js"
-import { loadConfluenceScopeFromRepo } from "../../services/confluence/config-from-repo.js"
-import { confluenceSpacesEqual } from "../../services/confluence/config-yaml.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -94,6 +86,12 @@ const AtlassianInstallationSchema = z
 const registerAtlassianInstallationRoute = createRoute({
   method: "post",
   path: "/installation",
+  request: {
+    query: z.object({
+      /** "true" when the user opens the Forge install from the setup. */
+      installOpened: z.enum(["true"]).optional(),
+    }),
+  },
   responses: {
     200: {
       content: {
@@ -112,6 +110,29 @@ const registerAtlassianInstallationRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
         "User already has a pending Confluence/Forge install intent in another organization",
+    },
+  },
+})
+
+const cancelAtlassianInstallationRoute = createRoute({
+  method: "delete",
+  path: "/installation",
+  request: {
+    query: z.object({ connectionId: z.string().min(1) }),
+  },
+  responses: {
+    204: {
+      description:
+        "The setup is canceled: the empty pending connection is deleted, or it was already gone",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "The connection has setup progress or is installed, so it stays listed",
     },
   },
 })
@@ -142,41 +163,6 @@ const getStatusRoute = createRoute({
   },
 })
 
-const ScopedSpaceSchema = z.object({
-  spaceKey: z.string(),
-  spaceName: z.string().optional(),
-  selectedPageIds: z.array(z.string()).nullable().optional(),
-})
-
-const SaveSyncTargetSchema = z
-  .object({
-    repositoryId: z.string().min(1).optional(),
-    /** `owner/name` when the repo is not yet linked to the org (created automatically). */
-    repositoryName: z.string().min(1).optional(),
-    gitUrl: z.string().url().optional(),
-    branch: z.string().min(1),
-    enabled: z.boolean(),
-  })
-  .refine(
-    (v) =>
-      Boolean(v.repositoryId) ||
-      (Boolean(v.repositoryName) && Boolean(v.gitUrl)),
-    {
-      message: "Provide repositoryId or both repositoryName and gitUrl",
-    },
-  )
-
-const AtlassianPatchConfigRequestSchema = z
-  .object({
-    spaces: z.array(ScopedSpaceSchema).optional(),
-    syncTarget: SaveSyncTargetSchema.optional(),
-  })
-  .refine(
-    (body) => body.spaces !== undefined || body.syncTarget !== undefined,
-    { message: "Provide at least one of spaces or syncTarget" },
-  )
-  .openapi("AtlassianPatchConfigRequest")
-
 const ConfluenceSpaceInfoSchema = z
   .object({
     id: z.string(),
@@ -194,44 +180,6 @@ const ConfluencePageSummarySchema = z
     parentId: z.string().optional(),
   })
   .openapi("AtlassianConfluencePageSummary")
-
-const ConfluenceScopeRowSchema = z
-  .object({
-    id: z.string(),
-    connectionId: z.string(),
-    spaceKey: z.string(),
-    spaceName: z.string().nullable(),
-    selectedPageIds: z.array(z.string()).nullable(),
-    lastSyncedPageId: z.string().nullable(),
-    lastSyncedAt: z.string().nullable(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .openapi("AtlassianConfluenceScopeRow")
-
-const ConfluenceSyncTargetSchema = z
-  .object({
-    id: z.string(),
-    orgId: z.string(),
-    connectionId: z.string(),
-    repositoryId: z.string(),
-    repositoryName: z.string(),
-    branch: z.string(),
-    enabled: z.boolean(),
-    setupPhase: z.string(),
-    pendingConfigPullUrl: z.string().nullable(),
-    pendingConfigPrCreating: z.boolean(),
-    createdAt: z.string().datetime(),
-    updatedAt: z.string().datetime(),
-  })
-  .openapi("ConfluenceSyncTarget")
-
-const AtlassianConnectorConfigSchema = z
-  .object({
-    spaces: z.array(ConfluenceScopeRowSchema),
-    syncTarget: ConfluenceSyncTargetSchema.nullable(),
-  })
-  .openapi("AtlassianConnectorConfig")
 
 const listAvailableSpacesRoute = createRoute({
   method: "get",
@@ -319,36 +267,6 @@ const searchSpacePagesRoute = createRoute({
   },
 })
 
-const getConfigRoute = createRoute({
-  method: "get",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: AtlassianConnectorConfigSchema,
-        },
-      },
-      description: "Current Atlassian connector config",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forge installation/token not ready",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown `connectionId` for this org",
-    },
-  },
-})
-
 const deleteAtlassianConnectorRoute = createRoute({
   method: "delete",
   path: "/",
@@ -363,53 +281,6 @@ const deleteAtlassianConnectorRoute = createRoute({
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown `connectionId` for this org",
-    },
-  },
-})
-
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: AtlassianPatchConfigRequestSchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
-        },
-      },
-      description:
-        "Config patched; opens or updates a PR for `confluence/config.yaml` when `spaces` or `syncTarget` is present (content sync runs after merge via GitHub push)",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or empty patch body",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Forge installation/token not ready",
     },
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -633,6 +504,9 @@ async function searchPages(input: {
   }))
 }
 
+const PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE =
+  "You have a pending Confluence setup in another organization. Finish or remove it on the Connectors page of that organization, then try again."
+
 export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
   .openapi(registerAtlassianInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -651,8 +525,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     if (pendingInOtherOrg) {
       return c.json(
         {
-          error:
-            "A pending Atlassian installation already exists for this user in another organization",
+          error: PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE,
           code: "atlassian_pending_installation_exists",
         },
         409,
@@ -664,14 +537,14 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       row = await upsertPendingForgeInstallation({
         orgId,
         installedByUserId: user.id,
+        installOpened: c.req.valid("query").installOpened === "true",
       })
     } catch (error) {
       const dbError = error as { code?: string } | undefined
       if (dbError?.code === "23505") {
         return c.json(
           {
-            error:
-              "A pending Atlassian installation already exists for this user in another organization",
+            error: PENDING_INSTALLATION_IN_OTHER_ORG_MESSAGE,
             code: "atlassian_pending_installation_exists",
           },
           409,
@@ -692,6 +565,23 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       },
       200,
     )
+  })
+  .openapi(cancelAtlassianInstallationRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = c.req.valid("query")
+    if (!(await cancelForgeSetupDraft(orgId, connectionId)))
+      return c.json(
+        {
+          error:
+            "This Confluence setup has progress. Finish it, or remove it on the Connectors page.",
+        },
+        409,
+      )
+    return c.body(null, 204)
   })
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -877,210 +767,6 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
     })
     return c.json({ items }, 200)
   })
-  .openapi(getConfigRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const connectionId = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    }).connectionId
-    const installation = await resolveForgeInstallationForOrg(
-      orgId,
-      connectionId ?? null,
-    )
-    if (connectionId && !installation) {
-      return c.json({ error: "Unknown Confluence connection" }, 404)
-    }
-    if (
-      !installation ||
-      installation.status !== "installed" ||
-      !installation.cloudId
-    ) {
-      return c.json({ error: "Forge app is not installed" }, 409)
-    }
-    const [rows, syncTarget] = await Promise.all([
-      listConfluenceSpacesByConnectionId(installation.id),
-      getConfluenceSyncTargetWithRepoByConnectionId(orgId, installation.id),
-    ])
-    return c.json(
-      {
-        spaces: rows.map((row) => ({
-          id: row.id,
-          connectionId: row.connectionId,
-          spaceKey: row.spaceKey,
-          spaceName: row.spaceName ?? null,
-          selectedPageIds: (row.selectedPageIds as string[] | null) ?? null,
-          lastSyncedPageId: row.lastSyncedPageId ?? null,
-          lastSyncedAt: row.lastSyncedAt
-            ? row.lastSyncedAt.toISOString()
-            : null,
-          createdAt: row.createdAt.toISOString(),
-          updatedAt: row.updatedAt.toISOString(),
-        })),
-        syncTarget: syncTarget
-          ? {
-              id: syncTarget.id,
-              orgId: syncTarget.orgId,
-              connectionId: syncTarget.connectionId,
-              repositoryId: syncTarget.repositoryId,
-              repositoryName: syncTarget.repositoryName,
-              branch: syncTarget.branch,
-              enabled: syncTarget.enabled,
-              setupPhase: syncTarget.setupPhase,
-              pendingConfigPullUrl: syncTarget.pendingConfigPullUrl ?? null,
-              pendingConfigPrCreating: syncTarget.pendingConfigPrCreating,
-              createdAt: syncTarget.createdAt.toISOString(),
-              updatedAt: syncTarget.updatedAt.toISOString(),
-            }
-          : null,
-      },
-      200,
-    )
-  })
-  .openapi(patchConfigRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const connectionId = ConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    }).connectionId
-    const installation = await resolveForgeInstallationForOrg(
-      orgId,
-      connectionId ?? null,
-    )
-    if (connectionId && !installation) {
-      return c.json({ error: "Unknown Confluence connection" }, 404)
-    }
-    if (
-      !installation ||
-      installation.status !== "installed" ||
-      !installation.cloudId
-    ) {
-      return c.json({ error: "Forge app is not installed" }, 409)
-    }
-    const body = AtlassianPatchConfigRequestSchema.parse(await c.req.json())
-    const { spaces: spacesPatch, syncTarget } = body
-
-    const saved = await patchAtlassianConnectorConfig({
-      orgId,
-      connectionId: installation.id,
-      ...(spacesPatch !== undefined
-        ? {
-            spaces: spacesPatch.map((space) => ({
-              spaceKey: space.spaceKey,
-              spaceName: space.spaceName,
-              selectedPageIds: space.selectedPageIds ?? null,
-            })),
-          }
-        : {}),
-      ...(syncTarget !== undefined ? { syncTarget } : {}),
-    })
-
-    if (saved.repositoryIngestion) {
-      void enqueueRepositoryIngestionWorkflow(
-        {
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-        },
-        { error: (err) => getLogger().error(err) },
-      )
-    }
-
-    const target = await getConfluenceSyncTargetWithRepoByConnectionId(
-      orgId,
-      installation.id,
-    )
-    const gitScope =
-      target?.githubConnectionId != null
-        ? await loadConfluenceScopeFromRepo({
-            orgId,
-            env: c.var.env,
-            repositoryName: target.repositoryName,
-            githubConnectionId: target.githubConnectionId,
-            branch: target.branch,
-          })
-        : undefined
-    const requestedSpaces = (
-      spacesPatch ??
-      saved.spaces.map((space) => ({
-        spaceKey: space.spaceKey,
-        selectedPageIds: space.selectedPageIds,
-      }))
-    ).map((space) => ({
-      spaceKey: space.spaceKey,
-      selectedPageIds: space.selectedPageIds ?? null,
-    }))
-    const spacesMatch = Boolean(
-      gitScope && confluenceSpacesEqual(requestedSpaces, gitScope.spaces),
-    )
-    const shouldStartInitialSync =
-      spacesMatch && target?.enabled === true && target.setupPhase === "draft"
-    const shouldOpenConfigPr =
-      !spacesMatch &&
-      (spacesPatch !== undefined ||
-        (syncTarget !== undefined && saved.spaces.length > 0))
-    if (shouldStartInitialSync) {
-      await markConfluenceSyncTargetInitialSync({
-        connectionId: installation.id,
-      })
-      const orgSlug = c.get("orgSlug") ?? c.req.param("orgSlug")
-      if (!orgSlug) return c.json({ error: "Unauthorized" }, 401)
-      try {
-        await runWorkflowWithWorkerWake(confluenceSyncContent.spec, {
-          orgId,
-          orgSlug,
-          connectionId: installation.id,
-        })
-      } catch (error) {
-        await updateConfluenceSyncTargetPrState({
-          connectionId: installation.id,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "draft",
-        })
-        getLogger().error(
-          error instanceof Error ? error : new Error(String(error)),
-          {
-            step: "confluence.initial_sync.enqueue",
-            connectionId: installation.id,
-          },
-        )
-        return c.json(
-          { error: "Failed to enqueue Confluence initial sync" },
-          503,
-        )
-      }
-    }
-    if (shouldOpenConfigPr) {
-      await markAwaitingConfigMergeSetup({ connectionId: installation.id })
-      void runWorkflowWithWorkerWake(confluenceSyncConfig.spec, {
-        orgId,
-        orgSlug: c.get("orgSlug") ?? c.req.param("orgSlug"),
-        connectionId: installation.id,
-      }).catch((err: unknown) => {
-        getLogger().error(err instanceof Error ? err : new Error(String(err)), {
-          step: "confluenceSyncConfig.enqueue",
-          connectionId: installation.id,
-        })
-      })
-    }
-
-    return c.json(
-      {
-        accepted: true as const,
-        savedCount: saved.spaces.length,
-        configPrEnqueued: shouldOpenConfigPr,
-        ...(shouldOpenConfigPr
-          ? { workflowName: confluenceSyncConfig.spec.name }
-          : {}),
-      },
-      200,
-    )
-  })
   .openapi(postForgeProvisionRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -1108,7 +794,7 @@ export const atlassianConnectorRoutes = new OpenAPIHono<AppEnv>()
       provisionStderr: null,
     })
     const orgSlug = c.req.param("orgSlug")
-    getLogger().info({
+    getLogger().info("Forge provision workflow queued", {
       step: "connectors.atlassian.provision-enqueued",
       message:
         "Forge provision workflow queued (worker runs register → deploy → install)",

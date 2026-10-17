@@ -1,6 +1,6 @@
 # ADR-034: PagerDuty connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-09-14 | **Tags:** connectors, pagerduty, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-09-14, updated 2026-10-12 | **Tags:** connectors, pagerduty, oauth, webhooks, git, multi-tenant
 
 ## Context
 
@@ -13,13 +13,15 @@ PagerDuty v3 webhooks are incident events. The failure description (`body.detail
 1. Store each authorised PagerDuty account as a `connections` row with `type = pagerduty`. Encrypt OAuth tokens and the per-subscription webhook signing secret on `connections.config`.
 2. Store sync binding (repository id, branch, enabled, setup phase, pending config PR metadata) on the same jsonb. No `pagerduty_*` tables.
 3. Use `pagerduty/config.yaml` as the only scope store (selected service ids). Draft = yaml on the config PR branch; live = yaml on the target branch after merge.
-4. Git content is incident Markdown only: `pagerduty/incidents/<number>--<id>.md`. Each in-scope create/update refetches the incident, its alerts, and its notes, and folds alerts into that file. No service/policy/team/user/alert trees.
+4. Git content is incident Markdown only. A Workspace source ([ADR-050](ADR-050-workspace-sources-config-file.md)) writes `pagerduty/services/<serviceId>/incidents/<number>--<id>.md`. The legacy per-connection mirror wrote `pagerduty/incidents/<number>--<id>.md`. The migration `--apply` commit moves each of those files (and its asset folder) to `pagerduty/services/<service_id>/incidents/` by blob sha, with the `service_id` from its front matter, so git keeps the history and no copy stays. A file without a readable `service_id` stays where it is. The move happens only when the Workspace repository is the old sync repository. Each in-scope create/update refetches the incident, its alerts, and its notes, and folds alerts into that file. No service/policy/team/user/alert trees.
 5. After a successful write, call `runConnectorRepositoryIngestionWorkflow` (including Git no-op / tip-aware replay) so Zoekt and graph extraction see the file.
 6. One deployment Event URL: `POST /api/v1/webhook/pagerduty`. Verify `X-PagerDuty-Signature` on the raw body, route by `X-PagerDuty-Subscription`. Skip unless setup is live and the incident’s service is in live yaml. Failed enqueue returns 5xx.
 7. OAuth is Scoped OAuth with PKCE. Hosted deployments may supply a shared app via `PAGERDUTY_CLIENT_ID` / `PAGERDUTY_CLIENT_SECRET` (optional `PAGERDUTY_REDIRECT_URI`). Self-host can finish setup in the UI by saving `oauthClientId` and encrypted `oauthClientSecretEnc` on the PagerDuty `connections` row; credential resolution is row first, then env. The PKCE verifier is never stored in signed OAuth `state`. The webhook signing secret is provider-issued per subscription and is not env.
 8. Full reconcile is capped in code (90-day lookback, 500 incidents per service). Triggering alert is written in full; at most four further alert summaries.
 
 ## Rationale
+
+- The incident path has the service id since 2026-10-12. The Workspace sources sync (ADR-050) gives each source its files by path prefix. With one flat `pagerduty/incidents/` folder, every PagerDuty source owns the same prefix. Then a Workspace gets the incidents of services out of its scope, one missing service cannot fail only its source, and a smaller scope cannot delete only the files of the removed service. A folder for each service fixes all three. The content stays incidents only.
 
 - An incident is the ticket; the alert payload is how ctx| learns what fired and what was affected.
 - Thin `connections` + git scope matches ADR-018 / the source-connectors skill without Confluence leftover tables.

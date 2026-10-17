@@ -6,7 +6,7 @@ import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow
 
 type GitHubPrerequisiteStepProps = {
   orgSlug: string
-  sourceName: "Confluence" | "Linear" | "Notion" | "Slack"
+  sourceName: "Confluence" | "Linear" | "Notion" | "Slack" | "PagerDuty"
   onConnected?: () => void | Promise<void>
 }
 
@@ -31,14 +31,14 @@ export function GitHubPrerequisiteStep({
             Connect GitHub
           </h3>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            {sourceName} content is written into a GitHub context repository, so
-            a GitHub connection is required before you can continue.
+            {sourceName} content is written into a Workspace on GitHub, so a
+            GitHub connection is required before you can continue.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={isPending || isSyncing}
             onPress={() => start("connect")}
           >
@@ -49,8 +49,14 @@ export function GitHubPrerequisiteStep({
             className="text-sm text-muted-foreground underline decoration-border underline-offset-4 transition-colors hover:text-foreground"
             onClick={() => {
               void navigate({
-                to: "/$orgSlug/repositories",
+                to: "/$orgSlug/connectors",
                 params: { orgSlug },
+                search: {
+                  error: undefined,
+                  error_description: undefined,
+                  pendingAccountClaim: undefined,
+                  notionConnectionId: undefined,
+                },
               })
             }}
           >

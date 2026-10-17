@@ -3,6 +3,7 @@
 import HyperDX from "@hyperdx/browser"
 import {
   keepPreviousData,
+  useMutation,
   useQuery,
   useQueryClient,
 } from "@tanstack/react-query"
@@ -10,28 +11,29 @@ import { useEffect, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Modal } from "@/components/ui/Modal"
 import { Spinner } from "@/components/ui/spinner"
+import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspacesStep"
+import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
+import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
+import { pollWhileOk } from "@/lib/api-result"
 import {
   getConfluenceCardCurrentIndex,
   getConfluenceCardStepDefs,
   getConfluenceWizardBodyId,
   getConfluenceWizardBodyIdForStepIndex,
 } from "../../confluence-setup-model"
-import { EditScopeModal } from "../../EditScopeModal"
 import {
   atlassianConnectorKeys,
+  cancelAtlassianSetup,
   fetchAtlassianConnectorStatus,
   fetchOrgAtlassianOauth,
 } from "../../queries/atlassian-connector"
+import { orgConnectionsKeys } from "../../queries/org-connections"
 import type { AtlassianConnectorStatus } from "../../types"
 import { ConfluenceMark } from "../ConfluenceMark"
 import { ConnectorSetupStepper } from "../ConnectorSetupStepper"
 import { InstallForgeStep } from "./steps/InstallForgeStep"
 import { LinkAtlassianStep } from "./steps/LinkAtlassianStep"
-import { LinkGitHubStep } from "./steps/LinkGitHubStep"
-import { MergeConfigStep } from "./steps/MergeConfigStep"
 import { RegisterAtlassianOauthStep } from "./steps/RegisterAtlassianOauthStep"
-import { SelectSyncTargetStep } from "./steps/SelectSyncTargetStep"
-import { SetupCompleteStep } from "./steps/SetupCompleteStep"
 import { WaitForInstallStep } from "./steps/WaitForInstallStep"
 
 type ConfluenceSetupWizardProps = {
@@ -55,6 +57,9 @@ export function ConfluenceSetupWizard({
   initialWaitForInstall = false,
 }: ConfluenceSetupWizardProps) {
   const [waitForInstall, setWaitForInstall] = useState(initialWaitForInstall)
+  // A save always opens pull requests: the wizard then shows the merge step.
+  const [pullRequests, setPullRequests] = useState<OpenedPullRequest[]>([])
+  const workspacesDone = pullRequests.length > 0
   const [manualStepIndex, setManualStepIndex] = useState<number | null>(null)
   const prevServerStepIndexRef = useRef<number | null>(null)
   const queryClient = useQueryClient()
@@ -93,15 +98,11 @@ export function ConfluenceSetupWizard({
     refetchOnWindowFocus: "always",
     refetchIntervalInBackground: true,
     refetchInterval: (query) => {
+      if (query.state.status === "error") return false
       const data = query.state.data as AtlassianConnectorStatus | undefined
       if (!isOpen) return false
-      if (waitForInstall && data && !data.isInstalled) return 3000
-      if (
-        data?.setupPhase === "awaiting_merge" ||
-        data?.setupPhase === "initial_sync" ||
-        data?.pendingConfigPrCreating
-      ) {
-        return 2000
+      if (waitForInstall && data && !data.isInstalled) {
+        return pollWhileOk(3000)(query)
       }
       return false
     },
@@ -173,22 +174,38 @@ export function ConfluenceSetupWizard({
             status,
             {
               waitForInstall: waitForInstallMode,
+              workspacesDone,
             },
             oauthForModel,
           )
       : ("link" as const)
 
+  // Closing the setup asks the server to delete an empty draft, so a
+  // canceled "Add Confluence" leaves no connector entry. The server keeps a
+  // draft with progress, also one whose Forge install the user opened: the
+  // Marketplace can still bind that install to it.
+  const cancelSetup = useMutation({
+    mutationFn: (connectionId: string) =>
+      cancelAtlassianSetup(orgSlug, connectionId),
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: orgConnectionsKeys.list(orgSlug),
+      }),
+  })
+  const close = () => {
+    if (atlassianConnectionId && !status?.isInstalled)
+      cancelSetup.mutate(atlassianConnectionId)
+    setWaitForInstall(false)
+    setPullRequests([])
+    setManualStepIndex(null)
+    prevServerStepIndexRef.current = null
+    onOpenChange(false)
+  }
+
   return (
     <Modal
       isOpen={isOpen}
-      onOpenChange={(open) => {
-        if (!open) {
-          setWaitForInstall(false)
-          setManualStepIndex(null)
-          prevServerStepIndexRef.current = null
-        }
-        onOpenChange(open)
-      }}
+      onOpenChange={(open) => (open ? onOpenChange(true) : close())}
       isDismissable
       className="max-w-[min(92vw,720px)]"
     >
@@ -206,16 +223,11 @@ export function ConfluenceSetupWizard({
                 Set up Confluence connector
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
-                Complete each step to connect Confluence content to this
-                organisation.
+                Complete each step to connect Confluence to this organization.
               </p>
             </div>
           </div>
-          <Button
-            variant="secondary"
-            className="rounded-none"
-            onPress={() => onOpenChange(false)}
-          >
+          <Button variant="secondary" className="rounded-md" onPress={close}>
             Close
           </Button>
         </div>
@@ -224,7 +236,9 @@ export function ConfluenceSetupWizard({
           <div className="mb-6">
             <ConnectorSetupStepper
               steps={wizardStepDefs}
-              currentIndex={cardIndexForStepper}
+              currentIndex={
+                workspacesDone ? wizardStepDefs.length : cardIndexForStepper
+              }
               focusOverride={effectiveManual}
               onStepSelect={(i) => {
                 if (i === cardIndexForStepper && manualStepIndex != null) {
@@ -251,7 +265,7 @@ export function ConfluenceSetupWizard({
             <p className="text-destructive">Could not load connector status.</p>
             <Button
               variant="secondary"
-              className="rounded-none"
+              className="rounded-md"
               onPress={() => void refetchStatus()}
             >
               Retry
@@ -310,51 +324,41 @@ export function ConfluenceSetupWizard({
               </p>
             ) : null}
             {bodyId === "wait" ? <WaitForInstallStep /> : null}
-            {bodyId === "github" ? (
-              <LinkGitHubStep
+            {bodyId === "workspaces" && atlassianConnectionId ? (
+              <AddToWorkspacesStep
                 orgSlug={orgSlug}
-                onConnected={async () => {
-                  await refetchStatus()
+                provider="confluence"
+                connectionId={atlassianConnectionId}
+                label="Confluence"
+                description="the spaces and pages for each"
+                items="the spaces"
+                replacedConfigPullUrl={status.pendingConfigPullUrl}
+                onDone={(opened) => {
+                  setManualStepIndex(null)
+                  setPullRequests(opened)
                 }}
               />
             ) : null}
-            {bodyId === "target" ? (
-              <SelectSyncTargetStep
-                orgSlug={orgSlug}
-                atlassianConnectionId={atlassianConnectionId}
-              />
-            ) : null}
-            {bodyId === "scope" && atlassianConnectionId ? (
-              <EditScopeModal
-                embedded
-                orgSlug={orgSlug}
-                atlassianConnectionId={atlassianConnectionId}
-                onClose={() => onOpenChange(false)}
-                onSuccessfulSave={async () => {
-                  await refetchStatus()
-                }}
-              />
-            ) : null}
-            {bodyId === "scope" && !atlassianConnectionId ? (
-              <p className="text-sm text-destructive">
-                Missing connection. Close this dialog and open setup from the
-                Confluence connector card.
-              </p>
-            ) : null}
-            {bodyId === "merge" && atlassianConnectionId ? (
-              <MergeConfigStep
-                orgSlug={orgSlug}
-                atlassianConnectionId={atlassianConnectionId}
-              />
-            ) : null}
-            {bodyId === "merge" && !atlassianConnectionId ? (
+            {bodyId === "workspaces" && !atlassianConnectionId ? (
               <p className="text-sm text-destructive">
                 Missing connection. Close this dialog and open setup from the
                 Confluence connector card.
               </p>
             ) : null}
             {bodyId === "complete" ? (
-              <SetupCompleteStep onClose={() => onOpenChange(false)} />
+              <div className="space-y-4">
+                <PullRequestsToMerge
+                  orgSlug={orgSlug}
+                  pullRequests={pullRequests}
+                />
+                <Button
+                  variant="secondary"
+                  className="rounded-md"
+                  onPress={close}
+                >
+                  Close
+                </Button>
+              </div>
             ) : null}
           </div>
         )}

@@ -3,7 +3,7 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import { getRepositoryReadCloneToken } from "../../models/github-installation.js"
 import { getLogger } from "../../observability/logger.js"
 
 type ResolveRefResponse = {
@@ -34,11 +34,10 @@ export async function resolveRepositoryRef(input: {
         principal: "service",
       },
     }),
-    getInstallationToken(
-      input.orgId,
-      env,
-      input.githubConnectionId ?? undefined,
-    ),
+    getRepositoryReadCloneToken(input.orgId, env, {
+      repositoryId: input.repositoryId,
+      githubConnectionId: input.githubConnectionId,
+    }),
   ])
   const url = `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`
   let res: Response

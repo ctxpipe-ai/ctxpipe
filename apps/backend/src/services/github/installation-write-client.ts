@@ -1,8 +1,20 @@
 import type { Env } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
+import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   type GitHubInstallation,
   getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
+import {
+  getDesiredWorkspaceRevision,
+  listOrgWorkspaces,
+} from "../../models/workspaces.js"
+import { workspaceRepositoryPath } from "../git/root-folder.js"
 
 type InstallationContext = NonNullable<
   Awaited<ReturnType<typeof getInstallationOctokitForOrg>>
@@ -21,11 +33,56 @@ type BaseInput = {
   githubConnectionId?: string
 }
 
+/**
+ * The root folder of the org's Workspace on the GitHub repository
+ * `repositoryName` (`owner/name`), or `""` when no Workspace uses it.
+ * Connector config files are relative to this folder (CTX-709).
+ */
+export async function workspaceRootPathOfRepository(input: {
+  orgId: string
+  repositoryName: string
+}): Promise<string> {
+  const url = normalizeWorkspaceRepositoryUrl(
+    `https://github.com/${input.repositoryName}`,
+  )
+  const workspace = (
+    await withOrgDbContext(input.orgId, () => listOrgWorkspaces(input.orgId))
+  ).find(
+    (row) =>
+      normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) === url,
+  )
+  return workspaceRootPath(workspace)
+}
+
+/** Maps root-relative change paths below the Workspace root folder. Throws on an unsafe path. */
+function withRootedPaths<
+  T extends { files: CommitFile[]; deletePaths?: string[]; rootPath?: string },
+>(input: T): T {
+  if (input.rootPath === undefined) return input
+  const root = input.rootPath
+  return {
+    ...input,
+    rootPath: undefined,
+    files: input.files.map((file) => ({
+      ...file,
+      path: workspaceRepositoryPath(root, file.path),
+    })),
+    deletePaths: input.deletePaths?.map((path) =>
+      workspaceRepositoryPath(root, path),
+    ),
+  }
+}
+
 export type CommitFile = {
   path: string
   content: string
   /** Defaults to utf-8. Use base64 for binary connector assets. */
   encoding?: "utf-8" | "base64"
+  /**
+   * An existing blob of the repository. With it, the file points at that
+   * blob and `content` is not sent (a move keeps the bytes and history).
+   */
+  sha?: string
 }
 
 const GITHUB_API_MAX_ATTEMPTS = 3
@@ -104,9 +161,16 @@ function parseRepositoryName(repositoryName: string): RepoCoordinates {
   return { owner, repo }
 }
 
-async function getInstallationContext(input: BaseInput): Promise<{
+async function getInstallationContext(
+  input: BaseInput,
+  permissions: {
+    contents?: "read" | "write"
+    pull_requests?: "read" | "write"
+  } = { contents: "read" },
+): Promise<{
   installation: GitHubInstallation
   octokit: InstallationContext["octokit"]
+  appBotLogin: InstallationContext["appBotLogin"]
   owner: string
   repo: string
 }> {
@@ -114,6 +178,10 @@ async function getInstallationContext(input: BaseInput): Promise<{
     input.orgId,
     input.env,
     input.githubConnectionId,
+    {
+      repoFullName: input.repositoryName,
+      permissions: { ...permissions, metadata: "read" },
+    },
   )
   if (!installationContext) {
     throw new Error(`GitHub installation not found for org ${input.orgId}`)
@@ -122,6 +190,7 @@ async function getInstallationContext(input: BaseInput): Promise<{
   return {
     installation: installationContext.installation,
     octokit: installationContext.octokit,
+    appBotLogin: installationContext.appBotLogin,
     owner,
     repo,
   }
@@ -159,38 +228,16 @@ function isEmptyGithubRepositoryError(error: unknown): boolean {
   )
 }
 
-async function getOrInitializeBaseBranch(input: {
-  octokit: InstallationContext["octokit"]
-  owner: string
-  repo: string
-  branch: string
-}) {
-  try {
-    return await getBranchHead(input)
-  } catch (error) {
-    if (!isEmptyGithubRepositoryError(error)) throw error
-  }
-
-  try {
-    await withTransientGitHubRetry(() =>
-      input.octokit.rest.repos.createOrUpdateFileContents({
-        owner: input.owner,
-        repo: input.repo,
-        path: ".gitkeep",
-        message: "Initialize repository for ctxpipe",
-        content: Buffer.from("\n").toString("base64"),
-      }),
-    )
-  } catch (error) {
-    // Another config workflow may have initialized the repository concurrently.
-    try {
-      return await getBranchHead(input)
-    } catch {
-      throw error
-    }
-  }
-
-  return getBranchHead(input)
+async function assertConfigBranch(
+  context: Awaited<ReturnType<typeof getInstallationContext>>,
+  branch: string,
+): Promise<void> {
+  const { data } = await context.octokit.rest.repos.get({
+    owner: context.owner,
+    repo: context.repo,
+  })
+  if (!data.default_branch || branch === data.default_branch)
+    throw new Error("Config API writes cannot target the default branch")
 }
 
 export async function listFilesInTreeWithMetadata(
@@ -198,12 +245,16 @@ export async function listFilesInTreeWithMetadata(
 ) {
   return withTransientGitHubRetry(async () => {
     const context = await getInstallationContext(input)
-    const head = await getOrInitializeBaseBranch({
+    const head = await getBranchHead({
       octokit: context.octokit,
       owner: context.owner,
       repo: context.repo,
       branch: input.branch,
+    }).catch((error) => {
+      if (isEmptyGithubRepositoryError(error)) return null
+      throw error
     })
+    if (!head) return { files: [], truncated: false }
     const { data } = await context.octokit.rest.git.getTree({
       owner: context.owner,
       repo: context.repo,
@@ -260,9 +311,62 @@ export async function listFilesInTree(input: BaseInput & { branch: string }) {
   return tree.files
 }
 
-export async function getFileContent(
-  input: BaseInput & { branch: string; path: string },
-): Promise<string | undefined> {
+export async function getCommitTimestamp(
+  input: BaseInput & { sha: string },
+): Promise<string | null> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.sha,
+    })
+    const raw = data.committer?.date ?? data.author?.date
+    if (!raw) return null
+    const parsed = new Date(raw)
+    return Number.isNaN(parsed.getTime()) ? null : parsed.toISOString()
+  })
+}
+
+export async function listFilesAtSha(
+  input: BaseInput & { sha: string; missing?: "empty" | "throw" },
+) {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    try {
+      const { data } = await context.octokit.rest.git.getTree({
+        owner: context.owner,
+        repo: context.repo,
+        tree_sha: input.sha,
+        recursive: "true",
+      })
+      return (data.tree ?? [])
+        .filter((entry) => entry.type === "blob" && Boolean(entry.path))
+        .map((entry) => ({ path: entry.path ?? "", sha: entry.sha ?? "" }))
+    } catch (error) {
+      const status = (error as { status?: number }).status
+      if (status === 404 || status === 409) {
+        if (input.missing === "throw") throw error
+        return []
+      }
+      throw error
+    }
+  })
+}
+
+export type GitHubFileBytes =
+  | { kind: "missing" }
+  | { kind: "omitted" }
+  | { kind: "bytes"; bytes: Buffer }
+
+export async function getFileContentBytes(
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
+): Promise<GitHubFileBytes> {
+  if (input.rootPath)
+    input = {
+      ...input,
+      path: workspaceRepositoryPath(input.rootPath, input.path),
+    }
   const context = await getInstallationContext(input)
   for (let a = 0; a < GITHUB_API_MAX_ATTEMPTS; a += 1) {
     let data: Awaited<
@@ -279,7 +383,7 @@ export async function getFileContent(
     } catch (error) {
       const status = (error as { status?: number }).status
       if (status === 404) {
-        return undefined
+        return { kind: "missing" }
       }
       if (isTransientGithubError(error) && a < GITHUB_API_MAX_ATTEMPTS - 1) {
         await new Promise((r) => setTimeout(r, githubRetryDelayMs(error, a)))
@@ -288,12 +392,48 @@ export async function getFileContent(
       throw error
     }
     if (Array.isArray(data) || !("content" in data)) {
-      return undefined
+      return { kind: "missing" }
     }
-    if (!data.content) return ""
-    return Buffer.from(data.content, "base64").toString("utf8")
+    const encoding =
+      "encoding" in data && typeof data.encoding === "string"
+        ? data.encoding
+        : undefined
+    const size = "size" in data && typeof data.size === "number" ? data.size : 0
+    if (encoding === "none" || (size > 0 && !data.content)) {
+      return { kind: "omitted" }
+    }
+    if (!data.content) return { kind: "bytes", bytes: Buffer.alloc(0) }
+    return { kind: "bytes", bytes: Buffer.from(data.content, "base64") }
   }
-  return undefined
+  return { kind: "missing" }
+}
+
+export async function getFileContent(
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
+): Promise<string | undefined> {
+  const file = await getFileContentBytes(input)
+  if (file.kind === "missing") return undefined
+  if (file.kind === "omitted") return ""
+  return file.bytes.toString("utf8")
+}
+
+export async function githubRefExists(
+  input: BaseInput & { ref: string },
+): Promise<boolean> {
+  try {
+    const context = await getInstallationContext(input)
+    const ref = input.ref.replace(/^refs\//, "")
+    const refName = ref.startsWith("heads/") ? ref : `heads/${ref}`
+    await context.octokit.rest.git.getRef({
+      owner: context.owner,
+      repo: context.repo,
+      ref: refName,
+    })
+    return true
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return false
+    throw error
+  }
 }
 
 type GitTreeEntry = {
@@ -310,21 +450,27 @@ export async function commitFiles(
     message: string
     files: CommitFile[]
     deletePaths?: string[]
+    /** When set, commit against this parent and refuse overlay-on-latest-head. */
+    expectedParentSha?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
-  const context = await getInstallationContext(input)
-  const loadedHead = await withTransientGitHubRetry(() =>
-    getOrInitializeBaseBranch({
-      octokit: context.octokit,
-      owner: context.owner,
-      repo: context.repo,
-      branch: input.branch,
-    }),
-  )
-  let nextHead: typeof loadedHead | undefined = loadedHead
+  input = withRootedPaths(input)
+  const context = await getInstallationContext(input, { contents: "write" })
+  await assertConfigBranch(context, input.branch)
   const fileEntries: GitTreeEntry[] = []
   let lastBinaryBlobStartedAt = 0
   for (const file of input.files) {
+    if (file.sha) {
+      fileEntries.push({
+        path: file.path,
+        mode: "100644",
+        type: "blob",
+        sha: file.sha,
+      })
+      continue
+    }
     if (file.encoding === "base64") {
       if (lastBinaryBlobStartedAt > 0) {
         const remainingDelay = 1_000 - (Date.now() - lastBinaryBlobStartedAt)
@@ -396,35 +542,23 @@ export async function commitFiles(
     bytes += size
   }
   flush()
-  if (chunks.length === 0) {
-    return {
-      commitSha: loadedHead.commitSha,
-      branch: input.branch,
-      installationId: context.installation.installationId ?? 0,
-    }
-  }
 
-  return withTransientGitHubRetry(async () => {
-    const head =
-      nextHead ??
-      (await getOrInitializeBaseBranch({
-        octokit: context.octokit,
-        owner: context.owner,
-        repo: context.repo,
+  const commitOnce = async (head: { commitSha: string; treeSha: string }) => {
+    if (chunks.length === 0) {
+      return {
+        commitSha: head.commitSha,
         branch: input.branch,
-      }))
-    nextHead = undefined
-
-    let baseTree = head.treeSha
+        installationId: context.installation.installationId ?? 0,
+      }
+    }
     let treeSha = head.treeSha
     for (const chunk of chunks) {
       const { data: tree } = await context.octokit.rest.git.createTree({
         owner: context.owner,
         repo: context.repo,
-        base_tree: baseTree,
+        base_tree: treeSha,
         tree: chunk,
       })
-      baseTree = tree.sha
       treeSha = tree.sha
     }
 
@@ -436,6 +570,7 @@ export async function commitFiles(
       parents: [head.commitSha],
     })
 
+    await assertConfigBranch(context, input.branch)
     await context.octokit.rest.git.updateRef({
       owner: context.owner,
       repo: context.repo,
@@ -448,6 +583,30 @@ export async function commitFiles(
       branch: input.branch,
       installationId: context.installation.installationId ?? 0,
     }
+  }
+
+  if (input.expectedParentSha) {
+    const context = await getInstallationContext(input, { contents: "write" })
+    const { data: commit } = await context.octokit.rest.git.getCommit({
+      owner: context.owner,
+      repo: context.repo,
+      commit_sha: input.expectedParentSha,
+    })
+    return commitOnce({
+      commitSha: input.expectedParentSha,
+      treeSha: commit.tree.sha,
+    })
+  }
+
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input, { contents: "write" })
+    const head = await getBranchHead({
+      octokit: context.octokit,
+      owner: context.owner,
+      repo: context.repo,
+      branch: input.branch,
+    })
+    return commitOnce(head)
   })
 }
 
@@ -458,27 +617,50 @@ export async function createPullRequestWithFiles(
     body: string
     commitMessage: string
     files: CommitFile[]
+    deletePaths?: string[]
+    /** Exact session branch. When omitted, uses featureBranchPrefix + timestamp. */
+    branch?: string
+    /** When true, a 422 on createRef is a collision — do not overlay an existing branch. */
+    requireNewBranch?: boolean
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
-  const context = await getInstallationContext(input)
-  const base = await getOrInitializeBaseBranch({
+  // Check the paths before any branch exists.
+  withRootedPaths(input)
+  const context = await getInstallationContext(input, {
+    contents: "write",
+    pull_requests: "write",
+  })
+  const base = await getBranchHead({
     octokit: context.octokit,
     owner: context.owner,
     repo: context.repo,
     branch: input.baseBranch,
   })
 
-  const featureBranch = `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
-  await withTransientGitHubRetry(() =>
-    context.octokit.rest.git.createRef({
-      owner: context.owner,
-      repo: context.repo,
-      ref: `refs/heads/${featureBranch}`,
-      sha: base.commitSha,
-    }),
-  )
+  const featureBranch =
+    input.branch ??
+    `${input.featureBranchPrefix ?? "ctxpipe/confluence-config"}-${Date.now()}`
+  await assertConfigBranch(context, featureBranch)
+  try {
+    await withTransientGitHubRetry(() =>
+      context.octokit.rest.git.createRef({
+        owner: context.owner,
+        repo: context.repo,
+        ref: `refs/heads/${featureBranch}`,
+        sha: base.commitSha,
+      }),
+    )
+  } catch (error) {
+    const status =
+      error && typeof error === "object" && "status" in error
+        ? Number(error.status)
+        : 0
+    if (status !== 422 || input.requireNewBranch) throw error
+  }
 
   await commitFiles({
     orgId: input.orgId,
@@ -488,6 +670,8 @@ export async function createPullRequestWithFiles(
     branch: featureBranch,
     message: input.commitMessage,
     files: input.files,
+    deletePaths: input.deletePaths,
+    rootPath: input.rootPath,
   })
 
   const { data: pull } = await withTransientGitHubRetry(() =>
@@ -514,13 +698,44 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Merge an open pull request by its URL. Returns the SHA of the merge commit. */
+export async function mergePullRequest(
+  input: BaseInput & { pullUrl: string },
+): Promise<string> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined)
+    throw new Error(`Not a pull request URL: ${input.pullUrl}`)
+  const context = await getInstallationContext(input, {
+    contents: "write",
+    pull_requests: "write",
+  })
+  const urlRepository = input.pullUrl.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
+  )
+  if (
+    urlRepository?.[1]?.toLowerCase() !== context.owner.toLowerCase() ||
+    urlRepository[2]?.toLowerCase() !== context.repo.toLowerCase()
+  )
+    throw new Error(
+      `Pull request ${input.pullUrl} is not in ${context.owner}/${context.repo}`,
+    )
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.merge({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.sha
+}
+
 /** Resolve the head branch (ref) of an open pull request from its URL. */
 export async function getPullRequestHeadBranch(
   input: BaseInput & { pullUrl: string },
 ): Promise<string | undefined> {
   const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
   if (pullNumber === undefined) return undefined
-  const context = await getInstallationContext(input)
+  const context = await getInstallationContext(input, { pull_requests: "read" })
   const { data } = await withTransientGitHubRetry(() =>
     context.octokit.rest.pulls.get({
       owner: context.owner,
@@ -529,6 +744,82 @@ export async function getPullRequestHeadBranch(
     }),
   )
   return data.head.ref || undefined
+}
+
+/**
+ * The open pull requests that ctx| opened on a branch that starts with
+ * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ * Give `baseBranch` to keep only the pull requests into that base branch.
+ *
+ * Other people can open a pull request with the same head branch name: from
+ * a fork, from the repository itself, or as another GitHub App on the
+ * repository. This function ignores them. It keeps only a pull request whose
+ * head is in this repository and whose author is the ctx| GitHub App of this
+ * installation (ctx| opens each pull request with the installation token).
+ * Thus, ctx| opens its own pull request when someone else took the branch
+ * name in a fork, and it never shows or relabels the pull request of another
+ * person or App as its own.
+ */
+export async function listOpenPullRequestsByBranchPrefix(
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
+): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
+  const pulls = await listOpenRepositoryPullRequestsByBranchPrefix(input)
+  return pulls
+    .filter((pull) => pull.ours)
+    .map(({ pullUrl, branch, createdAt }) => ({ pullUrl, branch, createdAt }))
+}
+
+/**
+ * Like {@link listOpenPullRequestsByBranchPrefix}, but it also lists the pull
+ * requests of other people and Apps whose head is in this repository. `ours`
+ * tells which pull requests ctx| opened. A fork pull request does not use a
+ * branch of this repository, so it is not listed.
+ */
+export async function listOpenRepositoryPullRequestsByBranchPrefix(
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
+): Promise<
+  Array<{ pullUrl: string; branch: string; createdAt: string; ours: boolean }>
+> {
+  const context = await getInstallationContext(input, { pull_requests: "read" })
+  const repository = `${context.owner}/${context.repo}`.toLowerCase()
+  const pulls = await withTransientGitHubRetry(() =>
+    context.octokit.paginate(context.octokit.rest.pulls.list, {
+      owner: context.owner,
+      repo: context.repo,
+      state: "open",
+      per_page: 100,
+      ...(input.exactBranch
+        ? { head: `${context.owner}:${input.exactBranch}` }
+        : {}),
+      ...(input.baseBranch ? { base: input.baseBranch } : {}),
+    }),
+  )
+  const candidates = pulls.filter(
+    (pull) =>
+      pull.head.ref.startsWith(input.branchPrefix) &&
+      (input.exactBranch === undefined ||
+        pull.head.ref === input.exactBranch) &&
+      (input.baseBranch === undefined || pull.base.ref === input.baseBranch) &&
+      pull.head.repo?.full_name.toLowerCase() === repository,
+  )
+  // Ask GitHub for the App login only when a pull request can be ours.
+  const login = candidates.some((pull) => pull.user?.type === "Bot")
+    ? (await context.appBotLogin()).toLowerCase()
+    : ""
+  return candidates.map((pull) => ({
+    pullUrl: pull.html_url,
+    branch: pull.head.ref,
+    createdAt: pull.created_at,
+    ours: pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
+  }))
 }
 
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
@@ -555,13 +846,43 @@ export async function compareCommitsTouchesPath(
   })
 }
 
+/**
+ * What `head` adds to `base`: the commit messages (oldest first) and the
+ * changed files. GitHub lists at most 250 commits and 300 files.
+ */
+export async function compareBranchChanges(
+  input: BaseInput & { base: string; head: string },
+): Promise<{
+  commits: string[]
+  files: Array<{ path: string; status: string }>
+}> {
+  return withTransientGitHubRetry(async () => {
+    const context = await getInstallationContext(input)
+    const { data } = await context.octokit.rest.repos.compareCommits({
+      owner: context.owner,
+      repo: context.repo,
+      base: input.base,
+      head: input.head,
+    })
+    return {
+      commits: data.commits.map((commit) => commit.commit.message),
+      files: (data.files ?? []).map((file) => ({
+        path: file.filename,
+        status: file.status,
+      })),
+    }
+  })
+}
+
 export async function closePullRequest(
   input: BaseInput & {
     pullNumber: number
     comment?: string
   },
 ) {
-  const context = await getInstallationContext(input)
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
   await withTransientGitHubRetry(() =>
     context.octokit.rest.pulls.update({
       owner: context.owner,
@@ -580,5 +901,200 @@ export async function closePullRequest(
         body,
       }),
     )
+  }
+}
+
+/** Replace the title and the body of an open pull request. */
+export async function updatePullRequestText(
+  input: BaseInput & { pullNumber: number; title: string; body: string },
+): Promise<void> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      title: input.title,
+      body: input.body,
+    }),
+  )
+}
+
+export type GithubPullRequestState = "open" | "closed" | "merged"
+
+export async function getPullRequestState(
+  input: BaseInput & { pullNumber: number },
+): Promise<{
+  prNumber: number
+  pullUrl: string
+  prState: GithubPullRequestState
+  branch: string
+  /** The head commit; for a merged PR, the commit GitHub merged. */
+  headSha: string
+} | null> {
+  try {
+    const context = await getInstallationContext(input, {
+      pull_requests: "read",
+    })
+    const { data } = await withTransientGitHubRetry(() =>
+      context.octokit.rest.pulls.get({
+        owner: context.owner,
+        repo: context.repo,
+        pull_number: input.pullNumber,
+      }),
+    )
+    const prState: GithubPullRequestState = data.merged_at
+      ? "merged"
+      : data.state === "open"
+        ? "open"
+        : "closed"
+    return {
+      prNumber: data.number,
+      pullUrl: data.html_url,
+      prState,
+      branch: data.head.ref,
+      headSha: data.head.sha,
+    }
+  } catch (error) {
+    if ((error as { status?: number }).status === 404) return null
+    throw error
+  }
+}
+
+/** GitHub refused the Pull requests: write permission (not a rate limit). */
+function isPullRequestPermissionError(error: unknown): boolean {
+  const status = (error as { status?: number }).status
+  const message = error instanceof Error ? error.message.toLowerCase() : ""
+  if (isTransientGithubError(error)) return false
+  return (
+    (status === 422 && message.includes("permissions requested")) ||
+    (status === 403 &&
+      (message.includes("not accessible by integration") ||
+        message.includes("permission")))
+  )
+}
+
+export type PullRequestRefusal = {
+  /** pr_refused: any other 422; githubMessage then says why. */
+  refused: "no_pr_access" | "no_changes" | "pr_refused"
+  githubStatus?: number
+  githubMessage: string
+}
+
+function refusal(
+  refused: PullRequestRefusal["refused"],
+  error: unknown,
+): PullRequestRefusal {
+  // GitHub puts the reason of a 422 in errors[].message; Octokit's own
+  // message adds "Validation Failed" and a documentation link.
+  const reasons = (
+    error as { response?: { data?: { errors?: Array<{ message?: unknown }> } } }
+  ).response?.data?.errors
+    ?.map((item) => item.message)
+    .filter((message): message is string => typeof message === "string")
+  return {
+    refused,
+    githubStatus: (error as { status?: number }).status,
+    githubMessage: reasons?.length
+      ? reasons.join("; ")
+      : error instanceof Error
+        ? error.message
+        : String(error),
+  }
+}
+
+/**
+ * Open the pull request. `null`: the Workspace was relinked. A refusal: the
+ * App may not open pull requests, or the branch adds no commit.
+ */
+export async function createPullRequestFromBranch(
+  input: BaseInput & {
+    revision: WorkspaceRevision
+    baseBranch: string
+    branch: string
+    title: string
+    body: string
+  },
+): Promise<
+  | {
+      pullNumber: number
+      pullUrl: string
+      branch: string
+      prState: GithubPullRequestState
+    }
+  | PullRequestRefusal
+  | null
+> {
+  let context: Awaited<ReturnType<typeof getInstallationContext>>
+  try {
+    // GitHub reads the base and head branches with this token. Without
+    // Contents it answers 422 "not all refs are readable".
+    context = await getInstallationContext(input, {
+      contents: "read",
+      pull_requests: "write",
+    })
+  } catch (error) {
+    if (isPullRequestPermissionError(error))
+      return refusal("no_pr_access", error)
+    throw error
+  }
+  try {
+    const response = await withTransientGitHubRetry(async () => {
+      if (
+        !sameWorkspaceRevision(
+          await getDesiredWorkspaceRevision(
+            input.revision.workspaceId,
+            "publish-session",
+          ),
+          input.revision,
+        )
+      )
+        return null
+      return context.octokit.rest.pulls.create({
+        owner: context.owner,
+        repo: context.repo,
+        head: input.branch,
+        base: input.baseBranch,
+        title: input.title,
+        body: input.body,
+      })
+    })
+    if (!response) return null
+    const { data: pull } = response
+    return {
+      pullNumber: pull.number,
+      pullUrl: pull.html_url,
+      branch: input.branch,
+      prState: "open",
+    }
+  } catch (error) {
+    if (isPullRequestPermissionError(error))
+      return refusal("no_pr_access", error)
+    const status = (error as { status?: number }).status
+    if (status !== 422) throw error
+    if (
+      error instanceof Error &&
+      error.message.toLowerCase().includes("no commits between")
+    )
+      return refusal("no_changes", error)
+    // GitHub refuses a second pull request for the same head and base. Keep
+    // only a pull request that ctx| opened on this branch into this base. A
+    // pull request of a collaborator or of another App is not ours to show.
+    const [open] = await listOpenPullRequestsByBranchPrefix({
+      ...input,
+      branchPrefix: input.branch,
+      exactBranch: input.branch,
+      baseBranch: input.baseBranch,
+    })
+    const pullNumber = open && parseGithubPullNumberFromUrl(open.pullUrl)
+    if (!open || pullNumber === undefined) return refusal("pr_refused", error)
+    return {
+      pullNumber,
+      pullUrl: open.pullUrl,
+      branch: input.branch,
+      prState: "open",
+    }
   }
 }

@@ -1,11 +1,8 @@
-import { createFileRoute } from "@tanstack/react-router"
-import { useMemo, useState } from "react"
+import { createFileRoute, useLocation } from "@tanstack/react-router"
+import { useState } from "react"
 import { OAuthConsent } from "@/features/auth/OAuthConsent"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
-import {
-  getOAuthOrganizationChangeHref,
-  getOAuthRedirectUri,
-} from "@/lib/auth-continuation"
+import { getOAuthRedirectUri } from "@/lib/auth-continuation"
 
 function readActiveOrganizationId(session: unknown): string | null {
   if (!session || typeof session !== "object") return null
@@ -26,43 +23,48 @@ export function ConsentPage() {
   const { data: organizations, isPending: organizationsPending } =
     useListOrganizations()
 
-  const searchParams = useMemo(() => {
-    if (typeof window === "undefined") return new URLSearchParams()
-    return new URLSearchParams(window.location.search)
-  }, [])
+  // Better Auth signs the browser query string. Storybook uses a memory router.
+  const routerSearch = useLocation({ select: (location) => location.searchStr })
+  const searchStr =
+    typeof window !== "undefined" &&
+    window.location.pathname === "/.auth/consent"
+      ? window.location.search
+      : routerSearch
+  const searchParams = new URLSearchParams(searchStr)
 
   const clientId = searchParams.get("client_id")
   const requestedScope = searchParams.get("scope") ?? undefined
   const scopes = requestedScope?.split(" ").filter(Boolean) ?? []
   const activeOrganizationId = readActiveOrganizationId(sessionData?.session)
-  const organization =
+  const currentOrganization =
     organizations?.find(({ id }) => id === activeOrganizationId) ??
     (organizations?.length === 1 ? organizations[0] : null)
-  const changeOrganizationHref =
-    (organizations?.length ?? 0) > 1
-      ? getOAuthOrganizationChangeHref(
-          typeof window === "undefined" ? "" : window.location.search,
-        )
-      : null
 
-  const handleConsent = async (accept: boolean) => {
+  const handleConsent = async (
+    accept: boolean,
+    allowedScopes: string[] = [],
+    organizationIds: string[] = [],
+  ) => {
     setError(null)
     setIsSubmitting(accept ? "allow" : "deny")
 
     const { data, error: requestError } = await authClient.oauth2.consent({
       accept,
-      scope: requestedScope,
+      // Send exactly what the user allowed. Never fall back to the request:
+      // it can hold ctxpipe:write that the user did not tick.
+      scope: accept ? allowedScopes.join(" ") : undefined,
       fetchOptions: {
         throw: false,
+        // The grant reaches exactly these orgs; the backend checks each one.
         headers:
-          accept && organization
-            ? { "x-ctxpipe-oauth-organization": organization.id }
+          accept && organizationIds.length > 0
+            ? { "x-ctxpipe-oauth-organization": organizationIds.join(",") }
             : undefined,
       },
     })
 
     if (requestError) {
-      setError(requestError.message ?? "Authorisation failed")
+      setError(requestError.message ?? "Authorization failed")
       setIsSubmitting(null)
       return
     }
@@ -74,7 +76,7 @@ export function ConsentPage() {
       return
     }
 
-    setError("Authorisation did not return to the requesting client")
+    setError("Authorization did not return to the requesting client")
     setIsSubmitting(null)
   }
 
@@ -82,8 +84,8 @@ export function ConsentPage() {
     return (
       <main className="mx-auto max-w-xl px-6 py-16">
         <section
-          aria-label="Loading authorisation"
-          className="space-y-6 rounded-none border border-border bg-card/80 p-6"
+          aria-label="Loading authorization"
+          className="space-y-6 rounded-md border border-border bg-card/80 p-6"
         >
           <div className="h-4 w-32 animate-pulse bg-muted" />
           <div className="h-8 w-64 animate-pulse bg-muted" />
@@ -100,16 +102,18 @@ export function ConsentPage() {
     <OAuthConsent
       clientId={clientId}
       scopes={scopes}
-      organization={
-        organization
-          ? { name: organization.name, slug: organization.slug }
-          : null
+      organizations={(organizations ?? []).map(({ id, name, slug }) => ({
+        id,
+        name,
+        slug,
+      }))}
+      defaultOrganizationIds={
+        currentOrganization ? [currentOrganization.id] : []
       }
-      changeOrganizationHref={changeOrganizationHref}
       error={error}
       isSubmitting={isSubmitting}
-      onAllow={() => {
-        void handleConsent(true)
+      onAllow={(allowedScopes, organizationIds) => {
+        void handleConsent(true, allowedScopes, organizationIds)
       }}
       onDeny={() => {
         void handleConsent(false)

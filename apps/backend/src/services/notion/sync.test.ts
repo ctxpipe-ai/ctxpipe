@@ -51,10 +51,41 @@ import {
 } from "./assets.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import {
+  captureNotionContent,
   getNotionChildPageIds,
   getNotionDeletePaths,
-  syncNotionContent,
 } from "./sync.js"
+
+async function syncNotionContent(input: {
+  orgId: string
+  env: never
+  notionConnection: Parameters<
+    typeof captureNotionContent
+  >[0]["notionConnection"]
+  binding: unknown
+  scopeFromRepo: Parameters<typeof captureNotionContent>[0]["config"]
+}) {
+  const tree = (await github.listFilesInTree()) as Array<{
+    path: string
+    sha: string
+  }>
+  const captured = await captureNotionContent({
+    orgId: input.orgId,
+    env: input.env,
+    notionConnection: input.notionConnection,
+    config: input.scopeFromRepo,
+    existingPaths: tree.map((entry) => entry.path),
+    existingBlobs: tree,
+  })
+  if (captured.files.length > 0 || captured.deletePaths.length > 0) {
+    const committed = await github.commitFiles({
+      files: captured.files,
+      deletePaths: captured.deletePaths,
+    })
+    return { ...captured, commitSha: committed.commitSha }
+  }
+  return { ...captured, commitSha: undefined }
+}
 
 describe("Notion page scope traversal", () => {
   it("finds child pages at every nested block level", () => {

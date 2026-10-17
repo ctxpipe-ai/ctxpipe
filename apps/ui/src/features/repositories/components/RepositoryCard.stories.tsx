@@ -23,12 +23,16 @@ const baseRepo = {
   lastIngestedAt: null,
   createdAt: "2026-01-01T00:00:00.000Z",
   updatedAt: "2026-01-01T00:00:00.000Z",
-  githubConnectionId: null,
 }
 
 const meta = {
   title: "Components/Repositories/RepositoryCard",
   component: RepositoryCard,
+  args: {
+    repo: { ...baseRepo, indexingStatus: "queued" },
+    onDelete: noop,
+    onRetry: noop,
+  },
   decorators: [
     (Story) => (
       <div className="w-full max-w-2xl">

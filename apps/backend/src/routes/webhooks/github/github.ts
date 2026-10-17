@@ -4,6 +4,9 @@ import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
 import { withOrgDbContext } from "../../../db/client.js"
+import { ensureOrgRepositoryAndIngest } from "../../../domain/workspaces/ensure-org-repository.js"
+import { isDefaultBranchPush } from "../../../domain/workspaces/tip-resolve.js"
+import { rebindUnboundWorkspaces } from "../../../domain/workspaces/workspace-lifecycle.js"
 import { parseGithubConnectionStored } from "../../../lib/connection-config.js"
 import { githubRowHasOwnApp } from "../../../models/connection-rows.js"
 import {
@@ -14,16 +17,19 @@ import {
   registerInstallationOnConnection,
 } from "../../../models/github-installation.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
-import { syncGithubRepositories } from "../../../openworkflow/workflows/sync-github-repositories.js"
+import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
 import { maybeActivatePagerdutySyncOnConfigPush } from "./github-pagerduty-push.js"
 import { maybeEnqueueGithubPrMirror } from "./github-pr-mirror-events.js"
-import { maybeActivateGithubPrMirrorOnConfigPush } from "./github-pr-mirror-push.js"
+import { maybeEnqueueUpgradeScanForPullRequest } from "./github-upgrade-pr.js"
+import {
+  logGithubWebhookNoOrganization,
+  logGithubWebhookNoWorkspace,
+} from "./github-webhook-miss.js"
 
 const pushPayloadSchema = z.object({
   ref: z.string(),
@@ -43,15 +49,6 @@ const pushPayloadSchema = z.object({
       }),
     )
     .optional(),
-})
-
-const repositoryCreatedSchema = z.object({
-  action: z.literal("created"),
-  repository: z.object({
-    full_name: z.string(),
-    clone_url: z.string(),
-  }),
-  installation: z.object({ id: z.number() }),
 })
 
 type GithubWebhookContext = {
@@ -121,6 +118,12 @@ async function registerInstallationFromConnectionWebhook(
     installationId,
     env: ctx.env,
   })
+  await rebindUnboundWorkspaces({
+    orgId: row.orgId,
+    connectionId,
+    env: ctx.env,
+    log: ctx.log,
+  })
 }
 
 async function enqueueIngestionForInstallationRepos(
@@ -183,6 +186,9 @@ async function processPushEvent(
     before,
     after,
   } = parsed.data
+  // Each ingest step pushes a run-scoped ref (ADR-052). Such a push changes
+  // no branch, so it starts no tip check, ingestion, or connector sync.
+  if (ref.startsWith("refs/ctxpipe/")) return
   const defaultBranch = repo.default_branch
   if (!defaultBranch) {
     return
@@ -232,19 +238,29 @@ async function processPushEvent(
     after,
     log: ctx.log,
   })
-  await maybeActivateGithubPrMirrorOnConfigPush({
+  const onDefaultBranch = isDefaultBranchPush(ref, defaultBranch)
+  const installationRows = await listInstallationsByGithubInstallationId(
+    installation.id,
+    githubConnectionId,
+    ctx.env,
+  )
+  const delivery = {
+    event: "push",
     installationId: installation.id,
     githubConnectionId,
-    repoFullName: repo.full_name,
-    ref,
-    commits,
-    before,
-    after,
-  })
-
-  if (ref !== `refs/heads/${defaultBranch}`) {
-    return
   }
+  if (installationRows.length === 0)
+    await logGithubWebhookNoOrganization(delivery, ctx.env, ctx.log)
+  else
+    await logGithubWebhookNoWorkspace(
+      { ...delivery, orgIds: installationRows.map((row) => row.orgId) },
+      ctx.log,
+    )
+  for (const installationRow of installationRows) {
+    await enqueueWorkspaceTipCheck(installationRow.orgId, ctx.log)
+  }
+
+  if (!onDefaultBranch) return
 
   await enqueueIngestionForInstallationRepos(
     installation.id,
@@ -254,9 +270,17 @@ async function processPushEvent(
   )
 }
 
+const repositoryCreatedSchema = z.object({
+  repository: z.object({
+    full_name: z.string(),
+    clone_url: z.string(),
+  }),
+  installation: z.object({ id: z.number() }),
+})
+
 async function processRepositoryEvent(
   payload: unknown,
-  { log, env }: GithubWebhookContext,
+  ctx: GithubWebhookContext,
   githubConnectionId?: string,
 ) {
   const parsed = repositoryCreatedSchema.safeParse(payload)
@@ -268,7 +292,7 @@ async function processRepositoryEvent(
   const installationRows = await listInstallationsByGithubInstallationId(
     installation.id,
     githubConnectionId,
-    env,
+    ctx.env,
   )
 
   noteResolvedWebhookConnections(installationRows)
@@ -281,12 +305,15 @@ async function processRepositoryEvent(
       continue
     }
 
-    void runWorkflowWithWorkerWake(syncGithubRepositories.spec, {
+    await ensureOrgRepositoryAndIngest({
       orgId: installationRow.orgId,
+      gitUrl: repo.clone_url,
       githubConnectionId: installationRow.id,
-      reposToSync: [{ name: repo.full_name, gitUrl: repo.clone_url }],
-    }).catch((err: unknown) => {
-      log.error(err instanceof Error ? err : new Error(String(err)))
+      log: {
+        error: (err) => {
+          ctx.log.error(err)
+        },
+      },
     })
   }
 }
@@ -318,15 +345,42 @@ async function processInstallationRepositoriesEvent(
   payload: unknown,
   ctx: GithubWebhookContext,
 ) {
-  if (!connectionId) return
   const parsed = z
     .object({
       action: z.string(),
       installation: z.object({ id: z.number() }),
+      repositories_added: z
+        .array(z.object({ full_name: z.string() }))
+        .optional(),
     })
     .safeParse(payload)
   if (!parsed.success) return
   if (parsed.data.action !== "added") return
+
+  if (!connectionId) {
+    const repoFullNames = (parsed.data.repositories_added ?? []).map(
+      (repository) => repository.full_name,
+    )
+    if (repoFullNames.length === 0) return
+    // The deployment's App names the installation and the added repositories.
+    // A user who gives it access to a repository after a Paste expects that
+    // Workspace to bind, so rebind for each connection on this installation
+    // that uses the App, and check only the added repositories.
+    const installations = await listInstallationsByGithubInstallationId(
+      parsed.data.installation.id,
+      undefined,
+      ctx.env,
+    )
+    for (const installation of installations)
+      await rebindUnboundWorkspaces({
+        orgId: installation.orgId,
+        connectionId: installation.id,
+        env: ctx.env,
+        log: ctx.log,
+        repoFullNames,
+      })
+    return
+  }
 
   await registerInstallationFromConnectionWebhook(
     connectionId,
@@ -361,6 +415,18 @@ export async function processGithubWebhookPayload(
       )
       return
     case "pull_request":
+      await maybeEnqueueUpgradeScanForPullRequest({
+        payload,
+        githubConnectionId: opts?.connectionId,
+        env: ctx.env,
+        log: ctx.log,
+      })
+      await maybeEnqueueGithubPrMirror({
+        eventName,
+        payload,
+        githubConnectionId: opts?.connectionId,
+      })
+      return
     case "pull_request_review":
     case "pull_request_review_comment":
     case "issue_comment":

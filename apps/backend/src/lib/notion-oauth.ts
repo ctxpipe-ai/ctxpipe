@@ -1,7 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import type { Env } from "../config/env.js"
-import { decryptConnectionSecret } from "./connection-secrets.js"
 import type { NotionConnectionConfig } from "./connection-config.js"
+import { decryptConnectionSecret } from "./connection-secrets.js"
 
 export type NotionOAuthApp = {
   clientId: string

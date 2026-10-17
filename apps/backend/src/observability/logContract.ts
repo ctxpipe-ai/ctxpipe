@@ -30,6 +30,8 @@ export function applyLogContract(event: Record<string, unknown>): void {
   moveAlias(event, "path", "url.path")
   moveAlias(event, "orgId", "ctxpipe.org.id")
   moveAlias(event, "orgSlug", "ctxpipe.org.slug")
+  moveAlias(event, "repositoryId", "ctxpipe.repository.id")
+  moveAlias(event, "workspaceId", "ctxpipe.workspace.id")
   const ownResponse =
     event["url.path"] != null || event["http.request.method"] != null
   if (

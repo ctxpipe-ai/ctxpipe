@@ -3,15 +3,19 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { LinearWebhookClient } from "@linear/sdk/webhooks"
 import type { AppEnv } from "../../../app/env.js"
 import type { Env } from "../../../config/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import {
-  getLinearBindingByConnectionId,
+  getLinearBindingWithRepoByConnectionId,
   type LinearWebhookConnection,
   listLinearWebhookConnectionsByWorkspaceId,
   recordLinearOAuthRevocation,
 } from "../../../models/linear-connector.js"
+import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-entity.js"
+import { linearLegacyRetiredBy } from "../../../services/linear/legacy-retired.js"
+import { linearSourceEventFromPayload } from "../../../services/linear/source-event.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
 type EntityTarget = {
@@ -250,10 +254,48 @@ async function processVerifiedLinearWebhook(input: {
 
   const target = entityTargetForPayload(input.payload)
   if (!target) return
+  const updatedAt =
+    input.payload.data && typeof input.payload.data === "object"
+      ? (input.payload.data as Record<string, unknown>).updatedAt
+      : undefined
+  const dedupeKey = `${target.entityType}:${target.externalId}:${String(
+    updatedAt ?? input.payload.webhookTimestamp ?? Date.now(),
+  )}`
   for (const connection of input.connections) {
     if (connection.status !== "installed") continue
-    const binding = await getLinearBindingByConnectionId(connection.id)
-    if (!binding?.enabled || binding.setupPhase !== "live") {
+    // ADR-050: one sources sync for the connection; the frame keeps only
+    // the sources whose teams or projects the event touches. A failed
+    // lookup must not block the legacy mirror below.
+    let sources: Awaited<ReturnType<typeof listConnectionSourceRows>> = []
+    try {
+      sources = await listConnectionSourceRows({
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        status: "ok",
+      })
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "linear_webhook.sources_lookup", connectionId: connection.id },
+      )
+    }
+    if (sources.length)
+      await enqueueConnectionSourcesSync({
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        provider: "linear",
+        event: linearSourceEventFromPayload(input.payload, target),
+        dedupeKey,
+      })
+    const binding = await getLinearBindingWithRepoByConnectionId(
+      connection.orgId,
+      connection.id,
+    )
+    if (
+      !binding?.enabled ||
+      binding.setupPhase !== "live" ||
+      linearLegacyRetiredBy(sources, binding.repositoryGitUrl)
+    ) {
       continue
     }
     await runWorkflowWithWorkerWake(linearSyncEntity.spec, {

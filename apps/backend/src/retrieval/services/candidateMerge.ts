@@ -1,13 +1,9 @@
-import type { Candidate } from "../schema/candidate.js"
-import type { SourceChannel } from "../schema/candidate.js"
+import type { Candidate, SourceChannel } from "../schema/candidate.js"
 
 /** Corroboration boost when same entity appears in multiple sources */
 const CORROBORATION_BOOST = 0.1
 
-function mergeCandidate(
-  existing: Candidate,
-  incoming: Candidate,
-): Candidate {
+function mergeCandidate(existing: Candidate, incoming: Candidate): Candidate {
   const sourceChannels = [
     ...new Set([...existing.sourceChannels, ...incoming.sourceChannels]),
   ] as SourceChannel[]
@@ -43,7 +39,12 @@ type CodeCandidateInput = {
  * aggregates sourceChannels and boosts score for corroboration.
  */
 export function mergeCandidates(
-  semantic: Array<{ objectId: string; kind?: string; payload?: Record<string, unknown>; score?: number }>,
+  semantic: Array<{
+    objectId: string
+    kind?: string
+    payload?: Record<string, unknown>
+    score?: number
+  }>,
   code: CodeCandidateInput[],
   graph: Array<{ id: string; [key: string]: unknown }>,
   traversal: Array<{ nodeIds: string[]; edgeClaimIds: string[] }>,
@@ -61,7 +62,10 @@ export function mergeCandidates(
       payload: { kind: r.kind ?? "unknown", ...r.payload },
     }
     const existing = byId.get(r.objectId)
-    byId.set(r.objectId, existing ? mergeCandidate(existing, candidate) : candidate)
+    byId.set(
+      r.objectId,
+      existing ? mergeCandidate(existing, candidate) : candidate,
+    )
   }
 
   for (const r of code) {
@@ -82,7 +86,10 @@ export function mergeCandidates(
       },
     }
     const existing = byId.get(objectId)
-    byId.set(objectId, existing ? mergeCandidate(existing, candidate) : candidate)
+    byId.set(
+      objectId,
+      existing ? mergeCandidate(existing, candidate) : candidate,
+    )
   }
 
   for (const n of graph) {
@@ -96,7 +103,10 @@ export function mergeCandidates(
       payload: n,
     }
     const existing = byId.get(objectId)
-    byId.set(objectId, existing ? mergeCandidate(existing, candidate) : candidate)
+    byId.set(
+      objectId,
+      existing ? mergeCandidate(existing, candidate) : candidate,
+    )
   }
 
   for (const t of traversal) {
@@ -110,7 +120,10 @@ export function mergeCandidates(
         payload: { fromTraversal: true, edgeClaimIds: t.edgeClaimIds },
       }
       const existing = byId.get(nodeId)
-      byId.set(nodeId, existing ? mergeCandidate(existing, candidate) : candidate)
+      byId.set(
+        nodeId,
+        existing ? mergeCandidate(existing, candidate) : candidate,
+      )
     }
   }
 

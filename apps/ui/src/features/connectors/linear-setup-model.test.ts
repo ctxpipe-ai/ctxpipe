@@ -2,202 +2,57 @@ import { describe, expect, it } from "vitest"
 import {
   getLinearCardPrimaryCta,
   getLinearSetupCurrentIndex,
-  getLinearStatusRefetchInterval,
   getLinearWizardBodyId,
   LINEAR_SETUP_STEPS,
   SELF_HOSTED_LINEAR_SETUP_STEPS,
 } from "./linear-setup-model"
-import type { LinearConnectorStatus } from "./queries/linear-connector"
 
-const liveStatus = {
-  isInstalled: true,
-  installationStatus: "installed",
-  workspaceName: "Acme",
-  isGithubLinked: true,
-  selectedScopeCount: 2,
-  setupPhase: "live",
-  pendingConfigPullUrl: null,
-  pendingConfigPrCreating: false,
-  syncTarget: {
-    repositoryId: "repo_1",
-    repositoryName: "acme/context",
-    githubConnectionId: "github_1",
-    branch: "main",
-  },
-} satisfies LinearConnectorStatus
-
-describe("Linear status polling", () => {
-  it("polls only while persisted setup is transitional", () => {
-    expect(
-      getLinearStatusRefetchInterval({
-        pendingConfigPrCreating: true,
-        setupPhase: "draft",
-      }),
-    ).toBe(2000)
-    expect(
-      getLinearStatusRefetchInterval({
-        pendingConfigPrCreating: false,
-        setupPhase: "awaiting_merge",
-      }),
-    ).toBe(2000)
-    expect(
-      getLinearStatusRefetchInterval({
-        pendingConfigPrCreating: false,
-        setupPhase: "initial_sync",
-      }),
-    ).toBe(2000)
-  })
-
-  it.each([
-    "draft",
-    "live",
-    "config_failed",
-    "sync_failed",
-  ] as const)("stops polling in %s", (setupPhase) => {
-    expect(
-      getLinearStatusRefetchInterval({
-        pendingConfigPrCreating: false,
-        setupPhase,
-      }),
-    ).toBe(false)
-  })
-})
+const draft = { isInstalled: false }
+const installed = { isInstalled: true }
+const hosted = { globalLinearOauthConfigured: true, oauthAppSaved: false }
+const selfHostUnsaved = {
+  globalLinearOauthConfigured: false,
+  oauthAppSaved: false,
+}
+const selfHostSaved = {
+  globalLinearOauthConfigured: false,
+  oauthAppSaved: true,
+}
 
 describe("Linear setup model", () => {
-  it("routes each incomplete server state to the first unfinished step", () => {
-    expect(
-      getLinearWizardBodyId({
-        ...liveStatus,
-        isInstalled: false,
-        syncTarget: null,
-        selectedScopeCount: 0,
-        setupPhase: "draft",
-      }),
-    ).toBe("connect")
-    expect(
-      getLinearWizardBodyId({ ...liveStatus, isGithubLinked: false }),
-    ).toBe("github")
-    expect(getLinearWizardBodyId({ ...liveStatus, syncTarget: null })).toBe(
-      "target",
+  it("connects first, then chooses Workspaces", () => {
+    expect(getLinearWizardBodyId(draft, hosted)).toBe("connect")
+    expect(getLinearSetupCurrentIndex(draft, hosted)).toBe(0)
+    expect(getLinearWizardBodyId(installed, hosted)).toBe("workspaces")
+    expect(getLinearSetupCurrentIndex(installed, hosted)).toBe(
+      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "workspaces"),
     )
-    expect(
-      getLinearWizardBodyId({
-        ...liveStatus,
-        selectedScopeCount: null,
-        setupPhase: "draft",
-      }),
-    ).toBe("scope")
-    expect(
-      getLinearWizardBodyId({ ...liveStatus, setupPhase: "awaiting_merge" }),
-    ).toBe("merge")
-    expect(getLinearWizardBodyId(liveStatus)).toBe("complete")
-    expect(
-      getLinearWizardBodyId({ ...liveStatus, selectedScopeCount: null }),
-    ).toBe("complete")
-    expect(getLinearCardPrimaryCta(liveStatus)).toEqual({
-      kind: "manage_scope",
-      label: "Manage scope",
-    })
   })
 
-  it("keeps failed sync visible and recoverable", () => {
-    const syncFailed = { ...liveStatus, setupPhase: "sync_failed" as const }
-    expect(getLinearSetupCurrentIndex(syncFailed)).toBe(
-      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
-    )
-    expect(getLinearCardPrimaryCta(syncFailed)).toEqual({
-      kind: "open_wizard",
-      label: "Review failure",
-    })
-
-    const configFailedWithPr = {
-      ...liveStatus,
-      setupPhase: "config_failed" as const,
-      pendingConfigPullUrl: "https://github.com/acme/context/pull/3",
-    }
-    expect(getLinearSetupCurrentIndex(configFailedWithPr)).toBe(
-      LINEAR_SETUP_STEPS.findIndex((step) => step.id === "merge"),
-    )
-    expect(getLinearCardPrimaryCta(configFailedWithPr)).toEqual({
-      kind: "open_wizard",
-      label: "Review failure",
-    })
+  it("has no sync repository, scope, or merge step", () => {
+    expect(SELF_HOSTED_LINEAR_SETUP_STEPS.map((step) => step.id)).toEqual([
+      "register",
+      "connect",
+      "workspaces",
+    ])
   })
 
-  it("sends a pre-PR configuration failure back to scope resubmit", () => {
-    const failed = {
-      ...liveStatus,
-      selectedScopeCount: 0,
-      setupPhase: "config_failed" as const,
-      pendingConfigPullUrl: null,
-    }
-
-    expect(getLinearWizardBodyId(failed)).toBe("scope")
-    expect(getLinearCardPrimaryCta(failed)).toEqual({
-      kind: "open_wizard",
-      label: "Configure scope",
-    })
-  })
-
-  it("stays on merge while a config PR is creating or open even if git scope count is 0", () => {
-    expect(
-      getLinearWizardBodyId({
-        ...liveStatus,
-        selectedScopeCount: 0,
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-        pendingConfigPullUrl: null,
-      }),
-    ).toBe("merge")
-    expect(
-      getLinearWizardBodyId({
-        ...liveStatus,
-        selectedScopeCount: 0,
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: false,
-        pendingConfigPullUrl: "https://github.com/acme/context/pull/9",
-      }),
-    ).toBe("merge")
-    expect(
-      getLinearWizardBodyId({
-        ...liveStatus,
-        selectedScopeCount: 0,
-        setupPhase: "initial_sync",
-      }),
-    ).toBe("merge")
-  })
-
-  it("inserts Register before Connect when env is not configured", () => {
-    const draft = {
-      ...liveStatus,
-      isInstalled: false,
-      syncTarget: null,
-      selectedScopeCount: 0,
-      setupPhase: "draft" as const,
-    }
-    const selfHostUnsaved = {
-      globalLinearOauthConfigured: false,
-      oauthAppSaved: false,
-    }
-    const selfHostSaved = {
-      globalLinearOauthConfigured: false,
-      oauthAppSaved: true,
-    }
-    const hosted = {
-      globalLinearOauthConfigured: true,
-      oauthAppSaved: false,
-    }
+  it("inserts Register before Connect when the OAuth app is not configured", () => {
     expect(getLinearWizardBodyId(draft, selfHostUnsaved)).toBe("register")
     expect(getLinearSetupCurrentIndex(draft, selfHostUnsaved)).toBe(0)
+    expect(getLinearWizardBodyId(draft, selfHostSaved)).toBe("connect")
+    expect(getLinearSetupCurrentIndex(draft, selfHostSaved)).toBe(1)
+  })
+
+  it("gives the card a setup action, then Manage once installed", () => {
     expect(getLinearCardPrimaryCta(draft, selfHostUnsaved)).toEqual({
-      kind: "open_wizard",
       label: "Register OAuth app",
     })
-    expect(getLinearWizardBodyId(draft, selfHostSaved)).toBe("connect")
-    expect(getLinearSetupCurrentIndex(draft, selfHostSaved)).toBe(
-      SELF_HOSTED_LINEAR_SETUP_STEPS.findIndex((step) => step.id === "connect"),
-    )
-    expect(getLinearWizardBodyId(draft, hosted)).toBe("connect")
-    expect(getLinearWizardBodyId(draft)).toBe("connect")
+    expect(getLinearCardPrimaryCta(draft, hosted)).toEqual({
+      label: "Connect Linear",
+    })
+    expect(getLinearCardPrimaryCta(installed, hosted)).toEqual({
+      label: "Manage",
+    })
   })
 })

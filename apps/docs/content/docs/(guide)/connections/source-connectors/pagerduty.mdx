@@ -3,9 +3,9 @@ title: PagerDuty connector
 description: Connect a PagerDuty account, review its Git-backed service scope, and keep selected incident context available to ctx|.
 ---
 
-The **PagerDuty connector** mirrors selected incident context into a GitHub
-repository, then sends that repository through the normal ctx| ingestion
-pipeline. The generated `pagerduty/config.yaml` pull request makes the service
+The **PagerDuty connector** mirrors selected incident context into a
+[Workspace's](/docs/workspaces) GitHub repository, where it is indexed like
+any other knowledge file. The generated `pagerduty/config.yaml` pull request makes the service
 scope reviewable before content sync begins.
 
 ctx| requests read-only PagerDuty access plus webhook subscription
@@ -54,7 +54,7 @@ incident file.
 ## Prerequisites
 
 - Permission to authorize an application in the PagerDuty account.
-- A ctx| GitHub connection with access to the destination repository.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write to.
 - Permission to merge the generated configuration pull request.
 
 ## Configuration source of truth
@@ -93,18 +93,16 @@ remains the source of truth for which services are approved.
   <Step>
     ### Confirm GitHub
 
-    PagerDuty content is stored in Git before ingestion. If GitHub is not
+    PagerDuty content is stored in git before indexing. If GitHub is not
     connected for this ctx| organization, complete the GitHub App installation
     first.
   </Step>
 
   <Step>
-    ### Choose a context repository
+    ### Select a workspace
 
-    Select an existing connected repository. A dedicated private repository
-    usually gives the clearest ownership and access boundary; create it in
-    GitHub first, grant the ctx| GitHub App access, then refresh the repository
-    list in ctx|.
+    Choose the [Workspace](/docs/workspaces) that should receive PagerDuty
+    content. ctx| writes it under `pagerduty/` in that Workspace's repository.
   </Step>
 
   <Step>
@@ -129,12 +127,12 @@ remains the source of truth for which services are approved.
   </Step>
 
   <Step>
-    ### Wait for initial sync and ingestion
+    ### Wait for initial sync and indexing
 
     After GitHub reports the merge, ctx| performs the first PagerDuty mirror
-    and starts repository ingestion. The connector reaches **Connected** when
+    and starts indexing. The connector reaches **Connected** when
     the mirror succeeds. Repository indexing may continue afterwards; see
-    [Ingestion](/docs/connections/ingestion) for the indexing lifecycle.
+    [Indexing](/docs/connections/ingestion) for the indexing lifecycle.
   </Step>
 </Steps>
 
@@ -157,7 +155,7 @@ prunes files for services that are no longer selected.
 PagerDuty sends signed webhook events to ctx| when incidents are created or
 updated. While the connector is live, ctx| verifies the HMAC against the raw
 body, skips the event unless the payload names a service that is in the live
-YAML, updates the affected file, and starts another repository ingestion.
+YAML, updates the affected file, and starts indexing again.
 
 Events that arrive before the connector is live, including during initial sync,
 are skipped rather than queued for later. Events for unscoped services are
@@ -169,13 +167,13 @@ affected incident in PagerDuty again so a fresh event is delivered, or use
 ## Verify the complete flow
 
 1. Complete PagerDuty OAuth and confirm the expected account appears.
-2. Select a connected GitHub repository and at least one service.
+2. Select a Workspace and at least one service.
 3. Open and merge the generated `pagerduty/config.yaml` pull request.
 4. Confirm the connector reaches **Connected** and the repository contains
    generated files under `pagerduty/incidents/`.
 5. Trigger or update an in-scope incident in PagerDuty and confirm the matching
    Git file changes, including triggering-alert details and notes.
-6. Confirm the destination repository reaches an indexed state in ctx|.
+6. Confirm the Workspace index is ready in its **Settings**.
 
 Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
 tests PagerDuty webhook delivery.

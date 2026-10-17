@@ -69,6 +69,9 @@ CODESEARCH_URL=http://127.0.0.1:3001
 EOF
   log "wrote $ENV_LOCAL"
 fi
+# Agent Vault (Docker chat sandboxes): a generated owner password per checkout.
+grep -q '^AGENT_VAULT_ADDR=' "$ENV_LOCAL" || echo "AGENT_VAULT_ADDR=http://localhost:14321" >>"$ENV_LOCAL"
+grep -q '^AGENT_VAULT_OWNER_PASSWORD=' "$ENV_LOCAL" || echo "AGENT_VAULT_OWNER_PASSWORD=$(openssl rand -hex 24)" >>"$ENV_LOCAL"
 pnpm db:migrate >/dev/null
 
 # Tests read DATABASE_URL / AUTH_SECRET from the shell (as in CI), not .env.local.

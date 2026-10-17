@@ -5,29 +5,26 @@ description: Common questions about what ctx| connects today and what is on the 
 
 ## Which sources can I connect?
 
-ctx| currently supports GitHub, Confluence, Linear, Slack, and Notion. Confluence,
-Linear, and Notion content is mirrored through a GitHub repository so scope and
-generated content remain reviewable. Linear and Notion draft scope is the
-configuration pull request branch YAML; live scope is the target branch YAML
-after merge. Slack captures specific threads on mention rather than mirroring
-channels. Google Drive is not currently available.
+ctx| currently supports GitHub, Confluence, Linear, Notion, PagerDuty, and
+Slack. Confluence, Linear, Notion, and PagerDuty mirror the scope you approve
+in a configuration pull request into a Workspace. Slack captures specific
+threads on mention rather than mirroring channels. Google Drive is not
+currently available.
 
 ## Does ctx| scan my laptop?
 
-No. ctx| indexes **repositories and knowledge tools you register** (and data derived from them in
-your deployment). It does not install a generic endpoint agent on developer
-machines as part of the core stack described here.
+No. ctx| reads the repositories and tools you connect, and data derived from
+them in your deployment. It does not install an agent on developer machines.
 
 ## How do private repositories work?
 
-The GitHub App grants ctx| access to all or selected repositories. ctx| clones
-and indexes the repositories in its own deployment; it does not write source
-code back into your GitHub account. Connector-generated context is different:
-Linear, Notion, Confluence, and Slack write managed files into the context
-repository you select.
+The GitHub App grants ctx| access to all or selected repositories. ctx|
+clones and indexes linked code repositories in its own deployment and does not
+commit to them. ctx| commits only to workspace repositories (extracted
+knowledge and connector content) and opens pull requests only when you ask,
+for example from Workspace chat or the MCP config flow.
 
 ## Can one user belong to multiple organizations?
 
 Yes. Users can be members of many orgs; the **active organization** is carried on
-the session, and URLs use `/:orgSlug/`. MCP requires an explicit `orgSlug` query
-parameter. See [Managing your organization](/docs/managing-organization).
+the session, and URLs use `/:orgSlug/`. MCP authorization binds one organization. See [Managing your organization](/docs/managing-organization).

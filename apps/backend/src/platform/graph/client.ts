@@ -2,6 +2,7 @@ import { AsyncLocalStorage } from "node:async_hooks"
 import { SpanKind, SpanStatusCode, trace } from "@opentelemetry/api"
 import { FalkorDB } from "falkordb"
 import neo4j, { type Driver } from "neo4j-driver"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   serverAddressFromUrl,
   traceGraphQuery,
@@ -17,8 +18,45 @@ export type GraphClient = {
   executeQuery(
     query: string,
     params?: Record<string, unknown>,
+    options?: {
+      /** Absolute deadline from performance.now(). */
+      deadline?: number
+    },
   ): Promise<{ records: Array<{ get: (key: string) => unknown }> }>
   close(): Promise<void>
+}
+
+/** A graph query reached its monotonic deadline, locally or on the server. */
+export class GraphQueryTimeoutError extends Error {
+  override readonly name = "GraphQueryTimeoutError"
+}
+
+async function withinDeadline<T>(
+  deadline: number | undefined,
+  run: (timeoutMs: number | undefined) => Promise<T>,
+): Promise<T> {
+  const remaining =
+    deadline === undefined ? undefined : deadline - performance.now()
+  if (remaining !== undefined && remaining < 1)
+    throw new GraphQueryTimeoutError("Graph query deadline exceeded.")
+  try {
+    const result = await run(
+      remaining === undefined ? undefined : Math.floor(remaining),
+    )
+    if (deadline !== undefined && performance.now() >= deadline)
+      throw new GraphQueryTimeoutError("Graph query deadline exceeded.")
+    return result
+  } catch (error) {
+    if (
+      deadline !== undefined &&
+      error instanceof Error &&
+      /timed out|timeout/i.test(error.message)
+    )
+      throw new GraphQueryTimeoutError("Graph query deadline exceeded.", {
+        cause: error,
+      })
+    throw error
+  }
 }
 
 export function getConfig(): {
@@ -102,7 +140,8 @@ function createFalkorDbGraphClient(
 ): GraphClient {
   const server = serverAddressFromUrl(uri)
   return {
-    async executeQuery(query, params) {
+    async executeQuery(query, params, options) {
+      assertNotInOrgDbContext()
       return traceGraphQuery(
         {
           system: "falkordb",
@@ -124,9 +163,11 @@ function createFalkorDbGraphClient(
           type QueryOpts = Parameters<
             ReturnType<FalkorDBInstance["selectGraph"]>["query"]
           >[1]
-          const reply = await graph.query(
-            query,
-            (serialized ? { params: serialized } : undefined) as QueryOpts,
+          const reply = await withinDeadline(options?.deadline, (timeoutMs) =>
+            graph.query(query, {
+              params: serialized,
+              ...(timeoutMs === undefined ? {} : { TIMEOUT: timeoutMs }),
+            } as QueryOpts),
           )
           const records = falkorReplyToRecords(
             reply.data as Array<Record<string, unknown>>,
@@ -149,7 +190,8 @@ function scopedBoltDriver(
 ): GraphClient {
   const server = serverAddressFromUrl(uri)
   return {
-    async executeQuery(query, params) {
+    async executeQuery(query, params, options) {
+      assertNotInOrgDbContext()
       return traceGraphQuery(
         {
           system: graphSystemName(provider),
@@ -164,9 +206,14 @@ function scopedBoltDriver(
             params,
             provider,
           )
-          const result = database
-            ? await inner.executeQuery(query, normalizedParams, { database })
-            : await inner.executeQuery(query, normalizedParams)
+          const result = await withinDeadline(options?.deadline, (timeoutMs) =>
+            inner.executeQuery(query, normalizedParams, {
+              ...(database ? { database } : {}),
+              ...(timeoutMs === undefined
+                ? {}
+                : { transactionConfig: { timeout: timeoutMs } }),
+            }),
+          )
           return { records: result.records }
         },
       )
@@ -178,7 +225,7 @@ function scopedBoltDriver(
 }
 
 let databasePerTenantBoltClient: Driver | null = null
-let databasePerTenantFalkorDb: FalkorDBInstance | null = null
+let databasePerTenantFalkorDb: Promise<FalkorDBInstance> | null = null
 const instancePerTenantBoltClients = new Map<string, Driver>()
 
 /**
@@ -188,7 +235,10 @@ const instancePerTenantBoltClients = new Map<string, Driver>()
  * a dead connection. Log it, drop the shared client, and let the next call
  * reconnect (which also wakes a sleeping service).
  */
-function attachFalkorDbLifecycle(db: FalkorDBInstance): void {
+function attachFalkorDbLifecycle(
+  db: FalkorDBInstance,
+  pending: Promise<FalkorDBInstance>,
+): void {
   db.on("error", (error: unknown) => {
     log.error({
       step: "graph.falkordb.connection",
@@ -196,7 +246,7 @@ function attachFalkorDbLifecycle(db: FalkorDBInstance): void {
         "FalkorDB connection error; dropping the shared client so the next call reconnects",
       error: error instanceof Error ? error.message : String(error),
     })
-    if (databasePerTenantFalkorDb === db) {
+    if (databasePerTenantFalkorDb === pending) {
       databasePerTenantFalkorDb = null
     }
     void db.close().catch(() => undefined)
@@ -207,35 +257,47 @@ async function resolveFalkorDbClient(orgId: string): Promise<GraphClient> {
   const cfg = getConfig()
   const uri = cfg.uri
   if (!databasePerTenantFalkorDb) {
-    const db = await trace.getTracer("ctxpipe-backend").startActiveSpan(
-      "falkordb.connect",
-      {
-        kind: SpanKind.CLIENT,
-        attributes: { "db.system.name": "falkordb" },
-      },
-      async (span) => {
-        try {
-          return await FalkorDB.connect({
-            url: uri,
-            username: cfg.user || undefined,
-            password: cfg.password || undefined,
-          })
-        } catch (error) {
-          if (error instanceof Error) span.recordException(error)
-          span.setStatus({
-            code: SpanStatusCode.ERROR,
-            message: error instanceof Error ? error.message : String(error),
-          })
-          throw error
-        } finally {
-          span.end()
-        }
-      },
-    )
-    attachFalkorDbLifecycle(db)
-    databasePerTenantFalkorDb = db
+    const socket = { connectTimeout: 5_000, reconnectStrategy: false as const }
+    let pending!: Promise<FalkorDBInstance>
+    pending = trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan(
+        "falkordb.connect",
+        {
+          kind: SpanKind.CLIENT,
+          attributes: { "db.system.name": "falkordb" },
+        },
+        async (span) => {
+          try {
+            return await FalkorDB.connect({
+              url: uri,
+              username: cfg.user || undefined,
+              password: cfg.password || undefined,
+              socket,
+            })
+          } catch (error) {
+            if (error instanceof Error) span.recordException(error)
+            span.setStatus({
+              code: SpanStatusCode.ERROR,
+              message: error instanceof Error ? error.message : String(error),
+            })
+            throw error
+          } finally {
+            span.end()
+          }
+        },
+      )
+      .then((db) => {
+        attachFalkorDbLifecycle(db, pending)
+        return db
+      })
+    databasePerTenantFalkorDb = pending
+    void pending.catch(() => {
+      if (databasePerTenantFalkorDb === pending)
+        databasePerTenantFalkorDb = null
+    })
   }
-  return createFalkorDbGraphClient(databasePerTenantFalkorDb, orgId, uri)
+  return createFalkorDbGraphClient(await databasePerTenantFalkorDb, orgId, uri)
 }
 
 async function resolveBoltClient(
@@ -295,7 +357,12 @@ export async function closeGraphDb(): Promise<void> {
     databasePerTenantBoltClient = null
   }
   if (databasePerTenantFalkorDb) {
-    closePromises.push(databasePerTenantFalkorDb.close())
+    closePromises.push(
+      databasePerTenantFalkorDb.then(
+        (db) => db.close(),
+        () => undefined,
+      ),
+    )
     databasePerTenantFalkorDb = null
   }
   for (const driver of instancePerTenantBoltClients.values()) {

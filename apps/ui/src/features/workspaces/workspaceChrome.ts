@@ -1,0 +1,86 @@
+/**
+ * Shared Workspace split chrome (conversation + tools panes).
+ * Keep visual tokens in sync across both columns.
+ *
+ * Breakpoints (Tailwind defaults — prefer responsive classes over JS):
+ * - `max-md` (<768px): SideNav overlay + hamburger; owning pane edge-flush
+ * - `max-lg` (<1024px): single workspace column
+ * - `lg:` (≥1024px): chat + tools side by side
+ */
+
+/** Outer top inset — optically aligned with SideNav header. Add `flex-1` at call sites that should grow. */
+export const workspaceChromeOuterClassName =
+  "flex min-h-0 min-w-0 flex-col pb-3 pt-[6.5px]"
+
+/**
+ * Active tab: 37px tall including the 1px hairline. Its 1px side borders are
+ * in the width, so the idle tab has transparent side borders of the same
+ * size: a tab switch does not move the tabs beside it. Text tabs add `px-3`;
+ * the icon tab is square (7px + 1px border + 16px icon).
+ * Idle tab: the same 37px box, with a transparent border, so the selected and
+ * idle tabs share one top edge and one baseline.
+ */
+export const workspaceChromeTabClassName = [
+  "relative z-10 box-border inline-flex h-[37px] shrink-0 items-center justify-center px-[7px]",
+  "rounded-t-md border border-b-0 border-white/[0.06] bg-card",
+  "text-sm font-medium leading-none text-foreground",
+].join(" ")
+
+/** Idle tab. It takes the same box as the active tab. */
+export const workspaceChromeTabIdleClassName = [
+  "box-border inline-flex h-[37px] shrink-0 cursor-pointer items-center justify-center px-[7px]",
+  "rounded-t-md border border-b-0 border-transparent bg-transparent",
+  "text-sm font-medium leading-none text-zinc-400",
+  "transition-[color,background-color] hover:bg-teal-900/30 hover:text-zinc-50",
+].join(" ")
+
+/** Gap between conversation + pane tabs (both columns). Sit 1px over the card hairline. */
+export const workspaceChromeTabStripClassName =
+  "relative z-10 -mb-px flex items-end gap-1"
+
+export function workspaceChromeIconTabClassName(active: boolean): string {
+  return active ? workspaceChromeTabClassName : workspaceChromeTabIdleClassName
+}
+
+/**
+ * When the pane owns the viewport (nav overlay, `max-md`): drop side/bottom
+ * inset, card radius, and those borders so the surface is edge-flush.
+ */
+export const workspaceChromeOuterFlushClassName = "max-md:pb-0 max-md:pr-0"
+
+const workspaceChromeCardFlushClassName =
+  "max-md:rounded-none max-md:border-x-0 max-md:border-b-0"
+
+export const workspaceChromeCardClassName = [
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden",
+  "rounded-md rounded-tl-none border border-white/[0.06]",
+  "bg-card text-card-foreground",
+  workspaceChromeCardFlushClassName,
+].join(" ")
+
+/** Tools pane card. Top-left radius is restored unless Files leads the strip. */
+export const workspaceChromeCardPaneClassName = [
+  "relative flex min-h-0 flex-1 flex-col overflow-hidden",
+  "rounded-md border border-white/[0.06]",
+  "bg-card text-card-foreground",
+  workspaceChromeCardFlushClassName,
+].join(" ")
+
+/**
+ * Conversation column beside the tools pane. Maximize collapses it at once,
+ * with no transition (large layout does not animate; see DESIGN.md Motion).
+ * The caller also sets `inert` while it is collapsed.
+ */
+export function workspaceChatColumnClassName(input: {
+  maximized: boolean
+  paneOpen: boolean
+}): string {
+  return [
+    "flex h-full min-h-0 min-w-0 flex-1",
+    input.maximized
+      ? "grow-0 overflow-hidden opacity-0"
+      : input.paneOpen
+        ? "max-lg:hidden"
+        : "",
+  ].join(" ")
+}
