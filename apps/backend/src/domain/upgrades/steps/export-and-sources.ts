@@ -5,6 +5,10 @@ import {
   type RepositoryWorkspaceMaps,
 } from "../../../models/workspace-export.js"
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
+import {
+  PlainGitUrlError,
+  resolvePlainGitRemote,
+} from "../../../services/git/plain-git-remote.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
 import { SourceChangeError } from "../../workspace-sources/edit.js"
 import { githubSourceRepositories } from "../../workspace-sources/github-sources.js"
@@ -13,10 +17,7 @@ import {
   SOURCE_MIGRATION_HOOKS,
   type SourceMigrationHook,
 } from "../../workspace-sources/migration-plan.js"
-import {
-  checkPlainGitUrl,
-  sourceRepositoryUrls,
-} from "../../workspace-sources/providers/git.js"
+import { sourceRepositoryUrls } from "../../workspace-sources/providers/git.js"
 import {
   gitSourcePath,
   SOURCE_FILES_FOLDER,
@@ -63,7 +64,7 @@ import type {
  * - `kept`: nothing makes this knowledge again, so step 1 exports it:
  *   - `not_github`: an org repository that is not on GitHub and that no
  *     plain git source links (its URL is not a public HTTPS git URL, see
- *     `checkPlainGitUrl`). Fresh ingestion cannot read it.
+ *     `resolvePlainGitRemote`). Fresh ingestion cannot read it.
  *   - `not_linked`: a GitHub repository that the final sources file does
  *     not link.
  *   - `workspace_repository`: an object of the repository of a Workspace
@@ -361,9 +362,10 @@ export async function formatOneLinkedRepositories(input: {
         source.repositoryConnectionById.get(id) ?? null,
       )
   // A repository with a GitHub connection becomes a GitHub source. Each
-  // other repository becomes a plain git source when its URL is a public
-  // HTTPS git URL, as the old ingestion on main read it with no credential
-  // (CTX-815).
+  // other repository becomes a plain git source when its URL passes every
+  // plain git rule, also the DNS rule (`resolvePlainGitRemote`), as the old
+  // ingestion on main read it with no credential (CTX-815). A refused URL is
+  // not linked, so step 1 keeps its knowledge and exports it.
   const viaGithub = (gitUrl: string) =>
     !!connectionByUrl.get(gitUrl) &&
     !!githubRepoFullNameFromWorkspaceUrl(gitUrl)
@@ -380,9 +382,13 @@ export async function formatOneLinkedRepositories(input: {
   const plainGitRefused: Array<{ gitUrl: string; reason: string }> = []
   for (const gitUrl of linkedUrls) {
     if (viaGithub(gitUrl)) continue
-    const checked = checkPlainGitUrl(gitUrl)
-    if (checked.ok) plainGit.push({ gitUrl, url: checked.url })
-    else plainGitRefused.push({ gitUrl, reason: checked.reason })
+    try {
+      const remote = await resolvePlainGitRemote(gitUrl)
+      plainGit.push({ gitUrl, url: remote.url })
+    } catch (error) {
+      if (!(error instanceof PlainGitUrlError)) throw error
+      plainGitRefused.push({ gitUrl, reason: error.message })
+    }
   }
   return { linkedUrls, linkedRepositories, plainGit, plainGitRefused }
 }
@@ -515,7 +521,7 @@ export function exportAndSourcesStep(
         )
       for (const refused of plainGitRefused)
         report.push(
-          `Not linked: ${refused.gitUrl}. ${refused.reason}, so ctx| does not read it as a plain git source.`,
+          `Not linked: ${refused.gitUrl}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
         )
       if (linkedRepositories.skipped.length || plainGitRefused.length)
         notices.push({

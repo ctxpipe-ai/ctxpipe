@@ -4,6 +4,7 @@ import { parseSourceFile } from "../source-file-text.js"
 import {
   checkPlainGitUrl,
   gitSourceScopeUrl,
+  plainGitUrlPolicy,
   sourceRepositoryName,
   sourceRepositoryUrls,
 } from "./git.js"
@@ -14,6 +15,7 @@ describe("checkPlainGitUrl", () => {
       ok: true,
       url: "https://git.example.org/team/app.git",
       host: "git.example.org",
+      port: 443,
       path: "/team/app.git",
     })
     expect(checkPlainGitUrl("https://github.com/octocat/Hello-World")).toEqual(
@@ -57,6 +59,29 @@ describe("checkPlainGitUrl", () => {
       expect.objectContaining({ ok: false, rule }),
     )
   })
+
+  it.each([
+    "git://git.example.org/team/app.git",
+    "ssh://git@git.example.org/team/app.git",
+    "git@git.example.org:team/app.git",
+    "file:///srv/team/app.git",
+  ])("names the scheme rule when it refuses %s", (url) => {
+    const checked = checkPlainGitUrl(url)
+    expect(checked.ok).toBe(false)
+    if (checked.ok) return
+    expect(checked.reason).toContain(
+      "Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
+    )
+  })
+
+  it("has the same strict policy in each deployment mode until a product decision changes it", () => {
+    for (const mode of ["hosted", "self-host"] as const)
+      expect(plainGitUrlPolicy(mode), mode).toEqual({
+        http: false,
+        otherPorts: false,
+        privateHosts: false,
+      })
+  })
 })
 
 describe("a plain git source file", () => {
@@ -91,7 +116,7 @@ describe("a plain git source file", () => {
     })
     expect(parse("url: http://git.example.org/team/app.git")).toMatchObject({
       ok: false,
-      detail: expect.stringContaining("must use HTTPS"),
+      detail: expect.stringContaining("must use an https:// URL"),
     })
     expect(
       parse("url: https://git.example.org/team/app.git\nref: main"),

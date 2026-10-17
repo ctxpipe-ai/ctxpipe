@@ -41,6 +41,7 @@ import {
 } from "../../domain/workspace-sources/source-file.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -78,9 +79,10 @@ const stallName = `acme/stall-api-${suffix}`
 /** A source with 21 roots: two shards. */
 const wideName = `acme/wide-monorepo-${suffix}`
 /**
- * A public plain git source with no connection (CTX-815). The host is
- * github.com, so its name has public addresses in DNS; git reads the
- * repository from a local folder (`url.<dir>.insteadOf`).
+ * A public plain git source with no connection (CTX-815). The DNS of the
+ * test gives its host a public address, and the git config of each plain
+ * git read sends it to a local folder (`usePlainGitNetwork`): a plain git
+ * read reads no global git config.
  */
 const plainUrl = `https://github.com/acme/plain-${suffix}.git`
 const plainSourcePath = gitSourcePath(plainUrl) ?? ""
@@ -173,6 +175,7 @@ let sourceSha: string
 let wideSha: string
 let stallSha: string
 let plainSha: string
+let restorePlainGit = () => {}
 const pinned: string[] = []
 
 function git(cwd: string, ...args: string[]): string {
@@ -234,6 +237,13 @@ beforeAll(async () => {
     `[url "${remotes}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`,
   )
   vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfig)
+  restorePlainGit = usePlainGitNetwork({
+    lookup: async () => [{ address: "93.184.215.14" }],
+    gitConfig: [
+      [`url.${remotes}/.insteadOf`, "https://github.com/"],
+      ["protocol.file.allow", "always"],
+    ],
+  })
 
   // The workspace manifest names both roots, so no model chooses a root.
   sourceSha = remote(sourceName, {
@@ -379,6 +389,7 @@ beforeAll(async () => {
 }, 120_000)
 
 afterAll(async () => {
+  restorePlainGit()
   await worker?.stop()
   await backend?.stop()
   await tracerProvider.shutdown()

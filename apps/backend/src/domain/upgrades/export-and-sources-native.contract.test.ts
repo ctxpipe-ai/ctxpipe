@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
@@ -11,6 +11,7 @@ import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { readGitPackFromRemote } from "../../services/git/pack.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { seedLegacyExtractionObject } from "../../test/legacy-extraction-fixture.js"
 import {
   type NativeHydrationFixture,
@@ -29,6 +30,15 @@ import {
 } from "./registry.js"
 import { reingestUpgradeKey, workspaceSourceRepositories } from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
+
+// The DNS of the test: each plain git host resolves to a public address.
+let restoreNetwork = () => {}
+beforeAll(() => {
+  restoreNetwork = usePlainGitNetwork({
+    lookup: async () => [{ address: "93.184.215.14" }],
+  })
+})
+afterAll(() => restoreNetwork())
 
 const KEY = "format-3"
 const BRANCH = upgradeBranch(3)
@@ -454,7 +464,7 @@ it(
             "Linked https://git.example.org/team-d/plain as a plain git source in `sources/git/git.example.org/team-d-plain.md`.",
           )
           expect(body).toContain(
-            "Not linked: https://gitlab.com:8443/team-c/tools. A plain git URL must use the default HTTPS port, so ctx| does not read it as a plain git source.",
+            "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. ctx| keeps its knowledge and exports it.",
           )
 
           // A second plan of each step, on the commit that it made, changes

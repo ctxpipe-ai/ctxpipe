@@ -506,24 +506,34 @@ function shardRuntime(
           signal: lockSignal,
         })
         const existing = await box.sandbox.ensureExisting()
+        const existingRoot = existing ? await box.root(existing.id) : null
         // A process of an earlier step must not get this step's credentials.
-        if (existing)
-          await stopIngestAgentProcesses(await box.root(existing.id))
-        // Docker: a new sandbox gets this egress at create; an existing one
-        // gets it now. Vercel: the firewall gets it below.
-        if (existing && !box.firewall)
-          await refreshIngestSandboxEgress({
+        if (existingRoot) await stopIngestAgentProcesses(existingRoot)
+        // A new sandbox, or one whose prepare did not finish, fetches the
+        // source first. Only then may it reach a plain git host: a step's
+        // agent never can (see `ingestCredentialRules`).
+        const prepare =
+          !existingRoot || !(await ingestShardPrepared(existingRoot))
+        const fetchSource = prepare && spec.source.kind === "git"
+        const refresh = (withSource: boolean) =>
+          refreshIngestSandboxEgress({
             orgId: spec.orgId,
             runId: spec.runId,
             shard: spec.shard,
             egress,
+            fetchSource: withSource,
           })
+        // Docker: a new sandbox gets the source fetch rules at create; an
+        // existing one gets this step's rules now. Vercel: the firewall gets
+        // them below.
+        if (existing && !box.firewall) await refresh(fetchSource)
         const handle = existing ?? (await box.sandbox.ensure())
-        const root = await box.root(handle.id)
+        const root = existingRoot ?? (await box.root(handle.id))
+        const credentials = hostedStepCredentials(egress)
         return withStepFirewall(
           box.firewall,
           handle.id,
-          hostedStepCredentials(egress),
+          fetchSource ? { ...credentials, fetchSource: true } : credentials,
           { orgId: spec.orgId, runId: spec.runId },
           async () => {
             try {
@@ -531,22 +541,36 @@ function shardRuntime(
                 modelProxyUrl: egress.modelProxyUrl,
                 ...(box.agentPath ? { path: box.agentPath } : {}),
               })
-              if (!(await ingestShardPrepared(root))) {
+              if (prepare) {
                 const models = ingestModels()
-                await prepareIngestShard(handle, root, {
-                  bundle: spec.bundle,
-                  opencodeConfig: ingestOpenCodeConfig({
-                    modelBase: models.medium,
-                    models: [models.fast],
-                    skills: spec.bundle.skills,
-                    proxyAddsCredentials: true,
-                    toolBridgeUrl: egress.bridge.url,
-                  }),
-                  agentEnv,
-                  source: { url: spec.source.url, sha: spec.source.sha },
-                  contexts: spec.destinations,
-                  now: new Date(),
-                })
+                try {
+                  await prepareIngestShard(handle, root, {
+                    bundle: spec.bundle,
+                    opencodeConfig: ingestOpenCodeConfig({
+                      modelBase: models.medium,
+                      models: [models.fast],
+                      skills: spec.bundle.skills,
+                      proxyAddsCredentials: true,
+                      toolBridgeUrl: egress.bridge.url,
+                    }),
+                    agentEnv,
+                    source: {
+                      url: spec.source.url,
+                      sha: spec.source.sha,
+                      // No later fetch can get a missing blob of a plain
+                      // git source: clone each blob of the window now.
+                      blobless: spec.source.kind !== "git",
+                    },
+                    contexts: spec.destinations,
+                    now: new Date(),
+                  })
+                } finally {
+                  // The source fetch ends with the prepare, before an agent
+                  // runs, also when the prepare fails.
+                  if (fetchSource && box.firewall)
+                    await box.firewall.openTurn(handle.id, credentials)
+                  else if (fetchSource) await refresh(false)
+                }
               }
               return await fn({ handle, root, agentEnv, signal: lockSignal })
             } catch (error) {

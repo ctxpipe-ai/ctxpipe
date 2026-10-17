@@ -1,6 +1,10 @@
 import { execFile } from "node:child_process"
-import { mkdtemp, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, type Server } from "node:http"
+import {
+  createServer as createHttpsServer,
+  type Server as HttpsServer,
+} from "node:https"
 import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
@@ -9,8 +13,10 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import {
   isPublicAddress,
   PlainGitUrlError,
+  plainGitPinnedRequest,
   plainGitRemote,
   resolvePlainGitRemote,
+  usePlainGitNetwork,
 } from "./plain-git-remote.js"
 
 const exec = promisify(execFile)
@@ -39,6 +45,7 @@ describe("resolvePlainGitRemote", () => {
     ).resolves.toEqual({
       url: "https://git.example.org/team/app.git",
       host: "git.example.org",
+      port: 443,
       path: "/team/app.git",
       addresses: answers["git.example.org"],
     })
@@ -104,6 +111,7 @@ describe("resolvePlainGitRemote", () => {
 describe("a plain git read with real git", () => {
   let server: Server
   let folder: string
+  let restore: () => void
   const requests: Array<{ url: string; authorization: string | null }> = []
 
   beforeAll(async () => {
@@ -121,30 +129,39 @@ describe("a plain git read with real git", () => {
     })
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     const { port } = server.address() as AddressInfo
+    // The environment of the test: DNS answers, and `git.example.org` is
+    // this local server (git config of the read, not a global config).
+    restore = usePlainGitNetwork({
+      lookup,
+      gitConfig: [
+        [`url.http://127.0.0.1:${port}/.insteadOf`, "https://git.example.org/"],
+        ["protocol.http.allow", "always"],
+      ],
+    })
+    // A global config with a credential for each host: a plain git read
+    // must not use it.
     folder = await mkdtemp(join(tmpdir(), "plain-git-remote-"))
-    // The environment of the test: `git.example.org` is this local server.
     const config = join(folder, "gitconfig")
     await writeFile(
       config,
-      `[url "http://127.0.0.1:${port}/"]\n\tinsteadOf = https://git.example.org/\n[protocol "http"]\n\tallow = always\n`,
+      "[http]\n\textraHeader = Authorization: Bearer leaked-token\n",
     )
     vi.stubEnv("GIT_CONFIG_GLOBAL", config)
   })
 
   afterAll(async () => {
+    restore()
     vi.unstubAllEnvs()
     await new Promise((resolve) => server.close(resolve))
     await rm(folder, { recursive: true, force: true })
   })
 
-  it("follows no redirect and sends no credential", async () => {
-    const remote = await plainGitRemote(
-      "https://git.example.org/team/app.git",
-      lookup,
-    )
+  it("follows no redirect, and sends no credential, also one of the global git config", async () => {
+    const remote = await plainGitRemote("https://git.example.org/team/app.git")
     expect(remote.env).toMatchObject({
       GIT_TERMINAL_PROMPT: "0",
       GIT_ASKPASS: "",
+      GIT_CONFIG_NOSYSTEM: "1",
     })
     const result = await exec("git", ["ls-remote", "--", remote.url], {
       env: { ...process.env, ...remote.env },
@@ -163,5 +180,113 @@ describe("a plain git read with real git", () => {
         authorization: null,
       },
     ])
+  })
+
+  it("does not read a host that the git config of the read does not allow: no ssh, git:// or file://", async () => {
+    const remote = await plainGitRemote("https://git.example.org/team/app.git")
+    for (const url of [
+      `file://${folder}`,
+      "git://127.0.0.1:1/team/app.git",
+      "ssh://git@127.0.0.1:1/team/app.git",
+    ]) {
+      const result = await exec("git", ["ls-remote", "--", url], {
+        env: { ...process.env, ...remote.env },
+        timeout: 30_000,
+      }).then(
+        () => "",
+        (error: { stderr?: string }) => error.stderr ?? "",
+      )
+      expect(result, url).toMatch(/transport '(file|git|ssh)' not allowed/)
+    }
+  })
+})
+
+describe("plainGitPinnedRequest", () => {
+  let server: HttpsServer
+  let folder: string
+  let ca: string
+  let port: number
+  const requests: Array<{ url: string; host: string | undefined }> = []
+
+  beforeAll(async () => {
+    folder = await mkdtemp(join(tmpdir(), "plain-git-pin-"))
+    const file = (name: string) => join(folder, name)
+    const openssl = (...args: string[]) =>
+      exec("openssl", args, { timeout: 20_000 })
+    await openssl(
+      "req",
+      "-x509",
+      "-newkey",
+      "rsa:2048",
+      "-nodes",
+      "-days",
+      "1",
+      "-subj",
+      "/CN=pinned.example.test",
+      "-addext",
+      "subjectAltName=DNS:pinned.example.test",
+      "-keyout",
+      file("key"),
+      "-out",
+      file("crt"),
+    )
+    ca = await readFile(file("crt"), "utf8")
+    // The repository path redirects to a private address.
+    server = createHttpsServer(
+      { key: await readFile(file("key")), cert: ca },
+      (request, response) => {
+        requests.push({ url: request.url ?? "", host: request.headers.host })
+        response.writeHead(302, {
+          location: "https://169.254.169.254/latest/meta-data",
+        })
+        response.end()
+      },
+    )
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    port = (server.address() as AddressInfo).port
+  })
+
+  afterAll(async () => {
+    await new Promise((resolve) => server.close(resolve))
+    await rm(folder, { recursive: true, force: true })
+  })
+
+  it("connects only to the checked address, with no DNS lookup, and passes a redirect back without following it", async () => {
+    // `.test` names have no DNS answer: only the pin reaches the server.
+    const response = await plainGitPinnedRequest({
+      url: new URL(
+        "https://pinned.example.test/team/app.git/info/refs?service=git-upload-pack",
+      ),
+      method: "GET",
+      headers: new Headers({ "git-protocol": "version=2" }),
+      body: null,
+      addresses: ["127.0.0.1"],
+      ca,
+      port,
+    })
+    expect(response.status).toBe(302)
+    expect(response.headers.get("location")).toBe(
+      "https://169.254.169.254/latest/meta-data",
+    )
+    expect(requests).toEqual([
+      {
+        url: "/team/app.git/info/refs?service=git-upload-pack",
+        host: `pinned.example.test:${port}`,
+      },
+    ])
+  })
+
+  it("refuses a server whose certificate is not for the host name", async () => {
+    await expect(
+      plainGitPinnedRequest({
+        url: new URL("https://other.example.test/team/app.git/info/refs"),
+        method: "GET",
+        headers: new Headers(),
+        body: null,
+        addresses: ["127.0.0.1"],
+        ca,
+        port,
+      }),
+    ).rejects.toThrow()
   })
 })

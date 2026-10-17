@@ -9,6 +9,7 @@ import { decodeJwt } from "jose"
 import { log } from "../../observability/logger.js"
 import {
   type PlainGitLookup,
+  plainGitPinnedRequest,
   resolvePlainGitRemote,
 } from "../../services/git/plain-git-remote.js"
 import type { IngestGitAccess } from "./ingest-sandbox-egress.js"
@@ -296,29 +297,43 @@ export async function ingestEgressProxy(input: {
         return refuse(`${request.method} ${url.host}${url.pathname}`, meta)
       const headers = forwardedHeaders(request.headers)
       if (rule.authorization) headers.set("authorization", rule.authorization)
-      // A plain git host must resolve only to public addresses (CTX-815).
-      // The proxy follows no redirect, and a redirect to another path or
-      // host has no rule.
-      else {
-        const refused = await resolvePlainGitRemote(
+      // A plain git host must resolve only to public addresses (CTX-815),
+      // and the request connects only to the addresses of that check, so a
+      // new DNS answer cannot send it to a private address. The proxy
+      // follows no redirect, and a redirect to another path or host has no
+      // rule.
+      let plainGitAddresses: string[] | undefined
+      if (!rule.authorization) {
+        const checked = await resolvePlainGitRemote(
           `https://${url.host}${url.pathname}`,
           input.lookup,
         ).then(
-          () => null,
+          (remote) => remote.addresses,
           (error: unknown) =>
             error instanceof Error ? error.message : String(error),
         )
-        if (refused !== null) return refuse(`${url.host}: ${refused}`, meta)
+        if (typeof checked === "string")
+          return refuse(`${url.host}: ${checked}`, meta)
+        plainGitAddresses = checked
       }
+      const body = request.method === "GET" ? null : request.body
       let upstream: Response
       try {
-        upstream = await fetch(url, {
-          method: request.method,
-          headers,
-          ...(request.method === "GET" ? {} : { body: request.body }),
-          redirect: "manual",
-          duplex: "half",
-        } as RequestInit)
+        upstream = plainGitAddresses
+          ? await plainGitPinnedRequest({
+              url,
+              method: request.method,
+              headers,
+              body,
+              addresses: plainGitAddresses,
+            })
+          : await fetch(url, {
+              method: request.method,
+              headers,
+              ...(body ? { body } : {}),
+              redirect: "manual",
+              duplex: "half",
+            } as RequestInit)
       } catch (error) {
         log.warn({
           step: "ingest-egress-upstream",

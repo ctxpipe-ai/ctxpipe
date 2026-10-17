@@ -96,7 +96,12 @@ export async function prepareIngestShard(
     bundle: IngestSkillBundle
     opencodeConfig: IngestOpenCodeConfig
     agentEnv: Record<string, string>
-    source: { url: string; sha: string }
+    /**
+     * `blobless`: a blobless clone, whose missing blobs a step fetches
+     * later (GitHub). A plain git source gets each blob of the window now:
+     * a step cannot reach its host.
+     */
+    source: { url: string; sha: string; blobless: boolean }
     contexts: Array<{ workspaceId: string; url: string }>
     now: Date
   },
@@ -110,15 +115,16 @@ export async function prepareIngestShard(
     .toISOString()
     .slice(0, 10)
   const sourceClone = "/tmp/ctxpipe-clone-source"
+  const filter = input.source.blobless ? " --filter=blob:none" : ""
   await run(
     handle,
     [
       `rm -rf ${sourceClone}`,
       // A repository with no commit in the window fails a `--shallow-since`
       // clone ("error processing shallow info"): then clone its tip only.
-      `{ git clone -q --filter=blob:none --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && git clone -q --filter=blob:none --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
+      `{ git clone -q${filter} --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && git clone -q${filter} --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
       // The run's SHA can be older than the history window.
-      `(git -C ${sourceClone} cat-file -e ${input.source.sha}^{commit} 2>/dev/null || git -C ${sourceClone} fetch -q --filter=blob:none --depth=1 origin ${input.source.sha})`,
+      `(git -C ${sourceClone} cat-file -e ${input.source.sha}^{commit} 2>/dev/null || git -C ${sourceClone} fetch -q${filter} --depth=1 origin ${input.source.sha})`,
       `git -C ${sourceClone} checkout -q --detach ${input.source.sha}`,
     ].join(" && "),
   )

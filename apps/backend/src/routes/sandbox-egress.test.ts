@@ -19,6 +19,7 @@ import {
   ingestEgressProxy,
   sealIngestEgressScope,
 } from "../domain/workspaces/ingest-egress-proxy.js"
+import { ingestNetworkPolicy } from "../domain/workspaces/ingest-sandbox-egress.js"
 import {
   registerSandboxEgressRoute,
   sandboxEgressGuard,
@@ -717,6 +718,39 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
       expect(response.status, `${method} ${target}`).toBe(403)
     }
     expect(seen).toEqual([])
+  })
+
+  it("refuses a Git fetch of the plain git source from a step after prepare: no POST body can leave to the git host", async () => {
+    const plainGit = [{ host: "git.example.org", path: "/team/app.git" }]
+    const sealedOf = (fetchSource: boolean) => {
+      const policy = ingestNetworkPolicy({
+        git: scope.git,
+        plainGit,
+        backendHost,
+        secret,
+        sandboxName: "sbx-ingest",
+        step: fetchSource ? { ...step, fetchSource } : step,
+      }) as { allow: Record<string, Array<{ forwardURL?: string }>> }
+      return new URL(
+        policy.allow["github.com"]?.[0]?.forwardURL ?? "",
+      ).pathname.replace("/api/v1/sandbox-egress/", "")
+    }
+    const fetchOf = (sealed: string) =>
+      Promise.all([
+        forwarded(
+          "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+          { sealed },
+        ),
+        forwarded("https://git.example.org/team/app.git/git-upload-pack", {
+          sealed,
+          method: "POST",
+          body: "0032want abc\nWorkspace content\n0000",
+        }),
+      ]).then((responses) => responses.map((response) => response.status))
+    expect(await fetchOf(sealedOf(false))).toEqual([403, 403])
+    expect(seen).toEqual([])
+    // During prepare, the same fetch reaches the host.
+    expect(await fetchOf(sealedOf(true))).toEqual([200, 200])
   })
 
   it("refuses a plain git host that resolves to a private address", async () => {

@@ -636,7 +636,7 @@ describe("planSourceRows of plain git source files (CTX-815)", () => {
       [
         "sources/git/git.example.org/plain-http.md",
         "invalid",
-        expect.stringContaining("must use HTTPS"),
+        expect.stringContaining("must use an https:// URL"),
       ],
       [
         "sources/git/github.com/acme-context.md",

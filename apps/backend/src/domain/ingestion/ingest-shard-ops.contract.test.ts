@@ -170,7 +170,11 @@ describe("ingest shard commands in a Docker sandbox", () => {
             toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
           }),
           agentEnv,
-          source: { url: "/tmp/remotes/source.git", sha: sourceSha },
+          source: {
+            url: "/tmp/remotes/source.git",
+            sha: sourceSha,
+            blobless: true,
+          },
           contexts: [
             { workspaceId: WORKSPACE_ID, url: "/tmp/remotes/context.git" },
           ],

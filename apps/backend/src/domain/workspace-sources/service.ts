@@ -314,7 +314,7 @@ async function assertConnection(
   if (expected === null)
     throw new SourceChangeError(
       400,
-      "A plain git source has no connection. Add or change its file under sources/git/ with a pull request.",
+      "A plain git source has no connection. Add or change its file under sources/git/ with a pull request. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
     )
   const connection = (await listOrgConnections(orgId)).find(
     (item) => item.id === connectionId,

@@ -27,10 +27,12 @@ export type PlainGitUrlRule =
   | "path"
 
 export type PlainGitUrl = {
-  /** `https://<host><path>`: the URL that git fetches. */
+  /** `https://<host><path>` (or `http://`, with a port): the URL that git fetches. */
   url: string
   /** The host name, in lower case, with no port. */
   host: string
+  /** The port that git connects to: the URL's port, or 443 (80 for `http`). */
+  port: number
   /** The repository path, with no `/` at the end (`/team/app.git`). */
   path: string
 }
@@ -55,36 +57,73 @@ const PRIVATE_NAME_SUFFIXES = [
   "arpa",
 ]
 
+/** Where ctx| runs: ctx| runs the service (`hosted`), or a customer does. */
+export type PlainGitDeployment = "hosted" | "self-host"
+
+/** What a plain git URL may use. */
+export type PlainGitUrlPolicy = {
+  /** `http://` too, not only `https://`. */
+  http: boolean
+  /** A port that is not the default port of the scheme. */
+  otherPorts: boolean
+  /** An IP host, a private name, and a host with private addresses. */
+  privateHosts: boolean
+}
+
+/**
+ * The plain git URL policy of one deployment mode: the one place that
+ * decides it. Each mode has the strict rule now: HTTPS, the default port,
+ * and a public host only. A product decision about private hosts, `http`,
+ * or other ports on self-host changes only this function. The fetch pins
+ * (`http.curloptResolve`, the egress proxy, and the vault rule) use port
+ * 443, so a rule that allows more must change them too. In each mode, git
+ * never uses `ssh`, `git://`, or `file://`: the sandbox reaches the outside
+ * only through an HTTP proxy.
+ */
+export function plainGitUrlPolicy(
+  _deployment: PlainGitDeployment,
+): PlainGitUrlPolicy {
+  return { http: false, otherPorts: false, privateHosts: false }
+}
+
 const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
 const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/
 
 /**
- * Check a plain git URL with the rules that need no network: HTTPS, no
- * user name or password, the default port, no query or fragment, a host
- * name (not an IP address) that is not a private name, and a simple path.
- * A redirect is never followed, so a redirect cannot go around these rules.
+ * Check a plain git URL with the rules that need no network: HTTPS (also
+ * `http` when `policy` allows it), no user name or password, the default
+ * port (or another, when `policy` allows it), no query or fragment, a host
+ * name (not an IP address) that is not a private name (unless `policy`
+ * allows private hosts), and a simple path. The default policy is the
+ * strict one of hosted. A redirect is never followed, so a redirect cannot
+ * go around these rules.
  */
-export function checkPlainGitUrl(raw: string): PlainGitUrlCheck {
+export function checkPlainGitUrl(
+  raw: string,
+  policy: PlainGitUrlPolicy = plainGitUrlPolicy("hosted"),
+): PlainGitUrlCheck {
   const refuse = (rule: PlainGitUrlRule, reason: string): PlainGitUrlCheck => ({
     ok: false,
     rule,
     reason,
   })
+  // The rule as a person reads it, in each message about the scheme.
+  const schemes = `Plain git sources must use ${policy.http ? "an http:// or https://" : "an https://"} URL. ssh (git@… or ssh://), git:// and file:// are not supported.`
   let url: URL
   try {
     url = new URL(raw.trim())
   } catch {
-    return refuse("not_a_url", "The git URL is not a URL")
+    return refuse("not_a_url", `The git URL is not a URL. ${schemes}`)
   }
-  if (url.protocol !== "https:")
-    return refuse("not_https", "A plain git URL must use HTTPS")
+  if (url.protocol !== "https:" && !(policy.http && url.protocol === "http:"))
+    return refuse("not_https", schemes)
   if (url.username || url.password)
     return refuse(
       "userinfo",
       "A plain git URL must not have a user name or a password",
     )
   // The URL parser removes the default port (443), so each port is another.
-  if (url.port)
+  if (url.port && !policy.otherPorts)
     return refuse("port", "A plain git URL must use the default HTTPS port")
   if (url.search || url.hash || raw.includes("?") || raw.includes("#"))
     return refuse(
@@ -94,18 +133,24 @@ export function checkPlainGitUrl(raw: string): PlainGitUrlCheck {
   const host = url.hostname.toLowerCase()
   // The URL parser writes each IPv4 form (also hex and integer forms) as
   // dotted digits, and each IPv6 address in brackets.
-  if (host.startsWith("[") || /^[0-9.]+$/.test(host))
+  if (!policy.privateHosts && (host.startsWith("[") || /^[0-9.]+$/.test(host)))
     return refuse(
       "ip_address",
       "A plain git URL must use a host name, not an IP address",
     )
   const labels = host.split(".")
-  if (labels.length < 2 || !labels.every((label) => LABEL.test(label)))
+  if (
+    !policy.privateHosts &&
+    (labels.length < 2 || !labels.every((label) => LABEL.test(label)))
+  )
     return refuse(
       "private_host",
       "A plain git URL must use a public host name with a domain",
     )
-  if (PRIVATE_NAME_SUFFIXES.includes(labels.at(-1) ?? ""))
+  if (
+    !policy.privateHosts &&
+    PRIVATE_NAME_SUFFIXES.includes(labels.at(-1) ?? "")
+  )
     return refuse(
       "private_host",
       `A plain git URL must not use a private host name (.${labels.at(-1)})`,
@@ -125,7 +170,13 @@ export function checkPlainGitUrl(raw: string): PlainGitUrlCheck {
       "path",
       "A plain git URL must have a repository path of letters, digits, '.', '_', '~', and '-'",
     )
-  return { ok: true, url: `https://${host}${path}`, host, path }
+  return {
+    ok: true,
+    url: `${url.protocol}//${url.host}${path}`,
+    host,
+    port: Number(url.port) || (url.protocol === "http:" ? 80 : 443),
+    path,
+  }
 }
 
 /** The Zod schema of a plain git URL: {@link checkPlainGitUrl}. */

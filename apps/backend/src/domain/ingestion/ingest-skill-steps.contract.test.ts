@@ -505,7 +505,7 @@ beforeAll(async () => {
       toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
     }),
     agentEnv,
-    source: { url: "/tmp/remotes/source.git", sha: source.sha },
+    source: { url: "/tmp/remotes/source.git", sha: source.sha, blobless: true },
     contexts: [{ workspaceId: WORKSPACE_ID, url: "/tmp/remotes/context.git" }],
     now: new Date("2026-10-01T00:00:00Z"),
   })

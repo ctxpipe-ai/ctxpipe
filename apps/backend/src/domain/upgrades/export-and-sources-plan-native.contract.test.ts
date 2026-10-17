@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { eq } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,6 +13,7 @@ import {
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import {
   slackLegacyBindings,
@@ -33,6 +34,18 @@ import { exportAndSourcesStep } from "./steps/export-and-sources.js"
  * Upgrade step 1 on a real Workspace repository and a real database. Each
  * test reads the commit of the step and the lines of its report.
  */
+
+// The DNS of the test: `hidden.example.com` resolves to a private address,
+// each other host to a public one.
+let restoreNetwork = () => {}
+beforeAll(() => {
+  restoreNetwork = usePlainGitNetwork({
+    lookup: async (host) => [
+      { address: host === "hidden.example.com" ? "10.0.0.7" : "93.184.215.14" },
+    ],
+  })
+})
+afterAll(() => restoreNetwork())
 
 async function runStep(
   f: NativeHydrationFixture,
@@ -176,6 +189,11 @@ it(
             f,
             "https://gitlab.com:8443/team-c/tools.git",
           )
+          // A host name whose DNS answer is private: no source links it.
+          const hidden = await repository(
+            f,
+            "https://hidden.example.com/team-e/hidden.git",
+          )
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -202,6 +220,10 @@ it(
           })
           await seed(f, "Library", `lib:${own.id}:helpers`, {
             name: "Workspace helpers",
+          })
+          await seed(f, "Service", `svc:${hidden.id}:hidden`, {
+            name: "Hidden service",
+            summary: "No source links this repository.",
           })
           await seed(f, "Service", `svc:${lost.id}:worker`, {
             name: "Lost worker",
@@ -236,8 +258,15 @@ it(
           "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
         )
         expect(report).toContain(
-          "Not linked: https://gitlab.com:8443/team-c/tools. A plain git URL must use the default HTTPS port, so ctx| does not read it as a plain git source.",
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. ctx| keeps its knowledge and exports it.",
         )
+        // Step 1 runs the DNS rule too: a private answer is not linked.
+        expect(report).toContain(
+          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL resolves to a private, loopback, or link-local address. ctx| keeps its knowledge and exports it.",
+        )
+        expect(
+          tree.paths.filter((path) => path.startsWith("sources/git/hidden")),
+        ).toEqual([])
 
         const exported = tree.paths.filter((path) =>
           path.startsWith("knowledge/"),
@@ -248,6 +277,7 @@ it(
         // CODEOWNERS team. The re-ingestion makes the knowledge of the
         // plain git source again.
         expect(all).toContain("Tools CLI")
+        expect(all).toContain("Hidden service")
         expect(all).toContain("Context service")
         expect(all).toContain("Workspace helpers")
         expect(all).toContain("Platform team")
