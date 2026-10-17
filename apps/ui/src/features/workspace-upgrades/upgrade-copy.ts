@@ -132,6 +132,40 @@ export function upgradeBlockedCopy(
   }
 }
 
+/** The owner or admin can press Check again on these. */
+export function upgradeCanCheck(item: WorkspaceUpgradeItem): boolean {
+  return (
+    item.status === "pr_open" ||
+    (item.kind === "reingest" &&
+      item.status === "blocked" &&
+      item.blockedReason === "needs_format")
+  )
+}
+
+/** What a waiting item waits for, and what happens next. Null when it does not wait. */
+export function upgradeWaitingCopy(
+  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest">,
+): string | null {
+  if (item.status !== "pr_open") return null
+  const pullRequest = item.pullRequest?.number
+    ? `pull request #${item.pullRequest.number}`
+    : "the upgrade pull request"
+  return `ctx| waits for you to merge ${pullRequest} on GitHub. After the merge, ctx| reads the new format of the repository. This takes a few minutes. This page updates by itself.`
+}
+
+/** The next step of a re-ingestion that waits for the format upgrade. Null for other items. */
+export function upgradeBlockedNextStep(
+  item: Pick<WorkspaceUpgradeItem, "kind" | "status" | "blockedReason">,
+): string | null {
+  if (
+    item.kind !== "reingest" ||
+    item.status !== "blocked" ||
+    item.blockedReason !== "needs_format"
+  )
+    return null
+  return "Next step: merge the format upgrade pull request. After the merge, ctx| reads the new format and this item becomes ready to start. If you merged it already, press Check again."
+}
+
 /** The toast after the start of an item. A re-ingestion opens no pull request on start. */
 export function upgradeStartedMessage(item: { kind: string }): string {
   return item.kind === "reingest"

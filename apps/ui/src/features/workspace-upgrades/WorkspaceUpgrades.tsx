@@ -22,6 +22,7 @@ import {
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
+  checkWorkspaceUpgrades,
   startWorkspaceUpgrade,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
@@ -33,10 +34,13 @@ import {
   MEMBER_ASK_ADMIN,
   UPGRADE_STATUS_TAG,
   upgradeBlockedCopy,
+  upgradeBlockedNextStep,
+  upgradeCanCheck,
   upgradeCanStart,
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
+  upgradeWaitingCopy,
 } from "./upgrade-copy"
 
 /**
@@ -48,10 +52,15 @@ export function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
   isAdmin: boolean | null
   onStart: () => void
+  onCheck?: () => void
   isStarting?: boolean
+  isChecking?: boolean
   estimate?: ReactNode
 }) {
-  const { item, isAdmin, onStart, isStarting, estimate } = props
+  const { item, isAdmin, onStart, onCheck, isStarting, isChecking, estimate } =
+    props
+  const waiting = upgradeWaitingCopy(item)
+  const blockedNextStep = upgradeBlockedNextStep(item)
   const notices = upgradeNotices(item)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
@@ -165,10 +174,15 @@ export function UpgradeItemCard(props: {
         <div className="mt-3">
           <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
             <p>{upgradeBlockedCopy(item).body}</p>
+            {blockedNextStep ? <p className="mt-1">{blockedNextStep}</p> : null}
           </InlineAlert>
         </div>
       ) : item.note ? (
         <p className="mt-3 text-xs text-muted-foreground">{item.note}</p>
+      ) : null}
+
+      {waiting ? (
+        <p className="mt-3 text-xs text-muted-foreground">{waiting}</p>
       ) : null}
 
       {item.status === "failed" ? (
@@ -197,7 +211,16 @@ export function UpgradeItemCard(props: {
         ) : (
           <span />
         )}
-        {upgradeCanStart(item) && isAdmin === true ? (
+        {upgradeCanCheck(item) && isAdmin === true && onCheck ? (
+          <Button
+            variant="secondary"
+            isPending={isChecking}
+            onPress={onCheck}
+            aria-label={`Check again: ${item.title}`}
+          >
+            Check again
+          </Button>
+        ) : upgradeCanStart(item) && isAdmin === true ? (
           <Button
             variant="primary"
             isPending={isStarting}
@@ -241,12 +264,32 @@ function UpgradeItemRow(props: {
         }),
       ]),
   })
+  const checkMutation = useMutation({
+    mutationFn: () => checkWorkspaceUpgrades(orgSlug, workspaceSlug),
+    onSuccess: () => {
+      toast.success("ctx| is reading the repository now. This takes a minute.")
+    },
+    onError: (error: Error) => {
+      toast.error(error.message)
+    },
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.pending(orgSlug),
+        }),
+      ]),
+  })
   return (
     <UpgradeItemCard
       item={item}
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
+      isChecking={checkMutation.isPending}
       onStart={() => startMutation.mutate()}
+      onCheck={() => checkMutation.mutate()}
       estimate={item.estimate ? formatUpgradeEstimate(item.estimate) : null}
     />
   )

@@ -5,10 +5,13 @@ import {
   formatUpgradeEstimate,
   upgradeAlertLines,
   upgradeBlockedCopy,
+  upgradeBlockedNextStep,
+  upgradeCanCheck,
   upgradeCanStart,
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
+  upgradeWaitingCopy,
 } from "./upgrade-copy"
 
 const item = (status: WorkspaceUpgradeItem["status"]) =>
@@ -142,5 +145,26 @@ describe("upgrade copy", () => {
     ).toBe(
       "Estimated cost: $1.20 to $4.80 for 2 repositories, about 10 to 30 minutes.",
     )
+  })
+
+  it("names what an open item waits for, and the next step of a blocked re-ingestion", () => {
+    expect(
+      upgradeWaitingCopy({
+        status: "pr_open",
+        pullRequest: { number: 7, url: "https://example.com/pull/7" },
+      }),
+    ).toMatch(/waits for you to merge pull request #7/)
+    expect(
+      upgradeWaitingCopy({ status: "awaiting_operator", pullRequest: null }),
+    ).toBeNull()
+    const blocked = {
+      kind: "reingest",
+      status: "blocked",
+      blockedReason: "needs_format",
+    } as WorkspaceUpgradeItem
+    expect(upgradeBlockedNextStep(blocked)).toMatch(/press Check again/)
+    expect(upgradeCanCheck(blocked)).toBe(true)
+    expect(upgradeCanCheck(item("pr_open"))).toBe(true)
+    expect(upgradeCanCheck(item("awaiting_operator"))).toBe(false)
   })
 })
