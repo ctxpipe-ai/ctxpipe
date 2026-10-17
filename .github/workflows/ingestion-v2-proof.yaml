@@ -83,8 +83,8 @@ jobs:
           MODEL_HIGH_NAME: ${{ vars.MODEL_HIGH_NAME }}
         run: |
           # A random secret for this run only. Mask it before any step prints it.
-          auth_secret=$(openssl rand -hex 32)
-          echo "::add-mask::$auth_secret"
+          run_auth_key=$(openssl rand -hex 32)
+          echo "::add-mask::$run_auth_key"
           # The compose file gives the backend and the worker the GitHub App
           # settings. Compose reads the values from its own environment.
           cat > "$RUNNER_TEMP_DIR/proof.compose.yaml" <<'YAML'
@@ -100,7 +100,7 @@ jobs:
           YAML
           {
             echo "COMPOSE_FILE=docker-compose.yml:$RUNNER_TEMP_DIR/proof.compose.yaml"
-            echo "AUTH_SECRET=$auth_secret"
+            echo "AUTH_SECRET=$run_auth_key"
             echo "MODEL_PROVIDER=$MODEL_PROVIDER"
             echo "MODEL_PROVIDER_URL=$MODEL_PROVIDER_URL"
             echo "MODEL_FAST_NAME=$MODEL_FAST_NAME"

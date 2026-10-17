@@ -1,12 +1,10 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
 } from "../../domain/workspaces/connector-mirror-input.js"
-import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -16,7 +14,6 @@ import {
   resolveSemanticConflicts,
   writeOriginSchema,
 } from "../../domain/workspaces/semantic-merge.js"
-import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
   publishWorkspaceWriteRevision,
@@ -58,7 +55,11 @@ import { workspaceHydrate } from "./workspace-hydrate.js"
 export const semanticMergeContentSchema = z
   .object({
     mirror: connectorMirrorSourceSchema.optional(),
-    extraction: workspaceExtractionSchema.optional(),
+    /**
+     * Retired: the handoff of the old pipeline (CTX-642). A run that was
+     * queued with it still parses, and it ends with no write.
+     */
+    extraction: z.record(z.string(), z.unknown()).optional(),
     previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
@@ -129,13 +130,24 @@ export const workspaceSemanticMerge = defineWorkflow(
           ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
           : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
+        if (input.extraction) {
+          // The old pipeline is gone (CTX-642): no ingestion writes to a
+          // Workspace below format 3. A handoff that it queued ends here.
+          await step.run({ name: "complete-retired" }, () =>
+            persistWriteJobStatus(input.jobId, "completed"),
+          )
+          return {
+            committed: false as const,
+            reason: "legacy_ingestion_retired" as const,
+            commitSha: undefined,
+          }
+        }
         if (!input.handoff)
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
               kind: "semantic_merge",
               mirror: input.mirror,
-              extraction: input.extraction,
               revision: input.revision,
               workflowRunId: run.id,
               previousSha: input.previousSha,
@@ -299,27 +311,8 @@ export const workspaceSemanticMerge = defineWorkflow(
           for (;;) {
             const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
-              async () => {
-                // Only the old pipeline's extract ingest hands off an
-                // extraction. It must not push on a tree at format 3 or more
-                // (ADR-052 phase 4, G5), so the step that pushes reads the
-                // format of the tree that it pushes on.
-                if (
-                  input.extraction &&
-                  workspacePublishPipeline(
-                    await packWorkspaceFormat(committed),
-                  ) !== "legacy"
-                )
-                  return { stopped: true as const }
-                return attemptWorkspaceCommit(input, revision, committed, env)
-              },
+              () => attemptWorkspaceCommit(input, revision, committed, env),
             )
-            if ("stopped" in attempt)
-              return {
-                committed: false as const,
-                reason: "publish_pipeline_v2" as const,
-                commitSha: undefined,
-              }
             pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>

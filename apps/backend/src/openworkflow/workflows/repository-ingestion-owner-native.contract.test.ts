@@ -16,7 +16,6 @@ import {
   findRepositoryIngestionOwner,
   prepareRepositoryIngestionRequest,
 } from "../../models/repository-ingestion-requests.js"
-import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { withCanceledNativeInsert } from "../../test/native-workflow-insert-failure.js"
 import { ow } from "../client.js"
@@ -373,89 +372,6 @@ it(
           await worker.stop()
         }
       }),
-    )
-  },
-)
-
-it(
-  "rejects extraction superseded during write credential issuance before native Git push",
-  { timeout: 30_000 },
-  async () => {
-    await withNativeHydrationFixture(
-      {
-        namespaceId: openWorkflowNamespaceId(),
-        github: true,
-        githubWriteView: "writable",
-        writeStatus: "writable",
-      },
-      async (f) => {
-        await f.handle.cancel()
-        const repository = await withOrgIdContext(f.org, () =>
-          ensureOrgRepositoryForGitUrl({
-            orgId: f.org.id,
-            gitUrl: f.workspaceUrl,
-            githubConnectionId: f.connectionId,
-          }),
-        )
-        if (!repository) throw new Error("Fixture repository missing")
-        const input = { orgId: f.org.id, repositoryId: repository.id }
-        const logger = {
-          error: (error: Error) => {
-            throw error
-          },
-        }
-        await enqueueRepositoryIngestionWorkflow(input, logger)
-        const original = await prepareRepositoryIngestionRequest(input)
-        const { workspaceExtractIngest } = await import(
-          "./workspace-extract-ingest.js"
-        )
-        f.runner.implementWorkflow(
-          workspaceExtractIngest.spec,
-          workspaceExtractIngest.fn,
-        )
-        let superseded = false
-        f.onWriteCredentialRequest(async () => {
-          if (superseded) return
-          superseded = true
-          await enqueueRepositoryIngestionWorkflow(
-            { ...input, targetBranch: "replacement" },
-            logger,
-          )
-        })
-        const worker = f.runner.newWorker({ concurrency: 1 })
-        try {
-          await worker.start()
-          const handle = await f.runner.runWorkflow(
-            workspaceExtractIngest.spec,
-            {
-              orgId: f.org.id,
-              workspaceId: f.workspaceId,
-              jobId: `wjob_${f.id}_source_owner`,
-              revision: { ...f.revision, access: "write-default" },
-              extraction: await storeTestExtraction(f.org.id, {
-                repositoryId: repository.id,
-                repositoryUrl: f.workspaceUrl,
-                sourceSha: f.sha,
-                ingestionRequestId: original.requestId,
-                objects: [
-                  {
-                    kind: "Service",
-                    deduplicationKey: "svc:billing",
-                    name: "Billing",
-                    summary: "Captured service",
-                  },
-                ],
-                claims: [],
-              }),
-            },
-          )
-          await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow()
-          expect(superseded).toBe(true)
-          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
-        } finally {
-          await worker.stop()
-        }
-      },
     )
   },
 )

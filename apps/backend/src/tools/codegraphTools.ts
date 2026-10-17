@@ -1,10 +1,10 @@
-import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { repositoryIdSchema, toToon } from "../lib/agentToolRuntime.js"
 import { assertStructuralGraphAnchor } from "../lib/repoExplorerPlanner.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
 import { codesearchGraphQuery } from "./codesearchGraph.js"
+import { tool } from "./tool.js"
 
 const anchorSchema = z.object({
   symbol: z.string().min(1).optional(),

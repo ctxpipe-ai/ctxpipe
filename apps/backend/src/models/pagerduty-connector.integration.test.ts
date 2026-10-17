@@ -1,14 +1,14 @@
-import { execFile } from "node:child_process"
 import { resolve } from "node:path"
 import { fileURLToPath } from "node:url"
-import { promisify } from "node:util"
 import { config } from "dotenv"
 import { eq } from "drizzle-orm"
+import pg from "pg"
 import { afterAll, afterEach, beforeAll, expect, it } from "vitest"
 import { describeWithDatabase } from "../../test/db.js"
 import type { Env } from "../config/env.js"
-import { backfillMissingPagerdutyConnectionDirectory } from "../db/backfill-pagerduty-connection-directory.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
+import { ownerUrlForMigrate } from "../db/owner-migrate-url.js"
+import { reconcileConnectionDirectory } from "../db/reconcile-connection-directory.js"
 import { organizations } from "../db/schema/auth.js"
 import {
   CONNECTION_TYPE_PAGERDUTY,
@@ -41,9 +41,7 @@ import {
   upsertPagerdutyConnectionFromOAuth,
 } from "./pagerduty-connector.js"
 
-const execFileAsync = promisify(execFile)
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
-const backendRoot = resolve(__dirname, "../..")
 config({ path: resolve(__dirname, "../../.env.local") })
 
 const connectionString = process.env.DATABASE_URL
@@ -71,7 +69,7 @@ function historicalPagerdutyConfig() {
   }
 }
 
-describeWithDatabase("PagerDuty webhook directory backfill (Postgres)", () => {
+describeWithDatabase("PagerDuty webhook directory reconcile (Postgres)", () => {
   beforeAll(async () => {
     if (!connectionString) return
     initDb(connectionString)
@@ -145,47 +143,33 @@ describeWithDatabase("PagerDuty webhook directory backfill (Postgres)", () => {
       }),
     ).resolves.toEqual([])
 
-    const inserted = await backfillMissingPagerdutyConnectionDirectory({
-      orgId,
+    // Migrate runs the reconcile as the owner of `connections`.
+    const owner = new pg.Pool({
+      connectionString: ownerUrlForMigrate(connectionString ?? ""),
     })
-    expect(inserted).toBe(1)
+    try {
+      await reconcileConnectionDirectory(owner)
 
-    await expect(
-      getConnectionDirectoryByConnectionId(connectionId),
-    ).resolves.toMatchObject({
-      connectionId,
-      orgId,
-      type: CONNECTION_TYPE_PAGERDUTY,
-    })
-    await expect(
-      getConnectionDirectoryByConnectionId(otherConnectionId),
-    ).resolves.toBeUndefined()
-
-    const found = await listPagerdutyConnectionsByWebhookSubscriptionId({
-      webhookSubscriptionId,
-      env,
-    })
-    expect(found.map((row) => row.id)).toEqual([connectionId])
-
-    await expect(
-      backfillMissingPagerdutyConnectionDirectory({ orgId }),
-    ).resolves.toBe(0)
-
-    await execFileAsync(
-      "pnpm",
-      ["exec", "tsx", "src/db/backfill-pagerduty-connection-directory-cli.ts"],
-      {
-        cwd: backendRoot,
-        env: { ...process.env, DATABASE_URL: connectionString },
-      },
-    )
-    await expect(
-      getConnectionDirectoryByConnectionId(otherConnectionId),
-    ).resolves.toMatchObject({
-      connectionId: otherConnectionId,
-      orgId: otherOrgId,
-      type: CONNECTION_TYPE_PAGERDUTY,
-    })
+      for (const [id, org] of [
+        [connectionId, orgId],
+        [otherConnectionId, otherOrgId],
+      ] as const) {
+        await expect(
+          getConnectionDirectoryByConnectionId(id),
+        ).resolves.toMatchObject({
+          connectionId: id,
+          orgId: org,
+          type: CONNECTION_TYPE_PAGERDUTY,
+        })
+      }
+      const found = await listPagerdutyConnectionsByWebhookSubscriptionId({
+        webhookSubscriptionId,
+        env,
+      })
+      expect(found.map((row) => row.id)).toEqual([connectionId])
+    } finally {
+      await owner.end()
+    }
   })
 })
 

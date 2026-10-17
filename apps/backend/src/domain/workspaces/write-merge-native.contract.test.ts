@@ -6,7 +6,6 @@ import { parseEnv } from "../../config/env.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import { storeTestExtraction } from "../../test/extraction-capture-fixture.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 
@@ -753,12 +752,6 @@ it.each([
     committed: true,
   },
   {
-    origin: "extraction",
-    path: ".ctxpipe/sources.yaml",
-    content: "sources: []\n",
-    committed: false,
-  },
-  {
     origin: "agent",
     path: "knowledge/services/checkout.md",
     content: GENERATED_KNOWLEDGE,
@@ -770,13 +763,6 @@ it.each([
     path: "knowledge/services/checkout.md",
     content: GENERATED_KNOWLEDGE,
     committed: false,
-  },
-  // Extraction output that lost a push race: the host stamped generated_by.
-  {
-    origin: "extraction",
-    path: "knowledge/services/checkout.md",
-    content: GENERATED_KNOWLEDGE,
-    committed: true,
   },
 ] as const)(
   "$origin-origin semantic merge of a new $path",
@@ -807,16 +793,6 @@ it.each([
         const worker = runner.newWorker({ concurrency: 1 })
         try {
           await worker.start()
-          const extraction =
-            origin === "extraction"
-              ? await storeTestExtraction(f.org.id, {
-                  repositoryId: "repo_captured",
-                  repositoryUrl: f.workspaceUrl,
-                  sourceSha: f.sha,
-                  objects: [],
-                  claims: [],
-                })
-              : undefined
           // Raw input, as a queued run holds it: an old run has no origin.
           const input = {
             orgId: f.org.id,
@@ -830,7 +806,6 @@ it.each([
             files: [{ path, content }],
             deletePaths: [],
             ...(origin ? { origin } : {}),
-            ...(extraction ? { extraction } : {}),
           }
           const run = await runner.runWorkflow(
             workspaceSemanticMerge.spec,

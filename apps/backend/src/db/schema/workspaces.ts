@@ -15,7 +15,6 @@ import {
 import type { WorkspaceUpgradePayload } from "../../domain/upgrades/registry.js"
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
-import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
 import type { IngestPublishSource } from "../../domain/workspaces/extraction-source.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
@@ -233,7 +232,7 @@ export const workspaceWriteJobs = pgTable.withRLS(
       semanticHandoff?: WorkspaceSemanticHandoff
       knowledgePaths?: Record<string, string>
       previousSha?: string
-      extraction?: WorkspaceExtraction
+      extraction?: Record<string, unknown>
       ingest?: IngestPublishSource
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"

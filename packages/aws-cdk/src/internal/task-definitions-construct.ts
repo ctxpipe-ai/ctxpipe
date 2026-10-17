@@ -136,7 +136,7 @@ export class TaskDefinitionsConstruct extends Construct {
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
-          props.secrets.databaseUrlSecret,
+          props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
@@ -182,7 +182,7 @@ export class TaskDefinitionsConstruct extends Construct {
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
-          props.secrets.databaseUrlSecret,
+          props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
         ),
         SMTP_CONNECTION_URL: ecs.Secret.fromSecretsManager(
@@ -243,7 +243,7 @@ export class TaskDefinitionsConstruct extends Construct {
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
-          props.secrets.databaseUrlSecret,
+          props.secrets.runtimeDatabaseUrlSecret,
           "DATABASE_URL",
         ),
         ...otelHeaderSecrets,
@@ -269,7 +269,7 @@ export class TaskDefinitionsConstruct extends Construct {
       secrets: {
         AUTH_SECRET: ecs.Secret.fromSecretsManager(props.secrets.authSecret, "AUTH_SECRET"),
         DATABASE_URL: ecs.Secret.fromSecretsManager(
-          props.secrets.ownerDatabaseUrlSecret,
+          props.secrets.databaseUrlSecret,
           "DATABASE_URL",
         ),
         DATABASE_APP_PASSWORD: ecs.Secret.fromSecretsManager(
@@ -282,7 +282,7 @@ export class TaskDefinitionsConstruct extends Construct {
 
     this.grantTaskSecrets(backendTask, [
       props.secrets.authSecret,
-      props.secrets.databaseUrlSecret,
+      props.secrets.runtimeDatabaseUrlSecret,
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
@@ -290,7 +290,7 @@ export class TaskDefinitionsConstruct extends Construct {
     ]);
     this.grantTaskSecrets(workerTask, [
       props.secrets.authSecret,
-      props.secrets.databaseUrlSecret,
+      props.secrets.runtimeDatabaseUrlSecret,
       props.secrets.modelProviderSecret,
       props.secrets.smtpSecret,
       props.secrets.connectorSecret,
@@ -298,13 +298,13 @@ export class TaskDefinitionsConstruct extends Construct {
     ]);
     this.grantTaskSecrets(codesearchTask, [
       props.secrets.authSecret,
-      props.secrets.databaseUrlSecret,
+      props.secrets.runtimeDatabaseUrlSecret,
       otelHeadersSecret,
     ]);
     this.grantTaskSecrets(uiTask, [otelHeadersSecret]);
     this.grantTaskSecrets(migrateTask, [
       props.secrets.authSecret,
-      props.secrets.ownerDatabaseUrlSecret,
+      props.secrets.databaseUrlSecret,
       props.secrets.appDatabaseCredentialsSecret,
     ]);
 
