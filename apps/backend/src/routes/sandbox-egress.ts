@@ -6,10 +6,7 @@ import {
   ingestEgressProxy,
 } from "../domain/workspaces/ingest-egress-proxy.js"
 import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
-import {
-  vercelCredentials,
-  vercelOidcIssuer,
-} from "../domain/workspaces/vercel-sandbox-provider.js"
+import { vercelCredentials } from "../domain/workspaces/vercel-sandbox-provider.js"
 import { log } from "../observability/logger.js"
 
 const forbidden = () => new Response("Forbidden", { status: 403 })
@@ -57,8 +54,6 @@ export function sandboxEgressGuard(
 export function registerSandboxEgressRoute(app: OpenAPIHono<AppEnv>) {
   const handle = async (c: Context<AppEnv>) => {
     try {
-      const issuer = vercelOidcIssuer()
-      if (!issuer) return forbidden()
       const request = c.req.raw
       const url = new URL(request.url)
       const publicUrl = `${new URL(c.var.env.AUTH_BASE_URL).origin}${url.pathname}${url.search}`
@@ -72,7 +67,6 @@ export function registerSandboxEgressRoute(app: OpenAPIHono<AppEnv>) {
         } as RequestInit),
         sealed: c.req.param("sealed") ?? "",
         secret: c.var.env.AUTH_SECRET,
-        issuer,
         vercel: () => vercelCredentials(),
       })
     } catch (error) {

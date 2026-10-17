@@ -1,6 +1,10 @@
-import { dirname } from "node:path/posix"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
-import { type RootExec, runAsRoot } from "./ingest-root.js"
+import {
+  INGEST_AGENT_USER,
+  type RootExec,
+  runAsRoot,
+  STOP_AGENT_PROCESSES,
+} from "./ingest-root.js"
 import {
   INGEST_CONTEXT_ROOT,
   INGEST_HOME,
@@ -22,8 +26,7 @@ import {
  * host collects a step's output, root stops every process of the agent.
  */
 
-/** The agent user on every provider. It is in no sudoers file. */
-export const INGEST_AGENT_USER = "ctxpipe-agent"
+export { INGEST_AGENT_USER }
 
 /** The step output that root packs for the host to read. */
 export const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
@@ -55,34 +58,6 @@ async function run(handle: Sandbox, command: string): Promise<string> {
     )
   return result.stdout
 }
-
-/**
- * Stop every process of the agent user, again and again until none is left,
- * so a process that forks while it is stopped is also stopped. The real uid
- * in /proc/<pid>/status counts; a process cannot hide it. Each round freezes
- * all found processes first, so none can fork or write while the round kills
- * them. A process can exit before its signal arrives; the script uses
- * `|| true` there, because under `set -e` that failed `kill` stops the whole
- * script with no message.
- */
-const STOP_AGENT_PROCESSES = `uid=$(id -u ${INGEST_AGENT_USER})
-found() {
-  for d in /proc/[0-9]*; do
-    u=$(sed -n 's/^Uid:[[:space:]]*\\([0-9]*\\).*/\\1/p' "$d/status" 2>/dev/null || true)
-    if [ "$u" = "$uid" ]; then echo "\${d#/proc/}"; fi
-  done
-  true
-}
-i=0
-while [ "$i" -lt 100 ]; do
-  left=$(found)
-  [ -z "$left" ] && break
-  for p in $left; do kill -STOP "$p" 2>/dev/null || true; done
-  for p in $left; do kill -KILL "$p" 2>/dev/null || true; done
-  sleep 0.1
-  i=$((i + 1))
-done
-if [ -n "$(found)" ]; then echo "Agent processes are left: $(found)" >&2; exit 1; fi`
 
 /**
  * Stop every process of the agent user before a locked step does any work,
@@ -129,6 +104,16 @@ function refuseSpecialFiles(path: string): string {
   return `if [ -n "$(find ${quote(path)} ! -type f ! -type d | head -n 1)" ]; then rm -rf ${quote(path)}; echo "Ingest prepare: ${path} holds a symlink or a special file" >&2; exit 1; fi`
 }
 
+/** Writes each file of a packed bundle under a folder; then deletes the pack. */
+const UNPACK_BUNDLE = `const fs = require("node:fs"), path = require("node:path")
+const [dir, pack] = process.argv.slice(1)
+for (const file of JSON.parse(fs.readFileSync(pack, "utf8"))) {
+  const target = path.join(dir, file.path)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, Buffer.from(file.data, "base64"))
+}
+fs.rmSync(pack)`
+
 /**
  * Run once for each sandbox: make the agent user, the /ctxpipe layout, the
  * skill bundle, and the OpenCode config. The bundle is always copied again.
@@ -141,16 +126,24 @@ export async function prepareIngestSandbox(
   // The default user (never the agent) writes a private staging copy; root
   // copies it, checks the copy, and moves it into place.
   const staging = (await run(handle, "mktemp -d")).trim()
-  const folders = new Set(input.bundle.files.map((f) => dirname(f.path)))
+  // One upload for the whole bundle: a hosted sandbox makes one API call
+  // for each file write, and each call can fail on its own.
+  const packed = `${staging}.json`
+  await handle.fs.write(
+    packed,
+    new TextEncoder().encode(
+      JSON.stringify(
+        input.bundle.files.map((file) => ({
+          path: file.path,
+          data: Buffer.from(file.content).toString("base64"),
+        })),
+      ),
+    ),
+  )
   await run(
     handle,
-    `mkdir -p ${[...folders].map((f) => quote(`${staging}/${f}`)).join(" ")}`,
+    `node -e ${quote(UNPACK_BUNDLE)} ${quote(staging)} ${quote(packed)}`,
   )
-  for (const file of input.bundle.files)
-    await handle.fs.write(
-      `${staging}/${file.path}`,
-      new Uint8Array(file.content),
-    )
   const next = `${INGEST_SKILLS_ROOT}.next`
   const executables = input.bundle.files
     .filter((f) => f.executable)
@@ -222,6 +215,9 @@ export async function sealIngestCheckout(
       `chmod -R u=rwX,go=rX ${next}`,
       `rm -rf ${target}`,
       `mv ${next} ${target}`,
+      // A Vercel sandbox's Git (under /opt/git) has no folder for its
+      // system config yet.
+      'sys=$(git var GIT_CONFIG_SYSTEM 2>/dev/null || true); if [ -n "$sys" ]; then mkdir -p "$(dirname "$sys")"; fi',
       `git config --system --get-all safe.directory | grep -qxF ${target} || git config --system --add safe.directory ${target}`,
     ].join("\n"),
   )

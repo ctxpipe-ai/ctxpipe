@@ -14,7 +14,10 @@ import {
   modelProxyCredentialRules,
   type SandboxCredentialRule,
 } from "./sandbox-credential-rules.js"
-import type { HostedTurnCredentials } from "./vercel-sandbox-provider.js"
+import {
+  type HostedTurnCredentials,
+  vercelOidcIssuer,
+} from "./vercel-sandbox-provider.js"
 
 /**
  * The backend egress proxy of hosted (Vercel) ingest sandboxes (ADR-052).
@@ -169,6 +172,9 @@ function hasDotSegment(path: string): boolean {
 /** The OIDC header of a forwarded request (`@vercel/sandbox/proxy`). */
 const OIDC_TOKEN_HEADER = "vercel-sandbox-oidc-token"
 
+/** The issuer of a sandbox OIDC token: Vercel's, with a team id. */
+const SANDBOX_OIDC_ISSUER = /^https:\/\/oidc\.vercel\.com\/team_[A-Za-z0-9]+$/
+
 /** `fetch` decodes the body, so the encoding and length no longer apply. */
 const DROPPED_RESPONSE_HEADERS = [
   "content-encoding",
@@ -208,34 +214,36 @@ function unverifiedIssuer(token: string | null): string | undefined {
  * credential on the server side and does not follow redirects. Each other
  * request gets 403.
  *
- * Before the library verifies the token, the token's issuer must be ours:
- * the library fetches and keeps the keys of each issuer that it sees.
+ * Before the library verifies the token, the token's issuer must be ours
+ * (`vercelOidcIssuer` of our team id): the library fetches and keeps the
+ * keys of each issuer that it sees. An issuer that is not of the form
+ * `https://oidc.vercel.com/team_…` is refused before the team lookup, so a
+ * request with any other token causes no outbound request.
  */
 export async function ingestEgressProxy(input: {
   request: Request
   sealed: string
   secret: string
-  /** Our team's OIDC issuer (`vercelOidcIssuer`). */
-  issuer: string
   /** The team and project of our sandboxes. */
   vercel: () => Promise<{ teamId: string; projectId: string }>
 }): Promise<Response> {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
   if (forwardedPath !== null && hasDotSegment(forwardedPath))
     return refuse("a dot segment in the path")
-  if (
-    unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER)) !==
-    input.issuer
-  )
+  // Only the form of a sandbox token's issuer passes, before any lookup.
+  const issuer = unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER))
+  if (!issuer || !SANDBOX_OIDC_ISSUER.test(issuer))
+    return refuse("not a Vercel sandbox OIDC issuer")
+  let vercel: { teamId: string; projectId: string }
+  try {
+    vercel = await input.vercel()
+  } catch (error) {
+    return refuse(`no Vercel credentials: ${String(error)}`)
+  }
+  if (issuer !== vercelOidcIssuer(vercel.teamId))
     return refuse("another OIDC issuer")
   const handle = defineSandboxProxy(
     async (request, meta) => {
-      let vercel: { teamId: string; projectId: string }
-      try {
-        vercel = await input.vercel()
-      } catch (error) {
-        return refuse(`no Vercel credentials: ${String(error)}`, meta)
-      }
       if (meta.teamId !== vercel.teamId || meta.projectId !== vercel.projectId)
         return refuse("another Vercel team or project", meta)
       const scope = openIngestEgressScope(input.sealed, input.secret)
@@ -245,10 +253,16 @@ export async function ingestEgressProxy(input: {
         return refuse("the scope is for another sandbox", meta)
       const url = new URL(request.url)
       if (url.protocol !== "https:") return refuse("not HTTPS", meta)
+      // GitHub owner and repository names have no case, and the scope keeps
+      // them in lower case: a Git path matches in any case.
+      const samePath = (path: string | undefined) =>
+        url.host === "github.com"
+          ? path?.toLowerCase() === url.pathname.toLowerCase()
+          : path === url.pathname
       const rule = egressRules(scope).find(
         (candidate) =>
           candidate.host === url.host &&
-          candidate.path === url.pathname &&
+          samePath(candidate.path) &&
           (candidate.query ?? "") === url.search &&
           candidate.methods.includes(request.method),
       )

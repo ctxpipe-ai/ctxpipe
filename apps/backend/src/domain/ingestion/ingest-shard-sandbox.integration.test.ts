@@ -31,7 +31,10 @@ import {
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import { refreshIngestSandboxEgress } from "../workspaces/ingest-sandbox-egress.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
-import { ingestShardStepEgress } from "./ingest-shard-sandbox.js"
+import {
+  ingestShardStepEgress,
+  sandboxIngestShardRuntime,
+} from "./ingest-shard-sandbox.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 
 /*
@@ -247,5 +250,57 @@ describe("shard step egress", () => {
     expect(vaultCredentials.slice(sentFirst).join("\n")).not.toContain(
       first.capability,
     )
+  })
+
+  it("refuses a hosted step before the live Vercel egress check, before any capability or sandbox call", async () => {
+    // msw errors on an unhandled request, so a sandbox call would fail the
+    // test with another message.
+    for (const [name, value] of [
+      ["SANDBOX_PROVIDER", "vercel"],
+      ["VERCEL_TOKEN", "vercel-token"],
+      ["VERCEL_TEAM_ID", "team_test"],
+      ["VERCEL_PROJECT_ID", "prj_test"],
+    ] as const)
+      vi.stubEnv(name, value)
+    const mintedBefore = githubLog.minted.length
+    const credentialsBefore = vaultCredentials.length
+    try {
+      const runtime = sandboxIngestShardRuntime({
+        orgId,
+        runId,
+        shard: 1,
+        bundle: { name: "ingest-0000000000000000", skills: [], files: [] },
+        source: {
+          url: "https://github.com/acme/checkout-api",
+          githubConnectionId: connectionId,
+          sha: "a".repeat(40),
+          repositoryId: null,
+        },
+        destinations: [
+          {
+            workspaceId: "ws_seam",
+            url: "https://github.com/acme/context",
+            githubConnectionId: connectionId,
+            generation: 1,
+            pinnedRevision: "b".repeat(40),
+            repositoryId: null,
+            sourcePath: "sources/github/acme/checkout-api.md",
+          },
+        ],
+      })
+      await expect(runtime.ensure()).rejects.toThrow(
+        "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
+      )
+      expect(githubLog.minted).toHaveLength(mintedBefore)
+      expect(vaultCredentials).toHaveLength(credentialsBefore)
+    } finally {
+      for (const name of [
+        "SANDBOX_PROVIDER",
+        "VERCEL_TOKEN",
+        "VERCEL_TEAM_ID",
+        "VERCEL_PROJECT_ID",
+      ])
+        vi.stubEnv(name, "")
+    }
   })
 })
