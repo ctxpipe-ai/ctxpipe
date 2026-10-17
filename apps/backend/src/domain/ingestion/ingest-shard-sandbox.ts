@@ -94,6 +94,20 @@ function ingestModels() {
 }
 
 /**
+ * The projection read of a step index. A workflow step has no request org, so
+ * this opens the org's database context. `orgId` comes from the trusted spec.
+ */
+export function stepIndexProjection(
+  orgId: string,
+  workspaceId: string,
+  pinnedRevision: string,
+) {
+  return withOrgDbContext(orgId, () =>
+    listWorkspaceUnitsAtRevision(workspaceId, pinnedRevision),
+  )
+}
+
+/**
  * The T07 context index of each step of one Workspace in a shard (ADR-052
  * section 6): one scratch repository and one projection, kept for the shard
  * on this worker. Each step fetches only its new commits.
@@ -127,13 +141,11 @@ function heldStepIndex(input: {
           sourcePath: input.sourcePath,
           repoDir: dir,
           rootPath: input.rootPath,
-          // A workflow step has no request org: open the org's context here.
           projection: () =>
-            withOrgDbContext(input.orgId, () =>
-              listWorkspaceUnitsAtRevision(
-                input.workspaceId,
-                input.pinnedRevision,
-              ),
+            stepIndexProjection(
+              input.orgId,
+              input.workspaceId,
+              input.pinnedRevision,
             ),
           fetch: async (what, into) => {
             const token = await resolveRepositoryReadCredential({
