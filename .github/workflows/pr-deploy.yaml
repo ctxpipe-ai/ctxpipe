@@ -396,6 +396,10 @@ jobs:
         # it to GITHUB_ENV, so later steps need no `env:` entry for it.
         run: |
           set -euo pipefail
+          # Without a branch id, the Neon API gives the default branch, which
+          # is production. Later steps migrate this database and delete its
+          # JWKS keys, so stop here.
+          [[ -n "$NEON_BRANCH_ID" ]] || { echo "The Neon action returned no preview branch id"; exit 1; }
           neon_uri() {
             curl -fsS -G -H "Authorization: Bearer ${NEON_API_KEY}" \
               "https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}/connection_uri" \
