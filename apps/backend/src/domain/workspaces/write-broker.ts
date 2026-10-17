@@ -37,8 +37,6 @@ import {
   assertConnectorMirrorScope,
   type ConnectorMirrorSource,
 } from "./connector-mirror.js"
-import type { WorkspaceExtraction } from "./extraction.js"
-import { assertExtractionSource } from "./extraction-source.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -95,7 +93,6 @@ export async function pushWorkspaceCommit(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -133,13 +130,6 @@ export async function pushWorkspaceCommit(
       sha: revision.sha,
     })
   }
-  if (input.extraction)
-    await assertExtractionSource(
-      input.orgId,
-      input.extraction,
-      revision,
-      committed,
-    )
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -191,13 +181,6 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-      if (input.extraction)
-        await assertExtractionSource(
-          input.orgId,
-          input.extraction,
-          revision,
-          committed,
-        )
       await nativeGit(
         directory,
         [
@@ -272,7 +255,6 @@ export async function publishWorkspaceWriteRevision(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -309,7 +291,6 @@ export async function refreshWorkspaceWriteRevision(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   env: Env,
@@ -345,18 +326,6 @@ export async function refreshWorkspaceWriteRevision(
       }),
     )
   }
-  if (input.extraction)
-    await assertExtractionSource(
-      input.orgId,
-      input.extraction,
-      resolved.revision,
-      await readGitPackFromRemote({
-        url: resolved.revision.remote.url,
-        sha: resolved.revision.sha,
-        token: resolved.token,
-        root: workspaceRootPath(resolved.revision),
-      }),
-    )
   return { ...resolved.revision, access: "write-default" }
 }
 
@@ -401,7 +370,6 @@ export async function captureSemanticHandoff(
     workspaceId: string
     jobId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -420,7 +388,6 @@ export async function captureSemanticHandoff(
     candidateSha: committed.sha,
     ...changes,
     mirror: input.mirror,
-    extraction: input.extraction,
   })
   return {
     orgId: input.orgId,
@@ -436,7 +403,6 @@ export async function captureSemanticHandoff(
     files: handoff.files,
     deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
-    ...(input.extraction ? { extraction: input.extraction } : {}),
   }
 }
 
