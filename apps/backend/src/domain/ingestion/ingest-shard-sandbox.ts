@@ -7,6 +7,7 @@ import {
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
@@ -125,10 +126,13 @@ function heldStepIndex(input: {
           sourcePath: input.sourcePath,
           repoDir: dir,
           rootPath: input.rootPath,
+          // A workflow step has no request org: open the org's context here.
           projection: () =>
-            listWorkspaceUnitsAtRevision(
-              input.workspaceId,
-              input.pinnedRevision,
+            withOrgDbContext(input.orgId, () =>
+              listWorkspaceUnitsAtRevision(
+                input.workspaceId,
+                input.pinnedRevision,
+              ),
             ),
           fetch: async (what, into) => {
             const token = await resolveRepositoryReadCredential({
