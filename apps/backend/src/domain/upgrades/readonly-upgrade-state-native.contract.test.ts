@@ -40,8 +40,28 @@ it(
           release: "test",
           trigger: "test",
         })
-        await handle.result({ timeoutMs: 30_000 })
-        await scanWorker.stop()
+        try {
+          await handle.result({ timeoutMs: 30_000 })
+        } catch (error) {
+          // A timeout names no step. Say where the run stopped.
+          const state = await getSystemDb().execute(sql`
+            select r.status, r.available_at, r.worker_id, r.error,
+              (select json_agg(json_build_object('step', s.step_name,
+                'status', s.status, 'started', s.created_at, 'error', s.error)
+                order by s.created_at)
+               from openworkflow.step_attempts s
+               where s.namespace_id = r.namespace_id
+                 and s.workflow_run_id = r.id) as steps
+            from openworkflow.workflow_runs r
+            where r.id = ${handle.workflowRun.id}
+          `)
+          throw new Error(
+            `The scan run did not finish: ${JSON.stringify(state.rows)}`,
+            { cause: error },
+          )
+        } finally {
+          await scanWorker.stop()
+        }
 
         const response = await workspaceHttpApp(
           f.org,
