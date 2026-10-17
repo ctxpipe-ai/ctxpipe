@@ -247,10 +247,16 @@ export async function ingestEgressProxy(input: {
         return refuse("the scope is for another sandbox", meta)
       const url = new URL(request.url)
       if (url.protocol !== "https:") return refuse("not HTTPS", meta)
+      // GitHub owner and repository names have no case, and the scope keeps
+      // them in lower case: a Git path matches in any case.
+      const samePath = (path: string | undefined) =>
+        url.host === "github.com"
+          ? path?.toLowerCase() === url.pathname.toLowerCase()
+          : path === url.pathname
       const rule = egressRules(scope).find(
         (candidate) =>
           candidate.host === url.host &&
-          candidate.path === url.pathname &&
+          samePath(candidate.path) &&
           (candidate.query ?? "") === url.search &&
           candidate.methods.includes(request.method),
       )

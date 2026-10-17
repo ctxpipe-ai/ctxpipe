@@ -219,6 +219,21 @@ describe("the ingest egress proxy route", () => {
     ])
   })
 
+  it("matches a Git path in any case, as GitHub names have no case; other paths stay exact", async () => {
+    // A Workspace URL can name `Acme/Source`; the scope keeps `acme/source`.
+    const refs = await forwarded(
+      "https://github.com/Acme/Source.git/info/refs?service=git-upload-pack",
+    )
+    expect(refs.status).toBe(200)
+    expect(seen.map((entry) => entry.url)).toEqual([
+      "https://github.com/Acme/Source.git/info/refs?service=git-upload-pack",
+    ])
+    const models = await forwarded(
+      `https://${backendHost}${step.modelProxyPath.toUpperCase()}/models`,
+    )
+    expect(models.status).toBe(403)
+  })
+
   it("replaces a credential that the sandbox sends with the shard's token", async () => {
     const response = await forwarded(
       "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
