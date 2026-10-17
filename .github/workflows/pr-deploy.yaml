@@ -413,6 +413,31 @@ jobs:
           export_masked OWNER_DB_URL "$(neon_uri neondb_owner false)"
           export_masked OWNER_DB_URL_POOLED "$(neon_uri neondb_owner true)"
 
+      - name: Choose preview ctxpipe_app password
+        # Migrate creates ctxpipe_app in SQL, or takes over the copy of the
+        # production role, and sets this password (ADR-042 mode a). The Neon
+        # API cannot reveal the password of a role that SQL created, so the
+        # preview backend DATABASE_URL keeps it: later runs use it again.
+        # Migrate sets the password before Drizzle, so a new password on each
+        # run broke the live services until the deploy rolled them, and for
+        # all time when migrate or the deploy failed after that. This step, not
+        # migrate, holds the Railway token: migrate runs branch code.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-app-db-password.sh"
+          PASSWORD="$(preview_app_db_password)"
+          echo "::add-mask::$PASSWORD"
+          # GITHUB_ENV, not a step output: a later `env:` block would print it.
+          printf 'PREVIEW_APP_DB_PASSWORD=%s\n' "$PASSWORD" >> "$GITHUB_ENV"
+
       - name: Migrate PR Neon branch and provision ctxpipe_app
         id: neon_app
         working-directory: apps/backend
@@ -420,24 +445,11 @@ jobs:
           # The backfills read OpenWorkflow runs of the namespace that the
           # preview services use, not the production runs on the copied branch.
           OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
-          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         run: |
           set -euo pipefail
-          # Migrate creates ctxpipe_app in SQL, or takes over the copy of the
-          # production role, and sets this password (ADR-042 mode a). The Neon
-          # API cannot reveal the password of a role that SQL created, so the
-          # preview backend DATABASE_URL keeps it: later runs use it again.
-          # Migrate sets the password before Drizzle, so a new password on each
-          # run broke the live services until the deploy rolled them, and for
-          # all time when migrate or the deploy failed after that.
-          # shellcheck disable=SC1091
-          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
-          # shellcheck disable=SC1091
-          source "${GITHUB_WORKSPACE}/scripts/preview-app-db-password.sh"
-          PASSWORD="$(preview_app_db_password)"
+          # The step before chose the password. Migrate and every service URL
+          # use this one value.
+          PASSWORD="$PREVIEW_APP_DB_PASSWORD"
           POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
           echo "::add-mask::$PASSWORD"
           echo "::add-mask::$POOLED"

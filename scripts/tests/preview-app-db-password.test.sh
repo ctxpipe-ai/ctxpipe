@@ -54,7 +54,9 @@ b="$(CURRENT="" run_password 2>/dev/null)"
 [[ "$a" != "$b" ]] || fail "each new password must be random"
 
 grep -Fq 'PASSWORD="$(preview_app_db_password)"' "$workflow" \
-  || fail "pr-deploy.yaml migrate must take its password from preview_app_db_password"
+  || fail "pr-deploy.yaml must take the ctxpipe_app password from preview_app_db_password"
+grep -Fq 'PASSWORD="$PREVIEW_APP_DB_PASSWORD"' "$workflow" \
+  || fail "pr-deploy.yaml migrate must use the chosen ctxpipe_app password"
 if grep -Fq 'PASSWORD="$(openssl rand' "$workflow"; then
   fail "pr-deploy.yaml must not make a new ctxpipe_app password on each run"
 fi
