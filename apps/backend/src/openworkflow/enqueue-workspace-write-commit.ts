@@ -1,7 +1,10 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
-import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
+import {
+  captureUnbornBootstrapBinding,
+  revisionHasCtxpipeContent,
+} from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
 import {
   resolveRepositoryReadCredential,
@@ -387,15 +390,17 @@ export async function enqueueWriteJob(
           stored.writeStatus === "writable" ? "queued" : "paused"
       }
       // A bind or rebind writes the bootstrap files directly only at format
-      // 3 or more. Below 3 the upgrade pull request carries them (ADR-053
-      // section 7), so the scan offers the upgrade instead. An empty
-      // repository took the root commit path above.
+      // 3 or more, or on a repository with no ctx| content: that bootstrap
+      // commit also writes the format file. Below 3 the upgrade pull request
+      // carries them (ADR-053 section 7), so the scan offers the upgrade
+      // instead. An empty repository took the root commit path above.
       if (
         rebindsTip &&
         !workspaceFormatAtLeast(
           await tipWorkspaceFormat(input.orgId, revision),
           INGESTION_V2_PUBLISH_FORMAT,
-        )
+        ) &&
+        (await revisionHasCtxpipeContent(input.orgId, revision))
       ) {
         const { enqueueWorkspaceUpgradeScan } = await import(
           "./workflows/workspace-upgrade-scan.js"
