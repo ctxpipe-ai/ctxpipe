@@ -133,7 +133,9 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
 /**
  * The variables to remove from the backend's environment before an
  * unsandboxed agent process starts: all of them except the allow-list and
- * the locale (`LC_*`). The run sets its own variables after this scrub.
+ * the locale (`LC_*`). The sandbox applies this scrub after it adds the
+ * run's own variables, so a run variable must not have the name of a
+ * removed backend variable.
  */
 export function workspaceChatLocalProcessScrubEnv(
   env: Record<string, string | undefined> = process.env,
