@@ -547,7 +547,13 @@ it(
     // the run has no model step for it and no publish to it.
     expect(modelCalls).not.toContain(wide)
     expect(
-      git(join(remotes, contexts[3] ?? ""), "ls-tree", "-r", "--name-only", "main"),
+      git(
+        join(remotes, contexts[3] ?? ""),
+        "ls-tree",
+        "-r",
+        "--name-only",
+        "main",
+      ),
     ).not.toContain("knowledge/services/billing-api.md")
     expect(
       git(

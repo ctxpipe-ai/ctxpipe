@@ -43,10 +43,7 @@ export type IngestionV2Resolution =
  * the input has `destinations`, only those Workspaces can be destinations.
  */
 export async function resolveIngestionV2Run(
-  input: Pick<
-    IngestionV2Input,
-    "orgId" | "source" | "shadow" | "destinations"
-  >,
+  input: Pick<IngestionV2Input, "orgId" | "source" | "shadow" | "destinations">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
   if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))

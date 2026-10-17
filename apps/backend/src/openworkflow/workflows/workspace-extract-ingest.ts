@@ -26,6 +26,7 @@ import {
   resolveIngestConflicts,
   SemanticResolveError,
 } from "../../domain/workspaces/semantic-merge.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { packWorkspaceFormat } from "../../domain/workspaces/workspace-format-tree.js"
 import {
   attemptWorkspaceCommit,
@@ -39,7 +40,6 @@ import {
   completedWorkspaceWrite,
   withWorkspaceWriteContext,
 } from "../../domain/workspaces/write-command.js"
-import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import { loadExtractionPathIdentity } from "../../models/workspace-export.js"
 import {
