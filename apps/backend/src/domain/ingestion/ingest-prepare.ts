@@ -222,6 +222,9 @@ export async function sealIngestCheckout(
       `chmod -R u=rwX,go=rX ${next}`,
       `rm -rf ${target}`,
       `mv ${next} ${target}`,
+      // A Vercel sandbox's Git (under /opt/git) has no folder for its
+      // system config yet.
+      'sys=$(git var GIT_CONFIG_SYSTEM 2>/dev/null || true); if [ -n "$sys" ]; then mkdir -p "$(dirname "$sys")"; fi',
       `git config --system --get-all safe.directory | grep -qxF ${target} || git config --system --add safe.directory ${target}`,
     ].join("\n"),
   )
