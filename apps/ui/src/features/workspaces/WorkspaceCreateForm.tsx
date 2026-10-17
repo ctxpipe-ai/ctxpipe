@@ -1,13 +1,14 @@
 import HyperDX from "@hyperdx/browser"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ComponentProps, type ReactNode, useState } from "react"
 import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
 import { pollWhileOk } from "@/lib/api-result"
 import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
 import {
@@ -182,7 +183,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
             {workspace.readOnlyReason}
           </InlineAlert>
         ) : (
-          <WorkspaceSources
+          <SourcesWhenRepositoryReady
             orgSlug={orgSlug}
             workspaceSlug={workspaceSlug}
             linkedRepositories={workspace.linkedRepositories}
@@ -205,4 +206,86 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
       </div>
     </>
   )
+}
+
+/**
+ * The backend refuses a source change until the Workspace repository has one
+ * file for each source. A new empty repository gets its format file a few
+ * seconds after the create, so this waits for it. A repository that already
+ * had files has no format file until its upgrade pull request merges. The wait
+ * stops at the same cap as the write-access check.
+ */
+function SourcesWhenRepositoryReady(
+  props: ComponentProps<typeof WorkspaceSources>,
+) {
+  const { orgSlug, workspaceSlug } = props
+  const navigate = useNavigate()
+  const [startedAt] = useState(Date.now)
+  // Mirrors SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts.
+  const sourceFilesFormat = 2
+  const upgradesQuery = useQuery({
+    ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
+    refetchInterval: (query) =>
+      query.state.status !== "error" &&
+      query.state.data?.formatVersion === null &&
+      query.state.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
+        ? 2000
+        : false,
+  })
+  const formatVersion = upgradesQuery.data?.formatVersion
+
+  if (upgradesQuery.isError)
+    return (
+      <InlineAlert
+        variant="error"
+        title="Could not read the Workspace repository"
+        actions={
+          <Button
+            variant="secondary"
+            onPress={() => void upgradesQuery.refetch()}
+          >
+            Retry
+          </Button>
+        }
+      >
+        Try again, or open the Workspace and add sources in Settings.
+      </InlineAlert>
+    )
+  if (formatVersion === undefined || formatVersion === null)
+    return upgradesQuery.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS ? (
+      <InlineLoader label="Setting up the Workspace repository" />
+    ) : (
+      <InlineAlert
+        variant="warning"
+        title="Still setting up the Workspace repository"
+      >
+        The setup takes longer than usual. Open the Workspace and add sources in
+        Settings later.
+      </InlineAlert>
+    )
+  if (formatVersion < sourceFilesFormat)
+    return (
+      <InlineAlert
+        variant="warning"
+        title="Upgrade this Workspace before you add sources"
+        actions={
+          <Button
+            variant="secondary"
+            onPress={() => {
+              void navigate({
+                to: "/$orgSlug/ws/$workspaceSlug",
+                params: { orgSlug, workspaceSlug },
+                search: { pane: "settings" },
+              })
+            }}
+          >
+            Review upgrades
+          </Button>
+        }
+      >
+        The repository already had files, so ctx| must upgrade it once. The
+        upgrade opens a pull request. Merge it, then add sources.
+      </InlineAlert>
+    )
+  return <WorkspaceSources {...props} />
 }

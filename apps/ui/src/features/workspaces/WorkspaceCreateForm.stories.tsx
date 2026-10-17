@@ -13,6 +13,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceCreateForm } from "./WorkspaceCreateForm"
@@ -55,7 +59,10 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
-/** Step 2 needs the new Workspace, its sources, and a GitHub connection. */
+/**
+ * Step 2 needs the new Workspace, its sources, a GitHub connection, and a
+ * Workspace repository that is ready for sources (format 3).
+ */
 const stepTwoHandlers = [
   workspaceListHandler([]),
   orgConnectionsHandler([
@@ -64,6 +71,7 @@ const stepTwoHandlers = [
   githubInstallationReposHandler(),
   workspaceCreateHandler(createdWorkspace),
   workspaceSourcesHandler(workspaceSourceList()),
+  workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
 ]
 
 async function createFromGithub(canvasElement: HTMLElement) {

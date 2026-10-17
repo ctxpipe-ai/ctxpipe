@@ -23,6 +23,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../.storybook/decorators/with-story-route"
 import {
@@ -95,7 +99,10 @@ export const CreateOnGitHub: Story = {
   },
 }
 
-/** Step 2 needs the new Workspace, its sources, and a GitHub connection. */
+/**
+ * Step 2 needs the new Workspace, its sources, a GitHub connection, and a
+ * Workspace repository that is ready for sources (format 3).
+ */
 const stepTwoHandlers = [
   workspaceListHandler([]),
   orgConnectionsHandler([
@@ -105,6 +112,7 @@ const stepTwoHandlers = [
   workspaceCreateHandler(createdWorkspace),
   workspaceSourcesHandler(workspaceSourceList()),
   workspaceDetailHandler(createdWritableWorkspaceDetail),
+  workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
 ]
 
 /** Shows the search string of the router, so a play can read it. */
@@ -208,6 +216,85 @@ export const NoSecondCreate: Story = {
     await canvas.findByRole("button", { name: "Open Workspace" })
     await expect(
       canvas.queryByRole("list", { name: /repositories/i }),
+    ).toBeNull()
+  },
+}
+
+/** Step 2 for a repository that already had files: it has no format file yet. */
+export const StepTwoNeedsUpgrade: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspaceNew",
+      orgSlug,
+      search: "?workspace=handbook",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          // The first matching handler answers, so this one comes first.
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
+          ...stepTwoHandlers,
+        ],
+      },
+    },
+  },
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade this Workspace before you add sources")
+    await expect(
+      canvas.getByRole("button", { name: "Review upgrades" }),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Open Workspace" }),
+    ).toBeVisible()
+  },
+}
+
+/** A new empty repository: the format file lands a few seconds after the create. */
+export const StepTwoWaitsForFormat: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspaceNew",
+      orgSlug,
+      search: "?workspace=handbook",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          // The first read has no format yet; the next reads have format 3.
+          // The first matching handler answers, so this one comes first.
+          workspaceUpgradesHandler(
+            (() => {
+              let reads = 0
+              return () =>
+                upgradesFixture([], {
+                  formatVersion: reads++ === 0 ? null : 3,
+                })
+            })(),
+          ),
+          ...stepTwoHandlers,
+        ],
+      },
+    },
+  },
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Setting up the Workspace repository")
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+    await canvas.findByRole(
+      "button",
+      { name: "Add repositories" },
+      { timeout: 6000 },
+    )
+    await expect(
+      canvas.queryByText("Setting up the Workspace repository"),
     ).toBeNull()
   },
 }
