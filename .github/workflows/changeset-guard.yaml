@@ -24,6 +24,7 @@ permissions:
 
 jobs:
   require_changesets:
+    timeout-minutes: 10
     name: Require changesets for apps and packages
     if: |
       github.actor != 'github-actions[bot]' &&

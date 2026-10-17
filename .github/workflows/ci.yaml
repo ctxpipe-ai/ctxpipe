@@ -29,6 +29,7 @@ permissions:
 # Humans: pull_request only.
 jobs:
   lint:
+    timeout-minutes: 15
     name: Biome
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -63,10 +64,12 @@ jobs:
           bash scripts/tests/preview-otel-vars.test.sh
           bash scripts/tests/preview-sandbox-vars.test.sh
           bash scripts/tests/preview-github-app-vars.test.sh
+          bash scripts/tests/preview-own-secrets.test.sh
           bash scripts/tests/railway-environment-id.test.sh
           bash scripts/tests/preview-ui-private.test.sh
 
   typecheck:
+    timeout-minutes: 30
     name: Typecheck
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -87,7 +90,10 @@ jobs:
         run: pnpm typecheck
 
   test-shards:
-    timeout-minutes: 30
+    # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
+    # and 45 min for contracts. The job limit adds 15 min for setup, so the
+    # named runner timeout fires before the job is cancelled.
+    timeout-minutes: ${{ matrix.lane == 'contracts' && 60 || 45 }}
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
     name: ${{ matrix.lane }} tests (shard ${{ matrix.shard }}/${{ matrix.count }})
@@ -275,6 +281,7 @@ jobs:
           if-no-files-found: error
 
   test:
+    timeout-minutes: 10
     # Keeps the single "Tests" check: it passes only when every shard and
     # package job passed and the shard union matches each full inventory.
     name: Tests
@@ -317,7 +324,7 @@ jobs:
           if-no-files-found: error
 
   production-builds:
-    timeout-minutes: 30
+    timeout-minutes: 45
     name: Production build (${{ matrix.name }})
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -338,19 +345,32 @@ jobs:
             dockerfile: apps/codesearch/Dockerfile
           - name: docs
             dockerfile: apps/docs/Dockerfile
+          # deploy.yaml publishes this image for arm64 (the AWS sandbox host is
+          # Graviton). No other job builds it for arm64 before release.
+          - name: chat-sandbox
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            context: scripts/chat-sandbox
+            platforms: linux/arm64
     steps:
       - uses: actions/checkout@v6
+      - uses: docker/setup-qemu-action@v3
+        if: matrix.platforms == 'linux/arm64'
+        with:
+          platforms: arm64
       - uses: ./.github/actions/setup-buildx
       # Only codesearch keeps a layer cache: its toolchain stages are the slow
       # part, and the repository GHA cache cannot hold all five images.
       - uses: docker/build-push-action@v6
         with:
-          context: .
+          context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
+          platforms: ${{ matrix.platforms }}
+          push: false
           cache-from: ${{ matrix.name == 'codesearch' && 'type=gha,scope=production-codesearch' || '' }}
           cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,scope=production-codesearch' || '' }}
 
   packages:
+    timeout-minutes: 20
     name: Runnable packages and examples
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -570,6 +590,7 @@ jobs:
         run: node scripts/ci/test-suite.mjs vercel
 
   terraform-validate:
+    timeout-minutes: 10
     name: Terraform configuration
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -604,6 +625,7 @@ jobs:
           terraform validate -no-color
 
   migrate:
+    timeout-minutes: 20
     name: Migrations (fresh and previous schema)
     if: |
       github.event_name == 'workflow_dispatch' ||

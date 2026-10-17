@@ -676,6 +676,17 @@
   background: rgb(127 29 29) !important;
 }
 
+/* The action of a toast: a light pill that is easy to see on the teal and red toasts. */
+[data-sonner-toaster] [data-sonner-toast] [data-button] {
+  border-radius: var(--radius-md, 0.2rem) !important;
+  background: rgb(255 255 255 / 0.16) !important;
+  color: inherit !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-button]:hover {
+  background: rgb(255 255 255 / 0.26) !important;
+}
+
 /* InlineLoader: linear ping-pong; extra scale stops squash at each wall. */
 @keyframes inline-loader-bounce {
   0%,

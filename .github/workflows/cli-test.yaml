@@ -22,6 +22,7 @@ permissions:
 
 jobs:
   ctxpipe-cli:
+    timeout-minutes: 15
     name: ctxpipe CLI
     if: |
       (github.event_name == 'pull_request') !=
