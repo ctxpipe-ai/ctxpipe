@@ -27,7 +27,6 @@ import { registerStatusRoutes } from "../routes/status"
 import { registerUiRoutes } from "../routes/ui.js"
 import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
-import { backfillGithubAppSecretsFromEnv } from "../scripts/backfillGithubConnectionSecrets.js"
 import type { AppEnv } from "./env.js"
 
 export type { AppEnv } from "./env.js"
@@ -52,13 +51,6 @@ export const betterAuthIdentifyExclude = [
 export function createApp() {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   initDb(env.DATABASE_URL)
-  void backfillGithubAppSecretsFromEnv(env).catch((err: unknown) => {
-    log.error({
-      step: "backfill.github_connection_secrets",
-      message: err instanceof Error ? err.message : String(err),
-      error: err instanceof Error ? err.stack : String(err),
-    })
-  })
 
   /** Evlog only: enriches `c.var.log` wide events; does not set `c.var.user` or gate routes. */
   const identifyBetterAuthUser = createAuthMiddleware(
