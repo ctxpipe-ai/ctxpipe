@@ -1,6 +1,7 @@
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
+import { provisionAppRole } from "./provision-app-role.js"
 import { runMigrations } from "./run-migrations.js"
 
 const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
@@ -8,6 +9,9 @@ const database = `ctxpipe_test_run_migrations_${suffix}`
 // A role of this run only, so that the shared ctxpipe_app is not changed.
 const roleName = `ctxpipe_app_test_${suffix}`
 const password = "role-password-1"
+// A role as the Neon API makes it: a member of a group with BYPASSRLS.
+const apiRoleName = `ctxpipe_app_api_${suffix}`
+const apiGroupName = `neon_superuser_test_${suffix}`
 
 let admin: pg.Client
 let pool: pg.Pool
@@ -62,6 +66,8 @@ describe("runMigrations", () => {
     await pool?.end()
     await admin?.query(`DROP DATABASE IF EXISTS "${database}" WITH (FORCE)`)
     await admin?.query(`DROP ROLE IF EXISTS "${roleName}"`)
+    await admin?.query(`DROP ROLE IF EXISTS "${apiRoleName}"`)
+    await admin?.query(`DROP ROLE IF EXISTS "${apiGroupName}"`)
     await admin?.end()
   })
 
@@ -70,11 +76,10 @@ describe("runMigrations", () => {
       runMigrations({
         connectionString: databaseUrl,
         appRolePassword: undefined,
-        env: {},
         roleName,
       }),
     ).rejects.toThrow(
-      /does not exist and DATABASE_APP_PASSWORD is not set[\s\S]*Docker Compose[\s\S]*AWS CDK[\s\S]*terraform apply -target=module\.ctxpipe\.neon_role\.app/,
+      /does not exist and DATABASE_APP_PASSWORD is not set[\s\S]*Docker Compose[\s\S]*AWS CDK[\s\S]*terraform apply -target=module\.ctxpipe\.random_password\.app_database/,
     )
     expect(await tableExists("public.organizations")).toBe(false)
     expect(await tableExists("drizzle.__drizzle_migrations")).toBe(false)
@@ -84,7 +89,6 @@ describe("runMigrations", () => {
     await runMigrations({
       connectionString: databaseUrl,
       appRolePassword: password,
-      env: {},
       roleName,
     })
     expect(await tableExists("public.organizations")).toBe(true)
@@ -115,7 +119,6 @@ describe("runMigrations", () => {
     await runMigrations({
       connectionString: databaseUrl,
       appRolePassword: undefined,
-      env: {},
       roleName,
     })
 
@@ -125,5 +128,65 @@ describe("runMigrations", () => {
     )
     expect(checkout.rows[0]?.org_id).toBe("org_run_migrations")
     await readAsRole()
+  })
+
+  it("with a password, takes back the group and the rights of a role that the Neon API made", async () => {
+    await admin.query(`CREATE ROLE "${apiGroupName}" NOLOGIN BYPASSRLS`)
+    await admin.query(
+      `CREATE ROLE "${apiRoleName}" LOGIN CREATEDB CREATEROLE IN ROLE "${apiGroupName}"`,
+    )
+    await expect(
+      provisionAppRole(pool, undefined, apiRoleName),
+    ).rejects.toThrow(/elevated attributes|is a member of/)
+
+    await provisionAppRole(pool, password, apiRoleName)
+
+    const role = await pool.query(
+      `SELECT r.rolcreatedb, r.rolcreaterole, r.rolbypassrls,
+              (SELECT count(*)::int FROM pg_catalog.pg_auth_members m WHERE m.member = r.oid) AS groups
+       FROM pg_catalog.pg_roles r WHERE r.rolname = $1`,
+      [apiRoleName],
+    )
+    expect(role.rows[0]).toEqual({
+      rolcreatedb: false,
+      rolcreaterole: false,
+      rolbypassrls: false,
+      groups: 0,
+    })
+  })
+
+  it("fails with a clear message when a lock holds a migration statement", async () => {
+    const lockDatabase = `${database}_lock`
+    const lockRole = `${roleName}_lock`
+    await admin.query(`CREATE DATABASE "${lockDatabase}"`)
+    const lockUrl = new URL(databaseUrl)
+    lockUrl.pathname = `/${lockDatabase}`
+    const holder = new pg.Client({ connectionString: lockUrl.toString() })
+    await holder.connect()
+    try {
+      // Drizzle reads this table first, so a lock on it stops the run at once.
+      await holder.query(`CREATE SCHEMA "drizzle"`)
+      await holder.query(
+        `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+      )
+      await holder.query("BEGIN")
+      await holder.query(
+        `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
+      )
+      await expect(
+        runMigrations({
+          connectionString: lockUrl.toString(),
+          appRolePassword: password,
+          roleName: lockRole,
+          lockTimeoutMs: 500,
+        }),
+      ).rejects.toThrow(/waited more than 500 ms for a database lock/)
+    } finally {
+      await holder.end()
+      await admin.query(
+        `DROP DATABASE IF EXISTS "${lockDatabase}" WITH (FORCE)`,
+      )
+      await admin.query(`DROP ROLE IF EXISTS "${lockRole}"`)
+    }
   })
 })

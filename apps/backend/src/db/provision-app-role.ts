@@ -138,8 +138,47 @@ async function assertAppRoleSafe(
   )
   if (membership.rows.length > 0) {
     throw new Error(
-      `app role ${roleName} is a member of ${membership.rows[0]?.n}; runtime role must not SET ROLE`,
+      `app role ${roleName} is a member of ${membership.rows[0]?.n}; runtime role must not SET ROLE. Drop the role, then run migrate again with DATABASE_APP_PASSWORD: migrate creates the role in SQL.`,
     )
+  }
+}
+
+/**
+ * Take back the rights that a role made outside migrate can hold. The Neon API,
+ * for example, makes each role a member of `neon_superuser`, which has
+ * BYPASSRLS. A step that this role may not do stays as it is, and
+ * `assertAppRoleSafe` then stops migrate with the fix.
+ */
+async function stripAppRoleRights(
+  client: PoolClient,
+  roleName: string,
+): Promise<void> {
+  const groups = await client.query<{ sql: string }>(
+    `SELECT format('REVOKE %I FROM %I', r.rolname, mbr.rolname) AS sql
+     FROM pg_catalog.pg_auth_members m
+     JOIN pg_catalog.pg_roles r ON r.oid = m.roleid
+     JOIN pg_catalog.pg_roles mbr ON mbr.oid = m.member
+     WHERE mbr.rolname = $1`,
+    [roleName],
+  )
+  const attributes = await client.query<{ sql: string }>(
+    `SELECT format('ALTER ROLE %I NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION NOBYPASSRLS', rolname) AS sql
+     FROM pg_catalog.pg_roles
+     WHERE rolname = $1
+       AND (rolsuper OR rolbypassrls OR rolcreatedb OR rolcreaterole OR rolreplication)`,
+    [roleName],
+  )
+  for (const { sql } of [...groups.rows, ...attributes.rows]) {
+    try {
+      await client.query(sql)
+    } catch (error) {
+      log.warn({
+        step: "migrate",
+        message: "[migrate] could not take a right back from the app role",
+        role: roleName,
+        error: error instanceof Error ? error.message : String(error),
+      })
+    }
   }
 }
 
@@ -150,7 +189,7 @@ export function appRoleMissingMessage(roleName: string): string {
     "Do one of these steps, then run migrate again:",
     "- Docker Compose: set POSTGRES_PASSWORD in the root .env file. The migrate service sends it as DATABASE_APP_PASSWORD.",
     "- AWS CDK: deploy the stack again. The migrate task reads DATABASE_APP_PASSWORD from the app database credentials secret.",
-    "- Hosted (Neon): run `terraform apply -target=module.ctxpipe.neon_role.app` before migrate.",
+    "- Hosted (Neon): run `terraform apply -target=module.ctxpipe.random_password.app_database`, then give `terraform output -raw ctxpipe_app_password` as DATABASE_APP_PASSWORD.",
     `- Other: set DATABASE_APP_PASSWORD to the password for ${roleName}. Migrate creates the role with it.`,
   ].join("\n")
 }
@@ -158,9 +197,9 @@ export function appRoleMissingMessage(roleName: string): string {
 /**
  * Make `ctxpipe_app` (LOGIN, no BYPASSRLS) ready and grant DML on the
  * application schemas. Runs as the table owner before and after drizzle migrate.
- * - With a password: create the role if it is missing, then set the password.
- * - With no password and an existing role: grants only. Terraform owns the
- *   password on hosted.
+ * - With a password: create the role if it is missing, or take back the
+ *   rights of a role that something else made. Then set the password.
+ * - With no password and an existing role: grants only.
  * - With no password and no role: throw `appRoleMissingMessage`.
  * Postgres `format(%L)` quotes the password. JS never interpolates it.
  */
@@ -181,11 +220,12 @@ export async function provisionAppRole(
       await client.query(
         `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOINHERIT NOBYPASSRLS`,
       )
-    } else {
-      await assertAppRoleSafe(client, roleName)
+    } else if (password) {
+      await stripAppRoleRights(client, roleName)
     }
-    if (password) await alterRolePassword(client, roleName, password)
+    // Before the password, so that no unsafe role gets a password from migrate.
     await assertAppRoleSafe(client, roleName)
+    if (password) await alterRolePassword(client, roleName, password)
 
     const databaseName = (
       await client.query<{ current_database: string }>(

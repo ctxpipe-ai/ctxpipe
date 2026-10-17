@@ -116,14 +116,18 @@ export function WorkspaceCreateFallback(props: { step: 0 | 1 }) {
  * and in `onStartAgain` for a URL whose Workspace does not exist. Without
  * `onCreated` (the modal), the form keeps the step itself. Step 1 never shows
  * again for a Workspace that exists.
+ *
+ * With `onDone`, step 2 ends with "Done" and stays on the page (the Home
+ * guide shows the build); without it, step 2 opens the Workspace.
  */
 export function WorkspaceCreateForm(props: {
   orgSlug: string
   workspaceSlug?: string
   onCreated?: (workspaceSlug: string) => void
   onStartAgain?: () => void
+  onDone?: () => void
 }) {
-  const { orgSlug, onCreated, onStartAgain } = props
+  const { orgSlug, onCreated, onStartAgain, onDone } = props
   const queryClient = useQueryClient()
   const [error, setError] = useState<string | null>(null)
   const [createdSlug, setCreatedSlug] = useState<string | null>(null)
@@ -148,6 +152,7 @@ export function WorkspaceCreateForm(props: {
           orgSlug={orgSlug}
           workspaceSlug={workspaceSlug}
           onStartAgain={onStartAgain}
+          onDone={onDone}
         />
       ) : (
         <>
@@ -182,8 +187,9 @@ function AddSourcesOfWorkspace(props: {
   orgSlug: string
   workspaceSlug: string
   onStartAgain?: () => void
+  onDone?: () => void
 }) {
-  const { orgSlug, workspaceSlug, onStartAgain } = props
+  const { orgSlug, workspaceSlug, onStartAgain, onDone } = props
   // The same query as in `AddSourcesStep`, so the two share one request. The
   // API answers a missing Workspace with 404, and the query holds `null`.
   const detailQuery = useQuery(workspaceDetailOptions(orgSlug, workspaceSlug))
@@ -206,7 +212,13 @@ function AddSourcesOfWorkspace(props: {
       </InlineAlert>
     )
   }
-  return <AddSourcesStep orgSlug={orgSlug} workspaceSlug={workspaceSlug} />
+  return (
+    <AddSourcesStep
+      orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
+      onDone={onDone}
+    />
+  )
 }
 
 /**
@@ -219,8 +231,12 @@ function AddSourcesOfWorkspace(props: {
  * time and stop at the same cap as the Workspace page, which owns "Check
  * again".
  */
-function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
-  const { orgSlug, workspaceSlug } = props
+function AddSourcesStep(props: {
+  orgSlug: string
+  workspaceSlug: string
+  onDone?: () => void
+}) {
+  const { orgSlug, workspaceSlug, onDone } = props
   const navigate = useNavigate()
   const [startedAt, setStartedAt] = useState(Date.now)
   const withinCap = (updatedAt: number) =>
@@ -383,13 +399,17 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
         <Button
           variant="primary"
           onPress={() => {
+            if (onDone) {
+              onDone()
+              return
+            }
             void navigate({
               to: "/$orgSlug/ws/$workspaceSlug",
               params: { orgSlug, workspaceSlug },
             })
           }}
         >
-          Open Workspace
+          {onDone ? "Done" : "Open Workspace"}
         </Button>
       </div>
     </>

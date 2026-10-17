@@ -8,8 +8,10 @@ export function WorkspaceCreateModal(props: {
   orgSlug: string
   isOpen: boolean
   onOpenChange: (open: boolean) => void
+  /** See `WorkspaceCreateForm`. */
+  onDone?: () => void
 }) {
-  const { orgSlug, isOpen, onOpenChange } = props
+  const { orgSlug, isOpen, onOpenChange, onDone } = props
 
   return (
     <Modal
@@ -30,7 +32,7 @@ export function WorkspaceCreateModal(props: {
           <IconX className="size-4 text-muted-foreground" aria-hidden />
         </Button>
         {/* "Open Workspace" changes the page, and that closes this modal. */}
-        <WorkspaceCreateForm orgSlug={orgSlug} />
+        <WorkspaceCreateForm orgSlug={orgSlug} onDone={onDone} />
       </Dialog>
     </Modal>
   )

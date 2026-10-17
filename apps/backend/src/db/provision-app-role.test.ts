@@ -136,9 +136,11 @@ describe("provisionAppRole", () => {
     await expect(provisionAppRole(pool, "pw")).rejects.toThrow(
       /elevated attributes/,
     )
-    expect(queries.some((q) => q.sql.includes("format('ALTER ROLE"))).toBe(
-      false,
-    )
+    expect(
+      queries.some((q) =>
+        q.sql.includes("format('ALTER ROLE %I WITH LOGIN PASSWORD"),
+      ),
+    ).toBe(false)
   })
 
   it("fails closed when the app role owns a relation", async () => {
@@ -147,9 +149,11 @@ describe("provisionAppRole", () => {
       ownedRelation: "workspaces",
     })
     await expect(provisionAppRole(pool, "pw")).rejects.toThrow(/owns relation/)
-    expect(queries.some((q) => q.sql.includes("format('ALTER ROLE"))).toBe(
-      false,
-    )
+    expect(
+      queries.some((q) =>
+        q.sql.includes("format('ALTER ROLE %I WITH LOGIN PASSWORD"),
+      ),
+    ).toBe(false)
   })
 
   it("fails closed when the app role is a member of another role", async () => {

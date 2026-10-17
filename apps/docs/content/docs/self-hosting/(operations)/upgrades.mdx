@@ -249,7 +249,7 @@ cdk deploy
 
 `cdk deploy` runs the migrate task, then updates ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
 
-This release’s migrate task also creates the `ctxpipe_app` runtime role and rewrites the injected `DATABASE_URL` secret. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
+This release’s migrate task also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
 ## Docker Compose flow
 
