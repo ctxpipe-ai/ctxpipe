@@ -50,6 +50,10 @@ it(
           }),
         ]),
       )
+      // The upgrades API owns the upgrade state (ADR-053). The Workspace
+      // shape has no second, different answer.
+      for (const item of listedBody.items)
+        expect(item).not.toHaveProperty("upgradeNeeded")
 
       const missing = await app.request("/workspaces/missing")
       expect(missing.status).toBe(404)
