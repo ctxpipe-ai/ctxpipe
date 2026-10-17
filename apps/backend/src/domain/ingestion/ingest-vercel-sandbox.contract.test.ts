@@ -2,6 +2,7 @@ import { randomBytes } from "node:crypto"
 import { gunzipSync } from "node:zlib"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { APIError, Sandbox } from "@vercel/sandbox"
+import { defineSandboxProxy } from "@vercel/sandbox/proxy"
 import { eq } from "drizzle-orm"
 import { decodeJwt } from "jose"
 import { HttpResponse, http } from "msw"
@@ -36,7 +37,10 @@ import {
   stubGithubApp,
 } from "../../test/ingest-github.js"
 import { VERCEL_INGEST_AGENT_PATH } from "../workspaces/chat-runtime.js"
-import { ingestEgressForwardUrl } from "../workspaces/ingest-egress-proxy.js"
+import {
+  ingestEgressForwardUrl,
+  openIngestEgressScope,
+} from "../workspaces/ingest-egress-proxy.js"
 import { ingestSandboxTags } from "../workspaces/ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
@@ -275,6 +279,29 @@ async function serveJob(
   // A refusal names what the proxy saw: the forwarded request and the
   // claims of the sandbox's OIDC token (never the token itself).
   if (status === 403 && forwardedHost) {
+    // The library's own check, and the scope, as the proxy sees them.
+    const sealed = /^\/api\/v1\/sandbox-egress\/([^/?]+)/.exec(job.url)?.[1]
+    await defineSandboxProxy(
+      async (request, meta) => {
+        const scope = sealed ? openIngestEgressScope(sealed, authSecret) : null
+        report(
+          `[diag] verified ${JSON.stringify({ sandbox: meta.sandboxName, host: meta.host })} scope ${scope ? JSON.stringify({ sandbox: scope.sandbox, live: scope.exp > Date.now(), repositories: scope.git.map((g) => g.repositories), step: Boolean(scope.step), backendHost: scope.backendHost }) : "not valid"} request ${request.method} ${request.url}`,
+        )
+        return new Response("diagnosed")
+      },
+      async (_request, error) => {
+        report(`[diag] the library refused: ${error.message}`)
+        return new Response("refused", { status: 403 })
+      },
+    )(
+      new Request(`https://${tunnelHost}${job.url}`, {
+        method: job.method,
+        headers,
+        ...(job.method === "GET" || job.method === "HEAD"
+          ? {}
+          : { body: Buffer.from(job.body, "base64") }),
+      }),
+    ).catch((error: unknown) => report(`[diag] ${String(error)}`))
     const oidc = headers.get("vercel-sandbox-oidc-token")
     const claims = oidc ? decodeJwt(oidc) : {}
     report(
@@ -383,6 +410,7 @@ beforeAll(async () => {
   const scoped = (await response.json()) as { id: string; accountId: string }
   credentials = { token, teamId: scoped.accountId, projectId: scoped.id }
   server.listen({ onUnhandledRequest: "bypass" })
+
   initDb(databaseUrl)
   stubGithubApp()
   tunnelHost = await startTunnel()
