@@ -48,7 +48,6 @@ import {
   workspaceSourceRepositories,
 } from "./reingest.js"
 import { formatOneLinkedRepositories } from "./steps/export-and-sources.js"
-import { stopOrphanedReingestRuns } from "./stop-orphans.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
@@ -348,7 +347,6 @@ export async function scanWorkspaceReingest(input: {
   if (format > CODE_FORMAT) return { kind: "none", reason: "not_upgradable" }
   const key = reingestUpgradeKey(input.bundle.name)
   await failStoppedUpgradeRun(workspace.id, key)
-  await stopOrphanedReingestRuns()
   await deleteSupersededUpgradeRows({
     workspaceId: workspace.id,
     key,

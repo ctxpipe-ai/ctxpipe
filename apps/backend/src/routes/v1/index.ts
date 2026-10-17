@@ -51,6 +51,7 @@ import {
   connectionSyncRoutes,
   connectionUsageRoutes,
 } from "./workspace-sources-routes.js"
+import { orgPendingUpgradeRoutes } from "./workspace-upgrades-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 const githubInstallationAdminScopedGate = new OpenAPIHono<AppEnv>()
@@ -115,6 +116,7 @@ function createOrgScopedV1<BasePath extends string>(
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/workspaces", workspaceRoutes)
+    .route("/workspace-upgrades", orgPendingUpgradeRoutes)
     .route("/activity", orgActivityRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)

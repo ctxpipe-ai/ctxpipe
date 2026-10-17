@@ -11,10 +11,9 @@ import {
 } from "../../domain/upgrades/registry.js"
 import { isReingestUpgradeKey } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
-import { stopOrphanedReingestRuns } from "../../domain/upgrades/stop-orphans.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
 import {
-  failStoppedUpgradeRun,
+  listOrgPendingUpgradeRows,
   listWorkspaceUpgradeRows,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
@@ -256,9 +255,8 @@ const routes = new OpenAPIHono<AppEnv>()
     const { workspaceSlug } = c.req.valid("param")
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
-    // Show a run that stopped without its result as `failed`.
-    await failStoppedUpgradeRun(workspace.id)
-    await stopOrphanedReingestRuns()
+    // A read writes nothing. The tip check sets a stopped run to `failed`,
+    // and the scan and the slot poll cancel orphaned re-ingestion runs.
     const rows = await listWorkspaceUpgradeRows(workspace.id)
     return c.json(
       {
@@ -309,3 +307,59 @@ const routes = new OpenAPIHono<AppEnv>()
 const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
 export const workspaceUpgradeRoutes = gated.route("/", routes)
+
+const PendingWorkspaceUpgradesSchema = z
+  .object({
+    workspaces: z.array(
+      z.object({
+        workspaceSlug: z.string(),
+        items: z.array(WorkspaceUpgradeItemSchema),
+      }),
+    ),
+  })
+  .openapi("PendingWorkspaceUpgrades")
+
+const listPendingUpgradesRoute = createRoute({
+  method: "get",
+  path: "/pending",
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: PendingWorkspaceUpgradesSchema },
+      },
+      description:
+        "The upgrades of the org that are not `completed`, grouped by Workspace. A Workspace with no such upgrade is not in the list. Every member can read them. The read writes nothing.",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+  },
+})
+
+/** One read of the pending upgrades of all the Workspaces of an org (the home alert). */
+export const orgPendingUpgradeRoutes = new OpenAPIHono<AppEnv>().openapi(
+  listPendingUpgradesRoute,
+  async (c) => {
+    if (!c.get("user") || !c.get("session"))
+      return c.json({ error: "Unauthorized" }, 401)
+    const bySlug = new Map<
+      string,
+      Array<z.infer<typeof WorkspaceUpgradeItemSchema>>
+    >()
+    for (const row of await listOrgPendingUpgradeRows()) {
+      const items = bySlug.get(row.workspaceSlug) ?? []
+      items.push(serializeUpgrade(row))
+      bySlug.set(row.workspaceSlug, items)
+    }
+    return c.json(
+      {
+        workspaces: [...bySlug].map(([workspaceSlug, items]) => ({
+          workspaceSlug,
+          items,
+        })),
+      },
+      200,
+    )
+  },
+)
