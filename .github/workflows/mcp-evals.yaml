@@ -41,11 +41,10 @@ jobs:
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 90
-    # The model key is PREVIEW_MODEL_PROVIDER_API_KEY, a spend-capped key of
-    # the Preview environment. This job runs pnpm install, so it never gets
-    # the production key MODEL_PROVIDER_API_KEY. The name differs on purpose:
-    # a missing environment secret falls back to a repository secret with the
-    # same name. The client model keys have Preview names for the same reason.
+    # The model keys are secrets of the Preview environment: a spend-capped
+    # MODEL_PROVIDER_API_KEY for CI. This job runs pnpm install, so it must
+    # never get the production key. Settings keep the production value in the
+    # Production environment, not in a repository secret.
     environment: Preview
     services:
       postgres:
@@ -84,10 +83,10 @@ jobs:
     steps:
       - name: Check the Preview model key
         env:
-          PREVIEW_MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
-          [[ -n "$PREVIEW_MODEL_PROVIDER_API_KEY" ]] || {
-            echo "::error::PREVIEW_MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the Preview environment (Settings > Environments). This job never uses the production key MODEL_PROVIDER_API_KEY."
+          [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the Preview environment (Settings > Environments)."
             exit 1
           }
       - uses: actions/checkout@v6
@@ -145,7 +144,7 @@ jobs:
       - name: Start the backend from this checkout
         working-directory: apps/backend
         env:
-          MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
           nohup bun run src/server.ts > "$RUNNER_TEMP/backend.log" 2>&1 &
           for _ in $(seq 60); do
@@ -157,20 +156,20 @@ jobs:
       - name: Seed the fixture organizations and create the eval key
         working-directory: apps/backend
         env:
-          MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
         run: |
           set -euo pipefail
           bun evals/mcp/run-seed.ts ci "ci${{ github.run_id }}" "$RUNNER_TEMP/mcp-eval-fixtures" "$RUNNER_TEMP/mcp-eval-seed.json"
       - name: Run the evals
         working-directory: apps/backend
         env:
-          MODEL_PROVIDER_API_KEY: ${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
           # Preview names, so that a missing Preview secret can never fall
           # back to a repository or organization secret with the plain name.
           # run.ts stops with "Set <PROVIDER>_API_KEY" when a model of
           # MCP_EVAL_MODELS has no key.
-          ANTHROPIC_API_KEY: ${{ secrets.PREVIEW_ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.PREVIEW_OPENAI_API_KEY }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
           MODELS: ${{ vars.MCP_EVAL_MODELS }}
           UPDATE_BASELINE: ${{ inputs.update_baseline }}
         run: |

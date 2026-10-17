@@ -3,7 +3,7 @@
 # code. Such code gets no secret except a credential that works on this
 # preview only:
 # - RAILWAY_API_TOKEN (Railway account token) comes from the protected
-#   GitHub environment `preview-deploy`. It goes only to jobs that run no
+#   GitHub environment `Preview`. It goes only to jobs that run no
 #   package manager, no migrate and no build. These jobs check out the commit
 #   of this workflow file and source only reviewed scripts from it.
 # - NEON_API_KEY goes only to prepare_pr_database, deploy_pr_environment and
@@ -20,7 +20,7 @@
 #   preview environment only (scripts/preview-own-secrets.sh), and that the
 #   PR-close cleanup revokes.
 #   Limit: GitHub runs this file from the branch, so a person who can push a
-#   branch can change this file. Required reviewers on `preview-deploy` are
+#   branch can change this file. Required reviewers on `Preview` would be
 #   the control for that case.
 # - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: each preview gets its
 #   own random values once, and keeps them for its life. Connection secrets
@@ -328,7 +328,7 @@ jobs:
     timeout-minutes: 20
     # RAILWAY_API_TOKEN and the preview GitHub App secrets come from this
     # protected environment.
-    environment: preview-deploy
+    environment: Preview
     env:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
     outputs:
@@ -358,7 +358,7 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 
@@ -463,7 +463,7 @@ jobs:
       contents: read
       pull-requests: read
     # NEON_API_KEY comes from this protected environment.
-    environment: preview-deploy
+    environment: Preview
     outputs:
       handoff_key: ${{ steps.owner.outputs.handoff_key }}
     steps:
@@ -509,7 +509,7 @@ jobs:
         run: |
           set -euo pipefail
           [[ -n "$NEON_API_KEY" ]] || {
-            echo "::error::NEON_API_KEY is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            echo "::error::NEON_API_KEY is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
           # The nonce is not secret: it only stops an earlier job from
@@ -642,7 +642,7 @@ jobs:
     # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
     # token reaches only the preview Vercel project
     # (scripts/preview-sandbox-vars.sh), never production.
-    environment: preview-deploy
+    environment: Preview
     env:
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
       IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
@@ -672,7 +672,7 @@ jobs:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 
@@ -1459,14 +1459,14 @@ jobs:
     # RAILWAY_API_TOKEN and NEON_API_KEY come from this protected environment.
     # The job calls only the Neon and Railway APIs with curl: no CLI, no
     # package. Each secret is in the env of the steps that need it.
-    environment: preview-deploy
+    environment: Preview
     steps:
       - name: Check the Railway token
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
         run: |
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
 

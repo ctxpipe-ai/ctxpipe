@@ -38,7 +38,7 @@ jobs:
     # (scripts/preview-sandbox-vars.sh), never production. Each secret is in
     # the env of the steps that need it, never in the job env. The job uses
     # the Railway API with curl: no CLI, no package.
-    environment: preview-deploy
+    environment: Preview
     env:
       RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
       BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
@@ -65,7 +65,7 @@ jobs:
           [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
           [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
           [[ -n "$RAILWAY_API_TOKEN" ]] || {
-            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the preview-deploy environment (Settings > Environments)."
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
             exit 1
           }
           # The concurrency group is the ref name, so it must be the PR branch.

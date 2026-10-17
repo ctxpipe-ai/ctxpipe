@@ -12,9 +12,12 @@
 //   (`uses: ./…`), checks out no other commit (`ref:`), and runs or sources
 //   only the reviewed scripts below. It reads no `toJSON(secrets)` and no
 //   `secrets[…]`.
-// - NEON_API_KEY, RAILWAY_API_TOKEN and MODEL_PROVIDER_API_KEY (the
-//   production model key) never go to a job that runs untrusted code. No
-//   exception covers them.
+// - NEON_API_KEY and RAILWAY_API_TOKEN never go to a job that runs
+//   untrusted code. No exception covers them.
+// - MODEL_PROVIDER_API_KEY goes to a job that runs untrusted code only when
+//   the job uses an `environment:` other than production (the `Preview`
+//   environment, which holds a spend-capped key for CI). The production
+//   value lives in the `Production` environment, not in a repository secret.
 // - A sticky disk or an actions/cache key that a job with a secret mounts or
 //   restores is not written by a job that runs untrusted code. The check
 //   reads each `${{ … }}` part of a key as "any text", and a `restore-keys`
@@ -81,15 +84,16 @@ const exceptions = new Map(
     // Tests the sandbox provider against the preview Vercel project.
     "ci.yaml:vercel-sandbox": ["VERCEL_ACCESS_TOKEN"],
     // Evaluates the product MCP with real models.
-    // The model key is the spend-capped Preview key, not the production key.
+    // The job uses the Preview environment: its model key is the
+    // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": [
-      "PREVIEW_MODEL_PROVIDER_API_KEY",
-      "PREVIEW_ANTHROPIC_API_KEY",
-      "PREVIEW_OPENAI_API_KEY",
+      "MODEL_PROVIDER_API_KEY",
+      "ANTHROPIC_API_KEY",
+      "OPENAI_API_KEY",
     ],
     // Ingests real repositories with a real model and the preview GitHub App.
     "ingestion-v2-proof.yaml:proof": [
-      "PREVIEW_MODEL_PROVIDER_API_KEY",
+      "MODEL_PROVIDER_API_KEY",
       "GH_APP_ID",
       "GH_PRIVATE_KEY",
     ],
@@ -252,6 +256,9 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
 
   for (const job of jobs) {
     const holdsSecret = job.lines.some(({ text }) => secretUse.test(text))
+    const environment = job.lines
+      .map(({ text }) => /^ {4}environment:\s*['"]?([\w-]+)/.exec(text)?.[1])
+      .find(Boolean)
     const runsUntrusted = job.lines.some(({ text }) =>
       untrusted.some(([pattern]) => pattern.test(text)),
     )
@@ -320,10 +327,16 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           `${where(number)} reads every secret (toJSON(secrets) or secrets[…]). Name each secret it needs.`,
         )
       const token = accountTokens.exec(text)
-      if (runsUntrusted && token)
-        failures.push(
-          `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
-        )
+      if (runsUntrusted && token) {
+        if (token[1] !== "MODEL_PROVIDER_API_KEY")
+          failures.push(
+            `${where(number)} gives ${token[1]} to a job that runs untrusted code. Move it to a job without such code.`,
+          )
+        else if (!environment || /^production$/i.test(environment))
+          failures.push(
+            `${where(number)} gives ${token[1]} to a job that runs untrusted code, and the job has no environment other than production. Use \`environment: Preview\` (a spend-capped CI key), or move the key to a job without such code.`,
+          )
+      }
     }
 
     const allowed = exceptions.get(`${name}:${job.name}`)

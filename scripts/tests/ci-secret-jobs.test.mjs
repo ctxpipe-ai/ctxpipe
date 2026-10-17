@@ -334,16 +334,16 @@ test("rejects an account token in a job that runs any untrusted code, even in a 
     )
 })
 
-test("rejects the production model key in a job that runs untrusted code", () => {
-  rejects(
-    {
-      ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
-    },
-    /gives MODEL_PROVIDER_API_KEY to a job that runs untrusted code/,
-  )
-  const result = check({
-    ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n    environment: Preview\n    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.PREVIEW_MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
+test("rejects the model key in a job that runs untrusted code without a non-production environment", () => {
+  const evals = (environment) => ({
+    ".github/workflows/mcp-evals.yaml": `on: pull_request\njobs:\n  evals:\n${environment}    steps:\n${install}      - env:\n          MODEL_PROVIDER_API_KEY: \${{ secrets.MODEL_PROVIDER_API_KEY }}\n        run: bun evals/run.ts\n`,
   })
+  for (const environment of ["", "    environment: Production\n"])
+    rejects(
+      evals(environment),
+      /gives MODEL_PROVIDER_API_KEY to a job that runs untrusted code, and the job has no environment other than production\. Use `environment: Preview`/,
+    )
+  const result = check(evals("    environment: Preview\n"))
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
 })
