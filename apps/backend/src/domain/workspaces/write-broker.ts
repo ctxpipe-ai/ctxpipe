@@ -186,6 +186,10 @@ export async function pushWorkspaceCommit(
         [
           "push",
           "--porcelain",
+          // The remote changes the branch only while its tip is still the
+          // bound revision. A writer that loses a race fails here, and its
+          // next attempt reads the new tip.
+          `--force-with-lease=refs/heads/${revision.defaultBranch}:${revision.sha}`,
           "--",
           revision.remote.url,
           `${committed.sha}:refs/heads/${revision.defaultBranch}`,

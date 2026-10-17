@@ -14,6 +14,7 @@ import {
 } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import {
+  hasCtxpipeContent,
   WORKSPACE_FORMAT_PATH,
   workspaceFormatFile,
 } from "../../domain/workspaces/workspace-format.js"
@@ -41,7 +42,11 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { readGitFiles } from "../../services/git/pack.js"
+import {
+  listPackBlobs,
+  readGitFiles,
+  withGitDirectory,
+} from "../../services/git/pack.js"
 import {
   commitUnbornGitTree,
   stageUnbornGitFiles,
@@ -133,9 +138,8 @@ export const workspaceBootstrap = defineWorkflow(
               const workspace = await getUnbornBootstrapWorkspace(
                 queued.bootstrapBinding,
               )
-              // Only the root commit of a new repository gets the format
-              // file. An existing repository gets it in an upgrade pull
-              // request (ADR-053).
+              // A new repository gets the format file in its bootstrap
+              // commit (ADR-053).
               return [
                 ...bootstrapWorkspaceFiles({
                   displayName: workspace.displayName,
@@ -330,10 +334,25 @@ export const workspaceBootstrap = defineWorkflow(
                   )
                 ).map((file) => [file.path, file.content]),
               )
-              return bootstrapWorkspaceFiles({
-                displayName: acquired.displayName,
-                existing,
-              }).filter((file) => existing.get(file.path) !== file.content)
+              // A repository with no ctx| content is new, so the bootstrap
+              // commit writes the format file. A repository with ctx|
+              // content keeps its format (ADR-053).
+              const isNew = !hasCtxpipeContent(
+                (
+                  await withGitDirectory(
+                    acquired.pack.sha,
+                    (directory) => listPackBlobs(directory, acquired.pack),
+                    acquired.pack,
+                  )
+                ).map((blob) => blob.path),
+              )
+              return [
+                ...bootstrapWorkspaceFiles({
+                  displayName: acquired.displayName,
+                  existing,
+                }).filter((file) => existing.get(file.path) !== file.content),
+                ...(isNew ? [workspaceFormatFile()] : []),
+              ]
             },
           )
           if (!files.length) {
@@ -353,7 +372,13 @@ export const workspaceBootstrap = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () => {
-            if (files.some((file) => !isBootstrapAllowedPath(file.path)))
+            if (
+              files.some(
+                (file) =>
+                  !isBootstrapAllowedPath(file.path) &&
+                  file.path !== WORKSPACE_FORMAT_PATH,
+              )
+            )
               throw new Error("Bootstrap path is outside its allowed files")
             return stageGitFiles(acquired.pack, files)
           })

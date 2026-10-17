@@ -34,7 +34,8 @@ All deploy paths run the same migrate command before the new code serves traffic
 
 - No file is format 0. One strict schema validates the file for the backend and the UI.
 - Git is the source of truth. The database holds only a cache of the format, which hydrate writes for each revision ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). Thus a rebuilt database gets the same format at the next hydrate.
-- The format file is host-only. Only bootstrap (the root commit of a new repository) and an upgrade pull request write it.
+- The format file is host-only. Only the bootstrap commit and an upgrade pull request write it.
+- The bootstrap commit writes the format file. Bootstrap runs on an empty repository, or on a repository with no ctx| content: no `.ctxpipe/`, no `sources/` and no `repositories/` on the default branch below the Workspace root. It adds one commit on top of the history and keeps the files that are there. A repository with ctx| content keeps its format, and the upgrade pull request changes it.
 - The code declares the newest format that it supports (`CODE_FORMAT`).
   - A format above `CODE_FORMAT` (for example after a rollback) makes the Workspace read-only. Reads continue. No upgrade is offered.
   - A file that does not parse makes the Workspace read-only. Reads continue.

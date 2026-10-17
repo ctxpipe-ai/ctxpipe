@@ -105,8 +105,10 @@ Each Workspace repository holds `.ctxpipe/workspace.yaml`. It has one key,
 | 2 | One Markdown file for each source under `sources/` |
 | 3 | Ingestion v2 ownership front matter (current) |
 
-- Only an upgrade pull request or the root commit of a new Workspace writes
-  the file. No agent or chat write can change it.
+- Only an upgrade pull request or the bootstrap commit of a new Workspace
+  writes the file. Bootstrap writes it on an empty repository, or on a
+  repository with no `.ctxpipe/`, `sources/` or `repositories/` folder. No
+  agent or chat write can change it.
 - A file that does not parse makes the Workspace read-only
   (`format_invalid`). Reads still work.
 - A format above the one your release knows (for example after a rollback)
