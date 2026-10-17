@@ -29,26 +29,32 @@ const sha = z.string().regex(/^[0-9a-f]{40}$/)
 /**
  * The source repository of a run: a GitHub repository with the connection
  * that reads it, or a plain git repository that ctx| reads over public
- * HTTPS with no credential (CTX-815). An input from before CTX-815 has no
- * `kind`; it is a GitHub source.
+ * HTTPS with no credential (CTX-815). A GitHub source can leave out `kind`:
+ * an input from before CTX-815 has none.
  */
-export const ingestSourceSchema = z.preprocess(
-  (value) =>
-    value &&
-    typeof value === "object" &&
-    !("kind" in value) &&
-    "githubConnectionId" in value
-      ? { ...value, kind: "github" }
-      : value,
-  z.discriminatedUnion("kind", [
-    z.object({
-      kind: z.literal("github"),
-      url: z.string().url(),
-      githubConnectionId: z.string().min(1),
-    }),
-    z.object({ kind: z.literal("git"), url: plainGitUrlSchema }),
-  ]),
-)
+const githubIngestSourceSchema = z.object({
+  kind: z.literal("github").optional(),
+  url: z.string().url(),
+  githubConnectionId: z.string().min(1),
+})
+
+const gitIngestSourceSchema = z.object({
+  kind: z.literal("git"),
+  url: plainGitUrlSchema,
+})
+
+export const ingestSourceSchema = z.union([
+  githubIngestSourceSchema,
+  gitIngestSourceSchema,
+])
+
+/** {@link ingestSourceSchema} with more keys on each member. */
+export function ingestSourceWith<T extends z.ZodRawShape>(shape: T) {
+  return z.union([
+    githubIngestSourceSchema.extend(shape),
+    gitIngestSourceSchema.extend(shape),
+  ])
+}
 
 export type IngestSource = z.infer<typeof ingestSourceSchema>
 
