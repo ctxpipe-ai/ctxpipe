@@ -1,7 +1,7 @@
 import HyperDX from "@hyperdx/browser"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ComponentProps, type ReactNode, useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -9,7 +9,11 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { SkeletonChain } from "@/components/ui/Skeleton"
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
-import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
+import {
+  upgradesRefetchInterval,
+  workspaceUpgradesOptions,
+} from "@/features/workspace-upgrades/queries"
+import { formatHealthLine } from "@/features/workspace-upgrades/upgrade-copy"
 import { pollWhileOk } from "@/lib/api-result"
 import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
 import {
@@ -206,75 +210,175 @@ function AddSourcesOfWorkspace(props: {
 }
 
 /**
- * The Sources section of Workspace settings, for the new Workspace. A new
- * Workspace starts with an unknown write status, and sources can only be
- * added after the write-access check, so the step waits for that check.
- * The wait stops at the same cap as the Workspace page, which owns
- * "Check again".
+ * The Sources section of Workspace settings, for the new Workspace. Sources
+ * can only be added when two checks pass, one after the other. First the
+ * write-access check, which a new Workspace starts with an unknown status.
+ * Then the repository format: a new empty repository gets its format file a
+ * few seconds later, and a repository that already had files stays below
+ * format 2 until its upgrade pull request merges. Both waits share one start
+ * time and stop at the same cap as the Workspace page, which owns "Check
+ * again".
  */
 function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
   const { orgSlug, workspaceSlug } = props
   const navigate = useNavigate()
-  const [startedAt] = useState(Date.now)
+  const [startedAt, setStartedAt] = useState(Date.now)
+  const withinCap = (updatedAt: number) =>
+    updatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
   const detailQuery = useQuery({
     ...workspaceDetailOptions(orgSlug, workspaceSlug),
     refetchInterval: (query) =>
       query.state.data &&
       writeCheckInFlight(query.state.data) &&
-      query.state.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
+      withinCap(query.state.dataUpdatedAt)
         ? pollWhileOk(2000)(query)
         : false,
   })
   const workspace = detailQuery.data
+  const writeCheckPending = !workspace || writeCheckInFlight(workspace)
+  const upgradesQuery = useQuery({
+    ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
+    enabled: !writeCheckPending && workspace.conversationWritable !== false,
+    // The repository has no format yet: poll fast, up to the cap. Once the
+    // format is known, the upgrades poll follows an upgrade item.
+    refetchInterval: (query) =>
+      query.state.data?.formatVersion === null
+        ? withinCap(query.state.dataUpdatedAt)
+          ? pollWhileOk(2000)(query)
+          : false
+        : upgradesRefetchInterval(query),
+  })
+  const upgrades = upgradesQuery.data
+
+  const content = () => {
+    const failed = detailQuery.isError
+      ? detailQuery
+      : upgradesQuery.isError
+        ? upgradesQuery
+        : null
+    if (failed)
+      return (
+        <InlineAlert
+          variant="error"
+          title="Could not load the Workspace"
+          actions={
+            <Button variant="secondary" onPress={() => void failed.refetch()}>
+              Retry
+            </Button>
+          }
+        >
+          Try again, or open the Workspace and add sources in Settings.
+        </InlineAlert>
+      )
+    if (writeCheckPending)
+      return withinCap(detailQuery.dataUpdatedAt) ? (
+        <InlineLoader label="Checking write access" />
+      ) : (
+        <InlineAlert
+          variant="warning"
+          title="Still checking write access"
+          actions={
+            <Button
+              variant="secondary"
+              onPress={() => {
+                setStartedAt(Date.now())
+                void detailQuery.refetch()
+              }}
+            >
+              Retry
+            </Button>
+          }
+        >
+          The check takes longer than usual. Try again, or open the Workspace
+          and add sources in Settings later.
+        </InlineAlert>
+      )
+    if (workspace.conversationWritable === false)
+      return (
+        <InlineAlert
+          variant="warning"
+          title={
+            workspace.writeStatus === "unknown"
+              ? "Could not check write access"
+              : "Read-only"
+          }
+        >
+          {workspace.readOnlyReason}
+        </InlineAlert>
+      )
+    if (!upgrades || upgrades.formatVersion === null)
+      return withinCap(upgradesQuery.dataUpdatedAt) ? (
+        <InlineLoader label="Setting up the Workspace repository" />
+      ) : (
+        <InlineAlert
+          variant="warning"
+          title="Still setting up the Workspace repository"
+          actions={
+            <Button
+              variant="secondary"
+              onPress={() => {
+                setStartedAt(Date.now())
+                void upgradesQuery.refetch()
+              }}
+            >
+              Retry
+            </Button>
+          }
+        >
+          The setup takes longer than usual. Try again, or open the Workspace
+          and add sources in Settings later.
+        </InlineAlert>
+      )
+    // A format file that is not valid reads as a negative number. A format
+    // above the one that ctx| reads makes the Workspace read-only. Neither
+    // case is fixed with an upgrade.
+    const { formatVersion, codeFormat } = upgrades
+    if (formatVersion < 0 || formatVersion > codeFormat)
+      return (
+        <InlineAlert variant="warning" title="Read-only">
+          {formatHealthLine(formatVersion, codeFormat)}
+        </InlineAlert>
+      )
+    // Copy of SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts.
+    const sourceFilesFormat = 2
+    if (formatVersion < sourceFilesFormat)
+      return (
+        <InlineAlert
+          variant="warning"
+          title="Upgrade this Workspace before you add sources"
+          actions={
+            <Button
+              variant="secondary"
+              onPress={() => {
+                void navigate({
+                  to: "/$orgSlug/ws/$workspaceSlug",
+                  params: { orgSlug, workspaceSlug },
+                  search: { pane: "settings" },
+                })
+              }}
+            >
+              Review upgrades
+            </Button>
+          }
+        >
+          Sources need repository format 2 or higher. An owner or admin starts
+          the upgrade. It opens a pull request. Merge it, then add sources.
+        </InlineAlert>
+      )
+    return (
+      <WorkspaceSources
+        orgSlug={orgSlug}
+        workspaceSlug={workspaceSlug}
+        linkedRepositories={workspace.linkedRepositories}
+        workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
+      />
+    )
+  }
 
   return (
     <>
       <AddSourcesIntro />
-      <div className="mt-4">
-        {detailQuery.isError ? (
-          <InlineAlert
-            variant="error"
-            title="Could not load the Workspace"
-            actions={
-              <Button
-                variant="secondary"
-                onPress={() => void detailQuery.refetch()}
-              >
-                Retry
-              </Button>
-            }
-          >
-            Try again, or open the Workspace and add sources in Settings.
-          </InlineAlert>
-        ) : !workspace ||
-          (writeCheckInFlight(workspace) &&
-            detailQuery.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS) ? (
-          <InlineLoader label="Checking write access" />
-        ) : writeCheckInFlight(workspace) ? (
-          <InlineAlert variant="warning" title="Still checking write access">
-            The check takes longer than usual. Open the Workspace to check
-            again, then add sources in Settings.
-          </InlineAlert>
-        ) : workspace.conversationWritable === false ? (
-          <InlineAlert
-            variant="warning"
-            title={
-              workspace.writeStatus === "unknown"
-                ? "Could not check write access"
-                : "Read-only"
-            }
-          >
-            {workspace.readOnlyReason}
-          </InlineAlert>
-        ) : (
-          <SourcesWhenRepositoryReady
-            orgSlug={orgSlug}
-            workspaceSlug={workspaceSlug}
-            linkedRepositories={workspace.linkedRepositories}
-            workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
-          />
-        )}
-      </div>
+      <div className="mt-4">{content()}</div>
       <div className="mt-6 flex justify-end">
         <Button
           variant="primary"
@@ -290,86 +394,4 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
       </div>
     </>
   )
-}
-
-/**
- * The backend refuses a source change until the Workspace repository has one
- * file for each source. A new empty repository gets its format file a few
- * seconds after the create, so this waits for it. A repository that already
- * had files has no format file until its upgrade pull request merges. The wait
- * stops at the same cap as the write-access check.
- */
-function SourcesWhenRepositoryReady(
-  props: ComponentProps<typeof WorkspaceSources>,
-) {
-  const { orgSlug, workspaceSlug } = props
-  const navigate = useNavigate()
-  const [startedAt] = useState(Date.now)
-  // Mirrors SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts.
-  const sourceFilesFormat = 2
-  const upgradesQuery = useQuery({
-    ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
-    refetchInterval: (query) =>
-      query.state.status !== "error" &&
-      query.state.data?.formatVersion === null &&
-      query.state.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS
-        ? 2000
-        : false,
-  })
-  const formatVersion = upgradesQuery.data?.formatVersion
-
-  if (upgradesQuery.isError)
-    return (
-      <InlineAlert
-        variant="error"
-        title="Could not read the Workspace repository"
-        actions={
-          <Button
-            variant="secondary"
-            onPress={() => void upgradesQuery.refetch()}
-          >
-            Retry
-          </Button>
-        }
-      >
-        Try again, or open the Workspace and add sources in Settings.
-      </InlineAlert>
-    )
-  if (formatVersion === undefined || formatVersion === null)
-    return upgradesQuery.dataUpdatedAt - startedAt < WRITE_CHECK_POLL_CAP_MS ? (
-      <InlineLoader label="Setting up the Workspace repository" />
-    ) : (
-      <InlineAlert
-        variant="warning"
-        title="Still setting up the Workspace repository"
-      >
-        The setup takes longer than usual. Open the Workspace and add sources in
-        Settings later.
-      </InlineAlert>
-    )
-  if (formatVersion < sourceFilesFormat)
-    return (
-      <InlineAlert
-        variant="warning"
-        title="Upgrade this Workspace before you add sources"
-        actions={
-          <Button
-            variant="secondary"
-            onPress={() => {
-              void navigate({
-                to: "/$orgSlug/ws/$workspaceSlug",
-                params: { orgSlug, workspaceSlug },
-                search: { pane: "settings" },
-              })
-            }}
-          >
-            Review upgrades
-          </Button>
-        }
-      >
-        The repository already had files, so ctx| must upgrade it once. The
-        upgrade opens a pull request. Merge it, then add sources.
-      </InlineAlert>
-    )
-  return <WorkspaceSources {...props} />
 }

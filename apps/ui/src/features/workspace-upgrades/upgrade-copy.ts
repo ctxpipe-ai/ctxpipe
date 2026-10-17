@@ -80,7 +80,9 @@ export function formatHealthLine(
   if (formatVersion === null) return "ctx| has not read the repository format."
   if (formatVersion < 0)
     return "The format file in the repository is not valid."
-  if (formatVersion >= codeFormat)
+  if (formatVersion > codeFormat)
+    return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}. This Workspace needs a newer ctx| version.`
+  if (formatVersion === codeFormat)
     return `The repository uses format ${formatVersion}. It is up to date.`
   return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}.`
 }

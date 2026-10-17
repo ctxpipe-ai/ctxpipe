@@ -278,9 +278,12 @@ export const LoadingStepTwo: Story = {
   },
 }
 
-/** Step 2 for a repository that already had files: it has no format file yet. */
-export const StepTwoNeedsUpgrade: Story = {
-  parameters: {
+/** How many times a story has read the upgrades of the Workspace. */
+const upgradeReads = { count: 0 }
+
+/** Step 2 with the upgrades read of a story, ahead of the default one. */
+function stepTwoWith(upgradesHandler: ReturnType<typeof http.get>) {
+  return {
     storyRoute: {
       pattern: "orgWorkspaceNew",
       orgSlug,
@@ -288,57 +291,121 @@ export const StepTwoNeedsUpgrade: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [
-          // The first matching handler answers, so this one comes first.
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
-          ...stepTwoHandlers,
-        ],
+        // The first matching handler answers, so the story handler comes first.
+        page: [upgradesHandler, ...stepTwoHandlers],
       },
     },
-  },
+  }
+}
+
+/** Step 2 for a repository that already had files: it has no format file yet. */
+export const StepTwoNeedsUpgrade: Story = {
+  parameters: stepTwoWith(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 0 })),
+  ),
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
-  play: async ({ canvasElement }) => {
+  play: async ({ canvasElement, loaded }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade this Workspace before you add sources")
-    await expect(
-      canvas.getByRole("button", { name: "Review upgrades" }),
-    ).toBeVisible()
+    // A member cannot start the upgrade, so the text names who does.
+    await expect(canvas.getByText(/An owner or admin starts/)).toBeVisible()
     await expect(
       canvas.queryByRole("button", { name: "Add repositories" }),
     ).toBeNull()
     await expect(
       canvas.getByRole("button", { name: "Open Workspace" }),
     ).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Review upgrades" }),
+    )
+    // The Workspace settings open, where the upgrades are.
+    const { router } = loaded.storyRoute
+    await waitFor(() => {
+      expect(router.state.location.pathname).toBe("/acme/ws/handbook")
+      expect(router.state.location.search).toMatchObject({ pane: "settings" })
+    })
+  },
+}
+
+/** The format file is not valid: an upgrade does not fix it, so no upgrade text. */
+export const StepTwoFormatNotValid: Story = {
+  parameters: stepTwoWith(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: -1 })),
+  ),
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("The format file in the repository is not valid.")
+    await expect(
+      canvas.queryByText("Upgrade this Workspace before you add sources"),
+    ).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+  },
+}
+
+/** The repository has a newer format than ctx| reads: the Workspace is read-only. */
+export const StepTwoFormatAhead: Story = {
+  parameters: stepTwoWith(
+    workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),
+  ),
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(/This Workspace needs a newer ctx\| version/)
+    await expect(
+      canvas.queryByText("Upgrade this Workspace before you add sources"),
+    ).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+  },
+}
+
+/** The first read of the upgrades fails: Retry reads again, and sources show. */
+export const StepTwoUpgradesReadFails: Story = {
+  beforeEach: () => {
+    upgradeReads.count = 0
+  },
+  parameters: stepTwoWith(
+    http.get(
+      ({ request }) =>
+        /\/workspaces\/[^/]+\/upgrades$/.test(new URL(request.url).pathname),
+      () =>
+        upgradeReads.count++ === 0
+          ? HttpResponse.json({ error: "Server error" }, { status: 500 })
+          : HttpResponse.json(upgradesFixture([], { formatVersion: 3 })),
+    ),
+  ),
+  render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Could not load the Workspace")
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+    await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
+    await canvas.findByRole("button", { name: "Add repositories" })
+    await waitFor(() =>
+      expect(canvas.queryByText("Could not load the Workspace")).toBeNull(),
+    )
   },
 }
 
 /** A new empty repository: the format file lands a few seconds after the create. */
 export const StepTwoWaitsForFormat: Story = {
-  parameters: {
-    storyRoute: {
-      pattern: "orgWorkspaceNew",
-      orgSlug,
-      search: "?workspace=handbook",
-    } satisfies StoryRouteParams,
-    msw: {
-      handlers: {
-        page: [
-          // The first read has no format yet; the next reads have format 3.
-          // The first matching handler answers, so this one comes first.
-          workspaceUpgradesHandler(
-            (() => {
-              let reads = 0
-              return () =>
-                upgradesFixture([], {
-                  formatVersion: reads++ === 0 ? null : 3,
-                })
-            })(),
-          ),
-          ...stepTwoHandlers,
-        ],
-      },
-    },
+  beforeEach: () => {
+    upgradeReads.count = 0
   },
+  parameters: stepTwoWith(
+    // The first read has no format yet; the next reads have format 3.
+    workspaceUpgradesHandler(() =>
+      upgradesFixture([], {
+        formatVersion: upgradeReads.count++ === 0 ? null : 3,
+      }),
+    ),
+  ),
   render: () => <NewWorkspacePageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -349,6 +416,7 @@ export const StepTwoWaitsForFormat: Story = {
     await canvas.findByRole(
       "button",
       { name: "Add repositories" },
+      // The step polls the format every 2 s while it is not known.
       { timeout: 6000 },
     )
     await expect(
