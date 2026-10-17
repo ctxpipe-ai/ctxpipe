@@ -621,6 +621,44 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           ]),
         )
 
+        // Below format 3 no ingestion runs, and MCP still serves the
+        // knowledge of main from Postgres (CTX-642).
+        phase("search the knowledge of main through MCP")
+        const { getAuth } = await import("../auth/config.js")
+        const { callTool, connectToolClient } = await import(
+          "../test/related-fixture.js"
+        )
+        const { searchKnowledgeTool } = await import(
+          "../mcp/tools/search-knowledge.js"
+        )
+        const orgKey = await getAuth().api.createApiKey({
+          body: {
+            configId: "organization",
+            name: "upgrade-from-main",
+            organizationId: ORG.id,
+          },
+          headers: new Headers({ authorization: `Bearer ${ADMIN_TOKEN}` }),
+        })
+        const mcp = await connectToolClient(
+          { orgApiKey: orgKey.key },
+          searchKnowledgeTool,
+        )
+        try {
+          const found = await callTool(mcp, "search_knowledge", {
+            org: ORG.slug,
+            workspaces: [workspace.slug],
+            query: "release tools",
+          })
+          expect(found.isError).not.toBe(true)
+          expect(found.structuredContent?.hits).toEqual(
+            expect.arrayContaining([
+              expect.objectContaining({ title: "Tools CLI" }),
+            ]),
+          )
+        } finally {
+          await mcp.close()
+        }
+
         // The click of the admin, through the API.
         phase("start the format upgrade through the API")
         const started = await api("POST", "/upgrades/format-3/start")
