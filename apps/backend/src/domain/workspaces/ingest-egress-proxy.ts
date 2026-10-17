@@ -172,6 +172,9 @@ function hasDotSegment(path: string): boolean {
 /** The OIDC header of a forwarded request (`@vercel/sandbox/proxy`). */
 const OIDC_TOKEN_HEADER = "vercel-sandbox-oidc-token"
 
+/** The issuer of a sandbox OIDC token: Vercel's, with a team id. */
+const SANDBOX_OIDC_ISSUER = /^https:\/\/oidc\.vercel\.com\/team_[A-Za-z0-9]+$/
+
 /** `fetch` decodes the body, so the encoding and length no longer apply. */
 const DROPPED_RESPONSE_HEADERS = [
   "content-encoding",
@@ -213,7 +216,9 @@ function unverifiedIssuer(token: string | null): string | undefined {
  *
  * Before the library verifies the token, the token's issuer must be ours
  * (`vercelOidcIssuer` of our team id): the library fetches and keeps the
- * keys of each issuer that it sees.
+ * keys of each issuer that it sees. An issuer that is not of the form
+ * `https://oidc.vercel.com/team_…` is refused before the team lookup, so a
+ * request with any other token causes no outbound request.
  */
 export async function ingestEgressProxy(input: {
   request: Request
@@ -225,16 +230,17 @@ export async function ingestEgressProxy(input: {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
   if (forwardedPath !== null && hasDotSegment(forwardedPath))
     return refuse("a dot segment in the path")
+  // Only the form of a sandbox token's issuer passes, before any lookup.
+  const issuer = unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER))
+  if (!issuer || !SANDBOX_OIDC_ISSUER.test(issuer))
+    return refuse("not a Vercel sandbox OIDC issuer")
   let vercel: { teamId: string; projectId: string }
   try {
     vercel = await input.vercel()
   } catch (error) {
     return refuse(`no Vercel credentials: ${String(error)}`)
   }
-  if (
-    unverifiedIssuer(input.request.headers.get(OIDC_TOKEN_HEADER)) !==
-    vercelOidcIssuer(vercel.teamId)
-  )
+  if (issuer !== vercelOidcIssuer(vercel.teamId))
     return refuse("another OIDC issuer")
   const handle = defineSandboxProxy(
     async (request, meta) => {
