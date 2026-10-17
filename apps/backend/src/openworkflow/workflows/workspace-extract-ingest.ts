@@ -62,7 +62,7 @@ export const workspaceExtractIngestInputSchema = z
     jobId: z.string().min(1),
     revision: workspaceRevisionSchema,
     /**
-     * Retired: the capture of the old pipeline (CTX-642). A job that was
+     * Retired: the capture of the old pipeline. A job that was
      * queued with it still parses, and it ends with no write.
      */
     extraction: z.record(z.string(), z.unknown()).optional(),
@@ -142,7 +142,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
           if (completed) return completed
           const ingestSource = input.ingest
           if (!ingestSource) {
-            // The old pipeline is gone (CTX-642): no ingestion writes to a
+            // The old pipeline is gone: no ingestion writes to a
             // Workspace below format 3. A job that it queued ends here.
             await step.run({ name: "complete-retired" }, () =>
               persistWriteJobStatus(input.jobId, "completed"),

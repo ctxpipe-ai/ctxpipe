@@ -231,7 +231,7 @@ export async function enqueueWriteJob(
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
   }
-  // The old pipeline is gone (CTX-642). Ingestion v2 publishes through its
+  // The old pipeline is gone. Ingestion v2 publishes through its
   // own run, not through admission, so admission refuses each extract ingest.
   // A paused job of the old pipeline ends here, so no resume admits it again.
   if (input.kind === "extract_ingest") {

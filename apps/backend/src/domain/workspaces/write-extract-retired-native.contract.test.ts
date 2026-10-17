@@ -8,7 +8,7 @@ import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-comm
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 
-// The payload that the old pipeline queued (CTX-642 deletes that pipeline).
+// The payload that the old pipeline queued.
 function oldExtraction(f: { workspaceUrl: string; sha: string }) {
   return {
     repositoryId: "repo_captured",
