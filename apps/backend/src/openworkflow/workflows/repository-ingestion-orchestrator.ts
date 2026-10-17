@@ -96,9 +96,9 @@ export const repositoryIngestionOrchestrator = defineWorkflow(
             )
           if ("targetHash" in result && result.targetHash)
             // Ingestion v2 publishes to each declaring Workspace at format 3
-            // or more (ADR-052 phase 4, G5); the old pipeline published only
-            // below 3. A failed start never fails the ingestion that it
-            // follows; the next ingestion of the repository starts one.
+            // or more (ADR-052 phase 4, G5). No ingestion writes below 3. A
+            // failed start never fails the indexing that it follows; the next
+            // ingestion of the repository starts one.
             await step.run({ name: "start-ingestion-v2-publish" }, () =>
               startIngestionV2Publish({
                 orgId: input.orgId,

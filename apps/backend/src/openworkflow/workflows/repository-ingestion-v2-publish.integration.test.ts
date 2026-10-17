@@ -693,7 +693,7 @@ describe("ingestion v2 publish", () => {
       )
       await expect(stopped.result({ timeoutMs: 100_000 })).resolves.toEqual({
         committed: false,
-        reason: "publish_pipeline_legacy",
+        reason: "publish_pipeline_stopped",
       })
       expect(git(bare, "rev-parse", "main")).toBe(reverted)
     },
@@ -732,7 +732,7 @@ describe("ingestion v2 publish", () => {
   )
 
   it(
-    "publishes only to the Workspace at format 3 in a mixed run, and leaves the one at format 2 to the old pipeline",
+    "publishes only to the Workspace at format 3 in a mixed run, and writes nothing to the one at format 2",
     { timeout: 420_000 },
     async () => {
       // Context B has no upgrade: its tree and its cache are at format 2.

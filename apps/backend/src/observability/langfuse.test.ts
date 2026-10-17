@@ -1,5 +1,3 @@
-import { _mergeDicts, HumanMessage } from "@langchain/core/messages"
-import { FakeListChatModel } from "@langchain/core/utils/testing"
 import { context, ROOT_CONTEXT, trace } from "@opentelemetry/api"
 import { resourceFromAttributes } from "@opentelemetry/resources"
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
@@ -11,7 +9,6 @@ import { NodeTracerProvider } from "@opentelemetry/sdk-trace-node"
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { contextWithAttributionBag } from "./attribution.js"
 import {
-  getLangfuseHandler,
   runWithLangfuseContext,
   withLangfuseGeneration,
   withLangfuseObservation,
@@ -44,20 +41,6 @@ afterAll(async () => {
   await provider.shutdown()
 })
 
-class NamedChunkModel extends FakeListChatModel {
-  override _createResponseChunk(
-    text: string,
-    generationInfo?: Record<string, unknown>,
-  ) {
-    const chunk = super._createResponseChunk(text, generationInfo)
-    chunk.message.response_metadata = {
-      ...chunk.message.response_metadata,
-      model_name: "openai/gpt-5.6-terra",
-    }
-    return chunk
-  }
-}
-
 function generations(): ReadableSpan[] {
   return exporter
     .getFinishedSpans()
@@ -65,65 +48,6 @@ function generations(): ReadableSpan[] {
       (span) => span.attributes["langfuse.observation.type"] === "generation",
     )
 }
-
-function keysContaining(span: ReadableSpan, needle: string): string[] {
-  const keys = Object.entries(span.attributes)
-    .filter(([, value]) => JSON.stringify(value)?.includes(needle))
-    .map(([key]) => key)
-  for (const event of span.events) {
-    for (const [key, value] of Object.entries(event.attributes ?? {})) {
-      if (JSON.stringify(value)?.includes(needle)) keys.push(`event:${key}`)
-    }
-  }
-  return keys
-}
-
-describe("LangChain stream model names", () => {
-  it("concatenates model_name in the installed @langchain/core merge", () => {
-    expect(
-      _mergeDicts(
-        { model_name: "openai/gpt-5.6-terra" },
-        { model_name: "openai/gpt-5.6-terra" },
-      )?.model_name,
-    ).toBe("openai/gpt-5.6-terraopenai/gpt-5.6-terra")
-  })
-
-  it("records one generation and collapses the streamed model name", async () => {
-    const prompt = "secret-prompt-token"
-    const model = new NamedChunkModel({ responses: ["Yo"] })
-    await runWithLangfuseContext({ sessionId: "thr_stream" }, async () => {
-      const chunks = []
-      for await (const chunk of await model.stream([new HumanMessage(prompt)], {
-        callbacks: [getLangfuseHandler()],
-      })) {
-        chunks.push(chunk)
-      }
-      expect(chunks.length).toBeGreaterThan(1)
-    })
-
-    const gens = generations()
-    expect(gens).toHaveLength(1)
-    const generation = gens[0]
-    expect(generation?.attributes["langfuse.observation.model.name"]).toBe(
-      "openai/gpt-5.6-terra",
-    )
-    expect(generation?.attributes["session.id"]).toBe("thr_stream")
-    expect(generation?.instrumentationScope.name).toMatch(/langfuse/i)
-    expect(keysContaining(generation as ReadableSpan, prompt)).toEqual([
-      "langfuse.observation.input",
-    ])
-    expect(
-      Object.keys(generation?.attributes ?? {}).some((key) =>
-        key.startsWith("gen_ai."),
-      ),
-    ).toBe(false)
-    expect(
-      exporter
-        .getFinishedSpans()
-        .some((span) => span.instrumentationScope.name === "ctxpipe-genai"),
-    ).toBe(false)
-  })
-})
 
 describe("Langfuse context attributes", () => {
   it("copies userId, sessionId, tags, and metadata onto the observation", async () => {

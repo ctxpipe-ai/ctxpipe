@@ -149,6 +149,13 @@ Postgres and FalkorDB have no host ports in the deploy profile. Reach them
 through Compose, for example
 `docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`.
 
+<Callout type="warn" title="Upgrade from an earlier release">
+Earlier releases published Postgres on host port 5433
+(`CTXPIPE_POSTGRES_HOST_PORT`) in the deploy profile. This release does not.
+If a backup job or a tool on the host used that port, change it to the
+`docker compose exec postgres` command above.
+</Callout>
+
 `sandbox_docker`, `sandbox_ca`, and `sandbox_client_certs` need no backup.
 Removing `sandbox_ca` makes `dind` issue new certificates; restart `backend`
 and `worker` afterwards.
