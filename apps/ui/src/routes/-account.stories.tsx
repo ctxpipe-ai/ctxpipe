@@ -284,3 +284,193 @@ export const ConnectedAppsEmpty: Story = {
     ).toBeVisible()
   },
 }
+
+type StoryKey = {
+  id: string
+  name: string
+  start: string
+  expiresAt: string
+  organizationIds: string[] | null
+}
+
+/**
+ * A stateful msw backend for personal keys: create and PUT change the list.
+ * Create records the org set header that the backend writes before it
+ * answers. `reset` runs before each story render.
+ */
+function personalKeysHandlers() {
+  const initial = (): StoryKey[] => [
+    {
+      id: "key_agent",
+      name: "local-agent",
+      start: "ctx_ag",
+      expiresAt: "2026-12-01T00:00:00.000Z",
+      organizationIds: ["org_north"],
+    },
+    {
+      id: "key_old",
+      name: "old-script",
+      start: "ctx_ol",
+      expiresAt: "2026-12-01T00:00:00.000Z",
+      organizationIds: null,
+    },
+  ]
+  let keys = initial()
+  const requests: { kind: "create" | "put"; organizations: unknown }[] = []
+  return {
+    requests,
+    reset: () => {
+      keys = initial()
+      requests.length = 0
+    },
+    handlers: [
+      authConfigHandler,
+      sessionSignedInHandler({
+        id: "user_storybook",
+        onboardingCompletedAt: "2025-01-01T00:00:00.000Z",
+      }),
+      organizationListHandler(storyOrganizations),
+      http.get("*/.auth/api/v1/auth/api-key/list", () =>
+        HttpResponse.json({ apiKeys: keys, total: keys.length }),
+      ),
+      http.post("*/.auth/api/v1/auth/api-key/create", async ({ request }) => {
+        const body = (await request.json()) as { name: string }
+        const header = request.headers.get("x-ctxpipe-api-key-organizations")
+        requests.push({ kind: "create", organizations: header })
+        keys = [
+          ...keys,
+          {
+            id: "key_new",
+            name: body.name,
+            start: "ctx_nw",
+            expiresAt: "2026-12-01T00:00:00.000Z",
+            organizationIds: header ? header.split(",") : null,
+          },
+        ]
+        return HttpResponse.json({
+          id: "key_new",
+          name: body.name,
+          key: "ctx_personal_plaintext_shown_once",
+          configId: "default",
+        })
+      }),
+      http.get("*/api/v1/me/api-keys", () =>
+        HttpResponse.json({
+          keys: keys.map((key) => ({
+            id: key.id,
+            organizations:
+              key.organizationIds === null
+                ? null
+                : storyOrganizations.filter((org) =>
+                    key.organizationIds?.includes(org.id),
+                  ),
+          })),
+        }),
+      ),
+      http.put(
+        "*/api/v1/me/api-keys/:id/organizations",
+        async ({ request, params }) => {
+          const body = (await request.json()) as { organizationIds: string[] }
+          requests.push({ kind: "put", organizations: body.organizationIds })
+          keys = keys.map((key) =>
+            key.id === params.id
+              ? { ...key, organizationIds: body.organizationIds }
+              : key,
+          )
+          return new HttpResponse(null, { status: 204 })
+        },
+      ),
+    ],
+  }
+}
+
+const createKeyBackend = personalKeysHandlers()
+
+/** A new personal key needs at least one organization before Create. */
+export const ApiKeysCreateWithOrganizations: Story = {
+  beforeEach: createKeyBackend.reset,
+  parameters: {
+    msw: { handlers: { defaults: createKeyBackend.handlers } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() => expect(canvas.getByText("local-agent")).toBeVisible())
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Create API key" }),
+    )
+    const dialog = within(await body.findByRole("dialog"))
+    await userEvent.type(dialog.getByLabelText("Name"), "ci-agent")
+    await dialog.findByRole("checkbox", { name: /North Labs/ })
+    // With no organization, Create is off.
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("button", { name: "Create API key" }),
+      ).toBeDisabled(),
+    )
+    await userEvent.click(dialog.getByRole("checkbox", { name: /South Works/ }))
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("button", { name: "Create API key" }),
+      ).toBeEnabled(),
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Create API key" }),
+    )
+    await waitFor(() =>
+      expect(body.getByText("ctx_personal_plaintext_shown_once")).toBeVisible(),
+    )
+    await expect(createKeyBackend.requests).toEqual([
+      { kind: "create", organizations: "org_south" },
+    ])
+    // The list shows the set of the new key.
+    await waitFor(() =>
+      expect(canvas.getByText("ci-agent")).toBeInTheDocument(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("south-works")).toBeInTheDocument(),
+    )
+  },
+}
+
+const editKeyBackend = personalKeysHandlers()
+
+/** The key list shows each set; a key from before sets reaches every org. */
+export const ApiKeysEditOrganizations: Story = {
+  beforeEach: editKeyBackend.reset,
+  parameters: {
+    msw: { handlers: { defaults: editKeyBackend.handlers } },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() => expect(canvas.getByText("north-labs")).toBeVisible())
+    await expect(canvas.getByText("All your organizations")).toBeVisible()
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Edit organizations of local-agent",
+      }),
+    )
+    const dialog = within(await body.findByRole("dialog"))
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("checkbox", { name: /North Labs/ }),
+      ).toBeChecked(),
+    )
+    // At least one org: with none ticked, Save is off.
+    await userEvent.click(dialog.getByRole("checkbox", { name: /North Labs/ }))
+    await waitFor(() =>
+      expect(dialog.getByRole("button", { name: "Save" })).toBeDisabled(),
+    )
+    await userEvent.click(dialog.getByRole("checkbox", { name: /South Works/ }))
+    await userEvent.click(dialog.getByRole("button", { name: "Save" }))
+    await waitFor(() =>
+      expect(editKeyBackend.requests).toContainEqual({
+        kind: "put",
+        organizations: ["org_south"],
+      }),
+    )
+    await waitFor(() => expect(canvas.queryByText("north-labs")).toBeNull())
+    await expect(canvas.getByText("south-works")).toBeVisible()
+  },
+}
