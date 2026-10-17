@@ -282,6 +282,48 @@ async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
   return { kind: "bytes", bytes: stdout }
 }
 
+/**
+ * The blob paths below `folders` in the tree of `sha`, relative to the
+ * Workspace root folder. The fetch gets only the trees, not the blobs.
+ */
+export async function listGitPathsAtSha(input: {
+  url: string
+  sha: string
+  token?: string
+  /** Folders relative to the Workspace root folder (`sources`). */
+  folders: readonly string[]
+  /** Workspace root folder; `""` or absent is the repository root. */
+  root?: string
+}): Promise<string[]> {
+  return withFetchedGitSha({ ...input, treesOnly: true }, async (dir) => {
+    const base = input.root ? `${input.root}/` : ""
+    const { stdout } = await gitExec(
+      [
+        "-C",
+        dir,
+        "ls-tree",
+        "-r",
+        "-z",
+        "--name-only",
+        "--full-tree",
+        "FETCH_HEAD",
+        "--",
+        ...input.folders.map((folder) => `${base}${folder}`),
+      ],
+      { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
+    )
+    return stdout
+      .toString("utf8")
+      .split("\0")
+      .flatMap((path) => {
+        const relative = path
+          ? workspaceRelativePath(input.root ?? "", path)
+          : null
+        return relative === null ? [] : [relative]
+      })
+  })
+}
+
 /** Read markdown at a stored SHA from any git host. Token never logged. */
 export async function listMarkdownFilesAtGitSha(input: {
   url: string
