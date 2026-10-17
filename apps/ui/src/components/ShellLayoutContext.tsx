@@ -9,7 +9,7 @@ import {
   useMemo,
   useState,
 } from "react"
-import { useUserPreferences } from "@/lib/user-preferences"
+import { useSelectedOrganizationSlug } from "@/lib/selected-organization"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import {
   parseSideNavLocation,
@@ -31,7 +31,7 @@ const defaultNav: SideNavLocation = { orgSlug: null, primary: "other" }
 const ShellLayoutContext = createContext<ShellLayoutContextValue | null>(null)
 
 export function ShellLayoutProvider(props: { children: ReactNode }) {
-  const [{ selectedOrganizationSlug }] = useUserPreferences()
+  const selectedOrganizationSlug = useSelectedOrganizationSlug()
   const [navOpen, setNavOpen] = useState(false)
   // Subscribe to the committed location, so that a plain link also moves the
   // active item. `selectNav` still moves it first, in the press handler.

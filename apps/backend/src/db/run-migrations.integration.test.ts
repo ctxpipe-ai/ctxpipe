@@ -126,4 +126,40 @@ describe("runMigrations", () => {
     expect(checkout.rows[0]?.org_id).toBe("org_run_migrations")
     await readAsRole()
   })
+
+  it("fails with a clear message when a lock holds a migration statement", async () => {
+    const lockDatabase = `${database}_lock`
+    const lockRole = `${roleName}_lock`
+    await admin.query(`CREATE DATABASE "${lockDatabase}"`)
+    const lockUrl = new URL(databaseUrl)
+    lockUrl.pathname = `/${lockDatabase}`
+    const holder = new pg.Client({ connectionString: lockUrl.toString() })
+    await holder.connect()
+    try {
+      // Drizzle reads this table first, so a lock on it stops the run at once.
+      await holder.query(`CREATE SCHEMA "drizzle"`)
+      await holder.query(
+        `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+      )
+      await holder.query("BEGIN")
+      await holder.query(
+        `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
+      )
+      await expect(
+        runMigrations({
+          connectionString: lockUrl.toString(),
+          appRolePassword: password,
+          env: {},
+          roleName: lockRole,
+          lockTimeoutMs: 500,
+        }),
+      ).rejects.toThrow(/waited more than 500 ms for a database lock/)
+    } finally {
+      await holder.end()
+      await admin.query(
+        `DROP DATABASE IF EXISTS "${lockDatabase}" WITH (FORCE)`,
+      )
+      await admin.query(`DROP ROLE IF EXISTS "${lockRole}"`)
+    }
+  })
 })

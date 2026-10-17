@@ -13,6 +13,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceNavList } from "./WorkspaceNavList"
@@ -158,6 +162,7 @@ export const AddWorkspaceThenRepositories: Story = {
           workspaceCreateHandler(createdWorkspace),
           workspaceDetailHandler(createdWritableWorkspaceDetail),
           workspaceSourcesHandler(workspaceSourceList()),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
         ],
       },
     },
