@@ -10,6 +10,7 @@ import {
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 import { sessionUser } from "@/lib/session-user"
+import { orgGuideKey } from "@/lib/useOrgGuide"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/")({
@@ -43,7 +44,7 @@ export const Route = createFileRoute("/")({
 export function IndexRoutePage() {
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
-  const [{ selectedOrganizationSlug }] = useUserPreferences()
+  const [{ selectedOrganizationSlug, orgGuides }] = useUserPreferences()
   const { error, error_description, pendingAccountClaim } = Route.useSearch()
 
   if (isPending || orgsPending) {
@@ -89,6 +90,7 @@ export function IndexRoutePage() {
     isGuideRecent({
       onboardingCompletedAt: user.onboardingCompletedAt,
       orgCreatedAt: selected.createdAt,
+      guideStartedAt: orgGuides[orgGuideKey(user.id, selected.slug)]?.startedAt,
       now: Date.now(),
     })
   ) {

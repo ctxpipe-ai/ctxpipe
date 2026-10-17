@@ -601,5 +601,53 @@ export const GuideEstablishedUserEmptyOrg: Story = {
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
+    // The guide stores when it first showed, so it stays after the first
+    // Workspace.
+    await waitFor(() =>
+      expect(
+        JSON.parse(
+          window.localStorage.getItem("ctxpipe:userPreferences") ?? "{}",
+        ).orgGuides?.[`${userId}:acme`]?.startedAt,
+      ).toEqual(expect.any(String)),
+    )
+  },
+}
+
+/**
+ * An older organization that got its first Workspace from the guide: the
+ * guide stays for 14 days from when it first showed.
+ */
+export const GuideStaysAfterFirstWorkspace: Story = {
+  tags: ["workspace-golden"],
+  beforeEach: () => {
+    window.localStorage.setItem(
+      "ctxpipe:userPreferences",
+      JSON.stringify({
+        orgGuides: {
+          [`${userId}:acme`]: {
+            startedAt: new Date(Date.now() - DAY_MS).toISOString(),
+          },
+        },
+      }),
+    )
+    return clearPreferences
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(30),
+        page: homeHandlers(
+          adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: connectorsHandler(["github"]),
+          }),
+          [quietWorkspace],
+        ),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
   },
 }

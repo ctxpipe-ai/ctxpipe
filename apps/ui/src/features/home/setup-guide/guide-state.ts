@@ -80,14 +80,21 @@ export function isWithinGuideWindow(
 type GuideStart = {
   onboardingCompletedAt: Date | string | null | undefined
   orgCreatedAt: Date | string | null | undefined
+  /** When the guide first showed to this user in this organization. */
+  guideStartedAt: string | undefined
   now: number
 }
 
-/** The 14 days after the user's onboarding, or after the organization's creation. */
+/**
+ * The 14 days after the user's onboarding, after the organization's
+ * creation, or after the guide first showed. The last keeps the guide after
+ * the first Workspace in an older organization.
+ */
 export function isGuideRecent(input: GuideStart): boolean {
   return (
     isWithinGuideWindow(input.onboardingCompletedAt, input.now) ||
-    isWithinGuideWindow(input.orgCreatedAt, input.now)
+    isWithinGuideWindow(input.orgCreatedAt, input.now) ||
+    isWithinGuideWindow(input.guideStartedAt, input.now)
   )
 }
 
@@ -131,7 +138,8 @@ export function guideView(input: {
 }): GuideView {
   const { rows, prefs } = input
   if (prefs.dismissedAt) return { kind: "hidden" }
-  if (!isGuideWindowOpen(input)) return { kind: "hidden" }
+  if (!isGuideWindowOpen({ ...input, guideStartedAt: prefs.startedAt }))
+    return { kind: "hidden" }
   const next = rows.find((row) => !row.done)
   if (!next) {
     if (!prefs.completedAt) return { kind: "complete", record: true }

@@ -157,6 +157,18 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           appBootAt: APP_BOOT_AT,
         })
 
+  // Store when the guide first shows, so it stays for 14 days, also after
+  // the first Workspace in an older organization.
+  const recordStart = view.kind === "open" && !guidePrefs.startedAt
+  useEffect(() => {
+    if (!recordStart) return
+    updateGuide((guide) =>
+      guide.startedAt
+        ? guide
+        : { ...guide, startedAt: new Date().toISOString() },
+    )
+  }, [recordStart, updateGuide])
+
   // Store when the complete line first shows, so the next load removes it.
   const recordComplete = view.kind === "complete" && view.record
   useEffect(() => {
@@ -178,6 +190,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           isGuideRecent({
             onboardingCompletedAt: user?.onboardingCompletedAt,
             orgCreatedAt: organization?.createdAt,
+            guideStartedAt: guidePrefs.startedAt,
             now: Date.now(),
           })),
       collapsed: guidePrefs.collapsed ?? asked,

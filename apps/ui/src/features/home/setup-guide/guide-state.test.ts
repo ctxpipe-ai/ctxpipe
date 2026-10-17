@@ -185,6 +185,23 @@ describe("guideView", () => {
     ).toEqual({ kind: "hidden" })
   })
 
+  it("stays open for 14 days after it first showed, also after the first Workspace", () => {
+    const rows = guideRows({ ...noSignals, workspaceCount: 1 })
+    const old = {
+      ...base,
+      rows,
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      orgCreatedAt: "2026-01-01T00:00:00.000Z",
+      workspaceCount: 1,
+    }
+    expect(
+      guideView({ ...old, prefs: { startedAt: "2026-09-28T12:01:00.000Z" } }),
+    ).toMatchObject({ kind: "open" })
+    expect(
+      guideView({ ...old, prefs: { startedAt: "2026-09-27T11:59:00.000Z" } }),
+    ).toEqual({ kind: "hidden" })
+  })
+
   it("is open in an organization with no Workspace, at any age, until a dismiss", () => {
     const old = {
       ...base,
