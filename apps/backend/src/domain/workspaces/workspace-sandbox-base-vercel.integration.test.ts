@@ -76,11 +76,15 @@ import {
  */
 
 const API = "https://vercel.com/api/v2/sandboxes"
-/** The agent snapshot builders' `opencode` tag: runtime and OpenCode version. */
-const agentTag = `node26-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
-  /[^\w.-]/g,
-  "-",
-)
+/**
+ * The agent snapshot builders' `opencode` tag: runtime, OpenCode version,
+ * and the ingest tool versions (ast-grep, ripgrep).
+ */
+const agentTag =
+  `node26-${WORKSPACE_CHAT_OPENCODE_CLI}-sg0.45.0-rg1.18.0`.replace(
+    /[^\w.-]/g,
+    "-",
+  )
 const credentials = {
   token: "test-token",
   teamId: "team_test",

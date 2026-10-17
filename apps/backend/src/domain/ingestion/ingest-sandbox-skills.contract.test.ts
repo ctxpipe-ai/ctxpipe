@@ -176,9 +176,9 @@ async function withBox(
     // `sudo` option does. Docker: an exec as uid 0.
     const root = options.vercelLike
       ? vercelRootExec({
-          runCommand: async ({ args, sudo }) => {
+          runCommand: async ({ cmd, args, sudo }) => {
             const r = await handle.process.exec(
-              `${sudo ? "sudo -n " : ""}sh -c ${quote(args[1] ?? "")}`,
+              `${sudo ? "sudo -n " : ""}${[cmd, ...args].map(quote).join(" ")}`,
             )
             return {
               exitCode: r.exitCode,

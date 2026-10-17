@@ -7,7 +7,9 @@ import { runAsRoot, vercelRootExec } from "./ingest-root.js"
  * The hosted path runs the same root scripts as Docker, through the Vercel
  * SDK's `sudo` option. The Docker contract test runs those scripts for real,
  * also in an image whose default user has passwordless sudo as on Vercel;
- * this test proves the Vercel call. No Vercel sandbox runs here (T12).
+ * this test proves the Vercel call. No Vercel sandbox runs here (T12). The
+ * abort of a signalled script runs on real processes in the Docker contract
+ * (`ingest-root.contract.test.ts`).
  */
 
 type Call = { cmd: string; args?: string[]; sudo?: boolean }

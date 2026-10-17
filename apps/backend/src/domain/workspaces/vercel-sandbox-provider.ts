@@ -12,6 +12,7 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
 import {
+  VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_VERCEL_AGENT_INSTALL,
 } from "./chat-runtime.js"
@@ -70,13 +71,17 @@ export function agentSnapshotTags(environment: string): Record<string, string> {
 
 /**
  * The `opencode` tag value of this deployment's agent snapshot builders: the
- * runtime and the OpenCode version, so a change of either builds a new one.
+ * runtime, the OpenCode version and the ingest tool versions, so a change of
+ * any of them builds a new one.
  */
-const AGENT_VERSION =
-  `${VERCEL_SANDBOX.runtime}-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
-    /[^\w.-]/g,
-    "-",
-  )
+const AGENT_VERSION = [
+  VERCEL_SANDBOX.runtime,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+  `sg${VERCEL_INGEST_TOOLS.astGrep.split("@").at(-1)}`,
+  `rg${VERCEL_INGEST_TOOLS.ripgrep.split("@").at(-1)}`,
+]
+  .join("-")
+  .replace(/[^\w.-]/g, "-")
 
 export type VercelCredentials = {
   token: string
@@ -87,16 +92,12 @@ export type VercelCredentials = {
 let resolvedScope: Promise<VercelCredentials> | undefined
 
 /**
- * The OIDC issuer of our team's sandbox tokens, `https://oidc.vercel.com/<team
- * slug>`. Only a slug in `VERCEL_TEAM_ID` gives it: a team-scoped token
- * cannot read the team to find the slug of an id.
+ * The OIDC issuer of our team's sandbox tokens: `https://oidc.vercel.com/`
+ * and the team id (`team_…`), as a real sandbox's token shows. The deploy
+ * may name the team by slug; `vercelCredentials` gives the id.
  */
-export function vercelOidcIssuer(
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-  const team = env.VERCEL_TEAM_ID?.trim()
-  if (!team || team.startsWith("team_")) return undefined
-  return `https://oidc.vercel.com/${team}`
+export function vercelOidcIssuer(teamId: string): string {
+  return `https://oidc.vercel.com/${teamId}`
 }
 
 /** True when the backend can start Vercel sandboxes. */
@@ -529,6 +530,10 @@ export function vercelConversationProvider(input: {
   agentSnapshot: () => Promise<string>
   /** Added to this provider's log entries. */
   logContext?: { orgId: string; workspaceId: string }
+  /** Public ports; defaults to the OpenCode port. An ingest sandbox has none. */
+  ports?: number[]
+  /** The sandbox's time limit; defaults to the conversation backstop. */
+  timeoutMs?: number
 }): SandboxProvider {
   const { credentials, access } = input
   return {
@@ -542,9 +547,9 @@ export function vercelConversationProvider(input: {
           ...credentials,
           source: { type: "snapshot", snapshotId },
           resources: VERCEL_SANDBOX.resources,
-          ports: [WORKSPACE_CHAT_OPENCODE_PORT],
+          ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
           persistent: true,
-          timeout: SESSION_TIMEOUT_MS,
+          timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
           snapshotExpiration: STATE_RETENTION_MS,
           keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
           networkPolicy: access.firewall.policy(gitToken),
