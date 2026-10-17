@@ -8,24 +8,28 @@ type WorkspaceRoutes = V1["workspaces"][":workspaceSlug"]
 type ConversationRoutes = V1["conversations"][":conversationId"]
 
 /** The response types come from the backend routes through the Hono client. */
-export type WorkspaceListResponse = InferResponseType<
-  V1["workspaces"]["$get"],
-  200
->
+type WorkspaceListRead = InferResponseType<V1["workspaces"]["$get"], 200>
 
 /** `conversationWritable`: older responses omit it, and the UI falls back to the write status. */
 export type Workspace = WithOptional<
-  WorkspaceListResponse["items"][number],
+  WorkspaceListRead["items"][number],
   "conversationWritable"
 >
+
+export type WorkspaceListResponse = Omit<WorkspaceListRead, "items"> & {
+  items: Workspace[]
+}
 
 type WorkspaceDetailRead = InferResponseType<WorkspaceRoutes["$get"], 200>
 
 /** `skippedFiles` and `hydratePhases` are absent on a detail seeded from the list. */
-export type WorkspaceDetail = WithOptional<
-  WorkspaceDetailRead,
-  "skippedFiles" | "hydratePhases" | "conversationWritable"
->
+export type WorkspaceDetail = Omit<
+  WithOptional<
+    WorkspaceDetailRead,
+    "skippedFiles" | "hydratePhases" | "conversationWritable"
+  >,
+  "linkedRepositories"
+> & { linkedRepositories: WorkspaceLinkedRepository[] }
 
 type LinkedRepositoryRead = WorkspaceDetailRead["linkedRepositories"][number]
 
@@ -154,10 +158,18 @@ export type ConversationFileMutation = {
   expectedWorktreeVersion: string
 }
 
-export type ConversationFileWriteResponse = InferResponseType<
+type ConversationFileWriteRead = InferResponseType<
   ConversationRoutes["files"]["blob"]["$put"],
   200
 >
+
+export type ConversationFileWriteResponse = Omit<
+  ConversationFileWriteRead,
+  "status" | "tree"
+> & {
+  tree: ConversationGitTreeResponse
+  status: ConversationGitStatusResponse
+}
 
 export type ConversationPushResponse = InferResponseType<
   ConversationRoutes["push"]["$post"],

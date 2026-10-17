@@ -642,7 +642,10 @@ export async function putConversationFile(
     param: { orgSlug, conversationId },
     json: input,
   })
-  return readApiJson(res, { message: "Failed to save conversation file" })
+  // TODO: the route types the file status as a string, so the body is cast.
+  return (await readApiJson(res, {
+    message: "Failed to save conversation file",
+  })) as ConversationFileWriteResponse
 }
 
 export function conversationWorktreeVersionFromCache(
