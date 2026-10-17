@@ -158,6 +158,23 @@ describe("ingest GitHub tokens", () => {
     expect(await tokens.get("sbx-any-name")).toBeNull()
   })
 
+  it("keeps a record of each hosted token after a rotation; take gives the newest, and the sweep revokes the rest", async () => {
+    const shard = { orgId, runId: `run_gone_${crypto.randomUUID()}`, shard: 5 }
+    const tokens = ingestVercelTokenStore(shard)
+    await tokens.put("", "ghs_first")
+    await new Promise((resolve) => setTimeout(resolve, 5))
+    await tokens.put("", "ghs_rotated")
+    // The same token again adds no record.
+    await tokens.put("", "ghs_rotated")
+    expect((await tokens.get(""))?.token).toBe("ghs_rotated")
+    expect(await tokens.take("")).toBe("ghs_rotated")
+    // The replaced token still has its record until it is revoked.
+    expect((await tokens.get(""))?.token).toBe("ghs_first")
+    expect(await revokeFinishedIngestGitTokens({ orgId })).toBe(false)
+    expect(log.revoked).toEqual(["ghs_first"])
+    expect(await tokens.get("")).toBeNull()
+  })
+
   it("refuses to start a hosted ingest sandbox before the live Vercel egress check", async () => {
     const { provider } = vercelIngestSandboxProvider({
       orgId,

@@ -91,7 +91,8 @@
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"
   ],
   "hosted sandbox (Vercel)": [
-    "src/domain/workspaces/vercel-sandbox.contract.test.ts"
+    "src/domain/workspaces/vercel-sandbox.contract.test.ts",
+    "src/domain/ingestion/ingest-vercel-sandbox.contract.test.ts"
   ],
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"

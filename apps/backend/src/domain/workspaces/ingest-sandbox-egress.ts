@@ -1,6 +1,7 @@
+import { createHash } from "node:crypto"
 import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { dockerSandbox } from "@tanstack/ai-sandbox-docker"
-import type { NetworkPolicy } from "@vercel/sandbox"
+import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import Docker from "dockerode"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -11,6 +12,7 @@ import {
   type SandboxGitTokenStore,
   sandboxGitTokenStore,
 } from "../../models/sandbox-git-tokens.js"
+import { type RootExec, vercelRootExec } from "../ingestion/ingest-root.js"
 import {
   type AgentVaultAccess,
   AgentVaultUnavailableError,
@@ -164,7 +166,8 @@ export async function ingestGitAccess(input: {
   return access
 }
 
-function revokeIngestGitTokens(input: {
+/** Revoke each recorded GitHub token of one shard; returns the count left. */
+export function revokeIngestGitTokens(input: {
   orgId: string
   runId: string
   shard: number
@@ -411,9 +414,12 @@ export function ingestNetworkPolicy(input: {
 }
 
 /**
- * The shard's hosted GitHub token, recorded under the shard's thread
- * (`ingest:<run>:<shard>:vercel`), so `revokeFinishedIngestGitTokens`
- * revokes it after the run as for Docker.
+ * The shard's hosted GitHub tokens, recorded under the shard's thread
+ * (`ingest:<run>:<shard>:vercel:<token hash>`), so `destroy` and
+ * `revokeFinishedIngestGitTokens` (after the run) revoke each, as for
+ * Docker. Each token has its own record: a rotation adds the new token and
+ * keeps the old one until it is revoked, so no token that a sandbox used is
+ * ever without a record. `get` and `take` use the newest token.
  */
 export function ingestVercelTokenStore(input: {
   orgId: string
@@ -424,21 +430,43 @@ export function ingestVercelTokenStore(input: {
     input.orgId,
     parseEnv(process.env as Record<string, string | undefined>),
   )
-  const key = `${ingestSandboxThreadId(input.runId, input.shard)}:vercel`
+  const prefix = `${ingestSandboxThreadId(input.runId, input.shard)}:vercel:`
+  const newest = async () =>
+    (await store.list(prefix)).sort(
+      (a, b) => b.mintedAt.getTime() - a.mintedAt.getTime(),
+    )[0]
   return {
-    get: () => store.get(key),
-    put: (_sandboxId, token) => store.put(key, token),
-    take: () => store.take(key),
+    get: async () => {
+      const row = await newest()
+      return row ? { token: row.token, mintedAt: row.mintedAt } : null
+    },
+    put: async (_sandboxId, token) => {
+      await store.add(
+        `${prefix}${createHash("sha256").update(token).digest("hex").slice(0, 32)}`,
+        token,
+      )
+    },
+    take: async () => {
+      const row = await newest()
+      return row ? store.take(row.key) : null
+    },
   }
+}
+
+/** Tags of a hosted ingest sandbox; `environment` first (see `listTaggedSandboxes`). */
+export function ingestSandboxTags(environment: string): Record<string, string> {
+  return { environment, ctxpipe: "workspace-ingest" }
 }
 
 /**
  * The hosted (Vercel) provider of one ingest shard: the conversation
  * provider with the closed {@link ingestNetworkPolicy}, no Workspace base,
- * and one read token for the run's repositories (one GitHub connection per
- * hosted shard). A step calls `firewall.openTurn` with its credentials while
- * it holds the shard lock, and `firewall.closeTurn` after. `destroy` deletes
- * the sandbox and revokes its token.
+ * no public port, and one read token for the run's repositories (one GitHub
+ * connection per hosted shard). The token is recorded as soon as it is
+ * minted. A step calls `firewall.openTurn` with its credentials while it
+ * holds the shard lock, and `firewall.closeTurn` after. `root` runs root
+ * scripts through the SDK's `sudo` option. `destroy` deletes the sandbox and
+ * revokes each token of the shard.
  *
  * It refuses to start until {@link VERCEL_INGEST_EGRESS_PROVEN}.
  */
@@ -452,7 +480,16 @@ export function vercelIngestSandboxProvider(input: {
   agentPassword: string
   tags: Record<string, string>
   agentSnapshot: () => Promise<string>
-}): { provider: SandboxProvider; firewall: ConversationFirewall } {
+  /**
+   * Only the hosted contract test sets it: the live egress proof that
+   * {@link VERCEL_INGEST_EGRESS_PROVEN} waits for runs there.
+   */
+  proven?: boolean
+}): {
+  provider: SandboxProvider
+  firewall: ConversationFirewall
+  root: (sandboxName: string) => Promise<RootExec>
+} {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const names = [
     ...new Set(input.repositories.map((repository) => repository.fullName)),
@@ -468,15 +505,20 @@ export function vercelIngestSandboxProvider(input: {
         ...(policy.turn ? { step: policy.turn } : {}),
       }),
   )
+  const tokens = ingestVercelTokenStore(input)
   const conversation = vercelConversationProvider({
     credentials: input.credentials,
     agentPassword: input.agentPassword,
     tags: input.tags,
     agentSnapshot: input.agentSnapshot,
     base: async () => ({ failed: async () => undefined }),
+    // No agent server: nothing outside may connect to the sandbox.
+    ports: [],
+    // A shard runs at most the shard limit; the sweep deletes it after.
+    timeoutMs: INGEST_SHARD_LIMIT_MS + 5 * 60_000,
     access: {
       firewall,
-      tokens: ingestVercelTokenStore(input),
+      tokens,
       async mintGitToken() {
         const groups = await coveredRepositoryGroups(
           input.orgId,
@@ -493,6 +535,8 @@ export function vercelIngestSandboxProvider(input: {
         })
         if (!token)
           throw new Error("The ingest repositories have no GitHub read token")
+        // Recorded before any use, so a crash leaves it to the sweep.
+        await tokens.put("", token)
         return token
       },
     },
@@ -502,12 +546,36 @@ export function vercelIngestSandboxProvider(input: {
     name: conversation.name,
     capabilities: () => conversation.capabilities(),
     async create(createInput) {
-      if (!hostedIngestEgressEnabled())
+      if (
+        !hostedIngestEgressEnabled(
+          process.env,
+          input.proven ?? VERCEL_INGEST_EGRESS_PROVEN,
+        )
+      )
         throw new Error(
           "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
         )
       return conversation.create(createInput)
     },
+    async destroy(destroyInput) {
+      try {
+        await conversation.destroy(destroyInput)
+      } finally {
+        // A token that is left is logged; the sweep revokes it after the run.
+        await revokeIngestGitTokens(input)
+      }
+    },
   }
-  return { provider, firewall }
+  return {
+    provider,
+    firewall,
+    root: async (sandboxName) =>
+      vercelRootExec(
+        await Sandbox.get({
+          ...input.credentials,
+          name: sandboxName,
+          resume: false,
+        }),
+      ),
+  }
 }

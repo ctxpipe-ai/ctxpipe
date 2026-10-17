@@ -6,6 +6,7 @@ import {
 import { CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES } from "./conversation-files.js"
 import {
   VERCEL_AGENT_ROOT,
+  VERCEL_SANDBOX,
   WORKSPACE_CHAT_OPENCODE_CLI,
 } from "./workspace-chat-opencode-contract.js"
 
@@ -61,13 +62,46 @@ export const WORKSPACE_CHAT_DOCKER_SETUP = [
 ] as const
 
 /**
- * The Vercel Node runtime has no OpenCode, and its user cannot write the
- * global npm prefix, so the CLI goes under the user's home. Only the agent
- * snapshot's builder runs this, with egress to the npm registry alone; every
- * conversation sandbox starts from that snapshot (or a Workspace base made
- * from it) and never reaches npm.
+ * The pinned tools of a hosted ingest sandbox (ADR-052): OpenCode, ast-grep
+ * and ripgrep. OpenCode and ast-grep have the versions of the Docker chat
+ * image. The ripgrep package holds a static binary, so the snapshot builder
+ * needs only the npm registry.
  */
-export const WORKSPACE_CHAT_VERCEL_AGENT_INSTALL = `npm install -g --prefix "${VERCEL_AGENT_ROOT}/.local" ${WORKSPACE_CHAT_OPENCODE_CLI}`
+export const VERCEL_INGEST_TOOLS = {
+  opencode: WORKSPACE_CHAT_OPENCODE_CLI,
+  astGrep: "@ast-grep/cli@0.45.0",
+  ripgrep: "@vscode/ripgrep-linux-x64@1.18.0",
+} as const
+
+/**
+ * Where the agent snapshot keeps the ingest tools. Root owns it, and each
+ * user can read and run it: the ingest agent user (`ctxpipe-agent`) does not
+ * get the home of the sandbox's default user.
+ */
+export const VERCEL_INGEST_TOOLS_ROOT = "/opt/ctxpipe-ingest"
+
+/**
+ * The PATH of the ingest agent in a hosted sandbox: the pinned tools, then
+ * the Node runtime of the agent snapshot.
+ */
+export const VERCEL_INGEST_AGENT_PATH = `${VERCEL_INGEST_TOOLS_ROOT}/bin:/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin:/usr/local/bin:/usr/bin:/bin`
+
+/**
+ * The Vercel Node runtime has no OpenCode, and its user cannot write the
+ * global npm prefix, so the CLI goes under the user's home. Then root
+ * installs the ingest tools in {@link VERCEL_INGEST_TOOLS_ROOT}; the ripgrep
+ * package has no `bin` entry, so a link puts `rg` on the PATH. Only the
+ * agent snapshot's builder runs this, with egress to the npm registry alone;
+ * every conversation and ingest sandbox starts from that snapshot (or a
+ * Workspace base made from it) and never reaches npm.
+ */
+export const WORKSPACE_CHAT_VERCEL_AGENT_INSTALL = [
+  `npm install -g --prefix "${VERCEL_AGENT_ROOT}/.local" ${WORKSPACE_CHAT_OPENCODE_CLI}`,
+  `sudo env "PATH=$PATH" npm install -g --prefix ${VERCEL_INGEST_TOOLS_ROOT} ${Object.values(VERCEL_INGEST_TOOLS).join(" ")}`,
+  `sudo ln -sf ${VERCEL_INGEST_TOOLS_ROOT}/lib/node_modules/@vscode/ripgrep-linux-x64/bin/rg ${VERCEL_INGEST_TOOLS_ROOT}/bin/rg`,
+  `sudo chown -R root:root ${VERCEL_INGEST_TOOLS_ROOT}`,
+  `sudo chmod -R go-w,a+rX ${VERCEL_INGEST_TOOLS_ROOT}`,
+].join(" && ")
 
 /** Vercel sandboxes find OpenCode from the agent snapshot; nothing is installed. */
 export const WORKSPACE_CHAT_VERCEL_SETUP = [

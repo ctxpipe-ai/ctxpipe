@@ -42,6 +42,38 @@ describe("vercelRootExec", () => {
     ])
   })
 
+  it("runs a signalled script in its own process group, and an abort ends the group as root before the call rejects", async () => {
+    const calls: Call[] = []
+    let finishStep: (() => void) | undefined
+    const sandbox = {
+      runCommand: async (input: Call) => {
+        calls.push(input)
+        // The step runs until the kill command ends its group.
+        if (input.cmd === "setsid")
+          await new Promise<void>((resolve) => {
+            finishStep = resolve
+          })
+        else finishStep?.()
+        return { exitCode: 0, output: async () => "" }
+      },
+    }
+    const controller = new AbortController()
+    const running = vercelRootExec(sandbox)("opencode run x", {
+      signal: controller.signal,
+    })
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    controller.abort(new Error("step limit"))
+    await expect(running).rejects.toThrow("step limit")
+    expect(calls).toHaveLength(2)
+    expect(calls[0]).toMatchObject({ cmd: "setsid", sudo: true })
+    expect(calls[0]?.args?.slice(0, 3)).toEqual(["-w", "sh", "-c"])
+    expect(calls[0]?.args?.at(-1)).toBe("opencode run x")
+    expect(calls[1]).toMatchObject({ cmd: "sh", sudo: true })
+    expect(calls[1]?.args?.[1]).toContain("kill -TERM -$g")
+    // The group of each process comes from /proc: a Vercel sandbox has no `ps`.
+    expect(calls[1]?.args?.[1]).not.toContain("ps -eo")
+  })
+
   it("throws with the stderr when a root script fails", async () => {
     const { sandbox } = fakeSandbox(1, "sudo: not allowed")
     await expect(runAsRoot(vercelRootExec(sandbox), "true")).rejects.toThrow(
