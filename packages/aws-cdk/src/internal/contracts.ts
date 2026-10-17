@@ -100,10 +100,14 @@ export interface DataPlaneResources {
 
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
-  /** Runtime `DATABASE_URL` for backend/worker/codesearch (`ctxpipe_app`). */
+  /**
+   * Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). Task
+   * definitions from before the app role read it too, so it never holds the
+   * app URL: a rollback to them must see every row.
+   */
   readonly databaseUrlSecret: secretsmanager.Secret;
-  /** Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). */
-  readonly ownerDatabaseUrlSecret: secretsmanager.Secret;
+  /** Runtime `DATABASE_URL` for backend/worker/codesearch (`ctxpipe_app`). */
+  readonly runtimeDatabaseUrlSecret: secretsmanager.Secret;
   /** Login password for `ctxpipe_app`; generated once, never rotated by deploy. */
   readonly appDatabaseCredentialsSecret: secretsmanager.Secret;
   /** Writes the owner URL before migrate. */
