@@ -1,8 +1,10 @@
 import { z } from "zod"
-import { parseEnv } from "../../../config/env.js"
+import type { AppEnv } from "../../../app/env.js"
+import type { Env } from "../../../config/env.js"
 import { UPGRADE_BRANCH_PREFIX } from "../../../domain/upgrades/registry.js"
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"
 import { enqueueWorkspaceUpgradeScan } from "../../../openworkflow/workflows/workspace-upgrade-scan.js"
+import { logGithubWebhookNoOrganization } from "./github-webhook-miss.js"
 
 const closedPullRequestSchema = z.object({
   action: z.literal("closed"),
@@ -24,6 +26,8 @@ const closedPullRequestSchema = z.object({
 export async function maybeEnqueueUpgradeScanForPullRequest(input: {
   payload: unknown
   githubConnectionId?: string
+  env: Env
+  log: AppEnv["Variables"]["log"]
 }): Promise<void> {
   const parsed = closedPullRequestSchema.safeParse(input.payload)
   if (
@@ -35,8 +39,18 @@ export async function maybeEnqueueUpgradeScanForPullRequest(input: {
   const installations = await listInstallationsByGithubInstallationId(
     installation.id,
     input.githubConnectionId,
-    parseEnv(process.env as Record<string, string | undefined>),
+    input.env,
   )
+  if (installations.length === 0)
+    await logGithubWebhookNoOrganization(
+      {
+        event: "pull_request.closed",
+        installationId: installation.id,
+        githubConnectionId: input.githubConnectionId,
+      },
+      input.env,
+      input.log,
+    )
   for (const { orgId } of installations)
     await enqueueWorkspaceUpgradeScan({
       orgId,

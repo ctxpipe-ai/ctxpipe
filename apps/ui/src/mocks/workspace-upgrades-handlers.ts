@@ -106,3 +106,29 @@ export function workspaceUpgradeStartHandler(
     },
   )
 }
+
+/**
+ * `GET /workspace-upgrades/pending`: the pending upgrades of the org, keyed
+ * by Workspace slug. A Workspace with no item is left out, as the server
+ * does. Each answered read adds its path to `answered`.
+ */
+export function pendingWorkspaceUpgradesHandler(
+  bySlug: Record<string, WorkspaceUpgradeItem[]>,
+  answered?: string[],
+) {
+  return http.get(
+    ({ request }) =>
+      pathnameOf(request).endsWith("/workspace-upgrades/pending"),
+    ({ request }) => {
+      answered?.push(pathnameOf(request))
+      return HttpResponse.json({
+        workspaces: Object.entries(bySlug)
+          .map(([workspaceSlug, items]) => ({
+            workspaceSlug,
+            items: items.filter((item) => item.status !== "completed"),
+          }))
+          .filter((workspace) => workspace.items.length > 0),
+      })
+    },
+  )
+}

@@ -120,6 +120,7 @@ export function WorkspaceChatChrome(props: {
   const write = writeStatusLabel(
     props.workspace.writeStatus,
     props.workspace.readOnlyReason,
+    props.workspace.conversationWritable,
   )
   const ctaPlanNow = props.cta ? ctaPlan(props.cta) : null
   const ctaHasActions = Boolean(ctaPlanNow?.sync || ctaPlanNow?.pullRequest)
@@ -164,7 +165,8 @@ export function WorkspaceChatChrome(props: {
                     trigger={
                       <span
                         className={
-                          write.tone === "pending"
+                          write.tone === "pending" ||
+                          write.tone === "pull_request"
                             ? "rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs font-medium text-muted-foreground"
                             : "rounded-md border border-amber-500/80 bg-amber-950 px-2 py-0.5 text-xs font-medium text-amber-200"
                         }

@@ -232,6 +232,7 @@ export function upgradePullRequestText(input: {
     body: [
       `ctx| upgrades the layout of this Workspace from format ${input.fromFormat} to format ${input.targetFormat}. Each step that changes a file has its own commit. The last commit sets \`${WORKSPACE_FORMAT_PATH}\` to \`format: ${input.targetFormat}\`.`,
       "Merge this pull request to apply the upgrade. When you close it without a merge, the upgrade waits in the Workspace settings until an owner or admin starts it again.",
+      "There is one commit for each step, and a last commit that sets the format. This lets you review each step alone or revert it alone. The format commit comes last, so the files and the format cannot disagree. You can use any merge method: merge, squash, or rebase.",
       ...sections,
     ].join("\n\n"),
   }

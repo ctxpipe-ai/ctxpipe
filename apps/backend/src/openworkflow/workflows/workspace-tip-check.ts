@@ -38,6 +38,7 @@ import {
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
 import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
+import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
@@ -141,6 +142,9 @@ export const workspaceTipCheck = defineWorkflow(
           probe,
         })
         const claimed = await withOrgDbContext(input.orgId, async () => {
+          // An upgrade run that stopped without its result shows as
+          // `failed`. The upgrades read writes nothing, so this check does it.
+          await failStoppedUpgradeRun(workspace.id)
           if (!(await persistWriteStatus(workspace, write, input.orgId)))
             return []
           // The scan reads the stored status to block or open the upgrades,
