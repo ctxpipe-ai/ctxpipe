@@ -274,13 +274,13 @@ export function KnowledgeGraphExplorer({
     if (!data) return
 
     if (selectedId) {
-      cgRef.current?.selectNeighbourhood(selectedId)
+      cgRef.current?.selectNeighborhood(selectedId)
       if (!deepLinkFocusedRef.current && nodeById.has(selectedId)) {
         // One-shot: on first render after arriving with ?node= in the URL,
         // zoom to the node + its 1-hop neighborhood so the landing frame has
         // context instead of a lone dot.
         deepLinkFocusedRef.current = true
-        cgRef.current?.focusNeighbourhood(selectedId)
+        cgRef.current?.focusNeighborhood(selectedId)
       }
       return
     }
@@ -634,7 +634,7 @@ export function KnowledgeGraphExplorer({
           onFocus={() => {
             cgRef.current?.focusNode(displayedNode.id)
           }}
-          onNeighbourSelect={(id) => setSelectedId(id)}
+          onNeighborSelect={(id) => setSelectedId(id)}
           onOpenSource={onOpenSource}
         />
       ) : null}

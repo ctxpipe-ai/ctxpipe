@@ -1,6 +1,6 @@
 import type { QueryClient } from "@tanstack/react-query"
-import { client } from "@/lib/api"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client, userClient } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { authClient, refetchSessionOnboardingComplete } from "@/lib/auth-client"
 import { orgGateKeys } from "@/lib/org-gate"
 import { isAdminRole } from "@/lib/session-user"
@@ -25,10 +25,9 @@ export async function completeOnboarding(
     .then((result) => result.role)
     .catch(() => undefined)
   await Promise.all([
-    apiFetch("/api/v1/onboarding/user/complete", {
-      method: "POST",
-      credentials: "include",
-    }).then((res) => readApiJson(res)),
+    userClient.api.v1.onboarding.user.complete
+      .$post()
+      .then((res) => readApiJson(res)),
     isAdminRole(role)
       ? client[":orgSlug"].api.v1.onboarding.complete
           .$post({ param: { orgSlug } })

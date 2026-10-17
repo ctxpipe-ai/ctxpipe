@@ -41,6 +41,10 @@ import {
   apiKeySessionGuardHook,
   personalApiKeyOrganizationsHook,
 } from "./personal-api-key-organizations.js"
+import {
+  clearUnverifiedSessionCookie,
+  jwksForCurrentSecret,
+} from "./secret-rotation.js"
 
 function assertOrganizationSlug(slug: string | undefined): void {
   if (slug === undefined || isValidSlug(slug)) return
@@ -323,7 +327,8 @@ export function createBetterAuth() {
     plugins: [
       apiKey(apiKeyPluginConfigurations),
       bearer(),
-      jwt(),
+      jwt({ adapter: { getJwks: jwksForCurrentSecret } }),
+      clearUnverifiedSessionCookie(),
       twoFactor(),
       organization({
         ac: organizationAccessControl,

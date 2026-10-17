@@ -5,7 +5,9 @@ description: >
   kernel. Without it, Redis warns that it can fail without low memory, and
   FalkorDB once stopped answering any command (INFO included) at 0 percent CPU
   right after it logged "Ready to accept connections". The wait below runs a
-  real GRAPH.QUERY. It fails with the container log and does not retry.
+  real GRAPH.QUERY. It does not retry. On failure it runs diagnose.sh, which
+  prints the health check results, the runner state and the stack of each
+  server thread.
 runs:
   using: composite
   steps:
@@ -22,5 +24,5 @@ runs:
           sleep 5
         done
         echo "::error::FalkorDB was not healthy after 120 s"
-        docker logs falkordb
+        bash "$GITHUB_ACTION_PATH/diagnose.sh"
         exit 1

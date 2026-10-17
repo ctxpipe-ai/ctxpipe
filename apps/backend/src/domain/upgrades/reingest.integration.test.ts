@@ -1,7 +1,15 @@
 import { eq, sql } from "drizzle-orm"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import {
@@ -31,7 +39,14 @@ import { stopOrphanedReingestRuns } from "./stop-orphans.js"
  * The re-ingestion throttle and the step budget of a long run, with real
  * Postgres and real OpenWorkflow runs. This file has its own OpenWorkflow
  * namespace, so it sees no run of another test file. No worker implements
- * ingestion v2 here, so each ingestion v2 run stays `pending`.
+ * ingestion v2 here, so each ingestion v2 run stays active.
+ *
+ * A worker claims each run of its namespace, but it knows only the workflows
+ * that its OpenWorkflow instance implemented before `newWorker`. It fails a
+ * run of another workflow as "not registered" and retries it after 5 s, 10 s,
+ * 20 s. Thus a test registers all of its workflows before it starts its
+ * worker, and it cancels its queued runs, so that the worker of the next test
+ * does not run them.
  */
 
 vi.hoisted(() => {
@@ -57,9 +72,12 @@ beforeAll(async () => {
   runner = new OpenWorkflow({ backend })
 })
 
-afterAll(async () => {
-  for (const id of queued)
+afterEach(async () => {
+  for (const id of queued.splice(0))
     await runner.cancelWorkflowRun(id).catch(() => undefined)
+})
+
+afterAll(async () => {
   await backend?.stop()
   await closeOpenWorkflowClient()
   await closeDb()
@@ -230,8 +248,10 @@ async function orphanedRepositoryRun(orgId: string) {
         { name: "repository:0" },
       ),
   }
+  const scan = defineWorkspaceUpgradeScan([])
   fleet.implementWorkflow(repository.spec, repository.fn)
   fleet.implementWorkflow(parent.spec, parent.fn as never)
+  fleet.implementWorkflow(scan.spec, scan.fn)
   const worker = fleet.newWorker({ concurrency: 4 })
   await worker.start()
   const statusOf = async (workflowName: string) => {
@@ -271,7 +291,7 @@ async function orphanedRepositoryRun(orgId: string) {
   expect(
     (await statusOf("workspace-upgrade-reingest-repository"))?.status,
   ).toMatch(/running|sleeping|pending/)
-  return { fleet, worker, statusOf }
+  return { fleet, worker, statusOf, scan }
 }
 
 describe("a parent run that ends before its repository runs", () => {
@@ -338,11 +358,9 @@ describe("a parent run that ends before its repository runs", () => {
             formatVersion: 3,
           }),
         )
-      const { fleet, worker, statusOf } = await orphanedRepositoryRun(org.id)
-      const scan = defineWorkspaceUpgradeScan([])
-      fleet.implementWorkflow(scan.spec, scan.fn)
-      const scanWorker = fleet.newWorker({ concurrency: 1 })
-      await scanWorker.start()
+      const { fleet, worker, statusOf, scan } = await orphanedRepositoryRun(
+        org.id,
+      )
       try {
         // The reads and a start that finds no row cancel nothing.
         for (const [routes, path] of [
@@ -375,6 +393,13 @@ describe("a parent run that ends before its repository runs", () => {
           trigger: "sweep",
         })
         await handle.result({ timeoutMs: 30_000 })
+        // A worker that knows the scan ran it at the first claim.
+        const scanRun = await getSystemDb().execute<{ attempts: number }>(sql`
+          select attempts from openworkflow.workflow_runs
+          where namespace_id = ${openWorkflowNamespaceId()}
+            and id = ${handle.workflowRun.id}
+        `)
+        expect(scanRun.rows[0]).toEqual({ attempts: 1 })
         expect(
           (await statusOf("workspace-upgrade-reingest-repository"))?.status,
         ).toBe("canceled")
@@ -390,7 +415,6 @@ describe("a parent run that ends before its repository runs", () => {
         `)
         expect(sweeps.rows[0]).toEqual({ steps: 1 })
       } finally {
-        await scanWorker.stop()
         await worker.stop()
         await withOrgDbContext(org.id, async (db) => {
           await db
