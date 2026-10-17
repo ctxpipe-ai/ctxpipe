@@ -1,13 +1,5 @@
 import { initLogger } from "evlog"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
 import { recordSpans } from "../../test/spans.js"
 import { withTestLogger } from "../test/with-test-logger.js"
