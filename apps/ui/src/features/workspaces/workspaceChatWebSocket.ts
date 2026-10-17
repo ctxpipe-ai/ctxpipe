@@ -1,7 +1,8 @@
 import type { StreamChunk } from "@tanstack/ai"
 import { type SubscribeConnectionAdapter, webSocket } from "@tanstack/ai-react"
 import { reviveChatMessages } from "@/features/chat/reviveChatMessageCreatedAt"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
 export function workspaceChatSocketPath(
   orgSlug: string,
@@ -82,19 +83,17 @@ export function workspaceChatWebSocket(
             withReasoningSteps(joinRun(runId, abortSignal)),
         }
       : {}),
-    async hydrate(threadId: string) {
-      const res = await apiFetch(
-        `${path}/chat?threadId=${encodeURIComponent(threadId)}`,
-        {
-          headers: { Accept: "application/json" },
-          credentials: "include",
-        },
+    async hydrate() {
+      const res = await client[":orgSlug"].api.v1.conversations[
+        ":conversationId"
+      ].chat.$get(
+        { param: { orgSlug, conversationId }, query: {} },
+        { headers: { Accept: "application/json" } },
       )
       if (res.status === 404) return emptyChatHydration()
-      // TODO: the chat route is outside the Hono client, so the body is unknown.
-      const data = (await readApiJson(res, {
+      const data = await readApiJson(res, {
         message: "Failed to load conversation",
-      })) as Partial<ChatHydrationResult>
+      })
       return {
         messages: reviveChatMessages(
           (Array.isArray(data.messages) ? data.messages : []) as Array<{
@@ -105,7 +104,8 @@ export function workspaceChatWebSocket(
           data.activeRun && typeof data.activeRun.runId === "string"
             ? { runId: data.activeRun.runId }
             : null,
-        interrupts: data.interrupts ?? null,
+        interrupts: (data.interrupts ??
+          null) as ChatHydrationResult["interrupts"],
       }
     },
     warm() {
