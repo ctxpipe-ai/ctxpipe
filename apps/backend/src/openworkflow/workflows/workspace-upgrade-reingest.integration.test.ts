@@ -19,6 +19,7 @@ import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import {
   orgFirstWorkspaces,
+  workspaceKnowledgeUnits,
   workspaces,
   workspaceWriteJobs,
 } from "../../db/schema/workspaces.js"
@@ -592,6 +593,18 @@ it(
   async () => {
     const before = await row(ready)
     expect(before?.upgrade.repositories?.[0]).toMatchObject({ status: "done" })
+    // Main-era knowledge that hydrate serves until the re-ingestion is done.
+    await withOrgDbContext(org.id, (db) =>
+      db.insert(workspaceKnowledgeUnits).values({
+        servingId: `unit_legacy_${org.id}`,
+        orgId: org.id,
+        workspaceId: ready,
+        path: "knowledge/services/tools-cli.md",
+        source: "legacy",
+        body: "The release tools.",
+        projectionSha: "legacy",
+      }),
+    )
     await setRow(ready, {
       to: "failed",
       failureReason: "An earlier run failed.",
@@ -611,6 +624,23 @@ it(
       },
     })
     expect(await reingestRuns(ready)).toHaveLength(1)
+    // The done repository drops its main-era knowledge: hydrate projects the
+    // Workspace again.
+    const hydrates = await getSystemDb().execute<{ id: string }>(sql`
+      select id from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and workflow_name = 'workspace-hydrate'
+        and input->>'workspaceId' = ${ready}
+        and input->>'reproject' = 'true'
+        and idempotency_key like ${`legacy-overlay:${ready}:%`}
+    `)
+    expect(hydrates.rows.length).toBeGreaterThan(0)
+    for (const { id } of hydrates.rows) await runner.cancelWorkflowRun(id)
+    await withOrgDbContext(org.id, (db) =>
+      db
+        .delete(workspaceKnowledgeUnits)
+        .where(eq(workspaceKnowledgeUnits.workspaceId, ready)),
+    )
   },
 )
 

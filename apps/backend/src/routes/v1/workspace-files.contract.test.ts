@@ -12,7 +12,11 @@ import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import {
+  workspaceKnowledgeUnits,
+  workspaces,
+} from "../../db/schema/workspaces.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { destroyWorkspaceSandbox } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
 import { persistSandboxInstance } from "../../models/workspaces.js"
@@ -517,6 +521,60 @@ it(
             "The write could not be queued. Refresh the Workspace and try again.",
         },
       })
+    })
+  },
+)
+
+it(
+  "shows knowledge from before Workspaces read-only and refuses each Files job on its path",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(async ({ app, orgId, workspaceId, revision }) => {
+      const path = "knowledge/services/tools-cli.md"
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(workspaceKnowledgeUnits).values({
+          servingId: `unit_legacy_${workspaceId}`,
+          orgId,
+          workspaceId,
+          path,
+          source: "legacy",
+          body: "The release tools.",
+          projectionSha: revision.sha,
+        }),
+      )
+      const blob = await app.request(
+        `/workspaces/knowledge/files/blob?path=${path}`,
+      )
+      expect({ status: blob.status, body: await blob.json() }).toEqual({
+        status: 200,
+        body: {
+          path,
+          body: "The release tools.",
+          binary: false,
+          readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+        },
+      })
+      for (const job of [
+        { op: "save", path, content: "# Changed\n" },
+        { op: "create", path, kind: "file", content: "# New\n" },
+        { op: "delete", path },
+        { op: "rename", from: path, to: "knowledge/services/tools.md" },
+      ]) {
+        const response = await app.request("/workspaces/knowledge/files/jobs", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(job),
+        })
+        expect({
+          op: job.op,
+          status: response.status,
+          body: await response.json(),
+        }).toEqual({
+          op: job.op,
+          status: 400,
+          body: { error: LEGACY_KNOWLEDGE_READ_ONLY },
+        })
+      }
     })
   },
 )
