@@ -66,8 +66,10 @@ if ! command -v gdb > /dev/null; then
       timeout 120 sudo apt-get install -y -qq --no-install-recommends gdb > /dev/null 2>&1; }
 fi
 if command -v gdb > /dev/null; then
-  sudo timeout 90 gdb -p "$pid" -batch -nx \
-    -ex "set sysroot /proc/$pid/root" -ex 'set pagination off' \
+  # The binary path is inside the container, so give gdb the host path.
+  exe="/proc/$pid/root$(sudo readlink "/proc/$pid/exe")"
+  sudo timeout 90 gdb "$exe" -p "$pid" -batch -nx \
+    -ex "set sysroot /proc/$pid/root" -ex 'set auto-load safe-path /' -ex 'set pagination off' \
     -ex 'info threads' -ex 'thread apply all bt' 2>&1 | grep -v '^warning: ' | head -n 400
 else
   echo "gdb is not available"
