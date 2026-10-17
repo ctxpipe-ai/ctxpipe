@@ -5,6 +5,7 @@ import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import {
   hostedIngestEgressEnabled,
   ingestNetworkPolicy,
+  VERCEL_INGEST_EGRESS_PROVEN,
 } from "./ingest-sandbox-egress.js"
 import { hostedNetworkPolicy } from "./vercel-sandbox-provider.js"
 
@@ -88,6 +89,9 @@ describe("ingestNetworkPolicy", () => {
         "100.64.0.0/10",
       ]),
     )
+    // The Vercel API refuses an IPv6 range, and with it the whole policy.
+    for (const range of (policy as Policy).subnets?.deny ?? [])
+      expect(range).toMatch(/^\d+\.\d+\.\d+\.\d+\/\d+$/)
   })
 
   it("leaves the chat policy open", () => {
@@ -102,16 +106,19 @@ describe("hostedIngestEgressEnabled", () => {
     VERCEL_TEAM_ID: "egress-team",
     VERCEL_PROJECT_ID: "prj_test",
   }
-  it("needs the proven flag, a configured Vercel and a known issuer", () => {
+  it("needs the proven flag and a configured Vercel; the team may be a slug or an id", () => {
     expect(hostedIngestEgressEnabled(configured, true)).toBe(true)
     expect(hostedIngestEgressEnabled(configured, false)).toBe(false)
     expect(hostedIngestEgressEnabled({}, true)).toBe(false)
-    // A team id (not a slug) gives no issuer.
     expect(
       hostedIngestEgressEnabled(
         { ...configured, VERCEL_TEAM_ID: "team_x" },
         true,
       ),
-    ).toBe(false)
+    ).toBe(true)
+  })
+
+  it("stays closed in the product until the live proof", () => {
+    expect(VERCEL_INGEST_EGRESS_PROVEN).toBe(false)
   })
 })

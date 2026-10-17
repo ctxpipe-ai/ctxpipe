@@ -16,6 +16,7 @@ import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
 import {
   type IngestEgressScope,
+  ingestEgressProxy,
   sealIngestEgressScope,
 } from "../domain/workspaces/ingest-egress-proxy.js"
 import {
@@ -26,8 +27,9 @@ import {
 const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
 const teamSlug = "egress-test"
-const issuer = `https://oidc.vercel.com/${teamSlug}`
 const team = "team_egress"
+// A real sandbox token's issuer names the team id, not its slug.
+const issuer = `https://oidc.vercel.com/${team}`
 const project = "prj_egress"
 const step = {
   modelProxyPath: "/acme/api/v1/workspace-chat/openai/v1",
@@ -216,6 +218,21 @@ describe("the ingest egress proxy route", () => {
         body: "0032want abc\n0000",
       },
     ])
+  })
+
+  it("matches a Git path in any case, as GitHub names have no case; other paths stay exact", async () => {
+    // A Workspace URL can name `Acme/Source`; the scope keeps `acme/source`.
+    const refs = await forwarded(
+      "https://github.com/Acme/Source.git/info/refs?service=git-upload-pack",
+    )
+    expect(refs.status).toBe(200)
+    expect(seen.map((entry) => entry.url)).toEqual([
+      "https://github.com/Acme/Source.git/info/refs?service=git-upload-pack",
+    ])
+    const models = await forwarded(
+      `https://${backendHost}${step.modelProxyPath.toUpperCase()}/models`,
+    )
+    expect(models.status).toBe(403)
   })
 
   it("replaces a credential that the sandbox sends with the shard's token", async () => {
@@ -484,27 +501,63 @@ describe("the ingest egress proxy route", () => {
     expect(seen).toEqual([])
   })
 
-  it("refuses a token from another issuer without a fetch", async () => {
+  it("refuses a token whose issuer is not a sandbox issuer before any lookup or key fetch", async () => {
     const target =
       "https://github.com/acme/source.git/info/refs?service=git-upload-pack"
-    for (const other of [
-      "https://oidc.vercel.com/another-team",
-      `https://oidc.vercel.com/${teamSlug}/x`,
+    const malformed = [
+      // The slug is not the issuer of a sandbox token.
+      `https://oidc.vercel.com/${teamSlug}`,
+      `https://oidc.vercel.com/${team}/x`,
+      `http://oidc.vercel.com/${team}`,
       "https://attacker.example.test",
-    ]) {
+      "https://attacker.example.test/team_egress",
+    ]
+    for (const other of malformed) {
       const response = await forwarded(target, { issuer: other })
       expect(response.status, other).toBe(403)
     }
     expect(outbound).toEqual([])
+    expect(seen).toEqual([])
+    // The proxy itself: no team lookup for such a token.
+    let lookups = 0
+    for (const other of malformed) {
+      const response = await ingestEgressProxy({
+        request: new Request(`https://${backendHost}/api/v1/sandbox-egress/x`, {
+          headers: {
+            "vercel-sandbox-oidc-token": await oidcToken("aud", {}, other),
+          },
+        }),
+        sealed: "x",
+        secret,
+        vercel: async () => {
+          lookups += 1
+          return { teamId: team, projectId: project }
+        },
+      })
+      expect(response.status, other).toBe(403)
+    }
+    expect(lookups).toBe(0)
   })
 
-  it("refuses each request when the team is configured by id, as its issuer is not known", async () => {
+  it("refuses a token of another team without fetching its keys", async () => {
+    const response = await forwarded(
+      "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
+      { issuer: "https://oidc.vercel.com/team_another" },
+    )
+    expect(response.status).toBe(403)
+    expect(outbound.filter((url) => url.includes("jwks"))).toEqual([])
+    expect(seen).toEqual([])
+  })
+
+  it("accepts the team configured by id, with no project lookup", async () => {
     vi.stubEnv("VERCEL_TEAM_ID", team)
     const response = await forwarded(
       "https://github.com/acme/source.git/info/refs?service=git-upload-pack",
     )
-    expect(response.status).toBe(403)
-    expect(outbound).toEqual([])
+    expect(response.status).toBe(200)
+    expect(
+      outbound.filter((url) => url.startsWith("https://api.vercel.com")),
+    ).toEqual([])
   })
 
   it("refuses an expired scope", async () => {
