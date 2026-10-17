@@ -10,8 +10,6 @@ export const SIDE_NAV_MAX_WIDTH = 360
 /** Setup guide and hint state of one user in one organization (CTX-552). */
 export type OrgGuidePreferences = {
   collapsed?: boolean
-  /** When the guide first showed. It then stays for 14 days (CTX-796). */
-  startedAt?: string
   dismissedAt?: string
   completedAt?: string
   exploredAt?: string
@@ -57,8 +55,6 @@ function parseOrgGuide(value: unknown): OrgGuidePreferences | null {
   if (!isRecord(value)) return null
   const guide: OrgGuidePreferences = {}
   if (typeof value.collapsed === "boolean") guide.collapsed = value.collapsed
-  const startedAt = parseDate(value.startedAt)
-  if (startedAt) guide.startedAt = startedAt
   const dismissedAt = parseDate(value.dismissedAt)
   if (dismissedAt) guide.dismissedAt = dismissedAt
   const completedAt = parseDate(value.completedAt)

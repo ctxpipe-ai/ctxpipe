@@ -80,6 +80,7 @@ describe("guideView", () => {
     prefs: {},
     onboardingCompletedAt: newUser,
     orgCreatedAt: "2026-01-01T00:00:00.000Z",
+    firstWorkspaceCreatedAt: undefined,
     workspaceCount: 0,
     now,
     appBootAt,
@@ -185,21 +186,40 @@ describe("guideView", () => {
     ).toEqual({ kind: "hidden" })
   })
 
-  it("stays open for 14 days after it first showed, also after the first Workspace", () => {
-    const rows = guideRows({ ...noSignals, workspaceCount: 1 })
+  it("stays open for 14 days after the oldest Workspace, in an old organization", () => {
     const old = {
       ...base,
-      rows,
+      rows: guideRows({ ...noSignals, workspaceCount: 1 }),
       onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
       orgCreatedAt: "2026-01-01T00:00:00.000Z",
       workspaceCount: 1,
     }
     expect(
-      guideView({ ...old, prefs: { startedAt: "2026-09-28T12:01:00.000Z" } }),
+      guideView({
+        ...old,
+        firstWorkspaceCreatedAt: "2026-09-29T12:00:00.000Z" /* 13 days ago */,
+      }),
     ).toMatchObject({ kind: "open" })
     expect(
-      guideView({ ...old, prefs: { startedAt: "2026-09-27T11:59:00.000Z" } }),
+      guideView({
+        ...old,
+        firstWorkspaceCreatedAt: "2026-09-27T12:00:00.000Z" /* 15 days ago */,
+      }),
     ).toEqual({ kind: "hidden" })
+  })
+
+  it("does not open for an old organization when the Workspace list did not load", () => {
+    const old = {
+      ...base,
+      rows: guideRows(noSignals),
+      onboardingCompletedAt: "2026-01-01T00:00:00.000Z",
+      orgCreatedAt: "2026-01-01T00:00:00.000Z",
+      workspaceCount: null,
+    }
+    expect(guideView(old)).toEqual({ kind: "hidden" })
+    expect(
+      guideView({ ...old, onboardingCompletedAt: "2026-10-10T00:00:00.000Z" }),
+    ).toMatchObject({ kind: "open" })
   })
 
   it("is open in an organization with no Workspace, at any age, until a dismiss", () => {

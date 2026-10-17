@@ -8,17 +8,12 @@ import {
 
 const NO_GUIDE: OrgGuidePreferences = {}
 
-/** The key of one user's guide in one organization, in `orgGuides`. */
-export function orgGuideKey(userId: string, orgSlug: string) {
-  return `${userId}:${orgSlug}`
-}
-
 /** The setup guide and hint state of the signed-in user in `orgSlug`. */
 export function useOrgGuide(orgSlug: string) {
   const { data: session } = useSession()
   const userId = sessionUser(session)?.id ?? null
   const [preferences, updatePreferences, isLoaded] = useUserPreferences()
-  const key = userId ? orgGuideKey(userId, orgSlug) : null
+  const key = userId ? `${userId}:${orgSlug}` : null
   const guide = (key ? preferences.orgGuides[key] : undefined) ?? NO_GUIDE
   const updateGuide = useCallback(
     (update: (guide: OrgGuidePreferences) => OrgGuidePreferences) => {

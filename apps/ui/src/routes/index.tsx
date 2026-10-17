@@ -2,7 +2,11 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
-import { isGuideRecent } from "@/features/home/setup-guide/guide-state"
+import {
+  isGuideRecent,
+  isWithinGuideWindow,
+  oldestCreatedAt,
+} from "@/features/home/setup-guide/guide-state"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -10,7 +14,6 @@ import {
 import { useListOrganizations, useSession } from "@/lib/auth-client"
 import { fetchSsrOrganizations, fetchSsrSession } from "@/lib/auth-ssr"
 import { sessionUser } from "@/lib/session-user"
-import { orgGuideKey } from "@/lib/useOrgGuide"
 import { useUserPreferences } from "@/lib/user-preferences"
 
 export const Route = createFileRoute("/")({
@@ -44,7 +47,7 @@ export const Route = createFileRoute("/")({
 export function IndexRoutePage() {
   const { data: session, isPending } = useSession()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
-  const [{ selectedOrganizationSlug, orgGuides }] = useUserPreferences()
+  const [{ selectedOrganizationSlug }] = useUserPreferences()
   const { error, error_description, pendingAccountClaim } = Route.useSearch()
 
   if (isPending || orgsPending) {
@@ -90,7 +93,6 @@ export function IndexRoutePage() {
     isGuideRecent({
       onboardingCompletedAt: user.onboardingCompletedAt,
       orgCreatedAt: selected.createdAt,
-      guideStartedAt: orgGuides[orgGuideKey(user.id, selected.slug)]?.startedAt,
       now: Date.now(),
     })
   ) {
@@ -112,6 +114,11 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const workspace = landingWorkspace(data)
   // With no Workspace, Home shows the setup guide (CTX-552).
   if (!workspace) {
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+  }
+  // An organization whose setup started in the last 14 days also gets Home,
+  // so the guide stays after the first Workspace (CTX-796).
+  if (isWithinGuideWindow(oldestCreatedAt(data.items), Date.now())) {
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
   return (

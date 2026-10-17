@@ -28,6 +28,8 @@ import type { StoryRouteParams } from "../../.storybook/decorators/with-story-ro
 import { OrgHomePageContent } from "./$orgSlug.index"
 
 const DAY_MS = 24 * 60 * 60 * 1000
+const daysAgo = (days: number) =>
+  new Date(Date.now() - days * DAY_MS).toISOString()
 const userId = "user_storybook"
 const authBase = "*/.auth/api/v1/auth"
 
@@ -147,9 +149,10 @@ function adminGuide(input: {
   ]
 }
 
-/** A new Workspace with no conversation of this user yet. */
+/** An old Workspace with no conversation of this user yet. */
 const quietWorkspace: Workspace = {
   ...docsWorkspace,
+  createdAt: new Date(Date.now() - 365 * DAY_MS).toISOString(),
   mostRecentConversationId: null,
 }
 const buildingWorkspace: Workspace = {
@@ -601,37 +604,15 @@ export const GuideEstablishedUserEmptyOrg: Story = {
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const canvas = within(canvasElement)
     await waitFor(() => expect(canvas.getByText("Activity")).toBeVisible())
-    // The guide stores when it first showed, so it stays after the first
-    // Workspace.
-    await waitFor(() =>
-      expect(
-        JSON.parse(
-          window.localStorage.getItem("ctxpipe:userPreferences") ?? "{}",
-        ).orgGuides?.[`${userId}:acme`]?.startedAt,
-      ).toEqual(expect.any(String)),
-    )
   },
 }
 
 /**
- * An older organization that got its first Workspace from the guide: the
- * guide stays for 14 days from when it first showed.
+ * An older organization whose first Workspace is from the last 14 days: the
+ * guide stays, so it does not go away in the middle of the setup.
  */
 export const GuideStaysAfterFirstWorkspace: Story = {
   tags: ["workspace-golden"],
-  beforeEach: () => {
-    window.localStorage.setItem(
-      "ctxpipe:userPreferences",
-      JSON.stringify({
-        orgGuides: {
-          [`${userId}:acme`]: {
-            startedAt: new Date(Date.now() - DAY_MS).toISOString(),
-          },
-        },
-      }),
-    )
-    return clearPreferences
-  },
   parameters: {
     msw: {
       handlers: {
@@ -641,7 +622,7 @@ export const GuideStaysAfterFirstWorkspace: Story = {
             github: githubInstallationLinkedHandler,
             connectors: connectorsHandler(["github"]),
           }),
-          [quietWorkspace],
+          [{ ...quietWorkspace, createdAt: daysAgo(1) }],
         ),
       },
     },
