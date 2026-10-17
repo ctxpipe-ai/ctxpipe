@@ -37,18 +37,17 @@ import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-function writeTag(
-  status: string,
-  readOnlyReason: string | null,
-): { label: string; className: string } {
-  const tagged = writeStatusLabel(status, readOnlyReason)
+function writeTag(tagged: ReturnType<typeof writeStatusLabel>): {
+  label: string
+  className: string
+} {
   if (tagged.tone === "writable") {
     return {
       label: "Can save changes",
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
     }
   }
-  if (tagged.tone === "pending") {
+  if (tagged.tone === "pending" || tagged.tone === "pull_request") {
     return {
       label: tagged.label,
       className: "border-border bg-zinc-800 text-muted-foreground",
@@ -286,7 +285,12 @@ export function WorkspaceSettingsPane(props: {
       : null
 
   const stall = useWriteCheckStall()
-  const write = writeTag(workspace.writeStatus, workspace.readOnlyReason)
+  const writeLabel = writeStatusLabel(
+    workspace.writeStatus,
+    workspace.readOnlyReason,
+    workspace.conversationWritable,
+  )
+  const write = writeTag(writeLabel)
   const hydrate = hydrateTag(workspace.hydrateStatus)
   const repoTitle =
     githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
@@ -325,7 +329,11 @@ export function WorkspaceSettingsPane(props: {
             onOpenFile={props.onOpenFile}
           />
         ) : null}
-        {workspace.readOnlyReason ? (
+        {writeLabel.tone === "pull_request" ? (
+          <p className="mt-4 max-w-lg text-sm text-muted-foreground">
+            {writeLabel.description}
+          </p>
+        ) : workspace.readOnlyReason ? (
           <div className="mt-4 max-w-lg">
             <InlineAlert
               variant="warning"

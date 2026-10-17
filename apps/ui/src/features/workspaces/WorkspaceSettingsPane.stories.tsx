@@ -187,6 +187,28 @@ export const ReadOnly: Story = {
   },
 }
 
+/** A protected default branch: a neutral note, no warning and no "fix it". */
+export const ProtectedDefaultBranch: Story = {
+  args: {
+    workspace: {
+      ...readOnlyWorkspaceDetail,
+      conversationWritable: true,
+      readOnlyReason:
+        "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Changes by pull request")
+    await canvas.findByText(
+      "The default branch is protected. A conversation pushes its own branch and opens a pull request.",
+    )
+    await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull())
+    await waitFor(() => expect(canvas.queryByText(/fix it/)).toBeNull())
+    await waitFor(() => expect(canvas.queryByText("Read-only")).toBeNull())
+  },
+}
+
 /**
  * A Paste Workspace that no GitHub connection reads. "Select the repository
  * again" opens the main repository dialog, where Select GitHub binds it.

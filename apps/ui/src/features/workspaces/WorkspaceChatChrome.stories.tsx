@@ -63,6 +63,28 @@ export const ReadOnly: Story = {
   },
 }
 
+/** A protected default branch: a conversation opens a pull request, so the badge is neutral. */
+export const ProtectedDefaultBranch: Story = {
+  args: {
+    workspace: {
+      ...readOnlyWorkspace,
+      conversationWritable: true,
+      readOnlyReason:
+        "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
+    },
+    title: "Handbook",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pill = await canvas.findByText("Changes by pull request")
+    await expect(pill).toHaveTextContent(
+      "A conversation pushes its own branch and opens a pull request.",
+    )
+    await expect(pill).toHaveClass("text-muted-foreground")
+    await expect(canvas.queryByText("Read-only")).not.toBeInTheDocument()
+  },
+}
+
 export const PendingProbe: Story = {
   args: {
     workspace: pendingWriteWorkspace,
