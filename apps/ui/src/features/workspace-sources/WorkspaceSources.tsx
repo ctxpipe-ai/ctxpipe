@@ -1,6 +1,7 @@
 import {
   IconAlertTriangle,
   IconCursorText,
+  IconExternalLink,
   IconPencil,
   IconPlus,
   IconTrash,
@@ -131,19 +132,22 @@ function connectorsSummary(
 
 function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   const { change } = props
+  const label =
+    change.action === "remove"
+      ? "Removal awaiting merge"
+      : change.action === "rename"
+        ? "Rename awaiting merge"
+        : "Awaiting merge"
   return (
     <TextLink
       href={change.pullRequestUrl}
       target="_blank"
       rel="noreferrer"
-      variant="secondary"
-      className="mt-0.5 inline-block text-xs"
+      aria-label={`${label}. Opens the pull request on GitHub in a new tab.`}
+      className="mt-0.5 inline-flex items-center gap-1 text-xs"
     >
-      {change.action === "remove"
-        ? "Removal awaiting merge"
-        : change.action === "rename"
-          ? "Rename awaiting merge"
-          : "Awaiting merge"}
+      {label}
+      <IconExternalLink className="size-3 shrink-0" aria-hidden />
     </TextLink>
   )
 }
