@@ -64,6 +64,7 @@ jobs:
           bash scripts/tests/preview-otel-vars.test.sh
           bash scripts/tests/preview-sandbox-vars.test.sh
           bash scripts/tests/preview-github-app-vars.test.sh
+          bash scripts/tests/preview-own-secrets.test.sh
           bash scripts/tests/railway-environment-id.test.sh
           bash scripts/tests/preview-ui-private.test.sh
 
