@@ -351,7 +351,8 @@ export async function scanWorkspaceReingest(input: {
   const key = reingestUpgradeKey(input.bundle.name)
   await failStoppedUpgradeRun(workspace.id, key)
   await stopOrphanedReingestRuns()
-  await deleteSupersededUpgradeRows({
+  // The repositories that a removed row did stay done in the new row.
+  const { reingested } = await deleteSupersededUpgradeRows({
     workspaceId: workspace.id,
     key,
     statuses: SCAN_OWNED,
@@ -392,6 +393,7 @@ export async function scanWorkspaceReingest(input: {
         key,
         targetFormat: REINGEST_REQUIRES_FORMAT,
         ...fields,
+        ...(reingested.length ? { reingested } : {}),
       } satisfies WorkspaceUpgradePayload,
     })
   else

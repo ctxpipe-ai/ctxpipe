@@ -136,7 +136,7 @@ export const UPGRADE_BLOCKED_REASONS = {
 export type UpgradeBlockedReason =
   (typeof UPGRADE_BLOCKED_REASONS)[keyof typeof UPGRADE_BLOCKED_REASONS]
 
-export { UPGRADE_JOB_KIND } from "./keys.js"
+export { reingestedNames, UPGRADE_JOB_KIND } from "./keys.js"
 
 /**
  * The highest format that the registered steps reach without a gap. A
@@ -238,6 +238,13 @@ export type WorkspaceUpgradePayload = {
   estimate?: ReingestEstimate
   /** Only on a re-ingestion: one entry for each source repository, in run order. */
   repositories?: ReingestRepositoryReport[]
+  /**
+   * Only on a re-ingestion: each source repository (`owner/name`, lower
+   * case) that a re-ingestion did. It only grows, also when a later run or a
+   * new skill bundle replaces `repositories`, because hydrate reads it to
+   * drop the main-era knowledge of that repository. See {@link reingestedNames}.
+   */
+  reingested?: string[]
   /** Only on a re-ingestion that the cost cap stopped. */
   stopReason?: "cost_cap"
 }

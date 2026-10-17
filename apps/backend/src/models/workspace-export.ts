@@ -13,6 +13,7 @@ import {
 } from "../db/schema/workspaces.js"
 import {
   isReingestUpgradeKey,
+  reingestedNames,
   UPGRADE_JOB_KIND,
 } from "../domain/upgrades/keys.js"
 import type {
@@ -239,7 +240,8 @@ export async function loadKnowledgeProjectionSource(
  * The GitHub source repositories (`owner/name`, lower case) that a
  * re-ingestion of this Workspace did. Any skill bundle counts: each bundle
  * makes the knowledge of the repository again, so after a new bundle the
- * main-era knowledge must not come back.
+ * main-era knowledge must not come back. A row keeps these marks when a
+ * later run or a new bundle replaces its reports.
  */
 export async function reingestedRepositories(
   workspaceId: string,
@@ -255,13 +257,13 @@ export async function reingestedRepositories(
         ),
       ),
   )
-  const done = new Set<string>()
-  for (const { payload } of rows) {
-    const upgrade = payload?.upgrade
-    if (!upgrade || !isReingestUpgradeKey(upgrade.key)) continue
-    for (const repository of upgrade.repositories ?? [])
-      if (repository.status === "done")
-        done.add(repository.repository.toLowerCase())
-  }
-  return done
+  return new Set(
+    reingestedNames(
+      ...rows.flatMap(({ payload }) =>
+        payload?.upgrade && isReingestUpgradeKey(payload.upgrade.key)
+          ? [payload.upgrade]
+          : [],
+      ),
+    ),
+  )
 }
