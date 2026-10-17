@@ -27,7 +27,17 @@ export type WorkspaceUpgrades = Omit<UpgradesResponse, "items"> & {
 export const workspaceUpgradeKeys = {
   list: (orgSlug: string, workspaceSlug: string) =>
     ["workspace-upgrades", orgSlug, workspaceSlug] as const,
+  pending: (orgSlug: string) =>
+    ["workspace-upgrades", orgSlug, { pending: true }] as const,
 }
+
+type PendingUpgradesResponse = InferResponseType<
+  (typeof client)[":orgSlug"]["api"]["v1"]["workspace-upgrades"]["pending"]["$get"],
+  200
+>
+
+/** The pending upgrades of the org, one entry for each Workspace that has one. */
+export type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
 
 /**
  * How long to wait before the next read. A run that prepares the pull
@@ -35,9 +45,9 @@ export const workspaceUpgradeKeys = {
  * merges it on GitHub (15 s). Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
-  data: WorkspaceUpgrades | undefined,
+  items: readonly Pick<WorkspaceUpgradeItem, "status">[] | undefined,
 ): number | false {
-  const statuses = data?.items.map((item) => item.status) ?? []
+  const statuses = items?.map((item) => item.status) ?? []
   if (statuses.some((status) => status === "queued" || status === "running"))
     return 3_000
   if (statuses.includes("pr_open")) return 15_000
@@ -63,7 +73,34 @@ export function workspaceUpgradesOptions(
     refetchInterval: (query) =>
       query.state.status === "error"
         ? false
-        : upgradePollInterval(query.state.data),
+        : upgradePollInterval(query.state.data?.items),
+  })
+}
+
+/**
+ * One read of the pending upgrades of all the Workspaces of the org, for the
+ * home alert. The read writes nothing on the server.
+ */
+export function pendingWorkspaceUpgradesOptions(orgSlug: string) {
+  return queryOptions({
+    queryKey: workspaceUpgradeKeys.pending(orgSlug),
+    queryFn: async (): Promise<PendingWorkspaceUpgrades> => {
+      const client = await getApiClient()
+      const res = await client[":orgSlug"].api.v1[
+        "workspace-upgrades"
+      ].pending.$get({ param: { orgSlug } })
+      const body = await readApiJson<PendingUpgradesResponse>(res, {
+        message: "Failed to load the upgrades",
+      })
+      return body.workspaces
+    },
+    staleTime: 0,
+    refetchInterval: (query) =>
+      query.state.status === "error"
+        ? false
+        : upgradePollInterval(
+            query.state.data?.flatMap((workspace) => workspace.items),
+          ),
   })
 }
 

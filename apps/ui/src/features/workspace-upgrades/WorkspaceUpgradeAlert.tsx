@@ -1,16 +1,17 @@
-import { useQueries } from "@tanstack/react-query"
+import { useQuery } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { Workspace } from "@/features/workspaces/types"
-import { useIsOrgAdmin, workspaceUpgradesOptions } from "./queries"
+import { pendingWorkspaceUpgradesOptions, useIsOrgAdmin } from "./queries"
 import { upgradeAlertLines, upgradeIsPending } from "./upgrade-copy"
 
 /**
  * One alert for each existing Workspace that has an upgrade item to finish.
- * It shows nothing when no item is pending, while the lists load, and when a
- * list fails. A new org has no Workspace, so it gets no alert.
+ * One read of the org gives the items of all the Workspaces. It shows
+ * nothing when no item is pending, while the read loads, and when it fails.
+ * A new org has no Workspace, so it gets no alert.
  */
 export function WorkspaceUpgradeAlerts(props: {
   orgSlug: string
@@ -20,13 +21,12 @@ export function WorkspaceUpgradeAlerts(props: {
   const navigate = useNavigate()
   const selectNav = useSelectNav()
   const isAdmin = useIsOrgAdmin(orgSlug)
-  const results = useQueries({
-    queries: workspaces.map((workspace) =>
-      workspaceUpgradesOptions(orgSlug, workspace.slug),
-    ),
-  })
-  const alerts = workspaces.flatMap((workspace, index) => {
-    const pending = results[index]?.data?.items.filter(upgradeIsPending) ?? []
+  const { data } = useQuery(pendingWorkspaceUpgradesOptions(orgSlug))
+  const alerts = workspaces.flatMap((workspace) => {
+    const pending =
+      data
+        ?.find((entry) => entry.workspaceSlug === workspace.slug)
+        ?.items.filter(upgradeIsPending) ?? []
     return pending.length > 0 ? [{ workspace, pending }] : []
   })
   if (alerts.length === 0) return null

@@ -172,9 +172,14 @@ function UpgradeItemRow(props: {
       toast.error(error.message)
     },
     onSettled: () =>
-      queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-      }),
+      Promise.all([
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: workspaceUpgradeKeys.pending(orgSlug),
+        }),
+      ]),
   })
   return (
     <UpgradeItemCard
