@@ -233,8 +233,8 @@ export async function scanWorkspaceUpgrade(input: {
     return record(UPGRADE_STATUSES.blocked, SCAN_OWNED, {
       blockedReason: UPGRADE_BLOCKED_REASONS.writeAccess,
       note:
-        workspace.readOnlyReason ??
-        "Connect the Workspace repository with the GitHub App, so that ctx| can open the upgrade pull request.",
+        (github ? workspace.readOnlyReason : null) ??
+        "ctx| needs write access through the GitHub App to open the upgrade pull request.",
     })
   // A failed run waits for the operator to start it again.
   if (existing?.status === UPGRADE_STATUSES.failed)

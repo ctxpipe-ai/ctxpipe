@@ -52,7 +52,7 @@ export const UPGRADE_STATUS_TAG: Record<
 
 export const UPGRADE_BLOCKED_COPY: Record<string, string> = {
   write_access:
-    "ctx| cannot write to the repository. Give the GitHub App write access, then check the Workspace again.",
+    "ctx| needs write access through the GitHub App to open the upgrade pull request. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
 }
 
 /** The toast after the start of an item. A re-ingestion opens no pull request on start. */

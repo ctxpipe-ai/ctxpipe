@@ -294,7 +294,7 @@ export const Blocked: Story = {
     )
     await waitFor(async () =>
       expect(
-        canvas.getByText(/ctx\| cannot write to the repository/),
+        canvas.getByText(/ctx\| needs write access through the GitHub App/),
       ).toBeVisible(),
     )
     await waitFor(async () =>
@@ -302,6 +302,40 @@ export const Blocked: Story = {
         canvas.getByText("The GitHub App has read access only."),
       ).toBeVisible(),
     )
+    expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/** A read-only Workspace below format 3: the format item and the re-ingestion are both blocked. */
+export const ReadOnlyBelowFormat: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          status: "blocked",
+          blockedReason: "write_access",
+          note: "ctx| needs write access through the GitHub App to open the upgrade pull request.",
+        }),
+        upgradeItemFixture({
+          key: "reingest-bundle",
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          status: "blocked",
+          blockedReason: "needs_format",
+          note: "Re-ingestion needs format 3. ctx| needs write access through the GitHub App to open the format upgrade pull request.",
+        }),
+      ]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getAllByText("This upgrade cannot start")).toHaveLength(2),
+    )
+    expect(canvas.queryByText(/No upgrades are pending/)).toBeNull()
+    expect(
+      canvas.getAllByText(/needs write access through the GitHub App/).length,
+    ).toBeGreaterThanOrEqual(2)
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
 }

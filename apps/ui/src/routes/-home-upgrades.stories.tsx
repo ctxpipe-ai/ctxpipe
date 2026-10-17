@@ -159,7 +159,7 @@ export const AlertForFailedUpgrade = singleItemStory(
 
 export const AlertForBlockedUpgrade = singleItemStory(
   { status: "blocked", blockedReason: "write_access" },
-  "ctx| cannot write to the repository. Give the GitHub App write access, then check the Workspace again.",
+  "ctx| needs write access through the GitHub App to open the upgrade pull request. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
 )
 
 /** No pending item in any Workspace: no alert. */

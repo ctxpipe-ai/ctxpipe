@@ -165,12 +165,13 @@ export const UPGRADE_FIRST_MESSAGE =
  * True when hydrate must queue an upgrade scan after it cached `next` over
  * `previous`. A changed format can complete an upgrade pull request, and it
  * can lift the format gate, so the write jobs that the gate held must
- * resume. The first read of a repository with no file (null to 0) changes
- * nothing: a null cache gives no gate, and no upgrade ends at format 0.
+ * resume. The first read is a change too, also null to 0: a repository with
+ * no format file is below the newest format, so it needs an upgrade item. A
+ * Workspace that joins after the scan of a release gets no other scan.
  */
 export function formatChangeNeedsScan(
   previous: number | null,
   next: number,
 ): boolean {
-  return previous !== next && !(previous === null && next === 0)
+  return previous !== next
 }

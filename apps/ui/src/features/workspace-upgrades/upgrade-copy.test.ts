@@ -64,7 +64,7 @@ describe("upgrade copy", () => {
         [{ ...item("blocked"), blockedReason: "write_access" }],
         true,
       )[0],
-    ).toMatch(/cannot write to the repository/)
+    ).toMatch(/needs write access through the GitHub App/)
   })
 
   it("words the estimate of a re-ingestion as a range", () => {

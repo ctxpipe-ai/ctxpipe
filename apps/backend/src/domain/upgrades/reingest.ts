@@ -490,7 +490,10 @@ export function reingestBlock(input: {
   )
     return {
       blockedReason: UPGRADE_BLOCKED_REASONS.needsFormat,
-      note: `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
+      note:
+        input.writeStatus === "read_only" || !input.githubConnectionId
+          ? `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. ctx| needs write access through the GitHub App to open the format upgrade pull request.`
+          : `Re-ingestion needs format ${REINGEST_REQUIRES_FORMAT}. Merge the format upgrade first.`,
     }
   if (!ingestionV2EnabledFor({ formatVersion: input.format }))
     return {
