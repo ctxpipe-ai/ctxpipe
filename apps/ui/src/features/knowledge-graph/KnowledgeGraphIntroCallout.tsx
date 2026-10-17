@@ -44,7 +44,7 @@ export function KnowledgeGraphIntroCallout({
         </li>
         <li>
           <span className="font-medium text-foreground">Inspect</span> a node to
-          see its claims and neighbours in this Workspace’s projection.
+          see its claims and neighbors in this Workspace’s projection.
         </li>
         <li>
           <span className="font-medium text-foreground">Monitor</span> activity

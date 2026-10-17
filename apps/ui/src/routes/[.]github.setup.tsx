@@ -9,8 +9,8 @@ import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
-import { client } from "@/lib/api"
-import { ApiError, apiFetch, readApiJson } from "@/lib/api-result"
+import { client, userClient } from "@/lib/api"
+import { ApiError, readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
@@ -321,11 +321,12 @@ function DirectSetupPage() {
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
     queryFn: async () => {
-      const res = await apiFetch(
-        `/api/v1/me/github/installations/${search.installation_id}/organization`,
-        { credentials: "include" },
-      )
-      const json = await readApiJson<{ orgSlug: string } | null>(res, {
+      const res = await userClient.api.v1.me.github.installations[
+        ":installationId"
+      ].organization.$get({
+        param: { installationId: String(search.installation_id) },
+      })
+      const json = await readApiJson(res, {
         emptyOn: [404],
         empty: null,
         message: "Failed to look up installation organization",

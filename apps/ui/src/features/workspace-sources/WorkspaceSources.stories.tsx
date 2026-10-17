@@ -585,6 +585,7 @@ export const ScrollsToSourceAnchor: Story = {
       canvasElement.querySelector<HTMLElement>("#source-confluence")
     if (!root || !section) throw new Error("Missing scroll root or section")
     await waitFor(() => expect(root.scrollTop).toBeGreaterThan(0))
+    await document.fonts.ready
     const offset =
       section.getBoundingClientRect().top - root.getBoundingClientRect().top
     await expect(Math.abs(offset)).toBeLessThan(40)

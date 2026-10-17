@@ -1,6 +1,6 @@
 import { queryOptions } from "@tanstack/react-query"
 import { client } from "@/lib/api"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { readApiJson } from "@/lib/api-result"
 import { fetchOrgConnections } from "./org-connections"
 
 export const githubConnectorKeys = {
@@ -15,13 +15,7 @@ export const githubConnectorKeys = {
     ["github-installation", orgSlug] as const,
 }
 
-export async function fetchGithubConnectorBootstrap(orgSlug: string): Promise<{
-  publicApiOrigin: string
-  suggestedWebhookUrlTemplate: string
-  githubAppConfiguredInEnv: boolean
-  rowsNeedingSecrets: number
-  hostedDefaultAppInstallUrl: string | null
-}> {
+export async function fetchGithubConnectorBootstrap(orgSlug: string) {
   const res = await client[":orgSlug"].api.v1.github.installation[
     "connector-bootstrap"
   ].$get({
@@ -75,17 +69,10 @@ export function githubInstallationOptions(
 export async function fetchGithubInstallationSummary(
   orgSlug: string,
   connectionId?: string,
-): Promise<{
-  id: string
-  appSlug: string | null
-  accountSlug: string | null
-  installationId: number | null
-} | null> {
-  const query = connectionId
-    ? `?${new URLSearchParams({ connectionId }).toString()}`
-    : ""
-  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation${query}`, {
-    credentials: "include",
+) {
+  const res = await client[":orgSlug"].api.v1.github.installation.$get({
+    param: { orgSlug },
+    query: connectionId ? { connectionId } : {},
   })
   return readApiJson(res, { message: "Failed to check GitHub installation" })
 }
@@ -93,8 +80,9 @@ export async function fetchGithubInstallationSummary(
 export async function fetchGithubSetupLinkState(
   orgSlug: string,
 ): Promise<"linked" | "unlinked"> {
-  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation`, {
-    credentials: "include",
+  const res = await client[":orgSlug"].api.v1.github.installation.$get({
+    param: { orgSlug },
+    query: {},
   })
   if (res.status === 400) {
     const body: unknown = await res.json().catch(() => ({}))
@@ -111,10 +99,9 @@ export async function fetchGithubSetupLinkState(
     )
     return githubSetupLinkStateFromSummaries(summaries)
   }
-  const data = await readApiJson<{ installationId: number | null } | null>(
-    res,
-    { message: "Failed to check GitHub installation" },
-  )
+  const data = await readApiJson(res, {
+    message: "Failed to check GitHub installation",
+  })
   return githubSetupLinkStateFromSummaries([data])
 }
 
@@ -140,25 +127,21 @@ export type CreateGithubDraftBody = {
 export async function createGithubDraftConnection(
   orgSlug: string,
   body: CreateGithubDraftBody,
-): Promise<{ id: string }> {
+) {
   const res = await client[":orgSlug"].api.v1.github.installation.draft.$post({
     param: { orgSlug },
     json: body,
   })
-  return readApiJson<{ id: string }>(res, {
+  return readApiJson(res, {
     message: "Failed to save connector",
   })
 }
 
-export async function createGithubDraftPlaceholder(orgSlug: string): Promise<{
-  id: string
-  webhookUrl: string
-}> {
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/github/installation/draft/placeholder`,
-    { method: "POST", credentials: "include" },
-  )
-  return readApiJson<{ id: string; webhookUrl: string }>(res, {
+export async function createGithubDraftPlaceholder(orgSlug: string) {
+  const res = await client[
+    ":orgSlug"
+  ].api.v1.github.installation.draft.placeholder.$post({ param: { orgSlug } })
+  return readApiJson(res, {
     message: "Failed to reserve connector",
   })
 }
@@ -166,14 +149,12 @@ export async function createGithubDraftPlaceholder(orgSlug: string): Promise<{
 export async function patchGithubDraftConnection(
   orgSlug: string,
   body: CreateGithubDraftBody & { connectionId: string },
-): Promise<{ id: string }> {
-  const res = await apiFetch(`/${orgSlug}/api/v1/github/installation/draft`, {
-    method: "PATCH",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+) {
+  const res = await client[":orgSlug"].api.v1.github.installation.draft.$patch({
+    param: { orgSlug },
+    json: body,
   })
-  return readApiJson<{ id: string }>(res, {
+  return readApiJson(res, {
     message: "Failed to save connector",
   })
 }
@@ -185,14 +166,7 @@ export type GithubConnectorStatus = Awaited<
 export async function fetchGithubConnectorStatus(
   orgSlug: string,
   connectionId: string,
-): Promise<{
-  connectionId: string
-  installationComplete: boolean
-  hasAppCredentials: boolean
-  webhookUrl: string
-  githubAppInstallSelectUrl: string | null
-  suggestedNextStep: "save_credentials" | "install_app" | "complete"
-}> {
+) {
   const res = await client[":orgSlug"].api.v1.github.installation[
     "connector-status"
   ].$get({

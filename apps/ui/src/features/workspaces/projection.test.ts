@@ -7,33 +7,9 @@ import {
 } from "./projection"
 
 describe("workspaceProjectionReady", () => {
-  it("is ready once a projection SHA exists, regardless of write status or export", () => {
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "pending",
-        activeProjectionSha: null,
-      }),
-    ).toBe(false)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "abc",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "aaa",
-        writeStatus: "writable",
-      }),
-    ).toBe(true)
-    expect(
-      workspaceProjectionReady({
-        hydrateStatus: "ready",
-        activeProjectionSha: "aaa",
-        writeStatus: "read_only",
-      }),
-    ).toBe(true)
+  it("is ready once a projection SHA exists", () => {
+    expect(workspaceProjectionReady({ activeProjectionSha: null })).toBe(false)
+    expect(workspaceProjectionReady({ activeProjectionSha: "abc" })).toBe(true)
   })
 })
 

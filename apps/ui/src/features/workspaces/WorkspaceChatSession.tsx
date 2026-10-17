@@ -243,7 +243,7 @@ export function WorkspaceChatSession(props: {
   const handleSendMessage = async (params: { text: string }) => {
     setSandboxPhase("starting")
     setSendError(null)
-    HyperDX.addAction("advisor_question_sent")
+    HyperDX.addAction("chat_question_sent")
     try {
       await sendMessage(params.text)
     } catch (error) {

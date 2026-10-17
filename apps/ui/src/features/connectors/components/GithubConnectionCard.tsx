@@ -5,11 +5,13 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
 import { toast } from "sonner"
 import {
+  fetchGithubInstallationSummary,
   githubConnectorKeys,
   githubInstallationIsLinked,
 } from "@/features/connectors/queries/github-connector"
 import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { resolveConnectorHealth } from "../connectorHealth"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
@@ -23,11 +25,10 @@ async function deleteGithubConnector(
   orgSlug: string,
   connectionId: string,
 ): Promise<void> {
-  const qs = new URLSearchParams({ connectionId })
-  const res = await apiFetch(
-    `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
-    { method: "DELETE", credentials: "include" },
-  )
+  const res = await client[":orgSlug"].api.v1.github.installation.$delete({
+    param: { orgSlug },
+    query: { connectionId },
+  })
   await readApiJson(res, { message: "Failed to remove connector" })
 }
 
@@ -44,21 +45,7 @@ export function GithubConnectionCard({
     refetch,
   } = useQuery({
     queryKey: githubConnectorKeys.installation(orgSlug, connectionId),
-    queryFn: async () => {
-      const qs = new URLSearchParams({ connectionId })
-      const res = await apiFetch(
-        `/${orgSlug}/api/v1/github/installation?${qs.toString()}`,
-        { credentials: "include" },
-      )
-      return readApiJson<{
-        id: string
-        installationId: number | null
-        accountSlug: string | null
-        ingestionRepositoryCount: number
-      } | null>(res, {
-        message: "Failed to load GitHub connection",
-      })
-    },
+    queryFn: () => fetchGithubInstallationSummary(orgSlug, connectionId),
   })
 
   const removeMutation = useMutation({
