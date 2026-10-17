@@ -35,7 +35,7 @@ const meta = {
     } satisfies StoryRouteParams,
   },
   args: {
-    onOrgCreated: fn(),
+    onFinish: fn(),
   },
 } satisfies Meta<typeof OnboardingCreateOrgSlide>
 
@@ -157,7 +157,7 @@ export const CreatingOrganization: Story = {
     docs: {
       description: {
         story:
-          'Create uses MSW `delay("real")`, then returns success — run **Interactions** to see `onOrgCreated` after submit.',
+          'Create uses MSW `delay("real")`, then returns success — run **Interactions** to see `onFinish` after submit.',
       },
     },
   },
@@ -174,7 +174,7 @@ export const CreatingOrganization: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: /create organization/i }),
     )
-    await waitFor(() => expect(args.onOrgCreated).toHaveBeenCalled(), {
+    await waitFor(() => expect(args.onFinish).toHaveBeenCalled(), {
       timeout: 4000,
     })
     // Each auth round trip costs seconds on a hosted deploy (ONB-2).
@@ -201,10 +201,18 @@ export const PrefilledFromWorkEmail: Story = {
     await expect(name).toHaveValue("Initech")
     await expect(slug).toHaveValue("initech")
     await userEvent.type(name, " Labs")
-    await expect(slug).toHaveValue("initech-labs")
+    await waitFor(() =>
+      expect(canvas.getByRole("textbox", { name: /slug url/i })).toHaveValue(
+        "initech-labs",
+      ),
+    )
     await userEvent.clear(slug)
     await userEvent.type(slug, "initech-hq")
     await userEvent.type(name, " East")
-    await expect(slug).toHaveValue("initech-hq")
+    await waitFor(() =>
+      expect(canvas.getByRole("textbox", { name: /slug url/i })).toHaveValue(
+        "initech-hq",
+      ),
+    )
   },
 }

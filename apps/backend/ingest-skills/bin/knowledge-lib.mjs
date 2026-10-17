@@ -29,9 +29,11 @@ const MAX_RELATED_LINES = 200
 
 /**
  * The one argument parser of the skill scripts (ADR-052 section 6): the host
- * inputs --source <checkout>, --source-url <url>, --roots <file>, and
- * --path <root> in a root step only. --root <dir> moves the step folder
- * (default /ctxpipe). `value(name)` reads a further option of the script.
+ * inputs --source <checkout>, --source-url <url>, --source-path <path> (the
+ * source file of the repository in the Workspace, the value of `sources`),
+ * --roots <file>, and --path <root> in a root step only. --root <dir>
+ * moves the step folder (default /ctxpipe). `value(name)` reads a further
+ * option of the script.
  * A script that needs no step folder uses this; `scriptStep` adds the step.
  */
 export function stepArgs(argv = process.argv.slice(2)) {
@@ -44,6 +46,10 @@ export function stepArgs(argv = process.argv.slice(2)) {
   }
   const source = value("--source") ?? fail("Give --source <checkout>")
   const sourceUrl = value("--source-url") ?? fail("Give --source-url <url>")
+  const sourcePath =
+    value("--source-path") ?? fail("Give --source-path <source file path>")
+  if (!SOURCE_PATH.test(sourcePath))
+    fail(`${sourcePath} is not a source file path`)
   const rootsFile = value("--roots") ?? fail("Give --roots <roots file>")
   if (!existsSync(rootsFile)) fail(`${rootsFile} does not exist`)
   // A root step names its root; a repository-wide step has none.
@@ -65,6 +71,7 @@ export function stepArgs(argv = process.argv.slice(2)) {
     args,
     source,
     sourceUrl,
+    sourcePath,
     rootsFile,
     rootPath,
     repository,
@@ -72,20 +79,33 @@ export function stepArgs(argv = process.argv.slice(2)) {
   }
 }
 
+/** A source file path of ADR-050: sources/<provider>/[<group>/]<name>.md. */
+const SOURCE_PATH =
+  /^sources\/[a-z]+\/(?:[a-z0-9][a-z0-9._-]*\/)?[a-z0-9][a-z0-9._-]*\.md$/
+
 /**
  * Arguments (ADR-052 section 6, the same for each skill): --source
- * <checkout> --source-url <url> --roots <file>, and --path <root> in a root
- * step only. --root <dir> moves the step folder (default /ctxpipe).
+ * <checkout> --source-url <url> --source-path <path> --roots <file>, and
+ * --path <root> in a root step only. --root <dir> moves the step folder
+ * (default /ctxpipe).
  *
  * The roots file is the host's root-to-file map (ADR-052 section 6):
  *   { "roots": [{ "path", "manifests", "evidence", "files": ["knowledge/..."] }] }
  * `files` are the context files that the root steps of the root wrote. Only
  * a file that exists at the base commit and whose `sources` hold the source
- * URL counts. Each root in the result has `files: [{ path, kind }]`.
+ * path counts. Each root in the result has `files: [{ path, kind }]`.
  */
 export function scriptStep(argv = process.argv.slice(2)) {
-  const { root, source, sourceUrl, rootsFile, rootPath, repository, value } =
-    stepArgs(argv)
+  const {
+    root,
+    source,
+    sourceUrl,
+    sourcePath,
+    rootsFile,
+    rootPath,
+    repository,
+    value,
+  } = stepArgs(argv)
   const step = currentStep(root)
   const listed = JSON.parse(readFileSync(rootsFile, "utf8")).roots
   if (!Array.isArray(listed)) fail(`${rootsFile} has no roots list`)
@@ -106,7 +126,7 @@ export function scriptStep(argv = process.argv.slice(2)) {
     }
     const files = []
     for (const path of Array.isArray(entry.files) ? entry.files : []) {
-      const file = sourceFile(step, path, sourceUrl)
+      const file = sourceFile(step, path, sourcePath)
       if (file) files.push(file)
       else
         skipped.push({
@@ -126,6 +146,7 @@ export function scriptStep(argv = process.argv.slice(2)) {
     step,
     source,
     sourceUrl,
+    sourcePath,
     repository,
     roots,
     rootPath,
@@ -135,8 +156,11 @@ export function scriptStep(argv = process.argv.slice(2)) {
   }
 }
 
-/** { path, kind } of a context file at the base commit whose sources hold `sourceUrl`, or null. */
-function sourceFile(step, path, sourceUrl) {
+/**
+ * { path, kind } of a context file at the base commit whose sources hold
+ * `sourcePath`, or null.
+ */
+function sourceFile(step, path, sourcePath) {
   if (
     !safePath(path) ||
     !path.startsWith("knowledge/") ||
@@ -145,7 +169,7 @@ function sourceFile(step, path, sourceUrl) {
     return null
   const text = baseText(step, path)
   const yaml = text && frontMatter(text)
-  if (!yaml || !frontList(yaml, "sources").includes(sourceUrl)) return null
+  if (!yaml || !frontList(yaml, "sources").includes(sourcePath)) return null
   return { path, kind: frontValue(yaml, "kind") }
 }
 

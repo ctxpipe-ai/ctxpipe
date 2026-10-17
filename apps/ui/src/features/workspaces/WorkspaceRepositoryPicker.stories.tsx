@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
-import { expect, fn, userEvent, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import { githubInstallationLinkedHandler } from "@/mocks/handlers"
 import {
@@ -8,6 +8,7 @@ import {
   orgGithubConnectionsHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceRepositoryPicker } from "./WorkspaceRepositoryPicker"
@@ -32,6 +33,8 @@ const meta = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
+        // Only an owner or admin sees the repository pickers.
+        role: [activeMemberRoleHandler("owner")],
         page: [
           workspaceListHandler([docsWorkspace]),
           orgGithubConnectionsHandler(),
@@ -84,9 +87,11 @@ export const SelectGitHub: Story = {
     const [firstRadio] = canvas.getAllByRole("radio")
     if (!firstRadio) throw new Error("No repository radios rendered")
     await userEvent.click(firstRadio)
-    expect(
-      await canvas.findByRole("button", { name: /create workspace/i }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: /create workspace/i }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -139,7 +144,7 @@ export const NoGithubConnection: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Paste a git URL" }),
     )
-    await expect(await canvas.findByLabelText(/git url/i)).toBeVisible()
+    await waitFor(() => expect(canvas.getByLabelText(/git url/i)).toBeVisible())
   },
 }
 
@@ -290,9 +295,11 @@ export const PasteUrl: Story = {
 export const PasteUrlWithRootFolder: Story = {
   play: async ({ canvasElement, args }) => {
     const canvas = within(canvasElement)
-    await expect(
-      canvas.getByText(/leave it empty to use the whole repository/i),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/keep several workspaces in one repository/i),
+      ).toBeVisible(),
+    )
     await userEvent.type(
       canvas.getByRole("textbox", { name: /root folder/i }),
       "docs/context/",
@@ -313,8 +320,89 @@ export const PasteUrlWithRootFolder: Story = {
   },
 }
 
+/** The root folder is optional: an empty field sends "" for the whole repository. */
+export const PasteUrlWithEmptyRootFolder: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText("Leave empty to use the whole repository"),
+      ).toBeVisible(),
+    )
+    await userEvent.click(canvas.getByRole("tab", { name: /paste url/i }))
+    await userEvent.type(
+      canvas.getByLabelText(/git url/i),
+      "https://github.com/acme/platform.git",
+    )
+    await userEvent.click(
+      canvas.getByRole("button", { name: /create workspace/i }),
+    )
+    await expect(args.onSubmit).toHaveBeenCalledWith({
+      gitUrl: "https://github.com/acme/platform.git",
+      source: "paste",
+      rootPath: "",
+    })
+  },
+}
+
 export const SaveError: Story = {
   args: {
     error: "That git URL is already used by another Workspace.",
+  },
+}
+
+const memberRepoReads: string[] = []
+
+/**
+ * A member: only an owner or admin can list the repositories of the GitHub
+ * App. Select GitHub asks for an admin, and neither tab reads the list.
+ * Paste URL still works.
+ */
+export const MemberAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          orgGithubConnectionsHandler(),
+          githubInstallationLinkedHandler,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/github/installation/repositories",
+              ),
+            ({ request }) => {
+              memberRepoReads.push(new URL(request.url).pathname)
+              return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberRepoReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(/Ask an admin to pick a GitHub repository/)
+    await userEvent.click(
+      canvas.getByRole("tab", { name: /create on github/i }),
+    )
+    await canvas.findByRole("link", {
+      name: /create the repository on github/i,
+    })
+    await userEvent.click(canvas.getByRole("tab", { name: /select github/i }))
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Paste a git URL" }),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("tab", { name: /paste url/i })).toHaveAttribute(
+        "aria-selected",
+        "true",
+      ),
+    )
+    expect(memberRepoReads).toEqual([])
   },
 }

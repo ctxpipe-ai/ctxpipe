@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { eq } from "drizzle-orm"
+import { and, eq } from "drizzle-orm"
 import { evlog } from "evlog/hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
@@ -9,6 +9,7 @@ import { getAuth } from "../../auth/config.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import {
+  members,
   oauthAccessTokens,
   oauthClients,
   sessions,
@@ -112,6 +113,12 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   },
   {
     method: "POST",
+    path: "/workspaces/missing-ws/upgrades/format-3/start",
+    expectedStatus: 404,
+    orgAdmin: true,
+  },
+  {
+    method: "POST",
     path: "/connectors/con_missing/sync",
     expectedStatus: 404,
     orgAdmin: true,
@@ -147,6 +154,7 @@ const READ_ROUTES = [
   { path: "/workspaces/missing-ws", expectedStatus: 404 },
   { path: "/workspaces/missing-ws/sources", expectedStatus: 404 },
   { path: "/workspaces/missing-ws/linked-repositories", expectedStatus: 404 },
+  { path: "/workspaces/missing-ws/upgrades", expectedStatus: 404 },
 ]
 
 describe("Direct-write REST routes need a session or the ctxpipe:write scope (Postgres)", () => {
@@ -374,6 +382,29 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     })
   }
 
+  it("refuses a plain org member at the admin check on POST /workspaces/{slug}/upgrades/{key}/start", async () => {
+    const s = requireSeed()
+    const db = getSystemDb()
+    const ownerOfSeed = and(
+      eq(members.organizationId, s.orgId),
+      eq(members.userId, s.userId),
+    )
+    await db.update(members).set({ role: "member" }).where(ownerOfSeed)
+    try {
+      await expectOrgAdminRefusal(
+        await send(
+          {
+            method: "POST",
+            path: "/workspaces/missing-ws/upgrades/format-3/start",
+          },
+          { cookie: s.cookie },
+        ),
+      )
+    } finally {
+      await db.update(members).set({ role: "owner" }).where(ownerOfSeed)
+    }
+  })
+
   for (const { path, expectedStatus } of READ_ROUTES) {
     it(`still serves GET ${path} to a ctxpipe:read OAuth token and a personal API key`, async () => {
       for (const credential of <Record<string, string>[]>[
@@ -413,6 +444,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     )
     const base = "/{orgSlug}/api/v1"
     const adminOnly = [
+      `POST ${base}/workspaces/{workspaceSlug}/upgrades/{key}/start`,
       `POST ${base}/connectors/{connectionId}/sync`,
       ...["linear", "notion", "pagerduty"].flatMap((connector) => [
         `PATCH ${base}/connectors/${connector}/config`,

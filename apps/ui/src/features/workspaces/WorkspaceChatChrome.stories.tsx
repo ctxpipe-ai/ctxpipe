@@ -63,6 +63,28 @@ export const ReadOnly: Story = {
   },
 }
 
+/** A protected default branch: a conversation opens a pull request, so the badge is neutral. */
+export const ProtectedDefaultBranch: Story = {
+  args: {
+    workspace: {
+      ...readOnlyWorkspace,
+      conversationWritable: true,
+      readOnlyReason:
+        "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
+    },
+    title: "Handbook",
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const pill = await canvas.findByText("Changes by pull request")
+    await expect(pill).toHaveTextContent(
+      "A conversation pushes its own branch and opens a pull request.",
+    )
+    await expect(pill).toHaveClass("text-muted-foreground")
+    await expect(canvas.queryByText("Read-only")).not.toBeInTheDocument()
+  },
+}
+
 export const PendingProbe: Story = {
   args: {
     workspace: pendingWriteWorkspace,
@@ -143,7 +165,9 @@ export const SyncDisabled: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByRole("button", { name: syncName })).toBeDisabled()
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: syncName })).toBeDisabled(),
+    )
   },
 }
 
@@ -170,10 +194,12 @@ export const CommittedCreatePrOnly: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible(),
+    )
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
-    expect(canvas.getByRole("button", { name: "Create PR" })).toBeVisible()
   },
 }
 
@@ -200,6 +226,7 @@ export const CleanNoPublishActions: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
+    await canvas.findByText("Repo layout")
     expect(
       canvas.queryByRole("button", { name: syncName }),
     ).not.toBeInTheDocument()
@@ -408,6 +435,7 @@ export const CtaButtonStyle: Story = {
     expect(face.color).not.toBe(face.backgroundColor)
     expect(face.fontSize).toBe("12px")
     expect(face.fontWeight).toBe("400")
+    await document.fonts.ready
     expect(sync.getBoundingClientRect().height).toBeLessThanOrEqual(28)
     expect(sync.querySelector("svg.tabler-icon-external-link")).toBeNull()
     const rest = face.backgroundColor
@@ -437,13 +465,16 @@ export const BranchLabel: Story = {
     )
     const text = label.querySelector("span.truncate")
     if (!(text instanceof HTMLElement)) throw new Error("Branch text missing")
+    await document.fonts.ready
     expect(text.scrollWidth).toBeGreaterThan(text.clientWidth)
     await userEvent.hover(label)
     await new Promise((resolve) => setTimeout(resolve, 400))
     expect(
+      // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByRole("tooltip"),
     ).toBeNull()
     expect(
+      // play-timing: ok the 400 ms sleep after hover outwaits the tooltip delay
       within(canvasElement.ownerDocument.body).queryByText(
         /ctxpipe\/chat\/conv_1/,
       ),

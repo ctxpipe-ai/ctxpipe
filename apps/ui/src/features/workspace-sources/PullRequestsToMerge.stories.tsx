@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import {
   workspaceSourceFixture,
   workspaceSourceList,
@@ -87,20 +87,22 @@ export const RemoveAndScopeChange: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("heading", { name: "Merge the pull requests" }),
-    ).toBeVisible()
-    await expect(await canvas.findByText("Merged")).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("heading", { name: "Merge the pull requests" }),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(canvas.getByText("Merged")).toBeVisible())
     await expect(canvas.getAllByText("Merged")).toHaveLength(1)
 
     scopeMerged = true
-    await expect(
-      await canvas.findByRole(
-        "heading",
-        { name: "Pull requests merged" },
-        { timeout: 10_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("heading", { name: "Pull requests merged" }),
+        ).toBeVisible(),
+      { timeout: 10_000 },
+    )
     await expect(canvas.getAllByText("Merged")).toHaveLength(2)
   },
 }

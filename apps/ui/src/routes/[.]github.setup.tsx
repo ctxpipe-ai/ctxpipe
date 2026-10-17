@@ -2,14 +2,15 @@ import { useMutation, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { parseError } from "evlog"
 import { useEffect, useMemo } from "react"
-import { toast } from "sonner"
 import { AppShell } from "@/components/AppShell"
+import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { GithubNotLinkedNotice } from "@/features/connectors/components/GithubNotLinkedNotice"
 import { resolveGithubSetupOrganization } from "@/features/connectors/githubConnectFlow"
-import { client } from "@/lib/api"
-import { ApiError, apiFetch, readApiJson } from "@/lib/api-result"
+import { client, userClient } from "@/lib/api"
+import { ApiError, readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
 import {
   consumeGithubSetupOrgHint,
@@ -37,6 +38,7 @@ export const Route = createFileRoute("/.github/setup")({
     connectionId:
       typeof search.connectionId === "string" ? search.connectionId : undefined,
     state: typeof search.state === "string" ? search.state : undefined,
+    error: typeof search.error === "string" ? search.error : undefined,
   }),
 })
 
@@ -44,6 +46,8 @@ type ConnectGithubViewProps = {
   installationId: number
   selectedOrganizationSlug: string
   connectionId?: string
+  /** The error code of a failed GitHub account link. */
+  linkError?: string
 }
 
 function MissingInstallationIdView() {
@@ -52,7 +56,7 @@ function MissingInstallationIdView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -75,7 +79,7 @@ function MissingPreferredOrgView() {
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
@@ -155,10 +159,11 @@ function CloseOnly() {
   return null
 }
 
-function ConnectGithubView({
+export function ConnectGithubView({
   installationId,
   selectedOrganizationSlug,
   connectionId,
+  linkError,
 }: ConnectGithubViewProps) {
   const navigate = useNavigate()
 
@@ -188,14 +193,6 @@ function ConnectGithubView({
         params: { orgSlug },
       })
     },
-    onError: (err) => {
-      const why = err instanceof ApiError ? err.body.why : parseError(err)?.why
-      if (why === "github_not_linked") {
-        return
-      }
-
-      toast.error(err instanceof Error ? err.message : "Request failed")
-    },
   })
 
   useEffect(() => {
@@ -214,7 +211,7 @@ function ConnectGithubView({
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <GithubNotLinkedNotice
@@ -224,6 +221,7 @@ function ConnectGithubView({
               )?.providers?.includes("github") ?? true
             }
             orgSlug={selectedOrganizationSlug}
+            linkError={linkError}
           />
         </main>
       </AppShell>
@@ -235,24 +233,57 @@ function ConnectGithubView({
       <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
         <header className="mb-8">
           <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-            Repositories
+            GitHub
           </span>
         </header>
         <section>
           <h1 className="text-3xl font-medium tracking-tight text-foreground">
             Link GitHub installation
           </h1>
-          <p className="mt-3 text-sm text-zinc-400">
-            Connecting your GitHub App installation to your preferred
-            organization…
-          </p>
+          {error ? (
+            <div className="mt-8">
+              <InlineAlert
+                variant="error"
+                title="Could not link the GitHub installation"
+                actions={
+                  <Button
+                    variant="outline"
+                    className="rounded-md"
+                    onPress={() =>
+                      void navigate({
+                        to: "/$orgSlug/connectors",
+                        params: { orgSlug: selectedOrganizationSlug },
+                        search: {
+                          error: undefined,
+                          error_description: undefined,
+                          pendingAccountClaim: undefined,
+                          notionConnectionId: undefined,
+                        },
+                      })
+                    }
+                  >
+                    Open Connectors
+                  </Button>
+                }
+              >
+                {error.message}
+              </InlineAlert>
+            </div>
+          ) : (
+            <>
+              <p className="mt-3 text-sm text-zinc-400">
+                Connecting your GitHub App installation to your preferred
+                organization…
+              </p>
 
-          <div className="mt-8 max-w-md">
-            <p className="flex items-center gap-2 text-sm text-zinc-300">
-              <Spinner className="text-zinc-400" />
-              Registering installation…
-            </p>
-          </div>
+              <div className="mt-8 max-w-md">
+                <p className="flex items-center gap-2 text-sm text-zinc-300">
+                  <Spinner className="text-zinc-400" />
+                  Registering installation…
+                </p>
+              </div>
+            </>
+          )}
         </section>
       </main>
     </AppShell>
@@ -290,11 +321,12 @@ function DirectSetupPage() {
   const { data: existingOrgSlug, isPending: existingOrgPending } = useQuery({
     queryKey: ["github-installation-org-lookup", search.installation_id],
     queryFn: async () => {
-      const res = await apiFetch(
-        `/api/v1/me/github/installations/${search.installation_id}/organization`,
-        { credentials: "include" },
-      )
-      const json = await readApiJson<{ orgSlug: string } | null>(res, {
+      const res = await userClient.api.v1.me.github.installations[
+        ":installationId"
+      ].organization.$get({
+        param: { installationId: String(search.installation_id) },
+      })
+      const json = await readApiJson(res, {
         emptyOn: [404],
         empty: null,
         message: "Failed to look up installation organization",
@@ -310,7 +342,7 @@ function DirectSetupPage() {
         <main className="mx-auto box-border w-full max-w-2xl p-8 text-zinc-100">
           <header className="mb-8">
             <span className="font-mono text-xs uppercase tracking-[0.24em] text-teal-400">
-              Repositories
+              GitHub
             </span>
           </header>
           <section>
@@ -353,6 +385,7 @@ function DirectSetupPage() {
       installationId={search.installation_id}
       selectedOrganizationSlug={organization.orgSlug}
       connectionId={search.connectionId}
+      linkError={search.error}
     />
   )
 }

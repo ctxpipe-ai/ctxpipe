@@ -777,6 +777,7 @@ it(
         "-e",
         `
 import { createInterface } from "node:readline"
+import { createServer } from "node:net"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { startOpencodeServerInSandbox } from "@tanstack/ai-opencode"
 import { withOwnerWatchdog } from ${JSON.stringify(join(import.meta.dirname, "sandbox-process-guards.ts"))}
@@ -785,9 +786,18 @@ const sandbox = await withOwnerWatchdog(localProcessSandbox({ dir: ${JSON.string
   workspace: { source: { type: "none" } },
 })
 await sandbox.env.set({ PATH: ${JSON.stringify(bin)} + ":" + process.env.PATH })
-let port = 40000 + Math.floor(Math.random() * 20000)
+// The operating system picks a free port. A random port can collide with a
+// port that another test or process holds.
+const freePort = () => new Promise((resolve, reject) => {
+  const probe = createServer()
+  probe.once("error", reject)
+  probe.listen(0, "127.0.0.1", () => {
+    const { port } = probe.address()
+    probe.close(() => resolve(port))
+  })
+})
 for await (const line of createInterface({ input: process.stdin })) {
-  await startOpencodeServerInSandbox(sandbox, { port: port++, hostname: "127.0.0.1", cwd: "." })
+  await startOpencodeServerInSandbox(sandbox, { port: await freePort(), hostname: "127.0.0.1", cwd: "." })
   console.log("started " + process.pid)
 }
 `,

@@ -20,6 +20,223 @@ inviting users back in.
 7. Deploy backend, worker, UI, and codesearch from the same commit or release.
 8. Validate health, sign-in, repository indexing, Chat/MCP, and connectors.
 
+## Upgrade from main to Workspaces
+
+This release is a minor upgrade. You bump the version and deploy. The SQL only
+adds to your database, with one exception: the migration deletes orphan rows
+that have no organization (see [What the SQL changes](#what-the-sql-changes)).
+Nothing runs on its own after the deploy. Each change to a Workspace
+repository and each paid run waits for a click in the UI. Hosted and
+self-hosted deployments use the same UI workflow.
+
+### Before you start
+
+1. **Take a database snapshot.** The upgrade deletes orphan rows, and a
+   schema rollback is only possible from a snapshot. Take the snapshot of
+   Postgres (and of the graph database) before you deploy.
+2. **Check the GitHub App permissions.** Workspace writes need **Contents:
+   Read and write** and **Pull requests: Read and write**. Without them, a
+   Workspace shows `blocked: write_access`, and the upgrade pull request
+   cannot open. Update the permissions in the GitHub App settings, then
+   accept the change for each installation.
+3. **Note your current image tag or release.** You need it for a rollback.
+
+### Deploy
+
+Use the flow for your platform below. Every platform runs the same single
+migrate command, `bun run apps/backend/src/db/migrate.ts`.
+
+- **Docker Compose:** pull the new release, then run
+  `docker compose --profile deploy build` and
+  `docker compose --profile deploy up -d`. The `migrate` service runs before
+  the app services, and `chat-sandbox-image` builds the new chat image in
+  `dind`. Set `POSTGRES_PASSWORD` in your `.env` (Compose sends it to migrate
+  as the `ctxpipe_app` password). Check `docker compose logs migrate`.
+- **AWS CDK:** run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`. See
+  [the sandbox host](#aws-cdk-sandbox-host) for the cost of the new host.
+- **Image-based:** run migrate once with the owner `DATABASE_URL`. Pass the
+  app password as `DATABASE_APP_PASSWORD`, or make sure the `ctxpipe_app`
+  role exists. Then start the new images with the `ctxpipe_app` URL.
+
+### What the SQL changes
+
+The upgrade follows the expand-only rule: a minor release adds tables,
+columns, policies, and rows. It does not remove anything that the previous
+release reads.
+
+- The migration deletes orphan rows (rows with no `org_id`) in
+  `claim_evidence`, `confluence_spaces`, and `repository_checkouts`. The
+  delete runs in the same transaction as the migration. If the migration
+  fails, the rows stay. ctx| keeps no copy of these rows.
+- `org_id` stays nullable on these tables. Row-level security hides rows with
+  no `org_id` from the app role.
+- A `BEFORE INSERT` trigger on each of the three tables copies `org_id` from
+  the parent row when it is null. This covers writes from the previous release
+  after a rollback.
+- Every migrate run then calls the backfill, which repairs the other rows
+  that have no `org_id`. The backfill is safe to run again. You do not run it
+  by hand.
+- The only new column is the nullable `workspaces.format_version`. It caches
+  the format of the Workspace repository. Git stays the source of truth.
+
+### Removed routes
+
+The old repository list, chat, and knowledge graph pages are gone. A bookmark
+to `/<org>/repositories`, `/<org>/chat`, or `/<org>/knowledge-graph` opens the
+organization home page. The same data is in the Workspace.
+
+### Connector handover
+
+After the upgrade, each connector binding that a Workspace owns stops writing
+to the old repository. The Linear, Notion, Slack, and Confluence connectors
+write only to the Workspace. No connector writes the same content to both
+places. You do not need to change a connector setting.
+
+### Workspace format file
+
+Each Workspace repository holds `.ctxpipe/workspace.yaml`. It has one key,
+`format`, with an integer. ctx| reads it at every hydrate and caches it in
+`workspaces.format_version`.
+
+| Format | Layout |
+|---|---|
+| 0 | No file: a repository from before Workspaces, or a foreign repository |
+| 1 | Knowledge that ingestion cannot rebuild is exported; sources are in `.ctxpipe/sources.yaml` |
+| 2 | One Markdown file for each source under `sources/` |
+| 3 | Ingestion v2 ownership front matter (current) |
+
+- Only an upgrade pull request or the root commit of a new Workspace writes
+  the file. No agent or chat write can change it.
+- A file that does not parse makes the Workspace read-only
+  (`format_invalid`). Reads still work.
+- A format above the one your release knows (for example after a rollback)
+  makes the Workspace read-only (`format_ahead`). Reads still work.
+
+### Upgrade a Workspace
+
+An upgrade of a Workspace has two parts: a git upgrade and a re-ingestion.
+Each part needs one click. Nothing starts by itself, and there is no setting
+for automatic approval. This is true on hosted and on self-hosted
+deployments.
+
+#### Where to find the upgrades
+
+- **Workspace settings:** open the Workspace, then **Settings**. The
+  **Upgrades** section lists each item. It also shows the format of the
+  repository and the format that ctx| reads.
+- **Home alert:** the organization home page shows one alert for each
+  Workspace that has an item to finish. Click **Review upgrades** to open the
+  Workspace settings. The alert shows nothing when no item is pending.
+
+#### Who can start an item
+
+An organization owner or admin can click **Start**. A member sees the
+upgrades but gets **Ask an admin** in place of the button.
+
+#### Item states
+
+| State | Meaning | Next action |
+|---|---|---|
+| Ready to start | ctx| found the upgrade. It waits for a click. | An owner or admin clicks **Start**. |
+| Queued | The click is recorded. The run did not begin. | Wait. |
+| Preparing the pull request | The run builds the commits. | Wait. |
+| Waiting for merge | The pull request is open. | Review and merge it. |
+| Applied | The upgrade is done. | None. |
+| Failed | The run stopped. The item shows the reason. | Fix the cause, then click **Start again**. |
+| Blocked | ctx| cannot start the item. The item shows the reason. | Remove the cause. |
+
+A re-ingestion is blocked for one of these reasons: ctx| has no write access
+to the repository, the Workspace is below format 3, the deployment has no
+Docker sandbox host, or ingestion v2 does not publish to the Workspace.
+
+If someone closes the pull request without a merge, the item goes back to
+**Ready to start** with a note. Click **Start** to open a new pull request.
+
+#### Step 1 to 3: the git upgrade
+
+1. Click **Start** on the git upgrade. ctx| opens one pull request for the
+   Workspace on the branch `ctxpipe/upgrade/format-<target>`. ctx| never
+   pushes to the default branch.
+2. The pull request holds one commit for each step that changes a file. The
+   last commit writes `.ctxpipe/workspace.yaml`, the format file. This is
+   the format commit.
+3. Review the pull request. Then merge it. The merge lands the files and the
+   new format together.
+
+The steps run in this order:
+
+| Step | Result |
+|---|---|
+| 1 | Moves the sources into `.ctxpipe/sources.yaml`. Exports the knowledge that fresh ingestion cannot make again. |
+| 2 | Writes one Markdown file for each source under `sources/`. |
+| 3 | Gives the files that the old pipeline extracted to ingestion v2. Writes the changes that hydrate makes on a format 3 repository. |
+
+**What step 1 keeps.** Step 1 writes this knowledge to the `knowledge/`
+folder of the Workspace repository:
+
+- Knowledge from a repository that is not on GitHub.
+- Knowledge from a GitHub repository that the sources file does not link.
+- Knowledge of the Workspace repository that no Markdown file of the
+  Workspace holds.
+- The teams from CODEOWNERS files.
+
+**What the report lists.** Step 1 does not export other knowledge. The
+re-ingestion or hydrate makes it again, or no source reads it. The pull
+request description is the report. It lists each item that a step kept, added,
+or could not move, for example a connection that maps to no Workspace. Read
+the report before you merge.
+
+**A merge is a second approval.** The click on **Start** approves the pull
+request. The merge approves the change to your repository. Without a merge,
+the format stays the same.
+
+#### Re-ingestion
+
+Fresh ingestion from your source repositories is a standard upgrade step. It
+runs ingestion v2 again for each GitHub source repository of the Workspace.
+Until you merge the pull request and run it, MCP serves only what the
+Workspace already holds.
+
+- **Needs format 3.** The item is blocked until the Workspace is at format 3.
+  Merge the git upgrade first.
+- **Estimate.** Before you click, the item shows the cost and time, from the
+  p50 to the p90 value. For example, "Estimated cost: $1.20 to $4.80 for 2
+  repositories, about 10 to 30 minutes." A repository with an earlier
+  ingestion v2 run uses that run. Other repositories use a default range.
+- **Throttle.** One re-ingestion of an organization runs at a time. Its
+  repositories run one after the other. An instance runs at most four
+  re-ingestions at once. A run that waits for its turn stays queued and
+  starts when a slot is free.
+- **Cost cap.** ctx| stops the run when its model spend passes 2 times the
+  p90 estimate. The item then shows **Failed** with the reason `cost_cap`,
+  and the repositories that did not start are marked as not started. When a
+  runtime reports no usage for a model step, the report shows "Spend
+  unknown". The spend and the cap then count only the known part.
+- **Restart and resume.** A run that a restart of the worker interrupts
+  continues. If a run stops with no result, a new click on **Start again**
+  makes a new run. A repository that an earlier run finished at the same
+  commit is not paid for again, and its spend does not count against the
+  cap of the new run.
+
+An organization with GitHub data but no Workspace is a new user. It creates
+its Workspace in normal onboarding, and its repositories get a fresh
+ingestion there.
+
+### AWS CDK sandbox host
+
+The chat sandbox host is **on by default**. A deploy of this release adds one
+EC2 host. The default instance for `size: "small"` is `t4g.medium`
+(2 vCPU, 4 GiB, 30 GB Docker volume). It costs about **$28 a month** in
+us-east-1. That is the bottom of the $28 to $107 range of the three `size`
+profiles. It runs about 6 active sandboxes at once, which is the smallest
+instance that meets the sandbox needs. See
+[the sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host) for
+the larger sizes.
+
+To turn the host off, set `sandboxHost: { enabled: false }` on `CtxPipe`. The
+deploy then adds no EC2 host and gives the services no sandbox host settings.
+Chat is off without the host: it answers "sandbox unavailable" (503).
+
 ## AWS CDK flow
 
 Self-hosted AWS stacks upgrade by bumping `@ctxpipe/aws-cdk` and redeploying. The published package pins backend, worker, UI, codesearch, and migrate images to the same git SHA and applies that release’s Fargate size profiles.
@@ -32,7 +249,7 @@ cdk deploy
 
 `cdk deploy` runs the migrate task, then updates ECS services. Do not retag services to `:latest` or mix image SHAs from different package versions. See [AWS](/docs/self-hosting/deployment/aws).
 
-This release’s migrate task also creates the `ctxpipe_app` runtime role and rewrites the injected `DATABASE_URL` secret. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
+This release’s migrate task also creates the `ctxpipe_app` runtime role. The services then read a new runtime secret with the `ctxpipe_app` URL. The earlier `DATABASE_URL` secret keeps the owner URL, so a rollback to the earlier task definitions still works. You do not run `psql` or add `CtxPipe` props. Image-only retags without a package bump skip that role split.
 
 ## Docker Compose flow
 
@@ -98,6 +315,31 @@ Rollback depends on whether the upgrade ran database migrations.
 | No migrations ran | Revert service images or source ref and restart services. |
 | Forward-compatible migrations ran | Revert services only if the previous version can tolerate the new schema. |
 | Breaking migrations ran | Restore Postgres from backup, restore graph data if needed, then redeploy the previous version. |
+
+### Roll back from Workspaces to main
+
+The SQL of this release is expand-only, so the previous (`main`) image can run
+on the upgraded database. Do all of these steps:
+
+1. Put back the previous image tag on every runtime service.
+2. **Put back the owner `DATABASE_URL`** on every runtime service. The `main`
+   image does not set `app.organization_id`. On the `ctxpipe_app` role,
+   row-level security hides all organization rows, so the app sees no data.
+   On AWS CDK, deploy the previous `@ctxpipe/aws-cdk` version and restore the
+   previous runtime secret.
+3. Start the services.
+
+After a rollback, the `main` image writes `repository_checkouts`,
+`confluence_spaces`, and `claim_evidence` rows with no `org_id`. A trigger
+fills `org_id` from the parent row, and the next migrate run repairs the
+rest. You do not need to do anything for these rows.
+
+The deleted orphan rows do not come back. Only the snapshot you took before
+the upgrade holds them, and it is the only way to roll back the schema.
+
+A Workspace that you upgraded keeps its new format.
+A release that knows only older formats shows that Workspace as read-only
+(`format_ahead`).
 
 <Callout type="warn" title="Backups define rollback quality">
   A code rollback without a database restore is not always safe. Take a backup

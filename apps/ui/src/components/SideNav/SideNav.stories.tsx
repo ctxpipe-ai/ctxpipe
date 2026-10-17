@@ -102,6 +102,21 @@ export const Collapsed: Story = {
   },
 }
 
+/**
+ * Proof for the global story reset. The story before this one collapses the
+ * nav and stores that choice. This story must still start expanded.
+ */
+export const ExpandedAfterCollapsedStory: Story = {
+  parameters: Collapsed.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("button", { name: /collapse navigation/i })
+    await expect(
+      canvas.queryByRole("button", { name: /expand navigation/i }),
+    ).not.toBeInTheDocument()
+  },
+}
+
 /** A plain link (not a nav item) opens Connectors. The shell stays mounted, and
  * the current nav item moves from the Workspace to Connectors. */
 export const PlainLinkMovesCurrentNav: Story = {

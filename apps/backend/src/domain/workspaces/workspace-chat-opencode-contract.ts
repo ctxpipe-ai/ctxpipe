@@ -95,21 +95,57 @@ export function workspaceChatOpenCodeModel(modelBase: string): string {
   return `${WORKSPACE_CHAT_OPENCODE_PROVIDER_ID}/${modelBase}`
 }
 
-export const WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV = [
-  "AUTH_SECRET",
-  "DATABASE_URL",
-  "MODEL_PROVIDER_API_KEY",
-  "GITHUB_PRIVATE_KEY",
-  "GITHUB_WEBHOOK_SECRET",
-  "SMTP_PASS",
-  "SMTP_PASSWORD",
-  "LANGSMITH_API_KEY",
-  "LANGFUSE_SECRET_KEY",
-  "ANTHROPIC_API_KEY",
-  "OPENAI_API_KEY",
-  "OPENROUTER_API_KEY",
-  "AMPLITUDE_API_KEY",
-] as const
+/**
+ * The backend variables that an unsandboxed agent process keeps. The agent
+ * runs as the backend's OS user, so every other variable, also one added
+ * later, could hold a secret.
+ */
+const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
+  "PATH",
+  "HOME",
+  "USER",
+  "LOGNAME",
+  "SHELL",
+  "TMPDIR",
+  "TMP",
+  "TEMP",
+  "LANG",
+  "LANGUAGE",
+  "TERM",
+  "TZ",
+  "NODE_EXTRA_CA_CERTS",
+  "SSL_CERT_FILE",
+  "SSL_CERT_DIR",
+  // Paths of the Git configuration files and of the Git trace; no secret.
+  "GIT_CONFIG_GLOBAL",
+  "GIT_CONFIG_SYSTEM",
+  "GIT_CONFIG_NOSYSTEM",
+  "GIT_TRACE2_EVENT",
+  // The run sets these itself. The scrub runs after the run's own values
+  // are added, so it must not remove them.
+  "XDG_CONFIG_HOME",
+  "XDG_DATA_HOME",
+  "XDG_STATE_HOME",
+  "XDG_CACHE_HOME",
+  "OPENCODE_CONFIG",
+])
+
+/**
+ * The variables to remove from the backend's environment before an
+ * unsandboxed agent process starts: all of them except the allow-list and
+ * the locale (`LC_*`). The sandbox applies this scrub after it adds the
+ * run's own variables, so a run variable must not have the name of a
+ * removed backend variable.
+ */
+export function workspaceChatLocalProcessScrubEnv(
+  env: Record<string, string | undefined> = process.env,
+): string[] {
+  return Object.keys(env).filter(
+    (name) =>
+      !WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV.has(name) &&
+      !name.startsWith("LC_"),
+  )
+}
 
 export const WORKSPACE_CHAT_OPENCODE_CLI = "opencode-ai@1.18.34" as const
 

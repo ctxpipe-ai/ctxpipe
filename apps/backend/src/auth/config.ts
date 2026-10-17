@@ -37,6 +37,14 @@ import {
   resolveOAuthConsentOrganizationIds,
   selectOAuthOrganizationBinding,
 } from "./oauth-organization.js"
+import {
+  apiKeySessionGuardHook,
+  personalApiKeyOrganizationsHook,
+} from "./personal-api-key-organizations.js"
+import {
+  clearUnverifiedSessionCookie,
+  jwksForCurrentSecret,
+} from "./secret-rotation.js"
 
 function assertOrganizationSlug(slug: string | undefined): void {
   if (slug === undefined || isValidSlug(slug)) return
@@ -158,6 +166,13 @@ export function createBetterAuth() {
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
     basePath: "/.auth/api/v1/auth",
+    // An API key cannot call the Better Auth endpoints that change keys,
+    // users, or organizations. A new personal API key gets its org set
+    // before the client sees it.
+    hooks: {
+      before: apiKeySessionGuardHook,
+      after: personalApiKeyOrganizationsHook,
+    },
     trustedOrigins: trustedOrigins.length > 0 ? trustedOrigins : undefined,
     database: drizzleAdapter(db, {
       provider: "pg",
@@ -312,7 +327,8 @@ export function createBetterAuth() {
     plugins: [
       apiKey(apiKeyPluginConfigurations),
       bearer(),
-      jwt(),
+      jwt({ adapter: { getJwks: jwksForCurrentSecret } }),
+      clearUnverifiedSessionCookie(),
       twoFactor(),
       organization({
         ac: organizationAccessControl,

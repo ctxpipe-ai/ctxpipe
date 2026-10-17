@@ -122,7 +122,7 @@ const oldFile = (kind: string, title: string, claims = "") =>
   `---\nimport_key: k-${title}\nkind: ${kind}\ngenerated_by: ctxpipe\n${claims}---\n\n# ${title}\n\nText.\n`
 
 const v2File = (kind: string, name: string, claims = "") =>
-  `---\nkind: ${kind}\nname: ${name}\n${claims}generated_by: ctxpipe-extract\nsources:\n  - ${SOURCE}\n---\n# ${name}\n\nText.\n`
+  `---\nkind: ${kind}\nname: ${name}\n${claims}generated_by: ctxpipe-extract\nsources:\n  - sources/github/example-org/checkout-api.md\n---\n# ${name}\n\nText.\n`
 
 async function commitFiles(
   work: string,

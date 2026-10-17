@@ -56,6 +56,7 @@ it.each([
   "default_changed",
   "session_advanced",
   "large_base",
+  "oversized_pack",
 ])(
   "brokers conversation publishing without agent write credentials: %s",
   { timeout: 30_000 },
@@ -107,8 +108,26 @@ it.each([
           )
           await raw.process.exec("chmod 700 .git/hooks/pre-push")
           await recordSandbox(f, conversationId, raw.id, f.revision)
+          const handle = adaptTanstackHandle(raw)
           const request = {
-            handle: adaptTanstackHandle(raw),
+            handle:
+              scenario === "oversized_pack"
+                ? {
+                    ...handle,
+                    // The sandbox reports a pack size above the limit.
+                    exec: (
+                      command: string,
+                      options?: Parameters<typeof handle.exec>[1],
+                    ) =>
+                      command.startsWith("wc -c <")
+                        ? Promise.resolve({
+                            exitCode: 0,
+                            stdout: `${100 * 1024 * 1024 + 1}\n`,
+                            stderr: "",
+                          })
+                        : handle.exec(command, options),
+                  }
+                : handle,
             conversationId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -164,7 +183,7 @@ it.each([
             ).toBe("# Conversation edit")
           } else {
             expect(result).toEqual(
-              scenario === "session_advanced"
+              scenario === "session_advanced" || scenario === "oversized_pack"
                 ? { status: "failed", reason: "push_failed", dirty: false }
                 : scenario === "default_changed"
                   ? // The session branch became the default: never pushed to.
@@ -196,12 +215,17 @@ it.each([
                 (request as { permissions?: { contents?: string } }).permissions
                   ?.contents === "write",
             ),
-          ).toEqual([
-            {
-              repositories: ["hydration-contract"],
-              permissions: { contents: "write", metadata: "read" },
-            },
-          ])
+          ).toEqual(
+            // An oversized pack is refused before the write token exists.
+            scenario === "oversized_pack"
+              ? []
+              : [
+                  {
+                    repositories: ["hydration-contract"],
+                    permissions: { contents: "write", metadata: "read" },
+                  },
+                ],
+          )
         } finally {
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>
@@ -469,16 +493,46 @@ it.each([
     edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam remove`,
     reason: "host_only_field",
   },
+  {
+    name: "changes the Workspace format file",
+    format: 2,
+    edit: "printf 'format: 3\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds the Workspace format file",
+    edit: "printf 'format: 2\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds a source file below format 2",
+    format: 1,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "adds a source file with no format file",
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "adds a source file at format 2",
+    format: 2,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: null,
+  },
 ] as Array<{
   name: string
   first?: string
   sessionIsDefault?: boolean
+  /** The Workspace format file at the base, when there is one. */
+  format?: number
   edit: string
   reason: string | null
 }>)(
   "conversation publish when the agent $name",
   { timeout: 30_000 },
-  async ({ first, edit, sessionIsDefault, reason }) => {
+  async ({ first, edit, sessionIsDefault, format, reason }) => {
     await withNativeHydrationFixture(
       {
         github: true,
@@ -488,6 +542,14 @@ it.each([
           { path: ".ctxpipe/sources.yaml", body: "sources: []\n" },
           { path: "knowledge/services/checkout.md", body: HUMAN_UNIT },
           { path: "knowledge/services/billing.md", body: GENERATED_UNIT },
+          ...(format === undefined
+            ? []
+            : [
+                {
+                  path: ".ctxpipe/workspace.yaml",
+                  body: `format: ${format}\n`,
+                },
+              ]),
         ],
       },
       async (f) => {

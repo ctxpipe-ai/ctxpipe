@@ -59,7 +59,7 @@ export async function stageGitFiles(
           }),
       )
       const entries = files.map((file) => {
-        const mode = modes.get(file.path) ?? "100644"
+        const mode = file.mode ?? modes.get(file.path) ?? "100644"
         if (!["100644", "100755", "120000"].includes(mode))
           throw new Error("File edits cannot replace a Git submodule")
         return { mode, file }

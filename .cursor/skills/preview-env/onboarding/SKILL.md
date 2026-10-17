@@ -15,61 +15,54 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 2. Observe where the browser lands.
 
 **Expect (UI)**
-- The browser reaches `/onboarding` (a user with no org is redirected there from `/`) and the welcome slide shows **Get started**.
+- The browser reaches `/onboarding` (a user with no org is redirected there from `/`) and the first slide, **How ctx| works**, shows **Next**.
 - *Uncertain:* the sign-up form may route to `/.auth/email-verification` ("check your email") although no verification is required. If so, sign in with the same credentials and record the screen as an observation, not a FAIL.
 
 **Expect (backend)** `users` row for A with `onboardingCompletedAt` empty; a credential row in `accounts`; a `sessions` row.
 **Budget** 3 s / 10 s, submit to onboarding visible.
-**Evidence** `ONB-1-1.png` (form), `ONB-1-2.png` (welcome slide); trace of the sign-up request.
+**Evidence** `ONB-1-1.png` (form), `ONB-1-2.png` (How ctx| works slide); trace of the sign-up request.
 
-### ONB-2 Walk the onboarding slides and create the org
+### ONB-2 Create the org, skip GitHub, and land on Home
 **Requires** ONB-1.
 **Steps**
-1. **Get started**, then **Next** on the overview slide.
-2. On **Create your organisation**, first submit a 33-character slug and read the error; then enter name `preview-env {run-id}` and slug `pe-{YYYYMMDDHHMMSS}` and submit (Enter or the create button).
-3. Confirm the next slide is **Connect GitHub**.
+1. Click **Next** on **How ctx| works**.
+2. On **Create your organization**, first submit a 33-character slug and read the error; then enter name `preview-env {run-id}` and slug `pe-{YYYYMMDDHHMMSS}` and submit (Enter or the create button).
+3. On **Connect GitHub**, click **Skip for now**. ONB-3 connects GitHub from the guide.
+4. Observe where the browser lands.
 
-**Expect (UI)** slides in order (welcome, overview, create-org, github); the 33-character slug shows an inline validation error and creates nothing.
-**Expect (backend)** `organizations` row with the slug; `members` row for A with the owner role; A's active organization set.
-**Budget** 3 s / 10 s, submit to the GitHub slide.
-**Evidence** `ONB-2-1.png` (validation error), `ONB-2-2.png` (GitHub slide); trace of the org-create request.
+**Expect (UI)** three slides (How ctx| works, create-org, Connect GitHub); the 33-character slug shows an inline validation error and creates nothing. Onboarding is complete before the Connect GitHub slide shows. After **Skip for now**, the browser lands on Home (`/{orgSlug}`): the **Get started** guide shows **0 of 6 done** with **Connect GitHub** as the open row, and the **Activity** region below it is empty (**No commits on the default branch yet.**).
+**Expect (backend)** `organizations` row with the slug; `members` row for A with the owner role; A's active organization set; `users.onboardingCompletedAt` set for A; `org_onboarding` row for the org.
+**Budget** 3 s / 10 s, submit to Home visible.
+**Evidence** `ONB-2-1.png` (validation error), `ONB-2-2.png` (Home with the guide); trace of the org-create request and the two onboarding-complete requests.
 
-### ONB-3 Connect the GitHub App (human checkpoint)
+### ONB-3 Connect the GitHub App from the guide (human checkpoint)
 **Requires** ONB-2; `GH_TEST_ORG` with the App installable; a human at the GitHub consent screen (`SKIP(needs-human)` otherwise). A Railway preview uses the preview GitHub App, not the production App. Add the callback URL from the PR comment to the preview App. *Uncertain:* whether the App's install callback and webhooks reach a Railway preview or `app.ctxpipe.localhost`; on `local` the operator may first have to finish the self-hosted App wizard.
 **Steps**
-1. Click **Connect GitHub**.
+1. In the **Get started** guide, click **Connect GitHub**.
 2. Human: install the App on `GH_TEST_ORG` with access to **all repositories**, then return.
-3. Wait for **Finalizing connection...** (and **Finalizing your GitHub connection...**) to clear.
-4. Click **Close wizard** to go on to the MCP slide. Do not click **Create workspace** here: it ends onboarding early and opens the same **Add Workspace** screen that [ONB-5](#onb-5-create-workspace-1-at-the-zero-workspace-gate) reaches, skipping the MCP and invite slides.
+3. Account A signed up with email, so it has no linked GitHub account. The window goes to `/.github/setup` and shows **Connect your GitHub account to finish setup**. Click **Connect GitHub** and authorize.
+4. Open **Home**.
 
-**Expect (UI)** the slide reads **GitHub is connected** and offers **Create workspace** and **Close wizard**.
-**Expect (backend)** `connections` row of type `github` (`con_*`) for the org with an installation id; `GET /{orgSlug}/api/v1/github/installation` returns a non-null `installationId`.
-**Budget** 15 s / 60 s, popup closed to **GitHub is connected** (the UI holds **Finalizing connection...** for at least 1.8 s).
-**Evidence** `ONB-3-1.png`; trace of the installation request; the webhook delivery trace for the install event.
+**Expect (UI)** after step 3, the page shows the GitHub destination (`/{orgSlug}/github/setup`), not onboarding. On Home, the guide marks **Connect GitHub** done (**1 of 6 done**) and **Create your first Workspace** is the open row.
+**Expect (backend)** a `github` row in `accounts` for A; `connections` row of type `github` (`con_*`) for the org with an installation id; `GET /{orgSlug}/api/v1/github/installation` returns a non-null `installationId`.
+**Budget** 15 s / 60 s, popup closed to the GitHub destination.
+**Evidence** `ONB-3-1.png` (account link page), `ONB-3-2.png` (guide with GitHub done); trace of the installation request; the webhook delivery trace for the install event.
 
-### ONB-4 MCP slide, invite slide, finish
-**Requires** ONB-2 (ONB-3 optional; **I'll do this later** skips GitHub).
+### ONB-4 Create Workspace 1 from the guide
+**Requires** ONB-3 `PASS`; repo `pe-{run-id}-ws`.
 **Steps**
-1. On the MCP slide read the **Install via CLI** card; do not click **Install via PR**. Click **Install manually**, read the snippet, then click **Continue**.
-2. On the invite slide choose **I'll do this later**.
-3. Wait for the transition into the app.
+1. In the **Get started** guide, click **Create Workspace**.
+2. On **Add Workspace**, stay on **Select GitHub**, search `pe-{run-id}-ws`, select it.
+3. Click **Create Workspace**.
+4. On step 2 (**Add code repositories and tools**), click **Done**.
+5. In the sidebar, open the Workspace.
 
-**Expect (UI)** the manual MCP snippet (**Install manually**) names this target's origin: `{BASE_URL}/mcp?orgSlug={orgSlug}`; `https://app.ctxpipe.ai` there is a FAIL. After finishing, an org with zero Workspaces lands on `/{orgSlug}/workspaces/new` (**Add Workspace**).**Expect (backend)** `users.onboardingCompletedAt` set for A; `org_onboarding` row for the org.
-**Budget** 3 s / 10 s, finish to **Add Workspace** visible (includes a 320 ms fade).
-**Evidence** `ONB-4-1.png` (snippet), `ONB-4-2.png` (Add Workspace); trace of the two onboarding-complete requests.
-
-### ONB-5 Create Workspace 1 at the zero-Workspace gate
-**Requires** ONB-4 and ONB-3 `PASS`; repo `pe-{run-id}-ws`.
-**Steps**
-1. On **Add Workspace**, stay on **Select GitHub**, search `pe-{run-id}-ws`, select it.
-2. Click **Create Workspace**.
-
-**Expect (UI)** redirect to `/{orgSlug}/ws/{slug}` (slug defaults to the repository name); the composer is visible; the sidebar lists the Workspace; **Settings** shows **Writable** and a hydrate chip (**Hydrate pending** or **Hydrating**; later flows wait for **Hydrate ready**).
+**Expect (UI)** **Add Workspace** opens as a dialog on Home. After **Done**, the dialog closes and Home stays: the guide shows **2 of 6 done**, and the Workspace row shows **Building · step 1 of 2** or **step 2 of 2**. The Workspace (slug defaults to the repository name) shows the composer; the sidebar lists it; **Settings** shows **Writable** and a hydrate chip (**Hydrate pending** or **Hydrating**; later flows wait for **Hydrate ready**).
 **Expect (backend)** `workspaces` row (`ws_*`, slug unique per org); a `workspace-bootstrap` run; on a writable repo, one setup commit on the default branch adding `.agents/skills/ctxpipe-knowledge/SKILL.md` (the template deliberately has none) and possibly normalizing `AGENTS.md` front matter and its folder map; a `workspace-hydrate` run enqueued.
-**Budget** 3 s / 10 s, **Create Workspace** to composer visible. Bootstrap commit and hydrate are timed in [HYD-1](../hydrate/SKILL.md).
-**Evidence** `ONB-5-1.png` (composer and sidebar); `gh api` commit list of the repo; trace of the create request and the `openworkflow.run.id` of `workspace-bootstrap`.
+**Budget** 3 s / 10 s, **Create Workspace** to step 2 visible. Bootstrap commit and hydrate are timed in [HYD-1](../hydrate/SKILL.md).
+**Evidence** `ONB-4-1.png` (composer and sidebar); `gh api` commit list of the repo; trace of the create request and the `openworkflow.run.id` of `workspace-bootstrap`.
 
 ## Status
 
-- **PASS** ONB-1, ONB-2, ONB-4 `PASS`; ONB-3 and ONB-5 `PASS` or `SKIP(needs-human)`.
+- **PASS** ONB-1 and ONB-2 `PASS`; ONB-3 and ONB-4 `PASS` or `SKIP(needs-human)`.
 - **FAIL** any flow failing its Expect. ONB-1 failing blocks the run.

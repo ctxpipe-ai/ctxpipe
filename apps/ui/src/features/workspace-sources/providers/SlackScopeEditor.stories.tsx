@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { type ComponentProps, useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   slackChannelsHandler,
   slackStoryChannels,
@@ -104,9 +104,11 @@ export const EditsAnExistingScope: Story = {
   args: { initialScope: { channels: ["C0ENG0001", "C0GONE001"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("checkbox", { name: /^#eng$|eng$/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: /^#eng$|eng$/ }),
+      ).toBeChecked(),
+    )
     const gone = canvas.getByRole("checkbox", { name: /C0GONE001/ })
     await expect(gone).toBeChecked()
     await userEvent.click(gone)
@@ -125,9 +127,11 @@ export const LoadError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Could not load the Slack channels."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Could not load the Slack channels."),
+      ).toBeVisible(),
+    )
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }
@@ -143,10 +147,12 @@ export const ListIsTruncated: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText(
-        "Showing the first 2000 channels. Search finds channels in this list only.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "Showing the first 2000 channels. Search finds channels in this list only.",
+        ),
+      ).toBeVisible(),
+    )
   },
 }

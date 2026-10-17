@@ -141,3 +141,30 @@ export async function resolveSemanticConflicts(
   }
   return resolution.files
 }
+
+/** The merge model gave no usable resolution (timeout, size, schema, or refusal). */
+export class SemanticResolveError extends Error {
+  constructor(message: string) {
+    super(`The semantic merge failed: ${message}`)
+    this.name = "SemanticResolveError"
+  }
+}
+
+/**
+ * The resolver of an ingestion v2 merge: each failure of the model call is a
+ * `SemanticResolveError`, so the caller can make the Workspace `partial`.
+ * Host code renders these files, so the origin is `extraction`. A
+ * configuration error (no provider, no key) is not wrapped: it propagates, so
+ * the run fails and the operator sees it.
+ */
+export async function resolveIngestConflicts(conflicts: GitMergeConflict[]) {
+  const { getModel } = await import("../../retrieval/services/modelProvider.js")
+  getModel("high")
+  return resolveSemanticConflicts(conflicts, { origin: "extraction" }).catch(
+    (error: unknown) => {
+      throw new SemanticResolveError(
+        error instanceof Error ? error.message : String(error),
+      )
+    },
+  )
+}

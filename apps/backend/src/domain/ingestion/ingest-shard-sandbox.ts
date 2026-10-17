@@ -7,6 +7,7 @@ import {
   workspaceCheckoutKey,
 } from "../../../../../shared/workspace-checkout.js"
 import { type Env, parseEnv } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
@@ -75,6 +76,20 @@ function ingestModels() {
 }
 
 /**
+ * The projection read of a step index. A workflow step has no request org, so
+ * this opens the org's database context. `orgId` comes from the trusted spec.
+ */
+export function stepIndexProjection(
+  orgId: string,
+  workspaceId: string,
+  pinnedRevision: string,
+) {
+  return withOrgDbContext(orgId, () =>
+    listWorkspaceUnitsAtRevision(workspaceId, pinnedRevision),
+  )
+}
+
+/**
  * The T07 context index of each step of one Workspace in a shard (ADR-052
  * section 6): one scratch repository and one projection, kept for the shard
  * on this worker. Each step fetches only its new commits.
@@ -87,7 +102,7 @@ function heldStepIndex(input: {
   url: string
   githubConnectionId: string
   pinnedRevision: string
-  sourceUrl: string
+  sourcePath: string
   rootPath: string | undefined
 }) {
   return holdScratch(
@@ -105,11 +120,12 @@ function heldStepIndex(input: {
         index: stepContextIndex({
           workspaceId: input.workspaceId,
           pinnedRevision: input.pinnedRevision,
-          sourceUrl: input.sourceUrl,
+          sourcePath: input.sourcePath,
           repoDir: dir,
           rootPath: input.rootPath,
           projection: () =>
-            listWorkspaceUnitsAtRevision(
+            stepIndexProjection(
+              input.orgId,
               input.workspaceId,
               input.pinnedRevision,
             ),
@@ -313,7 +329,7 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
       url: destination.url,
       githubConnectionId: destination.githubConnectionId,
       pinnedRevision: destination.pinnedRevision,
-      sourceUrl: spec.source.url,
+      sourcePath: destination.sourcePath,
       rootPath: destination.rootPath,
     })
     return (await held.index.at(step.baseCommit, step.fetchRef)).json
@@ -390,13 +406,17 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
         step.name,
         async ({ handle, root, agentEnv, signal }) => {
           const models = step.run === "model" ? ingestModels() : undefined
-          await runIngestShardStep(root, {
+          const destination = spec.destinations.find(
+            (d) => d.workspaceId === step.workspaceId,
+          )
+          if (!destination)
+            throw new Error("The step's Workspace is not in the shard")
+          const { usage } = await runIngestShardStep(root, {
             step: { ...step, signal },
             agentEnv,
-            remote:
-              spec.destinations.find((d) => d.workspaceId === step.workspaceId)
-                ?.url ?? "",
+            remote: destination.url,
             sourceUrl: spec.source.url,
+            sourcePath: destination.sourcePath,
             index: await indexOf(step),
             ...(models
               ? {
@@ -404,7 +424,10 @@ function shardRuntime(spec: IngestShardSpec): IngestShardRuntime {
                 }
               : {}),
           })
-          return { tar: await collectIngestStep(handle, root) }
+          return {
+            tar: await collectIngestStep(handle, root),
+            ...(usage ? { usage } : {}),
+          }
         },
         step.signal,
       ),

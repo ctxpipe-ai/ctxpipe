@@ -43,7 +43,7 @@ describe("SecretsConstruct database URL secret", () => {
     const databaseUrlSecret = findResourceByIdFragment(
       secrets,
       "DatabaseUrlSecret",
-      "Owner",
+      "Runtime",
     );
 
     expect(databaseUrlSecret).toBeDefined();
@@ -143,6 +143,55 @@ describe("SecretsConstruct database URL secret", () => {
     const backendJson = JSON.stringify(backendTask?.[1]);
     expect(backendJson).toContain("DATABASE_URL");
     expect(backendJson).not.toContain("DATABASE_APP_PASSWORD");
+  });
+
+  it("keeps the owner URL in the main-era DatabaseUrlSecret, and gives the new tasks RuntimeDatabaseUrlSecret", () => {
+    const template = synthCtxPipe();
+    const secrets = template.findResources("AWS::SecretsManager::Secret");
+    // The construct path of main, so that the deploy updates main's secret
+    // in place and main's task definitions keep reading it.
+    const [ownerSecretId] =
+      findResourceByIdFragment(secrets, "CtxPipeSecretsDatabaseUrlSecret") ?? [];
+    const [runtimeSecretId] =
+      findResourceByIdFragment(secrets, "CtxPipeSecretsRuntimeDatabaseUrlSecret") ?? [];
+    expect(ownerSecretId).toMatch(/^CtxPipeSecretsDatabaseUrlSecret[0-9A-F]{8}$/);
+    expect(runtimeSecretId).toBeDefined();
+
+    // The owner writer writes the main-era secret. Only the writer that runs
+    // after migrate writes the app URL, and only into the new secret.
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe",
+      DatabaseUrlSecretArn: { Ref: ownerSecretId },
+    });
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe_app",
+      DatabaseUrlSecretArn: { Ref: runtimeSecretId },
+    });
+    const writers = Object.values(
+      template.findResources("AWS::CloudFormation::CustomResource"),
+    ).filter((resource) =>
+      JSON.stringify(resource).includes(`"DatabaseUrlSecretArn":{"Ref":"${ownerSecretId}"}`),
+    );
+    expect(writers.map((writer) => (writer.Properties as { Username: string }).Username)).toEqual([
+      "ctxpipe",
+    ]);
+
+    const databaseUrlSource = (logPrefix: string) => {
+      const task = Object.values(template.findResources("AWS::ECS::TaskDefinition")).find(
+        (resource) => JSON.stringify(resource).includes(`"${logPrefix}"`),
+      );
+      const containers = (task?.Properties as {
+        ContainerDefinitions: Array<{ Secrets?: Array<{ Name: string; ValueFrom: unknown }> }>;
+      }).ContainerDefinitions;
+      const secret = containers
+        .flatMap((container) => container.Secrets ?? [])
+        .find((entry) => entry.Name === "DATABASE_URL");
+      return JSON.stringify(secret?.ValueFrom);
+    };
+    for (const service of ["ctxpipe-backend", "ctxpipe-worker", "ctxpipe-codesearch"]) {
+      expect(databaseUrlSource(service), service).toContain(`"Ref":"${runtimeSecretId}"`);
+    }
+    expect(databaseUrlSource("ctxpipe-migrate")).toContain(`"Ref":"${ownerSecretId}"`);
   });
 
   it("injects Linear connector settings into backend and worker tasks", () => {

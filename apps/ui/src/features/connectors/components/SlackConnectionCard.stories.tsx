@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import {
   connectionUsageHandler,
   connectionUsageItem,
@@ -101,9 +101,11 @@ export const ConnectedWithoutCaptureRepository: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByRole("button", { name: "Slack connector actions" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Slack connector actions" }),
+      ).toBeVisible(),
+    )
     expect(canvas.queryByText("Setup not finished")).toBeNull()
     expect(canvas.queryByText(/in a thread to capture it/)).toBeNull()
   },

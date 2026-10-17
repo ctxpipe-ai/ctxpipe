@@ -23,6 +23,8 @@ import { INGEST_SKILLS_DIR, readIngestSkillBundle } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_fixture"
 const GIT_ENV = {
   ...process.env,
@@ -107,6 +109,8 @@ function run(dir: string, ...args: string[]) {
       dir,
       "--source-url",
       SOURCE_URL,
+      "--source-path",
+      SOURCE_PATH,
       ...roots,
       ...path,
       ...rest,
@@ -458,6 +462,8 @@ describe("find-stores script", () => {
         dir,
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--roots",
         rootsFile,
       ],
@@ -482,6 +488,8 @@ describe("find-stores script", () => {
         repo(SHOP),
         "--source-url",
         SOURCE_URL,
+        "--source-path",
+        SOURCE_PATH,
         "--path",
         ".",
       ],
@@ -792,7 +800,7 @@ describe("datasources-infra skill in a step", () => {
       workspaceId: WORKSPACE_ID,
       contextDir,
       base: baseCommit,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
     })
     writeFileSync(
       join(root, "step.json"),
@@ -834,6 +842,7 @@ describe("datasources-infra skill in a step", () => {
           baseCommit,
           stagedDir: join(root, "out"),
           source: { url: SOURCE_URL, sha: sourceSha },
+          sourcePath: SOURCE_PATH,
           skill: "datasources-infra",
           bundle: "ingest-0000000000000000",
           ...gitSource(sourceDir, sourceSha),
@@ -861,7 +870,7 @@ describe("datasources-infra skill in a step", () => {
         name: "api",
         summary: "The API.",
         generated_by: "ctxpipe-extract",
-        sources: [SOURCE_URL],
+        sources: [SOURCE_PATH],
       },
       "# api\n\nThe API.\n",
     )

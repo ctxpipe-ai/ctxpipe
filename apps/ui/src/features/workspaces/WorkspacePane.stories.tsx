@@ -369,20 +369,26 @@ export const HideShowMaximize: Story = {
     const canvas = within(canvasElement)
     await canvas.findByLabelText("Workspace files")
     await userEvent.click(canvas.getByRole("button", { name: "Maximize pane" }))
-    expect(
-      await canvas.findByRole("button", { name: "Show conversation" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Show conversation" }),
+      ).toBeVisible(),
+    )
     await userEvent.click(
       canvas.getByRole("button", { name: "Show conversation" }),
     )
-    expect(
-      await canvas.findByRole("button", { name: "Maximize pane" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Maximize pane" }),
+      ).toBeVisible(),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Hide pane" }))
     // No exit animation: the pane unmounts in the same commit as the click.
     expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Files" }))
-    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
+    )
   },
 }
 
@@ -573,6 +579,7 @@ export const SelectedTabInView: Story = {
     const canvas = within(canvasElement)
     const tab = await canvas.findByRole("tab", { name: "ledger.md" })
     await expect(tab).toHaveAttribute("aria-selected", "true")
+    await document.fonts.ready
     const strip = tab.closest('[role="tablist"]') as HTMLElement
     await waitFor(() => {
       expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
@@ -607,6 +614,7 @@ export const TextTabsKeepPadding: Story = {
     expectFadeCue(active)
     expectFadeCue(idle)
     const files = await canvas.findByRole("tab", { name: "Files" })
+    await document.fonts.ready
     // The icon tab is square: 7px + 1px border + 16px icon on each side.
     expect(files.getBoundingClientRect().width).toBe(32)
   },
@@ -624,13 +632,13 @@ export const TabChangeKeepsPosition: Story = {
     const canvas = within(canvasElement)
     const a = await canvas.findByRole("tab", { name: "ledger.md" })
     const b = await canvas.findByRole("tab", { name: "meeting-notes-1.md" })
+    await document.fonts.ready
     const box = (tab: HTMLElement) => {
       const r = tab.getBoundingClientRect()
       return { top: r.top, bottom: r.bottom, x: r.x, width: r.width }
     }
     await expect(a).toHaveAttribute("aria-selected", "true")
     // Wait for the mount fade and the fonts, so no late font swap changes a tab width.
-    await document.fonts.ready
     await waitFor(() => expect(box(a).top).toBe(box(b).top))
     const before = { a: box(a), b: box(b) }
     expect(before.a.top).toBe(before.b.top)
@@ -703,7 +711,7 @@ export const GraphLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Loading graph")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Loading graph")).toBeVisible())
     expect(canvas.queryAllByRole("presentation")).toHaveLength(0)
   },
 }
@@ -754,11 +762,13 @@ export const GraphPhasePending: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText(
-        "The graph opens when ctx| finishes reading this Workspace.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "The graph opens when ctx| finishes reading this Workspace.",
+        ),
+      ).toBeVisible(),
+    )
     const tab = canvas.getByRole("tab", { name: "Graph, building" })
     expect(tab.querySelector(".ctx-indexing-dot")).not.toBeNull()
     // A graph query that was turned on would fetch at mount. Give it time.
@@ -783,7 +793,9 @@ export const GraphPhaseFailed: Story = {
   parameters: { storyRoute: graphPaneRoute },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Could not build graph")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Could not build graph")).toBeVisible(),
+    )
     expect(
       canvas.getByText(
         "Could not build the graph. It builds again automatically.",
@@ -835,11 +847,13 @@ export const GraphLostRebuilds: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText(
-        "The graph opens when ctx| finishes reading this Workspace.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "The graph opens when ctx| finishes reading this Workspace.",
+        ),
+      ).toBeVisible(),
+    )
     expect(canvas.queryByText("Could not load graph")).toBeNull()
     await waitFor(
       () => {
@@ -888,11 +902,10 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("Could not load graph", undefined, {
-        timeout: 15_000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(canvas.getByText("Could not load graph")).toBeVisible(),
+      { timeout: 15_000 },
+    )
     const tab = canvas.getByRole("tab", { name: "Graph" })
     expect(tab.querySelector(".ctx-indexing-dot")).toBeNull()
   },

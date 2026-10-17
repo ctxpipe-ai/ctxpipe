@@ -1,6 +1,7 @@
 import { generateKeyPairSync } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Webhooks } from "@octokit/webhooks"
+import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
@@ -13,6 +14,7 @@ import { useMswServer } from "../../../../test/msw.js"
 import { recordSpans } from "../../../../test/spans.js"
 import type { AppEnv } from "../../../app/env.js"
 import { parseEnv } from "../../../config/env.js"
+import { UPGRADE_BRANCH_PREFIX } from "../../../domain/upgrades/registry.js"
 import {
   createDraftGithubConnection,
   createPlaceholderGithubConnection,
@@ -92,9 +94,10 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     secret: string,
     event: string,
     payload: unknown,
+    app = createApp(),
   ) {
     const body = JSON.stringify(payload)
-    return createApp().request(`http://backend.test${path}`, {
+    return app.request(`http://backend.test${path}`, {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -270,5 +273,134 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     expect(res.status).toBe(503)
     const rows = await listGithubConnectionsForOrg(seed.orgId)
     expect(rows.map((row) => row.installationId)).toEqual([null])
+  })
+  describe("logs why a delivery reached no organization or no Workspace", () => {
+    const events: Record<string, unknown>[] = []
+
+    beforeAll(() => {
+      initLogger({
+        pretty: false,
+        silent: true,
+        env: { service: "ctxpipe-backend-test" },
+      })
+    })
+
+    afterAll(() => {
+      initLogger({ enabled: false, env: { service: "ctxpipe-backend-test" } })
+    })
+
+    afterEach(() => {
+      events.length = 0
+    })
+
+    // The request logger of evlog, so that the log of the handler reaches
+    // the wide event of the request.
+    function createLoggedApp() {
+      const app = new OpenAPIHono<AppEnv>()
+      app.use(contextStorage())
+      app.use(
+        evlog({
+          drain: (ctx) => {
+            for (const item of Array.isArray(ctx) ? ctx : [ctx])
+              events.push(item.event as Record<string, unknown>)
+          },
+        }),
+      )
+      app.use("*", async (c, next) => {
+        c.set("env", env)
+        await next()
+      })
+      registerGithubWebhookRoute(app)
+      return app
+    }
+
+    function push(id: number) {
+      return {
+        ref: "refs/heads/main",
+        repository: {
+          full_name: "octocat/hello-world",
+          default_branch: "main",
+        },
+        installation: { id },
+        commits: [],
+      }
+    }
+
+    function upgradePullRequestMerged(id: number) {
+      return {
+        action: "closed",
+        pull_request: {
+          number: 7,
+          head: { ref: `${UPGRADE_BRANCH_PREFIX}format-3` },
+          closed_at: "2026-10-17T02:30:09Z",
+          merged: true,
+        },
+        repository: { full_name: "octocat/hello-world" },
+        installation: { id },
+      }
+    }
+
+    async function deliverLogged(event: string, payload: unknown) {
+      const res = await deliver(
+        "/api/v1/webhook/github",
+        deploymentSecret,
+        event,
+        payload,
+        createLoggedApp(),
+      )
+      expect(res.status).toBe(200)
+      expect(events).toHaveLength(1)
+      return events[0]?.githubWebhook
+    }
+
+    it.each([
+      ["push", push(ownAppInstallationId)],
+      ["pull_request", upgradePullRequestMerged(ownAppInstallationId)],
+    ])("names a %s delivery for an installation that no connection has", async (event, payload) => {
+      expect(await deliverLogged(event, payload)).toMatchObject({
+        installationId: ownAppInstallationId,
+        outcome: "no_organization",
+        reason: "no_connection",
+      })
+    })
+
+    it.each([
+      ["push", push(installationId)],
+      ["pull_request", upgradePullRequestMerged(installationId)],
+    ])("names a %s delivery for a connection that uses its own App", async (event, payload) => {
+      const draft = await createOwnAppDraft()
+      await registerInstallationOnConnection({
+        orgId: seed.orgId,
+        connectionId: draft.id,
+        installationId,
+        env,
+      })
+
+      expect(await deliverLogged(event, payload)).toMatchObject({
+        installationId,
+        outcome: "no_organization",
+        reason: "own_app",
+      })
+    })
+
+    it("names a push for an organization that has no Workspace", async () => {
+      const placeholder = await createPlaceholderGithubConnection({
+        orgId: seed.orgId,
+      })
+      await registerInstallationOnConnection({
+        orgId: seed.orgId,
+        connectionId: placeholder.id,
+        installationId,
+        env,
+      })
+
+      const logged = await deliverLogged("push", push(installationId))
+
+      expect(logged).toMatchObject({
+        installationId,
+        outcome: "no_workspace",
+      })
+      expect(JSON.stringify(events)).not.toContain(deploymentSecret)
+    })
   })
 })

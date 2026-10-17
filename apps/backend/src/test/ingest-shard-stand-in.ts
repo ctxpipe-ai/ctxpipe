@@ -7,6 +7,7 @@ import { buildContextIndex } from "../domain/ingestion/context-index.js"
 import type {
   IngestShardRuntime,
   IngestShardRuntimeFactory,
+  IngestStepUsage,
 } from "../domain/ingestion/ingest-shard-runtime.js"
 
 const exec = promisify(execFile)
@@ -19,8 +20,9 @@ const exec = promisify(execFile)
  * base). Only the agent is replaced: a model step posts
  * `{ step, skill, root, workspaceId, args, index }` to `modelUrl` (`index`:
  * the paths of the index entries) and stages the files of the reply
- * (`{ files: [{ path, content }], more? }`); `more` runs
- * `ctxpipe-finish --more`.
+ * (`{ files: [{ path, content }], more?, usage? }`); `more` runs
+ * `ctxpipe-finish --more`, and `usage` is the model usage that the step
+ * reports.
  *
  * The folder is named by run and shard, so a replacement worker process finds
  * it, and `ensure` makes it again when it is gone (a lost sandbox).
@@ -85,7 +87,7 @@ export function standInIngestShardRuntime(options: {
           workspaceId: step.workspaceId,
           sha: destination.pinnedRevision,
           base: step.baseCommit,
-          sourceUrl: spec.source.url,
+          sourcePath: destination.sourcePath,
           repoDir: context,
         })
         await writeFile(
@@ -100,6 +102,8 @@ export function standInIngestShardRuntime(options: {
           sourceDir,
           "--source-url",
           spec.source.url,
+          "--source-path",
+          destination.sourcePath,
           "--roots",
           rootsFile,
           ...(step.root === null ? [] : ["--path", step.root]),
@@ -115,6 +119,7 @@ export function standInIngestShardRuntime(options: {
           }),
         )
         let more = false
+        let usage: IngestStepUsage | undefined
         if (step.run === "script") {
           await node(
             `${step.skill}/scripts/${step.skill}.mjs`,
@@ -141,7 +146,9 @@ export function standInIngestShardRuntime(options: {
           const reply = (await response.json()) as {
             files: Array<{ path: string; content: string }>
             more?: boolean
+            usage?: IngestStepUsage
           }
+          usage = reply.usage
           for (const file of reply.files) {
             await node("bin/ctxpipe-stage", "--root", root, file.path)
             await writeFile(join(out, "files", file.path), file.content)
@@ -160,7 +167,7 @@ export function standInIngestShardRuntime(options: {
           // macOS tar adds AppleDouble `._*` entries; the sandbox tar does not.
           env: { ...process.env, COPYFILE_DISABLE: "1" },
         })
-        return { tar: new Uint8Array(tar.stdout) }
+        return { tar: new Uint8Array(tar.stdout), ...(usage ? { usage } : {}) }
       },
     }
     return runtime

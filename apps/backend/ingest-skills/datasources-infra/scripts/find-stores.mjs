@@ -4,7 +4,7 @@
 // infrastructure that the files show. It writes nothing. The model resolves
 // the role of each store and writes the knowledge files.
 //
-// node find-stores.mjs --source /ctxpipe/source/<handle> --source-url <url> \
+// node find-stores.mjs --source /ctxpipe/source/<handle> --source-url <url> --source-path <path> \
 //   --roots <root-to-file map> [--path <root path>] [--root /ctxpipe]
 //
 // With --path (a root step): the stores of that root. Without --path (the

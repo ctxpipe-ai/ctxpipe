@@ -195,6 +195,7 @@ describe("shard step egress", () => {
           generation: 1,
           pinnedRevision: "b".repeat(40),
           repositoryId: null,
+          sourcePath: "sources/github/acme/checkout-api.md",
         },
       ],
     }

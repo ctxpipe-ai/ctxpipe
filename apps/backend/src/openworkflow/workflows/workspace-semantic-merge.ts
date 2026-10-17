@@ -5,7 +5,6 @@ import {
   connectorMirrorContentSchema,
   connectorMirrorSourceSchema,
 } from "../../domain/workspaces/connector-mirror-input.js"
-import { workspaceExtractionSchema } from "../../domain/workspaces/extraction.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -30,7 +29,6 @@ import {
   discardWriteJobPreparedCommit,
   persistBoundWriteJob,
   persistWriteJobPreparedCommit,
-  reconcileWorkspaceWriteJob,
   validateSemanticHandoff,
 } from "../../models/workspace-write-jobs.js"
 import {
@@ -57,7 +55,11 @@ import { workspaceHydrate } from "./workspace-hydrate.js"
 export const semanticMergeContentSchema = z
   .object({
     mirror: connectorMirrorSourceSchema.optional(),
-    extraction: workspaceExtractionSchema.optional(),
+    /**
+     * Retired: the handoff of the old pipeline (CTX-642). A run that was
+     * queued with it still parses, and it ends with no write.
+     */
+    extraction: z.record(z.string(), z.unknown()).optional(),
     previousSha: z.string().regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/),
     files: z.array(gitFileChangeSchema),
     deletePaths: z.array(repositoryFilePathSchema),
@@ -128,18 +130,24 @@ export const workspaceSemanticMerge = defineWorkflow(
           ? await validateSemanticHandoff({ ...input, handoff: input.handoff })
           : await completedWorkspaceWrite(input, "semantic_merge", run.id)
         if (completed) return completed
-        // Export completion publishes path assignments before its parent admits hydration.
-        const exportOwner = input.handoff
-          ? (await reconcileWorkspaceWriteJob(input.jobId))?.kind ===
-            "migration_export"
-          : false
+        if (input.extraction) {
+          // The old pipeline is gone (CTX-642): no ingestion writes to a
+          // Workspace below format 3. A handoff that it queued ends here.
+          await step.run({ name: "complete-retired" }, () =>
+            persistWriteJobStatus(input.jobId, "completed"),
+          )
+          return {
+            committed: false as const,
+            reason: "legacy_ingestion_retired" as const,
+            commitSha: undefined,
+          }
+        }
         if (!input.handoff)
           await step.run({ name: "claim-command" }, () =>
             persistBoundWriteJob({
               id: input.jobId,
               kind: "semantic_merge",
               mirror: input.mirror,
-              extraction: input.extraction,
               revision: input.revision,
               workflowRunId: run.id,
               previousSha: input.previousSha,
@@ -215,18 +223,17 @@ export const workspaceSemanticMerge = defineWorkflow(
               revision = refreshed
               continue
             }
-            if (!exportOwner)
-              await step.run({ name: "enqueue-no-op-hydrate" }, () =>
-                runWorkflowWithWorkerWake(
-                  workspaceHydrate.spec,
-                  {
-                    orgId: input.orgId,
-                    workspaceId: input.workspaceId,
-                    revision,
-                  },
-                  { idempotencyKey: `${input.jobId}:hydrate` },
-                ),
-              )
+            await step.run({ name: "enqueue-no-op-hydrate" }, () =>
+              runWorkflowWithWorkerWake(
+                workspaceHydrate.spec,
+                {
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  revision,
+                },
+                { idempotencyKey: `${input.jobId}:hydrate` },
+              ),
+            )
             if (!input.handoff)
               await step.run({ name: "complete-no-op" }, () =>
                 persistWriteJobStatus(input.jobId, "completed"),
@@ -263,18 +270,17 @@ export const workspaceSemanticMerge = defineWorkflow(
               revision = refreshed
               continue
             }
-            if (!exportOwner)
-              await step.run({ name: "enqueue-resolved-no-op-hydrate" }, () =>
-                runWorkflowWithWorkerWake(
-                  workspaceHydrate.spec,
-                  {
-                    orgId: input.orgId,
-                    workspaceId: input.workspaceId,
-                    revision,
-                  },
-                  { idempotencyKey: `${input.jobId}:hydrate` },
-                ),
-              )
+            await step.run({ name: "enqueue-resolved-no-op-hydrate" }, () =>
+              runWorkflowWithWorkerWake(
+                workspaceHydrate.spec,
+                {
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  revision,
+                },
+                { idempotencyKey: `${input.jobId}:hydrate` },
+              ),
+            )
             if (!input.handoff)
               await step.run({ name: "complete-resolved-no-op" }, () =>
                 persistWriteJobCommitSha(input.jobId, null),
@@ -303,10 +309,11 @@ export const workspaceSemanticMerge = defineWorkflow(
           })
           let pushed: Awaited<ReturnType<typeof attemptWorkspaceCommit>>
           for (;;) {
-            pushed = await step.run(
+            const attempt = await step.run(
               { name: "broker-push", retryPolicy: { maximumAttempts: 3 } },
               () => attemptWorkspaceCommit(input, revision, committed, env),
             )
+            pushed = attempt
             if (pushed.pushed || pushed.reason !== "paused") break
             await step.run({ name: "pause-push" }, () =>
               persistWriteJobStatus(input.jobId, "paused"),
@@ -328,18 +335,17 @@ export const workspaceSemanticMerge = defineWorkflow(
           const published = await step.run({ name: "publish-result" }, () =>
             publishWorkspaceWriteRevision(input, revision, committed, env),
           )
-          if (!exportOwner)
-            await step.run({ name: "enqueue-hydrate" }, async () => {
-              await runWorkflowWithWorkerWake(
-                workspaceHydrate.spec,
-                {
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                  revision: published,
-                },
-                { idempotencyKey: `${input.jobId}:hydrate` },
-              )
-            })
+          await step.run({ name: "enqueue-hydrate" }, async () => {
+            await runWorkflowWithWorkerWake(
+              workspaceHydrate.spec,
+              {
+                orgId: input.orgId,
+                workspaceId: input.workspaceId,
+                revision: published,
+              },
+              { idempotencyKey: `${input.jobId}:hydrate` },
+            )
+          })
           if (!input.handoff)
             await step.run({ name: "complete" }, () =>
               persistWriteJobCommitSha(input.jobId, committed.sha),

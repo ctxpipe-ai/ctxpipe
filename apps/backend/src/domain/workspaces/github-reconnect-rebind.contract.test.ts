@@ -5,13 +5,15 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
-import { workspaces } from "../../db/schema/workspaces.js"
+import { workspaces, workspaceWriteJobs } from "../../db/schema/workspaces.js"
 import {
   deleteGithubConnectionById,
   upsertInstallation,
 } from "../../models/github-installation.js"
+import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { rebindUnboundWorkspaces } from "./workspace-lifecycle.js"
 
@@ -21,7 +23,7 @@ it(
   async () => {
     await withNativeHydrationFixture(
       // Coverage reads the repository id, so GitHub must answer `repos.get`.
-      { github: true, githubWriteView: "writable" },
+      { github: true, githubWriteView: "writable", format: 3 },
       async (f) => {
         await f.handle.cancel()
         // GitHub refuses a token for a repository the installation does not cover.
@@ -169,7 +171,12 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.handle.cancel()
         const tip = await withOrgIdContext(f.org, () =>
@@ -216,7 +223,12 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.handle.cancel()
         let moved = false
@@ -255,14 +267,31 @@ it(
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
-      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 3,
+      },
       async (f) => {
         await f.handle.cancel()
         const tip = await withOrgIdContext(f.org, () =>
           getWorkspaceById(f.workspaceId),
         )
         if (!tip?.desiredSha) throw new Error("Fixture tip missing")
-        const movedSha = "f".repeat(40)
+        // A human pushes a commit. Admission reads the format of its tree.
+        f.git(
+          "-c",
+          "user.name=test",
+          "-c",
+          "user.email=test@example.com",
+          "commit",
+          "--allow-empty",
+          "-m",
+          "Human commit",
+        )
+        f.git("push", f.remote, "HEAD:refs/heads/main")
+        const movedSha = f.git("rev-parse", "HEAD")
         const { default: postgres } = await import("postgres")
         const ownerUrl = new URL(process.env.DATABASE_URL ?? "")
         ownerUrl.username = "ctxpipe"
@@ -305,6 +334,94 @@ it(
           )
           await owner.unsafe(`DROP FUNCTION IF EXISTS public.${fixtureName}()`)
           await owner.end()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "a rebind of a format 0 repository writes no bootstrap to the default branch, and the scan offers the upgrade",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubWriteView: "writable", writeStatus: "writable" },
+      async (f) => {
+        await f.handle.cancel()
+        f.server.use(
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceUpgradeScan } = await import(
+          "../../openworkflow/workflows/workspace-upgrade-scan.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(
+          workspaceUpgradeScan.spec,
+          workspaceUpgradeScan.fn,
+        )
+        const worker = runner.newWorker({ concurrency: 1 })
+        const errors: string[] = []
+        const log = { error: (error: Error) => errors.push(error.message) }
+        let reconnectedId: string | undefined
+        try {
+          expect(
+            await deleteGithubConnectionById(f.org.id, f.connectionId),
+          ).toBe(true)
+          const env = parseEnv(process.env)
+          const reconnected = await upsertInstallation(f.org.id, 123456789, env)
+          reconnectedId = reconnected.id
+          await rebindUnboundWorkspaces({
+            orgId: f.org.id,
+            connectionId: reconnected.id,
+            env,
+            log,
+          })
+          await worker.start()
+          // The scan of the bind records the upgrade. It waits for a click.
+          await expect
+            .poll(
+              async () =>
+                (
+                  await withOrgIdContext(f.org, () =>
+                    getWorkspaceUpgradeRow(f.workspaceId, "format-3"),
+                  )
+                )?.status,
+              { timeout: 30_000 },
+            )
+            .toBe("awaiting_operator")
+          const bootstraps = await getSystemDb().execute(sql`
+            select count(*)::int as runs from openworkflow.workflow_runs
+            where workflow_name = 'workspace-write-bootstrap'
+              and input->>'workspaceId' = ${f.workspaceId}
+          `)
+          expect(bootstraps.rows[0]?.runs).toBe(0)
+          const jobs = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ kind: workspaceWriteJobs.kind })
+              .from(workspaceWriteJobs)
+              .where(eq(workspaceWriteJobs.workspaceId, f.workspaceId)),
+          )
+          expect(jobs.map((job) => job.kind)).toEqual(["upgrade"])
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
+          expect(errors).toEqual([])
+        } finally {
+          await worker.stop()
+          await backend.stop()
+          if (reconnectedId) {
+            const id = reconnectedId
+            await withOrgDbContext(f.org.id, (db) =>
+              db.delete(connections).where(eq(connections.id, id)),
+            )
+          }
         }
       },
     )

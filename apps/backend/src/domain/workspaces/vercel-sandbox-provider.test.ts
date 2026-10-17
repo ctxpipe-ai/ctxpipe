@@ -255,6 +255,25 @@ describe("conversationFirewall", () => {
     updatedAt: 1,
   }
   const vercelApi = [
+    // The CA bundle check after a start: the bundle is whole.
+    http.post(
+      "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+      ({ params }) => {
+        const command = {
+          id: "cmd_ca",
+          name: "sh",
+          args: [],
+          cwd: "/vercel/sandbox",
+          sessionId: String(params.id),
+          startedAt: 1,
+        }
+        const line = (exitCode: number | null) =>
+          `${JSON.stringify({ command: { ...command, exitCode } })}\n`
+        return new HttpResponse(line(null) + line(0), {
+          headers: { "content-type": "application/x-ndjson" },
+        })
+      },
+    ),
     http.get("https://vercel.com/api/v2/sandboxes/:name", ({ params }) =>
       HttpResponse.json({
         sandbox: sandboxJson(String(params.name)),

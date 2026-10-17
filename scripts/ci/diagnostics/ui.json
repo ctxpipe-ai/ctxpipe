@@ -608,12 +608,6 @@
       "count": 1
     },
     {
-      "file": "src/features/repositories/components/GitSourcesVirtualList.tsx",
-      "code": 2345,
-      "message": "Argument of type 'HTMLElement | null' is not assignable to parameter of type 'Element'.\n  Type 'null' is not assignable to type 'Element'.",
-      "count": 1
-    },
-    {
       "file": "src/providers/AuthProvider.tsx",
       "code": 2339,
       "message": "Property 'providers' does not exist on type '{}'.",

@@ -186,11 +186,13 @@ export const ChooseWorkspaces: Story = {
       },
     })
     // A source change opens a pull request; capture starts after the merge.
-    await expect(
-      await body.findByRole("heading", {
-        name: "Merge the pull request",
-      }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", {
+          name: "Merge the pull request",
+        }),
+      ).toBeVisible(),
+    )
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
@@ -275,12 +277,14 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeChecked()
-    await expect(
-      await body.findByRole("checkbox", { name: /^#?\s*eng$/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /^#?\s*eng$/ })).toBeChecked(),
+    )
     const save = body.getByRole("button", { name: "Save changes" })
     await expect(save).toBeDisabled()
     await userEvent.click(body.getByRole("checkbox", { name: /incidents/ }))
@@ -298,9 +302,11 @@ export const ManageKeepsTheCurrentScope: Story = {
         },
       },
     })
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -367,6 +373,10 @@ function ManageButton(props: ComponentProps<typeof SlackSetupDialog>) {
  * starts from the new channels, not from the channels of an earlier request.
  */
 export const ManageAgainShowsTheNewScope: Story = {
+  // The close fade and the open fade of the dialog overlap on a slow runner,
+  // and the step then keeps the scope of the first open. Reduced motion
+  // removes the fades, so the dialog unmounts at once.
+  tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
     msw: {
@@ -413,9 +423,9 @@ export const ManageAgainShowsTheNewScope: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(await body.findByRole("button", { name: "Manage" }))
-    await expect(
-      await body.findByRole("checkbox", { name: /^#?\s*eng$/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /^#?\s*eng$/ })).toBeChecked(),
+    )
     await userEvent.click(body.getByRole("button", { name: "Close" }))
     await waitFor(() =>
       expect(
@@ -424,12 +434,17 @@ export const ManageAgainShowsTheNewScope: Story = {
     )
 
     docsChannels = ["G0INC0001"]
-    await userEvent.click(body.getByRole("button", { name: "Manage" }))
-    await expect(
-      await body.findByRole("checkbox", { name: /incidents/ }),
-    ).toBeChecked()
-    await expect(
-      body.getByRole("checkbox", { name: /^#?\s*eng$/ }),
-    ).not.toBeChecked()
+    // The open dialog hides the page from the accessibility tree, so this
+    // finds Manage only after the dialog has unmounted. A new dialog then
+    // starts from a new read.
+    await userEvent.click(await body.findByRole("button", { name: "Manage" }))
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /incidents/ })).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: /^#?\s*eng$/ }),
+      ).not.toBeChecked(),
+    )
   },
 }

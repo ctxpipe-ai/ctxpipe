@@ -1,6 +1,5 @@
 import { posix } from "node:path"
 import { isAlias, isMap, isSeq } from "yaml"
-import type { CapturedExtraction } from "./extraction.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -53,7 +52,18 @@ export function extractionEvidencePath(
 
 /** Expire only evidence inspected by this capture; preserve unknown metadata and prose. */
 export function retractExtractionClaims(input: {
-  extraction: CapturedExtraction
+  extraction: {
+    repositoryUrl: string
+    claims: ReadonlyArray<{
+      subjectRef: string
+      objectRef: string
+      predicate: string
+      sourcePath?: string
+    }>
+    retraction?:
+      | { mode: "full"; observedAt: string }
+      | { mode: "partial"; observedAt: string; paths: string[] }
+  }
   workspaceRepositoryUrl: string
   files: ExistingKnowledgeFile[]
   referencePaths: ReadonlyMap<string, string>

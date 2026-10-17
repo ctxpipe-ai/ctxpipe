@@ -170,6 +170,7 @@ async function getInstallationContext(
 ): Promise<{
   installation: GitHubInstallation
   octokit: InstallationContext["octokit"]
+  appBotLogin: InstallationContext["appBotLogin"]
   owner: string
   repo: string
 }> {
@@ -189,6 +190,7 @@ async function getInstallationContext(
   return {
     installation: installationContext.installation,
     octokit: installationContext.octokit,
+    appBotLogin: installationContext.appBotLogin,
     owner,
     repo,
   }
@@ -744,26 +746,80 @@ export async function getPullRequestHeadBranch(
   return data.head.ref || undefined
 }
 
-/** The open pull requests whose head branch starts with `branchPrefix` (first 100). */
+/**
+ * The open pull requests that ctx| opened on a branch that starts with
+ * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ * Give `baseBranch` to keep only the pull requests into that base branch.
+ *
+ * Other people can open a pull request with the same head branch name: from
+ * a fork, from the repository itself, or as another GitHub App on the
+ * repository. This function ignores them. It keeps only a pull request whose
+ * head is in this repository and whose author is the ctx| GitHub App of this
+ * installation (ctx| opens each pull request with the installation token).
+ * Thus, ctx| opens its own pull request when someone else took the branch
+ * name in a fork, and it never shows or relabels the pull request of another
+ * person or App as its own.
+ */
 export async function listOpenPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string },
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
+  const pulls = await listOpenRepositoryPullRequestsByBranchPrefix(input)
+  return pulls
+    .filter((pull) => pull.ours)
+    .map(({ pullUrl, branch, createdAt }) => ({ pullUrl, branch, createdAt }))
+}
+
+/**
+ * Like {@link listOpenPullRequestsByBranchPrefix}, but it also lists the pull
+ * requests of other people and Apps whose head is in this repository. `ours`
+ * tells which pull requests ctx| opened. A fork pull request does not use a
+ * branch of this repository, so it is not listed.
+ */
+export async function listOpenRepositoryPullRequestsByBranchPrefix(
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
+): Promise<
+  Array<{ pullUrl: string; branch: string; createdAt: string; ours: boolean }>
+> {
   const context = await getInstallationContext(input, { pull_requests: "read" })
-  const { data } = await withTransientGitHubRetry(() =>
-    context.octokit.rest.pulls.list({
+  const repository = `${context.owner}/${context.repo}`.toLowerCase()
+  const pulls = await withTransientGitHubRetry(() =>
+    context.octokit.paginate(context.octokit.rest.pulls.list, {
       owner: context.owner,
       repo: context.repo,
       state: "open",
       per_page: 100,
+      ...(input.exactBranch
+        ? { head: `${context.owner}:${input.exactBranch}` }
+        : {}),
+      ...(input.baseBranch ? { base: input.baseBranch } : {}),
     }),
   )
-  return data
-    .filter((pull) => pull.head.ref.startsWith(input.branchPrefix))
-    .map((pull) => ({
-      pullUrl: pull.html_url,
-      branch: pull.head.ref,
-      createdAt: pull.created_at,
-    }))
+  const candidates = pulls.filter(
+    (pull) =>
+      pull.head.ref.startsWith(input.branchPrefix) &&
+      (input.exactBranch === undefined ||
+        pull.head.ref === input.exactBranch) &&
+      (input.baseBranch === undefined || pull.base.ref === input.baseBranch) &&
+      pull.head.repo?.full_name.toLowerCase() === repository,
+  )
+  // Ask GitHub for the App login only when a pull request can be ours.
+  const login = candidates.some((pull) => pull.user?.type === "Bot")
+    ? (await context.appBotLogin()).toLowerCase()
+    : ""
+  return candidates.map((pull) => ({
+    pullUrl: pull.html_url,
+    branch: pull.head.ref,
+    createdAt: pull.created_at,
+    ours: pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
+  }))
 }
 
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
@@ -846,6 +902,24 @@ export async function closePullRequest(
       }),
     )
   }
+}
+
+/** Replace the title and the body of an open pull request. */
+export async function updatePullRequestText(
+  input: BaseInput & { pullNumber: number; title: string; body: string },
+): Promise<void> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      title: input.title,
+      body: input.body,
+    }),
+  )
 }
 
 export type GithubPullRequestState = "open" | "closed" | "merged"
@@ -1005,17 +1079,20 @@ export async function createPullRequestFromBranch(
       error.message.toLowerCase().includes("no commits between")
     )
       return refusal("no_changes", error)
-    const { data: existing } = await context.octokit.rest.pulls.list({
-      owner: context.owner,
-      repo: context.repo,
-      head: `${context.owner}:${input.branch}`,
-      state: "open",
+    // GitHub refuses a second pull request for the same head and base. Keep
+    // only a pull request that ctx| opened on this branch into this base. A
+    // pull request of a collaborator or of another App is not ours to show.
+    const [open] = await listOpenPullRequestsByBranchPrefix({
+      ...input,
+      branchPrefix: input.branch,
+      exactBranch: input.branch,
+      baseBranch: input.baseBranch,
     })
-    const open = existing[0]
-    if (!open) return refusal("pr_refused", error)
+    const pullNumber = open && parseGithubPullNumberFromUrl(open.pullUrl)
+    if (!open || pullNumber === undefined) return refusal("pr_refused", error)
     return {
-      pullNumber: open.number,
-      pullUrl: open.html_url,
+      pullNumber,
+      pullUrl: open.pullUrl,
       branch: input.branch,
       prState: "open",
     }

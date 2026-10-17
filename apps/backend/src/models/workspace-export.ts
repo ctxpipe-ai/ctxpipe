@@ -1,10 +1,6 @@
 import { eq } from "drizzle-orm"
 import { requireCurrentOrgId } from "../auth/context.js"
-import {
-  assertNotInOrgDbContext,
-  getOrgDb,
-  withOrgDbContext,
-} from "../db/client.js"
+import { getOrgDb } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
 import { claimEvidence } from "../db/schema/claim_evidence.js"
 import { claims } from "../db/schema/claims.js"
@@ -25,24 +21,74 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
 
-export async function loadKnowledgeProjectionSource(): Promise<{
+/** The org repositories of main and the Workspace of each, with no knowledge rows. */
+export type RepositoryWorkspaceMaps = {
   firstWorkspaceId: string | null
   workspaceByRepositoryId: Map<string, string>
   repositoryGitUrlById: Map<string, string>
-  objects: ExportObjectRow[]
-  claims: ExportClaimRow[]
-}> {
+  /** The GitHub connection of each org repository, or null when it has none. */
+  repositoryConnectionById: Map<string, string | null>
+}
+
+/**
+ * The repository and Workspace maps of the current org. It reads only the
+ * repositories, the Workspaces and the first Workspace, not the knowledge
+ * store, so the upgrade scan can call it for each Workspace.
+ */
+export async function loadRepositoryWorkspaceMaps(): Promise<RepositoryWorkspaceMaps> {
   return orgSql(async () => {
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
-    const [
-      objectRows,
-      claimRows,
-      evidenceRows,
-      repoRows,
-      workspaceRows,
-      firstWorkspaceRow,
-    ] = await Promise.all([
+    const [repoRows, workspaceRows, firstWorkspaceRow] = await Promise.all([
+      db
+        .select({
+          id: repositories.id,
+          gitUrl: repositories.gitUrl,
+          githubConnectionId: repositories.githubConnectionId,
+        })
+        .from(repositories)
+        .where(eq(repositories.orgId, orgId)),
+      db
+        .select({
+          id: workspaces.id,
+          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
+          createdAt: workspaces.createdAt,
+        })
+        .from(workspaces)
+        .where(eq(workspaces.orgId, orgId)),
+      db
+        .select({ workspaceId: orgFirstWorkspaces.workspaceId })
+        .from(orgFirstWorkspaces)
+        .where(eq(orgFirstWorkspaces.orgId, orgId))
+        .limit(1),
+    ])
+    return {
+      firstWorkspaceId: firstWorkspaceRow[0]?.workspaceId ?? null,
+      workspaceByRepositoryId: workspaceByRepositoryUrl({
+        repositories: repoRows,
+        workspaces: workspaceRows,
+        normalizeUrl: normalizeWorkspaceRepositoryUrl,
+      }),
+      repositoryGitUrlById: new Map(
+        repoRows.map((row) => [row.id, row.gitUrl]),
+      ),
+      repositoryConnectionById: new Map(
+        repoRows.map((row) => [row.id, row.githubConnectionId]),
+      ),
+    }
+  })
+}
+
+export async function loadKnowledgeProjectionSource(): Promise<
+  RepositoryWorkspaceMaps & {
+    objects: ExportObjectRow[]
+    claims: ExportClaimRow[]
+  }
+> {
+  return orgSql(async () => {
+    const orgId = requireCurrentOrgId()
+    const db = getOrgDb()
+    const [objectRows, claimRows, evidenceRows, maps] = await Promise.all([
       db
         .select({
           id: objects.id,
@@ -61,6 +107,7 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           aggregatedConfidence: claims.aggregatedConfidence,
           validFrom: claims.validFrom,
           validTo: claims.validTo,
+          firstObservedAt: claims.firstObservedAt,
           status: claims.status,
         })
         .from(claims)
@@ -72,23 +119,7 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           logicalSourceKey: claimEvidence.logicalSourceKey,
         })
         .from(claimEvidence),
-      db
-        .select({ id: repositories.id, gitUrl: repositories.gitUrl })
-        .from(repositories)
-        .where(eq(repositories.orgId, orgId)),
-      db
-        .select({
-          id: workspaces.id,
-          workspaceRepositoryUrl: workspaces.workspaceRepositoryUrl,
-          createdAt: workspaces.createdAt,
-        })
-        .from(workspaces)
-        .where(eq(workspaces.orgId, orgId)),
-      db
-        .select({ workspaceId: orgFirstWorkspaces.workspaceId })
-        .from(orgFirstWorkspaces)
-        .where(eq(orgFirstWorkspaces.orgId, orgId))
-        .limit(1),
+      loadRepositoryWorkspaceMaps(),
     ])
 
     const sourceByClaim = new Map<string, string>()
@@ -107,18 +138,8 @@ export async function loadKnowledgeProjectionSource(): Promise<{
       }
     }
 
-    const firstWorkspaceId = firstWorkspaceRow[0]?.workspaceId ?? null
-
     return {
-      firstWorkspaceId,
-      workspaceByRepositoryId: workspaceByRepositoryUrl({
-        repositories: repoRows,
-        workspaces: workspaceRows,
-        normalizeUrl: normalizeWorkspaceRepositoryUrl,
-      }),
-      repositoryGitUrlById: new Map(
-        repoRows.map((row) => [row.id, row.gitUrl]),
-      ),
+      ...maps,
       objects: objectRows.map((row) => ({
         id: row.id,
         kind: row.kind,
@@ -133,31 +154,13 @@ export async function loadKnowledgeProjectionSource(): Promise<{
           objectId: row.objectId,
           predicate: row.predicate,
           aggregatedConfidence: row.aggregatedConfidence,
-          validFrom: row.validFrom,
+          // A claim with no `valid_from` holds since ctx| first saw it. With
+          // a date in the file, hydrate has no `valid_from` to write after
+          // the upgrade.
+          validFrom: row.validFrom ?? row.firstObservedAt,
           validTo: row.validTo,
           evidenceKey: sourceByClaim.get(row.id) ?? null,
         })),
     }
   })
-}
-
-/** Control-plane path identity and migration cutover, with no projection-content reads. */
-export async function loadExtractionPathIdentity(
-  revision: import("../domain/workspaces/revision.js").WorkspaceRevision,
-) {
-  assertNotInOrgDbContext()
-  return withOrgDbContext(
-    requireCurrentOrgId(),
-    async () => {
-      const { getCompletedKnowledgePaths, getMigrationExportSha } =
-        await import("./workspace-write-jobs.js")
-      const knownKnowledgePaths = await getCompletedKnowledgePaths(revision)
-      const exportSha = await getMigrationExportSha(
-        revision.workspaceId,
-        revision,
-      )
-      return { knownKnowledgePaths, stampImportKey: !exportSha }
-    },
-    { isolationLevel: "repeatable read" },
-  )
 }

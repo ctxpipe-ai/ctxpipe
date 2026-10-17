@@ -1,5 +1,6 @@
 import { isAlias, isMap, isSeq } from "yaml"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { type HydrateUnit, resolveHydrateLink } from "./hydrate.js"
 import { looksLikeGitSha } from "./hydrate-phases.js"
 import {
@@ -38,14 +39,20 @@ export function claimsUpgradeRemainder(units: readonly HydrateUnit[]): number {
   return units.filter((unit) => missingClaimLinks(unit).length > 0).length
 }
 
+/**
+ * True when hydrate must write a `valid_from` for a claim of the `claims`
+ * front matter. A `FROM_SOURCE` claim comes from the `sources` front matter,
+ * which has no `valid_from`, so no write can give it one.
+ */
+function claimNeedsValidFrom(claim: HydrateUnit["claims"][number]): boolean {
+  if (claim.predicate === FROM_SOURCE_PREDICATE) return false
+  return !claim.validFrom || looksLikeGitSha(claim.validFrom)
+}
+
 export function validFromPersistRemainder(
   units: readonly HydrateUnit[],
 ): number {
-  return units.filter((unit) =>
-    unit.claims.some(
-      (claim) => !claim.validFrom || looksLikeGitSha(claim.validFrom),
-    ),
-  ).length
+  return units.filter((unit) => unit.claims.some(claimNeedsValidFrom)).length
 }
 
 export function hydrateWriteJobsToEnqueue(input: {
@@ -150,14 +157,7 @@ export function validFromPersistFiles(input: {
   const out: Array<{ path: string; content: string }> = []
   for (const file of input.files) {
     const unit = byPath.get(file.path)
-    if (
-      !unit ||
-      !unit.claims.some(
-        (claim) => !claim.validFrom || looksLikeGitSha(claim.validFrom),
-      )
-    ) {
-      continue
-    }
+    if (!unit?.claims.some(claimNeedsValidFrom)) continue
     const parsed = parseSimpleFrontMatter(file.content)
     if (parsed.malformed) continue
     out.push({

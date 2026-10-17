@@ -705,6 +705,75 @@ it(
 )
 
 it(
+  "adopts on a 422 only the open pull request that ctx| opened into the base branch",
+  { timeout: 180_000 },
+  async () => {
+    await withSession({}, async (f, s) => {
+      const handle = await s.warm()
+      await s.agentCommit(handle, "one.md", "Add note one")
+      expect((await s.commitPush()).status).toBe(200)
+      const pull = (
+        number: number,
+        login: string,
+        options: { base?: string; type?: string } = {},
+      ) => ({
+        number,
+        html_url: `https://github.com/fixture/hydration-contract/pull/${number}`,
+        head: {
+          ref: s.branch,
+          repo: { full_name: "fixture/hydration-contract" },
+        },
+        base: { ref: options.base ?? "main" },
+        user: { login, type: options.type ?? "Bot" },
+        created_at: "2026-10-17T00:00:00Z",
+      })
+      // A collaborator and another App opened a pull request on the session
+      // branch first, and ctx| has one into another base branch.
+      const open = [
+        pull(7, "collaborator", { type: "User" }),
+        pull(8, "other-app[bot]"),
+        pull(9, "ctxpipe-fixture[bot]", { base: "release" }),
+      ]
+      f.server.use(
+        http.get(
+          "https://api.github.com/repos/fixture/hydration-contract/pulls",
+          () => HttpResponse.json(open),
+        ),
+        http.post(
+          "https://api.github.com/repos/fixture/hydration-contract/pulls",
+          () =>
+            HttpResponse.json(
+              {
+                message: "Validation Failed",
+                errors: [
+                  {
+                    resource: "PullRequest",
+                    code: "custom",
+                    message: `A pull request already exists for fixture:${s.branch}.`,
+                  },
+                ],
+              },
+              { status: 422 },
+            ),
+        ),
+      )
+      const refused = await s.createPr("Write the notes")
+      expect({
+        status: refused.status,
+        body: await refused.json(),
+      }).toMatchObject({ status: 400, body: { error: "pr_refused" } })
+      // The pull request that ctx| opened into main is the one to show.
+      open.push(pull(10, "ctxpipe-fixture[bot]"))
+      const adopted = await s.createPr("Write the notes")
+      expect({
+        status: adopted.status,
+        body: await adopted.json(),
+      }).toMatchObject({ status: 200, body: { prNumber: 10 } })
+    })
+  },
+)
+
+it(
   "keeps pushing after the default moves (option D) and never overwrites commits someone else pushed",
   { timeout: 180_000 },
   async () => {

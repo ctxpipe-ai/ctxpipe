@@ -35,6 +35,7 @@ import {
   githubInstallationReadRoutes,
   githubInstallationRoutes,
 } from "./github-installation.js"
+import { meApiKeysRoutes } from "./me-api-keys.js"
 import { meConnectedAppsRoutes } from "./me-connected-apps.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 import { orgOnboardingRoutes, userOnboardingRoutes } from "./onboarding.js"
@@ -51,36 +52,58 @@ import {
   connectionSyncRoutes,
   connectionUsageRoutes,
 } from "./workspace-sources-routes.js"
+import { orgPendingUpgradeRoutes } from "./workspace-upgrades-routes.js"
 import { workspaceRoutes } from "./workspaces.js"
 
-const githubInstallationAdminScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", githubInstallationRoutes)
+const githubInstallationAdminScopedGate = new OpenAPIHono<AppEnv>()
+githubInstallationAdminScopedGate.use("*", requireOrgAdminOrOwner)
+const githubInstallationAdminScoped = githubInstallationAdminScopedGate.route(
+  "/",
+  githubInstallationRoutes,
+)
 
-const atlassianConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", atlassianConnectorRoutes)
+const atlassianConnectorScopedGate = new OpenAPIHono<AppEnv>()
+atlassianConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const atlassianConnectorScoped = atlassianConnectorScopedGate.route(
+  "/",
+  atlassianConnectorRoutes,
+)
 
-const slackConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", slackConnectorRoutes)
+const slackConnectorScopedGate = new OpenAPIHono<AppEnv>()
+slackConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const slackConnectorScoped = slackConnectorScopedGate.route(
+  "/",
+  slackConnectorRoutes,
+)
 
-const linearConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", linearConnectorRoutes)
+const linearConnectorScopedGate = new OpenAPIHono<AppEnv>()
+linearConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const linearConnectorScoped = linearConnectorScopedGate.route(
+  "/",
+  linearConnectorRoutes,
+)
 
-const notionConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", notionConnectorRoutes)
+const notionConnectorScopedGate = new OpenAPIHono<AppEnv>()
+notionConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const notionConnectorScoped = notionConnectorScopedGate.route(
+  "/",
+  notionConnectorRoutes,
+)
 
-const pagerdutyConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", pagerdutyConnectorRoutes)
+const pagerdutyConnectorScopedGate = new OpenAPIHono<AppEnv>()
+pagerdutyConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const pagerdutyConnectorScoped = pagerdutyConnectorScopedGate.route(
+  "/",
+  pagerdutyConnectorRoutes,
+)
 
 // Only the sync path: this app mounts on "/connectors" beside other routes.
-const connectionSyncScoped = new OpenAPIHono<AppEnv>()
-  .use("/:connectionId/sync", requireOrgAdminOrOwner)
-  .route("/", connectionSyncRoutes)
+const connectionSyncScopedGate = new OpenAPIHono<AppEnv>()
+connectionSyncScopedGate.use("/:connectionId/sync", requireOrgAdminOrOwner)
+const connectionSyncScoped = connectionSyncScopedGate.route(
+  "/",
+  connectionSyncRoutes,
+)
 
 function createOrgScopedV1<BasePath extends string>(
   app: OpenAPIHono<AppEnv, Record<never, never>, BasePath>,
@@ -94,6 +117,7 @@ function createOrgScopedV1<BasePath extends string>(
     .use("*", withNetworkOrgContext)
     .route("/repositories", repositoryRoutes)
     .route("/workspaces", workspaceRoutes)
+    .route("/workspace-upgrades", orgPendingUpgradeRoutes)
     .route("/activity", orgActivityRoutes)
     .route("/conversations", conversationRoutes)
     .route("/github/installation", githubInstallationReadRoutes)
@@ -120,6 +144,46 @@ export type OrgScopedV1Rpc = ReturnType<
   typeof createOrgScopedV1<"/:orgSlug/api/v1">
 >
 
+function createUserScopedV1() {
+  return new OpenAPIHono<AppEnv>()
+    .basePath("/api/v1")
+    .use("/me/connected-apps/*", async (c, next) => {
+      if (
+        c.req.raw.headers.has("authorization") ||
+        c.req.raw.headers.has("x-api-key")
+      ) {
+        return c.json({ error: "Sign in to manage connected apps" }, 403)
+      }
+      return next()
+    })
+    // Only a browser session sets the org set of a personal API key. A key
+    // must not widen its own set.
+    .use("/me/api-keys/*", async (c, next) => {
+      if (
+        c.req.raw.headers.has("authorization") ||
+        c.req.raw.headers.has("x-api-key")
+      ) {
+        return c.json({ error: "Sign in to manage API keys" }, 403)
+      }
+      return next()
+    })
+    .use("*", withCookieAuth)
+    .use("*", withBearerAuth)
+    .use("*", requireAuth)
+    .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+    .route("/connectors/slack", slackOAuthCallbackRoutes)
+    .route("/integrations/linear", linearOauthCallbackRoutes)
+    .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
+    .route("/me/github/installations", meGithubInstallationsRoutes)
+    .route("/me/connected-apps", meConnectedAppsRoutes)
+    .route("/me/api-keys", meApiKeysRoutes)
+    .route("/connectors/notion", notionOAuthCallbackRoutes)
+    .route("/onboarding", userOnboardingRoutes)
+}
+
+/** UI `hc` surface of the routes with no org in the path: `userClient.api.v1.…` */
+export type UserScopedV1Rpc = ReturnType<typeof createUserScopedV1>
+
 export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
   const orgScopedV1 = createOrgScopedV1(new OpenAPIHono<AppEnv>())
 
@@ -134,28 +198,7 @@ export function registerV1Routes(app: OpenAPIHono<AppEnv>): OrgScopedV1Rpc {
     .basePath("/:orgSlug/api/v1/workspace-chat/openai")
     .route("/", workspaceChatOpenaiRoutes)
 
-  const nonOrgScopedV1 = new OpenAPIHono<AppEnv>()
-    .basePath("/api/v1")
-    .use("/me/connected-apps/*", async (c, next) => {
-      if (
-        c.req.raw.headers.has("authorization") ||
-        c.req.raw.headers.has("x-api-key")
-      ) {
-        return c.json({ error: "Sign in to manage connected apps" }, 403)
-      }
-      return next()
-    })
-    .use("*", withCookieAuth)
-    .use("*", withBearerAuth)
-    .use("*", requireAuth)
-    .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
-    .route("/connectors/slack", slackOAuthCallbackRoutes)
-    .route("/integrations/linear", linearOauthCallbackRoutes)
-    .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
-    .route("/me/github/installations", meGithubInstallationsRoutes)
-    .route("/me/connected-apps", meConnectedAppsRoutes)
-    .route("/connectors/notion", notionOAuthCallbackRoutes)
-    .route("/onboarding", userOnboardingRoutes)
+  const nonOrgScopedV1 = createUserScopedV1()
 
   app.route("/", workspaceChatOpenai)
   // Per-run tool bridges for remote (Vercel) sandboxes; bearer token per run.

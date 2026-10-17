@@ -1,5 +1,5 @@
 import { createHash, randomBytes } from "node:crypto"
-import { readdir, readFile } from "node:fs/promises"
+import { readFile } from "node:fs/promises"
 import { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { eq, sql } from "drizzle-orm"
@@ -38,14 +38,20 @@ const READ_TOOLS = [
 ]
 const WRITE_TOOL = "scope_test_write"
 
-/** SQL of the data migration that gives old OAuth clients the MCP scopes. */
+/** The statement of the release migration that gives old OAuth clients the MCP scopes. */
 async function migrationSql(): Promise<string> {
-  const dir = new URL("../../migrations/", import.meta.url)
-  const name = (await readdir(dir)).find((entry) =>
-    entry.endsWith("_mcp_scopes_on_oauth_clients"),
+  const sql = await readFile(
+    new URL(
+      "../../migrations/20261016064110_workspaces/migration.sql",
+      import.meta.url,
+    ),
+    "utf8",
   )
-  if (!name) throw new Error("the MCP scopes data migration is missing")
-  return readFile(new URL(`${name}/migration.sql`, dir), "utf8")
+  const statement = sql
+    .split("--> statement-breakpoint")
+    .find((part) => part.includes('UPDATE "oauth_clients"'))
+  if (!statement) throw new Error("the MCP scopes data migration is missing")
+  return statement
 }
 const REDIRECT_URI = "http://127.0.0.1:4567/callback"
 

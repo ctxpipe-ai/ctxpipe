@@ -136,6 +136,7 @@ export const WaitsForDelay: Story = {
   ),
   play: async ({ canvasElement, mount }) => {
     await mount()
+    await document.fonts.ready
     const row = within(canvasElement).getByTestId("row")
     const height = row.getBoundingClientRect().height
     expect(height).toBe(32)
@@ -224,9 +225,9 @@ export const VisibleSkeletonHoldsMinimum: Story = {
       // The skeleton shows at the delay. The data arrives 10 ms later.
       await clock.advance(SKELETON_DELAY_MS + 10)
       await clock.press(button(canvasElement, "Finish loading"))
-      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
+      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument() // play-timing: ok the manual clock drives every timer; no request is pending
       await clock.advance(SKELETON_MIN_MS - 11)
-      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
+      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument() // play-timing: ok the manual clock drives every timer; no request is pending
       expect(bones(canvasElement).length).toBeGreaterThan(0)
       await clock.advance(1)
       expect(canvas.getByText("Loaded")).toBeVisible()
@@ -299,9 +300,9 @@ export const SuspenseHoldsMinimum: Story = {
       await clock.advance(SKELETON_DELAY_MS + 10)
       release()
       await clock.advance(0)
-      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
+      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument() // play-timing: ok the manual clock drives every timer; no request is pending
       await clock.advance(SKELETON_MIN_MS - 11)
-      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument()
+      expect(canvas.queryByText("Loaded")).not.toBeInTheDocument() // play-timing: ok the manual clock drives every timer; no request is pending
       await clock.advance(1)
       expect(canvas.getByText("Loaded")).toBeVisible()
     } finally {

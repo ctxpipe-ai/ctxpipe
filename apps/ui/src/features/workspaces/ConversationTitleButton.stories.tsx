@@ -139,11 +139,13 @@ async function renameTo(
   await waitFor(() => expect(input).toHaveFocus())
   await userEvent.keyboard(name)
   await commit()
-  expect(
-    await canvas.findByRole("button", {
-      name: `Rename conversation: ${name}`,
-    }),
-  ).toBeVisible()
+  await waitFor(() =>
+    expect(
+      canvas.getByRole("button", {
+        name: `Rename conversation: ${name}`,
+      }),
+    ).toBeVisible(),
+  )
   expect(canvas.queryByRole("textbox")).toBeNull()
   // A late blur or a second save would add a request.
   await new Promise((resolve) => setTimeout(resolve, 300))
