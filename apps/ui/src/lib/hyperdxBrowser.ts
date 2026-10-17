@@ -1,8 +1,13 @@
 import HyperDX from "@hyperdx/browser"
+import { trace } from "@opentelemetry/api"
 import {
   type HyperDxSessionIdentity,
   hyperdxGlobalAttributes,
 } from "@/lib/hyperdxAttributes"
+import {
+  findBatchSpanProcessor,
+  flushSpansOnPageHide,
+} from "@/lib/hyperdxPageHideFlush"
 import type { HyperDxRuntimeConfig } from "@/lib/hyperdxRuntimeConfig"
 
 /**
@@ -40,6 +45,9 @@ export function initHyperDxBrowser(
     },
   })
   hyperdxInitialized = true
+  // `HyperDX.init` registers its tracer provider as the global provider.
+  const processor = findBatchSpanProcessor(trace.getTracerProvider())
+  if (processor) flushSpansOnPageHide(processor, window, document)
   if (identity?.userId) setHyperDxGlobalAttributes(identity)
 }
 
