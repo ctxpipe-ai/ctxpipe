@@ -1,4 +1,3 @@
-import { dirname } from "node:path/posix"
 import type { SandboxHandle } from "@tanstack/ai-sandbox"
 import { type RootExec, runAsRoot } from "./ingest-root.js"
 import {
@@ -129,6 +128,16 @@ function refuseSpecialFiles(path: string): string {
   return `if [ -n "$(find ${quote(path)} ! -type f ! -type d | head -n 1)" ]; then rm -rf ${quote(path)}; echo "Ingest prepare: ${path} holds a symlink or a special file" >&2; exit 1; fi`
 }
 
+/** Writes each file of a packed bundle under a folder; then deletes the pack. */
+const UNPACK_BUNDLE = `const fs = require("node:fs"), path = require("node:path")
+const [dir, pack] = process.argv.slice(1)
+for (const file of JSON.parse(fs.readFileSync(pack, "utf8"))) {
+  const target = path.join(dir, file.path)
+  fs.mkdirSync(path.dirname(target), { recursive: true })
+  fs.writeFileSync(target, Buffer.from(file.data, "base64"))
+}
+fs.rmSync(pack)`
+
 /**
  * Run once for each sandbox: make the agent user, the /ctxpipe layout, the
  * skill bundle, and the OpenCode config. The bundle is always copied again.
@@ -141,16 +150,24 @@ export async function prepareIngestSandbox(
   // The default user (never the agent) writes a private staging copy; root
   // copies it, checks the copy, and moves it into place.
   const staging = (await run(handle, "mktemp -d")).trim()
-  const folders = new Set(input.bundle.files.map((f) => dirname(f.path)))
+  // One upload for the whole bundle: a hosted sandbox makes one API call
+  // for each file write, and each call can fail on its own.
+  const packed = `${staging}.json`
+  await handle.fs.write(
+    packed,
+    new TextEncoder().encode(
+      JSON.stringify(
+        input.bundle.files.map((file) => ({
+          path: file.path,
+          data: Buffer.from(file.content).toString("base64"),
+        })),
+      ),
+    ),
+  )
   await run(
     handle,
-    `mkdir -p ${[...folders].map((f) => quote(`${staging}/${f}`)).join(" ")}`,
+    `node -e ${quote(UNPACK_BUNDLE)} ${quote(staging)} ${quote(packed)}`,
   )
-  for (const file of input.bundle.files)
-    await handle.fs.write(
-      `${staging}/${file.path}`,
-      new Uint8Array(file.content),
-    )
   const next = `${INGEST_SKILLS_ROOT}.next`
   const executables = input.bundle.files
     .filter((f) => f.executable)
