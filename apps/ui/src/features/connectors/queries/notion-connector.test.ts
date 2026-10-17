@@ -24,9 +24,9 @@ describe("Notion connector API helpers", () => {
       ),
     )
 
-    await expect(fetchNotionOAuthStart("acme", "con_notion")).rejects.toBeInstanceOf(
-      NotionOAuthNotConfiguredError,
-    )
+    await expect(
+      fetchNotionOAuthStart("acme", "con_notion"),
+    ).rejects.toBeInstanceOf(NotionOAuthNotConfiguredError)
     expect(fetch).toHaveBeenCalledWith(
       "/acme/api/v1/connectors/notion/oauth/start?connectionId=con_notion",
       expect.objectContaining({ credentials: "include" }),
