@@ -1,10 +1,8 @@
 import { randomBytes } from "node:crypto"
 import { gunzipSync } from "node:zlib"
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { APIError, Sandbox } from "@vercel/sandbox"
-import { defineSandboxProxy } from "@vercel/sandbox/proxy"
+import { APIError, Sandbox, Snapshot } from "@vercel/sandbox"
 import { eq } from "drizzle-orm"
-import { decodeJwt } from "jose"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import { BackendPostgres } from "openworkflow/postgres"
@@ -19,6 +17,7 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { repositories } from "../../db/schema/repositories.js"
 import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
@@ -36,11 +35,11 @@ import {
   insertGithubConnection,
   stubGithubApp,
 } from "../../test/ingest-github.js"
-import { VERCEL_INGEST_AGENT_PATH } from "../workspaces/chat-runtime.js"
 import {
-  ingestEgressForwardUrl,
-  openIngestEgressScope,
-} from "../workspaces/ingest-egress-proxy.js"
+  VERCEL_INGEST_AGENT_PATH,
+  VERCEL_INGEST_TOOLS_ROOT,
+} from "../workspaces/chat-runtime.js"
+import { ingestEgressForwardUrl } from "../workspaces/ingest-egress-proxy.js"
 import { ingestSandboxTags } from "../workspaces/ingest-sandbox-egress.js"
 import {
   agentSnapshotTags,
@@ -54,6 +53,10 @@ import { ingestAgentCommand } from "./ingest-opencode.js"
 import { INGEST_AGENT_USER } from "./ingest-prepare.js"
 import { type RootExec, vercelRootExec } from "./ingest-root.js"
 import { ingestShardRuntimeFactory } from "./ingest-shard-sandbox.js"
+import {
+  INGEST_TOOL_BRIDGE_PATH,
+  ingestToolBridgeRoutes,
+} from "./ingest-tools.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 import {
   INGEST_CONTEXT_ROOT,
@@ -91,9 +94,13 @@ const orgId = generateObjectId("org")
 const orgSlug = `ingest-${orgId.slice(-8)}`
 const connectionId = generateObjectId("con")
 const workspaceId = generateObjectId("ws")
+/** The destination's codesearch repository, so the step has a tool bridge. */
+const repositoryId = generateObjectId("repo")
 const githubLog: GithubTokenLog = { minted: [], revoked: [] }
 /** The authorization of each call that reached the stand-in model. */
 const modelCalls: string[] = []
+/** The status of one tool bridge call from the sandbox during the step. */
+let bridgeDuringStep: Promise<number> | undefined
 /** Each request that the tunnel served: forwarded target, route, status. */
 const served: Array<{ forwarded: string; path: string; status: number }> = []
 
@@ -115,6 +122,10 @@ const server = setupServer(
   ...githubTokenHandlers(githubLog, () => githubToken),
   http.post(`${MODEL_PROVIDER_URL}/chat/completions`, async ({ request }) => {
     modelCalls.push(request.headers.get("authorization") ?? "")
+    // The model is called while the step runs: the agent user calls the
+    // tool bridge now, through the firewall and the egress proxy.
+    bridgeDuringStep ??= agentStatus(bridgeCall())
+    await bridgeDuringStep
     const body = (await request.json()) as { stream?: boolean }
     const usage = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }
     if (!body.stream)
@@ -165,6 +176,7 @@ function backendApp(): OpenAPIHono<AppEnv> {
     await next()
   })
   registerSandboxEgressRoute(app)
+  app.route("/", ingestToolBridgeRoutes)
   const model = new OpenAPIHono<AppEnv>().basePath(
     "/:orgSlug/api/v1/workspace-chat/openai",
   )
@@ -276,38 +288,11 @@ async function serveJob(
     report(`[tunnel] ${job.method} ${job.url.slice(0, 60)}: ${String(error)}`)
   }
   const forwardedHost = headers.get("vercel-forwarded-host")
-  // A refusal names what the proxy saw: the forwarded request and the
-  // claims of the sandbox's OIDC token (never the token itself).
-  if (status === 403 && forwardedHost) {
-    // The library's own check, and the scope, as the proxy sees them.
-    const sealed = /^\/api\/v1\/sandbox-egress\/([^/?]+)/.exec(job.url)?.[1]
-    await defineSandboxProxy(
-      async (request, meta) => {
-        const scope = sealed ? openIngestEgressScope(sealed, authSecret) : null
-        report(
-          `[diag] verified ${JSON.stringify({ sandbox: meta.sandboxName, host: meta.host })} scope ${scope ? JSON.stringify({ sandbox: scope.sandbox, live: scope.exp > Date.now(), repositories: scope.git.map((g) => g.repositories), step: Boolean(scope.step), backendHost: scope.backendHost }) : "not valid"} request ${request.method} ${request.url}`,
-        )
-        return new Response("diagnosed")
-      },
-      async (_request, error) => {
-        report(`[diag] the library refused: ${error.message}`)
-        return new Response("refused", { status: 403 })
-      },
-    )(
-      new Request(`https://${tunnelHost}${job.url}`, {
-        method: job.method,
-        headers,
-        ...(job.method === "GET" || job.method === "HEAD"
-          ? {}
-          : { body: Buffer.from(job.body, "base64") }),
-      }),
-    ).catch((error: unknown) => report(`[diag] ${String(error)}`))
-    const oidc = headers.get("vercel-sandbox-oidc-token")
-    const claims = oidc ? decodeJwt(oidc) : {}
+  // The proxy logs its own refusal reason; this names only the request.
+  if (status === 403 && forwardedHost)
     report(
-      `[tunnel] 403 ${job.method} ${forwardedHost}:${headers.get("vercel-forwarded-port")}${headers.get("vercel-forwarded-path")} at ${job.url.slice(0, 40)}… claims ${JSON.stringify({ iss: claims.iss, aud: claims.aud, team: claims.team_id, project: claims.project_id, sandbox: claims.sandbox_name })} expected ${JSON.stringify({ team: credentials.teamId, project: credentials.projectId, sandbox: sandboxName || "(unknown yet)", audience: `https://${tunnelHost}${job.url.split("?")[0]}` })}`,
+      `[tunnel] 403 ${job.method} ${forwardedHost}${headers.get("vercel-forwarded-path") ?? ""}`,
     )
-  }
   served.push({
     forwarded: forwardedHost
       ? `${forwardedHost}${headers.get("vercel-forwarded-path") ?? ""}`
@@ -437,6 +422,14 @@ beforeAll(async () => {
     installationId: 777,
     accountSlug: "octocat",
   })
+  await withOrgDbContext(orgId, (db) =>
+    db.insert(repositories).values({
+      id: repositoryId,
+      orgId,
+      name: HELLO,
+      gitUrl: HELLO_URL,
+    }),
+  )
   // The shard's sandbox row belongs to a Workspace of the org.
   await withOrgDbContext(orgId, (db) =>
     db.insert(workspaces).values({
@@ -496,6 +489,7 @@ afterAll(async () => {
   await withOrgDbContext(orgId, async (db) => {
     await db.delete(sandboxLocks).where(eq(sandboxLocks.orgId, orgId))
     await db.delete(workspaces).where(eq(workspaces.orgId, orgId))
+    await db.delete(repositories).where(eq(repositories.orgId, orgId))
     await db.delete(connections).where(eq(connections.orgId, orgId))
   })
   await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
@@ -522,7 +516,7 @@ function shardSpec(bundle: Awaited<ReturnType<typeof readIngestSkillBundle>>) {
         githubConnectionId: connectionId,
         generation: 1,
         pinnedRevision: HELLO_SHA,
-        repositoryId: null,
+        repositoryId,
         sourcePath: `sources/github/${HELLO}.md`,
       },
     ],
@@ -544,6 +538,11 @@ async function asAgent(command: string) {
       command,
     }),
   )
+}
+
+/** One MCP call to the step's tool bridge, as the agent sends it. */
+function bridgeCall(): string {
+  return `-X POST -H 'content-type: application/json' -H 'accept: application/json, text/event-stream' -d '{"jsonrpc":"2.0","id":1,"method":"tools/list"}' https://${tunnelHost}${INGEST_TOOL_BRIDGE_PATH}`
 }
 
 /** The HTTP status that `curl` got as the agent; 0 when no answer came. */
@@ -619,6 +618,10 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
           entry.status === 200,
       ),
     ).toBe(true)
+    // CTX-628 T12: the step's tool bridge answered during the step, and
+    // the firewall refuses it after the step.
+    expect(await bridgeDuringStep).toBe(200)
+    expect(await agentStatus(bridgeCall())).toBe(403)
   })
 
   it("prepares as root through the SDK sudo option; the agent user has no sudo, cannot write the prepared tree, and has ripgrep and ast-grep", async () => {
@@ -633,6 +636,11 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
       `${INGEST_OPENCODE_ROOT}/x`,
       `${INGEST_SOURCE_ROOT}/source/x`,
       `${INGEST_CONTEXT_ROOT}/${workspaceId}/x`,
+      // The folders on the agent's PATH, before the system's own.
+      `${VERCEL_INGEST_TOOLS_ROOT}/x`,
+      `${VERCEL_INGEST_TOOLS_ROOT}/bin/x`,
+      `/vercel/runtimes/${VERCEL_SANDBOX.runtime}/bin/x`,
+      "/opt/git/bin/x",
     ])
       expect((await asAgent(`touch ${path}`)).exitCode, path).not.toBe(0)
     // T05 S3: the pinned tools.
@@ -719,6 +727,9 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
       "https://example.com/",
       "http://169.254.169.254/latest/meta-data/",
       "http://10.0.0.1/",
+      // IPv6: the AWS metadata address, and a unique local address.
+      "'http://[fd00:ec2::254]/'",
+      "'http://[fd12:3456:789a::1]/'",
     ]) {
       const status = await agentStatus(target)
       expect(status >= 200 && status < 400, `${target}: ${status}`).toBe(false)
@@ -770,20 +781,33 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
     expect(await agentStatus(refs(HELLO))).toBe(403)
   })
 
-  it("destroy deletes the sandbox and revokes each GitHub token of the shard", async () => {
+  it("destroy deletes the sandbox and its snapshots, and revokes each GitHub token of the shard", async () => {
     await runtime.destroy({ orgId, runId, shard: 0, workspaceId })
-    const gone = await Sandbox.get({
-      ...credentials,
-      name: sandboxName,
-      resume: false,
-    }).then(
-      (sandbox) => sandbox.status,
-      (error: unknown) =>
-        error instanceof APIError && error.response.status === 404
-          ? "deleted"
-          : String(error),
-    )
-    expect(["deleted", "stopped", "stopping"]).toContain(gone)
+    // A stopped persistent sandbox keeps a snapshot with the source: only
+    // a deleted one counts. Vercel can report the delete a little later.
+    const deadline = Date.now() + 120_000
+    let state = ""
+    while (Date.now() < deadline) {
+      state = await Sandbox.get({
+        ...credentials,
+        name: sandboxName,
+        resume: false,
+      }).then(
+        (sandbox) => sandbox.status,
+        (error: unknown) =>
+          error instanceof APIError && error.response.status === 404
+            ? "deleted"
+            : String(error),
+      )
+      if (state === "deleted") break
+    }
+    expect(state).toBe("deleted")
+    const snapshots = await (
+      await Snapshot.list({ ...credentials, name: sandboxName })
+    ).toArray()
+    expect(
+      snapshots.filter((snapshot) => snapshot.status !== "deleted"),
+    ).toEqual([])
     const store = sandboxGitTokenStore(orgId, parseEnv(process.env))
     expect(await store.list(`ingest:${runId}:0:`)).toEqual([])
     expect(githubLog.revoked).toContain(githubToken)
