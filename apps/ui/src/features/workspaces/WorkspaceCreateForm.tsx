@@ -1,7 +1,7 @@
 import HyperDX from "@hyperdx/browser"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Heading } from "react-aria-components"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
@@ -21,28 +21,18 @@ import {
 } from "./WorkspaceRepositoryPicker"
 
 /**
- * Add Workspace in two steps. Step 1 chooses the Workspace repository and
- * creates the Workspace. Step 2 adds code repositories and tools to it.
+ * The fixed part of Add Workspace: the heading, the two steps, and the card of
+ * the current step. The heading and the top of the card never move, so the
+ * page does not shift while it loads or when step 2 replaces step 1.
  */
-export function WorkspaceCreateForm(props: { orgSlug: string }) {
-  const { orgSlug } = props
-  const queryClient = useQueryClient()
-  const [error, setError] = useState<string | null>(null)
-  const [createdSlug, setCreatedSlug] = useState<string | null>(null)
-
-  const createMutation = useMutation({
-    mutationFn: (choice: WorkspaceRepositoryChoice) =>
-      createWorkspace(orgSlug, choice),
-    onSuccess: (workspace) => {
-      HyperDX.addAction("workspace_created")
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.list(orgSlug),
-      })
-      setCreatedSlug(workspace.slug)
-    },
-    onError: (err: Error) => setError(err.message),
-  })
-
+export function WorkspaceCreateFrame(props: {
+  step: 0 | 1
+  children: ReactNode
+}) {
+  const steps = [
+    { id: "repository", label: "Choose the Workspace repository" },
+    { id: "sources", label: "Add code repositories and tools" },
+  ]
   return (
     <div className="w-full">
       {/* In the Add Workspace modal, the title slot names the dialog. */}
@@ -55,17 +45,57 @@ export function WorkspaceCreateForm(props: { orgSlug: string }) {
       </Heading>
       <ConnectorSetupStepper
         className="mt-4"
-        steps={[
-          { id: "repository", label: "Choose the Workspace repository" },
-          { id: "sources", label: "Add code repositories and tools" },
-        ]}
-        currentIndex={createdSlug ? 1 : 0}
+        steps={steps}
+        currentIndex={props.step}
       />
-      {createdSlug ? (
-        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={createdSlug} />
+      <section aria-label={steps[props.step].label} className="mt-6 min-h-96">
+        {props.children}
+      </section>
+    </div>
+  )
+}
+
+/**
+ * Add Workspace in two steps. Step 1 chooses the Workspace repository and
+ * creates the Workspace. Step 2 adds code repositories and tools to it.
+ *
+ * On a page, the URL holds the step: the page passes `workspaceSlug` once the
+ * Workspace exists and changes the URL in `onCreated`. Without them (the
+ * modal), the form keeps the step itself. Step 1 never shows again for a
+ * Workspace that exists.
+ */
+export function WorkspaceCreateForm(props: {
+  orgSlug: string
+  workspaceSlug?: string
+  onCreated?: (workspaceSlug: string) => void
+}) {
+  const { orgSlug, onCreated } = props
+  const queryClient = useQueryClient()
+  const [error, setError] = useState<string | null>(null)
+  const [createdSlug, setCreatedSlug] = useState<string | null>(null)
+  const workspaceSlug = props.workspaceSlug ?? createdSlug
+
+  const createMutation = useMutation({
+    mutationFn: (choice: WorkspaceRepositoryChoice) =>
+      createWorkspace(orgSlug, choice),
+    onSuccess: (workspace) => {
+      HyperDX.addAction("workspace_created")
+      void queryClient.invalidateQueries({
+        queryKey: workspaceKeys.list(orgSlug),
+      })
+      setCreatedSlug(workspace.slug)
+      onCreated?.(workspace.slug)
+    },
+    onError: (err: Error) => setError(err.message),
+  })
+
+  return (
+    <WorkspaceCreateFrame step={workspaceSlug ? 1 : 0}>
+      {workspaceSlug ? (
+        <AddSourcesStep orgSlug={orgSlug} workspaceSlug={workspaceSlug} />
       ) : (
         <>
-          <p className="mt-6 text-sm text-muted-foreground">
+          <p className="text-sm text-muted-foreground">
             ctxpipe saves this Workspace’s knowledge in the repository you
             choose.
           </p>
@@ -83,7 +113,7 @@ export function WorkspaceCreateForm(props: { orgSlug: string }) {
           </div>
         </>
       )}
-    </div>
+    </WorkspaceCreateFrame>
   )
 }
 
@@ -111,7 +141,7 @@ function AddSourcesStep(props: { orgSlug: string; workspaceSlug: string }) {
 
   return (
     <>
-      <p className="mt-6 text-sm text-muted-foreground">
+      <p className="text-sm text-muted-foreground">
         ctxpipe reads these sources to answer questions. You can change them
         later under Sources in Workspace settings.
       </p>

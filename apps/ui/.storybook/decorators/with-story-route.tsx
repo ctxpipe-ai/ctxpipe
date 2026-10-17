@@ -26,7 +26,7 @@ export type StoryRouteParams =
   | { pattern: "orgIndex"; orgSlug: string; search?: string }
   | { pattern: "orgConnectors"; orgSlug: string; search?: string }
   | { pattern: "orgRepositories"; orgSlug: string }
-  | { pattern: "orgWorkspaceNew"; orgSlug: string }
+  | { pattern: "orgWorkspaceNew"; orgSlug: string; search?: string }
   | {
       pattern: "orgWorkspace"
       orgSlug: string
@@ -233,7 +233,7 @@ function createStoryRouter(
       : spec.pattern === "orgRepositories"
         ? `/${spec.orgSlug}/repositories`
         : spec.pattern === "orgWorkspaceNew"
-          ? `/${spec.orgSlug}/workspaces/new`
+          ? `/${spec.orgSlug}/workspaces/new${spec.search ?? ""}`
           : spec.pattern === "orgWorkspace"
             ? spec.conversationId
               ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
