@@ -1,0 +1,138 @@
+name: Ingestion v2 proof (Docker)
+
+# CTX-630, Docker half. A manual run that spends real model money. Nobody
+# starts it except the CTO. It starts the Compose `deploy` stack (the Docker
+# sandbox host with Agent Vault), seeds a test org with one Workspace at
+# format 3, runs ingestion v2 in shadow mode for each repository, kills the
+# worker once during the last run, and writes one summary row for each
+# repository. The total model spend stops every run at `spend_cap_usd`.
+#
+# Repository secrets (names only):
+#   MODEL_PROVIDER_API_KEY  the model provider key
+#   GH_APP_ID               the GitHub App id of the test org
+#   GH_PRIVATE_KEY          the GitHub App private key (PEM)
+# Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
+#   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
+# The GitHub App must be installed on the owner of every repository and of
+# the Workspace repository, with access to all of them.
+
+on:
+  workflow_dispatch:
+    inputs:
+      repos:
+        description: "Fork URLs of the repositories to ingest, separated by spaces, commas or new lines. Put the largest last: the worker-kill test runs in the last one."
+        required: true
+        type: string
+      workspace_repo:
+        description: "URL of an empty or existing repository in the same owner. The run commits the Workspace format file and the source files to its default branch."
+        required: true
+        type: string
+      spend_cap_usd:
+        description: "Stop every run when the total model spend passes this amount (USD)."
+        required: true
+        type: number
+        default: 30
+      mode:
+        description: "Ingestion mode."
+        required: true
+        type: choice
+        options:
+          - shadow
+        default: shadow
+
+concurrency:
+  group: ingestion-v2-proof
+  cancel-in-progress: false
+
+permissions: {}
+
+jobs:
+  proof:
+    name: Ingestion v2 proof (Docker)
+    runs-on: blacksmith-8vcpu-ubuntu-2404
+    timeout-minutes: 360
+    permissions:
+      contents: read
+    env:
+      COMPOSE_PROFILES: deploy
+    steps:
+      - uses: actions/checkout@v6
+      - uses: ./.github/actions/setup-buildx
+      - name: Write the Compose settings
+        env:
+          RUNNER_TEMP_DIR: ${{ runner.temp }}
+          MODEL_PROVIDER: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
+          MODEL_PROVIDER_URL: ${{ vars.MODEL_PROVIDER_URL }}
+          MODEL_FAST_NAME: ${{ vars.MODEL_FAST_NAME }}
+          MODEL_MEDIUM_NAME: ${{ vars.MODEL_MEDIUM_NAME }}
+          MODEL_HIGH_NAME: ${{ vars.MODEL_HIGH_NAME }}
+        run: |
+          # A random secret for this run only. Mask it before any step prints it.
+          auth_secret=$(openssl rand -hex 32)
+          echo "::add-mask::$auth_secret"
+          # The compose file gives the backend and the worker the GitHub App
+          # settings. Compose reads the values from its own environment.
+          cat > "$RUNNER_TEMP_DIR/proof.compose.yaml" <<'YAML'
+          services:
+            backend:
+              environment:
+                GITHUB_APP_ID: ${GITHUB_APP_ID}
+                GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY}
+            worker:
+              environment:
+                GITHUB_APP_ID: ${GITHUB_APP_ID}
+                GITHUB_PRIVATE_KEY: ${GITHUB_PRIVATE_KEY}
+          YAML
+          {
+            echo "COMPOSE_FILE=docker-compose.yml:$RUNNER_TEMP_DIR/proof.compose.yaml"
+            echo "AUTH_SECRET=$auth_secret"
+            echo "MODEL_PROVIDER=$MODEL_PROVIDER"
+            echo "MODEL_PROVIDER_URL=$MODEL_PROVIDER_URL"
+            echo "MODEL_FAST_NAME=$MODEL_FAST_NAME"
+            echo "MODEL_MEDIUM_NAME=$MODEL_MEDIUM_NAME"
+            echo "MODEL_HIGH_NAME=$MODEL_HIGH_NAME"
+          } >> "$GITHUB_ENV"
+      - name: Start the stack and build the chat sandbox image
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+        run: |
+          # Postgres, FalkorDB, Agent Vault, the DinD sandbox host, migrate,
+          # backend, worker, UI and codesearch. `migrate` runs before the backend
+          # starts. `chat-sandbox-image` builds the chat sandbox image inside DinD.
+          docker compose up -d --build
+          image_container=$(docker compose ps -aq chat-sandbox-image)
+          [ "$(docker wait "$image_container")" = 0 ] || {
+            docker compose logs chat-sandbox-image
+            echo "::error::The chat sandbox image did not build"
+            exit 1
+          }
+          for _ in $(seq 1 60); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' http://127.0.0.1:3000/ || true)
+            [ "$code" != 000 ] && exit 0
+            sleep 5
+          done
+          docker compose logs backend
+          echo "::error::The backend did not answer after 300 s"
+          exit 1
+      - name: Run ingestion v2 for each repository
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          GITHUB_APP_ID: ${{ secrets.GH_APP_ID }}
+          GITHUB_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          REPOS: ${{ inputs.repos }}
+          WORKSPACE_REPO: ${{ inputs.workspace_repo }}
+          SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
+          MODE: ${{ inputs.mode }}
+        run: bash scripts/ci/ingestion-v2-proof.sh
+      - name: Stack logs
+        if: always()
+        continue-on-error: true
+        run: |
+          docker compose ps -a
+          docker compose logs --no-color --tail 300 worker backend
+      - name: Stop the stack
+        if: always()
+        continue-on-error: true
+        run: docker compose down --volumes
