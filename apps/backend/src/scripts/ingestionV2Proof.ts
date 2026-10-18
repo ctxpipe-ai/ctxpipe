@@ -429,6 +429,7 @@ async function status(argv: string[]): Promise<void> {
   })
   const output = (row.output ?? {}) as {
     status?: string
+    reason?: string
     workspaces?: Array<{ ops?: number; rejects?: number; partial?: number }>
   }
   const sum = (key: "ops" | "rejects" | "partial") =>
@@ -440,6 +441,7 @@ async function status(argv: string[]): Promise<void> {
     status: row.status,
     terminal: TERMINAL.includes(row.status),
     outputStatus: output.status ?? null,
+    outputReason: output.reason ?? null,
     error: row.error ?? null,
     completedSteps: Number(counts?.steps ?? 0),
     spendUsd: finished.usd,

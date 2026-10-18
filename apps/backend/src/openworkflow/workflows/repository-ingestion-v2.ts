@@ -238,6 +238,7 @@ export function defineRepositoryIngestionV2Workflow(
               ...(input.source.kind !== "git"
                 ? { githubConnectionId: input.source.githubConnectionId }
                 : {}),
+              ingestionV2: true,
             },
             { name: "index" },
           )
