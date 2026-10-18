@@ -634,8 +634,40 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    const doc = canvasElement.ownerDocument
+    const events: string[] = []
+    const record = (event: Event) => {
+      const target = event.target as HTMLElement
+      events.push(
+        `${Math.round(performance.now())} ${event.type} ${"animationName" in event ? (event as AnimationEvent).animationName : ""} ${target.tagName} ${String(target.className).slice(0, 60)}`,
+      )
+    }
+    for (const type of ["animationstart", "animationend", "animationcancel"])
+      doc.addEventListener(type, record, true)
+    const view = doc.defaultView as Window & typeof globalThis
+    const original = view.Element.prototype.getAnimations
+    view.Element.prototype.getAnimations = function (
+      this: Element,
+      options?: GetAnimationsOptions,
+    ) {
+      const list = original.call(this, options)
+      const cls = String(this.className)
+      if (cls.includes("isolate z-20") || cls.includes("font-sans w-full min-h-0")) {
+        const at = Math.round(performance.now())
+        events.push(
+          `${at} getAnimations ${cls.slice(0, 20)} exiting=${this.getAttribute("data-exiting")} -> ${JSON.stringify(list.map((a) => [(a as CSSAnimation).animationName, a.playState, a.currentTime]))}`,
+        )
+        for (const a of list)
+          a.finished.then(
+            () => events.push(`${Math.round(performance.now())} finished ${(a as CSSAnimation).animationName} (from ${at})`),
+            () => events.push(`${Math.round(performance.now())} REJECTED ${(a as CSSAnimation).animationName} (from ${at})`),
+          )
+      }
+      return list
+    }
     const guide = await findGuide(canvasElement)
     await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+    events.push(`${Math.round(performance.now())} click link`)
     await userEvent.click(
       guide.getByRole("button", { name: "Link repositories" }),
     )
@@ -650,14 +682,28 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     await userEvent.click(
       await within(dialog).findByRole("checkbox", { name: "acme/api" }),
     )
+    events.push(`${Math.round(performance.now())} submit`)
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Open a pull request" }),
     )
-    await waitFor(() =>
-      expect(
-        body.queryByRole("dialog", { name: "Add repositories" }),
-      ).not.toBeInTheDocument(),
-    )
+    try {
+      await waitFor(
+        () =>
+          expect(
+            body.queryByRole("dialog", { name: "Add repositories" }),
+          ).not.toBeInTheDocument(),
+        { timeout: 3000 },
+      )
+    } catch (error) {
+      throw new Error(
+        `DIAG Add repositories stayed. viewTransition=${String((doc as unknown as { activeViewTransition?: unknown }).activeViewTransition ?? "none")} events=${JSON.stringify(events.filter((e) => !e.includes("skeleton") && !e.includes("shimmer") && !e.includes("pulse")))} state=${describeExit(dialog, 0, doc)}`,
+        { cause: error },
+      )
+    } finally {
+      for (const type of ["animationstart", "animationend", "animationcancel"])
+        doc.removeEventListener(type, record, true)
+      view.Element.prototype.getAnimations = original
+    }
     // Home stays, and the row shows the pull request that waits.
     const after = await findGuide(canvasElement)
     await waitFor(() =>
