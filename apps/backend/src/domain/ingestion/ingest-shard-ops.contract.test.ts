@@ -170,7 +170,11 @@ describe("ingest shard commands in a Docker sandbox", () => {
             toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
           }),
           agentEnv,
-          source: { url: "/tmp/remotes/source.git", sha: sourceSha },
+          source: {
+            url: "/tmp/remotes/source.git",
+            sha: sourceSha,
+            blobless: true,
+          },
           contexts: [
             { workspaceId: WORKSPACE_ID, url: "/tmp/remotes/context.git" },
           ],
@@ -280,6 +284,81 @@ describe("ingest shard commands in a Docker sandbox", () => {
         expect(Buffer.from(written).toString("utf8")).toBe(
           JSON.stringify(rootMap),
         )
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
+    "stops the plain git clone of prepare at the step's signal when the git host sends nothing, and sets the low speed limit on the clone",
+    { timeout: 300_000 },
+    async () => {
+      const bundle = await readIngestSkillBundle(bundleDir)
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-ops-stall-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        // A git host that accepts the connection and never answers.
+        const silent = await handle.process.spawn(
+          `node -e "require('net').createServer(() => {}).listen(9418, '127.0.0.1', () => console.log('ready'))"`,
+        )
+        for await (const chunk of silent.stdout)
+          if (chunk.includes("ready")) break
+        const commands: string[] = []
+        const recorded: Pick<SandboxHandle, "fs" | "process"> = {
+          fs: handle.fs,
+          process: {
+            exec: (command, options) => {
+              commands.push(command)
+              return handle.process.exec(command, options)
+            },
+            spawn: (command, options) => handle.process.spawn(command, options),
+          },
+        }
+        const agentEnv = await ingestAgentEnv(root, {
+          modelProxyUrl: "http://127.0.0.1:9/v1",
+        })
+        const controller = new AbortController()
+        const started = Date.now()
+        const outcome = prepareIngestShard(recorded, root, {
+          bundle,
+          opencodeConfig: ingestOpenCodeConfig({
+            modelBase: "stub",
+            models: [],
+            skills: bundle.skills,
+            proxyAddsCredentials: true,
+            toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
+          }),
+          agentEnv,
+          source: {
+            url: "http://127.0.0.1:9418/team/app.git",
+            sha: "a".repeat(40),
+            blobless: false,
+          },
+          contexts: [],
+          now: new Date("2026-10-01T00:00:00Z"),
+          signal: controller.signal,
+        }).then(
+          () => "prepared",
+          (error: unknown) => String(error),
+        )
+        // Abort while the clone waits; git's low speed limit (60 s) and the
+        // step limit (10 min) are both later.
+        await new Promise((resolve) => setTimeout(resolve, 15_000))
+        const clone = commands.find((command) =>
+          command.includes("127.0.0.1:9418"),
+        )
+        controller.abort(new Error("The ingest step reached its time limit"))
+        expect(await outcome).not.toBe("prepared")
+        expect(Date.now() - started).toBeLessThan(45_000)
+        expect(await ingestShardPrepared(root)).toBe(false)
+        expect(clone).toContain(
+          "git clone -q -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60 --no-checkout",
+        )
+        await silent.kill()
       } finally {
         await provider.destroy({ id: handle.id })
       }

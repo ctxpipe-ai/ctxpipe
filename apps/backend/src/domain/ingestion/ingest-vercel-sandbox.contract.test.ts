@@ -504,6 +504,7 @@ function shardSpec(bundle: Awaited<ReturnType<typeof readIngestSkillBundle>>) {
     shard: 0,
     bundle,
     source: {
+      kind: "github" as const,
       url: HELLO_URL,
       githubConnectionId: connectionId,
       sha: HELLO_SHA,

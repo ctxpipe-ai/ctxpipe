@@ -132,11 +132,19 @@ describe("the Docker ingest sandbox has closed egress", () => {
       await withAgentVault({ image, closed: true }, async (fixture) => {
         gitToken = fixture.gitToken
         const base = `http://${fixture.upstream}:8080`
+        const plain = `https://${fixture.upstream}`
         const runId = `run_${crypto.randomUUID()}`
         const egress = (
           step: number,
-          repositories = [
+          repositories: IngestEgress["repositories"] = [
             { fullName: "git/repo", githubConnectionId: connectionId },
+            // A public plain git source: fetch with no credential, over
+            // HTTPS on 443, only while prepare fetches it (CTX-815).
+            {
+              kind: "git",
+              host: fixture.upstream,
+              path: "/public/repo.git",
+            },
           ],
         ): IngestEgress => ({
           repositories,
@@ -189,6 +197,21 @@ echo
 echo "== other-path"
 ${code(`${base}/echo/other`)}
 echo
+echo "== plain-fetch"
+git ls-remote ${plain}/public/repo.git refs/heads/main 2>&1 | cut -f2
+echo "== plain-other-path"
+${code(`${plain}/public/other.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== plain-other-port"
+${code(`${base}/public/repo.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== plain-other-host"
+${code("https://example.com/public/repo.git/info/refs?service=git-upload-pack")}
+echo
+echo "== plain-push"
+cd /tmp/clone && git push ${plain}/public/repo.git HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSED
+cd /
+echo
 echo "== direct"
 ${code("--noproxy '*' https://example.com/")}
 echo
@@ -212,6 +235,15 @@ echo
           expect(result.push, output).toContain("403")
           expect(result.push, output).toContain("REFUSED")
           expect(result["github-push"], output).toContain("REFUSED")
+          // The plain git source: only Git fetch of its own path, with no
+          // credential. The Git server would take the push with no auth.
+          expect(result["plain-fetch"], output).toBe("refs/heads/main")
+          expect(result["plain-other-path"], output).toBe("403")
+          // The rule matches only port 443: the HTTP server on 8080 serves
+          // the same path, and the vault refuses it.
+          expect(result["plain-other-port"], output).toBe("403")
+          expect(result["plain-other-host"], output).toBe("403")
+          expect(result["plain-push"], output).toContain("REFUSED")
           for (const name of [
             "github-receive-pack",
             "github-api",
@@ -242,6 +274,21 @@ echo
           )
           // One token per 50-minute window: the refresh reused it.
           expect(log.minted).toHaveLength(1)
+          // A step after prepare cannot reach the plain git host: no GET,
+          // and no POST that could carry Workspace content out.
+          const stepPlain = sections(
+            await run(
+              handle.id,
+              `echo "== get"
+${code(`${plain}/public/repo.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== post"
+${code(`-X POST --data-binary 'Workspace content' -H 'content-type: application/x-git-upload-pack-request' ${plain}/public/repo.git/git-upload-pack`)}
+echo`,
+            ),
+          )
+          expect(stepPlain.get).toBe("403")
+          expect(stepPlain.post).toBe("403")
 
           // A step that lists no repository cannot fetch one.
           await refreshIngestSandboxEgress({ ...shard, egress: egress(3, []) })

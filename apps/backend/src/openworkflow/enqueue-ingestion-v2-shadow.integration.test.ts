@@ -94,11 +94,11 @@ describe("ingestion v2 shadow trigger", () => {
     })
   })
 
-  it("queues nothing for a repository without a GitHub connection", async () => {
-    const other = generateObjectId("repo")
+  it("queues a plain git run for a public HTTPS repository without a GitHub connection", async () => {
+    const plain = generateObjectId("repo")
     await withOrgDbContext(orgId, (db) =>
       db.insert(repositories).values({
-        id: other,
+        id: plain,
         orgId,
         name: "acme/plain",
         gitUrl: "https://git.example.com/acme/plain.git",
@@ -107,10 +107,46 @@ describe("ingestion v2 shadow trigger", () => {
     await expect(
       startIngestionV2Shadow({
         orgId,
-        repositoryId: other,
+        repositoryId: plain,
         sha,
         triggerRunId: "trigger-3",
       }),
-    ).resolves.toEqual({ started: false, reason: "not_github" })
+    ).resolves.toMatchObject({ started: true })
+    expect(
+      (await v2Runs()).find(
+        (run) =>
+          (run.input.source as { kind?: string } | undefined)?.kind === "git",
+      )?.input,
+    ).toMatchObject({
+      source: { kind: "git", url: "https://git.example.com/acme/plain.git" },
+      sha,
+    })
+  })
+
+  it("queues nothing for a repository URL that ctx| does not read as plain git", async () => {
+    for (const [index, gitUrl] of [
+      "http://git.example.com/acme/plain.git",
+      "https://token@git.example.com/acme/plain.git",
+      "https://git.example.com:8443/acme/plain.git",
+      "https://10.0.0.5/acme/plain.git",
+    ].entries()) {
+      const other = generateObjectId("repo")
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(repositories).values({
+          id: other,
+          orgId,
+          name: `acme/refused-${index}`,
+          gitUrl,
+        }),
+      )
+      await expect(
+        startIngestionV2Shadow({
+          orgId,
+          repositoryId: other,
+          sha,
+          triggerRunId: `trigger-refused-${index}`,
+        }),
+      ).resolves.toEqual({ started: false, reason: "unsupported_url" })
+    }
   })
 })

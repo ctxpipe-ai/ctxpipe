@@ -1,8 +1,12 @@
 import { eq } from "drizzle-orm"
 import { withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
-import type { IngestionV2Input } from "../domain/ingestion/ingestion-run.js"
+import type {
+  IngestionV2Input,
+  IngestSource,
+} from "../domain/ingestion/ingestion-run.js"
 import { resolveIngestionV2Run } from "../domain/ingestion/ingestion-v2-resolve.js"
+import { checkPlainGitUrl } from "../domain/workspace-sources/providers/git.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
@@ -12,7 +16,11 @@ export type IngestionV2ShadowStart =
   | { started: true; runId: string }
   | {
       started: false
-      reason: "not_github" | "repository_gone"
+      /**
+       * `unsupported_url`: a repository with no GitHub connection whose URL
+       * is not a plain git URL that ctx| reads (CTX-815).
+       */
+      reason: "unsupported_url" | "repository_gone"
     }
 
 export type IngestionV2PublishStart =
@@ -54,6 +62,28 @@ export function startIngestionV2Publish(
   return startIngestionV2Run(input, { shadow: false })
 }
 
+/**
+ * The ingestion source of an org repository: a GitHub repository with its
+ * connection, else a plain git repository that ctx| reads over public HTTPS
+ * with no credential, as the old ingestion on main read it (CTX-815). Null
+ * when neither applies.
+ */
+export function ingestSourceOf(repository: {
+  gitUrl: string
+  githubConnectionId: string | null
+}): IngestSource | null {
+  const url = normalizeWorkspaceRepositoryUrl(repository.gitUrl)
+  if (repository.githubConnectionId && githubRepoFullNameFromWorkspaceUrl(url))
+    return {
+      kind: "github",
+      url,
+      githubConnectionId: repository.githubConnectionId,
+    }
+  // The raw URL: the normalized form drops a user name and `.git`.
+  const plain = checkPlainGitUrl(repository.gitUrl)
+  return plain.ok ? { kind: "git", url: plain.url } : null
+}
+
 async function startIngestionV2Run(
   input: StartInput,
   options: { shadow: boolean },
@@ -69,13 +99,8 @@ async function startIngestionV2Run(
       .limit(1),
   )
   if (!repository) return { started: false, reason: "repository_gone" }
-  const url = normalizeWorkspaceRepositoryUrl(repository.gitUrl)
-  if (
-    !repository.githubConnectionId ||
-    !githubRepoFullNameFromWorkspaceUrl(url)
-  )
-    return { started: false, reason: "not_github" }
-  const source = { url, githubConnectionId: repository.githubConnectionId }
+  const source = ingestSourceOf(repository)
+  if (!source) return { started: false, reason: "unsupported_url" }
   if (!options.shadow) {
     const resolved = await resolveIngestionV2Run({
       orgId: input.orgId,
