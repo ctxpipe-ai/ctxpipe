@@ -69,8 +69,8 @@ import {
 
 /*
  * Contract (hosted): one ingest shard on a real Vercel sandbox, through the
- * production shard runtime, with the hosted egress gate open for this test
- * only (`VERCEL_INGEST_EGRESS_PROVEN` stays false in the product).
+ * production shard runtime, with the hosted egress gate
+ * (`VERCEL_INGEST_EGRESS_PROVEN`) open.
  *
  * The backend must be public for the Vercel firewall, and a CI runner is not.
  * A second sandbox with a public port stands in for the backend's address:

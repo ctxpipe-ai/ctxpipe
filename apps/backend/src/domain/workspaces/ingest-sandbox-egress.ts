@@ -51,11 +51,11 @@ import {
 } from "./vercel-sandbox-provider.js"
 
 /**
- * False until the T12 live check proves the hosted egress proxy (T03b,
- * `ingestNetworkPolicy` and `ingestEgressProxy`) on Vercel. Until then,
- * `vercelIngestSandboxProvider` refuses to start.
+ * True since the live check proved the hosted egress proxy (T03b,
+ * `ingestNetworkPolicy` and `ingestEgressProxy`) on a real Vercel sandbox.
+ * When it is false, `vercelIngestSandboxProvider` refuses to start.
  */
-export const VERCEL_INGEST_EGRESS_PROVEN = false
+export const VERCEL_INGEST_EGRESS_PROVEN = true
 
 /**
  * Whether hosted ingest egress is on: the egress route is mounted and ingest
