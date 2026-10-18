@@ -63,8 +63,8 @@ describe("buildkitePipelineFiles", () => {
     }).map((candidate) => candidate.path)
 
     expect(paths).toEqual([
-      "buildkite/pipelines/-.-.-ctxpipe/pipeline.md",
-      "buildkite/pipelines/-.-.-ctxpipe/builds/42.md",
+      "buildkite/pipelines/-.-..-.ctxpipe/pipeline.md",
+      "buildkite/pipelines/-.-..-.ctxpipe/builds/42.md",
     ])
   })
 
