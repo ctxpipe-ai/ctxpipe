@@ -38,11 +38,6 @@ const config = withMDX({
         permanent: false,
       },
       {
-        source: "/docs/mcp/claude-plugin",
-        destination: "/docs/mcp/mcp-docs",
-        permanent: false,
-      },
-      {
         source: "/docs/knowledge-graph/:path*",
         destination: "/docs/workspaces/graph",
         permanent: false,

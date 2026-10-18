@@ -18,16 +18,17 @@ the best-supported path is the **GitHub App**. GitLab and other git hosts have n
 first-party setup flow.
 
 ctx| can read a repository on another git host as a plain git source. Plain git
-sources are read-only. ctx| reads them with git over HTTP(S) and no credential,
+sources are read-only. ctx| reads them with git over HTTPS or, on self-host, HTTP, and with no credential,
 so a private repository on another host does not work. The URL rules depend on
 where ctx| runs:
 
-- **Hosted ctx|, and a deployment that does not set `SANDBOX_PROVIDER=docker`:**
+- **Hosted ctx|, and a deployment where `SANDBOX_PROVIDER` is not `docker`:**
   the URL uses `https://` and the default port. The host is a public domain
   name. ctx| refuses an IP address, a private name such as `localhost`, and a
   host that resolves to a private address.
-- **Self-hosted ctx| with `SANDBOX_PROVIDER=docker`:** the operator must set this
-  value. The URL can also use `http://`, a custom port, an IP address, or a
+- **Self-hosted ctx| with `SANDBOX_PROVIDER=docker`:** the Compose file and the
+  AWS CDK stack set this value. On another setup, the operator sets it
+  explicitly. The URL can also use `http://`, a custom port, an IP address, or a
   private host name. Agent Vault reaches a private address only when that
   address is in `AGENT_VAULT_NETWORK_ALLOWLIST`.
 - **Both:** SSH (`git@…` or `ssh://`), `git://`, and `file://` URLs are not

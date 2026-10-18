@@ -106,7 +106,7 @@ worker.
 
 | Variable | Description |
 |---|---|
-| `SANDBOX_PROVIDER` | Optional. `docker` (default if you do not set it) or `vercel`. If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
+| `SANDBOX_PROVIDER` | `docker` or `vercel`. For chat only, `docker` is the default if you do not set it. Set `docker` explicitly: the plain git URL rules for self-host (`http://`, a custom port, an IP address, a private host name) apply only when the value is exactly `docker`. Compose and the AWS CDK stack set it. If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
 | `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
 | `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
 | `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
