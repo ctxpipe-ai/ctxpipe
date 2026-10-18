@@ -1,4 +1,5 @@
 import { execFileSync, spawn } from "node:child_process"
+import { existsSync } from "node:fs"
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
@@ -23,7 +24,10 @@ import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 import { turnAgentPassword } from "./vercel-sandbox-provider.js"
-import { workspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
+import {
+  WORKSPACE_CHAT_OPENCODE_START_ENV,
+  workspaceChatOpenCodeConfig,
+} from "./workspace-chat-opencode-contract.js"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -630,6 +634,128 @@ it(
   },
 )
 
+it(
+  "starts the chat's first model call with no OpenCode copy of the repository, and its tools still find files (CTX-848)",
+  { timeout: 60_000 },
+  async () => {
+    // OpenCode copies the whole repository into its own Git store before
+    // each step (its undo snapshot). The chat never uses that undo, and the
+    // copy delays the first model call of each turn.
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-start-"))
+    const git = (...args: string[]) =>
+      execFileSync("git", args, { cwd: directory, stdio: "ignore" })
+    git("init", "-q")
+    await writeFile(join(directory, "notes.md"), "# Notes\n")
+    await writeFile(
+      join(directory, ".git", "info", "exclude"),
+      "config/\ndata/\nstate/\ncache/\n",
+    )
+    git("add", "notes.md")
+    git(
+      "-c",
+      "user.name=t",
+      "-c",
+      "user.email=t@example.com",
+      "commit",
+      "-qm",
+      "notes",
+    )
+    const bodies: string[] = []
+    const model = createServer((request, response) => {
+      let body = ""
+      request.on("data", (chunk) => {
+        body += chunk
+      })
+      request.on("end", () => {
+        bodies.push(body)
+        const chunks = body.includes("call_glob")
+          ? [
+              completionChunk({ role: "assistant", content: "done" }),
+              completionChunk({}, "stop"),
+            ]
+          : [
+              completionChunk({
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_glob",
+                    type: "function",
+                    function: {
+                      name: "glob",
+                      arguments: JSON.stringify({ pattern: "**/*.md" }),
+                    },
+                  },
+                ],
+              }),
+              completionChunk({}, "tool_calls"),
+            ]
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        for (const chunk of chunks)
+          response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+        response.end("data: [DONE]\n\n")
+      })
+    })
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({ id: directory, workspace: { source: { type: "none" } } })
+    try {
+      await new Promise<void>((resolve) =>
+        model.listen(0, "127.0.0.1", () => resolve()),
+      )
+      const address = model.address()
+      if (!address || typeof address === "string")
+        throw new Error("model fixture did not bind")
+      const chat = workspaceChatOpenCodeConfig({ modelBase: "probe" })
+      await sandbox.env.set({
+        ...syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${address.port}/model/v1`,
+          chat.permission,
+          { snapshot: chat.snapshot },
+        ),
+        ...WORKSPACE_CHAT_OPENCODE_START_ENV,
+      })
+      const server = await startOpencodeServerInSandbox(sandbox, {
+        port: await freeLoopbackPort(),
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      try {
+        session = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: () => undefined,
+          onPermissionRequest: () => "reject",
+        })
+        await session.prompt("List the notes.")
+      } finally {
+        await session?.dispose()
+        await server.dispose()
+      }
+      const toolResults = bodies.flatMap((body) =>
+        (
+          JSON.parse(body) as {
+            messages: Array<{ role: string; content: unknown }>
+          }
+        ).messages.filter((message) => message.role === "tool"),
+      )
+      expect(JSON.stringify(toolResults)).toContain("notes.md")
+      expect(existsSync(join(directory, "data", "opencode", "snapshot"))).toBe(
+        false,
+      )
+    } finally {
+      model.closeAllConnections()
+      model.close()
+      await sandbox.destroy()
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
+
 function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
@@ -651,6 +777,7 @@ function syntheticOpencodeEnv(
   directory: string,
   baseURL: string,
   permission?: Record<string, unknown>,
+  extra?: Record<string, unknown>,
 ): Record<string, string> {
   return {
     XDG_CONFIG_HOME: join(directory, "config"),
@@ -668,6 +795,7 @@ function syntheticOpencodeEnv(
         },
       },
       ...(permission ? { permission } : {}),
+      ...extra,
     }),
   }
 }

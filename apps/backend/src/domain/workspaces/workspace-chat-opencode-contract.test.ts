@@ -7,6 +7,8 @@ import {
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
+  WORKSPACE_CHAT_OPENCODE_START_ENV,
+  workspaceChatLocalProcessScrubEnv,
   workspaceChatOpenCodeConfig,
   workspaceChatOpenCodeConfigPath,
   workspaceChatOpenCodeContract,
@@ -142,6 +144,7 @@ describe("workspaceChatOpenCodeContract", () => {
         },
       },
       model: "ctxpipe/test/model-fast",
+      snapshot: false,
       permission: {
         task: "deny",
         webfetch: "deny",
@@ -243,6 +246,19 @@ describe("workspaceChatOpenCodeContract", () => {
         headers: { Authorization: "Bearer tok" },
       },
     })
+  })
+
+  it("keeps the OpenCode start settings of an unsandboxed run (CTX-848)", () => {
+    expect(
+      workspaceChatLocalProcessScrubEnv({
+        OPENCODE_DISABLE_FFF: "1",
+        OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "1",
+        DATABASE_URL: "postgres://secret",
+      }),
+    ).toEqual(["DATABASE_URL"])
+    expect(workspaceChatOpenCodeHomeEnv("conv_1")).toMatchObject(
+      WORKSPACE_CHAT_OPENCODE_START_ENV,
+    )
   })
 
   it("pins the OpenCode CLI", () => {
