@@ -234,10 +234,10 @@ export const githubSyncPullRequest = defineWorkflow(
 
 /**
  * Hydrate calls this with a revision's linked repositories before it records
- * them: each GitHub repository not yet in the Workspace's linked table is
- * newly linked and gets one backfill.
+ * them. It returns each GitHub repository that is not yet in the Workspace's
+ * linked table. Each one needs one backfill.
  */
-export async function newGithubPrBackfillLinks(input: {
+export async function findNewGithubPrBackfillLinks(input: {
   orgId: string
   workspaceId: string
   workspaceUrl: string
@@ -259,7 +259,7 @@ export async function newGithubPrBackfillLinks(input: {
 
 /**
  * Hydrate calls this after it records the source rows of the links from
- * {@link newGithubPrBackfillLinks}. A backfill reads the source file of its
+ * {@link findNewGithubPrBackfillLinks}. A backfill reads the source file of its
  * repository from those rows to stamp each file. The key makes replays and a
  * repeated hydrate of the same link start it once.
  */
