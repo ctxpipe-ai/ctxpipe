@@ -9,7 +9,7 @@ import {
 } from "@tanstack/ai"
 import { reconstructChat } from "@tanstack/ai-persistence"
 import { eq } from "drizzle-orm"
-import { HttpResponse, http } from "msw"
+import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { expect, it, vi } from "vitest"
 import { parseEnv } from "../../config/env.js"
@@ -809,6 +809,98 @@ it(
       )
     } finally {
       github.close()
+    }
+  },
+)
+
+it(
+  "sends the final event before the conversation title is ready, and still saves the title",
+  { timeout: 120_000 },
+  async () => {
+    // The title model call is slow: it answers only when the final event
+    // arrives, or after 10 s when nothing arrives first.
+    let titleRequested = false
+    let titleAnswered = false
+    let answerTitle: () => void = () => undefined
+    const titleMayAnswer = new Promise<void>((resolve) => {
+      answerTitle = resolve
+    })
+    const model = setupServer(
+      http.post(/\/model\/v1\/chat\/completions$/, async ({ request }) => {
+        const body = (await request.clone().json()) as {
+          model?: string
+          messages?: Array<{ content?: unknown }>
+        }
+        if (!JSON.stringify(body.messages ?? []).includes("word title"))
+          return passthrough()
+        titleRequested = true
+        await Promise.race([
+          titleMayAnswer,
+          new Promise((resolve) => setTimeout(resolve, 10_000)),
+        ])
+        titleAnswered = true
+        return HttpResponse.json({
+          id: "completion-title",
+          object: "chat.completion",
+          created: 1,
+          model: body.model,
+          choices: [
+            {
+              index: 0,
+              message: { role: "assistant", content: "Ledger answer" },
+              finish_reason: "stop",
+            },
+          ],
+        })
+      }),
+    )
+    model.listen({ onUnhandledRequest: "bypass" })
+    try {
+      await withNativeChatFixture(async (f) => {
+        await withOrgDbContext(f.orgId, (db) =>
+          db
+            .update(conversations)
+            .set({ name: "New conversation" })
+            .where(eq(conversations.id, f.conversationId)),
+        )
+        let answeredAtFinish: boolean | undefined
+        for await (const chunk of streamTanstackWorkspaceChat({
+          conversationId: f.conversationId,
+          orgId: f.orgId,
+          orgSlug: f.orgSlug,
+          workspaceId: f.workspaceId,
+          desiredUrl: f.directory,
+          desiredSha: f.sha,
+          defaultBranch: "main",
+          writeStatus: "read_only",
+          runId: `title-${f.conversationId}`,
+          prompt: "Where is the ledger?",
+        })) {
+          if (chunk.type === "RUN_ERROR")
+            throw new Error(`The turn failed: ${JSON.stringify(chunk)}`)
+          if (chunk.type === "RUN_FINISHED") {
+            answeredAtFinish = titleAnswered
+            answerTitle()
+          }
+        }
+        expect(titleRequested).toBe(true)
+        expect(answeredAtFinish).toBe(false)
+        // The title is saved after the final event.
+        await vi.waitFor(
+          async () => {
+            const [row] = await withOrgDbContext(f.orgId, (db) =>
+              db
+                .select({ name: conversations.name })
+                .from(conversations)
+                .where(eq(conversations.id, f.conversationId)),
+            )
+            expect(row?.name).toBe("Ledger answer")
+          },
+          { timeout: 10_000, interval: 100 },
+        )
+      })
+    } finally {
+      model.close()
     }
   },
 )

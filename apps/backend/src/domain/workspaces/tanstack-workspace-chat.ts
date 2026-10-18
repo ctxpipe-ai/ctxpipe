@@ -450,6 +450,7 @@ async function* streamTanstackWorkspaceChatBody(
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   await turn.onUserPersist?.()
+  const title = startConversationTitle(turn)
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
   yield workspaceChatSandboxSetupChunk("ready")
@@ -459,10 +460,9 @@ async function* streamTanstackWorkspaceChatBody(
     if (typed.type === "RUN_STARTED") continue
     if (typed.type === "RUN_ERROR") await turn.onError?.()
     if (typed.type === "RUN_FINISHED") {
-      const name = await nameConversationIfUnnamed({
-        conversationId: turn.conversationId,
-        prompt: turn.prompt,
-      })
+      // The final event does not wait for the title. A title that is not
+      // ready yet is still saved; the client reads it with the conversation.
+      const name = title.name()
       if (name) yield conversationRenameChunk(name)
       await turn.onFinish?.()
     }
@@ -475,6 +475,33 @@ async function* streamTanstackWorkspaceChatBody(
     // Tool arguments, tool output and model text can repeat a credential.
     yield* masked(typed)
   }
+}
+
+/**
+ * Name an unnamed conversation from the prompt, in parallel with the turn.
+ * The model call (about 2 s) usually ends before the answer does. The work
+ * is not bound to the stream, so a client that goes away does not stop it,
+ * and a failure is logged. `name()` is the saved title once it is ready.
+ */
+function startConversationTitle(turn: TanstackWorkspaceChatInput): {
+  name: () => string | null
+} {
+  let saved: string | null = null
+  void nameConversationIfUnnamed({
+    conversationId: turn.conversationId,
+    prompt: turn.prompt,
+  }).then(
+    (name) => {
+      saved = name
+    },
+    (error: unknown) =>
+      log.error({
+        step: "workspace-chat-title",
+        message: `Naming the conversation failed: ${String(error)}`,
+        conversationId: turn.conversationId,
+      }),
+  )
+  return { name: () => saved }
 }
 
 /**
