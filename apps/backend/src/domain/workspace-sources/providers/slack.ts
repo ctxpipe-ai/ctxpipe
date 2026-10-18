@@ -2,6 +2,13 @@ import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /**
+ * The most channels in one Slack source. The sync reads the history of each
+ * channel, and Slack limits `conversations.history` calls in each minute
+ * (Tier 3). A team source selects far fewer channels.
+ */
+export const SLACK_SOURCE_MAX_CHANNELS = 100
+
+/**
  * A Slack public (`C…`) or private (`G…`) channel id. Direct messages are
  * not sources (ADR-025). The id is also a path segment, so it holds only
  * capital letters and digits.
@@ -20,6 +27,10 @@ export const slackScopeSchema = z.object({
   channels: z
     .array(slackChannelId)
     .min(1, "Select at least one channel")
+    .max(
+      SLACK_SOURCE_MAX_CHANNELS,
+      `Select at most ${SLACK_SOURCE_MAX_CHANNELS} Slack channels`,
+    )
     .refine((ids) => new Set(ids).size === ids.length, {
       message: "Each channel must occur one time",
     }),

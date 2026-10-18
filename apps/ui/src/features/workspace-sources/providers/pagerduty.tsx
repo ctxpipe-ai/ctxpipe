@@ -24,6 +24,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** The selected service ids of a source scope. A bad scope starts empty. */
 export function pagerdutyScopeToServiceIds(
@@ -175,6 +176,10 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
           Select at least one service.
         </p>
       )}
+      <ScopeLimitAlert
+        schema={pagerdutySourceScopeSchema}
+        scope={{ services: selected.map((service) => service.id) }}
+      />
     </section>
   )
 }

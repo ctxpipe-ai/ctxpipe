@@ -119,6 +119,38 @@ describe("planSourceMigration", () => {
   })
 })
 
+describe("planSourceMigration: stored entry above the cap", () => {
+  it("adds no duplicate when a stored GitHub entry holds more repositories than the cap", () => {
+    const stored = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const { changes, report } = planSourceMigration({
+      workspaces: [
+        workspace(
+          "context",
+          `version: 1\nsources:\n  - ${JSON.stringify({
+            id: "linked-repositories",
+            provider: "github",
+            connection: "con_gh1",
+            repositories: stored,
+          })}\n`,
+        ),
+      ],
+      linked: [],
+      bindings: [
+        {
+          provider: "github",
+          connectionId: "con_gh1",
+          syncRepositoryUrl: "https://github.com/acme/context.git",
+          scope: { repositories: ["acme/repo-0"] },
+        },
+      ],
+    })
+    expect(changes.size).toBe(0)
+    expect(report.alreadyPresent).toEqual([
+      { workspaceId: "context", provider: "github", connectionId: "con_gh1" },
+    ])
+  })
+})
+
 describe("planSourceMigration: repository files", () => {
   it("moves each GitHub repository file with its branch as ref, and keeps a file that names another host", () => {
     const { changes, deletePaths } = planSourceMigration({

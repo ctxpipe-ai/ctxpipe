@@ -2,7 +2,10 @@ import { z } from "zod"
 import { buildkiteSourceScope } from "./providers/buildkite.js"
 import { confluenceSourceScope } from "./providers/confluence.js"
 import { gitSourceScope } from "./providers/git.js"
-import { githubSourceScope } from "./providers/github.js"
+import {
+  githubLegacyScopeSchema,
+  githubSourceScope,
+} from "./providers/github.js"
 import { linearSourceScope } from "./providers/linear.js"
 import { notionSourceScope } from "./providers/notion.js"
 import { pagerdutySourceScope } from "./providers/pagerduty.js"
@@ -117,6 +120,24 @@ function issuesText(error: z.ZodError): string {
 
 /** Split one entry into generic fields and provider scope, and validate both. */
 export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
+  return parseEntry(raw, {})
+}
+
+/**
+ * {@link parseSourceEntry} with no cap on the repositories of a GitHub
+ * entry. Use it only where ctx| reads an entry that it wrote before the cap
+ * (CTX-822), so that a long entry still links each of its repositories.
+ */
+export function parseLegacySourceEntry(raw: unknown): ParsedSourceEntry {
+  return parseEntry(raw, { github: githubLegacyScopeSchema })
+}
+
+function parseEntry(
+  raw: unknown,
+  scopeSchemas: Partial<
+    Record<SourceProvider, z.ZodType<Record<string, unknown>>>
+  >,
+): ParsedSourceEntry {
   const record =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
@@ -146,7 +167,9 @@ export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
   const rawScope = Object.fromEntries(
     Object.entries(record).filter(([name]) => !RESERVED_ENTRY_KEYS.has(name)),
   )
-  const scope = SOURCE_SCOPES[base.data.provider].schema.safeParse(rawScope)
+  const scope = (
+    scopeSchemas[base.data.provider] ?? SOURCE_SCOPES[base.data.provider].schema
+  ).safeParse(rawScope)
   if (!scope.success)
     return { ok: false, ...partial, detail: issuesText(scope.error) }
   return {

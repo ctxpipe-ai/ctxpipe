@@ -15,11 +15,11 @@ ctx|. Instead of reading every page in a site, you choose the spaces and pages
 that should be available to agents.
 
 ctx| connects to the selected Confluence site through Atlassian OAuth and the
-ctx| Forge app. It then syncs the selected pages into the
-[Workspace](/docs/workspaces) you choose, stores the sync scope in that
-Workspace's repository, and indexes them like any other knowledge file. When
-pages or spaces change in Confluence, the Forge app notifies ctx| so the
-mirror is updated and indexed again.
+ctx| Forge app. The connection holds authorization only. A source file in each
+[Workspace](/docs/workspaces) holds the scope (the spaces and pages). ctx|
+syncs the selected pages into the Workspace repository and indexes them like
+any other knowledge file. When pages or spaces change in Confluence, the Forge
+app notifies ctx| so the mirror is updated and indexed again.
 
 Page attachments and explicit embedded external media are copied under
 `confluence/<spaceKey>/_assets/<pageId>/` and linked relatively from generated
@@ -43,9 +43,11 @@ Before starting, make sure you have:
 - Permission to connect Atlassian OAuth for the Confluence site.
 - Permission to install or request installation of the ctx| Forge app in
   Atlassian.
-- An active GitHub connection in ctx|, or the GitHub organization access needed
-  to set one up during the flow.
-- At least one repository available in ctx| for Confluence sync output.
+- A Workspace whose repository the ctx| GitHub App can write to. The
+  repository must use format 2 or higher. If it does not, the Workspace shows
+  **Upgrade this Workspace first**. See
+  [Upgrades](/docs/workspaces/settings#upgrades).
+- Permission to merge the pull request that adds the source.
 
 <Callout title="Not sure whether you have the right access?">
   **Confluence:** open `admin.atlassian.com`, choose the Confluence site, then
@@ -62,6 +64,32 @@ Before starting, make sure you have:
   References: [Atlassian Connected apps](https://support.atlassian.com/organization-administration/docs/managing-an-installed-app/) and
   [GitHub App install requirements](https://docs.github.com/apps/using-github-apps/installing-a-github-app-from-a-third-party#requirements-to-install-a-github-app).
 </Callout>
+
+## Where the scope lives
+
+The scope is in a source file in each Workspace, at
+`sources/confluence/<name>.md`. The front matter holds the spaces. For each
+space, `pages` is `all` or a list of page ids. The body is an optional
+description of what the source is for.
+
+```markdown
+---
+provider: confluence
+connection: con_example
+spaces:
+  - key: ARCH
+    pages: all
+  - key: OPS
+    pages: ["12345", "67890"]
+---
+```
+
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
+
+Each Workspace has its own
+scope. Mirrored pages are in `confluence/<spaceKey>/` in the Workspace
+repository. The source owns these folders, so do not edit the files by hand.
 
 ## Setup flow
 
@@ -126,48 +154,35 @@ Before starting, make sure you have:
   </Step>
 
   <Step>
-    ### Link GitHub account
+    ### Add to Workspaces
 
-    Confluence content is written to a Workspace's git repository. If GitHub
-    is not already connected for the organization, the wizard sends you
-    through the GitHub App installation flow.
-
-  </Step>
-
-  <Step>
-    ### Select a workspace
-
-    Choose the [Workspace](/docs/workspaces) that should receive Confluence
-    pages. ctx| writes them under `confluence/` in that Workspace's
-    repository. If you have no Workspace yet, create one first.
-
-  </Step>
-
-  <Step>
-    ### Configure Confluence scope
-
-    Choose the Confluence spaces and pages ctx| should ingest. Keep the scope
-    intentional:
+    The last step of the wizard is **Add to Workspaces**. Select the Workspaces
+    that sync from Confluence. Then select the spaces and pages in the tree.
+    Search with **Search spaces and pages...**. For each space, select all pages
+    or only some pages. When you select more than one Workspace, choose **Same
+    scope for each Workspace** or **A different scope for each Workspace**.
+    Keep the scope intentional:
 
     - Start with the spaces your engineering team actively uses.
     - Exclude stale or sensitive areas that agents should not rely on.
     - Prefer authoritative docs over duplicates or abandoned pages.
 
-    Saving the selection asks ctx| to open a configuration pull request in the
-    selected repository. Content does not start synchronizing yet.
-
+    Choose **Add to Workspaces**. You can add the connection to a Workspace
+    later. Expand the connector on **Connectors**. When no Workspace uses the
+    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
   </Step>
 
   <Step>
-    ### Merge the configuration pull request
+    ### Merge the pull requests
 
-    Review `confluence/config.yaml`, confirm the selected spaces and target
-    branch, then merge the pull request. Approval alone is not enough: the
-    target-branch YAML becomes live only after merge.
+    ctx| opens one pull request for each Workspace. Each pull request adds
+    `sources/confluence/<name>.md`. The dialog shows **Merge the pull request**
+    (or **Merge the pull requests**) with a link to each one. Review the
+    selected spaces and pages, then merge.
 
-    ctx| then performs the initial Confluence sync and starts repository
-    ingestion. The connector card tracks progress and lets you edit scope or
-    retry failed work later.
+    After each merge, the dialog shows **Pull request merged**. The source does
+    not sync before the merge. Then ctx| makes the first Confluence mirror.
+    The Workspace indexes the new files after that.
   </Step>
 </Steps>
 
@@ -178,6 +193,34 @@ Before starting, make sure you have:
 
   For self-hosted setup, go [here](/docs/self-hosting/confluence-atlassian).
 </Callout>
+
+## Change what syncs
+
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources).
+
+## Keeping content current
+
+Choose **Sync now** in the menu of the connector card to start a full sync of
+the Confluence sources of the connection. Only an owner or admin sees it. Use it
+when change events did not arrive.
+
+## Troubleshooting
+
+### Add to a Workspace shows an error
+
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
+
+### The source shows a status other than OK
+
+Read the status and the reason of the row in **Settings**. See
+[Source status](/docs/workspaces/settings#source-status).
+
+### Removing the connector
+
+Choose **Remove connector** in the menu of the connector card. See
+[Connection menu](/docs/connections#connection-menu) for what stays in Git.
 
 ## Related pages
 

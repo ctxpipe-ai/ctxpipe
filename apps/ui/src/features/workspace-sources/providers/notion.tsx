@@ -23,6 +23,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** One selected root, as the picker holds it. */
 export type NotionRootItem = {
@@ -53,6 +54,12 @@ export function notionScopeToItems(
 export function notionItemsToScope(
   items: readonly NotionRootItem[],
 ): NotionSourceScope | null {
+  const parsed = notionSourceScopeSchema.safeParse(notionItemsScope(items))
+  return parsed.success ? parsed.data : null
+}
+
+/** The scope of a picker selection, before the schema checks it. */
+function notionItemsScope(items: readonly NotionRootItem[]) {
   const roots = (type: NotionRootItem["type"]) =>
     items
       .filter((item) => item.type === type)
@@ -62,11 +69,10 @@ export function notionItemsToScope(
       }))
   const pages = roots("page")
   const databases = roots("database")
-  const parsed = notionSourceScopeSchema.safeParse({
+  return {
     ...(pages.length ? { pages } : {}),
     ...(databases.length ? { databases } : {}),
-  })
-  return parsed.success ? parsed.data : null
+  }
 }
 
 const itemKey = (item: { type: string; id: string }) =>
@@ -174,6 +180,10 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           Select at least one page or database.
         </p>
       ) : null}
+      <ScopeLimitAlert
+        schema={notionSourceScopeSchema}
+        scope={notionItemsScope(items)}
+      />
     </section>
   )
 }

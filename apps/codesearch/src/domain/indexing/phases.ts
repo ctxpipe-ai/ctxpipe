@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
+import type { PinnedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import {
   assertNotInOrgDbContext,
@@ -10,7 +11,7 @@ import {
 } from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
-import { credentialFreeGitUrl, gitCommandEnv } from "../../utils/git.js"
+import { type GitRemote, repositoryGitRemote } from "../../utils/git.js"
 import {
   assertScipIndex,
   encodeScipIndex,
@@ -42,6 +43,12 @@ export type IndexPhaseRepoContext = {
   repoName: string
   repoUrl: string
   githubToken?: string
+  /**
+   * The plain git remote that the backend checked, for a repository with no
+   * GitHub token (CTX-815). Codesearch reads that repository only through
+   * it, never through `repoGitUrl`.
+   */
+  plainGit?: PinnedPlainGitRemote
 }
 
 export type CloneCheckoutResult = {
@@ -103,14 +110,45 @@ async function runCommand(
     env?: Record<string, string | undefined>
     outputTailBytes?: number
     heartbeat?: { indexerId: string }
+    /** The time and size limits of a plain git command (CTX-815). */
+    limits?: GitRemote["limits"]
   },
 ): Promise<void> {
-  const subprocess = Bun.spawn(cmd, {
-    cwd: options?.cwd,
-    env: options?.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  const limits = options?.limits
+  // `ulimit -f` counts 512-byte blocks; `exec` leaves one process. Each
+  // file that git writes (the pack, a checkout file) stays below the limit:
+  // git then dies of SIGXFSZ.
+  const subprocess = Bun.spawn(
+    limits
+      ? [
+          "sh",
+          "-c",
+          'ulimit -f "$0" && exec "$@"',
+          String(Math.ceil(limits.maxFileBytes / 512)),
+          ...cmd,
+        ]
+      : cmd,
+    {
+      cwd: options?.cwd,
+      env: options?.env,
+      stdout: "pipe",
+      stderr: "pipe",
+      // With a time limit, git and its helpers get their own process group,
+      // so the kill stops each of them.
+      detached: limits !== undefined,
+    },
+  )
+  let timedOut = false
+  const killTimer = limits
+    ? setTimeout(() => {
+        timedOut = true
+        try {
+          process.kill(-subprocess.pid, "SIGKILL")
+        } catch {
+          subprocess.kill("SIGKILL")
+        }
+      }, limits.timeoutMs)
+    : undefined
 
   const heartbeatOpt = options?.heartbeat
   const startMs = Date.now()
@@ -137,6 +175,10 @@ async function runCommand(
         : new Response(subprocess.stderr).text(),
       subprocess.exited,
     ])
+    if (timedOut)
+      throw new Error(
+        `${cmd[0]} ${cmd[1] ?? ""} did not finish in ${limits?.timeoutMs} ms, so it was stopped`,
+      )
     if (exitCode !== 0) {
       if (exitCode === 137) {
         tryEmitIndexEvent("codesearch.index.memory_exceeded", {
@@ -153,6 +195,7 @@ async function runCommand(
     }
   } finally {
     if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer)
+    if (killTimer !== undefined) clearTimeout(killTimer)
   }
 }
 
@@ -189,20 +232,19 @@ async function runCommandOutput(
 }
 
 async function ensureRepositoryClone(params: {
-  repoGitUrl: string
+  remote: GitRemote
   clonePath: string
-  githubToken?: string
 }): Promise<void> {
-  const remoteUrl = credentialFreeGitUrl(params.repoGitUrl)
-  const env = gitCommandEnv(params.repoGitUrl, params.githubToken)
+  const { remote } = params
   if (await hasGitDir(params.clonePath)) {
     // Use the plain remote URL; the credential comes per command.
-    await runCommand(["git", "remote", "set-url", "origin", remoteUrl], {
+    await runCommand(["git", "remote", "set-url", "origin", remote.url], {
       cwd: params.clonePath,
     })
     await runCommand(["git", "fetch", "origin", "--prune"], {
       cwd: params.clonePath,
-      env,
+      env: remote.env,
+      limits: remote.limits,
     })
     return
   }
@@ -211,15 +253,24 @@ async function ensureRepositoryClone(params: {
     await rm(params.clonePath, { recursive: true, force: true })
   }
   await runCommand(
-    ["git", "clone", "--depth", "1", remoteUrl, params.clonePath],
-    { env },
+    [
+      "git",
+      "clone",
+      "--depth",
+      "1",
+      "--no-recurse-submodules",
+      "--",
+      remote.url,
+      params.clonePath,
+    ],
+    { env: remote.env, limits: remote.limits },
   )
 }
 
 async function ensureCommitInRepo(
   clonePath: string,
   refOrSha: string,
-  env: Record<string, string | undefined>,
+  remote: GitRemote,
 ): Promise<string> {
   const trimmed = refOrSha.trim()
   try {
@@ -227,9 +278,10 @@ async function ensureCommitInRepo(
       cwd: clonePath,
     })
   } catch {
-    await runCommand(["git", "fetch", "origin", trimmed], {
+    await runCommand(["git", "fetch", "origin", "--", trimmed], {
       cwd: clonePath,
-      env,
+      env: remote.env,
+      limits: remote.limits,
     })
     await runCommand(["git", "rev-parse", "--verify", `${trimmed}^{commit}`], {
       cwd: clonePath,
@@ -242,27 +294,26 @@ async function ensureCommitInRepo(
 }
 
 async function resolveTargetCommitHash(params: {
-  repoGitUrl: string
+  remote: GitRemote
   clonePath: string
-  githubToken?: string
   targetHash?: string
 }): Promise<string> {
-  const env = gitCommandEnv(params.repoGitUrl, params.githubToken)
   if (params.targetHash && params.targetHash.trim().length > 0) {
-    return ensureCommitInRepo(params.clonePath, params.targetHash.trim(), env)
+    return ensureCommitInRepo(
+      params.clonePath,
+      params.targetHash.trim(),
+      params.remote,
+    )
   }
-  const { hash } = await resolveRepositoryRef({
-    gitUrl: params.repoGitUrl,
-    githubToken: params.githubToken,
-  })
-  return ensureCommitInRepo(params.clonePath, hash, env)
+  const { hash } = await resolveRepositoryRef({ remote: params.remote })
+  return ensureCommitInRepo(params.clonePath, hash, params.remote)
 }
 
 async function ensureMergeBaseAvailable(
   clonePath: string,
   fromSha: string,
   toSha: string,
-  env: Record<string, string | undefined>,
+  remote: GitRemote,
 ): Promise<void> {
   const maxIterations = 24
   for (let i = 0; i < maxIterations; i++) {
@@ -276,7 +327,8 @@ async function ensureMergeBaseAvailable(
     try {
       await runCommand(["git", "fetch", "origin", "--deepen", "256"], {
         cwd: clonePath,
-        env,
+        env: remote.env,
+        limits: remote.limits,
       })
     } catch {
       // continue deepening / unshallow
@@ -285,7 +337,8 @@ async function ensureMergeBaseAvailable(
   try {
     await runCommand(["git", "fetch", "origin", "--unshallow"], {
       cwd: clonePath,
-      env,
+      env: remote.env,
+      limits: remote.limits,
     })
   } catch {
     // best-effort: some repos are not shallow
@@ -548,22 +601,24 @@ export async function phaseCloneCheckout(
   params: { targetHash?: string; fromHash?: string },
 ): Promise<CloneCheckoutResult> {
   const writeStep = monotonicWriteStep(ctx)
+  // A repository with no GitHub token and no checked plain git remote is
+  // refused here, before any git command.
+  const remote = repositoryGitRemote({
+    gitUrl: ctx.repoGitUrl,
+    githubToken: ctx.githubToken,
+    plainGit: ctx.plainGit,
+  })
 
   await writeStep("cloning")
   await withPhase("clone", () =>
-    ensureRepositoryClone({
-      repoGitUrl: ctx.repoGitUrl,
-      clonePath: ctx.clonePath,
-      githubToken: ctx.githubToken,
-    }),
+    ensureRepositoryClone({ remote, clonePath: ctx.clonePath }),
   )
 
   await writeStep("checking_out")
   const resolvedTarget = await withPhase("resolve_commit", () =>
     resolveTargetCommitHash({
-      repoGitUrl: ctx.repoGitUrl,
+      remote,
       clonePath: ctx.clonePath,
-      githubToken: ctx.githubToken,
       targetHash: params.targetHash,
     }),
   )
@@ -576,17 +631,16 @@ export async function phaseCloneCheckout(
   if (params.fromHash && params.fromHash.trim().length > 0) {
     const fromHash = params.fromHash.trim()
     const diffResult = await withPhase("diff", async () => {
-      const env = gitCommandEnv(ctx.repoGitUrl, ctx.githubToken)
       const fromResolved = await ensureCommitInRepo(
         ctx.clonePath,
         fromHash,
-        env,
+        remote,
       )
       await ensureMergeBaseAvailable(
         ctx.clonePath,
         fromResolved,
         resolvedTarget,
-        env,
+        remote,
       )
       const ancestor = await isAncestor(
         ctx.clonePath,

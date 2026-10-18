@@ -45,6 +45,21 @@ describe("memory/capture", () => {
     expect(text).toContain("[REDACTED_SECRET]")
   })
 
+  it("redacts a GitHub App installation token in the current form", () => {
+    const token = `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}`
+    const { text } = redactText(`clone with ${token}.`)
+    expect(text).toBe("clone with [REDACTED_SECRET].")
+  })
+
+  it("redacts a long installation token whose parts hold many dashes", () => {
+    // Built at run time; the characters are made up.
+    const part = (n: number) => `${"aB3-_--x-Z9".repeat(n)}-`
+    const token = `ghs_1234567_${part(24)}.${part(24)}.${part(24)}`
+    expect(token.length).toBeGreaterThan(750)
+    const { text } = redactText(`clone with ${token} now`)
+    expect(text).toBe("clone with [REDACTED_SECRET] now")
+  })
+
   it("redacts connection strings", () => {
     const { text, redacted } = redactText(
       "DATABASE_URL=postgres://user:hunter2@db.example:5432/app",

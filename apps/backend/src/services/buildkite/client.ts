@@ -43,6 +43,8 @@ async function buildkiteGet(input: {
    * the next wait is over the limit, the 429 response goes to the caller.
    */
   maxWaitMs?: number
+  /** The time to wait for each request. Tests set a short one. */
+  timeoutMs?: number
 }): Promise<Response> {
   const url = new URL(`${BUILDKITE_API}${input.path}`)
   for (const [name, value] of Object.entries(input.search ?? {}))
@@ -56,7 +58,7 @@ async function buildkiteGet(input: {
         authorization: `Bearer ${input.apiToken}`,
       },
       redirect: "error",
-      signal: AbortSignal.timeout(15_000),
+      signal: AbortSignal.timeout(input.timeoutMs ?? 15_000),
     })
     if (response.status === 401) throw new BuildkiteUnauthorizedError()
     if (response.status !== 429 || attempt >= 4) return response
@@ -159,6 +161,7 @@ function toBuild(build: z.infer<typeof buildSchema>): BuildkiteBuildForMirror {
 export async function verifyBuildkiteAccess(input: {
   apiToken: string
   organizationSlug: string
+  timeoutMs?: number
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   let token: { scopes: string[] }
   try {
@@ -167,6 +170,7 @@ export async function verifyBuildkiteAccess(input: {
         apiToken: input.apiToken,
         path: "/access-token",
         maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
+        timeoutMs: input.timeoutMs,
       }),
       z.object({ scopes: z.array(z.string()) }),
       "token check",
@@ -207,6 +211,7 @@ export async function verifyBuildkiteAccess(input: {
   const response = await buildkiteGet({
     apiToken: input.apiToken,
     path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
+    timeoutMs: input.timeoutMs,
     search: { per_page: "1" },
     maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
   })
@@ -224,6 +229,7 @@ export async function verifyBuildkiteAccess(input: {
 export async function listBuildkitePipelines(input: {
   apiToken: string
   organizationSlug: string
+  timeoutMs?: number
 }): Promise<{
   pipelines: Array<{ slug: string; name: string }>
   truncated: boolean
@@ -233,6 +239,7 @@ export async function listBuildkitePipelines(input: {
     const response = await buildkiteGet({
       apiToken: input.apiToken,
       path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
+      timeoutMs: input.timeoutMs,
       search: { page: String(page), per_page: "100" },
       maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
     })
@@ -257,10 +264,12 @@ export async function getBuildkitePipeline(input: {
   apiToken: string
   organizationSlug: string
   pipelineSlug: string
+  timeoutMs?: number
 }): Promise<BuildkitePipelineForMirror | "not_found" | "forbidden"> {
   const response = await buildkiteGet({
     apiToken: input.apiToken,
     path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines/${encodeURIComponent(input.pipelineSlug)}`,
+    timeoutMs: input.timeoutMs,
   })
   if (response.status === 404) return "not_found"
   if (response.status === 403) return "forbidden"
@@ -280,10 +289,12 @@ export async function listBuildkiteBuilds(input: {
   apiToken: string
   organizationSlug: string
   pipelineSlug: string
+  timeoutMs?: number
 }): Promise<BuildkiteBuildForMirror[]> {
   const response = await buildkiteGet({
     apiToken: input.apiToken,
     path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines/${encodeURIComponent(input.pipelineSlug)}/builds`,
+    timeoutMs: input.timeoutMs,
     search: {
       state: "finished",
       per_page: String(BUILDKITE_BUILDS_PER_PIPELINE),

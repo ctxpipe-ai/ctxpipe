@@ -115,9 +115,10 @@ do not commit them in stack code.
 After the integration is registered (UI or env):
 
 1. Authorize the Notion workspace.
-2. Select the Workspace that should receive Notion content.
+2. In **Add to Workspaces**, select the Workspaces that should receive Notion
+   content.
 3. Select the Notion pages and databases to mirror.
-4. Review and merge the generated `notion/config.yaml` pull request.
+4. Review and merge the pull request that adds `sources/notion/<name>.md`.
 
 Pages are written as Markdown under `notion/pages/`. Databases are written
 under `notion/databases/`, with one `table.csv` snapshot per database and one
@@ -132,7 +133,8 @@ unsafe, or oversized downloads leave a Notion page link or caption stub.
 1. Add Notion and save a private OAuth app (or confirm env is set).
 2. Authorize a clean Notion workspace through the product flow.
 3. Share a page or database with the integration and confirm it appears.
-4. Select a Workspace and merge `notion/config.yaml`.
+4. Select a Workspace in **Add to Workspaces** and merge the pull request that
+   adds `sources/notion/<name>.md`.
 5. Confirm the initial mirror writes readable files under `notion/`.
 6. Edit an in-scope source and confirm the deployment webhook receives the
    event.

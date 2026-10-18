@@ -36,7 +36,7 @@ right-hand pane has four tabs:
 | **Files** | The workspace repository as seen by the current conversation. Browse, edit, and create files. |
 | **Diff** | The changes the current conversation has made. |
 | **Graph** | The knowledge graph built from this Workspace's files and linked code. |
-| **Settings** | Name, URL slug, workspace repository, sources, and indexing status. |
+| **Settings** | Name, context repository, sources, write access, hydrate status, and upgrades. See [Workspace settings](/docs/workspaces/settings). |
 
 The sidebar lists your Workspaces with their most recent conversations. Home
 shows recent activity and commits across them.
@@ -74,11 +74,14 @@ ctx| writes to the workspace repository only through the ctx| GitHub App. If
 it cannot push, for example because the repository is not on GitHub or the
 App lost access, the Workspace becomes **read-only**. Search, chat, and the
 graph keep working on the latest commit, and Settings explains why writes are
-paused. Writes resume when access returns.
+paused. Writes resume when access returns. A repository with a newer or an
+invalid format is read-only too. See
+[Write access](/docs/workspaces/settings#write-access).
 
 <Cards>
   <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
   <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files, links, and claims become the knowledge graph." />
+  <Card title="Workspace settings" href="/docs/workspaces/settings" description="Sources, write access, and upgrades." />
   <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
   <Card title="Workspace chat" href="/docs/workspaces/chat" description="Ask questions and change files in a conversation." />
 </Cards>

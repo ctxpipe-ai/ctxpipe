@@ -10,6 +10,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** The tree selection of a source scope. A bad or empty scope starts empty. */
 export function confluenceScopeToSpaceItems(
@@ -27,13 +28,18 @@ export function confluenceScopeToSpaceItems(
 export function confluenceSpaceItemsToScope(
   items: readonly SpaceScopeItem[],
 ): ConfluenceSourceScope | null {
-  const parsed = confluenceSourceScopeSchema.safeParse({
+  const parsed = confluenceSourceScopeSchema.safeParse(spaceItemsScope(items))
+  return parsed.success ? parsed.data : null
+}
+
+/** The scope of a tree selection, before the schema checks it. */
+function spaceItemsScope(items: readonly SpaceScopeItem[]) {
+  return {
     spaces: items.map((item) => ({
       key: item.spaceKey,
       pages: item.selectedPageIds === null ? "all" : item.selectedPageIds,
     })),
-  })
-  return parsed.success ? parsed.data : null
+  }
 }
 
 /** Select spaces, and all pages or some pages of each, with the page tree. */
@@ -43,7 +49,8 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
     confluenceScopeToSpaceItems(initialScope),
   )
   const heading = label ? `Spaces and pages for ${label}` : "Spaces and pages"
-  const complete = confluenceSpaceItemsToScope(items) !== null
+  const missing =
+    !items.length || items.some((item) => item.selectedPageIds?.length === 0)
   return (
     <section aria-label={heading} className="flex flex-col gap-2">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
@@ -58,11 +65,15 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
           }}
         />
       </div>
-      {complete ? null : (
+      {missing ? (
         <p className="text-sm text-muted-foreground">
           Select at least one space, or one page in each selected space.
         </p>
-      )}
+      ) : null}
+      <ScopeLimitAlert
+        schema={confluenceSourceScopeSchema}
+        scope={spaceItemsScope(items)}
+      />
     </section>
   )
 }

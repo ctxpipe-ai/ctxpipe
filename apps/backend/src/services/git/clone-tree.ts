@@ -75,7 +75,10 @@ export async function resolveGitRemoteTip(input: {
   url: string
   branch?: string | null
   token?: string
-  /** The git environment of a checked plain git remote (CTX-815). */
+  /**
+   * The full git environment of a checked plain git remote (CTX-815). It
+   * replaces the environment of the process.
+   */
   env?: NodeJS.ProcessEnv
 }): Promise<{ sha: string; branch: string } | null> {
   const requested = input.branch?.trim()
@@ -96,9 +99,7 @@ export async function resolveGitRemoteTip(input: {
     ],
     {
       timeout: 60_000,
-      env: input.env
-        ? { ...process.env, ...input.env }
-        : gitRemoteEnvironment(input),
+      env: input.env ?? gitRemoteEnvironment(input),
     },
   ).catch((error: unknown) => {
     const stderr = String((error as { stderr?: unknown }).stderr ?? "")

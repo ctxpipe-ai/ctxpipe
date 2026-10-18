@@ -38,6 +38,7 @@ import {
   repositoryNotFoundBody,
   repositoryNotFoundResponse,
 } from "./errorBody.js"
+import { plainGitRemoteSchema } from "./plainGitRemoteSchema.js"
 
 const repoIdParam = z
   .string()
@@ -66,6 +67,8 @@ const renameSchema = z.object({
 const cloneCheckoutRequestSchema = z
   .object({
     githubToken: z.string().min(1).optional(),
+    /** The checked plain git remote of a repository with no token (CTX-815). */
+    plainGit: plainGitRemoteSchema.optional(),
     targetHash: optionalGitRefOrSha.optional(),
     fromHash: optionalGitRefOrSha.optional(),
     checkoutKey: z.string().min(1).max(128).optional(),
@@ -296,7 +299,11 @@ async function resolvePhaseContext(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   orgId: string,
   repoId: string,
-  options: { checkoutKey: string; githubToken?: string },
+  options: {
+    checkoutKey: string
+    githubToken?: string
+    plainGit?: IndexPhaseRepoContext["plainGit"]
+  },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
   | { ok: false; status: 503; error: string }
@@ -346,6 +353,7 @@ async function resolvePhaseContext(
       repoName: indexable.name,
       repoUrl: indexable.gitUrl,
       githubToken: options.githubToken,
+      plainGit: options.plainGit,
     },
   }
 }
@@ -475,6 +483,7 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
             githubToken: body.githubToken,
+            plainGit: body.plainGit,
             checkoutKey,
           })
           if (!resolved.ok) {
