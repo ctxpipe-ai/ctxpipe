@@ -8,8 +8,3 @@ export function editorSetupCommand(origin: string): string {
   if (origin === "https://app.ctxpipe.ai") return "npx ctxpipe init"
   return `npx ctxpipe init --base-url ${origin}`
 }
-
-/** The MCP endpoint. It has no `?orgSlug=`, because ADR-051 ignores it. */
-export function mcpServerUrl(origin: string): string {
-  return `${origin}/mcp`
-}
