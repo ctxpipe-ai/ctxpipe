@@ -81,39 +81,37 @@ describe("retryOnConnectionError", () => {
   })
 })
 
-describe("retryOnConnectionError with a probe timeout", () => {
-  // The first connection stays silent, so the probe times out. Later ones answer.
-  async function silentServer(silent: "first" | "all") {
-    let connections = 0
-    server = createServer((socket) => {
-      connections += 1
-      if (silent === "all" || connections === 1) return
-      socket.end(
-        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
-      )
-    })
-    await new Promise<void>((resolve) =>
-      server?.listen(0, "127.0.0.1", resolve),
+// The first connection stays silent, so the probe times out. Later ones answer.
+async function silentServer(silent: "first" | "all") {
+  let connections = 0
+  server = createServer((socket) => {
+    connections += 1
+    if (silent === "all" || connections === 1) return
+    socket.end(
+      "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
     )
-    const address = server.address()
-    const port = typeof address === "object" && address ? address.port : 0
-    const probe = () =>
-      new Promise<number>((resolve, reject) => {
-        const req = request({ host: "127.0.0.1", port }, (response) => {
-          response.resume()
-          response.on("end", () => resolve(response.statusCode ?? 0))
-        })
-        req.setTimeout(50, () =>
-          req.destroy(connectionTimeoutError("Timed out verifying probe")),
-        )
-        req.on("error", reject)
-        req.end()
+  })
+  await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  const probe = () =>
+    new Promise<number>((resolve, reject) => {
+      const req = request({ host: "127.0.0.1", port }, (response) => {
+        response.resume()
+        response.on("end", () => resolve(response.statusCode ?? 0))
       })
-    const open = (onResponse: () => void) =>
-      request({ host: "127.0.0.1", port }, onResponse)
-    return { probe, open, count: () => connections }
-  }
+      req.setTimeout(50, () =>
+        req.destroy(connectionTimeoutError("Timed out verifying probe")),
+      )
+      req.on("error", reject)
+      req.end()
+    })
+  const open = (onResponse: () => void) =>
+    request({ host: "127.0.0.1", port }, onResponse)
+  return { probe, open, count: () => connections }
+}
 
+describe("retryOnConnectionError with a probe timeout", () => {
   it("passes when the probe times out once and then succeeds", async () => {
     const { probe, count } = await silentServer("first")
     await expect(retryOnConnectionError(probe, { delayMs: 1 })).resolves.toBe(
