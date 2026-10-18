@@ -958,12 +958,17 @@ export async function getGithubAppInstallationPermissions(
   if (!installation?.installationId) return null
   const row = await loadGithubConnectionRow(orgId, installation.id)
   if (!row) return null
-  const app = buildAppForConnection(row, env)
-  const { data } = await app.octokit.request(
+  return grantedInstallationPermissions(row, env, installation.installationId)
+}
+
+async function grantedInstallationPermissions(
+  row: ConnectionRow,
+  env: Env,
+  installationId: number,
+) {
+  const { data } = await buildAppForConnection(row, env).octokit.request(
     "GET /app/installations/{installation_id}",
-    {
-      installation_id: installation.installationId,
-    },
+    { installation_id: installationId },
   )
   return data.permissions
 }
@@ -1130,12 +1135,22 @@ export async function getWorkspaceGithubReadToken(
     throw new Error("Workspace GitHub read scope exceeds 500 repositories")
   const row = await loadGithubConnectionRow(orgId, input.githubConnectionId)
   if (!row) return undefined
+  // Issues is optional for the App. GitHub refuses a token that asks for a
+  // permission that the installation does not have, so ask for Issues only
+  // when the installation has it.
+  const { issues } = await grantedInstallationPermissions(
+    row,
+    env,
+    installation.installationId,
+  )
   // Uncached: the caller records the token and revokes it when the run ends.
   return mintUncachedInstallationToken(row, env, installation.installationId, {
     repositories: names,
     permissions: {
       contents: "read",
-      issues: "read",
+      ...(issues === "read" || issues === "write"
+        ? { issues: "read" as const }
+        : {}),
       pull_requests: "read",
       metadata: "read",
     },

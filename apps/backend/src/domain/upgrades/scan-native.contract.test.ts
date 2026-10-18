@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import pg from "pg"
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -11,6 +11,7 @@ import {
   listOrgWorkspaces,
   persistOrgFirstWorkspace,
 } from "../../models/workspaces.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
@@ -18,6 +19,15 @@ import { WRITE_STATUS_REASONS } from "../workspaces/write-status.js"
 import { formatUpgradeKey, GIT_UPGRADE_STEPS } from "./registry.js"
 import { reingestUpgradeKey } from "./reingest.js"
 import { scanWorkspaceReingest, scanWorkspaceUpgrade } from "./scan.js"
+
+// The DNS of the test: each plain git host resolves to a public address.
+let restoreNetwork = () => {}
+beforeAll(() => {
+  restoreNetwork = usePlainGitNetwork({
+    lookup: async () => [{ address: "93.184.215.14" }],
+  })
+})
+afterAll(() => restoreNetwork())
 
 it(
   "scans the re-ingestion of a Workspace below format 3 from the repository maps, with no read of the knowledge store",
@@ -49,7 +59,18 @@ it(
             orgId: f.org.id,
             gitUrl: "https://github.com/team-a/api.git",
           })
-          if (!own || !api) throw new Error("No org repository was created")
+          // A main-era plain git repository: public HTTPS, no connection
+          // (CTX-815). The one with a port is not read as plain git.
+          const plain = await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: "https://git.example.org/team-d/plain.git",
+          })
+          const refused = await ensureOrgRepositoryForGitUrl({
+            orgId: f.org.id,
+            gitUrl: "https://git.example.org:8443/team-d/refused.git",
+          })
+          if (!own || !api || !plain || !refused)
+            throw new Error("No org repository was created")
           await withOrgDbContext(f.org.id, (db) =>
             db
               .update(repositories)
@@ -110,7 +131,11 @@ it(
         expect(row?.upgrade.blockedReason).toBe("needs_format")
         expect(
           row?.upgrade.estimate?.perRepository.map((entry) => entry.repository),
-        ).toEqual(["existing/api", "team-a/api"])
+        ).toEqual([
+          "existing/api",
+          "git.example.org/team-d/plain",
+          "team-a/api",
+        ])
       },
     )
   },

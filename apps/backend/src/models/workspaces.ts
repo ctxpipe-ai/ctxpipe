@@ -1284,8 +1284,8 @@ export async function commitHydrateProjection(input: {
   orgId: string
   revision: WorkspaceRevision
   displayName: string | null
-  /** The cache value of the format file at the revision (`workspace-format.ts`). */
-  formatVersion: number
+  /** The cache value of the format file at the revision (`workspace-format.ts`). Null: no format yet. */
+  formatVersion: number | null
   units: readonly HydrateUnit[]
   skipped: readonly HydrateSkip[]
   /** Part of each chunk hash, so that a model change embeds again. */

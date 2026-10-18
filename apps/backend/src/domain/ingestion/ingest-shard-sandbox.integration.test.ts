@@ -185,6 +185,7 @@ describe("shard step egress", () => {
       // The egress does not read the bundle.
       bundle: { name: "ingest-0000000000000000", skills: [], files: [] },
       source: {
+        kind: "github" as const,
         url: "https://github.com/acme/checkout-api",
         githubConnectionId: connectionId,
         sha: "a".repeat(40),
@@ -271,6 +272,7 @@ describe("shard step egress", () => {
         shard: 1,
         bundle: { name: "ingest-0000000000000000", skills: [], files: [] },
         source: {
+          kind: "github" as const,
           url: "https://github.com/acme/checkout-api",
           githubConnectionId: connectionId,
           sha: "a".repeat(40),

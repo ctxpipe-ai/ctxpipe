@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { confluenceSourceScope } from "./providers/confluence.js"
+import { gitSourceScope } from "./providers/git.js"
 import { githubSourceScope } from "./providers/github.js"
 import { linearSourceScope } from "./providers/linear.js"
 import { notionSourceScope } from "./providers/notion.js"
@@ -24,6 +25,7 @@ export const SOURCE_PROVIDERS = [
   "slack",
   "pagerduty",
   "plain",
+  "git",
 ] as const
 
 export const sourceProviderSchema = z.enum(SOURCE_PROVIDERS)
@@ -38,6 +40,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
   plain: plainSourceScope,
+  git: gitSourceScope,
 }
 
 export const SOURCE_STATUSES = [
@@ -131,6 +134,15 @@ export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
   const base = sourceEntryBaseSchema.safeParse(record)
   if (!base.success)
     return { ok: false, ...partial, detail: issuesText(base.error) }
+  // A plain git source has no connection, and it exists only as a source
+  // file (CTX-815).
+  if (base.data.provider === "git")
+    return {
+      ok: false,
+      ...partial,
+      detail:
+        "A plain git source is a file under sources/git/, not an entry of this file",
+    }
   const rawScope = Object.fromEntries(
     Object.entries(record).filter(([name]) => !RESERVED_ENTRY_KEYS.has(name)),
   )

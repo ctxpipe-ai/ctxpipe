@@ -121,6 +121,73 @@ export const Loading: Story = {
   },
 }
 
+// The first read of the Workspace list fails, then Retry reads it again.
+let listReadFails = true
+
+const loadFailsParameters = {
+  msw: {
+    handlers: {
+      page: [
+        http.get(
+          ({ request }) =>
+            /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+          () =>
+            listReadFails
+              ? HttpResponse.json({ error: "boom" }, { status: 500 })
+              : HttpResponse.json({
+                  items: [docsWorkspace],
+                  lastUsedWorkspaceId: docsWorkspace.id,
+                }),
+        ),
+        conversationsListHandler(docsConversations),
+        githubInstallationReposHandler(),
+      ],
+    },
+  },
+}
+
+export const LoadFails: Story = {
+  beforeEach: () => {
+    listReadFails = true
+  },
+  parameters: loadFailsParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Could not load Workspaces.")
+    listReadFails = false
+    await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
+    await canvas.findByText(docsWorkspace.displayName)
+    await waitFor(() =>
+      expect(canvas.queryByText("Could not load Workspaces.")).toBeNull(),
+    )
+  },
+}
+
+export const LoadFailsCollapsed: Story = {
+  args: { expanded: false },
+  beforeEach: () => {
+    listReadFails = true
+  },
+  parameters: loadFailsParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const retry = await canvas.findByRole("button", {
+      name: "Retry loading Workspaces",
+    })
+    listReadFails = false
+    await userEvent.click(retry)
+    // The row has two links with this name: the title and the compose link.
+    await canvas.findAllByRole("link", {
+      name: `New conversation in ${docsWorkspace.displayName}`,
+    })
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: "Retry loading Workspaces" }),
+      ).toBeNull(),
+    )
+  },
+}
+
 export const AddWorkspace: Story = {
   parameters: {
     msw: {

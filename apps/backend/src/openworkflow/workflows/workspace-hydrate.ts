@@ -2,9 +2,13 @@ import { z } from "zod"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import { githubSourceRepositories } from "../../domain/workspace-sources/github-sources.js"
+import {
+  githubSourceRepositories,
+  plainGitSourceUrls,
+} from "../../domain/workspace-sources/github-sources.js"
 import { projectWorkspaceSources } from "../../domain/workspace-sources/project.js"
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
+import { sourceRepositoryName } from "../../domain/workspace-sources/providers/git.js"
 import {
   SOURCES_TREE_READ,
   splitSourcesTree,
@@ -41,6 +45,7 @@ import {
   formatChangeNeedsScan,
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
+  workspaceFormatCache,
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -467,15 +472,30 @@ export function defineWorkspaceHydrateWorkflow() {
                 : new Set<string>()
               let onlyRepositoryUrls: Set<string> | undefined
               if (overlayScope === "sources") {
+                const options = {
+                  previousRows: previousSourceRows,
+                  workspaceUrl: revision.remote.url,
+                }
                 onlyRepositoryUrls = new Set(
-                  githubSourceRepositories(sourcesFile, null, sourceFiles, {
-                    previousRows: previousSourceRows,
-                    workspaceUrl: revision.remote.url,
-                  }).flatMap((source) => {
-                    const url = normalizeWorkspaceRepositoryUrl(source.gitUrl)
-                    const name = githubRepoFullNameFromWorkspaceUrl(url)
-                    return name && !done.has(name.toLowerCase()) ? [url] : []
-                  }),
+                  [
+                    ...githubSourceRepositories(
+                      sourcesFile,
+                      null,
+                      sourceFiles,
+                      options,
+                    ).flatMap((source) => {
+                      const url = normalizeWorkspaceRepositoryUrl(source.gitUrl)
+                      return githubRepoFullNameFromWorkspaceUrl(url)
+                        ? [url]
+                        : []
+                    }),
+                    // The plain git sources (CTX-815).
+                    ...plainGitSourceUrls(sourceFiles, options).map(
+                      normalizeWorkspaceRepositoryUrl,
+                    ),
+                  ].filter(
+                    (url) => !done.has(sourceRepositoryName(url).toLowerCase()),
+                  ),
                 )
               }
               const legacyFiles =
@@ -539,9 +559,11 @@ export function defineWorkspaceHydrateWorkflow() {
                     })
                   },
                 )
-                const formatVersion = workspaceFormatCacheValue(
-                  readWorkspaceFormat(formatFile),
-                )
+                const formatVersion = workspaceFormatCache({
+                  text: formatFile,
+                  paths: treePaths,
+                  writeStatus: workspace.writeStatus,
+                })
                 activated = await orgSql(() =>
                   commitHydrateProjection({
                     orgId: input.orgId,
