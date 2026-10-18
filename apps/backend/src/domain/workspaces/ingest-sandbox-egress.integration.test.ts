@@ -120,7 +120,7 @@ function hostedProvider(
     agentPassword: "password",
     tags: {},
     agentSnapshot: async () => "snap_test",
-    ...(proven ? { proven } : {}),
+    ...(proven === undefined ? {} : { proven }),
   })
 }
 
@@ -286,11 +286,14 @@ describe("ingest GitHub tokens", () => {
     vi.stubEnv("VERCEL_TOKEN", "vercel-token")
     vi.stubEnv("VERCEL_TEAM_ID", "team_test")
     vi.stubEnv("VERCEL_PROJECT_ID", "prj_test")
-    const { provider } = hostedProvider({
-      orgId,
-      runId: `run_${crypto.randomUUID()}`,
-      shard: 0,
-    })
+    const { provider } = hostedProvider(
+      {
+        orgId,
+        runId: `run_${crypto.randomUUID()}`,
+        shard: 0,
+      },
+      false,
+    )
     await expect(provider.resume({ id: "sbx-ingest-old" })).rejects.toThrow(
       "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
     )
@@ -312,11 +315,14 @@ describe("ingest GitHub tokens", () => {
   })
 
   it("refuses to start a hosted ingest sandbox before the live Vercel egress check", async () => {
-    const { provider } = hostedProvider({
-      orgId,
-      runId: `run_${crypto.randomUUID()}`,
-      shard: 0,
-    })
+    const { provider } = hostedProvider(
+      {
+        orgId,
+        runId: `run_${crypto.randomUUID()}`,
+        shard: 0,
+      },
+      false,
+    )
     await expect(provider.create({})).rejects.toThrow(
       "Hosted ingest sandboxes wait for the live Vercel egress check (T12)",
     )
