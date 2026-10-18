@@ -6,6 +6,7 @@ import {
   isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 const MANAGED_ROOT = "confluence"
 
@@ -57,7 +58,7 @@ export function confluencePageAssetPrefix(
   spaceKey: string,
   pageId: string,
 ): string {
-  return `${MANAGED_ROOT}/${spaceKey}/_assets/${pageId}/`
+  return `${MANAGED_ROOT}/${spaceKey}/_assets/${connectorPathSegment(pageId)}/`
 }
 
 export function confluencePageAssetPath(input: {
@@ -66,7 +67,7 @@ export function confluencePageAssetPath(input: {
   sourceKey: string
   filename: string
 }): string {
-  return `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${input.sourceKey}--${sanitizeConnectorAssetName(input.filename)}`
+  return `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${connectorPathSegment(input.sourceKey)}--${sanitizeConnectorAssetName(input.filename)}`
 }
 
 export function relativeConfluenceAssetHref(
@@ -479,11 +480,11 @@ function buildChildrenByParent(
 }
 
 function pageDirectorySegment(pageId: string): string {
-  return `page--${pageId}`
+  return `page--${connectorPathSegment(pageId)}`
 }
 
 function pageLeafFileName(title: string, pageId: string): string {
-  return `${titleSlug(title)}--${pageId}.md`
+  return `${titleSlug(title)}--${connectorPathSegment(pageId)}.md`
 }
 
 /**

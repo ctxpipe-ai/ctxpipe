@@ -1,6 +1,7 @@
 import slugify from "@sindresorhus/slugify"
 import { stringify } from "yaml"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import { rewriteLinearMarkdownImages } from "./markdown-images.js"
 
 export type LinearMirrorFile = {
@@ -81,7 +82,7 @@ const LINEAR_UPLOAD_HOST = /(^|\.)uploads\.linear\.app$/i
 
 function stableSlug(title: string, id: string): string {
   const readable = slugify(title).slice(0, 80) || "untitled"
-  return `${readable}--${id}`
+  return `${readable}--${connectorPathSegment(id)}`
 }
 
 export function linearIssueMarkdownPath(
