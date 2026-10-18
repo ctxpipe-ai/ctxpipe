@@ -217,6 +217,54 @@ describe("verifyBuildkiteAccess", () => {
     expect(requests).toEqual([])
   })
 
+  it("accepts a 403 with the Buildkite message shape", async () => {
+    server.use(
+      token(["read_pipelines", "read_builds"]),
+      http.post(GRAPHQL, () =>
+        HttpResponse.json({ message: "Forbidden" }, { status: 403 }),
+      ),
+      pipelines(),
+    )
+    expect(await verify()).toEqual({ ok: true })
+  })
+
+  // A proxy or a firewall in front of Buildkite can also answer 401 or 403.
+  it.each([
+    [
+      "an HTML 403",
+      () =>
+        new HttpResponse("<html><body>Blocked</body></html>", {
+          status: 403,
+          headers: { "content-type": "text/html" },
+        }),
+    ],
+    ["an empty 403", () => new HttpResponse(null, { status: 403 })],
+    [
+      "a 401 with other JSON",
+      () => HttpResponse.json({ blocked: true }, { status: 401 }),
+    ],
+    [
+      "a 403 above the size limit",
+      () =>
+        HttpResponse.json(
+          { message: "x".repeat(1024 * 1024) },
+          { status: 403 },
+        ),
+    ],
+  ])("refuses the token when the GraphQL check gives %s", async (_name, answer) => {
+    server.use(
+      token(["read_pipelines", "read_builds"]),
+      http.post(GRAPHQL, answer),
+      pipelines(),
+    )
+    expect(await verify()).toEqual({
+      ok: false,
+      error:
+        "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
+    })
+    expect(requests).toEqual([])
+  })
+
   it("names the missing scopes", async () => {
     server.use(token(["read_pipelines"]))
     expect(await verify()).toEqual({

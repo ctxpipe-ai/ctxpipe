@@ -168,9 +168,9 @@ function toBuild(build: z.infer<typeof buildSchema>): BuildkiteBuildForMirror {
  * GraphQL access is a token setting apart from the REST scopes, and
  * `/access-token` does not always show it. With GraphQL access, the token can
  * do all that its user can do, also writes. Thus send one read query:
- * Buildkite refuses it (401 or 403) only when GraphQL access is off. Each
- * other result, also an error, gives "enabled" or "unknown", and the caller
- * refuses the token (fail closed).
+ * Buildkite refuses it (401 or 403, with a JSON `errors` or `message` body)
+ * only when GraphQL access is off. Each other result, also an error, gives
+ * "enabled" or "unknown", and the caller refuses the token (fail closed).
  */
 async function buildkiteGraphqlAccess(input: {
   apiToken: string
@@ -193,10 +193,23 @@ async function buildkiteGraphqlAccess(input: {
   } catch {
     return "unknown"
   }
+  if (response.status === 401 || response.status === 403) {
+    // A proxy or a firewall can also answer 401 or 403. Accept only the
+    // small JSON error body of Buildkite.
+    try {
+      const body = await readBoundedJson(response, 16 * 1024)
+      const shape = z.union([
+        z.object({ errors: z.array(z.unknown()) }),
+        z.object({ message: z.string() }),
+      ])
+      return shape.safeParse(body).success ? "disabled" : "unknown"
+    } catch {
+      return "unknown"
+    }
+  }
   // The body is not necessary. Do not read it. Do not await the cancel: a
   // stream can wait for its source to stop (see bounded-json.ts).
   response.body?.cancel().catch(() => {})
-  if (response.status === 401 || response.status === 403) return "disabled"
   return response.ok ? "enabled" : "unknown"
 }
 
