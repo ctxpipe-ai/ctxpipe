@@ -33,8 +33,6 @@ async function post(input: {
   token?: string
   path?: string
   at?: number
-  /** Pad the body to this many bytes. */
-  padTo?: number
 }) {
   // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
   const { registerBuildkiteWebhookRoute } = await import("./buildkite.js")
@@ -43,7 +41,6 @@ async function post(input: {
   const body = JSON.stringify({
     event: input.event,
     build: { number: 1 },
-    pad: "x".repeat(input.padTo ?? 0),
   })
   const timestamp = String(Math.floor((input.at ?? Date.now()) / 1000))
   const signature = createHmac("sha256", input.token ?? webhookToken)
@@ -184,24 +181,6 @@ describe("Buildkite webhook routes to Workspace sources (Postgres)", () => {
 
     expect(broken.status).toBe(401)
     expect(await broken.json()).toEqual(await unknown.json())
-    expect(await sourceRuns()).toEqual([])
-  })
-
-  it("answers 413 for a body over 2 MB before it looks up the connection", async () => {
-    const tooBig = 2 * 1024 * 1024 + 1
-    // The unknown connection would answer 401 if the route read the body.
-    expect(
-      (
-        await post({
-          event: "build.finished",
-          path: "/api/v1/webhook/buildkite/con_unknown",
-          padTo: tooBig,
-        })
-      ).status,
-    ).toBe(413)
-    expect(
-      (await post({ event: "build.finished", padTo: tooBig })).status,
-    ).toBe(413)
     expect(await sourceRuns()).toEqual([])
   })
 

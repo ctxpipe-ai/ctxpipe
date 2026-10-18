@@ -336,4 +336,26 @@ describe("getBuildkitePipeline", () => {
     await expect(read()).rejects.toThrow()
     expect(elsewhere).toEqual([])
   })
+
+  it("stops the read of an answer above 32 MiB", async () => {
+    const MiB = 1024 * 1024
+    let pulledBytes = 0
+    server.use(
+      http.get(`${API}/organizations/acme/pipelines/web-app`, () => {
+        let left = 64
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (left-- === 0) return controller.close()
+            pulledBytes += MiB
+            controller.enqueue(new Uint8Array(MiB).fill(0x20))
+          },
+        })
+        return new HttpResponse(body, {
+          headers: { "content-type": "application/json" },
+        })
+      }),
+    )
+    await expect(read()).rejects.toThrow(/larger than/)
+    expect(pulledBytes).toBeLessThan(40 * MiB)
+  })
 })

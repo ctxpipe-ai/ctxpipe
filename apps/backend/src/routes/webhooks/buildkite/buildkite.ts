@@ -1,6 +1,5 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
-import { bodyLimit } from "hono/body-limit"
 import type { AppEnv } from "../../../app/env.js"
 import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { getBuildkiteWebhookTarget } from "../../../models/buildkite-connector.js"
@@ -14,15 +13,6 @@ import { noteResolvedWebhookConnections } from "../attribution.js"
  * for each build.
  */
 const SYNC_WINDOW_MS = 10 * 60 * 1000
-
-/**
- * The most bytes that the route reads from one delivery. A `build.finished`
- * body is one build with its jobs. Buildkite publishes no size limit for it,
- * so 2 MB is a safe bound that is far above a build with hundreds of jobs.
- * The limit applies before the route reads the body, so an unsigned sender
- * cannot make the backend buffer more.
- */
-const MAX_WEBHOOK_BODY_BYTES = 2 * 1024 * 1024
 
 /**
  * The admin adds this webhook in Buildkite with its own token, so the URL
@@ -77,10 +67,7 @@ async function handleBuildkiteWebhook(c: Context<AppEnv>) {
 export function registerBuildkiteWebhookRoute(app: OpenAPIHono<AppEnv>) {
   app.post(
     "/api/v1/webhook/buildkite/:connectionId",
-    bodyLimit({
-      maxSize: MAX_WEBHOOK_BODY_BYTES,
-      onError: (c) => c.json({ error: "Payload too large" }, 413),
-    }),
+    // The body limit is in `registerWebhookRoutes`, before this handler.
     (c) => handleBuildkiteWebhook(c),
   )
 }

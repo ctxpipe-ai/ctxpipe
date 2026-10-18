@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { readBoundedJson } from "../connectors/bounded-json.js"
 import type {
   BuildkiteBuildForMirror,
   BuildkitePipelineForMirror,
@@ -14,6 +15,12 @@ export const BUILDKITE_REQUIRED_SCOPES = [
 
 /** The number of finished builds that a source keeps for each pipeline. */
 export const BUILDKITE_BUILDS_PER_PIPELINE = 25
+
+/**
+ * The most bytes of one Buildkite answer. A page of 25 builds with hundreds
+ * of jobs each is far below it.
+ */
+const BUILDKITE_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
 
 /** The pipeline picker reads at most this many pages of 100 pipelines. */
 const BUILDKITE_MAX_PIPELINE_PAGES = 10
@@ -81,7 +88,9 @@ async function readJson<T>(
 ): Promise<T> {
   if (!response.ok)
     throw new Error(`Buildkite ${what} failed (${response.status})`)
-  return schema.parse(await response.json())
+  return schema.parse(
+    await readBoundedJson(response, BUILDKITE_MAX_RESPONSE_BYTES),
+  )
 }
 
 const nullableString = z.string().nullish().default(null)
