@@ -1,3 +1,5 @@
+import HyperDX from "@hyperdx/browser"
+
 /**
  * The setup command for the step that connects the agents of the user.
  * The CLI uses the hosted origin when it gets no `--base-url`
@@ -12,4 +14,9 @@ export function editorSetupCommand(origin: string): string {
 /** The MCP endpoint. It has no `?orgSlug=`, because ADR-051 ignores it. */
 export function mcpServerUrl(origin: string): string {
   return `${origin}/mcp`
+}
+
+/** The user copied part of the MCP setup. Records which part, not its value. */
+export function recordMcpConfigCopied(target: "setup_command" | "server_url") {
+  HyperDX.addAction("mcp_config_copy", { target })
 }

@@ -60,10 +60,12 @@ import {
   listPersonalApiKeyOrganizations,
   listPersonalApiKeys,
   type PersonalApiKeyOrganization,
+  recordApiKeyCopied,
   setPersonalApiKeyOrganizations,
 } from "@/features/organization/organizationApiKeys"
 import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
 const apiKeysCardClassNames = betterAuthShellClassNames.card
 
@@ -157,7 +159,10 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null)
-  const [createdSecret, setCreatedSecret] = useState<string | null>(null)
+  const [createdSecret, setCreatedSecret] = useState<{
+    id: string
+    key: string
+  } | null>(null)
   const [keyToEdit, setKeyToEdit] = useState<ApiKey | null>(null)
 
   const keysQuery = useQuery({
@@ -198,7 +203,9 @@ function ApiKeysCard(props: ApiKeysCardProps) {
             }),
       ])
       setCreateOpen(false)
-      setCreatedSecret(created.key ?? null)
+      setCreatedSecret(
+        created.key ? { id: created.id, key: created.key } : null,
+      )
     },
   })
 
@@ -229,6 +236,14 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   const forbidden =
     isOrganization && keysQuery.error != null && isForbidden(keysQuery.error)
   const loadError = keysQuery.error != null && !forbidden
+
+  useHyperDxScreenError(
+    forbidden
+      ? "api_keys_forbidden"
+      : loadError
+        ? "api_keys_load_failed"
+        : null,
+  )
 
   const keysLoading = useSkeletonHold(keysQuery.isPending)
   return (
@@ -442,7 +457,8 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           }}
         >
           <CreatedSecretDialog
-            secret={createdSecret}
+            secret={createdSecret.key}
+            onCopied={() => recordApiKeyCopied(props.kind, createdSecret.id)}
             onDone={() => setCreatedSecret(null)}
           />
         </Modal>
@@ -666,8 +682,12 @@ function CreateApiKeyModal(props: {
   )
 }
 
-function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
-  const { secret, onDone } = props
+function CreatedSecretDialog(props: {
+  secret: string
+  onCopied: () => void
+  onDone: () => void
+}) {
+  const { secret, onCopied, onDone } = props
   const [copied, setCopied] = useState(false)
 
   return (
@@ -690,6 +710,7 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
           onPress={() => {
             void navigator.clipboard.writeText(secret)
             setCopied(true)
+            onCopied()
           }}
         >
           <IconCopy className="size-4" aria-hidden />

@@ -1,5 +1,10 @@
-import { describe, expect, it } from "vitest"
-import { editorSetupCommand, mcpServerUrl } from "./editor-setup"
+import HyperDX from "@hyperdx/browser"
+import { describe, expect, it, vi } from "vitest"
+import {
+  editorSetupCommand,
+  mcpServerUrl,
+  recordMcpConfigCopied,
+} from "./editor-setup"
 
 describe("editorSetupCommand", () => {
   it("is the bare command on the hosted origin", () => {
@@ -23,5 +28,22 @@ describe("mcpServerUrl", () => {
     expect(mcpServerUrl("https://ctx.example.com")).toBe(
       "https://ctx.example.com/mcp",
     )
+  })
+})
+
+describe("recordMcpConfigCopied", () => {
+  it("records mcp_config_copy with the part that the user copied, and not the value", () => {
+    const addAction = vi
+      .spyOn(HyperDX, "addAction")
+      .mockImplementation(() => {})
+
+    recordMcpConfigCopied("setup_command")
+    recordMcpConfigCopied("server_url")
+
+    expect(addAction.mock.calls).toEqual([
+      ["mcp_config_copy", { target: "setup_command" }],
+      ["mcp_config_copy", { target: "server_url" }],
+    ])
+    addAction.mockRestore()
   })
 })

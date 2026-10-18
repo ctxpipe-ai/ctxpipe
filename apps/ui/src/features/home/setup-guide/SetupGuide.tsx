@@ -29,7 +29,11 @@ import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { editorSetupCommand, mcpServerUrl } from "./editor-setup"
+import {
+  editorSetupCommand,
+  mcpServerUrl,
+  recordMcpConfigCopied,
+} from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
@@ -391,6 +395,7 @@ function EditorSetupStep() {
             copyAriaLabel="Copy setup command"
             copiedAriaLabel="Setup command copied"
             copyErrorMessage="Could not copy. Copy the command manually."
+            onCopied={() => recordMcpConfigCopied("setup_command")}
           />
           <p className="pt-1 text-xs text-muted-foreground">
             To set up a client by hand, use this MCP server URL.{" "}
@@ -408,6 +413,7 @@ function EditorSetupStep() {
             copyAriaLabel="Copy MCP server URL"
             copiedAriaLabel="MCP server URL copied"
             copyErrorMessage="Could not copy. Copy the URL manually."
+            onCopied={() => recordMcpConfigCopied("server_url")}
           />
         </div>
       </div>
