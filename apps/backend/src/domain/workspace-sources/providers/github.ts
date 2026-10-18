@@ -2,6 +2,12 @@ import { z } from "zod"
 import { normalizeWorkspaceRepositoryUrl } from "../../workspaces/slug.js"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The most repositories in one GitHub `.ctxpipe/sources.yaml` entry. ctx|
+ * clones and indexes each one. A source file holds one repository.
+ */
+export const GITHUB_SOURCE_MAX_REPOSITORIES = 100
+
 /** One GitHub repository as `owner/name`. */
 const repositoryNameSchema = z
   .string()
@@ -37,6 +43,10 @@ export const githubScopeSchema = z.strictObject({
   repositories: z
     .array(repositoryItemSchema)
     .min(1, "Select at least one repository")
+    .max(
+      GITHUB_SOURCE_MAX_REPOSITORIES,
+      `Select at most ${GITHUB_SOURCE_MAX_REPOSITORIES} repositories`,
+    )
     .refine(
       (items) =>
         new Set(items.map((item) => itemName(item).toLowerCase())).size ===
