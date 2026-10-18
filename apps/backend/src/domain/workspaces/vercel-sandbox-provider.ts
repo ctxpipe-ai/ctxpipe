@@ -463,12 +463,16 @@ async function refreshGitAccess(
  * timeout the call logs a warning and goes on, so an image without a bundle
  * never blocks a start.
  *
- * A sandbox that starts from a snapshot has the whole bundle of the sandbox
- * that made the snapshot, and the platform rewrites the file about one second
- * after the create call returns. A check of the old file passes, and git then
- * reads the file during the rewrite. `startedAt` (seconds, taken before the
- * start) makes the check wait for that rewrite: the bundle link must be newer
- * than the start, and no `update-ca-trust` or `trust` process may run.
+ * A sandbox that starts from a snapshot (create), or from saved state (resume
+ * of a stopped sandbox), has the whole bundle of the earlier sandbox. The
+ * platform rewrites the file about one to two seconds after the start call
+ * returns. A check of the old file passes, and git then reads the file during
+ * the rewrite. `startedAt` (seconds, taken before the start) makes the check
+ * wait for that rewrite: the bundle link must be newer than the start, and no
+ * `update-ca-trust` or `trust` process may run (both run during the rewrite).
+ * The boot time in `/proc/stat` cannot replace `startedAt`: measured in the
+ * Vercel lane, the boot time after a resume is earlier than the change time
+ * of the link from before the stop, so the old link would pass.
  */
 async function waitForCaBundle(
   handle: SandboxHandle,
@@ -479,7 +483,9 @@ async function waitForCaBundle(
   const check =
     startedAt === undefined
       ? whole
-      : `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${startedAt} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
+      : // `stat -c %Z` (no `-L`) reads the change time of the link itself,
+        // because the rewrite recreates the link.
+        `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${startedAt} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
   for (let attempt = 0; attempt < 20; attempt++) {
     const result = await handle.process.exec(check).catch(() => undefined)
     if (result?.exitCode === 0) {
@@ -628,15 +634,24 @@ export function vercelConversationProvider(input: {
     },
     async resume({ id }) {
       let sandbox: Sandbox
+      let started: number | undefined
+      const before = beforeStart()
       try {
-        sandbox = await Sandbox.get({ ...credentials, name: id })
+        // The SDK calls `onResume` only when it started a stopped sandbox.
+        sandbox = await Sandbox.get({
+          ...credentials,
+          name: id,
+          onResume: async () => {
+            started = before
+          },
+        })
       } catch {
         // Deleted or past retention: TanStack creates a new one.
         return null
       }
       await refreshGitAccess(sandbox, access)
       const handle = conversationHandle(sandbox, input.agentPassword)
-      await waitForCaBundle(handle)
+      await waitForCaBundle(handle, started)
       return handle
     },
     async destroy({ id }) {
