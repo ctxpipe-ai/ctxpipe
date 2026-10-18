@@ -22,8 +22,8 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
 
 const SOURCE_URL = "https://github.com/fixture/source-app"
 const SECOND_URL = "https://github.com/fixture/second-workspace.git"
@@ -325,11 +325,38 @@ it(
           expect(backfillA?.input).not.toHaveProperty("numbers")
           expect(filesIn(f, f.remote)).toContain(pullPath(7))
 
-          // Linking B: its hydrate records the link and backfills B.
+          // Linking B: its hydrate records the link and backfills B. The
+          // access check of the projection reads the repository from GitHub
+          // before it writes the source row of B. At that point no backfill
+          // of B can exist: a backfill that runs before the row writes its
+          // files without the sources stamp (CTX-761).
+          // Each entry: the backfills of B at one read before the row exists.
+          const backfillsBeforeRow: string[][] = []
+          let probe = true
+          f.server.use(
+            http.get(
+              "https://api.github.com/repos/fixture/source-app",
+              async () => {
+                if (!probe || (await linkedTo(workspaceB)).length) return
+                backfillsBeforeRow.push(
+                  (await mirrorRuns())
+                    .filter(
+                      (run) =>
+                        (run.input as { workspaceId: string }).workspaceId ===
+                        workspaceB,
+                    )
+                    .map((run) => run.id),
+                )
+              },
+            ),
+          )
           await writeLink("link")
           await expect
             .poll(() => linkedTo(workspaceB), { timeout: 60_000 })
             .toEqual([SOURCE_URL])
+          probe = false
+          expect(backfillsBeforeRow.length).toBeGreaterThan(0)
+          expect(backfillsBeforeRow.flat()).toEqual([])
           const backfills = await settledMirrors(2)
           expect(
             backfills.find(

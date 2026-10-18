@@ -234,30 +234,44 @@ export const githubSyncPullRequest = defineWorkflow(
 
 /**
  * Hydrate calls this with a revision's linked repositories before it records
- * them: every GitHub repository not yet in the Workspace's linked table is
- * newly linked and gets one backfill. The key makes replays and a repeated
- * hydrate of the same link start it once.
+ * them: each GitHub repository not yet in the Workspace's linked table is
+ * newly linked and gets one backfill.
  */
-export async function enqueueGithubPrBackfillsForNewLinks(input: {
+export async function newGithubPrBackfillLinks(input: {
   orgId: string
   workspaceId: string
   workspaceUrl: string
   gitUrls: readonly string[]
-}): Promise<void> {
+}): Promise<string[]> {
   const known = new Set([
     normalizeWorkspaceRepositoryUrl(input.workspaceUrl),
     ...(await listOrgLinkedRepositories(input.orgId))
       .filter((row) => row.workspaceId === input.workspaceId)
       .map((row) => normalizeWorkspaceRepositoryUrl(row.gitUrl)),
   ])
-  const linked = new Set(input.gitUrls.map(normalizeWorkspaceRepositoryUrl))
-  for (const gitUrl of linked) {
-    if (known.has(gitUrl) || !githubRepoFullNameFromWorkspaceUrl(gitUrl))
-      continue
+  return [
+    ...new Set(input.gitUrls.map(normalizeWorkspaceRepositoryUrl)),
+  ].filter(
+    (gitUrl) =>
+      !known.has(gitUrl) && githubRepoFullNameFromWorkspaceUrl(gitUrl),
+  )
+}
+
+/**
+ * Hydrate calls this after it records the source rows of the links from
+ * {@link newGithubPrBackfillLinks}. A backfill reads the source file of its
+ * repository from those rows to stamp each file. The key makes replays and a
+ * repeated hydrate of the same link start it once.
+ */
+export async function enqueueGithubPrBackfills(input: {
+  orgId: string
+  workspaceId: string
+  gitUrls: readonly string[]
+}): Promise<void> {
+  for (const gitUrl of input.gitUrls)
     await runWorkflowWithWorkerWake(
       githubSyncPullRequest.spec,
       { orgId: input.orgId, workspaceId: input.workspaceId, gitUrl },
       { idempotencyKey: `github-pr-backfill:${input.workspaceId}:${gitUrl}` },
     )
-  }
 }

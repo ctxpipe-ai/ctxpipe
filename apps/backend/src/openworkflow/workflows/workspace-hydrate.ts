@@ -541,17 +541,19 @@ export function defineWorkspaceHydrateWorkflow() {
               })
 
               let activated = !pending.postgres
+              let newGithubLinks: string[] = []
               if (pending.postgres) {
                 // Before the sources projection changes the pinned state, so a
-                // replay still sees which GitHub links are new and the backfill
-                // key dedupes the enqueue.
-                await step.run(
-                  { name: "enqueue-github-pr-backfills" },
+                // replay still sees which GitHub links are new. The enqueue
+                // waits for the projection below (CTX-761).
+                newGithubLinks = await step.run(
+                  { name: "find-new-github-pr-links" },
                   async () => {
                     // Import at the admission boundary: the mirror enqueues hydrate.
-                    const { enqueueGithubPrBackfillsForNewLinks } =
-                      await import("./github-sync-pull-request.js")
-                    await enqueueGithubPrBackfillsForNewLinks({
+                    const { newGithubPrBackfillLinks } = await import(
+                      "./github-sync-pull-request.js"
+                    )
+                    return newGithubPrBackfillLinks({
                       orgId: input.orgId,
                       workspaceId: workspace.id,
                       workspaceUrl: revision.remote.url,
@@ -659,6 +661,22 @@ export function defineWorkspaceHydrateWorkflow() {
                     })
                   },
                 )
+                // After the projection: a backfill stamps each file with the
+                // source file of its repository, which it reads from the rows.
+                if (newGithubLinks.length)
+                  await step.run(
+                    { name: "enqueue-github-pr-backfills" },
+                    async () => {
+                      const { enqueueGithubPrBackfills } = await import(
+                        "./github-sync-pull-request.js"
+                      )
+                      await enqueueGithubPrBackfills({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                        gitUrls: newGithubLinks,
+                      })
+                    },
+                  )
               }
 
               if (activated && pending.graph) {
