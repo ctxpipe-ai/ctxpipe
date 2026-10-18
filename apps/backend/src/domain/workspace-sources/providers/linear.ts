@@ -4,7 +4,7 @@ import type { SourceScopeDefinition } from "./scope.js"
 /**
  * The most teams in one Linear source. Each team syncs all its issues, and
  * the Linear API limits the requests of one key in each hour. A Linear
- * workspace seldom has more teams than this.
+ * workspace almost never has more teams than this.
  */
 export const LINEAR_SOURCE_MAX_TEAMS = 50
 
