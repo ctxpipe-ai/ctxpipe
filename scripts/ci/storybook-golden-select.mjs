@@ -57,7 +57,7 @@ export const requiredStories = [
   "OrgGateTryAgainLoads",
   "LoadingUnderReducedMotion",
   "DoubleClickMovesOneSlide",
-  "AdminFlowCreateOrgThenSkipGithub",
+  "AdminFlowCreateOrgLandsOnHome",
   "JoinerFinishLandsInApp",
   "GuideAdminNewOrg",
   "GuideAdminCreatesWorkspaceOnHome",
