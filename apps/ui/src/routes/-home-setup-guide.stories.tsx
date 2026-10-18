@@ -678,14 +678,30 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
   },
 }
 
+let connectionReads = 0
+
 /** The connections load fails: the dialog shows Retry, not "connect first". */
 export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
+  beforeEach: () => {
+    connectionReads = 0
+  },
   parameters: {
     msw: {
       handlers: {
         defaults: sessionDefaults(1),
         page: [
-          failed("/api/v1/connectors"),
+          // The guide reads the list first and gets no connection. The
+          // dialog reads it again and the read fails.
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            () => {
+              connectionReads += 1
+              return connectionReads === 1
+                ? HttpResponse.json({ items: [] })
+                : HttpResponse.json({ error: "failed" }, { status: 500 })
+            },
+          ),
           ...repositoriesGateHandlers({
             detail: emptyLinkedWorkspaceDetail,
             canEdit: true,
