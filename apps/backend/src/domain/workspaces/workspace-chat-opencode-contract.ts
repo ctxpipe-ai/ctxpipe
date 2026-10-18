@@ -339,10 +339,7 @@ export function workspaceChatOpenCodeConfig(input: {
     task: "deny"
     webfetch: "allow" | "deny"
     websearch: "deny"
-    external_directory: "deny"
-    doom_loop: "deny"
     question: "deny"
-    read: Record<string, "allow" | "deny">
   }
   agent: {
     title: { disable: true }
@@ -368,25 +365,18 @@ export function workspaceChatOpenCodeConfig(input: {
     // pages: its network is open and holds no credential. An unsandboxed
     // agent shares the backend's network, so web reads stay off.
     //
-    // OpenCode 1.18 sends an "ask" as `permission.asked`. The adapter answers
-    // only the older `permission.updated`, and the UI shows no ask. Thus each
-    // ask waits until the turn is cancelled (CTX-846). Each rule that OpenCode
-    // sets to "ask" by default is "deny" here, so the agent gets a tool error
-    // at once. A path outside the Workspace repository is not part of the
-    // Workspace: the agent cannot show it to the user or push it.
+    // OpenCode's default "ask" rules stay: doom_loop, a path outside the
+    // Workspace repository (external_directory), and a read of a .env file.
+    // The adapter sends each ask to the chat permission handler: hard denies,
+    // then acceptEdits, then the judge. The handler hard-denies a path
+    // outside the repository and a .env read. The question tool waits for an
+    // answer from the user, and a chat turn has no way to send one, so it is
+    // "deny".
     permission: {
       task: "deny",
       webfetch: input.proxyAddsCredentials ? "allow" : "deny",
       websearch: "deny",
-      external_directory: "deny",
-      doom_loop: "deny",
       question: "deny",
-      read: {
-        "*": "allow",
-        "*.env": "deny",
-        "*.env.*": "deny",
-        "*.env.example": "allow",
-      },
     },
     // Title generation is a parallel completion that contends for the same
     // model as the first user turn.

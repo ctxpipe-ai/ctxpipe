@@ -1,10 +1,18 @@
 import { execFileSync, spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type AdapterYieldChunk, chat } from "@tanstack/ai"
 import {
+  type OpencodePermissionRequest,
   type OpencodeStreamEvent,
   opencodeText,
   type SandboxOpencodeServer,
@@ -19,6 +27,7 @@ import {
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
+import { createWorkspaceChatPermissionHandler } from "./chat-sandbox-policy.js"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
@@ -505,16 +514,49 @@ it(
   },
 )
 
-it(
-  "refuses a chat write outside the repository at once, with a tool error the agent sees (CTX-846)",
+it.each([
+  {
+    name: "a write outside the repository",
+    ask: "external_directory",
+    tool: "write",
+    args: (target: string) => ({ filePath: target, content: "idle-probe\n" }),
+    file: "idle-probe.txt",
+    inside: false,
+  },
+  {
+    name: "a read of a .env file",
+    ask: "read",
+    tool: "read",
+    args: (target: string) => ({ filePath: target }),
+    file: ".env",
+    inside: true,
+  },
+] as const)(
+  "hard-denies the OpenCode ask for $name without the judge (CTX-846, CTX-852)",
   { timeout: 60_000 },
-  async () => {
-    // OpenCode asks before it touches a path outside its directory. The
-    // adapter answers only the older permission event, so an ask that the
-    // chat config does not answer holds the turn until it is cancelled.
-    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-"))
-    const outside = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-"))
-    const target = join(outside, "idle-probe.txt")
+  async ({ ask, tool, args, file, inside }) => {
+    // OpenCode asks before it touches a path outside its directory or reads
+    // a .env file. The chat config keeps both asks, and the real chat
+    // handler refuses them at once without the judge. Without an answer,
+    // the turn waits until it is cancelled.
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-")),
+    )
+    const outside = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-")),
+    )
+    const target = join(inside ? directory : outside, file)
+    if (inside) await writeFile(target, "SECRET_PROBE=1\n")
+    const judgeCalls: string[] = []
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      judge: async (toolName) => {
+        judgeCalls.push(toolName)
+        return "allow"
+      },
+    })
+    const asks: OpencodePermissionRequest[] = []
+    const answers: string[] = []
     const bodies: string[] = []
     const model = createServer((request, response) => {
       if (request.url !== "/model/v1/chat/completions") {
@@ -542,11 +584,8 @@ it(
                     id: "call_outside",
                     type: "function",
                     function: {
-                      name: "write",
-                      arguments: JSON.stringify({
-                        filePath: target,
-                        content: "idle-probe\n",
-                      }),
+                      name: tool,
+                      arguments: JSON.stringify(args(target)),
                     },
                   },
                 ],
@@ -593,10 +632,15 @@ it(
           providerID: "synthetic",
           modelID: "probe",
           onEvent: () => undefined,
-          onPermissionRequest: () => "reject",
+          onPermissionRequest: async (request) => {
+            asks.push(request)
+            const reply = await handler(request)
+            answers.push(reply)
+            return reply
+          },
         })
         const reply = await Promise.race([
-          session.prompt(`Create ${target}.`),
+          session.prompt(`Use ${target}.`),
           new Promise<"hung">((resolve) => {
             timer = setTimeout(() => resolve("hung"), 20_000)
           }),
@@ -607,18 +651,13 @@ it(
         await session?.dispose()
         await server.dispose()
       }
-      // The model got the refusal as the result of its tool call.
-      const toolResults = bodies.flatMap((body) =>
-        (
-          JSON.parse(body) as {
-            messages: Array<{ role: string; content: unknown }>
-          }
-        ).messages.filter((message) => message.role === "tool"),
-      )
-      expect(JSON.stringify(toolResults)).toMatch(
-        /prevents you from using this specific tool call/,
-      )
-      await expect(readFile(target, "utf8")).rejects.toThrow()
+      expect(asks).toEqual([expect.objectContaining({ type: ask })])
+      expect(answers).toEqual(["reject"])
+      expect(judgeCalls).toEqual([])
+      // "reject" stops the turn: the model never gets the tool result.
+      expect(bodies.filter((body) => body.includes("call_outside"))).toEqual([])
+      expect(bodies.join("\n")).not.toContain("SECRET_PROBE")
+      if (!inside) await expect(readFile(target, "utf8")).rejects.toThrow()
     } finally {
       clearTimeout(timer)
       model.closeAllConnections()
@@ -626,6 +665,197 @@ it(
       await sandbox.destroy()
       await rm(directory, { recursive: true, force: true })
       await rm(outside, { recursive: true, force: true })
+    }
+  },
+)
+
+it.each([
+  {
+    name: "the judge allows",
+    file: "notes.md",
+    judge: async () => "allow" as const,
+    answer: "once",
+    judged: true,
+  },
+  {
+    name: "the judge cannot run",
+    file: "notes.md",
+    judge: async (): Promise<"allow"> => {
+      throw new Error("model provider is unavailable")
+    },
+    answer: "reject",
+    judged: true,
+  },
+  {
+    // The handler stops waiting for the judge after 10 s.
+    name: "the judge does not answer",
+    file: "notes.md",
+    judge: () => new Promise<"allow">(() => {}),
+    answer: "reject",
+    judged: true,
+  },
+  {
+    name: "a hard deny matches the tool input",
+    file: "auth_secret.md",
+    judge: async () => "allow" as const,
+    answer: "reject",
+    judged: false,
+  },
+] as const)(
+  "sends the OpenCode doom_loop ask of its own session to the chat permission handler when $name",
+  { timeout: 60_000 },
+  async ({ file, judge, answer, judged }) => {
+    // OpenCode asks with `permission.asked` and takes the answer at
+    // `POST /permission/{requestID}/reply`. The chat config keeps OpenCode's
+    // "ask" for doom_loop: three same calls of one tool in one step. The
+    // real workspace chat handler must get the ask, and OpenCode must apply
+    // its answer. Without an answer, the turn waits until it is cancelled.
+    // A second session on the same server must not get the ask.
+    // OpenCode resolves its directory through symlinks (macOS /var is one).
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-ask-")),
+    )
+    const target = join(directory, file)
+    await writeFile(target, "ask-probe-content\n")
+    const callIDs = ["call_doom_0", "call_doom_1", "call_doom_2"]
+    let resultRequests = 0
+    const model = createServer((request, response) => {
+      if (request.url !== "/model/v1/chat/completions") {
+        response.writeHead(404)
+        response.end()
+        return
+      }
+      let body = ""
+      request.on("data", (chunk) => {
+        body += chunk
+      })
+      request.on("end", () => {
+        if (body.includes("call_doom_")) resultRequests += 1
+        const chunks = body.includes("call_doom_")
+          ? [
+              completionChunk({ role: "assistant", content: "done" }),
+              completionChunk({}, "stop"),
+            ]
+          : [
+              completionChunk({
+                role: "assistant",
+                tool_calls: callIDs.map((id, index) => ({
+                  index,
+                  id,
+                  type: "function",
+                  function: {
+                    name: "read",
+                    arguments: JSON.stringify({ filePath: target }),
+                  },
+                })),
+              }),
+              completionChunk({}, "tool_calls"),
+            ]
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        for (const chunk of chunks)
+          response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+        response.end("data: [DONE]\n\n")
+      })
+    })
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({ id: directory, workspace: { source: { type: "none" } } })
+    const judgeCalls: string[] = []
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "read_only",
+      judge: (toolName) => {
+        judgeCalls.push(toolName)
+        return judge()
+      },
+    })
+    const asks: OpencodePermissionRequest[] = []
+    const answers: string[] = []
+    const bystanderAsks: OpencodePermissionRequest[] = []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve) =>
+        model.listen(0, "127.0.0.1", () => resolve()),
+      )
+      const address = model.address()
+      if (!address || typeof address === "string")
+        throw new Error("model fixture did not bind")
+      await sandbox.env.set(
+        syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${address.port}/model/v1`,
+          workspaceChatOpenCodeConfig({
+            modelBase: "probe",
+            proxyAddsCredentials: true,
+          }).permission,
+        ),
+      )
+      const server = await startOpencodeServerInSandbox(sandbox, {
+        port: await freeLoopbackPort(),
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      let bystander:
+        | Awaited<ReturnType<typeof startOpencodeSession>>
+        | undefined
+      try {
+        bystander = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: () => undefined,
+          onPermissionRequest: (request) => {
+            bystanderAsks.push(request)
+            return "once"
+          },
+        })
+        session = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: () => undefined,
+          onPermissionRequest: async (request) => {
+            asks.push(request)
+            const reply = await handler(request)
+            answers.push(reply)
+            return reply
+          },
+        })
+        const reply = await Promise.race([
+          session.prompt(`Read ${target} three times.`),
+          new Promise<"hung">((resolve) => {
+            timer = setTimeout(() => resolve("hung"), 20_000)
+          }),
+        ])
+        expect(reply).not.toBe("hung")
+      } finally {
+        await session?.abort()
+        await session?.dispose()
+        await bystander?.dispose()
+        await server.dispose()
+      }
+      expect(bystanderAsks).toEqual([])
+      expect(asks).toEqual([
+        expect.objectContaining({
+          type: "doom_loop",
+          patterns: ["read"],
+          metadata: { tool: "read", input: { filePath: target } },
+        }),
+      ])
+      expect(answers).toEqual([answer])
+      expect(judgeCalls).toEqual(judged ? ["doom_loop"] : [])
+      // OpenCode applied the answer. After "once" the turn goes on and sends
+      // the tool results to the model. After "reject" the turn stops. (The
+      // third read can run before the ask is answered: OpenCode starts a
+      // tool when the model sends the call, and doom_loop does not wait.)
+      expect(resultRequests).toBe(answer === "once" ? 1 : 0)
+    } finally {
+      clearTimeout(timer)
+      model.closeAllConnections()
+      model.close()
+      await sandbox.destroy()
+      await rm(directory, { recursive: true, force: true })
     }
   },
 )
