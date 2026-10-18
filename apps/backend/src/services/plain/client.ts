@@ -4,7 +4,7 @@ import {
   PLAIN_REQUIRED_PERMISSIONS,
   plainIdSchema,
 } from "../../domain/workspace-sources/providers/plain.js"
-import { getLogger } from "../../observability/logger.js"
+import { log } from "../../observability/logger.js"
 import { readBoundedJson } from "../connectors/bounded-json.js"
 import type {
   PlainArticleForMirror,
@@ -158,7 +158,11 @@ async function readPages<T>(
   let pages = 0
   do {
     if (pages === maxPages) {
-      getLogger().warn("Plain read hit the page cap", { maxPages })
+      log.warn({
+        step: "plain.read.page_cap",
+        message: "Plain read hit the page cap",
+        maxPages,
+      })
       throw new Error(`Plain has more than ${maxPages} pages in one read`)
     }
     pages += 1
