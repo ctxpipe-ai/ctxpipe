@@ -3,7 +3,6 @@ import {
   confluenceSourceScopeSchema,
 } from "backend/domain/workspace-sources/providers/confluence"
 import { useState } from "react"
-import { InlineAlert } from "@/components/ui/InlineAlert"
 import { ConfluenceMark } from "@/features/connectors/components/ConfluenceMark"
 import { SpacePageTree } from "@/features/connectors/SpacePageTree"
 import type { SpaceScopeItem } from "@/features/connectors/types"
@@ -11,7 +10,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
-import { scopeLimitMessage } from "./ScopeLimitAlert"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** The tree selection of a source scope. A bad or empty scope starts empty. */
 export function confluenceScopeToSpaceItems(
@@ -50,11 +49,8 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
     confluenceScopeToSpaceItems(initialScope),
   )
   const heading = label ? `Spaces and pages for ${label}` : "Spaces and pages"
-  const complete = confluenceSpaceItemsToScope(items) !== null
-  const limitMessage = scopeLimitMessage(
-    confluenceSourceScopeSchema,
-    spaceItemsScope(items),
-  )
+  const missing =
+    !items.length || items.some((item) => item.selectedPageIds?.length === 0)
   return (
     <section aria-label={heading} className="flex flex-col gap-2">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
@@ -69,13 +65,15 @@ export function ConfluenceScopeEditor(props: SourceScopeEditorProps) {
           }}
         />
       </div>
-      {limitMessage ? (
-        <InlineAlert variant="error">{limitMessage}.</InlineAlert>
-      ) : complete ? null : (
+      {missing ? (
         <p className="text-sm text-muted-foreground">
           Select at least one space, or one page in each selected space.
         </p>
-      )}
+      ) : null}
+      <ScopeLimitAlert
+        schema={confluenceSourceScopeSchema}
+        scope={spaceItemsScope(items)}
+      />
     </section>
   )
 }
