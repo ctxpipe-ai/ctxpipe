@@ -4,12 +4,15 @@ import { dirname, join } from "node:path"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { OpenWorkflow } from "openworkflow"
+import { Pool } from "pg"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { ownerUrlForMigrate } from "../../db/owner-migrate-url.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
+import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -22,8 +25,8 @@ import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
-import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
 import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
+import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
 
 const SOURCE_URL = "https://github.com/fixture/source-app"
 const SECOND_URL = "https://github.com/fixture/second-workspace.git"
@@ -325,11 +328,38 @@ it(
           expect(backfillA?.input).not.toHaveProperty("numbers")
           expect(filesIn(f, f.remote)).toContain(pullPath(7))
 
-          // Linking B: its hydrate records the link and backfills B.
+          // Linking B: its hydrate records the link and backfills B. The
+          // access check of the projection reads the repository from GitHub
+          // before it writes the source row of B. At that point no backfill
+          // of B can exist: a backfill that runs before the row writes its
+          // files without the sources stamp (CTX-854).
+          // Each entry holds the backfills of B at one read before the row exists.
+          const backfillsBeforeRow: string[][] = []
+          let probe = true
+          f.server.use(
+            http.get(
+              "https://api.github.com/repos/fixture/source-app",
+              async () => {
+                if (!probe || (await linkedTo(workspaceB)).length) return
+                backfillsBeforeRow.push(
+                  (await mirrorRuns())
+                    .filter(
+                      (run) =>
+                        (run.input as { workspaceId: string }).workspaceId ===
+                        workspaceB,
+                    )
+                    .map((run) => run.id),
+                )
+              },
+            ),
+          )
           await writeLink("link")
           await expect
             .poll(() => linkedTo(workspaceB), { timeout: 60_000 })
             .toEqual([SOURCE_URL])
+          probe = false
+          expect(backfillsBeforeRow.length).toBeGreaterThan(0)
+          expect(backfillsBeforeRow.flat()).toEqual([])
           const backfills = await settledMirrors(2)
           expect(
             backfills.find(
@@ -550,5 +580,208 @@ it(
         }
       },
     )
+  },
+)
+
+/**
+ * Makes Postgres refuse the first `failures` inserts into a table, for rows
+ * that match `condition` (SQL on `new`). A sequence is not transactional, so a
+ * retry passes after that. `lift` removes the fault and closes the pool.
+ */
+async function refuseInserts(
+  f: NativeHydrationFixture,
+  input: { table: string; condition: string; failures: number },
+) {
+  const owner = new Pool({
+    connectionString: ownerUrlForMigrate(f.databaseUrl),
+  })
+  const fault = `ctx854_fault_${f.id.replace(/[^a-z0-9]/gi, "_")}`
+  await owner.query(`
+    create sequence public.${fault}_seq;
+    create function public.${fault}() returns trigger
+    language plpgsql as $$
+    begin
+      if ${input.condition} then
+        if nextval('public.${fault}_seq') <= ${input.failures} then
+          raise exception 'The fixture refuses this insert';
+        end if;
+      end if;
+      return new;
+    end $$;
+    create trigger ${fault} before insert on ${input.table}
+      for each row execute function public.${fault}();
+  `)
+  let lifted = false
+  return {
+    owner,
+    lift: async () => {
+      if (lifted) return
+      lifted = true
+      await owner.query(`
+        drop trigger ${fault} on ${input.table};
+        drop function public.${fault}();
+        drop sequence public.${fault}_seq;
+      `)
+      await owner.end()
+    },
+  }
+}
+
+const backfillRunsOf = async (f: NativeHydrationFixture) =>
+  (await f.backend.listWorkflowRuns({ limit: 200 })).data.filter(
+    (run) =>
+      run.workflowName === "github-sync-pull-request" &&
+      (run.input as { workspaceId?: string }).workspaceId === f.workspaceId,
+  )
+
+const hydrateSteps = async (f: NativeHydrationFixture) =>
+  (
+    await f.backend.listStepAttempts({
+      workflowRunId: f.handle.workflowRun.id,
+      limit: 1000,
+    })
+  ).data
+
+const backfillFixture = {
+  namespaceId: openWorkflowNamespaceId(),
+  github: true,
+  githubWriteView: "writable",
+  writeStatus: "writable",
+  files: FILES,
+} as const
+
+it(
+  "enqueues the backfill of a new link when hydrate retries after it records the source row",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(backfillFixture, async (f) => {
+      serveSourceGraphql(f, { merged: [7], pageSize: 20 })
+      // The projection wrote the source row, so the retry sees the link as
+      // known. Only the memoized output still names it.
+      const fault = await refuseInserts(f, {
+        table: "openworkflow.workflow_runs",
+        condition: `new.workflow_name = 'github-sync-pull-request'
+          and new.input->>'workspaceId' = '${f.workspaceId}'`,
+        failures: 1,
+      })
+      try {
+        await f.worker.start()
+        await f.handle.result({ timeoutMs: 60_000 })
+      } finally {
+        await fault.lift()
+      }
+      expect(
+        (await hydrateSteps(f))
+          .filter((step) => step.status === "failed")
+          .map((step) => step.stepName),
+      ).toEqual(["enqueue-github-pr-backfills"])
+      const backfills = await backfillRunsOf(f)
+      try {
+        expect(backfills.map((run) => run.input)).toEqual([
+          { orgId: f.org.id, workspaceId: f.workspaceId, gitUrl: SOURCE_URL },
+        ])
+      } finally {
+        for (const run of backfills)
+          await cancelWorkflowRunIfOpen(f.backend, run.id)
+      }
+    })
+  },
+)
+
+it(
+  "projects the sources again and then enqueues the backfill when the first projection fails after the revision is active (CTX-854)",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(backfillFixture, async (f) => {
+      serveSourceGraphql(f, { merged: [7], pageSize: 20 })
+      // The commit makes the revision active before the projection. A retry
+      // must still project, so that the row exists before the backfill runs.
+      const fault = await refuseInserts(f, {
+        table: "public.workspace_sources",
+        condition: `new.workspace_id = '${f.workspaceId}'`,
+        failures: 1,
+      })
+      try {
+        await f.worker.start()
+        await f.handle.result({ timeoutMs: 60_000 })
+      } finally {
+        await fault.lift()
+      }
+      expect(
+        (await hydrateSteps(f))
+          .filter((step) => step.status === "failed")
+          .map((step) => step.stepName),
+      ).toEqual(["project-workspace-sources"])
+      const backfills = await backfillRunsOf(f)
+      try {
+        const rows = await listWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+        })
+        expect(rows.map((row) => row.sourceKey)).toHaveLength(1)
+        expect(backfills.map((run) => run.input)).toEqual([
+          { orgId: f.org.id, workspaceId: f.workspaceId, gitUrl: SOURCE_URL },
+        ])
+        // The backfill exists only after the row it reads.
+        expect(backfills[0]?.createdAt.getTime()).toBeGreaterThanOrEqual(
+          rows[0]?.createdAt.getTime() ?? Number.POSITIVE_INFINITY,
+        )
+      } finally {
+        for (const run of backfills)
+          await cancelWorkflowRunIfOpen(f.backend, run.id)
+      }
+    })
+  },
+)
+
+it(
+  "enqueues the backfill of a new link when the retry ends early because the desired SHA moved (CTX-854)",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(backfillFixture, async (f) => {
+      serveSourceGraphql(f, { merged: [7], pageSize: 20 })
+      // The enqueue fails until the desired SHA moves. The retry then ends
+      // with `cas_discarded` before it reaches the enqueue step. A later
+      // hydrate sees the link as known, so only the retry can enqueue it.
+      const fault = await refuseInserts(f, {
+        table: "openworkflow.workflow_runs",
+        condition: `new.workflow_name = 'github-sync-pull-request'
+          and new.input->>'workspaceId' = '${f.workspaceId}'`,
+        failures: 1_000_000,
+      })
+      try {
+        await f.worker.start()
+        await expect
+          .poll(
+            async () =>
+              (await hydrateSteps(f)).some(
+                (step) =>
+                  step.stepName === "enqueue-github-pr-backfills" &&
+                  step.status === "failed",
+              ),
+            { timeout: 60_000, interval: 100 },
+          )
+          .toBe(true)
+        await fault.owner.query(
+          "update public.workspaces set desired_sha = $1 where id = $2",
+          ["c".repeat(40), f.workspaceId],
+        )
+      } finally {
+        await fault.lift()
+      }
+      await expect(f.handle.result({ timeoutMs: 60_000 })).resolves.toEqual({
+        hydrated: false,
+        reason: "cas_discarded",
+      })
+      const backfills = await backfillRunsOf(f)
+      try {
+        expect(backfills.map((run) => run.input)).toEqual([
+          { orgId: f.org.id, workspaceId: f.workspaceId, gitUrl: SOURCE_URL },
+        ])
+      } finally {
+        for (const run of backfills)
+          await cancelWorkflowRunIfOpen(f.backend, run.id)
+      }
+    })
   },
 )

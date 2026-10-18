@@ -12,12 +12,7 @@ import {
   setRepositoryIndexingStep,
 } from "../../models/repositories.js"
 import { captureRepositoryIngestionRequest } from "../../models/repository-ingestion-requests.js"
-import {
-  createLogger,
-  flushWorkflowLog,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { flushWorkflowLog, getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueFollowUpIfTipAhead } from "../enqueue-follow-up-if-tip-ahead.js"
 import { indexingOutcome } from "../indexing-outcome.js"
@@ -67,7 +62,7 @@ function continueIngestion<T>(
   return value as Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>
 }
 
-/** Milestone log inside `withLogger` — uses getLogger + immediate emit. */
+/** Milestone log from the workflow logger: getLogger plus immediate emit. */
 function logWorkflowMilestone(
   step: string,
   fields: Record<string, unknown>,
@@ -85,342 +80,317 @@ function logWorkflowMilestone(
 }
 
 export const repositoryIngestion = defineWorkflow(
-  { name: "repository-ingestion", schema: repositoryIngestionInputSchema },
-  async ({ input, step: rawStep, run }) =>
-    withLogger(
-      createLogger({
-        workflow: "repository-ingestion",
-        repositoryId: input.repositoryId,
-        orgId: input.orgId,
-      }),
-      async () => {
-        // Codesearch 404 becomes a sentinel. Throwing inside `step.run` makes
-        // OpenWorkflow retry the step, so the stop is a return value.
-        const wls = async <T>(
-          name: string,
-          fn: () => Promise<T>,
-        ): Promise<T | typeof REPOSITORY_INGESTION_STOPPED> =>
-          withLoggedStepAttempt(
-            name,
-            {
-              workflow: "repository-ingestion",
-              repositoryId: input.repositoryId,
-              orgId: input.orgId,
-            },
-            async () => {
-              try {
-                return await fn()
-              } catch (err: unknown) {
-                if (!isRepositoryGoneError(err)) throw err
-                return REPOSITORY_INGESTION_STOPPED
-              }
-            },
+  {
+    logFields: (input) => ({
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+    }),
+    name: "repository-ingestion",
+    schema: repositoryIngestionInputSchema,
+  },
+  async ({ input, step: rawStep, run }) => {
+    // Codesearch 404 becomes a sentinel. Throwing inside `step.run` makes
+    // OpenWorkflow retry the step, so the stop is a return value.
+    const wls = async <T>(
+      name: string,
+      fn: () => Promise<T>,
+    ): Promise<T | typeof REPOSITORY_INGESTION_STOPPED> =>
+      withLoggedStepAttempt(
+        name,
+        {
+          workflow: "repository-ingestion",
+          repositoryId: input.repositoryId,
+          orgId: input.orgId,
+        },
+        async () => {
+          try {
+            return await fn()
+          } catch (err: unknown) {
+            if (!isRepositoryGoneError(err)) throw err
+            return REPOSITORY_INGESTION_STOPPED
+          }
+        },
+      )
+
+    const step = {
+      run: async <T>(
+        config: Parameters<typeof rawStep.run>[0],
+        fn: () => Promise<T>,
+      ): Promise<Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>> => {
+        const result = await rawStep.run(
+          config,
+          fn as Parameters<typeof rawStep.run>[1],
+        )
+        return continueIngestion(result as T)
+      },
+      runWorkflow: rawStep.runWorkflow.bind(rawStep),
+    }
+
+    logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+      targetBranch: input.targetBranch ?? null,
+      indexingReason: input.indexingReason ?? null,
+    })
+
+    logWorkflowMilestone("repository-ingestion.start", {
+      repositoryId: input.repositoryId,
+      orgId: input.orgId,
+    })
+
+    const org = await getSystemDb().query.organizations.findFirst({
+      where: { id: { eq: input.orgId } },
+    })
+
+    if (!org) {
+      throw new Error(`Organization not found: ${input.orgId}`)
+    }
+
+    return await withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
+      try {
+        const requestId =
+          (await captureRepositoryIngestionRequest(input, run.id)) ?? undefined
+        await step.run({ name: "mark-running" }, () =>
+          wls("mark-running", () =>
+            withOrgDbContext(input.orgId, () =>
+              markRepositoryIndexingRunning({
+                requestId,
+                repositoryId: input.repositoryId,
+              }),
+            ),
+          ),
+        )
+
+        logWorkflowMilestone("repository-ingestion.step.get-repository.start", {
+          repositoryId: input.repositoryId,
+          orgId: input.orgId,
+        })
+
+        const repository = await step.run({ name: "get-repository" }, () =>
+          wls("get-repository", () =>
+            withOrgDbContext(input.orgId, (db) =>
+              db.query.repositories.findFirst({
+                where: {
+                  id: { eq: input.repositoryId },
+                  orgId: { eq: input.orgId },
+                },
+              }),
+            ),
+          ),
+        )
+
+        logWorkflowMilestone("repository-ingestion.step.get-repository.done", {
+          repositoryId: input.repositoryId,
+          found: Boolean(repository),
+        })
+
+        if (!repository) {
+          throw new Error(
+            `repository-ingestion: no repository row for id=${input.repositoryId} orgId=${input.orgId} (skipping codesearch resolve-ref)`,
           )
+        }
 
-        const step = {
-          run: async <T>(
-            config: Parameters<typeof rawStep.run>[0],
-            fn: () => Promise<T>,
-          ): Promise<Exclude<T, typeof REPOSITORY_INGESTION_STOPPED>> => {
-            const result = await rawStep.run(
-              config,
-              fn as Parameters<typeof rawStep.run>[1],
-            )
-            return continueIngestion(result as T)
+        const githubConnectionId =
+          input.githubConnectionId ?? repository.githubConnectionId
+        const fromHash = input.fullReingest
+          ? undefined
+          : (repository.lastIngestedHash ?? undefined)
+        logWorkflowMilestone("repository-ingestion.repository-loaded", {
+          repositoryId: input.repositoryId,
+          lastIngestedHash: repository.lastIngestedHash,
+          fullReingest: input.fullReingest ?? false,
+          githubConnectionId,
+        })
+
+        await step.run({ name: "set-step-resolving-ref" }, () =>
+          wls("set-step-resolving-ref", () =>
+            withOrgDbContext(input.orgId, () =>
+              setRepositoryIndexingStep({
+                requestId,
+                repositoryId: input.repositoryId,
+                key: "resolving_ref",
+              }),
+            ),
+          ),
+        )
+
+        logWorkflowMilestone("repository-ingestion.step.resolve-ref.start", {
+          repositoryId: input.repositoryId,
+          branch: input.targetBranch ?? null,
+        })
+
+        const resolved = await step.run(
+          {
+            name: "resolve-ref",
+            retryPolicy: { maximumAttempts: 1 },
           },
-          runWorkflow: rawStep.runWorkflow.bind(rawStep),
-        }
-
-        logWorkflowMilestone("repository-ingestion.workflow-handler-entered", {
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-          targetBranch: input.targetBranch ?? null,
-          indexingReason: input.indexingReason ?? null,
-        })
-
-        logWorkflowMilestone("repository-ingestion.start", {
-          repositoryId: input.repositoryId,
-          orgId: input.orgId,
-        })
-
-        const org = await getSystemDb().query.organizations.findFirst({
-          where: { id: { eq: input.orgId } },
-        })
-
-        if (!org) {
-          throw new Error(`Organization not found: ${input.orgId}`)
-        }
-
-        return await withOrgIdContext(
-          { id: org.id, slug: org.slug },
-          async () => {
-            try {
-              const requestId =
-                (await captureRepositoryIngestionRequest(input, run.id)) ??
-                undefined
-              await step.run({ name: "mark-running" }, () =>
-                wls("mark-running", () =>
-                  withOrgDbContext(input.orgId, () =>
-                    markRepositoryIndexingRunning({
-                      requestId,
-                      repositoryId: input.repositoryId,
-                    }),
-                  ),
-                ),
-              )
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.get-repository.start",
-                {
-                  repositoryId: input.repositoryId,
-                  orgId: input.orgId,
-                },
-              )
-
-              const repository = await step.run(
-                { name: "get-repository" },
-                () =>
-                  wls("get-repository", () =>
-                    withOrgDbContext(input.orgId, (db) =>
-                      db.query.repositories.findFirst({
-                        where: {
-                          id: { eq: input.repositoryId },
-                          orgId: { eq: input.orgId },
-                        },
-                      }),
-                    ),
-                  ),
-              )
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.get-repository.done",
-                {
-                  repositoryId: input.repositoryId,
-                  found: Boolean(repository),
-                },
-              )
-
-              if (!repository) {
-                throw new Error(
-                  `repository-ingestion: no repository row for id=${input.repositoryId} orgId=${input.orgId} (skipping codesearch resolve-ref)`,
-                )
-              }
-
-              const githubConnectionId =
-                input.githubConnectionId ?? repository.githubConnectionId
-              const fromHash = input.fullReingest
-                ? undefined
-                : (repository.lastIngestedHash ?? undefined)
-              logWorkflowMilestone("repository-ingestion.repository-loaded", {
-                repositoryId: input.repositoryId,
-                lastIngestedHash: repository.lastIngestedHash,
-                fullReingest: input.fullReingest ?? false,
-                githubConnectionId,
-              })
-
-              await step.run({ name: "set-step-resolving-ref" }, () =>
-                wls("set-step-resolving-ref", () =>
-                  withOrgDbContext(input.orgId, () =>
-                    setRepositoryIndexingStep({
-                      requestId,
-                      repositoryId: input.repositoryId,
-                      key: "resolving_ref",
-                    }),
-                  ),
-                ),
-              )
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.resolve-ref.start",
-                {
-                  repositoryId: input.repositoryId,
-                  branch: input.targetBranch ?? null,
-                },
-              )
-
-              const resolved = await step.run(
-                {
-                  name: "resolve-ref",
-                  retryPolicy: { maximumAttempts: 1 },
-                },
-                () =>
-                  wls("resolve-ref", () =>
-                    resolveRepositoryRef({
-                      repositoryId: input.repositoryId,
-                      orgId: input.orgId,
-                      branch: input.targetBranch ?? undefined,
-                      githubConnectionId,
-                    }),
-                  ),
-              )
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.resolve-ref.done",
-                {
-                  repositoryId: input.repositoryId,
-                  targetHash: resolved.hash,
-                  branch: resolved.branch,
-                },
-              )
-
-              logWorkflowMilestone("repository-ingestion.ref-resolved", {
-                targetHash: resolved.hash,
-                sourceBranch: resolved.branch,
-              })
-
-              logWorkflowMilestone("repository-ingestion.step.reindex.start", {
-                repositoryId: input.repositoryId,
-                targetHash: resolved.hash,
-              })
-
-              if (
-                await repositoryIngestionBlockedByDeletion({
-                  orgId: input.orgId,
-                  repositoryId: input.repositoryId,
-                })
-              ) {
-                throw new IngestionAborted()
-              }
-
-              // Durable codesearch phases via child workflow (no org DB txn across HTTP).
-              const reindexState = await rawStep.runWorkflow(
-                repositoryIndex.spec,
-                {
-                  ...(requestId ? { requestId } : {}),
-                  repositoryId: input.repositoryId,
-                  orgId: input.orgId,
-                  targetHash: resolved.hash,
-                  ...(fromHash ? { fromHash } : {}),
-                  ...(githubConnectionId ? { githubConnectionId } : {}),
-                },
-                { name: "repository-index" },
-              )
-
-              logWorkflowMilestone("repository-ingestion.step.reindex.done", {
-                repositoryId: input.repositoryId,
-                targetHash: reindexState.targetHash ?? resolved.hash,
-                ingestMode: reindexState.ingestMode,
-                searchIndexOk: reindexState.searchIndexOk !== false,
-                scipIndexOk: reindexState.scipIndexOk !== false,
-                changedPathsCount: reindexState.changedPaths?.length ?? 0,
-                deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
-                renamesCount: reindexState.renames?.length ?? 0,
-              })
-
-              const result = {
-                repositoryId: input.repositoryId,
-                targetHash: reindexState.targetHash ?? resolved.hash,
-                sourceBranch: resolved.branch,
-              }
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.mark-success.start",
-                {
-                  repositoryId: input.repositoryId,
-                  targetHash: result.targetHash,
-                },
-              )
-
-              await step.run({ name: "set-step-finalizing" }, () =>
-                wls("set-step-finalizing", () =>
-                  withOrgDbContext(input.orgId, () =>
-                    setRepositoryIndexingStep({
-                      requestId,
-                      repositoryId: input.repositoryId,
-                      key: "finalizing",
-                    }),
-                  ),
-                ),
-              )
-
-              await step.run({ name: "mark-success" }, () =>
-                wls("mark-success", () =>
-                  withOrgDbContext(input.orgId, () => {
-                    const outcome = indexingOutcome(reindexState)
-                    if (outcome.kind === "issues")
-                      return markRepositoryIndexingIssues({
-                        requestId,
-                        repositoryId: input.repositoryId,
-                        error: outcome.error,
-                      })
-                    return outcome.kind === "ready-with-issues"
-                      ? markRepositoryIndexingReadyWithIssues({
-                          requestId,
-                          repositoryId: input.repositoryId,
-                          targetHash: result.targetHash,
-                          error: outcome.error,
-                        })
-                      : markRepositoryIndexingReady({
-                          requestId,
-                          repositoryId: input.repositoryId,
-                          targetHash: result.targetHash,
-                        })
-                  }),
-                ),
-              )
-
-              logWorkflowMilestone(
-                "repository-ingestion.step.mark-success.done",
-                {
-                  repositoryId: input.repositoryId,
-                  targetHash: result.targetHash,
-                },
-              )
-
-              // Outside org tx: if tip moved while we were ingesting, start one
-              // follow-up for this repo only (no auto-chain on failure paths).
-              const followUp = await step.run(
-                { name: "enqueue-follow-up-if-tip-ahead" },
-                () =>
-                  wls("enqueue-follow-up-if-tip-ahead", () =>
-                    enqueueFollowUpIfTipAhead(
-                      {
-                        orgId: input.orgId,
-                        repositoryId: input.repositoryId,
-                        ingestedHash: result.targetHash,
-                        requestId: requestId ?? `legacy:${run.id}`,
-                        githubConnectionId,
-                        targetBranch: input.targetBranch,
-                      },
-                      {
-                        error: (err) =>
-                          getLogger().error(err, {
-                            step: "repository-ingestion.follow-up-tip",
-                            repositoryId: input.repositoryId,
-                            orgId: input.orgId,
-                          }),
-                      },
-                    ),
-                  ),
-              )
-
-              logWorkflowMilestone("repository-ingestion.follow-up-tip.done", {
-                repositoryId: input.repositoryId,
-                ingestedHash: result.targetHash,
-                tipHash: followUp.tipHash ?? null,
-                enqueued: followUp.enqueued,
-              })
-
-              logWorkflowMilestone("repository-ingestion.complete", {
-                repositoryId: input.repositoryId,
-                targetHash: result.targetHash,
-              })
-
-              return result
-            } catch (err) {
-              if (!(err instanceof IngestionAborted)) throw err
-              logWorkflowMilestone("repository-ingestion.stopped", {
+          () =>
+            wls("resolve-ref", () =>
+              resolveRepositoryRef({
                 repositoryId: input.repositoryId,
                 orgId: input.orgId,
-                reason: "repository_deleted",
-              })
-              return {
-                aborted: "repository_deleted" as const,
-                repositoryId: input.repositoryId,
-              }
-            }
-          },
+                branch: input.targetBranch ?? undefined,
+                githubConnectionId,
+              }),
+            ),
         )
-      },
-    ),
+
+        logWorkflowMilestone("repository-ingestion.step.resolve-ref.done", {
+          repositoryId: input.repositoryId,
+          targetHash: resolved.hash,
+          branch: resolved.branch,
+        })
+
+        logWorkflowMilestone("repository-ingestion.ref-resolved", {
+          targetHash: resolved.hash,
+          sourceBranch: resolved.branch,
+        })
+
+        logWorkflowMilestone("repository-ingestion.step.reindex.start", {
+          repositoryId: input.repositoryId,
+          targetHash: resolved.hash,
+        })
+
+        if (
+          await repositoryIngestionBlockedByDeletion({
+            orgId: input.orgId,
+            repositoryId: input.repositoryId,
+          })
+        ) {
+          throw new IngestionAborted()
+        }
+
+        // Durable codesearch phases via child workflow (no org DB txn across HTTP).
+        const reindexState = await rawStep.runWorkflow(
+          repositoryIndex.spec,
+          {
+            ...(requestId ? { requestId } : {}),
+            repositoryId: input.repositoryId,
+            orgId: input.orgId,
+            targetHash: resolved.hash,
+            ...(fromHash ? { fromHash } : {}),
+            ...(githubConnectionId ? { githubConnectionId } : {}),
+          },
+          { name: "repository-index" },
+        )
+
+        logWorkflowMilestone("repository-ingestion.step.reindex.done", {
+          repositoryId: input.repositoryId,
+          targetHash: reindexState.targetHash ?? resolved.hash,
+          ingestMode: reindexState.ingestMode,
+          searchIndexOk: reindexState.searchIndexOk !== false,
+          scipIndexOk: reindexState.scipIndexOk !== false,
+          changedPathsCount: reindexState.changedPaths?.length ?? 0,
+          deletedPathsCount: reindexState.deletedPaths?.length ?? 0,
+          renamesCount: reindexState.renames?.length ?? 0,
+        })
+
+        const result = {
+          repositoryId: input.repositoryId,
+          targetHash: reindexState.targetHash ?? resolved.hash,
+          sourceBranch: resolved.branch,
+        }
+
+        logWorkflowMilestone("repository-ingestion.step.mark-success.start", {
+          repositoryId: input.repositoryId,
+          targetHash: result.targetHash,
+        })
+
+        await step.run({ name: "set-step-finalizing" }, () =>
+          wls("set-step-finalizing", () =>
+            withOrgDbContext(input.orgId, () =>
+              setRepositoryIndexingStep({
+                requestId,
+                repositoryId: input.repositoryId,
+                key: "finalizing",
+              }),
+            ),
+          ),
+        )
+
+        await step.run({ name: "mark-success" }, () =>
+          wls("mark-success", () =>
+            withOrgDbContext(input.orgId, () => {
+              const outcome = indexingOutcome(reindexState)
+              if (outcome.kind === "issues")
+                return markRepositoryIndexingIssues({
+                  requestId,
+                  repositoryId: input.repositoryId,
+                  error: outcome.error,
+                })
+              return outcome.kind === "ready-with-issues"
+                ? markRepositoryIndexingReadyWithIssues({
+                    requestId,
+                    repositoryId: input.repositoryId,
+                    targetHash: result.targetHash,
+                    error: outcome.error,
+                  })
+                : markRepositoryIndexingReady({
+                    requestId,
+                    repositoryId: input.repositoryId,
+                    targetHash: result.targetHash,
+                  })
+            }),
+          ),
+        )
+
+        logWorkflowMilestone("repository-ingestion.step.mark-success.done", {
+          repositoryId: input.repositoryId,
+          targetHash: result.targetHash,
+        })
+
+        // Outside org tx: if tip moved while we were ingesting, start one
+        // follow-up for this repo only (no auto-chain on failure paths).
+        const followUp = await step.run(
+          { name: "enqueue-follow-up-if-tip-ahead" },
+          () =>
+            wls("enqueue-follow-up-if-tip-ahead", () =>
+              enqueueFollowUpIfTipAhead(
+                {
+                  orgId: input.orgId,
+                  repositoryId: input.repositoryId,
+                  ingestedHash: result.targetHash,
+                  requestId: requestId ?? `legacy:${run.id}`,
+                  githubConnectionId,
+                  targetBranch: input.targetBranch,
+                },
+                {
+                  error: (err) =>
+                    getLogger().error(err, {
+                      step: "repository-ingestion.follow-up-tip",
+                      repositoryId: input.repositoryId,
+                      orgId: input.orgId,
+                    }),
+                },
+              ),
+            ),
+        )
+
+        logWorkflowMilestone("repository-ingestion.follow-up-tip.done", {
+          repositoryId: input.repositoryId,
+          ingestedHash: result.targetHash,
+          tipHash: followUp.tipHash ?? null,
+          enqueued: followUp.enqueued,
+        })
+
+        logWorkflowMilestone("repository-ingestion.complete", {
+          repositoryId: input.repositoryId,
+          targetHash: result.targetHash,
+        })
+
+        return result
+      } catch (err) {
+        if (!(err instanceof IngestionAborted)) throw err
+        logWorkflowMilestone("repository-ingestion.stopped", {
+          repositoryId: input.repositoryId,
+          orgId: input.orgId,
+          reason: "repository_deleted",
+        })
+        return {
+          aborted: "repository_deleted" as const,
+          repositoryId: input.repositoryId,
+        }
+      }
+    })
+  },
 )

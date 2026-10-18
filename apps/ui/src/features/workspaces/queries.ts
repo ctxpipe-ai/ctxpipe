@@ -761,6 +761,48 @@ export function refreshConversationAfterTurn(
   )
 }
 
+/**
+ * The backend names a new conversation in parallel with its first turn. A
+ * title that is not ready at the final event is saved later, and nothing more
+ * comes on the stream. Read the conversation until it has a name, and return
+ * that name. Returns null when no name shows up or the signal aborts.
+ */
+export async function waitForConversationTitle(
+  orgSlug: string,
+  conversationId: string,
+  workspaceId: string,
+  options: { signal: AbortSignal; attempts?: number; delayMs?: number },
+): Promise<string | null> {
+  const { signal, attempts = 6, delayMs = 1500 } = options
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, delayMs)
+      signal.addEventListener(
+        "abort",
+        () => {
+          clearTimeout(timer)
+          resolve()
+        },
+        { once: true },
+      )
+    })
+    if (signal.aborted) return null
+    const detail = await fetchConversation(
+      orgSlug,
+      conversationId,
+      workspaceId,
+    ).catch(() => null)
+    const name = detail?.conversation.name
+    if (name && !isDefaultConversationName(name)) return name
+  }
+  return null
+}
+
+/** The labels of a conversation that has no title yet, as on the backend. */
+export function isDefaultConversationName(name: string | null | undefined) {
+  return !name || name === "New conversation" || name === "New Chat"
+}
+
 export async function persistConversationFileMutation(
   orgSlug: string,
   conversationId: string,
