@@ -227,6 +227,80 @@ describe("credentials in a git remote", () => {
   })
 })
 
+describe("a git remote that does not parse cleanly", () => {
+  it.each([
+    "https://user:p4ss/w0rd@git.example.com/org/repo.git",
+    "https://user:p4ss#w0rd@git.example.com/org/repo.git",
+    "https://user:p4ss?w0rd@git.example.com/org/repo.git",
+    "https://p4ss/w0rd@git.example.com/org/repo.git",
+    "git.example.com/org/repo.git?token=p4ss-w0rd",
+    "git.example.com/org/repo.git#p4ss-w0rd",
+    "user:p4ss/w0rd@git.example.com:org/repo.git",
+    "user:p4ss@w0rd@git.example.com:org/repo.git",
+    "user:p4ss-w0rd@git.example.com/org/repo.git",
+    "[x](https://p4ss-w0rd.example)",
+  ])("does not write %s", (remote) => {
+    const files = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, repository: remote },
+      builds: [build],
+    })
+    const text = files.map((file) => file.content).join("\n")
+    expect(text).not.toContain("repository:")
+    expect(text).not.toContain("- Repository:")
+    expect(text).not.toMatch(/p4ss|w0rd/)
+  })
+
+  it("still writes a bare host and path", () => {
+    const [pipelineFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, repository: "git.example.com/org/repo.git" },
+      builds: [],
+    })
+    expect(pipelineFile?.content).toContain(
+      'repository: "git.example.com/org/repo.git"',
+    )
+  })
+})
+
+describe("length of provider text", () => {
+  it("cuts a long branch, job label, creator, and pipeline name to 200 characters", () => {
+    const long = (prefix: string) => `${prefix}${"x".repeat(5_000)}`
+    const [pipelineFile, buildFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, name: long("name-") },
+      builds: [
+        {
+          ...build,
+          branch: long("branch-"),
+          creatorName: long("creator-"),
+          jobs: [{ ...build.jobs[0], name: long("job-") } as never],
+        },
+      ],
+    })
+    const text = `${pipelineFile?.content}${buildFile?.content}`
+    expect(text).not.toContain("x".repeat(201))
+    const cut = (prefix: string) =>
+      `${prefix}${"x".repeat(200 - prefix.length)}…`
+    expect(buildFile?.content).toContain(`branch: "${cut("branch-")}"`)
+    expect(buildFile?.content).toContain(`- Branch: ${cut("branch-")}\n`)
+    expect(buildFile?.content).toContain(`- Created by: ${cut("creator-")}\n`)
+    expect(buildFile?.content).toContain(`- [${cut("job-")}](`)
+    expect(pipelineFile?.content).toContain(`# ${cut("name-")}\n`)
+  })
+
+  it("does not cut a short value or a URL", () => {
+    const url = `https://buildkite.com/acme/web-app/builds/42?${"q".repeat(300)}`
+    const [, buildFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline,
+      builds: [{ ...build, url }],
+    })
+    expect(buildFile?.content).toContain(`url: "${url}"`)
+    expect(buildFile?.content).toContain('branch: "feature/login"')
+  })
+})
+
 describe("control and format characters in provider text", () => {
   it("removes them from the front matter and the body", () => {
     const [pipelineFile, buildFile] = buildkitePipelineFiles({
@@ -268,7 +342,6 @@ describe("Markdown in provider text", () => {
     ]
   > = [
     ["pipeline name", (name) => ({ pipeline: { name } })],
-    ["repository", (repository) => ({ pipeline: { repository } })],
     ["default branch", (defaultBranch) => ({ pipeline: { defaultBranch } })],
     ["state", (state) => ({ build: { state } })],
     ["branch", (branch) => ({ build: { branch } })],

@@ -46,15 +46,31 @@ export function buildkitePipelineRoot(pipelineSlug: string): string {
  * character (such as a bidi override or a zero-width mark) can change how a
  * reader or an agent sees the text. White space folds to one space.
  */
-function plainText(value: string): string {
-  return value
+function plainText(value: string, maxLength: number): string {
+  const text = value
     .replace(/\s+/g, " ")
     .replace(/[\p{Cc}\p{Cf}]/gu, "")
     .trim()
+  // Code points, so that the cut does not split a surrogate pair.
+  const chars = Array.from(text)
+  return chars.length > maxLength
+    ? `${chars.slice(0, maxLength).join("").trimEnd()}…`
+    : text
 }
 
-function yamlScalar(value: string): string {
-  return JSON.stringify(plainText(value))
+/**
+ * The most characters of one provider text field. People outside the
+ * organization can set a branch name, a job label, or a creator name (for
+ * example, in a build of a pull request from a fork). A longer value is cut,
+ * and ends with "…".
+ */
+const MAX_TEXT_LENGTH = 200
+
+/** A URL or a git remote can be longer than a name, but has a limit too. */
+const MAX_URL_LENGTH = 2048
+
+function yamlScalar(value: string, maxLength: number): string {
+  return JSON.stringify(plainText(value, maxLength))
 }
 
 /**
@@ -63,8 +79,8 @@ function yamlScalar(value: string): string {
  * punctuation mark has a backslash, so the text cannot make a link, an
  * image, HTML, a table cell, or emphasis.
  */
-function escapeInline(value: string): string {
-  return plainText(value).replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
+function escapeInline(value: string, maxLength = MAX_TEXT_LENGTH): string {
+  return plainText(value, maxLength).replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
 }
 
 /** An `https:` URL that is safe as a Markdown link target, or null. */
@@ -103,19 +119,33 @@ export function githubRepositoryUrl(remote: string | null): string | null {
 }
 
 /**
- * A git remote without credentials. A remote can hold `user:token@host`, and
- * every Workspace member can read the mirror. A URL keeps its scheme, host,
- * and path only. The user of an SSH remote in the `user@host:path` form is
- * kept when it is `git`, which is not a secret. Text that has no user part
- * is not changed.
+ * A git remote without credentials, or null. A remote can hold
+ * `user:token@host`, and every Workspace member can read the mirror. A URL
+ * keeps its scheme, host, and path only. An scp-style remote keeps its host
+ * and path, and the user only when it is `git`, which is not a secret. A
+ * remote that does not parse cleanly is not written (fail closed), because a
+ * secret with `/`, `?`, `#`, or `@` in it can make a parse go wrong.
  */
-function remoteWithoutCredentials(remote: string): string {
-  const match = remote
-    .trim()
-    .match(/^([a-z][a-z0-9+.-]*:\/\/)?([^/?#]*@)?([\s\S]*)$/i)
-  const [, scheme, userInfo, rest = ""] = match ?? []
-  if (!scheme) return userInfo === "git@" || !userInfo ? remote : rest
-  return `${scheme}${rest.replace(/[?#][\s\S]*$/, "")}`
+function remoteWithoutCredentials(remote: string): string | null {
+  const value = remote.trim()
+  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+    let url: URL
+    try {
+      url = new URL(value)
+    } catch {
+      return null
+    }
+    // An `@` in the path can be the end of a secret that holds a `/`.
+    if (!url.hostname || /@|%40/i.test(url.pathname)) return null
+    return `${url.protocol}//${url.host}${url.pathname}`
+  }
+  const scp = value.match(/^(?:([^\s@/?#]+)@)?([\w.-]+):([^\s@?#]+)$/)
+  if (scp) {
+    const [, user, host, path] = scp
+    return `${user === "git" ? "git@" : ""}${host}:${path}`
+  }
+  // A bare `host/path`, with no user, query, or fragment.
+  return /^[\w.-]+\/[^\s@?#:]*$/.test(value) ? value : null
 }
 
 function frontMatter(
@@ -126,7 +156,20 @@ function frontMatter(
     ...fields.flatMap(([name, value]) =>
       value === null
         ? []
-        : [`${name}: ${typeof value === "number" ? value : yamlScalar(value)}`],
+        : [
+            `${name}: ${
+              typeof value === "number"
+                ? value
+                : yamlScalar(
+                    value,
+                    name === "url" ||
+                      name.endsWith("_url") ||
+                      name === "repository"
+                      ? MAX_URL_LENGTH
+                      : MAX_TEXT_LENGTH,
+                  )
+            }`,
+          ],
     ),
     "---",
     "",
@@ -138,8 +181,9 @@ function renderPipelineMarkdown(input: {
   pipeline: BuildkitePipelineForMirror
 }): string {
   const { pipeline } = input
-  const remote =
-    pipeline.repository && remoteWithoutCredentials(pipeline.repository)
+  const remote = pipeline.repository
+    ? remoteWithoutCredentials(pipeline.repository)
+    : null
   return [
     ...frontMatter([
       ["source", "buildkite"],
@@ -153,7 +197,9 @@ function renderPipelineMarkdown(input: {
     `# ${escapeInline(pipeline.name)}`,
     "",
     `- Buildkite: ${link(escapeInline(pipeline.name), pipeline.url)}`,
-    ...(remote ? [`- Repository: ${escapeInline(remote)}`] : []),
+    ...(remote
+      ? [`- Repository: ${escapeInline(remote, MAX_URL_LENGTH)}`]
+      : []),
     ...(pipeline.defaultBranch
       ? [`- Default branch: ${escapeInline(pipeline.defaultBranch)}`]
       : []),
