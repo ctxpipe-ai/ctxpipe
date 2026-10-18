@@ -402,6 +402,57 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
 })
 
 describe("hosted conversation provider", { timeout: 600_000 }, () => {
+  it.only("PROBE (temporary): CA bundle rewrites after create and after a policy update", async () => {
+    const githubToken = process.env.GITHUB_TOKEN?.trim() ?? ""
+    const store = new Map<string, { token: string; mintedAt: Date }>()
+    const access = {
+      firewall: conversationFirewall("ctxpipe-contract.invalid"),
+      tokens: {
+        get: async (id: string) => store.get(id) ?? null,
+        put: async (id: string, token: string) => {
+          store.set(id, { token, mintedAt: new Date() })
+        },
+        take: async (id: string) => store.get(id)?.token ?? null,
+      },
+      mintGitToken: async () => githubToken,
+      revokeGitToken: async () => undefined,
+    }
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "contract-agent-password",
+      access,
+      tags,
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot,
+    })
+    const handle = await provider.create({
+      workspace: { source: { type: "none" } },
+    } as Parameters<typeof provider.create>[0])
+    created.push(handle.id)
+    const createdAt = Date.now()
+    const watch = (label: string, seconds: number) =>
+      handle.process
+        .exec(
+          `echo "${label} start ms=$(date +%s%3N) uptime=$(cut -d' ' -f1 /proc/uptime)"; last=""; for i in $(seq 1 ${seconds * 10}); do cur="mtime=$(stat -L -c '%Y.%y' /etc/ssl/certs/ca-certificates.crt 2>&1) birth=$(stat -c '%w' /etc/ssl/certs/ca-certificates.crt 2>&1) procs=$(pgrep -x update-ca-trust | wc -l)/$(pgrep -x trust | wc -l)"; if [ "$cur" != "$last" ]; then echo "ms=$(date +%s%3N) $cur"; last="$cur"; fi; sleep 0.1; done`,
+        )
+        .then((r) => `${r.stdout}${r.stderr}`)
+    // After create returned: does the bundle change again with no policy update?
+    console.error(
+      `[probe] create returned; watching. createdAtMs=${createdAt}\n${await watch("after-create", 20)}`,
+    )
+    // A policy update (token rotation) while the watch runs.
+    const sandbox = await Sandbox.get({ ...credentials, name: handle.id })
+    await access.firewall.attach(sandbox, githubToken)
+    const during = watch("during-update", 20)
+    await new Promise((resolve) => setTimeout(resolve, 3_000))
+    const updateStart = Date.now()
+    await access.firewall.rotateGitToken(sandbox, githubToken)
+    console.error(
+      `[probe] policy update started ms=${updateStart} returned ms=${Date.now()}\n${await during}`,
+    )
+    await closeDb().catch(() => undefined)
+  })
+
   it("authenticates GitHub only through the firewall and rotates the token", async () => {
     // The Actions token stands in for a minted Workspace read token; revoking
     // it would end the job, so revocations are recorded instead.
