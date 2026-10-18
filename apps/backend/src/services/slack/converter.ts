@@ -5,6 +5,7 @@ import {
   gitBlobSha,
   isConnectorAssetCredentialUrl,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 const MANAGED_ROOT = "slack"
 
@@ -110,7 +111,7 @@ export function getSlackThreadDirPath(
   const d = new Date(Number(input.threadTs) * 1000)
   const yyyy = String(d.getUTCFullYear())
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
-  return `${channelDir(input)}/threads/${yyyy}/${mm}/${input.threadTs}`
+  return `${channelDir(input)}/threads/${yyyy}/${mm}/${connectorPathSegment(input.threadTs)}`
 }
 
 export function getSlackThreadPath(
@@ -132,7 +133,8 @@ function parseSlackChannelRoot(
   }
 }
 
-function pathContainsThreadTs(path: string, threadTs: string): boolean {
+function pathContainsThreadTs(path: string, ts: string): boolean {
+  const threadTs = connectorPathSegment(ts)
   return (
     path.includes("/threads/") &&
     (path.includes(`/${threadTs}/`) || path.endsWith(`/${threadTs}`))

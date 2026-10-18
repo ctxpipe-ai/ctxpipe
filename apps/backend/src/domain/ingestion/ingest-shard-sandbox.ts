@@ -189,8 +189,8 @@ export function releaseIngestStepIndexes(
 /**
  * The repositories of a shard: the source and each destination. Each
  * destination is a GitHub repository. The source is a GitHub repository, or
- * a public plain git repository whose host must resolve only to public
- * addresses (CTX-815); the sandbox reads it with no credential.
+ * a plain git repository whose URL must obey the plain git URL policy of
+ * the deployment mode (CTX-815); the sandbox reads it with no credential.
  */
 async function shardRepositories(
   spec: IngestShardSpec,
@@ -203,8 +203,8 @@ async function shardRepositories(
   }
   if (spec.source.kind !== "git")
     return [github(spec.source), ...spec.destinations.map(github)]
-  const { host, path } = await resolvePlainGitRemote(spec.source.url)
-  const source: IngestRepository = { kind: "git", host, path }
+  const { host, path, port } = await resolvePlainGitRemote(spec.source.url)
+  const source: IngestRepository = { kind: "git", host, path, port }
   return [source, ...spec.destinations.map(github)]
 }
 

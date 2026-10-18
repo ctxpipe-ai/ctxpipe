@@ -338,6 +338,72 @@ echo`,
   )
 
   it(
+    "self-host: fetches an http:// plain git source on a private address and another port through Agent Vault",
+    { timeout: 300_000 },
+    async () => {
+      // The upstream has a private address on the test network, and the
+      // fixture puts it in AGENT_VAULT_NETWORK_ALLOWLIST. An operator does the
+      // same for a private git server: the Compose variable, or
+      // `sandboxHost.agentVaultNetworkAllowlist` on AWS CDK.
+      await withAgentVault({ image, closed: true }, async (fixture) => {
+        gitToken = fixture.gitToken
+        const base = `http://${fixture.upstream}:8080`
+        const source = `${base}/public/repo.git`
+        const provider = dockerIngestSandboxProvider({
+          orgId,
+          runId: `run_${crypto.randomUUID()}`,
+          shard: 3,
+          image,
+          access: fixture.access,
+          network: fixture.sandboxNetwork,
+          egress: {
+            repositories: [
+              {
+                kind: "git",
+                host: fixture.upstream,
+                path: "/public/repo.git",
+                port: 8080,
+              },
+            ],
+            gitHost: `${fixture.upstream}:8080`,
+            modelProxyUrl: `${base}/echo/model/v1`,
+            capability: "ingest-capability",
+            bridge: { url: `${base}/echo/bridge`, token: "bridge" },
+          },
+        })
+        const handle = await provider.create({})
+        try {
+          const output = await run(
+            handle.id,
+            `echo "== fetch"
+git ls-remote ${source} refs/heads/main 2>&1 | cut -f2
+echo "== clone"
+git clone -q ${source} /tmp/plain 2>&1 && git -C /tmp/plain log --format=%s
+echo "== other-path"
+${code(`${base}/public/other.git/info/refs?service=git-upload-pack`)}
+echo
+echo "== push"
+cd /tmp/plain && git -c user.name=t -c user.email=t@t commit -q --allow-empty -m change
+git push ${source} HEAD:refs/heads/plain-push 2>&1 && echo PUSHED || echo REFUSED
+`,
+          )
+          const result = sections(output)
+          // Git fetch of the source path only, over http on its own port,
+          // with no credential. The Git server would take the push.
+          expect(result.fetch, output).toBe("refs/heads/main")
+          expect(result.clone, output).toBe("seed")
+          expect(result["other-path"], output).toBe("403")
+          expect(result.push, output).toContain("REFUSED")
+          // A plain git source mints no GitHub token.
+          expect(log.minted).toEqual([])
+        } finally {
+          await provider.destroy({ id: handle.id }).catch(() => undefined)
+        }
+      })
+    },
+  )
+
+  it(
     "fails closed: no Agent Vault, or a host that does not force the proxy, means no sandbox and a revoked token",
     { timeout: 180_000 },
     async () => {

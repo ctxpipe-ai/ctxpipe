@@ -2,6 +2,13 @@ import { z } from "zod"
 import { normalizeWorkspaceRepositoryUrl } from "../../workspaces/slug.js"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The most repositories in one GitHub entry of `.ctxpipe/sources.yaml` (the
+ * `repositories` list). ctx| clones and indexes each one. The cap is not for
+ * a GitHub source file, because that file holds one repository.
+ */
+export const GITHUB_SOURCE_MAX_REPOSITORIES = 100
+
 /** One GitHub repository as `owner/name`. */
 const repositoryNameSchema = z
   .string()
@@ -33,16 +40,30 @@ function itemName(item: z.infer<typeof repositoryItemSchema>): string {
   return typeof item === "string" ? item : item.name
 }
 
+const repositoryListSchema = z
+  .array(repositoryItemSchema)
+  .min(1, "Select at least one repository")
+  .refine(
+    (items) =>
+      new Set(items.map((item) => itemName(item).toLowerCase())).size ===
+      items.length,
+    "Each repository can occur only one time",
+  )
+
 export const githubScopeSchema = z.strictObject({
-  repositories: z
-    .array(repositoryItemSchema)
-    .min(1, "Select at least one repository")
-    .refine(
-      (items) =>
-        new Set(items.map((item) => itemName(item).toLowerCase())).size ===
-        items.length,
-      "Each repository can occur only one time",
-    ),
+  repositories: repositoryListSchema.max(
+    GITHUB_SOURCE_MAX_REPOSITORIES,
+    `Select at most ${GITHUB_SOURCE_MAX_REPOSITORIES} repositories`,
+  ),
+})
+
+/**
+ * The GitHub entry scope with no cap on `repositories`. Use it only to read
+ * an entry that ctx| wrote before the cap (CTX-822), so that the legacy
+ * read paths do not drop the repositories of a long entry.
+ */
+export const githubLegacyScopeSchema = z.strictObject({
+  repositories: repositoryListSchema,
 })
 
 /** The repositories of a valid GitHub scope, each with its ref or null. */

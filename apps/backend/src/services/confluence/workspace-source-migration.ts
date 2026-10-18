@@ -7,6 +7,7 @@ import {
   connections,
 } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { parseLegacyScope } from "../../domain/workspace-sources/legacy-scope.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -73,7 +74,7 @@ export const confluenceSourceMigrationHook: SourceMigrationHook = {
           return unmapped(
             "The Confluence scope is not merged into the sync repository yet",
           )
-        const scope = confluenceSourceScopeSchema.safeParse({
+        const scope = parseLegacyScope(confluenceSourceScopeSchema, {
           spaces: spaces
             .filter((space) => space.connectionId === target.connectionId)
             .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey))

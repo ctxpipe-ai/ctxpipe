@@ -1,3 +1,9 @@
+import {
+  type PinnedPlainGitRemote,
+  pinnedPlainGitRemoteFault,
+  plainGitRemoteEnvironment,
+} from "../../../../shared/plain-git.js"
+
 function isGitHubUrl(gitUrl: string): boolean {
   if (gitUrl.startsWith("git@github.com:")) return true
   try {
@@ -49,4 +55,90 @@ export function gitCommandEnv(
     GIT_CONFIG_VALUE_1:
       '!f() { test "$1" = get || return 0; echo username=x-access-token; echo "password=$CTXPIPE_GIT_TOKEN"; }; f',
   }
+}
+
+/**
+ * The remote of one git network command: the URL, the environment, and,
+ * for a plain git remote, the limits of the command.
+ */
+export type GitRemote = {
+  url: string
+  env: Record<string, string | undefined>
+  limits?: PlainGitLimits
+}
+
+/** The limits of one git network command on a plain git remote. */
+export type PlainGitLimits = {
+  /** The time limit of the command; then codesearch kills git. */
+  timeoutMs: number
+  /** The size limit of each file that git writes (a pack, a checkout file). */
+  maxFileBytes: number
+  /** Git config after the fixed config (tests only). */
+  config?: ReadonlyArray<readonly [string, string]>
+}
+
+let plainGitLimits: PlainGitLimits = {
+  timeoutMs: 30 * 60_000,
+  maxFileBytes: 4 * 1024 * 1024 * 1024,
+}
+
+/**
+ * Tests only: the limits and the git config of each plain git command of
+ * this process. Returns the function that puts the defaults back.
+ */
+export function usePlainGitLimits(next: Partial<PlainGitLimits>): () => void {
+  const before = plainGitLimits
+  plainGitLimits = { ...before, ...next }
+  return () => {
+    plainGitLimits = before
+  }
+}
+
+/** A repository that codesearch must not read, with the reason. */
+export class GitRemoteRefusedError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = "GitRemoteRefusedError"
+  }
+}
+
+/**
+ * The remote that codesearch reads for a repository (CTX-815):
+ *
+ * - With a GitHub token and a GitHub URL: the stored URL, with the token in
+ *   a credential helper ({@link gitCommandEnv}).
+ * - With a plain git remote that the backend checked: its checked URL, never
+ *   the stored URL, with the shared plain git environment (no redirect, only
+ *   HTTPS or self-host `http`, no system or global config, the checked
+ *   addresses only, a low-speed limit) and a time and size limit. Codesearch
+ *   checks the remote again before it uses it.
+ * - Each other case is refused: codesearch never reads a stored URL with
+ *   the git defaults (a redirect, `file://`, ssh, a proxy, global config).
+ */
+export function repositoryGitRemote(input: {
+  gitUrl: string
+  githubToken?: string
+  plainGit?: PinnedPlainGitRemote
+}): GitRemote {
+  if (input.plainGit) {
+    const fault = pinnedPlainGitRemoteFault(input.plainGit)
+    if (fault) throw new GitRemoteRefusedError(fault)
+    const { url, policy } = input.plainGit
+    return {
+      url,
+      env: plainGitRemoteEnvironment(input.plainGit, {
+        allowHttp: policy.http && url.startsWith("http://"),
+        extra: plainGitLimits.config,
+      }),
+      limits: plainGitLimits,
+    }
+  }
+  if (input.githubToken && isGitHubUrl(input.gitUrl))
+    return {
+      url: credentialFreeGitUrl(input.gitUrl),
+      env: gitCommandEnv(input.gitUrl, input.githubToken),
+    }
+  throw new GitRemoteRefusedError(
+    "Codesearch reads a repository only with a GitHub token or with a plain git remote that the backend checked",
+  )
 }

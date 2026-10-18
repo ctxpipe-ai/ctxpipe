@@ -10,6 +10,10 @@ import {
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import {
+  slackLegacyBindings,
+  slackSourceMigrationHook,
+} from "../../services/slack/source-migration.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
 import { planHydrateWrites } from "../workspaces/hydrate-write-planner.js"
 import { KNOWLEDGE_SKILL_PATH } from "../workspaces/layout.js"
@@ -19,6 +23,7 @@ import {
 } from "../workspaces/workspace-format.js"
 import { buildUpgradeCommits } from "./build-commits.js"
 import { GIT_UPGRADE_STEPS, upgradeTargetFormat } from "./registry.js"
+import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 
 let seed: Awaited<ReturnType<typeof seedSourcesOrg>>
 const directories: string[] = []
@@ -217,5 +222,86 @@ sources:
     )
     expect(again.pack.sha).toBe(built.pack.sha)
     expect(again.steps.every((step) => step.sha === null)).toBe(true)
+  })
+})
+
+describe("upgrade steps 1 and 2 (Postgres + git): lists above the source caps", () => {
+  it("links each of 101 repositories and moves each of 101 Slack channels", async () => {
+    const workspaceUrl = `https://github.com/acme/long-${seed.suffix.replaceAll("_", "-")}.git`
+    const workspaceId = await seed.addWorkspace("long-lists", workspaceUrl)
+    const repositories = Array.from(
+      { length: 101 },
+      (_, i) => `acme/repo-${String(i).padStart(3, "0")}`,
+    )
+    const channels = Array.from(
+      { length: 101 },
+      (_, i) => `C${String(i).padStart(4, "0")}ABC`,
+    )
+    // A Slack connection that captured threads in 101 channels before the
+    // channel cap.
+    const slack = {
+      ...slackSourceMigrationHook,
+      listLegacyBindings: async () =>
+        slackLegacyBindings({
+          connectionId: "con_slack_long",
+          syncRepositoryUrl: workspaceUrl,
+          paths: channels.map((id) => `slack/channels/team--${id}/t.md`),
+        }),
+    }
+    const base = await fixturePack(
+      Object.fromEntries(
+        repositories.map((name) => [
+          `repositories/${name.replace("/", "-")}.md`,
+          `---\ngit: https://github.com/${name}\n---\n`,
+        ]),
+      ),
+    )
+    const built = await withOrgIdContext(
+      { id: seed.orgId, slug: seed.orgId },
+      () =>
+        buildUpgradeCommits({
+          pack: base,
+          steps: [
+            exportAndSourcesStep({ slack }),
+            ...GIT_UPGRADE_STEPS.slice(1, 2),
+          ],
+          fromFormat: 0,
+          targetFormat: 2,
+          ctx: {
+            orgId: seed.orgId,
+            workspaceId,
+            baseSha: base.sha,
+            remote: { url: workspaceUrl, connectionId: "con_example" },
+          },
+          createdAt: "2026-10-18T00:00:00.000Z",
+        }),
+    )
+    const report = built.steps.flatMap((step) => step.report)
+    expect(report.filter((line) => /^Not (linked|moved)/.test(line))).toEqual(
+      [],
+    )
+    const head = await readCommits(built.pack)
+    // Each repository is a GitHub source, and no repository file is left.
+    expect(
+      head.files.filter((path) => path.startsWith("sources/github/")),
+    ).toEqual(repositories.map((name) => `sources/github/${name}.md`))
+    expect(
+      head.files.filter((path) => path.startsWith("repositories/")),
+    ).toEqual([])
+    // The Slack connection settings move into sources of at most 100
+    // channels, and together they hold each channel.
+    const slackFiles = head.files.filter((path) =>
+      path.startsWith("sources/slack/"),
+    )
+    expect(slackFiles).toEqual([
+      "sources/slack/slack-2.md",
+      "sources/slack/slack.md",
+    ])
+    const moved = slackFiles.flatMap((path) =>
+      [...(head.show(path) ?? "").matchAll(/C\d{4}ABC/g)].map(
+        (match) => match[0],
+      ),
+    )
+    expect(moved.sort()).toEqual(channels)
   })
 })

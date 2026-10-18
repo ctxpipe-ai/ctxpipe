@@ -10,9 +10,11 @@ hosted ctx|:
 {AUTH_BASE_URL}/mcp
 ```
 
-OAuth connections use the generic URL and bind an organization during
-authorization. `?orgSlug=<org-slug>` remains valid for legacy and manually
-configured clients.
+Every client uses this one URL. During authorization, the user chooses the
+organizations that the client can read. Each tool call names one organization in
+the `org` argument. The server accepts the old `?orgSlug=` parameter and ignores
+it.
+
 `AUTH_BASE_URL` must be the public origin clients use, including TLS. Client
 JSON shapes and OAuth install paths are unchanged from hosted ctx|; see
 [Remote MCP](/docs/mcp/mcp-docs) and
@@ -130,15 +132,17 @@ concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
 
 ## Common failures
 
-- **Grant is not bound to an organization** — disconnect and reconnect the MCP
-  client, then choose an organization during authorization. Old/manual clients
-  may use `/mcp?orgSlug=<slug>`.
+- **`org_not_found` or `org_required`** — the tool call named an organization
+  that is not in the connection, an organization that the user is not a member
+  of, or no organization. Pass the right slug in `org`. For an OAuth connection,
+  add the organization on **Connected apps**, or reconnect the client and select
+  the organization during authorization.
 - **`AUTH_BASE_URL` mismatch** — issuer, callbacks, and MCP discovery must use
   the same public origin clients see.
 - **Remote HTTP** — production MCP must be HTTPS.
 - **Status unreachable or timed out** — backend, DNS, TLS, or an untrusted CA.
 - **HTTP 401 without `resource_metadata`** — clients cannot start OAuth discovery.
-- **Protected-resource audience mismatch** — RFC 9728 `resource` canonicalises to
+- **Protected-resource audience mismatch** — RFC 9728 `resource` canonicalizes to
   `/mcp` without the query string.
 - **Authorization-server metadata missing registration** — dynamic client
   registration cannot proceed.

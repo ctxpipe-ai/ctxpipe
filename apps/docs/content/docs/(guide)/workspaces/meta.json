@@ -3,6 +3,7 @@
   "pages": [
     "index",
     "create-workspace",
+    "settings",
     "knowledge-files",
     "linked-repositories",
     "chat",

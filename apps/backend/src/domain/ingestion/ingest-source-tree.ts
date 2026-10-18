@@ -3,7 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
-import { plainGitRemote } from "../../services/git/plain-git-remote.js"
+import {
+  plainGitFetchLimits,
+  plainGitRemote,
+} from "../../services/git/plain-git-remote.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { heldScratch, holdScratch, releaseScratch } from "./held-scratch.js"
 import type { IngestSource } from "./ingestion-run.js"
@@ -12,12 +15,18 @@ import { GitOutputTooLargeError, runGit } from "./run-git.js"
 
 /*
  * The host's copy of the source tree at the run's SHA: commits and trees,
- * no blobs. The parent counts the candidate roots from it, and each step's
- * patch validator checks evidence paths and quotes against it. One worker process keeps
- * one copy for each run, SHA, and holder: the parent and each shard child
- * have their own copy, so a child that ends deletes only its own copy and
- * never the copy of a sibling that still runs. A copy that no one used for
- * an hour goes at the next fetch (`held-scratch.ts`).
+ * and no blobs for a GitHub source. The parent counts the candidate roots
+ * from it, and each step's patch validator checks evidence paths and quotes
+ * against it. One worker process keeps one copy for each run, SHA, and
+ * holder: the parent and each shard child have their own copy, so a child
+ * that ends deletes only its own copy and never the copy of a sibling that
+ * still runs. A copy that no one used for an hour goes at the next fetch
+ * (`held-scratch.ts`).
+ *
+ * A plain git source (CTX-815) is different: the copy also gets each blob
+ * up to the read limit in the one fetch, with a time limit and a size
+ * limit. A later read never connects to the plain git host, so the evidence
+ * paths that a step cites cannot send a signal to that host.
  */
 
 export type SourceTree = {
@@ -28,9 +37,10 @@ export type SourceTree = {
   /**
    * The text of the file `path` at the SHA (a symlink gives its target), or
    * null when the path is not exactly a file or is larger than the read
-   * limit. The copy has no blobs, so git gets the blob from the source
-   * remote with a read credential. A fault of the remote or of the
-   * credential throws.
+   * limit. For a GitHub source, the copy has no blobs, so git gets the blob
+   * from the source remote with a read credential; a fault of the remote or
+   * of the credential throws. A plain git source never fetches here: a blob
+   * that the first fetch did not get gives null.
    */
   read(path: string): Promise<string | null>
 }
@@ -47,8 +57,35 @@ async function fetchTree(input: {
 }): Promise<{ dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-source-"))
   try {
-    const remote = await sourceRemote(input)
     await runGit(dir, ["init", "--quiet", "--bare"])
+    if (input.source.kind === "git") {
+      // Each blob up to the read limit, now: a later read does not fetch.
+      // `blob:limit=<n>` leaves out each blob of n bytes or more.
+      const remote = await plainGitRemote(input.source.url)
+      const limits = plainGitFetchLimits()
+      await runGit(
+        dir,
+        [
+          "fetch",
+          "--quiet",
+          "--no-tags",
+          "--no-write-fetch-head",
+          "--recurse-submodules=no",
+          "--depth=1",
+          `--filter=blob:limit=${MAX_SOURCE_READ_BYTES + 1}`,
+          "--",
+          remote.url,
+          input.sha,
+        ],
+        {
+          cleanEnv: remote.env,
+          timeoutMs: limits.timeoutMs,
+          maxFileBytes: limits.maxFileBytes,
+        },
+      )
+      return { dir }
+    }
+    const remote = await githubSourceRemote({ ...input, source: input.source })
     await runGit(
       dir,
       [
@@ -70,17 +107,12 @@ async function fetchTree(input: {
   }
 }
 
-/**
- * The URL and the git environment of one read of the source: a GitHub
- * source with a read token of its connection, or a plain git source with no
- * credential, a checked public host, and no redirect (CTX-815).
- */
-async function sourceRemote(input: {
+/** The URL and the git environment of one read of a GitHub source. */
+async function githubSourceRemote(input: {
   orgId: string
-  source: IngestSource
+  source: Exclude<IngestSource, { kind: "git" }>
   env: Env
 }): Promise<{ url: string; env: NodeJS.ProcessEnv }> {
-  if (input.source.kind === "git") return plainGitRemote(input.source.url)
   const token = await resolveRepositoryReadCredential({
     orgId: input.orgId,
     env: input.env,
@@ -118,6 +150,7 @@ export function ingestSourceTree(input: {
   return {
     async paths() {
       const out = await runGit(await dir(), [
+        "--no-lazy-fetch",
         "ls-tree",
         "-r",
         "-z",
@@ -128,6 +161,7 @@ export function ingestSourceTree(input: {
     },
     async exists(path) {
       const out = await runGit(await dir(), [
+        "--no-lazy-fetch",
         "ls-tree",
         "--name-only",
         input.sha,
@@ -144,6 +178,7 @@ export function ingestSourceTree(input: {
       // path is the requested path.
       const listed = (
         await runGit(repo, [
+          "--no-lazy-fetch",
           "--literal-pathspecs",
           "ls-tree",
           "-z",
@@ -174,12 +209,16 @@ export function ingestSourceTree(input: {
         () => false,
       )
       if (!held) {
+        // A plain git source got each blob that it can read in the first
+        // fetch; it never connects to the plain git host again.
+        const { source } = input
+        if (source.kind === "git") return null
         // A network or credential fault throws: the caller must see
         // an outside-service fault, not a refused quote. The size of a blob
         // is not in the tree and `ls-tree -l` fetches every blob it lists,
         // so the size limit is on the download: git dies when it writes more
         // than the limit.
-        const remote = await sourceRemote(input)
+        const remote = await githubSourceRemote({ ...input, source })
         try {
           await runGit(
             repo,
