@@ -482,7 +482,7 @@ export function exportAndSourcesStep(
         for (const [id, gitUrl] of source.repositoryGitUrlById)
           if (!source.workspaceByRepositoryId.has(id))
             report.push(
-              `Not linked: ${gitUrl}. The org has no first Workspace, so no Workspace gets this repository.`,
+              `Not linked: ${normalizeWorkspaceRepositoryUrl(gitUrl)}. The org has no first Workspace, so no Workspace gets this repository.`,
             )
         for (const object of source.objects)
           if (
@@ -513,7 +513,9 @@ export function exportAndSourcesStep(
       for (const path of linkedRepositories.deletePaths)
         report.push(`Removed \`${path}\`: its repository is now a source.`)
       for (const skipped of linkedRepositories.skipped)
-        report.push(`Not linked: ${skipped.item}. ${skipped.reason}.`)
+        report.push(
+          `Not linked: ${URL.canParse(skipped.item) ? normalizeWorkspaceRepositoryUrl(skipped.item) : skipped.item}. ${skipped.reason}.`,
+        )
       // Plain git repositories: one source file for each (CTX-815).
       const plainGitFiles = await plainGitSourceFiles({ tree, plainGit })
       for (const file of plainGitFiles)
@@ -522,7 +524,7 @@ export function exportAndSourcesStep(
         )
       for (const refused of plainGitRefused)
         report.push(
-          `Not linked: ${refused.gitUrl}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
+          `Not linked: ${normalizeWorkspaceRepositoryUrl(refused.gitUrl)}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
         )
       if (linkedRepositories.skipped.length || plainGitRefused.length)
         notices.push({
