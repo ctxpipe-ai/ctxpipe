@@ -1028,13 +1028,12 @@ export const GuideSignalFailureKeepsHome: Story = {
   },
 }
 
-const expandedGate = responseGate()
+const loadingGate = responseGate()
 /**
- * While a signal loads, a skeleton holds the place of the expanded card, and
- * the loaded card has the same box.
+ * The guide may not show, so it holds no space while a signal loads. When the
+ * signals are ready, it opens to its height.
  */
-export const GuideSkeletonMatchesExpanded: Story = {
-  tags: ["workspace-golden"],
+export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -1044,7 +1043,7 @@ export const GuideSkeletonMatchesExpanded: Story = {
             ({ request }) =>
               new URL(request.url).pathname.endsWith("/api/v1/connectors"),
             async () => {
-              await expandedGate.wait()
+              await loadingGate.wait()
               return HttpResponse.json({ items: [] })
             },
           ),
@@ -1055,36 +1054,13 @@ export const GuideSkeletonMatchesExpanded: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await expectGuideSkeletonMatches(canvasElement, expandedGate)
-  },
-}
-
-const collapsedGate = responseGate()
-/** After the first question the skeleton has the box of the collapsed card. */
-export const GuideSkeletonMatchesCollapsed: Story = {
-  parameters: {
-    msw: {
-      handlers: {
-        defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [
-            http.get(
-              ({ request }) =>
-                new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-              async () => {
-                await collapsedGate.wait()
-                return HttpResponse.json({ items: [] })
-              },
-            ),
-            ...adminGuide({ detail: docsWorkspaceDetail }),
-          ],
-          [docsWorkspace],
-        ),
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    await expectGuideSkeletonMatches(canvasElement, collapsedGate)
+    const canvas = within(canvasElement)
+    await canvas.findByText("Loading activity")
+    expect(canvas.queryByText("Loading the setup guide")).toBeNull()
+    expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
+    await loadingGate.release()
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
   },
 }
 
@@ -1100,9 +1076,8 @@ const activityNeverAnswers = http.get(
 const handOffGate = responseGate()
 /**
  * Onboarding opened Home (CTX-868). While a guide signal loads, Home stays
- * hidden: no skeleton shows and nothing pops in. When the first data (the
- * Workspace list and the guide signals) is ready, Home fades in one time,
- * and the guide keeps its box. A read that Home does not need for that, here
+ * hidden: nothing pops in. When the first data (the Workspace list and the
+ * guide signals) is ready, Home fades in one time. A read that Home does not need for that, here
  * the activity, does not keep Home hidden. Then the flag is gone, so a
  * reload does not hide Home again.
  */
@@ -1131,17 +1106,12 @@ export const FadesInAfterOnboarding: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await document.fonts.ready
-    const skeleton = await canvas.findByText("Loading the setup guide")
-    const section = skeleton.closest("section")
-    if (!section) throw new Error("The skeleton has no section")
-    const { width, height } = section.getBoundingClientRect()
     // The page is hidden while the signal loads: it is not visible, and a
     // control on it cannot take focus.
-    const hidden = section.closest(".max-w-2xl")
+    const hidden = canvasElement.querySelector(".max-w-2xl")
     if (!hidden) throw new Error("Home has no body")
-    expect(getComputedStyle(hidden).visibility).toBe("hidden")
     await waitFor(() =>
-      expect(canvas.getByText("Loading the setup guide")).not.toBeVisible(),
+      expect(getComputedStyle(hidden).visibility).toBe("hidden"),
     )
     await handOffGate.release()
     const released = performance.now()
@@ -1151,12 +1121,6 @@ export const FadesInAfterOnboarding: Story = {
     expect(performance.now() - released).toBeLessThan(500)
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const loaded = canvas.getByRole("region", { name: "Get started" })
-    expect(Math.round(loaded.getBoundingClientRect().height)).toBe(
-      Math.round(height),
-    )
-    expect(Math.round(loaded.getBoundingClientRect().width)).toBe(
-      Math.round(width),
-    )
     const body = loaded.closest(".max-w-2xl")
     if (!body) throw new Error("Home has no body")
     expect(getComputedStyle(body).animationName).toBe("enter")
@@ -1167,7 +1131,7 @@ export const FadesInAfterOnboarding: Story = {
 
 /**
  * A guide read is slow: Home does not stay hidden for ever. After 1 s it
- * shows, with the skeleton of the guide, and the flag is gone.
+ * shows, without the guide, and the flag is gone.
  */
 export const HandOffShowsHomeWhenDataIsSlow: Story = {
   beforeEach: () => onboardingHandOffFlag.set(),
@@ -1193,11 +1157,10 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Loading the setup guide")
-    await waitFor(
-      () => expect(canvas.getByText("Loading the setup guide")).toBeVisible(),
-      { timeout: 5000 },
-    )
+    await waitFor(() => expect(canvas.getByText("Loading activity")).toBeVisible(), {
+      timeout: 5000,
+    })
+    expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
 }
@@ -1230,25 +1193,6 @@ export const HandOffShowsHomeWhenReadFails: Story = {
     )
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
-}
-
-async function expectGuideSkeletonMatches(
-  canvasElement: HTMLElement,
-  gate: ReturnType<typeof responseGate>,
-) {
-  const canvas = within(canvasElement)
-  const skeleton = await canvas.findByText("Loading the setup guide")
-  const box = (element: Element) => {
-    const { width, height } = element.getBoundingClientRect()
-    return { width: Math.round(width), height: Math.round(height) }
-  }
-  const section = skeleton.closest("section")
-  if (!section) throw new Error("The skeleton has no section")
-  const skeletonBox = box(section)
-  expect(skeletonBox.height).toBeGreaterThan(0)
-  await gate.release()
-  const loaded = await canvas.findByRole("region", { name: "Get started" })
-  expect(box(loaded)).toEqual(skeletonBox)
 }
 
 /** A failed role query hides the guide. Home still works. */

@@ -11,7 +11,7 @@ import {
   IconUsersPlus,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState, useSyncExternalStore } from "react"
+import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react"
 import {
   Button as RACButton,
   ProgressBar as RACProgressBar,
@@ -361,7 +361,7 @@ const noSubscribe = () => () => {}
  * the URL name the origin of this app, so they also work on a self-hosted
  * deployment or a preview.
  */
-function EditorSetupStep() {
+export function EditorSetupStep() {
   // The server holds no public origin (its config names the private backend
   // URL), so the server and hydration value is `null`. The fields stay empty
   // and Copy stays off until the browser origin replaces it.
@@ -524,54 +524,35 @@ function SetupGuidePanel(props: {
 }
 
 /**
- * Holds the place of the guide while its signals load. It has the box of the
- * collapsed card, or of the expanded admin card with the first row open.
+ * Opens the guide to its height when the signals are ready. The guide may not
+ * show at all, so it holds no space while it loads. With reduced motion, it
+ * appears without animation.
  */
-export function SetupGuideSkeleton(props: { collapsed: boolean }) {
+export function SetupGuideReveal(props: { children: ReactNode }) {
+  const [open, setOpen] = useState(false)
+  const [settled, setSettled] = useState(false)
+  useEffect(() => {
+    const frame = requestAnimationFrame(() => setOpen(true))
+    // With reduced motion, no transition ends: settle after the duration.
+    const timer = setTimeout(() => setSettled(true), 300)
+    return () => {
+      cancelAnimationFrame(frame)
+      clearTimeout(timer)
+    }
+  }, [])
   return (
-    <section className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800">
-      {/* The editor step has live Copy buttons, so it stays outside the busy region. */}
-      <div aria-busy>
-        <span className="sr-only">Loading the setup guide</span>
-        <div
-          className={cn(
-            "flex items-center gap-x-3 px-2 pt-1",
-            props.collapsed ? "pb-1" : "pb-2",
-          )}
-        >
-          <Skeleton className="h-7 w-48" />
-        </div>
-        {props.collapsed ? null : (
-          // The disclosure panel of the card has `pt-0.5`.
-          <div className="pt-0.5">
-            <ul className="space-y-1">
-              <li className="flex items-start gap-3 rounded-md px-2 py-3">
-                <Skeleton className="size-7 shrink-0" />
-                <div className="min-w-0 flex-1">
-                  <div className="pt-1">
-                    <SkeletonText className="text-sm" boneClassName="w-40" />
-                  </div>
-                  <SkeletonText
-                    className="mt-0.5 text-sm"
-                    boneClassName="w-72"
-                  />
-                  <Skeleton className="mt-3 block h-9 w-32" />
-                </div>
-              </li>
-              {[0, 1, 2, 3, 4].map((row) => (
-                <li key={row} className="flex items-center gap-3 px-2 py-2">
-                  <Skeleton className="size-7 shrink-0" />
-                  <SkeletonText
-                    className="flex-1 text-sm"
-                    boneClassName="w-48"
-                  />
-                </li>
-              ))}
-            </ul>
-          </div>
-        )}
+    <div
+      className={cn(
+        "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
+      )}
+      onTransitionEnd={(event) => {
+        if (event.target === event.currentTarget) setSettled(true)
+      }}
+    >
+      <div className={cn("min-h-0", !settled && "overflow-hidden")}>
+        {props.children}
       </div>
-      {props.collapsed ? null : <EditorSetupStep />}
-    </section>
+    </div>
   )
 }

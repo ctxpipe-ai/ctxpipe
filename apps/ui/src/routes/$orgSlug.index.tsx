@@ -10,7 +10,7 @@ import { HomeComposer } from "@/features/home/HomeComposer"
 import {
   ASK_PROMPT,
   SetupGuideCard,
-  SetupGuideSkeleton,
+  SetupGuideReveal,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import {
@@ -123,14 +123,14 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     : undefined
   const guideCard =
     guide.status === "ready" ? (
-      <SetupGuideCard
-        orgSlug={orgSlug}
-        guide={guide}
-        onAsk={ask}
-        onCreateWorkspace={() => setCreateOpen(true)}
-      />
-    ) : guide.mayShow ? (
-      <SetupGuideSkeleton collapsed={guide.collapsed} />
+      <SetupGuideReveal>
+        <SetupGuideCard
+          orgSlug={orgSlug}
+          guide={guide}
+          onAsk={ask}
+          onCreateWorkspace={() => setCreateOpen(true)}
+        />
+      </SetupGuideReveal>
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
