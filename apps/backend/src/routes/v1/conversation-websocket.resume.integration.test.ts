@@ -26,6 +26,8 @@ type Socket = {
     close: (code?: number, reason?: string) => void
   }
   chunks: Array<{ type: string }>
+  // The run log offset of each chunk, in the same order.
+  offsets: string[]
   closed: Promise<{ code?: number; reason?: string }>
   runEnded: Promise<void>
 }
@@ -62,6 +64,7 @@ async function openSocket(
   if (response) return { status: response.status }
   if (!data) throw new Error("the upgrade handler did not upgrade")
   const chunks: Array<{ type: string }> = []
+  const offsets: string[] = []
   let onClose!: (value: { code?: number; reason?: string }) => void
   const closed = new Promise<{ code?: number; reason?: string }>((resolve) => {
     onClose = resolve
@@ -74,9 +77,13 @@ async function openSocket(
     data,
     readyState: 1,
     send(raw: string) {
-      const frame = JSON.parse(raw) as { chunk?: { type: string } }
+      const frame = JSON.parse(raw) as {
+        id?: string
+        chunk?: { type: string }
+      }
       if (!frame.chunk) return
       chunks.push(frame.chunk)
+      if (frame.id) offsets.push(frame.id)
       if (
         frame.chunk.type === "RUN_ERROR" ||
         frame.chunk.type === "RUN_FINISHED"
@@ -88,7 +95,7 @@ async function openSocket(
     },
   }
   conversationWebSocketHandlers.open(ws)
-  return { ws, chunks, closed, runEnded }
+  return { ws, chunks, offsets, closed, runEnded }
 }
 
 function upgraded(socket: { status: number } | Socket): Socket {
@@ -119,16 +126,17 @@ async function sendTurn(
   await socket.runEnded
 }
 
-/** Resumes `runId` from the start and returns the replayed chunk types. */
+/** Resumes `runId` from `offset` and returns the replayed chunk types. */
 async function replay(
   seed: SeededOrg,
   conversationId: string,
   runId: string,
+  offset = "-1",
 ): Promise<{ status: number } | { chunks: string[] }> {
   const socket = await openSocket(
     seed,
     conversationId,
-    `?runId=${encodeURIComponent(runId)}&offset=-1`,
+    `?runId=${encodeURIComponent(runId)}&offset=${encodeURIComponent(offset)}`,
   )
   if ("status" in socket) return { status: socket.status }
   await socket.closed
@@ -137,10 +145,11 @@ async function replay(
 }
 
 describe("workspace chat socket resume", () => {
-  let owner: SeededOrg | undefined
-  let other: SeededOrg | undefined
+  // beforeAll sets these or fails the suite.
+  let owner!: SeededOrg
+  let other!: SeededOrg
   // A second user who is also a member of the owner's organization.
-  let member: SeededOrg | undefined
+  let member!: SeededOrg
   const ownConversation = generateObjectId("conv")
   const secondOwnConversation = generateObjectId("conv")
   const otherConversation = generateObjectId("conv")
@@ -162,25 +171,23 @@ describe("workspace chat socket resume", () => {
         role: "member",
         createdAt: now,
       })
-    const ownerSeed = owner
-    await withOrgDbContext(ownerSeed.orgId, async (db) => {
+    await withOrgDbContext(owner.orgId, async (db) => {
       await db.insert(conversations).values(
         [ownConversation, secondOwnConversation].map((id) => ({
           id,
-          orgId: ownerSeed.orgId,
-          userId: ownerSeed.userId,
+          orgId: owner.orgId,
+          userId: owner.userId,
           name: "Resume conversation",
           source: "ui",
           lastMessageAt: now,
         })),
       )
     })
-    const otherSeed = other
-    await withOrgDbContext(otherSeed.orgId, async (db) => {
+    await withOrgDbContext(other.orgId, async (db) => {
       await db.insert(conversations).values({
         id: otherConversation,
-        orgId: otherSeed.orgId,
-        userId: otherSeed.userId,
+        orgId: other.orgId,
+        userId: other.userId,
         name: "Other org conversation",
         source: "ui",
         lastMessageAt: now,
@@ -189,7 +196,7 @@ describe("workspace chat socket resume", () => {
 
     // One turn in the owner's conversation. It has no Workspace, so the
     // turn ends at once with a run error; its run log keeps that chunk.
-    runSocket = upgraded(await openSocket(ownerSeed, ownConversation))
+    runSocket = upgraded(await openSocket(owner, ownConversation))
     await sendTurn(runSocket, ownConversation, runId)
   })
 
@@ -215,35 +222,76 @@ describe("workspace chat socket resume", () => {
   })
 
   it("replays a run in the conversation that ran it", async () => {
-    if (!owner) throw new Error("seedOrg did not run")
     expect(await replay(owner, ownConversation, runId)).toEqual({
       chunks: expect.arrayContaining(["RUN_ERROR"]),
     })
   })
 
+  it("replays the rest of a run from an offset of that run", async () => {
+    const socket = upgraded(
+      await openSocket(
+        owner,
+        ownConversation,
+        `?runId=${encodeURIComponent(runId)}&offset=-1`,
+      ),
+    )
+    await socket.closed
+    conversationWebSocketHandlers.close(socket.ws)
+    const types = socket.chunks.map((chunk) => chunk.type)
+    expect(types.length).toBeGreaterThan(1)
+    expect(socket.offsets).toHaveLength(types.length)
+    expect(
+      await replay(owner, ownConversation, runId, socket.offsets[0]),
+    ).toEqual({ chunks: types.slice(1) })
+  })
+
+  it("closes a resume without a run id before it reads the run log", async () => {
+    const socket = upgraded(
+      await openSocket(owner, ownConversation, "?offset=-1"),
+    )
+    // The client leaves on the next event loop turn, before the deadline.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    conversationWebSocketHandlers.close(socket.ws)
+    expect(await socket.closed).toEqual({ code: 1011, reason: "resume failed" })
+    expect(socket.chunks).toEqual([])
+  })
+
+  it("closes a resume of an unknown run before it reads the run log", async () => {
+    // A from-start read of an unknown run adds an empty run log entry. If the
+    // client leaves before the first-chunk deadline, that entry stays.
+    const socket = upgraded(
+      await openSocket(
+        owner,
+        ownConversation,
+        `?runId=run-${randomUUID()}&offset=-1`,
+      ),
+    )
+    // The client leaves on the next event loop turn, before the deadline.
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    conversationWebSocketHandlers.close(socket.ws)
+    expect(await socket.closed).toEqual({ code: 1011, reason: "resume failed" })
+    expect(socket.chunks).toEqual([])
+  })
+
   it("replays nothing for a run of another conversation of the same user", async () => {
-    if (!owner) throw new Error("seedOrg did not run")
     expect(await replay(owner, secondOwnConversation, runId)).toEqual({
       chunks: [],
     })
   })
 
   it("replays nothing for a run of a conversation in another organization", async () => {
-    if (!other) throw new Error("seedOrg did not run")
     expect(await replay(other, otherConversation, runId)).toEqual({
       chunks: [],
     })
   })
 
   it("refuses a resume of a conversation that the user cannot read, as not found", async () => {
-    if (!other) throw new Error("seedOrg did not run")
     expect(await replay(other, ownConversation, runId)).toEqual({
       status: 404,
     })
   })
 
   it("accepts the first turn of a conversation that does not exist yet", async () => {
-    if (!owner) throw new Error("seedOrg did not run")
     // A warmed socket opens before the turn creates its conversation.
     const newConversation = generateObjectId("conv")
     const socket = upgraded(await openSocket(owner, newConversation))
@@ -256,7 +304,6 @@ describe("workspace chat socket resume", () => {
   })
 
   it("keeps a turn of another member of the organization out of the run log", async () => {
-    if (!owner || !member) throw new Error("seedOrg did not run")
     const before = await replay(owner, ownConversation, runId)
     expect(before).toEqual({ chunks: expect.arrayContaining(["RUN_ERROR"]) })
     const intruder = upgraded(
