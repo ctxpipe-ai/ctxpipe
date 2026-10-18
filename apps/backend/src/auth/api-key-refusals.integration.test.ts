@@ -1,0 +1,235 @@
+import { eq } from "drizzle-orm"
+import { initLogger } from "evlog"
+import { evlog } from "evlog/hono"
+import { Hono } from "hono"
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from "vitest"
+import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import { recordSpans } from "../../test/spans.js"
+import type { AppEnv } from "../app/env.js"
+import { parseEnv } from "../config/env.js"
+import { getSystemDb } from "../db/client.js"
+import { apikeys } from "../db/schema/auth.js"
+import { backendOtelMiddleware } from "../observability/http.js"
+import { contextStorage } from "../test/hono-test-logger.js"
+import { getAuth } from "./config.js"
+import {
+  requireAuth,
+  withCookieAuth,
+  withNetworkOrgContext,
+  withOrgApiKeyAuth,
+} from "./withAuth.js"
+
+const spans = recordSpans()
+
+type WideEvent = Record<string, unknown>
+
+/**
+ * Key refusals (CTX-881). A refused key must show why, and which key it was
+ * when the auth library lets us know. No event holds a key value.
+ */
+describe("API key refusal events (Postgres)", () => {
+  const events: WideEvent[] = []
+  let seed: SeededOrg | undefined
+
+  function s(): SeededOrg {
+    if (!seed) throw new Error("seed is missing")
+    return seed
+  }
+
+  beforeAll(async () => {
+    if (!process.env.DATABASE_URL) {
+      throw new Error("DATABASE_URL is required for this integration test")
+    }
+    // setup-evlog turns evlog off; this file reads the drained wide events.
+    initLogger({
+      env: { service: "ctxpipe-backend", environment: "test" },
+      pretty: false,
+    })
+    seed = await seedOrg()
+  })
+
+  afterAll(async () => {
+    if (seed) await cleanupSeededOrg(seed)
+  })
+
+  beforeEach(() => {
+    events.length = 0
+  })
+
+  function createApp() {
+    const app = new Hono<AppEnv>()
+    app.use(contextStorage())
+    app.use("*", backendOtelMiddleware())
+    app.use(
+      evlog({
+        drain: async (ctx) => {
+          for (const item of Array.isArray(ctx) ? ctx : [ctx]) {
+            events.push(item.event as WideEvent)
+          }
+        },
+      }),
+    )
+    app.use("*", async (c, next) => {
+      c.set("env", parseEnv(process.env as Record<string, string | undefined>))
+      c.set("user", null)
+      c.set("session", null)
+      c.set("oauthReferenceId", null)
+      c.set("oauthClientId", null)
+      c.set("orgApiKey", null)
+      c.set("personalApiKeyId", null)
+      c.set("orgSlug", null)
+      c.set("orgId", null)
+      await next()
+    })
+    app.use(
+      "/mcp",
+      withCookieAuth,
+      withOrgApiKeyAuth,
+      requireAuth,
+      withNetworkOrgContext,
+    )
+    app.post("/mcp", (c) => c.json({ ok: true }))
+    app.use("/api/v1/*", withCookieAuth, requireAuth)
+    app.get("/api/v1/things", (c) => c.json({ ok: true }))
+    app.post("/api/v1/things", (c) => c.json({ ok: true }))
+    return app
+  }
+
+  function mcp(key: string) {
+    return createApp().request("http://backend.test/mcp", {
+      method: "POST",
+      headers: { "x-api-key": key },
+    })
+  }
+
+  function refusalEvent(): WideEvent {
+    const found = events.filter((event) => event.step === "api_key.refused")
+    if (found.length !== 1) {
+      throw new Error(`expected one refusal event, got ${found.length}`)
+    }
+    return found[0] as WideEvent
+  }
+
+  function noSecretAnywhere(secret: string) {
+    const exported = JSON.stringify({
+      events,
+      spans: spans.finishedSpans().map((span) => span.attributes),
+    })
+    expect(exported).not.toContain(secret)
+  }
+
+  /** A new org key, so that a test can break it without the shared seed key. */
+  async function newOrgKey() {
+    const created = await getAuth().api.createApiKey({
+      body: {
+        configId: "organization",
+        name: "refusal-test",
+        organizationId: s().orgId,
+      },
+      headers: new Headers({
+        origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
+        cookie: s().cookie,
+      }),
+    })
+    return { id: created.id, key: created.key }
+  }
+
+  it("logs the reason invalid for a key that does not exist, and not the key", async () => {
+    const key = "ctx_not_a_real_key_0123456789abcdefghijklmnopqrstuvwxyz"
+    const response = await mcp(key)
+
+    expect(response.status).toBe(401)
+    const event = refusalEvent()
+    expect(event).toMatchObject({ outcome: "refused", reason: "invalid" })
+    expect(event["ctxpipe.api_key.id"]).toBeUndefined()
+    noSecretAnywhere(key)
+  })
+
+  it("logs the reason disabled with the id of the key", async () => {
+    const created = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ enabled: false })
+      .where(eq(apikeys.id, created.id))
+
+    const response = await mcp(created.key)
+
+    expect(response.status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      reason: "disabled",
+      "ctxpipe.api_key.id": created.id,
+    })
+    noSecretAnywhere(created.key)
+  })
+
+  it("logs the reason expired", async () => {
+    const created = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(apikeys.id, created.id))
+
+    const response = await mcp(created.key)
+
+    expect(response.status).toBe(401)
+    expect(refusalEvent()).toMatchObject({ reason: "expired" })
+    noSecretAnywhere(created.key)
+  })
+
+  it("logs the reason rate_limited with the id of the key", async () => {
+    const created = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ requestCount: 1_000_000, lastRequest: new Date() })
+      .where(eq(apikeys.id, created.id))
+
+    const response = await mcp(created.key)
+
+    expect(response.status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      reason: "rate_limited",
+      "ctxpipe.api_key.id": created.id,
+    })
+    noSecretAnywhere(created.key)
+  })
+
+  it("logs no refusal for a valid key", async () => {
+    expect((await mcp(s().orgApiKey)).status).toBe(200)
+    expect(events.filter((event) => event.step === "api_key.refused")).toEqual(
+      [],
+    )
+  })
+
+  it("logs a warning with the key id and the route when a personal key writes", async () => {
+    const response = await createApp().request(
+      "http://backend.test/api/v1/things",
+      { method: "POST", headers: { "x-api-key": s().personalApiKey } },
+    )
+
+    expect(response.status).toBe(403)
+    expect(await response.json()).toMatchObject({
+      code: "write_grant_required",
+    })
+    const event = events.find((item) => item.step === "api_key.read_only")
+    expect(event).toMatchObject({
+      level: "warn",
+      outcome: "refused",
+      reason: "read_only",
+      route: "POST /api/v1/things",
+      "ctxpipe.api_key.id": expect.any(String),
+    })
+    noSecretAnywhere(s().personalApiKey)
+  })
+
+  it("logs no read-only refusal when a personal key reads", async () => {
+    const response = await createApp().request(
+      "http://backend.test/api/v1/things",
+      { headers: { "x-api-key": s().personalApiKey } },
+    )
+
+    expect(response.status).toBe(200)
+    expect(
+      events.filter((event) => event.step === "api_key.read_only"),
+    ).toEqual([])
+  })
+})

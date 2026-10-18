@@ -1,5 +1,6 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
+import { defaultKeyHasher } from "@better-auth/api-key"
 import { desc, eq } from "drizzle-orm"
 import type { Context, MiddlewareHandler, Next } from "hono"
 import {
@@ -10,7 +11,12 @@ import {
 } from "jose"
 import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
-import { oauthAccessTokens, sessions, users } from "../db/schema/auth.js"
+import {
+  apikeys,
+  oauthAccessTokens,
+  sessions,
+  users,
+} from "../db/schema/auth.js"
 import {
   applyAttribution,
   attributesForOrgApiKey,
@@ -359,9 +365,52 @@ type BearerApiKeyAuthResult =
     }
   | { kind: "invalid" }
 
-async function resolveOrgApiKey(
+type OrgApiKeyRefusal = {
+  /** `invalid`, `expired`, `disabled`, `rate_limited`, or `not_org_key`. */
+  reason: string
+  /** The key id, when the auth library tells it or the key row still exists. */
+  keyId?: string
+}
+
+/** Our reason for each error code of `verifyApiKey`. */
+function refusalReason(code: unknown): string {
+  switch (code) {
+    case "KEY_EXPIRED":
+      return "expired"
+    case "KEY_DISABLED":
+      return "disabled"
+    case "RATE_LIMITED":
+    case "USAGE_EXCEEDED":
+      return "rate_limited"
+    default:
+      return "invalid"
+  }
+}
+
+/**
+ * The id of a refused key, found by the hash of the key value. `verifyApiKey`
+ * does not return the key of a refusal. An expired key is already deleted, and
+ * an unknown key has no row, so only a disabled or limited key has an id.
+ */
+async function refusedKeyId(apiKey: string): Promise<string | undefined> {
+  try {
+    const [row] = await getSystemDb()
+      .select({ id: apikeys.id })
+      .from(apikeys)
+      .where(eq(apikeys.key, await defaultKeyHasher(apiKey)))
+      .limit(1)
+    return row?.id
+  } catch {
+    return undefined
+  }
+}
+
+async function verifyOrgApiKey(
   apiKey: string,
-): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
+): Promise<
+  | { orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]> }
+  | { refusal: OrgApiKeyRefusal }
+> {
   const verified = await getAuth()
     .api.verifyApiKey({ body: { key: apiKey } })
     .catch((err: unknown) => {
@@ -372,20 +421,36 @@ async function resolveOrgApiKey(
       return null
     })
 
-  if (
-    !verified?.valid ||
-    !verified.key ||
-    verified.key.configId !== "organization" ||
-    !verified.key.referenceId
-  ) {
-    return null
+  if (!verified?.valid || !verified.key) {
+    const reason = refusalReason(verified?.error?.code)
+    return {
+      refusal: {
+        reason,
+        keyId:
+          reason === "disabled" || reason === "rate_limited"
+            ? await refusedKeyId(apiKey)
+            : undefined,
+      },
+    }
+  }
+  if (verified.key.configId !== "organization" || !verified.key.referenceId) {
+    return { refusal: { reason: "not_org_key", keyId: verified.key.id } }
   }
 
   return {
-    id: verified.key.id,
-    orgId: verified.key.referenceId,
-    configId: verified.key.configId,
+    orgApiKey: {
+      id: verified.key.id,
+      orgId: verified.key.referenceId,
+      configId: verified.key.configId,
+    },
   }
+}
+
+async function resolveOrgApiKey(
+  apiKey: string,
+): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
+  const result = await verifyOrgApiKey(apiKey)
+  return "orgApiKey" in result ? result.orgApiKey : null
 }
 
 /**
@@ -428,9 +493,14 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const apiKey = c.req.header("x-api-key")?.trim()
   if (!apiKey) return next()
 
-  const orgApiKey = await resolveOrgApiKey(apiKey)
-  if (!orgApiKey) {
-    getLogger().warn("Unauthorized because of invalid API key")
+  const resolved = await verifyOrgApiKey(apiKey)
+  if ("refusal" in resolved) {
+    applyAttribution({ "ctxpipe.api_key.id": resolved.refusal.keyId })
+    getLogger().warn("Unauthorized because of invalid API key", {
+      step: "api_key.refused",
+      outcome: "refused",
+      reason: resolved.refusal.reason,
+    })
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -438,7 +508,7 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     )
   }
 
-  c.set("orgApiKey", orgApiKey)
+  c.set("orgApiKey", resolved.orgApiKey)
   applyPrincipalAttribution(c)
   return next()
 }
@@ -721,6 +791,12 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     !isMcpRequestPath(c.req.path) &&
     !["GET", "HEAD", "OPTIONS"].includes(c.req.method)
   ) {
+    getLogger().warn("Refused a write with a read-only API key", {
+      step: "api_key.read_only",
+      outcome: "refused",
+      reason: "read_only",
+      route: `${c.req.method} ${c.req.path}`,
+    })
     return c.json(
       {
         error:
