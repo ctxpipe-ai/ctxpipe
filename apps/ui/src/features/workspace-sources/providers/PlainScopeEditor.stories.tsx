@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { plainCatalogHandler } from "@/mocks/plain-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -62,7 +62,7 @@ type Story = StoryObj<typeof meta>
 export const SelectHelpCentersAndLabels: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
       canvas.getByText("Select at least one Help Center or label."),
     ).toBeVisible()
@@ -84,9 +84,11 @@ export const FilterKeepsTheSelection: Story = {
   args: { label: "Support", initialScope: { helpCenters: ["hc_docs"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByRole("checkbox", { name: "Product docs" }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: "Product docs" }),
+      ).toBeChecked(),
+    )
     await userEvent.type(
       canvas.getByRole("searchbox", {
         name: "Filter Plain Help Centers and labels for Support",
@@ -164,6 +166,8 @@ export const LoadError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText(/Reconnect Plain/)).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/Reconnect Plain/)).toBeVisible(),
+    )
   },
 }

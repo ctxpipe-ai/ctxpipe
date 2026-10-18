@@ -91,9 +91,11 @@ export const WebhookMissing: Story = {
     await expect(await canvas.findByText("Connected")).toBeInTheDocument()
     onOpenSetup.mockClear()
     await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
-    await expect(
-      await canvas.findByText(/Threads sync once a day: Plain did not accept/),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/Threads sync once a day: Plain did not accept/),
+      ).toBeVisible(),
+    )
     const [reconnect] = await canvas.findAllByRole("button", {
       name: /^Reconnect Plain/,
     })

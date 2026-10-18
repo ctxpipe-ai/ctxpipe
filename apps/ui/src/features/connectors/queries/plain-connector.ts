@@ -1,13 +1,13 @@
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
-export type PlainCatalogItem = { id: string; name: string }
+export type PlainConnectorStatus = Awaited<
+  ReturnType<typeof fetchPlainConnectorStatus>
+>
 
-export type PlainConnectorStatus = {
-  status: "installed" | "revoked"
-  workspaceName: string
-  /** False when Plain refused the webhook target: no live updates. */
-  webhookConfigured: boolean
-}
+export type PlainCatalogItem = Awaited<
+  ReturnType<typeof fetchPlainCatalog>
+>["helpCenters"][number]
 
 export const plainConnectorKeys = {
   status: (orgSlug: string, connectionId: string) =>
@@ -16,17 +16,15 @@ export const plainConnectorKeys = {
     ["plain-connector-catalog", orgSlug, connectionId] as const,
 }
 
-const base = (orgSlug: string) => `/${orgSlug}/api/v1/connectors/plain`
-
 export async function fetchPlainConnectorStatus(
   orgSlug: string,
   connectionId: string,
-): Promise<PlainConnectorStatus> {
-  const res = await apiFetch(
-    `${base(orgSlug)}/status?${new URLSearchParams({ connectionId })}`,
-    { credentials: "include" },
-  )
-  return readApiJson<PlainConnectorStatus>(res, {
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.plain.status.$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  return readApiJson(res, {
     message: "Failed to fetch Plain connector status",
   })
 }
@@ -38,24 +36,19 @@ export async function fetchPlainConnectorStatus(
 export async function connectPlain(
   orgSlug: string,
   body: { apiKey: string; connectionId?: string },
-): Promise<{ connectionId: string }> {
-  const res = await apiFetch(base(orgSlug), {
-    method: "POST",
-    credentials: "include",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify(body),
+) {
+  const res = await client[":orgSlug"].api.v1.connectors.plain.$post({
+    param: { orgSlug },
+    json: body,
   })
   return readApiJson(res, { message: "Failed to connect Plain" })
 }
 
-export async function fetchPlainCatalog(
-  orgSlug: string,
-  connectionId: string,
-): Promise<{ helpCenters: PlainCatalogItem[]; labels: PlainCatalogItem[] }> {
-  const res = await apiFetch(
-    `${base(orgSlug)}/catalog?${new URLSearchParams({ connectionId })}`,
-    { credentials: "include" },
-  )
+export async function fetchPlainCatalog(orgSlug: string, connectionId: string) {
+  const res = await client[":orgSlug"].api.v1.connectors.plain.catalog.$get({
+    param: { orgSlug },
+    query: { connectionId },
+  })
   return readApiJson(res, {
     message: "Failed to load Plain Help Centers and labels",
   })
@@ -65,11 +58,11 @@ export async function deletePlainConnector(
   orgSlug: string,
   connectionId: string,
 ): Promise<void> {
-  const res = await apiFetch(
-    `${base(orgSlug)}?${new URLSearchParams({ connectionId })}`,
-    { method: "DELETE", credentials: "include" },
-  )
-  await readApiJson<void>(res, {
+  const res = await client[":orgSlug"].api.v1.connectors.plain.$delete({
+    param: { orgSlug },
+    query: { connectionId },
+  })
+  await readApiJson(res, {
     message: "Failed to remove the Plain connector",
   })
 }

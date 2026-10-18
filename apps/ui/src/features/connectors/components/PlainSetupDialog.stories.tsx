@@ -101,9 +101,11 @@ export const ConnectWithKey: Story = {
     await expect(body.queryByText("thread:edit")).toBeNull()
     await userEvent.type(key, "plainApiKey_fixture")
     await userEvent.click(connect)
-    await expect(
-      await body.findByRole("heading", { name: "Add Plain to Workspaces" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Add Plain to Workspaces" }),
+      ).toBeVisible(),
+    )
     await expect(calls).toEqual([{ apiKey: "plainApiKey_fixture" }])
   },
 }
@@ -133,11 +135,13 @@ export const KeyRefused: Story = {
       "plainApiKey_bad",
     )
     await userEvent.click(body.getByRole("button", { name: "Connect Plain" }))
-    await expect(
-      await body.findByText(
-        "The Plain API key does not have these permissions: timeline:read",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByText(
+          "The Plain API key does not have these permissions: timeline:read",
+        ),
+      ).toBeVisible(),
+    )
     await expect(
       body.getByRole("heading", { name: "Connect Plain" }),
     ).toBeVisible()
@@ -173,9 +177,11 @@ export const AddToWorkspaces: Story = {
     await userEvent.click(await body.findByRole("checkbox", { name: "Bug" }))
     await userEvent.click(add)
     // The add opened a pull request: the last step is the merge.
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
     await expect(addCalls).toEqual([
       {
         method: "POST",
@@ -186,7 +192,6 @@ export const AddToWorkspaces: Story = {
             connectionId,
             scope: { labels: ["lt_bug"] },
           },
-          delivery: "pull_request",
         },
       },
     ])
