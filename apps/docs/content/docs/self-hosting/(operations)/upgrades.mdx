@@ -142,7 +142,7 @@ upgrades but gets **Ask an admin** in place of the button.
 | Ready to start | ctx| found the upgrade. It waits for a click. | An owner or admin clicks **Start**. |
 | Queued | The click is recorded. The run did not begin. | Wait. |
 | Preparing the pull request | The run builds the commits. | Wait. |
-| Waiting for merge | The pull request is open. | Review and merge it. |
+| Waiting for merge | The pull request is open. | Review and merge it. After the merge, choose **Check again** if the item does not change. |
 | Applied | The upgrade is done. | None. |
 | Failed | The run stopped. The item shows the reason. | Fix the cause, then click **Start again**. |
 | Blocked | ctx| cannot start the item. The item shows the reason. | Remove the cause. |
@@ -223,6 +223,44 @@ Workspace already holds.
 An organization with GitHub data but no Workspace is a new user. It creates
 its Workspace in normal onboarding, and its repositories get a fresh
 ingestion there.
+
+### Repositories from before Workspaces
+
+Before Workspaces, an organization linked code repositories to the
+organization. When the organization moves to Workspaces, ctx| links these
+repositories to its **first Workspace**. The upgrade pull request of that
+Workspace does the work:
+
+- A GitHub repository becomes a GitHub source. After step 2 it is a source file
+  at `sources/github/<owner>/<name>.md`.
+- A `repositories/*.md` file of a GitHub repository becomes a source file too.
+  Its `branch` becomes the `ref`. ctx| deletes the `repositories/*.md` file in
+  the same pull request.
+- A repository that the Workspace repository already is, or that another
+  source already links, is not added again.
+- A repository that has no GitHub connection becomes a plain git source file at
+  `sources/git/<host>/<name>.md`, when its URL is a public HTTPS git URL. See
+  [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories)
+  for the URL rules.
+- ctx| does not link any other repository. The pull request description names
+  each one. Add a source for it in the Workspace **Settings**, or leave it out.
+
+Below format 3, the Workspace serves the knowledge from before Workspaces as
+read-only units from the database (source `legacy`). After the re-ingestion of a
+repository, the fresh knowledge replaces the old knowledge of that repository.
+
+#### Index a repository with the REST API
+
+The repository API is from before Workspaces. It indexes a repository for the
+organization:
+
+- `POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl` adds a
+  repository and queues its indexing. A plain git repository works the same way.
+- `POST /{orgSlug}/api/v1/repositories/{id}/reindex` starts its indexing again.
+
+Each index of a repository also updates the knowledge of each Workspace whose
+source file names it. A repository is part of a Workspace only when a source
+file of that Workspace names it.
 
 ### AWS CDK sandbox host
 
