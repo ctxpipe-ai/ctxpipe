@@ -1,5 +1,6 @@
 import slugify from "@sindresorhus/slugify"
 import { NodeHtmlMarkdown } from "node-html-markdown"
+import { zendeskIdPattern } from "../../domain/workspace-sources/providers/zendesk.js"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
 import type { GitFileChange } from "../git/file-change.js"
 
@@ -63,9 +64,71 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
   ]
 }
 
-/** Link text without the brackets that would end it. */
-function linkText(value: string): string {
-  return value.replace(/\s*\n\s*/g, " ").replace(/[[\]]/g, "\\$&")
+/** A Zendesk id: digits only, because the id is a path segment. */
+export function isZendeskId(value: string): boolean {
+  return zendeskIdPattern.test(value)
+}
+
+/**
+ * The line ends of CommonMark (`\n`, `\r`, `\r\n`) and the two Unicode ones
+ * (U+2028, U+2029) that some renderers also use.
+ */
+const lineBreak = /\r\n|[\r\n\u2028\u2029]/
+
+/** Text without the control characters, except tab, line feed, and carriage return. */
+function withoutControlCharacters(text: string): string {
+  return text.replace(/(?![\t\n\r])\p{Cc}/gu, "")
+}
+
+/** The lines of customer text, split at every line end. */
+function linesOf(text: string): string[] {
+  return withoutControlCharacters(text).split(lineBreak)
+}
+
+/** Customer text on one line: each line trimmed, the blank ones dropped. */
+function oneLine(text: string): string {
+  return linesOf(text)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .join(" ")
+}
+
+/**
+ * A comment body keeps this many characters, and a one-line field keeps
+ * fewer. The redaction cost follows the length of the text that it reads.
+ */
+const MAX_COMMENT_CHARS = 16 * 1024
+const MAX_LINE_CHARS = 2 * 1024
+
+/**
+ * The start of the text up to `max` characters. The cut moves back to a
+ * space or a line end, so that it cannot leave the start of an email
+ * address that the redaction no longer recognizes.
+ */
+function startOf(text: string, max: number): { text: string; cut: boolean } {
+  if (text.length <= max) return { text, cut: false }
+  const head = text.slice(0, max)
+  const end = Math.max(
+    head.lastIndexOf(" "),
+    head.lastIndexOf("\n"),
+    head.lastIndexOf("\r"),
+    max - 512,
+  )
+  return { text: head.slice(0, end), cut: true }
+}
+
+/** One line of text for a heading, a list item, or a link label. */
+function escapeLine(text: string): string {
+  return text
+    .split(/(\[(?:email|phone|link) removed\])/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(/[\\<#[\]]/g, (mark) =>
+            mark === "<" ? "&lt;" : `\\${mark}`,
+          ),
+    )
+    .join("")
 }
 
 /** A URL that carries a credential: a signed URL, a token, or a Zendesk attachment token path. */
@@ -100,7 +163,9 @@ function keepsLinkTarget(url: string): boolean {
 function withoutPrivateUrls(text: string): string {
   return text
     .replace(
-      /\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)/g,
+      // No bracket in the label or the target, so that a match starts once
+      // and a long run of brackets costs linear time.
+      /\[([^[\]]*)\]\(([^\s)[]+)(?:\s+"[^"]*")?\)/g,
       (link, label: string, url: string) =>
         keepsLinkTarget(url) ? link : label,
     )
@@ -118,26 +183,59 @@ function withoutPrivateUrls(text: string): string {
  * the query opened goes with the query.
  */
 function withoutUrlQueries(text: string): string {
-  return text.replace(
-    /((?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.|\]\()[^\s?#<>]*)([?#](?:(?!\]\()[^\s<>])*)/gi,
-    (_match, base: string, query: string) => {
-      const tail = /[)\]}.,;:!?'"*_]*$/.exec(query)?.[0] ?? ""
-      const open = (query.match(/\(/g) ?? []).length
-      const close = (query.match(/\)/g) ?? []).length
-      let unmatched = close - open
-      // Keep the end marks from the right: a `)` only while the text before
-      // the query opened it.
-      let kept = ""
-      for (const mark of [...tail].reverse()) {
-        if (mark === ")") {
-          if (unmatched <= 0) break
-          unmatched -= 1
-        }
-        kept = mark + kept
+  // Where a URL base can start. A scheme starts once for each run of scheme
+  // characters.
+  const starts = [
+    ...text.matchAll(
+      /(?<![a-z0-9+.-])[a-z][a-z0-9+.-]*:\/\/|(?<!\w)www\.|\]\(/gi,
+    ),
+  ].map((match) => match.index)
+  const queryEnd = /[\s<>]|\]\(/g
+  let out = ""
+  let copied = 0
+  let segment = 0
+  let next = 0
+  // A base runs from a start to the first of a space, `<`, `>`, `?`, or `#`.
+  // It has a query when that character is `?` or `#`.
+  for (const stop of text.matchAll(/[\s<>?#]/g)) {
+    const at = stop.index
+    if (at < copied) continue
+    segment = Math.max(segment, copied)
+    if (stop[0] === "?" || stop[0] === "#") {
+      while (next < starts.length && (starts[next] ?? 0) < segment) next += 1
+      if (next < starts.length && (starts[next] ?? 0) < at) {
+        queryEnd.lastIndex = at + 1
+        const end = queryEnd.exec(text)?.index ?? text.length
+        out += text.slice(copied, at) + endMarksOf(text.slice(at, end))
+        copied = end
+        segment = end
+        continue
       }
-      return base + kept
-    },
-  )
+    }
+    segment = at + 1
+  }
+  return out + text.slice(copied)
+}
+
+/** The end marks of a removed query that the text around the URL needs. */
+function endMarksOf(query: string): string {
+  let start = query.length
+  while (start > 0 && `)]}.,;:!?'"*_`.includes(query[start - 1] ?? ""))
+    start -= 1
+  const open = (query.match(/\(/g) ?? []).length
+  const close = (query.match(/\)/g) ?? []).length
+  let unmatched = close - open
+  // Keep the end marks from the right: a `)` only while the text before
+  // the query opened it.
+  let kept = ""
+  for (const mark of [...query.slice(start)].reverse()) {
+    if (mark === ")") {
+      if (unmatched <= 0) break
+      unmatched -= 1
+    }
+    kept = mark + kept
+  }
+  return kept
 }
 
 /** Dates and times stay: `2026-10-14`, `14.10.2026`, `09:00`. */
@@ -183,14 +281,16 @@ function withoutPhoneNumbers(text: string): string {
  * and subjects are free text from end customers: email signatures carry
  * addresses and phone numbers. Other personal data can remain.
  */
-function redactTicketText(text: string): string {
+export function redactTicketText(text: string): string {
   return withoutPhoneNumbers(
     withoutUrlQueries(withoutPrivateUrls(text))
       // A link with a script or data scheme that a bracket in its target
       // kept out of the link pass.
       .replace(/\b(?:javascript|data|vbscript|file):\S*/gi, "[link removed]")
+      // The left guard makes a match start once for each run of address
+      // characters, so a long run costs linear time.
       .replace(
-        /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
+        /(?<![A-Za-z0-9._%+-])[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
         "[email removed]",
       ),
   )
@@ -201,33 +301,30 @@ function redactTicketText(text: string): string {
  * HTML and no Markdown heading or link syntax.
  */
 function inlineTicketText(text: string): string {
-  return redactTicketText(text.replace(/\s*[\r\n]+\s*/g, " ").trim())
-    .split(/(\[(?:email|phone|link) removed\])/)
-    .map((part, index) =>
-      index % 2 === 1
-        ? part
-        : part.replace(/[\\<#[\]]/g, (mark) =>
-            mark === "<" ? "&lt;" : `\\${mark}`,
-          ),
-    )
-    .join("")
+  const { text: head, cut } = startOf(oneLine(text), MAX_LINE_CHARS)
+  return `${escapeLine(redactTicketText(head))}${cut ? " [truncated]" : ""}`
 }
 
 /**
  * A comment body as a Markdown quote, so that customer text cannot add a
  * heading or another block to the file. A line that would still be a
- * heading or a heading underline inside the quote is escaped.
+ * heading or a heading underline inside the quote is escaped. A body that
+ * is longer than the limit is cut, and the last line says so.
  */
 function quotedTicketText(text: string): string {
-  return redactTicketText(text.trim())
-    .split(/\r?\n/)
+  const { text: head, cut } = startOf(
+    withoutControlCharacters(text).trim(),
+    MAX_COMMENT_CHARS,
+  )
+  const quoted = redactTicketText(head)
+    .split(lineBreak)
     .map((line) => {
       const escaped = line
         .replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2")
         .replace(/</g, "&lt;")
       return escaped ? `> ${escaped}` : ">"
     })
-    .join("\n")
+  return [...quoted, ...(cut ? ["> [comment truncated]"] : [])].join("\n")
 }
 
 /**
@@ -277,6 +374,9 @@ export function zendeskArticleFile(input: {
   article: ZendeskArticleForMirror
 }): GitFileChange {
   const { article } = input
+  if (!isZendeskId(article.id))
+    throw new Error("A Zendesk article id must be a number")
+  const title = escapeLine(oneLine(article.title))
   const slug = slugify(article.title).slice(0, 80) || "untitled"
   const url = articleUrl(article.url, input.subdomain)
   const lines = [
@@ -290,16 +390,18 @@ export function zendeskArticleFile(input: {
       ["created_at", article.createdAt],
       ["updated_at", article.updatedAt],
     ]),
-    `# ${article.title}`,
+    `# ${title}`,
     "",
-    url
-      ? `- Zendesk: [${linkText(article.title)}](${url})`
-      : `- Zendesk: ${linkText(article.title)}`,
+    url ? `- Zendesk: [${title}](${url})` : `- Zendesk: ${title}`,
   ]
-  if (article.sectionName) lines.push(`- Section: ${article.sectionName}`)
-  if (article.authorName) lines.push(`- Author: ${article.authorName}`)
+  if (article.sectionName)
+    lines.push(`- Section: ${escapeLine(oneLine(article.sectionName))}`)
+  if (article.authorName)
+    lines.push(`- Author: ${escapeLine(oneLine(article.authorName))}`)
   if (article.labels.length)
-    lines.push(`- Labels: ${article.labels.join(", ")}`)
+    lines.push(
+      `- Labels: ${article.labels.map((label) => escapeLine(oneLine(label))).join(", ")}`,
+    )
   const body = articleBodyMarkdown(article.bodyHtml).trim()
   lines.push("", ...(body ? [body, ""] : []))
   return {
@@ -313,6 +415,8 @@ export function zendeskTicketFile(input: {
   ticket: ZendeskTicketForMirror
 }): GitFileChange {
   const { ticket } = input
+  if (!isZendeskId(ticket.id))
+    throw new Error("A Zendesk ticket id must be a number")
   const lines = [
     ...frontMatter([
       ["source", "zendesk"],

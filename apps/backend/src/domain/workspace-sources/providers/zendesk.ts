@@ -2,9 +2,11 @@ import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /** A Zendesk id, for example `360001234567`. It is also a path segment. */
+export const zendeskIdPattern = /^\d{1,20}$/
+
 const zendeskIdSchema = z
   .string()
-  .regex(/^\d{1,20}$/, "Use a Zendesk id, for example 360001234567")
+  .regex(zendeskIdPattern, "Use a Zendesk id, for example 360001234567")
 
 const uniqueIds = (what: string) =>
   z

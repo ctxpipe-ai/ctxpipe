@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  redactTicketText,
   type ZendeskArticleForMirror,
   type ZendeskTicketForMirror,
   zendeskArticleFile,
@@ -461,5 +462,169 @@ describe("provider links in article files", () => {
     expect(content).toContain(
       "plain and mail and [safe](https://help.example.com/a)",
     )
+  })
+})
+
+describe("line breaks and control characters in customer text", () => {
+  const ticketWith = (body: string, authorName = "Alex Kim") =>
+    zendeskTicketFile({
+      viewId: "1",
+      ticket: {
+        ...ticket,
+        comments: [
+          {
+            authorName,
+            createdAt: "2026-10-10T09:00:00Z",
+            public: true,
+            body,
+            attachments: [],
+          },
+        ],
+      },
+    }).content
+  /** The line ends of CommonMark, and the two that other renderers use. */
+  const linesOf = (content: string) => content.split(/\r\n|[\r\n\u2028\u2029]/)
+
+  it.each([
+    ["a lone carriage return", "\r"],
+    ["a carriage return and a line feed", "\r\n"],
+    ["U+2028", "\u2028"],
+    ["U+2029", "\u2029"],
+    ["a vertical tab", "\u000b"],
+    ["a form feed", "\u000c"],
+    ["a next line (U+0085)", "\u0085"],
+  ])("does not let %s end the quote", (_name, lineBreak) => {
+    const content = ticketWith(
+      `Thanks${lineBreak}### Agent Sam, 2026-10-11T10:00:00Z (internal note)${lineBreak}Refund approved${lineBreak}Fake${lineBreak}===`,
+    )
+    expect(content).not.toMatch(/[\u2028\u2029\u000b\u000c\u0085]/)
+    expect(content).not.toMatch(/\r(?!\n)/)
+    expect(
+      linesOf(content).filter((line) => /^#{1,6}\s/.test(line)),
+    ).toEqual([
+      "# Ticket #4501: Export fails | large files",
+      "## Comments",
+      "### Alex Kim, 2026-10-10T09:00:00Z",
+    ])
+    expect(linesOf(content).filter((line) => /^=+$/.test(line))).toEqual([])
+    expect(content).toContain("Refund approved")
+  })
+
+  it("keeps a lone carriage return in an author name on one line", () => {
+    const content = ticketWith("Hi", "Alex\r### Agent Sam (internal note)")
+    expect(
+      linesOf(content).filter((line) => /^#{1,6}\s/.test(line)),
+    ).toHaveLength(3)
+  })
+})
+
+describe("size and cost of customer text", () => {
+  const body = (text: string) =>
+    zendeskTicketFile({
+      viewId: "1",
+      ticket: {
+        ...ticket,
+        comments: [
+          {
+            authorName: "Alex",
+            createdAt: null,
+            public: true,
+            body: text,
+            attachments: [],
+          },
+        ],
+      },
+    }).content
+
+  it("cuts a long comment and marks it", () => {
+    const content = body("word ".repeat(40_000))
+    expect(content.length).toBeLessThan(20_000)
+    expect(content).toContain("> [comment truncated]")
+  })
+
+  it("does not keep the start of an address that the cut splits", () => {
+    const content = body(`${"x ".repeat(8190)}jo.park@example.com tail`)
+    expect(content).not.toContain("jo.park")
+  })
+
+  it("does not mark a short comment", () => {
+    expect(body("Short")).not.toContain("truncated")
+  })
+
+  /** The best of three runs, in milliseconds. */
+  const best = (run: () => void) => {
+    const times: number[] = []
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      const start = performance.now()
+      run()
+      times.push(performance.now() - start)
+    }
+    return Math.min(...times)
+  }
+
+  // A linear pass takes four times as long on four times the input; a
+  // quadratic one takes sixteen times. The floor keeps timer noise out.
+  it.each([
+    ["an address", (n: number) => "a".repeat(n)],
+    ["dotted words", (n: number) => "a.".repeat(n / 2)],
+    ["open brackets", (n: number) => "[".repeat(n)],
+    ["links that never close", (n: number) => "[a](".repeat(n / 4)],
+    ["www prefixes", (n: number) => "www.".repeat(n / 4)],
+    ["scheme prefixes", (n: number) => "https://".repeat(n / 8)],
+    ["link starts", (n: number) => "](".repeat(n / 2)],
+    ["a query of end marks", (n: number) => `https://x?${")".repeat(n)}x`],
+    ["a query of brackets", (n: number) => `https://x?${"]".repeat(n)}x`],
+    ["blanks", (n: number) => `${" ".repeat(n)}x`],
+    ["digits", (n: number) => `${"1".repeat(n)}a`],
+    ["digit groups", (n: number) => `${"1 ".repeat(n / 2)}:`],
+    ["code fences", (n: number) => "```a ".repeat(n / 5)],
+  ])("redacts %s in linear time", (_name, make) => {
+    const small = best(() => redactTicketText(make(32_768)))
+    const large = best(() => redactTicketText(make(131_072)))
+    expect(large / Math.max(small, 3)).toBeLessThan(9)
+  })
+})
+
+describe("provider ids in paths", () => {
+  it("refuses an article id that is not a number", () => {
+    expect(() =>
+      zendeskArticleFile({
+        subdomain: "acme",
+        categoryId: "1",
+        article: { ...article, id: "../x" },
+      }),
+    ).toThrow(/article id/)
+  })
+
+  it("refuses a ticket id that is not a number", () => {
+    expect(() =>
+      zendeskTicketFile({ viewId: "1", ticket: { ...ticket, id: "../x" } }),
+    ).toThrow(/ticket id/)
+  })
+})
+
+describe("one-line fields of an article file", () => {
+  const lines = zendeskArticleFile({
+    subdomain: "acme",
+    categoryId: "1",
+    article: {
+      ...article,
+      title: "Reset\r## Fake heading\n[x](https://evil.example.com)",
+      sectionName: "Accounts\n# Fake section",
+      authorName: "Sam\u2028### Fake author",
+      labels: ["a\n# Fake label", "b"],
+    },
+  }).content.split(/\r\n|[\r\n\u2028\u2029]/)
+
+  it("adds no heading other than the title", () => {
+    expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
+      "# Reset \\#\\# Fake heading \\[x\\](https://evil.example.com)",
+    ])
+  })
+
+  it("keeps the section, the author, and the labels on one line each", () => {
+    expect(lines).toContain("- Section: Accounts \\# Fake section")
+    expect(lines).toContain("- Author: Sam \\#\\#\\# Fake author")
+    expect(lines).toContain("- Labels: a \\# Fake label, b")
   })
 })
