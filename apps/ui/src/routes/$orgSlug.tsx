@@ -53,7 +53,12 @@ export async function resolveOrgGate(
     return gate
   }
 
-  await queryClient.ensureQueryData(workspaceListOptions(orgSlug))
+  // Wait for the list, but do not throw if the read fails. The side nav
+  // shows that error, and the page continues to operate. Cached data, even
+  // stale data, still skips the wait (prefetchQuery would refetch it).
+  await queryClient
+    .ensureQueryData(workspaceListOptions(orgSlug))
+    .catch(() => undefined)
   return gate
 }
 

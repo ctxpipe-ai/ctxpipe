@@ -103,7 +103,7 @@ export function WorkspaceSurface(props: {
   )
 }
 
-class WorkspaceQueryErrorBoundary extends Component<
+export class WorkspaceQueryErrorBoundary extends Component<
   {
     children: ReactNode
     fallback?: (error: unknown, reset: () => void) => ReactNode

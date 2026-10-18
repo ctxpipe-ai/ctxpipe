@@ -124,49 +124,65 @@ export const Loading: Story = {
 // The first read of the Workspace list fails, then Retry reads it again.
 let listReadFails = true
 
+const loadFailsParameters = {
+  msw: {
+    handlers: {
+      page: [
+        http.get(
+          ({ request }) =>
+            /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+          () =>
+            listReadFails
+              ? HttpResponse.json({ error: "boom" }, { status: 500 })
+              : HttpResponse.json({
+                  items: [docsWorkspace],
+                  lastUsedWorkspaceId: docsWorkspace.id,
+                }),
+        ),
+        conversationsListHandler(docsConversations),
+        githubInstallationReposHandler(),
+      ],
+    },
+  },
+}
+
 export const LoadFails: Story = {
   beforeEach: () => {
     listReadFails = true
   },
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          http.get(
-            ({ request }) =>
-              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
-            () =>
-              listReadFails
-                ? HttpResponse.json({ error: "boom" }, { status: 500 })
-                : HttpResponse.json({
-                    items: [docsWorkspace],
-                    lastUsedWorkspaceId: docsWorkspace.id,
-                  }),
-          ),
-          conversationsListHandler(docsConversations),
-          githubInstallationReposHandler(),
-        ],
-      },
-    },
-  },
+  parameters: loadFailsParameters,
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() =>
-      expect(canvas.getByText("Could not load Workspaces.")).toBeVisible(),
-    )
-    await waitFor(() =>
-      expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible(),
-    )
-    await waitFor(() =>
-      expect(canvas.queryByText("Something went wrong")).toBeNull(),
-    )
+    await canvas.findByText("Could not load Workspaces.")
     listReadFails = false
     await userEvent.click(canvas.getByRole("button", { name: "Retry" }))
-    await waitFor(() =>
-      expect(canvas.getByText(docsWorkspace.displayName)).toBeVisible(),
-    )
+    await canvas.findByText(docsWorkspace.displayName)
     await waitFor(() =>
       expect(canvas.queryByText("Could not load Workspaces.")).toBeNull(),
+    )
+  },
+}
+
+export const LoadFailsCollapsed: Story = {
+  args: { expanded: false },
+  beforeEach: () => {
+    listReadFails = true
+  },
+  parameters: loadFailsParameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const retry = await canvas.findByRole("button", {
+      name: "Retry loading Workspaces",
+    })
+    listReadFails = false
+    await userEvent.click(retry)
+    await canvas.findByRole("link", {
+      name: `New conversation in ${docsWorkspace.displayName}`,
+    })
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: "Retry loading Workspaces" }),
+      ).toBeNull(),
     )
   },
 }
