@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
@@ -106,7 +107,22 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // the guide (the user dismissed it), keep the composer and the create button.
   const guideShows =
     guide.status === "ready" ? guide.view.kind !== "hidden" : guide.mayShow
-  const body = hasWorkspace ? (
+  // A failed list read says nothing about the Workspaces. Do not show the
+  // empty-organization body (setup guide, Create Workspace) in that case.
+  const listFailed = listQuery.isError && !listQuery.data
+  const body = listFailed ? (
+    <InlineAlert
+      variant="error"
+      title="Could not load Workspaces"
+      actions={
+        <Button variant="secondary" onPress={() => void listQuery.refetch()}>
+          Retry
+        </Button>
+      }
+    >
+      Try again in a moment.
+    </InlineAlert>
+  ) : hasWorkspace ? (
     <>
       <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}

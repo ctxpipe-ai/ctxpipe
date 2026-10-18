@@ -164,6 +164,60 @@ export const Empty: Story = {
   },
 }
 
+let listReadFails = true
+
+/**
+ * The Workspace list read fails: Home shows an error with a Retry. It does
+ * not show the Create Workspace button or the setup guide, which would say
+ * the organization has no Workspace.
+ */
+export const WorkspacesLoadFails: Story = {
+  tags: ["workspace-golden"],
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  beforeEach: () => {
+    listReadFails = true
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The story router renders its first route after an async load.
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    const alert = await canvas.findByRole("alert", {}, { timeout: 15_000 })
+    expect(within(alert).getByText("Could not load Workspaces")).toBeVisible()
+    expect(
+      canvas.queryByRole("button", { name: "Create Workspace" }),
+    ).not.toBeInTheDocument()
+    expect(canvas.queryByLabelText("Get started")).not.toBeInTheDocument()
+    expect(canvas.queryByLabelText("Setup progress")).not.toBeInTheDocument()
+    listReadFails = false
+    await userEvent.click(within(alert).getByRole("button", { name: "Retry" }))
+    await waitFor(() => expect(canvas.queryByRole("alert")).toBeNull())
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname),
+            () =>
+              listReadFails
+                ? HttpResponse.json({ error: "boom" }, { status: 500 })
+                : HttpResponse.json({ items: [], lastUsedWorkspaceId: null }),
+          ),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+}
+
 /**
  * No Workspace, so no commits: Recent shows the empty text at once, while
  * the heatmap still loads. It shows no commit rows that then go away.
