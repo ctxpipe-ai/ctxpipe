@@ -1,7 +1,6 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
-import { plainGitSchemeRule } from "../../domain/workspace-sources/providers/git.js"
 import {
   createOrGetRepository,
   deriveRepositoryIndexingStatus,
@@ -15,6 +14,7 @@ import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-re
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import {
   PlainGitUrlError,
+  plainGitRefusalReason,
   resolvePlainGitRemote,
 } from "../../services/git/plain-git-remote.js"
 
@@ -30,10 +30,7 @@ async function refusedRepositoryUrl(gitUrl: string): Promise<string | null> {
     return null
   } catch (error) {
     if (!(error instanceof PlainGitUrlError)) throw error
-    const schemes = plainGitSchemeRule()
-    return error.message.includes(schemes)
-      ? error.message
-      : `${error.message.replace(/\.$/, "")}. ${schemes}`
+    return plainGitRefusalReason(error)
   }
 }
 

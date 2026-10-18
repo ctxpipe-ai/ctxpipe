@@ -15,6 +15,7 @@ import {
   type PlainGitUrlPolicy,
   type PlainGitUrlRule,
   plainGitDeployment,
+  plainGitSchemeRule,
   plainGitUrlPolicy,
 } from "../../domain/workspace-sources/providers/git.js"
 import { resolveGitRemoteTip } from "./clone-tree.js"
@@ -47,6 +48,22 @@ export class PlainGitUrlError extends Error {
     super(message)
     this.name = "PlainGitUrlError"
   }
+}
+
+/**
+ * The reason of a refused plain git URL, as a person reads it: the message
+ * of the rule, then the protocol rule of the deployment mode, if the
+ * message does not state it yet. The repositories route and the upgrade
+ * report show it.
+ */
+export function plainGitRefusalReason(
+  error: PlainGitUrlError,
+  policy: PlainGitUrlPolicy = plainGitUrlPolicy(plainGitDeployment()),
+): string {
+  const schemes = plainGitSchemeRule(policy)
+  return error.message.includes(schemes)
+    ? error.message
+    : `${error.message.replace(/\.$/, "")}. ${schemes}`
 }
 
 /** A DNS lookup of all addresses of a host name. */
@@ -132,16 +149,18 @@ export async function resolvePlainGitRemote(
     answers = []
   }
   const addresses = [...new Set(answers.map((answer) => answer.address))]
+  // Hosted: one message for a host with no address and a host with a
+  // private address, so that a URL cannot show which internal names exist.
+  const noPublicAddress = `The host ${checked.host} of the plain git URL has no public address`
   if (!addresses.length)
     throw new PlainGitUrlError(
       "no_address",
-      `The host ${checked.host} of the plain git URL has no address`,
+      policy.privateHosts
+        ? `The host ${checked.host} of the plain git URL has no address`
+        : noPublicAddress,
     )
   if (!policy.privateHosts && !addresses.every(isPublicAddress))
-    throw new PlainGitUrlError(
-      "private_address",
-      `The host ${checked.host} of the plain git URL resolves to a private, loopback, or link-local address`,
-    )
+    throw new PlainGitUrlError("private_address", noPublicAddress)
   if (addresses.some(isMetadataAddress))
     throw new PlainGitUrlError(
       "metadata_address",
