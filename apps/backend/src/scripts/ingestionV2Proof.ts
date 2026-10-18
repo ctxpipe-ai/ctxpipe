@@ -149,36 +149,38 @@ async function seed(argv: string[]): Promise<void> {
   const repositories: Array<{ url: string; name: string; sha: string }> = []
   for (const [index, url] of repoUrls.entries()) {
     const name = names[index] ?? url
+    // The Actions log is public: name the repository by its position only.
+    const label = `Repository ${index + 1}`
     await bulkCreateRepositoriesForOrg(orgId, [{ name, gitUrl: url }], {
       githubConnectionId: connectionId,
     })
     const [repository] = await withOrgIdContext(org, () =>
       findRepositoriesByNormalizedGitUrls([url]),
     )
-    if (!repository) throw new Error(`The repository ${name} was not created`)
+    if (!repository) throw new Error(`${label} was not created`)
     const tip = await resolveRepositoryReadTip({
       orgId,
       env,
       remote: { url, connectionId },
     })
-    if (!tip) throw new Error(`The repository ${name} has no default branch`)
+    if (!tip) throw new Error(`${label} has no default branch`)
     const queued = await enqueueRepositoryIngestionWorkflow(
       { repositoryId: repository.id, orgId },
       { error: (error) => note(error.message) },
     )
     note(
-      `Indexing ${name} at ${tip.sha.slice(0, 7)} (run ${queued.workflowRunId})`,
+      `Indexing ${label} at ${tip.sha.slice(0, 7)} (run ${queued.workflowRunId})`,
     )
     const deadline = Date.now() + 45 * 60_000
     for (;;) {
       const status = await runStatus(queued.workflowRunId)
       if (status && TERMINAL.includes(status)) {
         if (status === "failed" || status === "canceled")
-          throw new Error(`Indexing of ${name} ended as ${status}`)
+          throw new Error(`Indexing of ${label} ended as ${status}`)
         break
       }
       if (Date.now() > deadline)
-        throw new Error(`Indexing of ${name} did not finish in 45 minutes`)
+        throw new Error(`Indexing of ${label} did not finish in 45 minutes`)
       await sleep(10_000)
     }
     repositories.push({ url, name, sha: tip.sha })

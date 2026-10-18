@@ -1,16 +1,12 @@
 import { OpenWorkflow } from "openworkflow"
-import { BackendPostgres } from "openworkflow/postgres"
 import { attachJobTelemetryForSchema } from "../observability/jobTelemetry.js"
-import { openWorkflowNamespaceId } from "./namespace.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
+import { connectOpenWorkflowBackend } from "./storable-backend.js"
 
 const databaseUrl = process.env.DATABASE_URL
 if (!databaseUrl)
   throw new Error("DATABASE_URL is required for OpenWorkflow client")
-const backend = await BackendPostgres.connect(databaseUrl, {
-  runMigrations: false,
-  namespaceId: openWorkflowNamespaceId(),
-})
+const backend = await connectOpenWorkflowBackend(databaseUrl)
 export const ow = new OpenWorkflow({ backend })
 
 export function closeOpenWorkflowClient(): Promise<void> {

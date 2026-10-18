@@ -7,7 +7,10 @@ import {
   ingestRefName,
   type PushIngestStepInput,
 } from "../../domain/ingestion/ingest-refs.js"
-import { ingestStepSignal } from "../../domain/ingestion/ingest-shard-ops.js"
+import {
+  IngestStepCommandError,
+  ingestStepSignal,
+} from "../../domain/ingestion/ingest-shard-ops.js"
 import type {
   IngestDestination,
   IngestShardRuntime,
@@ -577,6 +580,9 @@ async function attemptSkillStep(
     usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    // Where the attempt is, for the log of a failed attempt.
+    let stage: "find" | "list-files" | "runtime" | "push" = "find"
+    const signal = ingestStepSignal()
     try {
       // A crash after the push: the step's commit is the ref tip, and its
       // `Ctxpipe-More` trailer says whether a next page waits.
@@ -598,12 +604,14 @@ async function attemptSkillStep(
               workspaceId: destination.workspaceId,
             })
           : undefined
+      stage = "list-files"
       const rootMap = ingestRootMap(
         run.roots,
         baseCommit === destination.pinnedRevision
           ? []
           : await broker.listFiles(destination.pinnedRevision, baseCommit),
       )
+      stage = "runtime"
       const stepRun = await ctx.runtime.runStep({
         name: ctx.name,
         skill: ctx.skill.name,
@@ -614,7 +622,7 @@ async function attemptSkillStep(
         baseCommit,
         ...(fetchRef ? { fetchRef } : {}),
         rootMap,
-        signal: ingestStepSignal(),
+        signal,
       })
       // A runtime that cannot report the usage of a model step makes the
       // spend unknown. The step counts as unknown, so that the spend does not
@@ -634,6 +642,7 @@ async function attemptSkillStep(
             "The model step reported no usage: the spend of the run is unknown, and the cost cap counts only the known spend",
         })
       usage = addIngestUsage(usage, stepUsage)
+      stage = "push"
       const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
@@ -688,6 +697,19 @@ async function attemptSkillStep(
       if (isWorkflowControlSignal(error)) throw error
       const refused = error instanceof IngestRefRefusedError
       reason = refused ? "broker_refused" : "step_failed"
+      // The error text can hold source text, so the log has only where the
+      // attempt failed: the stage, the step command and its exit code, or
+      // the time limit.
+      const command = error instanceof IngestStepCommandError ? error : null
+      logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
+        ingestionRunId: run.runId,
+        ...(run.shard === undefined ? {} : { shard: run.shard }),
+        workspaceId: destination.workspaceId,
+        ingestStep: ctx.name,
+        attempt,
+        stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
+        ...(command ? { exitCode: command.exitCode } : {}),
+      })
       span.setAttribute(
         "error.type",
         refused ? "IngestRefRefusedError" : "Error",
