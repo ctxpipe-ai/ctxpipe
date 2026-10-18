@@ -239,6 +239,14 @@ describe("a git remote that does not parse cleanly", () => {
     "user:p4ss@w0rd@git.example.com:org/repo.git",
     "user:p4ss-w0rd@git.example.com/org/repo.git",
     "[x](https://p4ss-w0rd.example)",
+    "https://p4ss-w0rd?x@github.com/org/repo.git",
+    "https://p4ss-w0rd#x@github.com/org/repo.git",
+    "https://user:1234?p4ss@github.com/org/repo.git",
+    "https://user:1234#p4ss@github.com/org/repo.git",
+    "https://user:1234\\p4ss@github.com/org/repo.git",
+    "https://user:1234/p4ss%40github.com/org/repo.git",
+    "user:p4ss-w0rd",
+    "oauth2:p4ss-w0rd/org/repo.git",
   ])("does not write %s", (remote) => {
     const files = buildkitePipelineFiles({
       organizationSlug: "acme",
@@ -249,6 +257,18 @@ describe("a git remote that does not parse cleanly", () => {
     expect(text).not.toContain("repository:")
     expect(text).not.toContain("- Repository:")
     expect(text).not.toMatch(/p4ss|w0rd/)
+  })
+
+  it.each([
+    "git@github.com:org/repo.git",
+    "github.com:org/repo.git",
+  ])("still writes the scp-style remote %s", (remote) => {
+    const [pipelineFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, repository: remote },
+      builds: [],
+    })
+    expect(pipelineFile?.content).toContain(`repository: "${remote}"`)
   })
 
   it("still writes a bare host and path", () => {

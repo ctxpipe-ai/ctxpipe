@@ -128,20 +128,31 @@ export function githubRepositoryUrl(remote: string | null): string | null {
  */
 function remoteWithoutCredentials(remote: string): string | null {
   const value = remote.trim()
-  if (/^[a-z][a-z0-9+.-]*:\/\//i.test(value)) {
+  const scheme = value.match(/^[a-z][a-z0-9+.-]*:\/\//i)
+  if (scheme) {
+    // The authority stops at the first `/`, `\`, `?`, or `#` of the raw
+    // text. An `@` after that point can be the end of a secret that holds
+    // one of these characters, and the parser then takes part of the secret
+    // as the host.
+    const rest = value.slice(scheme[0].length)
+    const authorityEnd = rest.search(/[/\\?#]/)
+    if (authorityEnd !== -1 && /@|%40/i.test(rest.slice(authorityEnd)))
+      return null
     let url: URL
     try {
       url = new URL(value)
     } catch {
       return null
     }
-    // An `@` in the path can be the end of a secret that holds a `/`.
-    if (!url.hostname || /@|%40/i.test(url.pathname)) return null
+    if (!url.hostname) return null
     return `${url.protocol}//${url.host}${url.pathname}`
   }
   const scp = value.match(/^(?:([^\s@/?#]+)@)?([\w.-]+):([^\s@?#]+)$/)
   if (scp) {
     const [, user, host, path] = scp
+    // Without a user, `user:secret` has the same shape. Accept it only when
+    // the host is a domain name.
+    if (!user && !/^(?:[a-z0-9-]+\.)+[a-z]{2,}$/i.test(host ?? "")) return null
     return `${user === "git" ? "git@" : ""}${host}:${path}`
   }
   // A bare `host/path`, with no user, query, or fragment.
