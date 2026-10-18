@@ -8,6 +8,7 @@ import {
 } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
+import { parseLegacyScope } from "../../domain/workspace-sources/legacy-scope.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -30,7 +31,7 @@ import { pagerdutyServiceIncidentsRoot } from "./converter.js"
 export function pagerdutyScopeFromLegacyConfig(
   config: ParsedPagerdutyRepoConfig,
 ): { scope: PagerdutySourceScope } | { unmapped: string } {
-  const parsed = pagerdutySourceScopeSchema.safeParse({
+  const parsed = parseLegacyScope(pagerdutySourceScopeSchema, {
     services: config.services.map((service) => service.id),
   })
   return parsed.success

@@ -7,8 +7,10 @@ import { slackSourceMigrationHook } from "../../services/slack/source-migration.
 import { parseLinkedRepositoryMarkdown } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
+import { splitLegacyScope } from "./legacy-scope.js"
 import {
-  parseSourceEntry,
+  parseLegacySourceEntry,
+  SOURCE_SCOPES,
   type SourceProvider,
   sourcesFileSchema,
 } from "./sources-file.js"
@@ -116,7 +118,7 @@ function existingPairs(text: string | null): Set<string> {
     if (!file.success) return new Set()
     return new Set(
       file.data.sources.flatMap((raw) => {
-        const parsed = parseSourceEntry(raw)
+        const parsed = parseLegacySourceEntry(raw)
         return parsed.ok
           ? [`${parsed.entry.provider}:${parsed.entry.connectionId}`]
           : []
@@ -156,22 +158,26 @@ export function planSourceMigration(input: {
       existingPairs(workspace.sourcesFile),
     ]),
   )
+  // One connection can give several entries: a list above its cap goes
+  // into parts (CTX-822).
   const add = (
     workspaceId: string,
-    change: Extract<SourcesYamlChange, { action: "add" }>,
+    entries: Array<Extract<SourcesYamlChange, { action: "add" }>>,
   ) => {
-    const pair = `${change.provider}:${change.connectionId}`
+    const [first] = entries
+    if (!first) return false
+    const pair = `${first.provider}:${first.connectionId}`
     const item = {
       workspaceId,
-      provider: change.provider,
-      connectionId: change.connectionId,
+      provider: first.provider,
+      connectionId: first.connectionId,
     }
     if (present.get(workspaceId)?.has(pair)) {
       report.alreadyPresent.push(item)
       return false
     }
     present.get(workspaceId)?.add(pair)
-    changes.set(workspaceId, [...(changes.get(workspaceId) ?? []), change])
+    changes.set(workspaceId, [...(changes.get(workspaceId) ?? []), ...entries])
     report.moved.push(item)
     return true
   }
@@ -234,13 +240,20 @@ export function planSourceMigration(input: {
       })
       continue
     }
+    const scopes = splitLegacyScope(
+      SOURCE_SCOPES[binding.provider].schema,
+      binding.scope,
+    )
     for (const workspace of workspaces)
-      add(workspace.id, {
-        action: "add",
-        provider: binding.provider,
-        connectionId: binding.connectionId,
-        scope: binding.scope,
-      })
+      add(
+        workspace.id,
+        scopes.map((scope) => ({
+          action: "add",
+          provider: binding.provider,
+          connectionId: binding.connectionId,
+          scope,
+        })),
+      )
   }
 
   const deletePaths = new Map<string, string[]>()
@@ -269,17 +282,21 @@ export function planSourceMigration(input: {
           file.name.toLowerCase(),
           file.branch ? { name: file.name, ref: file.branch } : file.name,
         )
-    const added = add(workspace.id, {
-      action: "add",
-      sourceKey: "linked-repositories",
-      provider: "github",
-      connectionId: workspace.githubConnectionId,
-      scope: {
+    const connectionId = workspace.githubConnectionId
+    const added = add(
+      workspace.id,
+      splitLegacyScope(SOURCE_SCOPES.github.schema, {
         repositories: [...items]
           .sort(([a], [b]) => a.localeCompare(b))
           .map(([, item]) => item),
-      },
-    })
+      }).map((scope, n) => ({
+        action: "add",
+        sourceKey: n ? `linked-repositories-${n + 1}` : "linked-repositories",
+        provider: "github",
+        connectionId,
+        scope,
+      })),
+    )
     // Delete the files only in the PR that adds the source.
     if (added)
       deletePaths.set(

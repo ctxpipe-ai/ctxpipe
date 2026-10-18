@@ -31,8 +31,10 @@ change applies after you merge the pull request.
     App can see (sort by recently pushed, newest, oldest, or name) and select one
     or more. This list shows only GitHub repositories. Only an organization
     owner or admin can list them. A member sees "Ask an admin to add
-    repositories." To link a public repository on another git host, see
-    [Plain git repositories](#plain-git-repositories).
+    repositories." To link a repository on another git host that needs no
+    credential, see [Plain git repositories](#plain-git-repositories). On hosted
+    ctx|, that host must be public. A self-hosted deployment can also read a git
+    server inside your network.
 
     Choose **Open a pull request**. ctx| opens one pull request for up to 20
     repositories. The message "Pull request opened. The change applies after the
@@ -113,9 +115,19 @@ internal host name, for example `http://git.internal:3000/team/tools.git`.
 ctx| never reads a host that resolves to a cloud metadata or link-local
 address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
 `fd00:ec2::254`), also on a self-hosted deployment.
-Agent Vault connects to a private address only when that address is in its
-`AGENT_VAULT_NETWORK_ALLOWLIST`, so add the address of your git server
-there.
+The sandbox fetches the repository through Agent Vault. Agent Vault connects
+to a private address only when that address is in its network allowlist. Add
+the address or CIDR of your git server to it:
+
+- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Add only
+  your git server address or network, for example
+  `AGENT_VAULT_NETWORK_ALLOWLIST=10.20.0.15`. Compose always keeps
+  `172.30.99.10` (the backend) in the list.
+- AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
+  `["10.20.0.0/24"]`. ctx| adds it after the backend subnets. The sandbox host
+  must also have a route to that network.
+
+Do not add a cloud metadata, link-local, or loopback address.
 
 ctx| does not follow a redirect. Use the exact clone URL of the repository.
 Repositories that need a credential on other git hosts are not supported.

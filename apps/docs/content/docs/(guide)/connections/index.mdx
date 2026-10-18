@@ -106,6 +106,24 @@ The important difference is **scope**. A scoped mirror keeps an approved subset
 current. Slack has no history backfill and no channel mirror: a user promotes a
 specific thread into Git history only when it is worth keeping.
 
+## Scope limits
+
+Each source has a maximum number of items in one list. The limit keeps one
+sync in the API rate limits of the provider. When you need more items, add a
+second source with the same connection. ctx| shows an error when a selection
+is above its limit.
+
+| Source | Maximum in one source |
+| --- | --- |
+| **GitHub** | 100 repositories in one entry of `.ctxpipe/sources.yaml` |
+| **Confluence** | 100 spaces, and 500 selected pages in one space (select all pages for more) |
+| **Slack** | 100 channels |
+| **Linear** | 50 teams and 100 projects |
+| **Notion** | 100 root pages and 100 databases |
+| **PagerDuty** | 100 services |
+
+The upgrade of an older Workspace splits a longer list into several sources.
+
 ## Git is the review boundary
 
 A source file changes only through a pull request that a person merges. The

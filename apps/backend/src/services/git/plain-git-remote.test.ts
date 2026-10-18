@@ -377,6 +377,55 @@ describe("a self-host plain git read over http with real git", () => {
   })
 })
 
+describe("a plain git read and the .netrc file of the backend user", () => {
+  let server: Server
+  let home: string
+  let restore: () => void
+  const authorizations: Array<string | null> = []
+
+  beforeAll(async () => {
+    // The host asks for Basic auth. Git (curl) sends a .netrc credential
+    // only after this challenge.
+    server = createServer((request, response) => {
+      authorizations.push(request.headers.authorization ?? null)
+      response.writeHead(401, { "www-authenticate": 'Basic realm="git"' })
+      response.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    restore = usePlainGitNetwork({
+      lookup: async (host) =>
+        host === "git.internal" ? [{ address: "127.0.0.1" }] : [],
+    })
+    // The home folder of the backend user has a .netrc entry for the host.
+    home = await mkdtemp(join(tmpdir(), "plain-git-home-"))
+    await writeFile(
+      join(home, ".netrc"),
+      "machine git.internal login backend password netrc-secret\n",
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  afterAll(async () => {
+    restore()
+    await new Promise((resolve) => server.close(resolve))
+    await rm(home, { recursive: true, force: true })
+  })
+
+  it("sends no .netrc credential: git gets an empty home folder", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    vi.stubEnv("HOME", home)
+    const { port } = server.address() as AddressInfo
+    await expect(
+      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+    ).rejects.toThrow()
+    expect(authorizations.length).toBeGreaterThan(0)
+    expect(authorizations).toEqual(authorizations.map(() => null))
+  })
+})
+
 describe("a plain git read with real git", () => {
   let server: Server
   let folder: string

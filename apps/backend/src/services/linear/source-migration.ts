@@ -1,4 +1,5 @@
 import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
+import { parseLegacyScope } from "../../domain/workspace-sources/legacy-scope.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -67,7 +68,7 @@ export function linearLegacyBindings(input: {
   const projects = config.scopes.flatMap((item) =>
     item.type === "project" ? [item.externalId] : [],
   )
-  const scope = linearScopeSchema.safeParse({
+  const scope = parseLegacyScope(linearScopeSchema, {
     ...(teams.length ? { teams } : {}),
     ...(projects.length ? { projects } : {}),
     ...(config.customerRequests === "exclude"

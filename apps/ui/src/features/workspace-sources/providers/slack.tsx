@@ -1,5 +1,6 @@
 import { IconBrandSlack, IconLock } from "@tabler/icons-react"
 import { useQuery } from "@tanstack/react-query"
+import { slackScopeSchema } from "backend/domain/workspace-sources/providers/slack"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
@@ -15,6 +16,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 function initialChannels(scope: Record<string, unknown>): string[] {
   const channels = scope.channels
@@ -149,6 +151,10 @@ export function SlackScopeEditor(props: SourceScopeEditorProps) {
           ? `${selected.length} ${selected.length === 1 ? "channel" : "channels"} selected.`
           : "Select at least one channel."}
       </p>
+      <ScopeLimitAlert
+        schema={slackScopeSchema}
+        scope={{ channels: selected }}
+      />
     </div>
   )
 }
