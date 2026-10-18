@@ -11,6 +11,11 @@ export function isConnectionError(error: unknown): boolean {
   return typeof code === "string" && connectionErrorCodes.has(code)
 }
 
+/** A probe timeout is a connection error, so the retry covers it. */
+export function connectionTimeoutError(message: string): Error {
+  return Object.assign(new Error(message), { code: "ETIMEDOUT" })
+}
+
 /**
  * Runs `attempt` again after a connection error, up to `attempts` times in
  * total. Any other error stops at once, so a real failure is never hidden.

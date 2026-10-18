@@ -8,7 +8,10 @@ import {
   downloadConnectorAsset,
   isPublicConnectorAssetAddress,
 } from "../services/connectors/assets.js"
-import { retryOnConnectionError } from "./retryOnConnectionError.js"
+import {
+  connectionTimeoutError,
+  retryOnConnectionError,
+} from "./retryOnConnectionError.js"
 
 initEvlog()
 
@@ -70,7 +73,9 @@ await retryOnConnectionError(
         },
       )
       req.setTimeout(10_000, () =>
-        req.destroy(new Error("Timed out verifying connector DNS pinning")),
+        req.destroy(
+          connectionTimeoutError("Timed out verifying connector DNS pinning"),
+        ),
       )
       req.on("error", reject)
       req.end()
@@ -135,7 +140,11 @@ try {
           },
         )
         req.setTimeout(10_000, () =>
-          req.destroy(new Error("Timed out verifying connector TLS rejection")),
+          req.destroy(
+            connectionTimeoutError(
+              "Timed out verifying connector TLS rejection",
+            ),
+          ),
         )
         req.on("error", (error: NodeJS.ErrnoException) => {
           if (error.code === "CERT_HAS_EXPIRED") {

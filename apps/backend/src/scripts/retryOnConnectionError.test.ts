@@ -1,7 +1,10 @@
 import { request } from "node:http"
 import { createServer, type Server } from "node:net"
 import { afterEach, describe, expect, it } from "vitest"
-import { retryOnConnectionError } from "./retryOnConnectionError.js"
+import {
+  connectionTimeoutError,
+  retryOnConnectionError,
+} from "./retryOnConnectionError.js"
 
 let server: Server | undefined
 afterEach(() => {
@@ -74,5 +77,58 @@ describe("retryOnConnectionError", () => {
       ),
     ).rejects.toThrow("reset")
     expect(calls).toBe(3)
+  })
+})
+
+describe("retryOnConnectionError with a probe timeout", () => {
+  // The first connection stays silent, so the probe times out. Later ones answer.
+  async function silentFirstConnection() {
+    let connections = 0
+    server = createServer((socket) => {
+      connections += 1
+      if (connections === 1 || alwaysSilent) return
+      socket.end(
+        "HTTP/1.1 200 OK\r\ncontent-length: 2\r\nconnection: close\r\n\r\nok",
+      )
+    })
+    await new Promise<void>((resolve) =>
+      server?.listen(0, "127.0.0.1", resolve),
+    )
+    const address = server.address()
+    const port = typeof address === "object" && address ? address.port : 0
+    const probe = () =>
+      new Promise<number>((resolve, reject) => {
+        const req = request({ host: "127.0.0.1", port }, (response) => {
+          response.resume()
+          response.on("end", () => resolve(response.statusCode ?? 0))
+        })
+        req.setTimeout(50, () =>
+          req.destroy(connectionTimeoutError("Timed out verifying probe")),
+        )
+        req.on("error", reject)
+        req.end()
+      })
+    return { probe, count: () => connections }
+  }
+  let alwaysSilent = false
+  afterEach(() => {
+    alwaysSilent = false
+  })
+
+  it("passes when the probe times out once and then succeeds", async () => {
+    const { probe, count } = await silentFirstConnection()
+    await expect(retryOnConnectionError(probe, { delayMs: 1 })).resolves.toBe(
+      200,
+    )
+    expect(count()).toBe(2)
+  })
+
+  it("still fails when every attempt times out", async () => {
+    alwaysSilent = true
+    const { probe, count } = await silentFirstConnection()
+    await expect(
+      retryOnConnectionError(probe, { attempts: 3, delayMs: 1 }),
+    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
+    expect(count()).toBe(3)
   })
 })
