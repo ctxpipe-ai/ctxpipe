@@ -25,7 +25,7 @@ import {
 } from "@/features/workspaces/queries"
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
-import { onboardingHandOffFlag } from "@/lib/session-flags"
+import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -50,14 +50,16 @@ function OrgHomePage() {
  * its error.
  */
 function useFirstDataReveal(hold: boolean, ready: boolean) {
-  const [revealed, setRevealed] = useState(!hold)
-  if (!revealed && ready) setRevealed(true)
+  // `hold` can turn on after the first render (hydration reads it late), so
+  // keep "data came" apart from "hold".
+  const [done, setDone] = useState(false)
+  if (!done && ready) setDone(true)
   useEffect(() => {
-    if (revealed) return
-    const timer = setTimeout(() => setRevealed(true), SKELETON_DELAY_MS)
+    if (!hold || done) return
+    const timer = setTimeout(() => setDone(true), SKELETON_DELAY_MS)
     return () => clearTimeout(timer)
-  }, [revealed])
-  return revealed
+  }, [hold, done])
+  return !hold || done
 }
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
@@ -83,7 +85,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // Onboarding opened Home: hold it until its first data is ready (the
   // session, the Workspace list, and the guide signals), then fade it in.
   // The flag goes after the fade, so a reload does not hold Home again.
-  const [fromOnboarding] = useState(() => onboardingHandOffFlag.isSet())
+  const fromOnboarding = useSessionFlag(onboardingHandOffFlag)
   const revealed = useFirstDataReveal(fromOnboarding, guide.status === "ready")
   useEffect(() => {
     if (fromOnboarding && revealed) onboardingHandOffFlag.clear()

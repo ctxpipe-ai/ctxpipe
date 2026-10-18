@@ -15,6 +15,7 @@ import {
   docsWorkspace,
   docsWorkspaceDetail,
 } from "@/features/workspaces/workspace-fixtures"
+import { workspaceCreatedFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
   organizationListWithOrgHandler,
@@ -243,8 +244,27 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
     // The nav lists the new Workspace, so the add-workspace anchor is on the
     // page and the tip would be due without the flag.
     await canvas.findByText("Handbook")
+    // Open and close the dialog once more. The tip re-checks when a dialog
+    // closes, so the anchor has settled when this returns.
+    const cycleDialog = async () => {
+      await userEvent.click(
+        await canvas.findByRole("button", { name: "Add Workspace" }),
+      )
+      await userEvent.click(
+        await within(await body.findByRole("dialog")).findByRole("button", {
+          name: "Close",
+        }),
+      )
+      await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
+    }
+    await cycleDialog()
     expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull()
     expect(storedHintsSeen()).not.toContain("add-workspace")
+    // Control: without the flag, the same page shows the tip. So only the
+    // flag held it back.
+    workspaceCreatedFlag.clear()
+    await cycleDialog()
+    await findHint(canvasElement, "Add a Workspace for each team or product.")
   },
 }
 
