@@ -136,6 +136,38 @@ it("reuses a token for 50 minutes after its mint, also across a clock window bou
   expect(revoked).toContain("token ghs_window_2")
 })
 
+it("reuses a token whose mint crossed a window boundary, in the window after next", async () => {
+  const ingestThreadId = ingestSandboxThreadId(`run_cross_${suffix}`, 0)
+  const windowMs = 50 * 60_000
+  // The boundary is in the past, so each `mintedAt` is before the real time of
+  // the revoke at the end.
+  const boundary = Math.floor(Date.now() / windowMs) * windowMs - 3 * windowMs
+  let minted = 0
+  const record = () =>
+    recordedRunGitToken({
+      orgId,
+      ingestThreadId,
+      label: "git:con_cross",
+      mint: async () => {
+        // The mint ends after the boundary: `mintedAt` is in the next window,
+        // but the key uses the window before it.
+        vi.setSystemTime(boundary + 300)
+        return `ghs_cross_${++minted}`
+      },
+    })
+  vi.useFakeTimers({ toFake: ["Date"], now: boundary - 200 })
+  try {
+    expect(await record()).toBe("ghs_cross_1")
+    // Age is 200 ms less than 50 minutes, in the window after next of the key.
+    vi.setSystemTime(boundary + windowMs + 100)
+    expect(await record()).toBe("ghs_cross_1")
+    expect(minted).toBe(1)
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(await revokeRunGitTokens({ orgId, ingestThreadId })).toBe(0)
+})
+
 it("revokes only one turn's tokens, keeps a token whose revoke failed, and the sweep retries it", async () => {
   const conversationId = `conv_revoke_${suffix}`
   const record = (label: string) =>

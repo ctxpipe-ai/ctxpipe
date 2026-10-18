@@ -70,10 +70,12 @@ export async function recordedRunGitToken(
   const store = storeFor(input)
   const prefix = `${keyBase(input)}${input.label}:`
   const now = Date.now()
-  // A young token is in the key of the current or the previous window.
+  // The key window comes from `now`, before the mint. `mintedAt` is set after
+  // the mint, so a young token can be one window older than its age suggests:
+  // it is in the key of one of the last three windows.
   const bucket = Math.floor(now / WINDOW_MS)
   let recorded: { token: string } | undefined
-  for (const candidate of [bucket, bucket - 1]) {
+  for (const candidate of [bucket, bucket - 1, bucket - 2]) {
     const row = await store.get(`${prefix}${candidate}`)
     if (row && now - row.mintedAt.getTime() < REUSE_MS) {
       recorded = row
