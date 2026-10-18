@@ -4,6 +4,7 @@ import {
   isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionPageTitle } from "./client.js"
 
@@ -23,15 +24,16 @@ export function getNotionPagePath(input: {
   const title = input.title ?? getNotionPageTitle(input.page)
   const segments = [
     ...(input.ancestors ?? []).map(
-      (ancestor) => `${titleSlug(ancestor.title)}--${ancestor.id}`,
+      (ancestor) =>
+        `${titleSlug(ancestor.title)}--${connectorPathSegment(ancestor.id)}`,
     ),
-    `${titleSlug(title)}--${input.page.id}`,
+    `${titleSlug(title)}--${connectorPathSegment(input.page.id)}`,
   ]
   return `${MANAGED_ROOT}/pages/${segments.join("/")}/index.md`
 }
 
 export function notionIdKey(id: string): string {
-  return id.replaceAll("-", "").toLowerCase()
+  return connectorPathSegment(id).replaceAll("-", "").toLowerCase()
 }
 
 export type NotionFilesPropertyAssetKey = {
@@ -124,7 +126,7 @@ export function notionFilesPropertyAssetKeys(
     if (uploadId) {
       return {
         mapKey: `files:${propertyId}:${uploadId}`,
-        pathKey: `${propertyStem}--${uploadId}`,
+        pathKey: `${propertyStem}--${connectorPathSegment(uploadId)}`,
         propertyIdentity: propertyId,
         propertyStem,
       }
@@ -528,7 +530,7 @@ export function toNotionMarkdownFile(input: {
   const title = getNotionPageTitle(input.page) || input.resource.title
   const path =
     input.path ??
-    `${MANAGED_ROOT}/pages/${titleSlug(title)}--${input.resource.externalId}/index.md`
+    `${MANAGED_ROOT}/pages/${titleSlug(title)}--${connectorPathSegment(input.resource.externalId)}/index.md`
   const context: NotionLinkContext = {
     currentPath: path,
     pathByNotionId: input.pathByNotionId,
@@ -575,11 +577,11 @@ export function toNotionMarkdownFile(input: {
 }
 
 function databaseSegment(resource: { externalId: string; title: string }) {
-  return `${titleSlug(resource.title)}--${resource.externalId}`
+  return `${titleSlug(resource.title)}--${connectorPathSegment(resource.externalId)}`
 }
 
 function rowSegment(page: NotionPage) {
-  return `${titleSlug(getNotionPageTitle(page))}--${page.id}`
+  return `${titleSlug(getNotionPageTitle(page))}--${connectorPathSegment(page.id)}`
 }
 
 export function getNotionDatabaseIndexPath(resource: {

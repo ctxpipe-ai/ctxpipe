@@ -9,6 +9,7 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../lib/id.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
+import { usePlainGitNetwork } from "../services/git/plain-git-remote.js"
 import {
   type RepositoryIngestionChildStep,
   runConnectorRepositoryIngestionWorkflow,
@@ -39,6 +40,9 @@ describeWithDatabase(
 
     beforeAll(async () => {
       if (!connectionString) throw new Error("DATABASE_URL is unset")
+      // The repository has no GitHub token, so the backend checks it as a
+      // plain git URL (CTX-815). The test has its own DNS answer.
+      usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
       vi.stubEnv("AUTH_SECRET", "ci-auth-secret-must-be-at-least-32-chars")
       vi.stubEnv("CODESEARCH_URL", codesearchUrl)
       initDb(connectionString)

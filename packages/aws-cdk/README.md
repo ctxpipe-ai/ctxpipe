@@ -136,7 +136,7 @@ modelProvider: {
 - `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret); Zendesk uses `zendeskClientId` and `zendeskClientSecret`. The hosted ctx| deployment uses a Zendesk global OAuth client. A self-hosted deployment usually leaves both empty and saves a local OAuth client in the ctx| setup; a client saved on a connection takes priority.
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
 - `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
-- `sandboxHost`: optional `instanceType` and `dockerVolumeSizeGiB` for the chat sandbox host. The host is always created; see [Chat sandbox host](#chat-sandbox-host).
+- `sandboxHost`: optional `instanceType` and `dockerVolumeSizeGiB` for the chat sandbox host, and `agentVaultNetworkAllowlist` for a private git server. The host is always created; see [Chat sandbox host](#chat-sandbox-host).
 
 ## Chat sandbox host
 
@@ -172,6 +172,21 @@ What the construct sets up:
 - The Workspace chat image is `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host.
 - CloudWatch alarms: Docker volume over 80% full, and memory over 85% for 15 minutes. They have no actions; subscribe them with `ctxPipe.sandboxHostAlarms`.
 - Backend and worker get `SANDBOX_PROVIDER=docker`, `SANDBOX_CHAT_IMAGE`, `DOCKER_HOST`, `DOCKER_TLS_VERIFY=1`, and `DOCKER_CERT_PATH`. A short init container in each task writes the client certificates there as files; the app containers run their image's own command. Sandboxes call the backend back on its task IP, so they reach the replica that runs their turn.
+
+### Private git servers
+
+Ingestion can read a plain git repository on a git server inside your network. The ingestion sandbox fetches it through Agent Vault on the sandbox host. Agent Vault connects only to the private addresses in its allowlist, and by default that list holds only the backend subnets. Add the address or CIDR of your git server:
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  sandboxHost: {
+    agentVaultNetworkAllowlist: ["10.20.0.0/24"],
+  },
+});
+```
+
+The stack adds each entry after the backend subnets. Each entry must be an IPv4 or IPv6 address or CIDR. Synth rejects an entry with a cloud metadata or link-local address. The sandbox host must also have a route to that network (for example VPC peering or a transit gateway), and the git server must accept connections from the host. A change to the list replaces the host.
 
 The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell on its instance with Session Manager (no SSH key or open port) for the checks in the [operations docs](https://docs.ctxpipe.ai/docs/self-hosting/operations).
 

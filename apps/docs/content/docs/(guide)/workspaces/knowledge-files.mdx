@@ -24,7 +24,10 @@ workspace-repository/
 ├── knowledge/
 │   ├── services/checkout.md
 │   └── decisions/payments-provider.md
-├── .ctxpipe/sources.yaml             # Sources, with the linked repositories
+├── .ctxpipe/workspace.yaml          # Repository format (host-only)
+├── sources/                         # One file for each source
+│   ├── github/acme/checkout.md
+│   └── linear/engineering.md
 ├── linear/  notion/  confluence/    # Connector mirrors
 └── slack/   pagerduty/  github/
 ```
@@ -78,16 +81,17 @@ Workspace. A skipped file stays in **Files** because it is in git. Chat, MCP,
 search, and the graph do not use it.
 
 Other errors do not cause a skip. For example, a set of files that is too
-large stops hydration, and **Settings** shows **Hydrate failed** with the
-error.
+large stops hydration, and **Settings** shows **Loading failed** with the
+error. See [Workspace settings](/docs/workspaces/settings#hydrate-and-skipped-files).
 
 **Settings** on the Workspace page shows the skipped files of the latest
-hydrated commit. Each row gives the path and the reason. Select the path to
-open the file in **Files**.
+hydrated commit under **Hydrate skipped N files**. Each row gives the path and
+the reason. Select the path to open the file in **Files**.
 
 | Reason | Cause | Fix |
 | --- | --- | --- |
 | Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. | Correct the front matter. |
+| Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version: a `repositories/*.md` file linked a repository that was already linked. ctx\| no longer reads these files. | None. |
 
 Push the fix to the default branch. When ctx| hydrates the new commit, it
 reads the fixed file again:
@@ -98,12 +102,14 @@ graph use it.
 The file is then not in the list of skipped files. When the list is empty,
 **Settings** does not show the notice.
 
-## Linked repositories
+## Sources and linked repositories
 
-The GitHub sources in `.ctxpipe/sources.yaml` link the repositories of a
-Workspace. See [Linked repositories](/docs/workspaces/linked-repositories).
-ctx| does not read files in `repositories/`. When an organization moves to
-Workspaces, ctx| moves those files into `.ctxpipe/sources.yaml`.
+Each file under `sources/` is a source. The GitHub source files link the code
+repositories of a Workspace. See
+[Linked repositories](/docs/workspaces/linked-repositories) and
+[Workspace settings](/docs/workspaces/settings#sources). ctx| does not read
+files in `repositories/`. When an organization moves to Workspaces, the upgrade
+pull request turns those files into source files.
 
 ## What ctx| writes
 
@@ -114,8 +120,7 @@ the default branch. Each commit does one job and has a descriptive message:
 - knowledge extracted from linked repositories;
 - connector mirrors from Linear, Notion, Confluence, Slack, PagerDuty, and
   GitHub pull requests;
-- the linked repositories you add or remove in Settings, in
-  `.ctxpipe/sources.yaml`;
+- the mirror files of the sources that you add in Settings;
 - upkeep such as rewriting links after a rename or filling in a missing
   `valid_from`.
 
@@ -127,5 +132,6 @@ Changes made in [Workspace chat](/docs/workspaces/chat) are different: they go
 to a separate branch and reach the default branch only through a pull request
 you open.
 
-Connector configuration files (`<connector>/config.yaml`) also change through
-pull requests, so source scope is reviewed before content is mirrored.
+Source files under `sources/` change only through pull requests, so a person
+reviews the scope before ctx| mirrors content. No agent can change `sources/`
+or `.ctxpipe/` without a pull request.

@@ -1,6 +1,13 @@
 import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The most Help Center categories, and the most ticket views, in one Zendesk
+ * source. Each one adds list requests to each sync, and Zendesk limits the
+ * API requests of one account in each minute. A team selects far fewer.
+ */
+export const ZENDESK_SOURCE_MAX_ITEMS = 50
+
 /** A Zendesk id, for example `360001234567`. It is also a path segment. */
 export const zendeskIdPattern = /^\d{1,20}$/
 
@@ -8,9 +15,13 @@ const zendeskIdSchema = z
   .string()
   .regex(zendeskIdPattern, "Use a Zendesk id, for example 360001234567")
 
-const uniqueIds = (what: string) =>
+const uniqueIds = (what: string, plural: string) =>
   z
     .array(zendeskIdSchema)
+    .max(
+      ZENDESK_SOURCE_MAX_ITEMS,
+      `Select at most ${ZENDESK_SOURCE_MAX_ITEMS} Zendesk ${plural}`,
+    )
     .refine(
       (ids) => new Set(ids).size === ids.length,
       `List each ${what} one time`,
@@ -19,9 +30,9 @@ const uniqueIds = (what: string) =>
 export const zendeskSourceScopeSchema = z
   .object({
     /** Help Center categories whose articles sync (ADR-054). */
-    categories: uniqueIds("category").optional(),
+    categories: uniqueIds("category", "categories").optional(),
     /** Ticket views whose latest tickets sync, with their comments. */
-    views: uniqueIds("view").optional(),
+    views: uniqueIds("view", "views").optional(),
   })
   .strict()
   .refine(

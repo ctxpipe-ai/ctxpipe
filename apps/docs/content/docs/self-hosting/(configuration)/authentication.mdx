@@ -79,7 +79,7 @@ Configure the client with:
 {AUTH_BASE_URL}/mcp
 ```
 
-Each OAuth grant holds a set of organizations. The user ticks the organizations
+Each OAuth grant holds a set of organizations. The user selects the organizations
 on the consent screen, and the user can change the set later on the
 **Connected apps** page (`/.auth/account/connected-apps`). Each tool call names
 one organization with the `org` argument. The server allows the call only when
@@ -99,7 +99,7 @@ before that API-key fallback, and REST does not accept Bearer API keys.
 Personal keys live under **User account → API Keys** and still authenticate
 REST as that user through `x-api-key`. A personal key reads the organizations
 that its user is a member of. Organization keys live under
-**Organisation settings → API Keys** and authenticate MCP only (one
+**Organization settings → API Keys** and authenticate MCP only (one
 organization per key; the `org` argument of each tool call must name that
 organization). `--auth api-key` writes an interpolation of `CTXPIPE_API_KEY`, never
 the secret. Set that variable in the MCP client environment. `npx ctxpipe

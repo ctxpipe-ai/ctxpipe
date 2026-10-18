@@ -11,10 +11,11 @@ organization and switch between them in the product.
 
 - Each organization has a name and a unique URL slug.
 - The organization switcher changes the active product context.
-- Repository, Chat, graph, and connector pages always operate inside the
+- Workspace, Chat, graph, and connector pages always operate inside the
   organization shown in the URL.
-- MCP includes the organization slug in its server URL and verifies that the
-  signed-in user is a member.
+- MCP uses one URL for every organization. Each tool call names its
+  organization in the `org` argument. The server checks that the connection
+  includes that organization and that you are a member of it.
 
 ## Workspaces
 

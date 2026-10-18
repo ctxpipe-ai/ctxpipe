@@ -7,6 +7,7 @@ import { OpenAPIHono } from "@hono/zod-openapi"
 import {
   afterAll,
   afterEach,
+  beforeAll,
   beforeEach,
   describe,
   expect,
@@ -14,6 +15,7 @@ import {
   vi,
 } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import { startGitHttpServer } from "../test/gitHttpServer.js"
 
 // config/paths.js reads these variables when it loads.
 const { cacheRoot } = await vi.hoisted(async () => {
@@ -256,14 +258,16 @@ describe("GET /{repoId}/files/{path}", () => {
 })
 
 describe("POST /{repoId}/resolve-ref", () => {
-  let remoteDir: string
+  let remoteRoot: string
   let mainHash: string
+  let server: Awaited<ReturnType<typeof startGitHttpServer>>
 
-  beforeEach(async () => {
-    vi.clearAllMocks()
-    remoteDir = await mkdtemp(join(tmpdir(), "resolve-ref-remote-"))
+  beforeAll(async () => {
+    remoteRoot = await mkdtemp(join(tmpdir(), "resolve-ref-remote-"))
+    const remoteDir = join(remoteRoot, "work")
     const git = (...args: string[]) =>
       execFileSync("git", args, { cwd: remoteDir, encoding: "utf8" }).trim()
+    await mkdir(remoteDir)
     git("init", "--quiet", "--initial-branch=trunk")
     git("config", "user.email", "test@example.com")
     git("config", "user.name", "Test")
@@ -272,17 +276,40 @@ describe("POST /{repoId}/resolve-ref", () => {
     git("commit", "--quiet", "-m", "first")
     git("branch", "main")
     mainHash = git("rev-parse", "main")
+    git(
+      "clone",
+      "--quiet",
+      "--bare",
+      remoteDir,
+      join(remoteRoot, "team", "app.git"),
+    )
+    server = await startGitHttpServer(remoteRoot)
+  })
+
+  beforeEach(() => {
+    vi.clearAllMocks()
     getAccessibleRepositoryMock.mockResolvedValue({
       ...MOCK_REPO,
-      gitUrl: remoteDir,
+      gitUrl: "http://git.internal/team/app.git",
     })
   })
 
-  afterEach(async () => {
-    await rm(remoteDir, { recursive: true, force: true })
+  afterAll(async () => {
+    await server?.stop()
+    await rm(remoteRoot, { recursive: true, force: true })
   })
 
-  const resolveRef = (body: Record<string, string>) =>
+  // The remote that the backend checked: `git.internal` has no DNS record,
+  // so git reaches the server only through the pinned address.
+  const plainGit = () => ({
+    url: `http://git.internal:${server.port}/team/app.git`,
+    host: "git.internal",
+    port: server.port,
+    addresses: ["127.0.0.1"],
+    policy: { http: true, privateHosts: true },
+  })
+
+  const resolveRef = (body: Record<string, unknown>) =>
     createTestApp().request("/repo_abcdef27/resolve-ref", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -290,27 +317,36 @@ describe("POST /{repoId}/resolve-ref", () => {
     })
 
   it("returns the hash of the requested branch", async () => {
-    const res = await resolveRef({ branch: "main" })
+    const res = await resolveRef({ branch: "main", plainGit: plainGit() })
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ branch: "main", hash: mainHash })
   })
 
   it("resolves the remote default branch when the body has no branch", async () => {
-    const res = await resolveRef({})
+    const res = await resolveRef({ plainGit: plainGit() })
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ branch: "trunk", hash: mainHash })
   })
 
-  it("accepts a githubToken in the request body", async () => {
-    const res = await resolveRef({
-      branch: "main",
-      githubToken: "ghs_testtoken123",
-    })
-
-    expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ branch: "main", hash: mainHash })
+  it("does not read a stored local path, or a URL with no token and no checked remote", async () => {
+    for (const gitUrl of [
+      join(remoteRoot, "team", "app.git"),
+      `file://${join(remoteRoot, "team", "app.git")}`,
+      `http://127.0.0.1:${server.port}/team/app.git`,
+    ]) {
+      getAccessibleRepositoryMock.mockResolvedValue({ ...MOCK_REPO, gitUrl })
+      const before = server.requests.length
+      const res = await resolveRef({ branch: "main" })
+      expect(res.status, gitUrl).toBe(500)
+      expect(await res.json()).toEqual({
+        error: expect.stringMatching(
+          /only with a GitHub token or with a plain git remote/,
+        ),
+      })
+      expect(server.requests.length).toBe(before)
+    }
   })
 
   it("returns 404 when repository is not accessible", async () => {
@@ -326,12 +362,13 @@ describe("POST /{repoId}/resolve-ref", () => {
   })
 
   it("returns 500 when ref resolution fails", async () => {
-    getAccessibleRepositoryMock.mockResolvedValue({
-      ...MOCK_REPO,
-      gitUrl: join(remoteDir, "missing"),
+    const res = await resolveRef({
+      branch: "main",
+      plainGit: {
+        ...plainGit(),
+        url: `http://git.internal:${server.port}/team/missing.git`,
+      },
     })
-
-    const res = await resolveRef({ branch: "main" })
 
     expect(res.status).toBe(500)
   })

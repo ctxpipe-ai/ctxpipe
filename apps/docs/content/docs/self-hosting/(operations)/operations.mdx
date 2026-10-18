@@ -13,7 +13,7 @@ keep a running instance healthy and to diagnose component-level failures.
 | Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
 | Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
 | UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
-| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=..."` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
+| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
 | Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
 | Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
 
@@ -222,12 +222,12 @@ clones the repository again while a new base builds.
 ### MCP discovery or OAuth fails
 
 - Confirm `GET /.status` returns `{ "status": "ok" }`.
-- Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"`.
+- Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"`.
 - A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
   discovery are coherent. It does not prove authenticated `tools/list` or
   a tool call.
 - Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
-- Confirm the MCP URL path is `/mcp`. The server ignores `?orgSlug=`.
+- Confirm the MCP URL path is `/mcp`. The server ignores a `?orgSlug=` query.
 - For authenticated OAuth, `tools/list`, and a `list_workspaces` call, use a version-pinned
   MCPJam client against a test organization. See
   [MCP](/docs/self-hosting/mcp).
@@ -264,7 +264,7 @@ clones the repository again while a new base builds.
   merge pushes reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `linear-sync-config`, `linear-sync-content`, or
   `linear-sync-incremental` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [Linear](/docs/self-hosting/linear).
 
@@ -272,13 +272,13 @@ clones the repository again while a new base builds.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  merged `pagerduty/config.yaml`. There is no shared webhook secret; ctx|
+  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctx|
   stores the per-subscription secret on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `pagerduty-sync-config`, `pagerduty-sync-content`, or
   `pagerduty-sync-entity` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [PagerDuty](/docs/self-hosting/pagerduty).
 

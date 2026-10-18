@@ -67,3 +67,45 @@ it("binds a GitHub pull-request mirror to its linked repository URL only", () =>
     }).success,
   ).toBe(false)
 })
+
+it("refuses a mirror path that the sources sync refuses", () => {
+  const parse = (files: string[], deletePaths: string[] = []) =>
+    connectorMirrorContentSchema.safeParse({
+      mirror: { ...source, provider: "pagerduty" },
+      files: files.map((path) => ({ path, content: "# Incident\n" })),
+      deletePaths,
+    }).success
+  expect(parse([incident.path])).toBe(true)
+  for (const path of [
+    "pagerduty/incidents/café.md",
+    "pagerduty/incidents/1\n.md",
+    "pagerduty/incidents/.gitattributes",
+  ]) {
+    expect(parse([path])).toBe(false)
+    // A delete removes a file that exists, so the name rules of a write do
+    // not apply.
+    expect(parse([], [path])).toBe(true)
+  }
+  for (const path of [
+    "pagerduty/incidents/../../knowledge/a.md",
+    "pagerduty/incidents//1.md",
+    "pagerduty/incidents/..\\..\\a.md",
+    "pagerduty/.git/config",
+    "/pagerduty/incidents/1.md",
+    "linear/teams/ENG/README.md",
+    "pagerduty/config.yaml",
+  ]) {
+    expect(parse([path])).toBe(false)
+    expect(parse([], [path])).toBe(false)
+  }
+  // A GitHub repository can have the name ".github": its pull requests mirror.
+  expect(
+    connectorMirrorContentSchema.safeParse({
+      mirror: { provider: "github", gitUrl: "https://github.com/acme/.github" },
+      files: [
+        { path: "github/pulls/acme/.github/7--70.md", content: "# PR\n" },
+      ],
+      deletePaths: [],
+    }).success,
+  ).toBe(true)
+})

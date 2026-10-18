@@ -19,6 +19,7 @@ import {
   createConnectorEntityAssetBytePool,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   closePullRequest,
@@ -170,7 +171,7 @@ async function collectPageAssetFiles(input: {
         resolution.reason === "entity_limit")
     ) {
       preserveAssetPrefixes.push(
-        `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${sourceKey}--`,
+        `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${connectorPathSegment(sourceKey)}--`,
       )
     }
   }
@@ -306,7 +307,7 @@ async function collectPageAssetFiles(input: {
     if (!referencedFilenames.has(attachment.title)) {
       if (remainingDeclaredAssets <= 0) {
         preserveAssetPrefixes.push(
-          `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${attachment.id}--`,
+          `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${connectorPathSegment(attachment.id)}--`,
         )
         continue
       }
