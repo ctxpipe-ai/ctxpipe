@@ -168,7 +168,11 @@ export async function resolvePlainGitRemote(
  * the checked addresses. Git reads no system or global config, and no
  * config from a `git -c` of a parent process: a credential helper or an
  * `http.extraHeader` there cannot send a credential to the plain git host.
- * `extra` is the test config of {@link PlainGitNetwork}.
+ * The read also drops the proxy variables and `GIT_SSL_NO_VERIFY` of the
+ * backend process: a proxy would connect to the host for git, not to the
+ * checked addresses, and git must check the host's certificate. The value
+ * `undefined` removes a variable when a caller merges this environment
+ * over `process.env`. `extra` is the test config of {@link PlainGitNetwork}.
  */
 export function plainGitRemoteEnvironment(
   remote: { host: string; port?: number; addresses: readonly string[] },
@@ -188,6 +192,13 @@ export function plainGitRemoteEnvironment(
     ...extra,
   ]
   return {
+    ...Object.fromEntries(
+      ["HTTP_PROXY", "HTTPS_PROXY", "ALL_PROXY", "NO_PROXY"].flatMap((name) => [
+        [name, undefined],
+        [name.toLowerCase(), undefined],
+      ]),
+    ),
+    GIT_SSL_NO_VERIFY: undefined,
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
     SSH_ASKPASS: "",

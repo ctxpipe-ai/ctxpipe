@@ -16,6 +16,7 @@ import {
   plainGitPinnedRequest,
   plainGitRemote,
   resolvePlainGitRemote,
+  resolvePlainGitTip,
   usePlainGitNetwork,
 } from "./plain-git-remote.js"
 
@@ -182,6 +183,38 @@ describe("a plain git read with real git", () => {
     ])
   })
 
+  it("connects to the host, not to a proxy of the backend environment", async () => {
+    const proxied: string[] = []
+    const proxy = createServer((request, response) => {
+      proxied.push(request.url ?? "")
+      response.writeHead(502)
+      response.end()
+    })
+    await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve))
+    const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`
+    for (const name of ["http_proxy", "https_proxy", "all_proxy"]) {
+      vi.stubEnv(name, proxyUrl)
+      vi.stubEnv(name.toUpperCase(), proxyUrl)
+    }
+    vi.stubEnv("no_proxy", "")
+    vi.stubEnv("NO_PROXY", "")
+    const before = requests.length
+    try {
+      // The host answers 302, which git does not follow.
+      await expect(
+        resolvePlainGitTip("https://git.example.org/team/app.git"),
+      ).rejects.toThrow(/returned error: 302/)
+    } finally {
+      for (const name of ["http_proxy", "https_proxy", "all_proxy", "no_proxy"])
+        for (const each of [name, name.toUpperCase()]) vi.stubEnv(each, "")
+      await new Promise((resolve) => proxy.close(resolve))
+    }
+    expect(proxied).toEqual([])
+    expect(requests.slice(before).map((request) => request.url)).toEqual([
+      "/team/app.git/info/refs?service=git-upload-pack",
+    ])
+  })
+
   it("does not read a host that the git config of the read does not allow: no ssh, git:// or file://", async () => {
     const remote = await plainGitRemote("https://git.example.org/team/app.git")
     for (const url of [
@@ -287,6 +320,34 @@ describe("plainGitPinnedRequest", () => {
         ca,
         port,
       }),
-    ).rejects.toThrow()
+    ).rejects.toThrow(
+      "Hostname/IP does not match certificate's altnames: Host: other.example.test. is not in the cert's altnames: DNS:pinned.example.test",
+    )
+  })
+
+  it("makes git check the certificate of the host, also when the backend environment sets GIT_SSL_NO_VERIFY", async () => {
+    // `git.example.org` is this server, whose certificate git does not trust.
+    const restore = usePlainGitNetwork({
+      lookup: async () => [{ address: "93.184.215.14" }],
+      gitConfig: [
+        [
+          `url.https://127.0.0.1:${port}/.insteadOf`,
+          "https://git.example.org/",
+        ],
+      ],
+    })
+    vi.stubEnv("GIT_SSL_NO_VERIFY", "1")
+    const before = requests.length
+    try {
+      await expect(
+        resolvePlainGitTip("https://git.example.org/team/app.git"),
+      ).rejects.toThrow(
+        /SSL certificate problem|server certificate verification failed|certificate verify failed/,
+      )
+    } finally {
+      vi.unstubAllEnvs()
+      restore()
+    }
+    expect(requests.length).toBe(before)
   })
 })

@@ -69,8 +69,12 @@ function quote(value: string): string {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-async function run(handle: Sandbox, command: string): Promise<string> {
-  const result = await handle.process.exec(command)
+async function run(
+  handle: Sandbox,
+  command: string,
+  signal?: AbortSignal,
+): Promise<string> {
+  const result = await handle.process.exec(command, signal ? { signal } : {})
   if (result.exitCode !== 0)
     throw new Error(
       `Ingest shard command failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
@@ -104,8 +108,16 @@ export async function prepareIngestShard(
     source: { url: string; sha: string; blobless: boolean }
     contexts: Array<{ workspaceId: string; url: string }>
     now: Date
+    /**
+     * The step's signal. Each clone also stops at the step limit, so a git
+     * host that stops to send cannot hold the shard lock.
+     */
+    signal?: AbortSignal
   },
 ): Promise<void> {
+  const signal = input.signal
+    ? AbortSignal.any([input.signal, ingestStepSignal()])
+    : ingestStepSignal()
   await prepareIngestSandbox(handle, root, {
     bundle: input.bundle,
     opencodeConfig: input.opencodeConfig,
@@ -116,17 +128,22 @@ export async function prepareIngestShard(
     .slice(0, 10)
   const sourceClone = "/tmp/ctxpipe-clone-source"
   const filter = input.source.blobless ? " --filter=blob:none" : ""
+  // A plain git source (no blobless clone) comes from a host that we do not
+  // control: git stops when that host sends less than 1000 bytes each
+  // second for 60 seconds. The clone keeps this config for the fetch below.
+  const cloneSource = `git clone -q${filter}${input.source.blobless ? "" : " -c http.lowSpeedLimit=1000 -c http.lowSpeedTime=60"}`
   await run(
     handle,
     [
       `rm -rf ${sourceClone}`,
       // A repository with no commit in the window fails a `--shallow-since`
       // clone ("error processing shallow info"): then clone its tip only.
-      `{ git clone -q${filter} --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && git clone -q${filter} --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
+      `{ ${cloneSource} --no-checkout --shallow-since=${since} -- ${quote(input.source.url)} ${sourceClone} || { rm -rf ${sourceClone} && ${cloneSource} --no-checkout --depth=1 -- ${quote(input.source.url)} ${sourceClone}; }; }`,
       // The run's SHA can be older than the history window.
       `(git -C ${sourceClone} cat-file -e ${input.source.sha}^{commit} 2>/dev/null || git -C ${sourceClone} fetch -q${filter} --depth=1 origin ${input.source.sha})`,
       `git -C ${sourceClone} checkout -q --detach ${input.source.sha}`,
     ].join(" && "),
+    signal,
   )
   await sealIngestCheckout(root, {
     kind: "source",
@@ -139,6 +156,7 @@ export async function prepareIngestShard(
     await run(
       handle,
       `rm -rf ${quote(clone)} && git clone -q -- ${quote(context.url)} ${quote(clone)}`,
+      signal,
     )
     await sealIngestCheckout(root, {
       kind: "context",

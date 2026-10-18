@@ -116,6 +116,31 @@ type EgressRule = Omit<SandboxCredentialRule, "authorization"> & {
   query?: string
 }
 
+/**
+ * The size limit of one answer of a plain git host (CTX-815): the clone of
+ * the history window of a source repository that is not on GitHub. A host
+ * that we do not control cannot fill the sandbox disk or hold the proxy.
+ */
+const PLAIN_GIT_MAX_RESPONSE_BYTES = 2 * 1024 * 1024 * 1024
+
+/**
+ * A stream that passes at most `limit` bytes. After that, it ends with the
+ * error of `tooLarge`, and the upstream stream is canceled.
+ */
+function byteLimit(
+  limit: number,
+  tooLarge: () => string,
+): TransformStream<Uint8Array, Uint8Array> {
+  let total = 0
+  return new TransformStream({
+    transform(chunk, controller) {
+      total += chunk.byteLength
+      if (total > limit) controller.error(new Error(tooLarge()))
+      else controller.enqueue(chunk)
+    },
+  })
+}
+
 /** Git fetch only: `info/refs` for `git-upload-pack`, then `git-upload-pack`. */
 function fetchOnly<T extends { path?: string }>(
   rule: T,
@@ -253,6 +278,8 @@ export async function ingestEgressProxy(input: {
   vercel: () => Promise<{ teamId: string; projectId: string }>
   /** The DNS lookup of a plain git host; defaults to the system resolver. */
   lookup?: PlainGitLookup
+  /** The size limit of one plain git answer; a test sets a small one. */
+  plainGitMaxBytes?: number
 }): Promise<Response> {
   const forwardedPath = input.request.headers.get("vercel-forwarded-path")
   if (forwardedPath !== null && hasDotSegment(forwardedPath))
@@ -345,7 +372,26 @@ export async function ingestEgressProxy(input: {
       }
       const responseHeaders = new Headers(upstream.headers)
       for (const name of DROPPED_RESPONSE_HEADERS) responseHeaders.delete(name)
-      return new Response(upstream.body, {
+      let answer = upstream.body
+      if (plainGitAddresses && answer) {
+        const limit = input.plainGitMaxBytes ?? PLAIN_GIT_MAX_RESPONSE_BYTES
+        const tooLarge = () => {
+          const message = `The plain git host ${url.host} sent an answer larger than the limit of ${limit} bytes`
+          log.warn({
+            step: "ingest-egress-plain-git-size",
+            message,
+            sandboxId: meta.sandboxId,
+            sandboxName: meta.sandboxName,
+          })
+          return message
+        }
+        if (Number(upstream.headers.get("content-length")) > limit) {
+          await answer.cancel()
+          return new Response(tooLarge(), { status: 502 })
+        }
+        answer = answer.pipeThrough(byteLimit(limit, tooLarge))
+      }
+      return new Response(answer, {
         status: upstream.status,
         statusText: upstream.statusText,
         headers: responseHeaders,

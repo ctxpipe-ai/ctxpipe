@@ -113,7 +113,7 @@ afterEach(() => {
   server.resetHandlers()
 })
 
-function egressApp() {
+function egressApp(plainGitMaxBytes?: number) {
   const env = parseEnv({
     DATABASE_URL: "postgres://unused@localhost:5432/unused",
     AUTH_SECRET: secret,
@@ -128,7 +128,10 @@ function egressApp() {
     c.set("env", env)
     await next()
   })
-  registerSandboxEgressRoute(app, { lookup })
+  registerSandboxEgressRoute(app, {
+    lookup,
+    ...(plainGitMaxBytes ? { plainGitMaxBytes } : {}),
+  })
   // Another backend route, as the sandbox must never reach it.
   app.all("/:orgSlug/api/v1/*", (c) => c.text("reached"))
   return app
@@ -174,13 +177,15 @@ async function forwarded(
     issuer?: string
     /** The request path as the backend sees it; defaults to the forward URL plus `path`. */
     requestPath?: string
+    /** The size limit of one plain git answer. */
+    plainGitMaxBytes?: number
   } = {},
 ) {
   const sealed = options.sealed ?? sealIngestEgressScope(scope, secret)
   const forwardUrl = `https://${backendHost}/api/v1/sandbox-egress/${sealed}`
   const url = new URL(target)
   const path = options.rawPath ?? `${url.pathname}${url.search}`
-  return egressApp().request(
+  return egressApp(options.plainGitMaxBytes).request(
     `http://127.0.0.1:3000${options.requestPath ?? `/api/v1/sandbox-egress/${sealed}${path}`}`,
     {
       method: options.method ?? "GET",
@@ -751,6 +756,63 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
     expect(seen).toEqual([])
     // During prepare, the same fetch reaches the host.
     expect(await fetchOf(sealedOf(true))).toEqual([200, 200])
+  })
+
+  it("stops a plain git answer that is larger than the size limit, with a clear error", async () => {
+    const chunk = new Uint8Array(512).fill(65)
+    server.use(
+      // No length: the proxy counts the bytes as they pass.
+      http.post(
+        "https://git.example.org/team/app.git/git-upload-pack",
+        () =>
+          new HttpResponse(
+            new ReadableStream({
+              start(controller) {
+                for (let i = 0; i < 4; i++) controller.enqueue(chunk)
+                controller.close()
+              },
+            }),
+          ),
+      ),
+      // A declared length over the limit: refused before any byte passes.
+      http.get(
+        "https://git.example.org/team/app.git/info/refs",
+        () =>
+          new HttpResponse(new Uint8Array(4096), {
+            headers: { "content-length": "4096" },
+          }),
+      ),
+    )
+    const message =
+      "The plain git host git.example.org sent an answer larger than the limit of 1024 bytes"
+    const pack = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      {
+        sealed: sealed(),
+        method: "POST",
+        body: "0032want abc\n0000",
+        plainGitMaxBytes: 1024,
+      },
+    )
+    expect(pack.status).toBe(200)
+    await expect(pack.text()).rejects.toThrow(message)
+    const refs = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed(), plainGitMaxBytes: 1024 },
+    )
+    expect(refs.status).toBe(502)
+    expect(await refs.text()).toBe(message)
+    // Under the limit, the whole answer passes.
+    const small = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      {
+        sealed: sealed(),
+        method: "POST",
+        body: "0032want abc\n0000",
+        plainGitMaxBytes: 4096,
+      },
+    )
+    expect((await small.text()).length).toBe(2048)
   })
 
   it("refuses a plain git host that resolves to a private address", async () => {

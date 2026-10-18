@@ -57,6 +57,8 @@ export function registerSandboxEgressRoute(
   options: {
     /** The DNS lookup of a plain git host; a test gives its own answers. */
     lookup?: PlainGitLookup
+    /** The size limit of one plain git answer; a test sets a small one. */
+    plainGitMaxBytes?: number
   } = {},
 ) {
   const handle = async (c: Context<AppEnv>) => {
@@ -76,6 +78,9 @@ export function registerSandboxEgressRoute(
         secret: c.var.env.AUTH_SECRET,
         vercel: () => vercelCredentials(),
         ...(options.lookup ? { lookup: options.lookup } : {}),
+        ...(options.plainGitMaxBytes
+          ? { plainGitMaxBytes: options.plainGitMaxBytes }
+          : {}),
       })
     } catch (error) {
       log.error({
