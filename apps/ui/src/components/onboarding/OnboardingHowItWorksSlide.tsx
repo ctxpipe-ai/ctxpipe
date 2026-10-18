@@ -12,32 +12,32 @@ type OnboardingHowItWorksSlideProps = {
 }
 
 /**
- * Each row fades in after the row above it (DESIGN.md "Motion": 150 ms at
- * most, delays of 150 ms at most). `fill-mode-backwards` keeps a row hidden
- * during its delay. With reduced motion, `motion-safe` removes the animation,
- * so the rows show at once.
+ * Each row fades in after the row above it (DESIGN.md "Motion", the
+ * exception for the hand-off from onboarding: 100 ms, delays of 150 ms at
+ * most). `fill-mode-backwards` keeps a row hidden during its delay. Reduced
+ * motion shortens each animation to nothing (the global rule in `styles.css`).
  */
 const rowFadeClassName =
-  "motion-safe:animate-in motion-safe:fade-in motion-safe:slide-in-from-bottom-1 motion-safe:fill-mode-backwards duration-150 ease-out"
+  "animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards duration-100 ease-out"
 
 const steps = [
   {
     icon: IconFolderCode,
     title: "Your team's knowledge, in git",
     body: "One repository of Markdown files. ctx| can create it for you.",
-    delay: "motion-safe:delay-50",
+    delay: "delay-30",
   },
   {
     icon: IconRefresh,
     title: "Kept current",
     body: "Connectors copy Linear, Slack, Notion and merged pull requests into it. Each change is a commit that you can review.",
-    delay: "motion-safe:delay-100",
+    delay: "delay-60",
   },
   {
     icon: IconRobot,
     title: "Ready for your agents",
     body: "Ask questions, edit files and open pull requests here or from the agent in your editor.",
-    delay: "motion-safe:delay-150",
+    delay: "delay-90",
   },
 ]
 
@@ -52,9 +52,7 @@ export function OnboardingHowItWorksSlide({
         <h1 className="text-3xl font-semibold text-zinc-100 sm:text-4xl">
           Welcome to ctx|
         </h1>
-        <h2 className="mt-3 text-lg font-normal text-zinc-400">
-          Here's how it works.
-        </h2>
+        <p className="mt-3 text-lg text-zinc-400">Here's how it works.</p>
       </div>
       <ul className="mx-auto mt-10 max-w-xl space-y-5 text-left">
         {steps.map((step) => (
@@ -80,7 +78,7 @@ export function OnboardingHowItWorksSlide({
           </li>
         ))}
       </ul>
-      <div className={cn(rowFadeClassName, "motion-safe:delay-150")}>
+      <div className={cn(rowFadeClassName, "delay-120")}>
         <p className="mx-auto mt-8 text-xs text-zinc-500">
           Turn ctx| off, and your knowledge stays in your repository.
         </p>

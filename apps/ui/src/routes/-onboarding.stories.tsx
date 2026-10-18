@@ -4,6 +4,7 @@ import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { Toaster } from "sonner"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
   organizationFullHandler,
@@ -77,13 +78,13 @@ const onboardingJourneyRoute = {
  * user there (Home then fades in).
  */
 function OnboardingJourney() {
-  const { pathname, state } = useLocation()
+  const { pathname } = useLocation()
   if (pathname === "/onboarding") return <OnboardingPageContent />
   if (pathname === "/") return <IndexRoutePage />
   return (
     <p>
       Landed on {pathname}
-      {state.fromOnboarding ? " from onboarding" : ""}
+      {onboardingHandOffFlag.isSet() ? " from onboarding" : ""}
     </p>
   )
 }
@@ -365,6 +366,8 @@ export const AdminFinishFailureContinues: Story = {
     )
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText("Could not finish onboarding. Try again.")
+    // Home must not fade in after a failed finish.
+    expect(onboardingHandOffFlag.isSet()).toBe(false)
     const proceed = await canvas.findByRole("button", { name: "Continue" })
     await waitFor(() => expect(proceed).toBeEnabled())
     await waitFor(() =>

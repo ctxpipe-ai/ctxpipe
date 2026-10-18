@@ -15,6 +15,7 @@ import {
 } from "@/features/workspace-upgrades/queries"
 import { formatHealthLine } from "@/features/workspace-upgrades/upgrade-copy"
 import { pollWhileOk } from "@/lib/api-result"
+import { workspaceCreatedFlag } from "@/lib/session-flags"
 import { WRITE_CHECK_POLL_CAP_MS, writeCheckInFlight } from "./projection"
 import {
   createWorkspace,
@@ -138,6 +139,7 @@ export function WorkspaceCreateForm(props: {
       createWorkspace(orgSlug, choice),
     onSuccess: () => {
       HyperDX.addAction("workspace_created")
+      workspaceCreatedFlag.set()
       void queryClient.invalidateQueries({
         queryKey: workspaceKeys.list(orgSlug),
       })

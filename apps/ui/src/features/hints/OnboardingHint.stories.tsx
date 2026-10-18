@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { Button } from "@/components/ui/Button"
@@ -8,6 +9,8 @@ import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrom
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
 import {
+  createdWorkspace,
+  createdWritableWorkspaceDetail,
   docsConversations,
   docsWorkspace,
   docsWorkspaceDetail,
@@ -19,8 +22,20 @@ import {
 } from "@/mocks/handlers"
 import {
   conversationsListHandler,
+  githubInstallationReposHandler,
+  workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
+import {
+  activeMemberRoleHandler,
+  orgConnectionsHandler,
+  workspaceSourceList,
+  workspaceSourcesHandler,
+} from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 
@@ -149,8 +164,6 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
     await body.findByRole("dialog", { name: "Story dialog" })
     // The Workspace list loaded, so the add-workspace hint is due.
     await within(canvasElement).findAllByText("Docs")
-    // Give the hint time to open, as it does without a dialog.
-    await new Promise((resolve) => setTimeout(resolve, 300))
     expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull()
     await waitFor(async () => {
       const close = body.queryByRole("button", { name: "Close dialog" })
@@ -158,6 +171,79 @@ export const AddWorkspaceHintWaitsForDialog: Story = {
       expect(body.queryByRole("dialog", { name: "Story dialog" })).toBeNull()
     })
     await findHint(canvasElement, "Add a Workspace for each team or product.")
+    expect(storedHintsSeen()).not.toContain("add-workspace")
+  },
+}
+
+const workspacesPath = ({ request }: { request: Request }) =>
+  /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
+const createState = { created: false }
+
+/**
+ * CTX-863: the user creates a Workspace in the side nav. The add-workspace
+ * tip must not show when the dialog closes, because the user just did what
+ * it says. The tip can show on a later visit (the session flag is gone).
+ */
+export const AddWorkspaceHintSkippedAfterCreating: Story = {
+  beforeEach: () => {
+    seedHintsSeen([])
+    createState.created = false
+  },
+  render: () => (
+    <ul className="w-64 bg-zinc-950 py-2">
+      <WorkspaceNavList orgSlug="acme" expanded onSelectNav={() => {}} />
+    </ul>
+  ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("owner"),
+          http.get(workspacesPath, () =>
+            HttpResponse.json({
+              items: createState.created ? [createdWorkspace] : [],
+              lastUsedWorkspaceId: createState.created
+                ? createdWorkspace.id
+                : null,
+            }),
+          ),
+          http.post(workspacesPath, () => {
+            createState.created = true
+            return HttpResponse.json(createdWorkspace, { status: 201 })
+          }),
+          conversationsListHandler([]),
+          orgConnectionsHandler([
+            { id: "con_gh", type: "github", displayName: "acme" },
+          ]),
+          githubInstallationReposHandler(),
+          workspaceDetailHandler(createdWritableWorkspaceDetail),
+          workspaceSourcesHandler(workspaceSourceList()),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add Workspace" }),
+    )
+    const dialog = within(await body.findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("radio", { name: /acme\/handbook/ }),
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Create Workspace" }),
+    )
+    // Step 2 has settled when its sources show.
+    await dialog.findByRole("button", { name: "Add repositories" })
+    await userEvent.click(dialog.getByRole("button", { name: "Close" }))
+    await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
+    // The nav lists the new Workspace, so the add-workspace anchor is on the
+    // page and the tip would be due without the flag.
+    await canvas.findByText("Handbook")
+    expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull()
     expect(storedHintsSeen()).not.toContain("add-workspace")
   },
 }

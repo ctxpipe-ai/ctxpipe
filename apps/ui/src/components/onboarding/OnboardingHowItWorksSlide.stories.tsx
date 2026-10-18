@@ -59,9 +59,9 @@ export const NewOrganization: Story = {
         canvas.getByRole("heading", { level: 1, name: "Welcome to ctx|" }),
       ).toBeVisible(),
     )
-    expect(
-      canvas.getByRole("heading", { level: 2, name: "Here's how it works." }),
-    ).toBeVisible()
+    expect(canvas.getByText("Here's how it works.")).toBeVisible()
+    // One heading: the title. The subtitle is plain text.
+    expect(canvas.getAllByRole("heading")).toHaveLength(1)
     for (const title of STEP_TITLES)
       await waitFor(() => expect(canvas.getByText(title)).toBeVisible())
     await userEvent.click(canvas.getByRole("button", { name: "Next" }))
@@ -70,8 +70,9 @@ export const NewOrganization: Story = {
 }
 
 /**
- * The rows fade in one after another: each row has the short fade, and each
- * row starts later than the row above it, by 150 ms at most.
+ * The rows fade in one after another: each row has the short fade (100 ms),
+ * and each row starts after the row above it. The last delay is 150 ms at
+ * most.
  */
 export const RowsFadeInInOrder: Story = {
   play: async ({ canvasElement }) => {
@@ -83,18 +84,21 @@ export const RowsFadeInInOrder: Story = {
       const style = getComputedStyle(row)
       expect(style.animationName).toBe("enter")
       expect(Number.parseFloat(style.animationDuration)).toBeLessThanOrEqual(
-        0.15,
+        0.1,
       )
       return Number.parseFloat(style.animationDelay)
     })
-    // The title starts at once; each step starts after the row above it.
-    expect(delays.slice(0, 4)).toEqual([0, 0.05, 0.1, 0.15])
-    expect(delays[4]).toBeLessThanOrEqual(0.15)
+    // The title starts at once; each row starts after the row above it,
+    // and the action row starts after step 3.
+    expect(delays).toEqual([0, 0.03, 0.06, 0.09, 0.12])
     for (const row of rows) await waitFor(() => expect(row).toBeVisible())
   },
 }
 
-/** With reduced motion, the rows have no animation and show at once. */
+/**
+ * With reduced motion, the global rule makes each animation last no time.
+ * Each row shows when its short delay ends, and it does not move.
+ */
 export const RowsWithReducedMotion: Story = {
   tags: ["reduced-motion"],
   play: async ({ canvasElement }) => {
@@ -102,9 +106,10 @@ export const RowsWithReducedMotion: Story = {
       name: "Welcome to ctx|",
     })
     for (const row of slideRows(canvasElement)) {
-      const style = getComputedStyle(row)
-      expect(style.animationName).toBe("none")
-      expect(style.opacity).toBe("1")
+      expect(
+        Number.parseFloat(getComputedStyle(row).animationDuration),
+      ).toBeLessThan(0.001)
+      await waitFor(() => expect(row).toBeVisible())
     }
   },
 }

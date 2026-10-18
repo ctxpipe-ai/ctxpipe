@@ -9,6 +9,7 @@ import { useIsModalOpen } from "@/components/ui/Modal"
 import { Popover } from "@/components/ui/Popover"
 import { isWithinGuideWindow } from "@/features/home/setup-guide/guide-state"
 import { useSession } from "@/lib/auth-client"
+import { workspaceCreatedFlag } from "@/lib/session-flags"
 import { sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
 import { activeHint, type HintId } from "./hint-state"
@@ -68,6 +69,7 @@ export function OnboardingHint(props: {
       seen: guide.hintsSeen ?? [],
       newUser: isWithinGuideWindow(user?.onboardingCompletedAt, Date.now()),
       modalOpen,
+      createdWorkspace: workspaceCreatedFlag.isSet(),
     }) === id
 
   const markSeen = useCallback(

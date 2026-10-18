@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http, type RequestHandler } from "msw"
+import { delay, HttpResponse, http, type RequestHandler } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
@@ -14,6 +14,7 @@ import {
   hydratingWorkspace,
   waitingForTipWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
+import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
   githubInstallationLinkedHandler,
@@ -648,14 +649,26 @@ export const GuideSkeletonMatchesCollapsed: Story = {
   },
 }
 
+/** The activity read of Home never answers, as for a slow unrelated read. */
+const activityNeverAnswers = http.get(
+  ({ request }) => /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+  async () => {
+    await delay("infinite")
+    return HttpResponse.json({ items: [] })
+  },
+)
+
 const handOffGate = responseGate()
 /**
  * Onboarding opened Home (CTX-868). While a guide signal loads, Home stays
- * hidden: no skeleton shows and nothing pops in. When the first data is
- * ready, Home fades in one time, and the guide keeps its box.
+ * hidden: no skeleton shows and nothing pops in. When the first data (the
+ * Workspace list and the guide signals) is ready, Home fades in one time,
+ * and the guide keeps its box. A read that Home does not need for that, here
+ * the activity, does not keep Home hidden. Then the flag is gone, so a
+ * reload does not hide Home again.
  */
 export const FadesInAfterOnboarding: Story = {
-  render: () => <OrgHomePageContent orgSlug="acme" fromOnboarding />,
+  beforeEach: () => onboardingHandOffFlag.set(),
   parameters: {
     msw: {
       handlers: {
@@ -671,7 +684,7 @@ export const FadesInAfterOnboarding: Story = {
           ),
           ...adminGuide({}),
           workspaceListHandler([]),
-          orgActivityHandler(),
+          activityNeverAnswers,
         ],
       },
     },
@@ -683,12 +696,20 @@ export const FadesInAfterOnboarding: Story = {
     const section = skeleton.closest("section")
     if (!section) throw new Error("The skeleton has no section")
     const { width, height } = section.getBoundingClientRect()
-    // The page is hidden while the signal loads.
+    // The page is hidden while the signal loads: it is not visible, and a
+    // control on it cannot take focus.
+    const hidden = section.closest(".max-w-2xl")
+    if (!hidden) throw new Error("Home has no body")
+    expect(getComputedStyle(hidden).visibility).toBe("hidden")
     await waitFor(() =>
       expect(canvas.getByText("Loading the setup guide")).not.toBeVisible(),
     )
     await handOffGate.release()
+    const released = performance.now()
     const guide = await findGuide(canvasElement)
+    // The activity read is still open. Home did not wait for it: a wait for
+    // it would last until the cap of 1 s.
+    expect(performance.now() - released).toBeLessThan(500)
     await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
     const loaded = canvas.getByRole("region", { name: "Get started" })
     expect(Math.round(loaded.getBoundingClientRect().height)).toBe(
@@ -701,6 +722,74 @@ export const FadesInAfterOnboarding: Story = {
     if (!body) throw new Error("Home has no body")
     expect(getComputedStyle(body).animationName).toBe("enter")
     expect(body).not.toHaveAttribute("aria-busy")
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
+  },
+}
+
+/**
+ * A guide read is slow: Home does not stay hidden for ever. After 1 s it
+ * shows, with the skeleton of the guide, and the flag is gone.
+ */
+export const HandOffShowsHomeWhenDataIsSlow: Story = {
+  beforeEach: () => onboardingHandOffFlag.set(),
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(0),
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Loading the setup guide")
+    await waitFor(
+      () => expect(canvas.getByText("Loading the setup guide")).toBeVisible(),
+      { timeout: 5000 },
+    )
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
+  },
+}
+
+/**
+ * The Workspace list read fails: Home does not stay blank. It shows its
+ * normal error with Retry, and the flag is gone.
+ */
+export const HandOffShowsHomeWhenReadFails: Story = {
+  beforeEach: () => onboardingHandOffFlag.set(),
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(0),
+        page: [
+          ...adminGuide({}),
+          failed("/api/v1/workspaces"),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await canvas.findByRole("alert", {}, { timeout: 5000 })
+    await waitFor(() =>
+      expect(
+        within(alert).getByText("Could not load Workspaces"),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
 }
 
