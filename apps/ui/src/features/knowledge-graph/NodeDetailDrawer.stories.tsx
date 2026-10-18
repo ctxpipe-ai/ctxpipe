@@ -1,18 +1,20 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, fn, within } from "storybook/test"
+import { expect, fn, userEvent, within } from "storybook/test"
 import { NodeDetailDrawer } from "./NodeDetailDrawer"
 import { colorForKind } from "./theme"
 import type { KnowledgeGraphNode, NodeFacts } from "./types"
 
 const linear: KnowledgeGraphNode = {
-  id: "knowledge/connectors/linear.md",
+  id: "kn_linear",
+  path: "knowledge/connectors/linear.md",
   kind: "Integration",
   name: "Linear",
   summary: "Issue mirror into knowledge/",
 }
 
 const gitCanonical: KnowledgeGraphNode = {
-  id: "knowledge/hydrate/git.md",
+  id: "kn_git",
+  path: "knowledge/hydrate/git.md",
   kind: "Pattern",
   name: "git canonical",
   summary: "Files are identity; hydrate does not write git",
@@ -96,6 +98,20 @@ export const Populated: Story = {
     for (const section of sections.slice(1)) {
       await expect(borderTop(section)).toBe("1px")
     }
+  },
+}
+
+/** The node id is a `kn_` id; the Path row shows the file and links to it. */
+export const SourceLink: Story = {
+  play: async ({ canvasElement, args }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("knowledge/connectors/linear.md"),
+    ).toBeVisible()
+    await userEvent.click(canvas.getByRole("button", { name: "Go to definition" }))
+    await expect(args.onOpenSource).toHaveBeenCalledWith(
+      "knowledge/connectors/linear.md",
+    )
   },
 }
 

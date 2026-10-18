@@ -246,7 +246,7 @@ export async function readWorkspaceGraph(input: WorkspaceGraphReadInput) {
     const { client: graph, projectionKey, marker: complete } = store
     const nodeResult = await graph.executeQuery(
       `MATCH (n:WorkspaceKnowledgeUnit {projectionKey: $projectionKey})
-      RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary ORDER BY n.id`,
+      RETURN n.id AS id, n.kind AS kind, n.name AS name, n.summary AS summary, n.path AS path ORDER BY n.id`,
       { projectionKey },
     )
     const nodeSchema = z.object({
@@ -254,6 +254,7 @@ export async function readWorkspaceGraph(input: WorkspaceGraphReadInput) {
       kind: z.string(),
       name: z.string().nullable(),
       summary: z.string().nullable(),
+      path: z.string(),
     })
     const nodes = nodeResult.records.map((row) =>
       nodeSchema.parse({
@@ -261,6 +262,7 @@ export async function readWorkspaceGraph(input: WorkspaceGraphReadInput) {
         kind: row.get("kind"),
         name: row.get("name"),
         summary: row.get("summary"),
+        path: row.get("path"),
       }),
     )
     const signalResult = await graph.executeQuery(
