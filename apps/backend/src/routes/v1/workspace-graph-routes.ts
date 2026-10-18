@@ -37,6 +37,7 @@ const WorkspaceGraphResponseSchema = z
         kind: z.string(),
         name: z.string().nullable(),
         summary: z.string().nullable(),
+        path: z.string(),
       }),
     ),
     edges: z.array(
