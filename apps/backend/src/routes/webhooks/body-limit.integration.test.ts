@@ -74,9 +74,27 @@ function countingBody(size: number) {
   return { stream, counter }
 }
 
+/** A POST init with a stream body. A stream body needs `duplex: "half"`. */
+function streamPost(
+  headers: Record<string, string>,
+  body: ReadableStream<Uint8Array>,
+): RequestInit {
+  const init: RequestInit & { duplex: "half" } = {
+    method: "POST",
+    headers,
+    body,
+    duplex: "half",
+  }
+  return init
+}
+
 // Each route with the headers that let its handler go to the body read and
 // then to a connection lookup or a signature check.
-const routes = [
+const routes: Array<{
+  path: string
+  limit: number
+  headers: Record<string, string>
+}> = [
   {
     path: "/api/v1/webhook/github/con_limit_test",
     limit: WEBHOOK_BODY_LIMIT_BYTES.github,
@@ -135,16 +153,17 @@ describe("webhook body limit", () => {
   }) => {
     const app = createTestApp()
     const { stream, counter } = countingBody(limit + 1)
-    const res = await app.request(path, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "content-type": "application/json",
-        "content-length": String(limit + 1),
-      },
-      body: stream,
-      duplex: "half",
-    } as RequestInit)
+    const res = await app.request(
+      path,
+      streamPost(
+        {
+          ...headers,
+          "content-type": "application/json",
+          "content-length": String(limit + 1),
+        },
+        stream,
+      ),
+    )
 
     expect(res.status).toBe(413)
     expect(await res.json()).toEqual({ error: "Payload too large" })
@@ -165,16 +184,17 @@ describe("webhook body limit", () => {
     const app = createTestApp()
     const size = limit + 4 * 1024 * 1024
     const { stream, counter } = countingBody(size)
-    const res = await app.request(path, {
-      method: "POST",
-      headers: {
-        ...headers,
-        "content-type": "application/json",
-        "transfer-encoding": "chunked",
-      },
-      body: stream,
-      duplex: "half",
-    } as RequestInit)
+    const res = await app.request(
+      path,
+      streamPost(
+        {
+          ...headers,
+          "content-type": "application/json",
+          "transfer-encoding": "chunked",
+        },
+        stream,
+      ),
+    )
 
     expect(res.status).toBe(413)
     expect(counter.pulled).toBeLessThan(size)
@@ -198,17 +218,18 @@ describe("webhook body limit", () => {
         }),
       }
     })()
-    const res = await app.request("/api/v1/webhook/slack", {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "transfer-encoding": "chunked",
-        "x-slack-signature": signature,
-        "x-slack-request-timestamp": timestamp,
-      },
-      body: stream,
-      duplex: "half",
-    } as RequestInit)
+    const res = await app.request(
+      "/api/v1/webhook/slack",
+      streamPost(
+        {
+          "content-type": "application/json",
+          "transfer-encoding": "chunked",
+          "x-slack-signature": signature,
+          "x-slack-request-timestamp": timestamp,
+        },
+        stream,
+      ),
+    )
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({ challenge: "c1" })
