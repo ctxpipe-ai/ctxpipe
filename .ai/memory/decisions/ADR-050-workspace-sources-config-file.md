@@ -231,7 +231,7 @@ sources:
 
 | Key | Type | Rule |
 | --- | --- | --- |
-| `url` | string | Required. A public HTTPS git URL (ADR-052, revision 2026-10-18). |
+| `url` | string | Required. A plain git URL that passes the URL policy of the deployment mode (ADR-052, revision 2026-10-18). |
 
 ```markdown
 ---

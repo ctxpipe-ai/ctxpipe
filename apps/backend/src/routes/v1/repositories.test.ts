@@ -1,5 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import {
   contextStorage,
@@ -33,7 +33,14 @@ vi.mock("../../openworkflow/enqueue-repository-deletion.js", () => ({
   enqueueRepositoryDeletionWorkflow: enqueueDeletionMock,
 }))
 
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { repositoryRoutes } from "./repositories.js"
+
+beforeAll(() => {
+  // The route checks each git URL as a plain git URL (CTX-815); the test
+  // has its own DNS answer.
+  usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
+})
 
 function appWithAuth(options?: { orgSlug?: string }) {
   const app = new OpenAPIHono<AppEnv>()

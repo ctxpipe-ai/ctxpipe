@@ -63,8 +63,9 @@ import type {
  *
  * - `kept`: nothing makes this knowledge again, so step 1 exports it:
  *   - `not_github`: an org repository that is not on GitHub and that no
- *     plain git source links (its URL is not a public HTTPS git URL, see
- *     `resolvePlainGitRemote`). Fresh ingestion cannot read it.
+ *     plain git source links (its URL breaks the plain git URL policy of
+ *     the deployment mode, see `resolvePlainGitRemote`). Fresh ingestion
+ *     cannot read it.
  *   - `not_linked`: a GitHub repository that the final sources file does
  *     not link.
  *   - `workspace_repository`: an object of the repository of a Workspace
@@ -481,7 +482,7 @@ export function exportAndSourcesStep(
         for (const [id, gitUrl] of source.repositoryGitUrlById)
           if (!source.workspaceByRepositoryId.has(id))
             report.push(
-              `Not linked: ${gitUrl}. The org has no first Workspace, so no Workspace gets this repository.`,
+              `Not linked: ${normalizeWorkspaceRepositoryUrl(gitUrl)}. The org has no first Workspace, so no Workspace gets this repository.`,
             )
         for (const object of source.objects)
           if (
@@ -512,16 +513,18 @@ export function exportAndSourcesStep(
       for (const path of linkedRepositories.deletePaths)
         report.push(`Removed \`${path}\`: its repository is now a source.`)
       for (const skipped of linkedRepositories.skipped)
-        report.push(`Not linked: ${skipped.item}. ${skipped.reason}.`)
+        report.push(
+          `Not linked: ${URL.canParse(skipped.item) ? normalizeWorkspaceRepositoryUrl(skipped.item) : skipped.item}. ${skipped.reason}.`,
+        )
       // Plain git repositories: one source file for each (CTX-815).
       const plainGitFiles = await plainGitSourceFiles({ tree, plainGit })
       for (const file of plainGitFiles)
         report.push(
-          `Linked ${file.url} as a plain git source in \`${file.path}\`. Fresh ingestion reads it over HTTPS with no credential.`,
+          `Linked ${file.url} as a plain git source in \`${file.path}\`. Fresh ingestion reads it over ${file.url.startsWith("http://") ? "HTTP" : "HTTPS"} with no credential.`,
         )
       for (const refused of plainGitRefused)
         report.push(
-          `Not linked: ${refused.gitUrl}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
+          `Not linked: ${normalizeWorkspaceRepositoryUrl(refused.gitUrl)}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
         )
       if (linkedRepositories.skipped.length || plainGitRefused.length)
         notices.push({
