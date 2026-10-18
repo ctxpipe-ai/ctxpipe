@@ -169,8 +169,10 @@ services:
   # dial private addresses only at the backend's fixed `sandbox` address.
   # Other HTTP(S) hosts are forwarded, so the internet stays open. To let
   # ingestion fetch a plain git source on a private network, set
-  # AGENT_VAULT_NETWORK_ALLOWLIST in `.env`: add only your git server address
-  # or network. Compose always keeps 172.30.99.10 and adds your entries after
+  # AGENT_VAULT_NETWORK_ALLOWLIST in `.env`: add only the single host address
+  # of your git server, never a subnet. Chat-sandbox vaults forward each host
+  # that no rule matches, so each address in the list is open to every chat
+  # agent, on every port and path. Compose always keeps 172.30.99.10 and adds your entries after
   # it. Never add a range that covers 172.30.99.0/24, a cloud metadata,
   # link-local, or loopback range.
   agent-vault:

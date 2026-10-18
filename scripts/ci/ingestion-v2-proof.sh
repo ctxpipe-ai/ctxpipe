@@ -112,7 +112,8 @@ run_state() { proof STATUS status --run-id "$1" --spent-before "$total_spend" --
 
 for ((i = 0; i < count; i++)); do
   url=$(jq -r ".repositories[$i].url" <<<"$seed")
-  name=$(jq -r ".repositories[$i].name" <<<"$seed")
+  # The Actions log and summary are public: name a repository by its position.
+  name="Repository $((i + 1))"
   sha=$(jq -r ".repositories[$i].sha" <<<"$seed")
   # The worker-kill test runs in the last repository: it is the largest one
   # when the list is ordered small to large.
@@ -178,6 +179,10 @@ for ((i = 0; i < count; i++)); do
   echo "::endgroup::"
   # The job summary is not in the API, so the log also shows how the run ended.
   echo "Run $run_id ended: $(jq -c '{status, outputStatus, outputReason, error}' <<<"$state")"
+  # Where each failed step attempt failed (the log has no error text).
+  docker compose logs --no-color worker 2>/dev/null |
+    grep -aF '"ingestion-v2.step-attempt-failed"' | grep -aF "$run_id" |
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode}' || true
 
   status=$(jq -r .status <<<"$state")
   spend=$(jq -r .spendUsd <<<"$state")
@@ -232,4 +237,6 @@ done
   echo "$estimate_line"
   echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend is the cost of the finished steps; a step with no reported cost counts at the token price."
 } >>"$summary"
+# The job summary is not in the API: print it in the log too.
+[ "$summary" = /dev/stdout ] || cat "$summary"
 exit "$failed"

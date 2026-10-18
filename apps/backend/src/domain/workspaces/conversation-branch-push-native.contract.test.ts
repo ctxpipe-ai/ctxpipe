@@ -336,7 +336,7 @@ async function withSession(
         if (!address || typeof address === "string")
           throw new Error("Model proxy port missing")
         vi.stubEnv("PORT", String(address.port))
-        vi.stubEnv("MODEL_FAST_NAME", "openai/gpt-5.6-terra")
+        vi.stubEnv("MODEL_FAST_NAME", "test/model-fast")
         await run(f, s)
       } finally {
         // The agent may still hold a streaming connection; never wait on it.

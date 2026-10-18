@@ -1,5 +1,6 @@
 import { createHash } from "node:crypto"
 import { isDeepStrictEqual } from "node:util"
+import { sql } from "drizzle-orm"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
@@ -17,6 +18,7 @@ import {
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
 import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
 import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
@@ -109,9 +111,15 @@ export async function enqueueDailySourcesSyncs(now: Date): Promise<number> {
 }
 
 /**
- * "Sync now" on a connector: the same full sync as the daily one, now. The
- * key is per connection per minute, so a double click starts one sync.
+ * "Sync now" on a connector: the same full sync as the daily one, now.
  * Gives false when the connection has no `ok` source with a sync adapter.
+ *
+ * A double click starts one sync. A click less than one minute after the
+ * last Sync now of the connection queues nothing. Other clicks use a key from
+ * the last Sync now, so clicks at the same time get the same key, and the
+ * OpenWorkflow key lock lets only one of them start a run. A key from a
+ * fixed minute did not do this: two clicks on each side of a full minute got
+ * two keys and started two syncs.
  */
 export async function requestConnectionSourcesSync(input: {
   orgId: string
@@ -127,12 +135,25 @@ export async function requestConnectionSourcesSync(input: {
     .map((row) => fullSyncProvider(row.source.provider))
     .find((found) => found !== null)
   if (!provider) return false
+  const keyPrefix = `workspace-sources:${input.connectionId}:sync-now:`
+  const last = (
+    await getSystemDb().execute<{ id: string; recent: boolean }>(sql`
+      select id, created_at > ${new Date(input.now.getTime() - 60_000)} as recent
+      from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and workflow_name = ${workspaceSourcesSync.spec.name}
+        and starts_with(idempotency_key, ${keyPrefix})
+      order by created_at desc, id desc
+      limit 1
+    `)
+  ).rows[0]
+  if (last?.recent) return true
   await enqueueConnectionSourcesSync({
     orgId: input.orgId,
     connectionId: input.connectionId,
     provider,
     manual: true,
-    dedupeKey: `sync-now:${Math.floor(input.now.getTime() / 60_000)}`,
+    dedupeKey: `sync-now:after:${last?.id ?? "none"}`,
   })
   return true
 }
