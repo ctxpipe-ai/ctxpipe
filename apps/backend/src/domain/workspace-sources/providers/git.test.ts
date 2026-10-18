@@ -88,9 +88,12 @@ describe("checkPlainGitUrl", () => {
 })
 
 describe("the plain git URL policy of each deployment mode", () => {
-  it("is self-host only when SANDBOX_PROVIDER is exactly docker", () => {
-    expect(plainGitDeployment({ SANDBOX_PROVIDER: "docker" })).toBe("self-host")
-    for (const value of [undefined, "", "vercel", "unsandboxed", " docker"])
+  it("is self-host only when SANDBOX_PROVIDER is docker, with the spaces trimmed as the sandbox provider does", () => {
+    for (const value of ["docker", " docker", "docker\n"])
+      expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
+        "self-host",
+      )
+    for (const value of [undefined, "", " ", "vercel", "unsandboxed", "Docker"])
       expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
         "hosted",
       )
