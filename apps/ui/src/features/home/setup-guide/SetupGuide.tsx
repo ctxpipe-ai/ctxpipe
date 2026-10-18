@@ -22,6 +22,8 @@ import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
 import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
+import { WorkspaceAddRepositoriesDialog } from "@/features/workspace-sources/GithubSourceRepositories"
+import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -85,7 +87,8 @@ type ReadyGuide = Extract<SetupGuide, { status: "ready" }>
  * The "Get started" checklist on Home (CTX-552). Each row reads real data;
  * no click marks a row done. `onAsk` fills and focuses the Home composer.
  * `onCreateWorkspace` opens Add Workspace on Home, so the guide shows the
- * build after the dialog closes.
+ * build after the dialog closes. "Link repositories" opens Add repositories
+ * on Home too, so the row shows "Awaiting merge" after the pull request.
  */
 export function SetupGuideCard(props: {
   orgSlug: string
@@ -101,6 +104,7 @@ export function SetupGuideCard(props: {
     orgSlug: guide.role === "admin" ? orgSlug : "",
   })
   const landing = guide.landing
+  const [addRepositoriesOpen, setAddRepositoriesOpen] = useState(false)
   const openWorkspace = (pane: string | undefined) => {
     if (!landing) return
     selectNav({ orgSlug, primary: "workspace", workspaceSlug: landing.slug })
@@ -122,7 +126,10 @@ export function SetupGuideCard(props: {
         ? { label: "Create Workspace", onPress: onCreateWorkspace }
         : { label: "Ask an admin to create a Workspace." },
     repositories: landing
-      ? { label: "Link repositories", onPress: () => openWorkspace("settings") }
+      ? {
+          label: "Link repositories",
+          onPress: () => setAddRepositoriesOpen(true),
+        }
       : undefined,
     ask: onAsk ? { label: "Ask", onPress: onAsk } : undefined,
     tool: {
@@ -163,6 +170,14 @@ export function SetupGuideCard(props: {
         onOpenBuild={() => openWorkspace(undefined)}
       />
       {guide.role === "admin" ? github.SelfHostedWizardModal : null}
+      {landing ? (
+        <WorkspaceAddRepositoriesDialog
+          orgSlug={orgSlug}
+          workspaceSlug={landing.slug}
+          isOpen={addRepositoriesOpen}
+          onOpenChange={setAddRepositoriesOpen}
+        />
+      ) : null}
     </>
   )
 }
@@ -302,6 +317,9 @@ function GuideRows(props: {
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {copy.body}
                 </p>
+                {row.pending ? (
+                  <AwaitingMergeLink change={row.pending} />
+                ) : null}
                 <ActionButton
                   action={props.actions[row.id]}
                   variant="primary"
@@ -319,6 +337,7 @@ function GuideRows(props: {
             <p className="min-w-0 flex-1 truncate text-sm text-zinc-300">
               {copy.title}
             </p>
+            {row.pending ? <AwaitingMergeLink change={row.pending} /> : null}
             <ActionButton
               action={props.actions[row.id]}
               variant="quiet"

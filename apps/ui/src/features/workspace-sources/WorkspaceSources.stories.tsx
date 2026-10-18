@@ -1,9 +1,19 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
+import { useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import { emptyLinkedWorkspaceDetail } from "@/features/workspaces/workspace-fixtures"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
-import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
+import {
+  githubInstallationReposHandler,
+  workspaceDetailHandler,
+} from "@/mocks/workspace-handlers"
 import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
@@ -12,6 +22,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSources } from "./WorkspaceSources"
@@ -35,7 +49,17 @@ const meta = {
       orgSlug: "acme",
     } satisfies StoryRouteParams,
     // Only an owner or admin sees the pickers. A member story sets `role`.
-    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
+    // The Add repositories dialog reads the Workspace and its format. A
+    // story that needs another answer sets `detail` or `upgrades`.
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("owner")],
+        detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
+      },
+    },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceSources>
@@ -1206,7 +1230,10 @@ export const PickerShowsConnectionNames: Story = {
   },
 }
 
-/** The GitHub group with no repositories yet. */
+/**
+ * The GitHub group with no repositories yet: one primary "Add repositories"
+ * button and a short line of text in the body (CTX-864).
+ */
 export const GithubNoRepositories: Story = {
   parameters: {
     msw: {
@@ -1217,15 +1244,388 @@ export const GithubNoRepositories: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("No GitHub repositories in this Workspace.")
+    await canvas.findByText(
+      "Add the code repositories of this Workspace. ctxpipe reads them to answer questions.",
+    )
     const section = canvasElement.querySelector<HTMLElement>("#source-github")
     if (!section) throw new Error("Missing GitHub group")
     const group = within(section)
     await expect(group.getByText("No GitHub sources yet")).toBeVisible()
     await expect(group.queryByRole("searchbox")).toBeNull()
+    // One add button, and it is the primary one.
+    const [add, ...others] = group.getAllByRole("button", {
+      name: "Add repositories",
+    })
+    await expect(others).toHaveLength(0)
+    await expect(add).toHaveClass("bg-primary")
+    await userEvent.click(add as HTMLElement)
+    await within(document.body).findByRole("dialog", {
+      name: "Add repositories",
+    })
+  },
+}
+
+/** The repositories of the GitHub App. The Workspace repository is acme/docs. */
+const reposWithWorkspaceRepository = githubInstallationReposHandler([
+  {
+    id: 1,
+    name: "Docs",
+    // GitHub keeps the letter case; the stored Workspace URL is in lowercase.
+    clone_url: "https://github.com/Acme/Docs.git",
+    full_name: "Acme/Docs",
+  },
+  {
+    id: 2,
+    name: "api",
+    clone_url: "https://github.com/acme/api.git",
+    full_name: "acme/api",
+  },
+])
+
+async function openAddRepositories(canvasElement: HTMLElement) {
+  await userEvent.click(
+    await within(canvasElement).findByRole("button", {
+      name: "Add repositories",
+    }),
+  )
+  return within(
+    await within(document.body).findByRole("dialog", {
+      name: "Add repositories",
+    }),
+  )
+}
+
+/**
+ * The dialog says what ctxpipe does with a repository and what "Open a pull
+ * request" does. Under the list, a hint links to the GitHub App access.
+ */
+export const AddRepositoriesExplains: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByText(
+      "ctxpipe reads the default branch of each repository. It uses the code to answer questions and to keep this Workspace current.",
+    )
+    // The dialog fades in, so each visibility check waits.
+    await waitFor(() =>
+      expect(
+        dialog.getByText(
+          /Each repository becomes active when you merge the pull request that adds it\./,
+        ),
+      ).toBeVisible(),
+    )
+    await dialog.findByRole("checkbox", { name: "acme/api" })
+    await waitFor(() =>
+      expect(dialog.getByText(/Don't see a repository\?/)).toBeVisible(),
+    )
     await expect(
-      group.getByRole("button", { name: "Add repositories" }),
-    ).toBeVisible()
+      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/organizations/acme/settings/installations/123",
+    )
+  },
+}
+
+/** A search with no match: the hint shows the next step, not a dead end. */
+export const AddRepositoriesEmptySearchHint: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByRole("checkbox", { name: "acme/api" })
+    await userEvent.type(
+      dialog.getByRole("searchbox", { name: "Search GitHub repositories" }),
+      "billing",
+    )
+    await dialog.findByText("No repositories match that search.")
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+      ).toBeVisible(),
+    )
+  },
+}
+
+/**
+ * The Workspace repository shows in the list, disabled, with a label. The
+ * match ignores the letter case of the name.
+ */
+export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    const own = await dialog.findByRole("checkbox", { name: /Acme\/Docs/ })
+    await waitFor(() => expect(own).toBeDisabled())
+    await waitFor(() =>
+      expect(dialog.getByText("This Workspace's repository")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(dialog.getByRole("checkbox", { name: "acme/api" })).toBeEnabled(),
+    )
+    await expect(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    ).toBeDisabled()
+  },
+}
+
+const accessReads = { count: 0 }
+const realDateNow = Date.now
+/**
+ * The user ticks a repository, gives access on GitHub in another tab, then
+ * comes back: the list loads again, and the new repository is first in it.
+ * The tick stays on the repository the user chose, and the pull request adds
+ * that one. The query client here keeps data fresh for 60 seconds, as the app
+ * does, and the user is away for a minute, so the dialog list is stale.
+ */
+export const AddRepositoriesRefreshesOnReturn: Story = {
+  decorators: [
+    (Story) => {
+      const [client] = useState(
+        () =>
+          new QueryClient({
+            defaultOptions: { queries: { staleTime: 60_000, retry: false } },
+          }),
+      )
+      return (
+        <QueryClientProvider client={client}>
+          <Story />
+        </QueryClientProvider>
+      )
+    },
+  ],
+  beforeEach: () => {
+    accessReads.count = 0
+    addCalls.length = 0
+    return () => {
+      Date.now = realDateNow
+      focusManager.setFocused(undefined)
+    }
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          ...workspaceSourceChangeHandlers(addCalls),
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/github/installation/repositories",
+              ),
+            () => {
+              accessReads.count += 1
+              const repositories = [
+                ...(accessReads.count > 1
+                  ? [
+                      {
+                        name: "billing",
+                        clone_url: "https://github.com/acme/billing.git",
+                        full_name: "acme/billing",
+                        pushed_at: "2026-10-18T00:00:00Z",
+                      },
+                    ]
+                  : []),
+                {
+                  name: "api",
+                  clone_url: "https://github.com/acme/api.git",
+                  full_name: "acme/api",
+                  pushed_at: "2026-10-01T00:00:00Z",
+                },
+              ]
+              return HttpResponse.json({
+                repositories,
+                repositorySelection: "selected",
+                manageUrl:
+                  "https://github.com/organizations/acme/settings/installations/123",
+                hasMore: false,
+                totalCount: repositories.length,
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await userEvent.click(
+      await dialog.findByRole("checkbox", { name: "acme/api" }),
+    )
+    await expect(accessReads.count).toBe(1)
+    // The user is on GitHub for a minute. The tab then gets focus back.
+    const start = realDateNow()
+    Date.now = () => realDateNow() - start + start + 60_000
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+    await dialog.findByRole("checkbox", { name: "acme/billing" })
+    await expect(accessReads.count).toBe(2)
+    // The new repository is first, and the tick stays on acme/api.
+    await waitFor(() => {
+      expect(dialog.getByRole("checkbox", { name: "acme/api" })).toBeChecked()
+      expect(
+        dialog.getByRole("checkbox", { name: "acme/billing" }),
+      ).not.toBeChecked()
+    })
+    await expect(dialog.getByText("1 repository selected")).toBeVisible()
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      body: { source: { scope: { repository: "acme/api" } } },
+    })
+  },
+}
+
+const ownerLine =
+  "Only an owner of the GitHub organization can give access. If you are not an owner, ask one to do it."
+
+/**
+ * Two GitHub connections: each has its own access link, named after the
+ * connection, and a line tells a user who is not an owner what to do.
+ */
+export const AddRepositoriesHintLinksEachConnection: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([
+            { id: "con_gh1", type: "github", displayName: "acme-gh" },
+            { id: "con_gh2", type: "github", displayName: "acme-labs" },
+          ]),
+          http.get(/\/github\/installation\/repositories$/, ({ request }) => {
+            const second =
+              new URL(request.url).searchParams.get("connectionId") ===
+              "con_gh2"
+            return HttpResponse.json({
+              repositories: [
+                {
+                  name: second ? "tool" : "api",
+                  full_name: second ? "labs/tool" : "acme/api",
+                  clone_url: `https://github.com/${second ? "labs/tool" : "acme/api"}.git`,
+                },
+              ],
+              repositorySelection: "selected",
+              manageUrl: `https://github.com/organizations/${second ? "labs" : "acme"}/settings/installations/${second ? 2 : 1}`,
+              hasMore: false,
+              totalCount: 1,
+            })
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByRole("checkbox", { name: "labs/tool" })
+    await waitFor(() => {
+      expect(
+        dialog.getByRole("link", { name: "Give ctxpipe access for acme-gh" }),
+      ).toHaveAttribute(
+        "href",
+        "https://github.com/organizations/acme/settings/installations/1",
+      )
+      expect(
+        dialog.getByRole("link", { name: "Give ctxpipe access for acme-labs" }),
+      ).toHaveAttribute(
+        "href",
+        "https://github.com/organizations/labs/settings/installations/2",
+      )
+      expect(dialog.getByText(ownerLine)).toBeVisible()
+    })
+  },
+}
+
+/**
+ * The list does not load: the hint still shows, with a link to the Connectors
+ * page, because the access link comes with the list.
+ */
+export const AddRepositoriesListFailsKeepsHint: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          http.get(/\/github\/installation\/repositories$/, () =>
+            HttpResponse.json({ error: "failed" }, { status: 500 }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByText("Could not load the GitHub repositories.")
+    await expect(
+      dialog.getByRole("link", {
+        name: "Check the GitHub connection on the Connectors page",
+      }),
+    ).toHaveAttribute("href", "/acme/connectors")
+    await waitFor(() => expect(dialog.getByText(ownerLine)).toBeVisible())
+  },
+}
+
+/** A Workspace below format 2: the dialog says to upgrade first and offers no list. */
+export const AddRepositoriesNeedUpgradeFirst: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 1 })),
+        ],
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          githubInstallationReposHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByText(
+      "Upgrade this Workspace before you add repositories",
+    )
+    await dialog.findByRole("button", { name: "Review upgrades" })
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("button", { name: "Open a pull request" }),
+      ).not.toBeInTheDocument(),
+    )
   },
 }
 
