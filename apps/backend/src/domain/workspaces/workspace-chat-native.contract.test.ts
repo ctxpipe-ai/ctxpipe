@@ -813,57 +813,126 @@ it(
   },
 )
 
-it(
-  "sends the final event before the conversation title is ready, and still saves the title",
-  { timeout: 120_000 },
-  async () => {
-    // The title model call is slow: it answers only when the final event
-    // arrives, or after 10 s when nothing arrives first.
-    let titleRequested = false
-    let titleAnswered = false
-    let answerTitle: () => void = () => undefined
-    const titleMayAnswer = new Promise<void>((resolve) => {
-      answerTitle = resolve
-    })
-    const model = setupServer(
-      http.post(/\/model\/v1\/chat\/completions$/, async ({ request }) => {
-        const body = (await request.clone().json()) as {
-          model?: string
-          messages?: Array<{ content?: unknown }>
+/**
+ * A title model call that answers only when `release()` runs, or after 10 s.
+ * Other model calls go to the fixture model.
+ */
+function slowTitleModel() {
+  let requests = 0
+  let answered = false
+  let release: () => void = () => undefined
+  const released = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  const server = setupServer(
+    http.post(/\/model\/v1\/chat\/completions$/, async ({ request }) => {
+      const body = (await request.clone().json()) as {
+        model?: string
+        messages?: Array<{ content?: unknown }>
+      }
+      if (!JSON.stringify(body.messages ?? []).includes("word title"))
+        return passthrough()
+      requests += 1
+      let timer: ReturnType<typeof setTimeout> | undefined
+      await Promise.race([
+        released,
+        new Promise((resolve) => {
+          timer = setTimeout(resolve, 10_000)
+        }),
+      ])
+      clearTimeout(timer)
+      answered = true
+      return HttpResponse.json({
+        id: "completion-title",
+        object: "chat.completion",
+        created: 1,
+        model: body.model,
+        choices: [
+          {
+            index: 0,
+            message: { role: "assistant", content: "Ledger answer" },
+            finish_reason: "stop",
+          },
+        ],
+      })
+    }),
+  )
+  server.listen({ onUnhandledRequest: "bypass" })
+  return {
+    close: () => server.close(),
+    release,
+    requests: () => requests,
+    answered: () => answered,
+  }
+}
+
+async function savedConversationName(orgId: string, conversationId: string) {
+  const [row] = await withOrgDbContext(orgId, (db) =>
+    db
+      .select({ name: conversations.name })
+      .from(conversations)
+      .where(eq(conversations.id, conversationId)),
+  )
+  return row?.name
+}
+
+it("sends the final event before the conversation title is ready, and still saves the title", async () => {
+  const title = slowTitleModel()
+  try {
+    await withNativeChatFixture(async (f) => {
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(conversations)
+          .set({ name: "New conversation" })
+          .where(eq(conversations.id, f.conversationId)),
+      )
+      let answeredAtFinish: boolean | undefined
+      for await (const chunk of streamTanstackWorkspaceChat({
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only",
+        runId: `title-${f.conversationId}`,
+        prompt: "Where is the ledger?",
+      })) {
+        if (chunk.type === "RUN_ERROR")
+          throw new Error(`The turn failed: ${JSON.stringify(chunk)}`)
+        if (chunk.type === "RUN_FINISHED") {
+          answeredAtFinish = title.answered()
+          title.release()
         }
-        if (!JSON.stringify(body.messages ?? []).includes("word title"))
-          return passthrough()
-        titleRequested = true
-        await Promise.race([
-          titleMayAnswer,
-          new Promise((resolve) => setTimeout(resolve, 10_000)),
-        ])
-        titleAnswered = true
-        return HttpResponse.json({
-          id: "completion-title",
-          object: "chat.completion",
-          created: 1,
-          model: body.model,
-          choices: [
-            {
-              index: 0,
-              message: { role: "assistant", content: "Ledger answer" },
-              finish_reason: "stop",
-            },
-          ],
-        })
-      }),
-    )
-    model.listen({ onUnhandledRequest: "bypass" })
-    try {
-      await withNativeChatFixture(async (f) => {
-        await withOrgDbContext(f.orgId, (db) =>
-          db
-            .update(conversations)
-            .set({ name: "New conversation" })
-            .where(eq(conversations.id, f.conversationId)),
-        )
-        let answeredAtFinish: boolean | undefined
+      }
+      expect(title.requests()).toBe(1)
+      expect(answeredAtFinish).toBe(false)
+      // The title is saved after the final event.
+      await vi.waitFor(
+        async () =>
+          expect(await savedConversationName(f.orgId, f.conversationId)).toBe(
+            "Ledger answer",
+          ),
+        { timeout: 10_000, interval: 100 },
+      )
+    })
+  } finally {
+    title.close()
+  }
+})
+
+it("makes no second title call while a turn of the same conversation still waits for its title", async () => {
+  const title = slowTitleModel()
+  try {
+    await withNativeChatFixture(async (f) => {
+      await withOrgDbContext(f.orgId, (db) =>
+        db
+          .update(conversations)
+          .set({ name: "New conversation" })
+          .where(eq(conversations.id, f.conversationId)),
+      )
+      for (const turn of ["first", "second"]) {
         for await (const chunk of streamTanstackWorkspaceChat({
           conversationId: f.conversationId,
           orgId: f.orgId,
@@ -873,34 +942,27 @@ it(
           desiredSha: f.sha,
           defaultBranch: "main",
           writeStatus: "read_only",
-          runId: `title-${f.conversationId}`,
+          runId: `${turn}-${f.conversationId}`,
           prompt: "Where is the ledger?",
         })) {
           if (chunk.type === "RUN_ERROR")
             throw new Error(`The turn failed: ${JSON.stringify(chunk)}`)
-          if (chunk.type === "RUN_FINISHED") {
-            answeredAtFinish = titleAnswered
-            answerTitle()
-          }
         }
-        expect(titleRequested).toBe(true)
-        expect(answeredAtFinish).toBe(false)
-        // The title is saved after the final event.
-        await vi.waitFor(
-          async () => {
-            const [row] = await withOrgDbContext(f.orgId, (db) =>
-              db
-                .select({ name: conversations.name })
-                .from(conversations)
-                .where(eq(conversations.id, f.conversationId)),
-            )
-            expect(row?.name).toBe("Ledger answer")
-          },
-          { timeout: 10_000, interval: 100 },
-        )
-      })
-    } finally {
-      model.close()
-    }
-  },
-)
+      }
+      // Both turns ended while the first title call waits.
+      expect(title.answered()).toBe(false)
+      expect(title.requests()).toBe(1)
+      title.release()
+      await vi.waitFor(
+        async () =>
+          expect(await savedConversationName(f.orgId, f.conversationId)).toBe(
+            "Ledger answer",
+          ),
+        { timeout: 10_000, interval: 100 },
+      )
+      expect(title.requests()).toBe(1)
+    })
+  } finally {
+    title.close()
+  }
+})
