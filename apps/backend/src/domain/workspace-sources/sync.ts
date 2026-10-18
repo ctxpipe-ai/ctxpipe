@@ -1,3 +1,4 @@
+import { posix } from "node:path"
 import type { Env } from "../../config/env.js"
 import {
   lastGoodTarget,
@@ -87,18 +88,76 @@ function overlaps(a: string, b: string): boolean {
   return a.startsWith(b) || b.startsWith(a)
 }
 
+/**
+ * Why `path` is not a safe mirror path, or null. A folder path ends with
+ * "/". The path must already be in its normal form: the sync refuses a path
+ * that a POSIX or a Unicode (NFC) normalization changes. It does not repair
+ * the path, because the repaired path can point to a file of a different
+ * owner.
+ */
+export function unsafeMirrorPath(path: string, folder = false): string | null {
+  if (path.normalize("NFC") !== path) return "changes in Unicode NFC form"
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
+  if (/[\u0000-\u001f\u007f-\u009f]/.test(path))
+    return "contains a control character"
+  if (path.includes("\\")) return "contains a backslash"
+  if (path.startsWith("/")) return "is absolute"
+  if (folder !== path.endsWith("/"))
+    return folder ? 'must end with "/"' : 'must not end with "/"'
+  const body = folder ? path.slice(0, -1) : path
+  if (
+    body.split("/").some((part) => part === "" || part === "." || part === "..")
+  )
+    return 'has an empty, ".", or ".." segment'
+  if (posix.normalize(body) !== body) return "changes when normalized"
+  return null
+}
+
 function assertManagedPaths(adapter: SourceAdapter, prefixes: string[]) {
   for (const prefix of prefixes) {
-    const parts = prefix.slice(0, -1).split("/")
-    if (
-      !prefix.startsWith(`${adapter.provider}/`) ||
-      !prefix.endsWith("/") ||
-      prefix.includes("\\") ||
-      parts.some((part) => part === "" || part === "." || part === "..")
-    )
+    const unsafe = unsafeMirrorPath(prefix, true)
+    if (unsafe || !prefix.startsWith(`${adapter.provider}/`))
       throw new Error(
-        `Managed path "${prefix}" must be a relative path under ${adapter.provider}/ that ends with "/"`,
+        `Managed path ${JSON.stringify(prefix)} must be a relative path under ${adapter.provider}/ that ends with "/"${unsafe ? `: it ${unsafe}` : ""}`,
       )
+  }
+}
+
+/**
+ * Refuse the whole fetch result when one path is not safe, before any
+ * write. Each file and each deleted path must stay under a managed path of
+ * this sync. A kept or unreachable path must stay under the provider root.
+ * Provider data (ids, titles) makes these paths, so a bad provider answer
+ * must not write or delete a file outside the connector's paths.
+ */
+function assertFetchedPaths(
+  adapter: SourceAdapter,
+  result: SourceFetchResult,
+  managed: readonly string[],
+) {
+  const refuse = (path: string, why: string) => {
+    throw new Error(
+      `The ${adapter.provider} sync refused the path ${JSON.stringify(path)}: it ${why}. Nothing was written.`,
+    )
+  }
+  const files = "files" in result ? result.files : result.filesByScope.flat()
+  for (const path of [
+    ...files.flatMap((file) => (file ? [file.path] : [])),
+    ...(result.deletePaths ?? []),
+  ]) {
+    const unsafe = unsafeMirrorPath(path)
+    if (unsafe) refuse(path, unsafe)
+    if (!underAny(path, managed))
+      refuse(path, "is not under a managed path of this sync")
+  }
+  for (const path of [
+    ...(result.keepPaths ?? []),
+    ...(result.unreachable ?? []).map((lost) => lost.path),
+  ]) {
+    const unsafe = unsafeMirrorPath(path, path.endsWith("/"))
+    if (unsafe) refuse(path, unsafe)
+    if (!path.startsWith(`${adapter.provider}/`))
+      refuse(path, `is not under ${adapter.provider}/`)
   }
 }
 
@@ -191,6 +250,9 @@ export async function syncConnectionSources(input: {
   const result: SourceFetchResult = Array.isArray(fetched)
     ? { files: fetched }
     : fetched
+  assertFetchedPaths(adapter, result, [
+    ...new Set(rows.flatMap((row) => adapter.managedPaths(row.scope))),
+  ])
   // With `filesByScope`, a Workspace gets only the files of its own scopes,
   // and a failed scope (null) skips the write of each Workspace that has it.
   const byKey = new Map(

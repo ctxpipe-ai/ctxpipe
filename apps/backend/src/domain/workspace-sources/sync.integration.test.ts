@@ -590,4 +590,102 @@ describe("Workspace source sync frame (Postgres)", () => {
       ).rejects.toThrow(/Managed path/)
     }
   })
+
+  describe("refuses a fetched path that is not safe", () => {
+    let count = 0
+    async function syncWith(result: {
+      files?: string[]
+      deletePaths?: string[]
+      keepPaths?: string[]
+    }) {
+      const forge = await seed.addConnection("forge")
+      count += 1
+      const workspaceId = await seed.addWorkspace(`paths-${count}`)
+      await replaceWorkspaceSourceRows({
+        orgId: seed.orgId,
+        workspaceId,
+        revision: "f".repeat(40),
+        rows: [source("eng-docs", forge, ["ENG"])],
+      })
+      const writes: WorkspaceSliceWrite[] = []
+      const run = syncConnectionSources({
+        orgId: seed.orgId,
+        connectionId: forge,
+        env: parseEnv(process.env),
+        adapter: {
+          provider: "confluence",
+          managedPaths: (scope) =>
+            (scope.spaces as string[]).map((space) => `confluence/${space}/`),
+          fetch: async () => ({
+            files: (result.files ?? []).map((path) => ({
+              path,
+              content: "# Page\n",
+            })),
+            deletePaths: result.deletePaths ?? [],
+            keepPaths: result.keepPaths ?? [],
+          }),
+        },
+        write: async (write) => {
+          writes.push(write)
+        },
+      })
+      return { run, writes, workspaceId }
+    }
+
+    it.each([
+      ["a parent segment", "confluence/ENG/../../.ctxpipe/workspace.yaml"],
+      ["a parent segment to a near folder", "confluence/ENG/../HR/page.md"],
+      ["a current segment", "confluence/ENG/./page.md"],
+      ["an empty segment", "confluence/ENG//page.md"],
+      ["an absolute path", "/confluence/ENG/page.md"],
+      ["a backslash", "confluence/ENG/..\\..\\page.md"],
+      ["a NUL character", "confluence/ENG/page\u0000.md"],
+      ["a control character", "confluence/ENG/page\n.md"],
+      ["a form that NFC changes", "confluence/ENG/cafe\u0301.md"],
+      ["a path of another source", "confluence/HR/page.md"],
+    ])("refuses a file with %s", async (_, path) => {
+      const { run, writes } = await syncWith({
+        files: ["confluence/ENG/home.md", path],
+      })
+      await expect(run).rejects.toThrow(
+        /The confluence sync refused the path .*Nothing was written/,
+      )
+      expect(writes).toEqual([])
+    })
+
+    it("refuses a deleted or kept path with a parent segment", async () => {
+      const deleted = await syncWith({
+        files: ["confluence/ENG/home.md"],
+        deletePaths: ["confluence/ENG/../../sources/docs.md"],
+      })
+      await expect(deleted.run).rejects.toThrow(/refused the path/)
+      expect(deleted.writes).toEqual([])
+      const kept = await syncWith({
+        files: ["confluence/ENG/home.md"],
+        keepPaths: ["confluence/../linear/"],
+      })
+      await expect(kept.run).rejects.toThrow(/refused the path/)
+      expect(kept.writes).toEqual([])
+    })
+
+    it("still writes a normal path", async () => {
+      const { run, writes, workspaceId } = await syncWith({
+        files: ["confluence/ENG/home.md", "confluence/ENG/team/page.md"],
+        deletePaths: ["confluence/ENG/old.md"],
+      })
+      await expect(run).resolves.toEqual({
+        fetchedScopes: 1,
+        workspaces: [workspaceId],
+      })
+      expect(writes).toMatchObject([
+        {
+          files: [
+            { path: "confluence/ENG/home.md" },
+            { path: "confluence/ENG/team/page.md" },
+          ],
+          deletePaths: ["confluence/ENG/old.md"],
+        },
+      ])
+    })
+  })
 })
