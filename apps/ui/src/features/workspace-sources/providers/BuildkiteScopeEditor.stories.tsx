@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { buildkitePipelinesHandler } from "@/mocks/buildkite-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -64,7 +64,7 @@ type Story = StoryObj<typeof meta>
 export const SelectPipelines: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
       canvas.getByText("Select at least one pipeline."),
     ).toBeVisible()
@@ -82,9 +82,9 @@ export const FilterKeepsTheSelection: Story = {
   args: { label: "CI", initialScope: { pipelines: ["web-app"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByRole("checkbox", { name: "Web App" }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(canvas.getByRole("checkbox", { name: "Web App" })).toBeChecked(),
+    )
     await userEvent.type(
       canvas.getByRole("searchbox", {
         name: "Filter Buildkite pipelines for CI",
@@ -138,9 +138,11 @@ export const Loading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByText("Loading Buildkite pipelines"),
-    ).toBeInTheDocument()
+    await waitFor(() =>
+      expect(
+        canvas.getByText("Loading Buildkite pipelines"),
+      ).toBeInTheDocument(),
+    )
   },
 }
 
@@ -164,6 +166,8 @@ export const LoadError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText(/Reconnect Buildkite/)).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/Reconnect Buildkite/)).toBeVisible(),
+    )
   },
 }

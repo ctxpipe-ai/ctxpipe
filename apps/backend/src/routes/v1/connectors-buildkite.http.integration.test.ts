@@ -193,6 +193,9 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     })
 
     expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error: "Use the Buildkite organization slug, for example acme-inc",
+    })
     expect(calls).toEqual([])
   })
 

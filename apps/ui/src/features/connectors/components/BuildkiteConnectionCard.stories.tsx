@@ -70,7 +70,9 @@ export const Connected: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Connected")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(canvas.getByText("Connected")).toBeInTheDocument(),
+    )
     // The organization slug is the account name.
     await expect(canvas.getByText("acme")).toBeInTheDocument()
     await expect(
@@ -97,16 +99,18 @@ export const WebhookMissing: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Connected")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(canvas.getByText("Connected")).toBeInTheDocument(),
+    )
     onOpenSetup.mockClear()
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Buildkite" }),
     )
-    await expect(
-      await canvas.findByText(
-        /Builds sync once a day until you add the webhook/,
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/Builds sync once a day until you add the webhook/),
+      ).toBeVisible(),
+    )
     const [add] = await canvas.findAllByRole("button", {
       name: /^Add the webhook/,
     })
@@ -132,7 +136,9 @@ export const ReplaceWebhookToken: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Connected")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(canvas.getByText("Connected")).toBeInTheDocument(),
+    )
     onOpenSetup.mockClear()
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Buildkite" }),
@@ -163,7 +169,9 @@ export const RevokedOpensReconnect: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
+    await waitFor(() =>
+      expect(canvas.getByText("Needs reconnect")).toBeInTheDocument(),
+    )
     onOpenSetup.mockClear()
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Buildkite" }),

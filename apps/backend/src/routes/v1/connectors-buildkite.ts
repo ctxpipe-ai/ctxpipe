@@ -146,33 +146,44 @@ const deleteRoute = createRoute({
  * holds auth only; each Workspace selects its pipelines in its sources.
  */
 export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
-  .openapi(connectRoute, async (c) => {
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
-    const body = c.req.valid("json")
-    const access = await verifyBuildkiteAccess({
-      apiToken: body.apiToken,
-      organizationSlug: body.organizationSlug,
-    })
-    if (!access.ok) return c.json({ error: access.error }, 400)
-    const saved = await saveBuildkiteConnection({
-      orgId,
-      env: c.var.env,
-      connectionId: body.connectionId,
-      organizationSlug: body.organizationSlug,
-      apiToken: body.apiToken,
-    })
-    if (saved.ok) return c.json({ connectionId: saved.connectionId }, 200)
-    return saved.status === 404
-      ? c.json({ error: UNKNOWN_CONNECTION }, 404)
-      : c.json(
-          {
-            error:
-              "This connection is for another Buildkite organization. Add a new connection for it.",
-          },
-          409,
+  .openapi(
+    connectRoute,
+    async (c) => {
+      const orgId = c.get("orgId")
+      if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+      const body = c.req.valid("json")
+      const access = await verifyBuildkiteAccess({
+        apiToken: body.apiToken,
+        organizationSlug: body.organizationSlug,
+      })
+      if (!access.ok) return c.json({ error: access.error }, 400)
+      const saved = await saveBuildkiteConnection({
+        orgId,
+        env: c.var.env,
+        connectionId: body.connectionId,
+        organizationSlug: body.organizationSlug,
+        apiToken: body.apiToken,
+      })
+      if (saved.ok) return c.json({ connectionId: saved.connectionId }, 200)
+      return saved.status === 404
+        ? c.json({ error: UNKNOWN_CONNECTION }, 404)
+        : c.json(
+            {
+              error:
+                "This connection is for another Buildkite organization. Add a new connection for it.",
+            },
+            409,
+          )
+    },
+    // A readable reason for the setup form, for example a bad slug.
+    (result, c) => {
+      if (!result.success)
+        return c.json(
+          { error: result.error.issues[0]?.message ?? "Check the input" },
+          400,
         )
-  })
+    },
+  )
   .openapi(statusRoute, async (c) => {
     const orgId = c.get("orgId")
     if (!orgId) return c.json({ error: "Unauthorized" }, 401)

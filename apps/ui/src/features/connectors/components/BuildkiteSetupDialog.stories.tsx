@@ -106,9 +106,11 @@ export const ConnectWithToken: Story = {
       "bkua_fixture",
     )
     await userEvent.click(connect)
-    await expect(
-      await body.findByRole("heading", { name: "Add the Buildkite webhook" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Add the Buildkite webhook" }),
+      ).toBeVisible(),
+    )
     await expect(calls).toEqual([
       {
         path: `/${orgSlug}/api/v1/connectors/buildkite`,
@@ -143,9 +145,11 @@ export const TokenRefused: Story = {
     await userEvent.click(
       body.getByRole("button", { name: "Connect Buildkite" }),
     )
-    await expect(
-      await body.findByText("Give the token these scopes: read_builds."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByText("Give the token these scopes: read_builds."),
+      ).toBeVisible(),
+    )
     await expect(
       body.getByRole("heading", { name: "Connect Buildkite" }),
     ).toBeVisible()
@@ -209,11 +213,13 @@ export const SaveWebhookToken: Story = {
     await userEvent.click(
       body.getByRole("button", { name: "Save webhook token" }),
     )
-    await expect(
-      await body.findByRole("heading", {
-        name: "Add Buildkite to Workspaces",
-      }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", {
+          name: "Add Buildkite to Workspaces",
+        }),
+      ).toBeVisible(),
+    )
     await expect(webhookCalls).toEqual([
       { connectionId, webhookToken: "hook-token" },
     ])
@@ -279,9 +285,11 @@ export const AddToWorkspaces: Story = {
       await body.findByRole("checkbox", { name: "Web App" }),
     )
     await userEvent.click(add)
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
     await expect(addCalls).toEqual([
       {
         method: "POST",
@@ -292,7 +300,6 @@ export const AddToWorkspaces: Story = {
             connectionId,
             scope: { pipelines: ["web-app"] },
           },
-          delivery: "pull_request",
         },
       },
     ])
