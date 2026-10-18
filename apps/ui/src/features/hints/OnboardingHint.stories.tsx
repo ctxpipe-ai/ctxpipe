@@ -250,12 +250,12 @@ export const AddWorkspaceHintSkippedAfterCreating: Story = {
       await userEvent.click(
         await canvas.findByRole("button", { name: "Add Workspace" }),
       )
+      // Wait for this dialog to go, not for every dialog: the tip is a dialog.
+      const dialog = await body.findByRole("dialog")
       await userEvent.click(
-        await within(await body.findByRole("dialog")).findByRole("button", {
-          name: "Close",
-        }),
+        await within(dialog).findByRole("button", { name: "Close" }),
       )
-      await waitFor(() => expect(body.queryByRole("dialog")).toBeNull())
+      await waitFor(() => expect(dialog).not.toBeInTheDocument())
     }
     await cycleDialog()
     expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull()
