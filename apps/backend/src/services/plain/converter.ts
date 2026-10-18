@@ -41,11 +41,21 @@ export type PlainThreadForMirror = {
  * sync gives ownership by path prefix, so each item has its own folder.
  */
 export function plainHelpCenterRoot(helpCenterId: string): string {
-  return `plain/help-centers/${connectorPathSegment(helpCenterId)}/`
+  return `plain/help-centers/${pathSegment(helpCenterId, "Help Center")}/`
 }
 
 export function plainLabelRoot(labelTypeId: string): string {
-  return `plain/threads/labels/${connectorPathSegment(labelTypeId)}/`
+  return `plain/threads/labels/${pathSegment(labelTypeId, "label")}/`
+}
+
+/**
+ * A Plain id as a path segment. A real Plain id is already safe. Another id
+ * is refused, not repaired, so that two ids cannot share one file.
+ */
+function pathSegment(id: string, what: string): string {
+  if (!id || connectorPathSegment(id) !== id)
+    throw new Error(`A Plain ${what} id is not safe in a path`)
+  return id
 }
 
 /** Plain priorities: a lower number is more urgent. */
@@ -55,7 +65,7 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
   return [
     "---",
     ...fields.flatMap(([name, value]) =>
-      value === null ? [] : [`${name}: ${JSON.stringify(value)}`],
+      value === null ? [] : [`${name}: ${JSON.stringify(oneLine(value))}`],
     ),
     "---",
     "",
@@ -82,18 +92,33 @@ function isKeptUrl(url: string): boolean {
 }
 
 /**
- * A stub for removed text. Its brackets are escaped, so they stay text: a
- * stub that sits before `(` or `:` cannot become a link or a definition.
- */
-const stub = (what: string) => `\\[${what} removed\\]`
-
-/**
  * Text that has no Markdown link, image, autolink, reference definition, or
  * raw HTML: the characters `\`, `[`, `]`, `<`, and `>` become literal. A
  * backslash is escaped only when it comes before one of these characters.
  */
 const withoutMarkdownSyntax = (text: string) =>
   text.replace(/\\(?=[\\[\]<>])|[[\]<>]/g, "\\$&")
+
+/**
+ * Text without control and format characters, except tab and the line
+ * ends. A format character (such as a bidi override or a zero-width mark)
+ * can change how a reader or an agent sees the text.
+ */
+const withoutControls = (text: string) =>
+  text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}]/gu, "")
+
+/**
+ * Each Markdown link keeps only its text, unless its target is a URL that
+ * may stay. The pattern is linear: the text and the target have no
+ * bracket, so a match starts once for each bracket, and a target can hold
+ * pairs of parentheses but not nested ones.
+ */
+const withoutPrivateLinks = (text: string) =>
+  text.replace(
+    /\[([^[\]]*)\]\(([^\s()[\]]*(?:\([^\s()[\]]*\)[^\s()[\]]*)*)(?:\s+"[^"\n]*")?\)/g,
+    (link, label: string, url: string) =>
+      url.length <= 2_048 && isKeptUrl(url) ? link : label,
+  )
 
 /**
  * Text with only the URLs that may stay (see `isKeptUrl`). A bare URL that
@@ -109,23 +134,9 @@ function withHttpsUrlsOnly(text: string): string {
     const url = match.slice(0, end)
     return url.length <= 2_048 && isKeptUrl(url)
       ? match
-      : `${stub("link")}${match.slice(end)}`
+      : `[link removed]${match.slice(end)}`
   })
 }
-
-/**
- * Text without the destination of a Markdown link, unless the destination
- * is a URL that may stay. The escape that follows turns each link into
- * text, so this step only keeps a relative path or a token out of the file.
- * The pattern is linear: a destination has no space, and a bracket pair in
- * it has no other bracket.
- */
-const withoutLinkDestinations = (text: string) =>
-  text.replace(
-    /\]\(\s*((?:[^\s()]|\([^\s()]*\))*)\)?/g,
-    (link, destination: string) =>
-      destination.length <= 2_048 && isKeptUrl(destination) ? link : "]",
-  )
 
 /**
  * Thread text without contact details or private URLs (ADR-055). Messages
@@ -134,7 +145,7 @@ const withoutLinkDestinations = (text: string) =>
  */
 function redactThreadText(text: string): string {
   return (
-    withHttpsUrlsOnly(text)
+    withHttpsUrlsOnly(withoutPrivateLinks(text))
       .replace(
         /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
         "[email removed]",
@@ -159,19 +170,25 @@ function redactThreadText(text: string): string {
   )
 }
 
-/** Text on one line: a title or a name cannot start a heading. */
-const oneLine = (text: string) => text.replace(/\s+/g, " ")
+/** Text on one line, with no control character. */
+const oneLine = (text: string) => withoutControls(text.replace(/\s+/g, " "))
+
+/** Text from the Plain API as inline Markdown text on one line. */
+const inline = (text: string) => withoutMarkdownSyntax(oneLine(text))
 
 /** A title or a name from a customer: short, redacted, and on one line. */
-const field = (text: string) => oneLine(redactThreadText(text.slice(0, 1_000)))
+const field = (text: string) => inline(redactThreadText(text.slice(0, 1_000)))
 
 /**
- * A message body as a quote: its text cannot start a heading. Markdown also
- * breaks a line at a carriage return, so each line break counts.
+ * A message body as a quote, with no link, image, or HTML. Markdown also
+ * breaks a line at a carriage return, so each line break counts. A line
+ * that would be a heading or a heading underline inside the quote is
+ * escaped.
  */
 const quote = (text: string) =>
-  text
-    .split(/\r\n?|[\n\u2028\u2029\u0085]/)
+  withoutMarkdownSyntax(withoutControls(text))
+    .split(/\r\n?|[\n\u2028\u2029]/)
+    .map((line) => line.replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2"))
     .map((line) => (line ? `> ${line}` : ">"))
     .join("\n")
 
@@ -200,7 +217,7 @@ function articleBodyMarkdown(html: string): string {
       }),
     },
   )
-  return withHttpsUrlsOnly(markdown)
+  return withHttpsUrlsOnly(withoutPrivateLinks(markdown))
 }
 
 export function plainArticleFile(input: {
@@ -218,15 +235,14 @@ export function plainArticleFile(input: {
       ["created_at", article.createdAt],
       ["updated_at", article.updatedAt],
     ]),
-    `# ${oneLine(article.title)}`,
+    `# ${inline(article.title)}`,
     "",
   ]
-  if (article.groupName)
-    lines.push(`- Group: ${oneLine(article.groupName)}`, "")
+  if (article.groupName) lines.push(`- Group: ${inline(article.groupName)}`, "")
   const body = articleBodyMarkdown(article.contentHtml).trim()
   if (body) lines.push(body, "")
   return {
-    path: `${plainHelpCenterRoot(input.helpCenterId)}${slug}--${connectorPathSegment(article.id)}.md`,
+    path: `${plainHelpCenterRoot(input.helpCenterId)}${slug}--${pathSegment(article.id, "article")}.md`,
     content: lines.join("\n"),
   }
 }
@@ -248,13 +264,13 @@ export function plainThreadFile(input: {
       ["created_at", thread.createdAt],
       ["updated_at", thread.updatedAt],
     ]),
-    `# ${oneLine(thread.ref)}: ${field(thread.title)}`,
+    `# ${inline(thread.ref)}: ${field(thread.title)}`,
     "",
-    `- Status: ${oneLine(thread.status)}`,
+    `- Status: ${inline(thread.status)}`,
     `- Priority: ${priority}`,
   ]
   if (thread.labels.length)
-    lines.push(`- Labels: ${oneLine(thread.labels.join(", "))}`)
+    lines.push(`- Labels: ${inline(thread.labels.join(", "))}`)
   if (thread.customerName)
     lines.push(`- Customer: ${field(thread.customerName)}`)
   lines.push("", "## Messages", "")
@@ -264,7 +280,7 @@ export function plainThreadFile(input: {
     const kind = message.internal ? "Internal note" : "Message"
     const heading = [
       message.authorName ? field(message.authorName) : "Unknown",
-      message.createdAt ? oneLine(message.createdAt) : null,
+      message.createdAt ? inline(message.createdAt) : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -277,11 +293,11 @@ export function plainThreadFile(input: {
   }
   if (thread.moreMessages)
     lines.push(
-      `Plain has more messages in this thread. Open ${oneLine(thread.ref)} in Plain to read them.`,
+      `Plain has more messages in this thread. Open ${inline(thread.ref)} in Plain to read them.`,
       "",
     )
   return {
-    path: `${plainLabelRoot(input.labelTypeId)}${connectorPathSegment(thread.id)}.md`,
+    path: `${plainLabelRoot(input.labelTypeId)}${pathSegment(thread.id, "thread")}.md`,
     content: lines.join("\n"),
   }
 }

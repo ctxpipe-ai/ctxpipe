@@ -4,6 +4,7 @@ import {
   PLAIN_REQUIRED_PERMISSIONS,
   plainIdSchema,
 } from "../../domain/workspace-sources/providers/plain.js"
+import { readBoundedJson } from "../connectors/bounded-json.js"
 import type {
   PlainArticleForMirror,
   PlainThreadForMirror,
@@ -80,7 +81,11 @@ async function plainRequest<T extends z.ZodTypeAny>(
     }
     if (!response.ok)
       throw new Error(`Plain ${operation.name} failed (${response.status})`)
-    const body = (await response.json()) as { data?: unknown; errors?: unknown }
+    // A page of threads with their messages is far below 32 MiB.
+    const body = (await readBoundedJson(response, 32 * 1024 * 1024)) as {
+      data?: unknown
+      errors?: unknown
+    }
     const errors = graphqlErrorsSchema.parse(body.errors) ?? []
     if (
       errors.some((error) =>

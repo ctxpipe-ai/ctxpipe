@@ -414,6 +414,28 @@ describe("plainRequest", () => {
     expect(calls).toBe(2)
   })
 
+  it("stops the read of an answer above 32 MiB", async () => {
+    const MiB = 1024 * 1024
+    let pulledBytes = 0
+    server.use(
+      http.post(API, () => {
+        let left = 64
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (left-- === 0) return controller.close()
+            pulledBytes += MiB
+            controller.enqueue(new Uint8Array(MiB).fill(0x20))
+          },
+        })
+        return new HttpResponse(body, {
+          headers: { "content-type": "application/json" },
+        })
+      }),
+    )
+    await expect(listPlainHelpCenters("key")).rejects.toThrow(/larger than/)
+    expect(pulledBytes).toBeLessThan(40 * MiB)
+  })
+
   it("sends every request with redirect set to error, so the API key goes to one URL", async () => {
     const redirects: string[] = []
     server.use(

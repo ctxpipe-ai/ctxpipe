@@ -388,6 +388,26 @@ describe("Plain connector routes (Postgres + msw)", () => {
     ).toBe(404)
   })
 
+  // A personal key gets a session with the role of its user, so only the
+  // admin gate stops it (403). REST routes do not accept an org key at all
+  // (401). Neither key may save a connection.
+  it.each([
+    ["an org API key", () => seed.orgApiKey, 401],
+    ["a personal API key", () => seed.personalApiKey, 403],
+  ])("refuses %s on the connect route", async (_name, key, status) => {
+    const before = await connectionCount()
+    const res = await createApp().request(
+      `http://backend.test/${seed.orgSlug}/api/v1/connectors/plain`,
+      {
+        method: "POST",
+        headers: { "x-api-key": key(), "content-type": "application/json" },
+        body: JSON.stringify({ apiKey: GOOD_KEY }),
+      },
+    )
+    expect(res.status).toBe(status)
+    expect(await connectionCount()).toBe(before)
+  })
+
   it("refuses an org member who is not an admin", async () => {
     await setRole("member")
     try {

@@ -11,6 +11,7 @@ import {
   encryptConnectionSecret,
 } from "../lib/connection-secrets.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import {
   deleteConnectionDirectory,
   loadConnectionViaDirectory,
@@ -245,12 +246,23 @@ export async function getPlainWebhookTarget(
 > {
   const row = await loadConnectionViaDirectory(connectionId)
   if (row?.type !== CONNECTION_TYPE_PLAIN) return undefined
-  const config = plainConnectionConfigStoredSchema.parse(row.config)
-  return {
-    orgId: row.orgId,
-    status: config.status,
-    webhookToken: config.webhookTokenEnc
-      ? decryptConnectionSecret(config.webhookTokenEnc, env)
-      : null,
+  const parsed = plainConnectionConfigStoredSchema.safeParse(row.config)
+  if (!parsed.success) return undefined
+  const config = parsed.data
+  let webhookToken: string | null = null
+  if (config.webhookTokenEnc) {
+    try {
+      webhookToken = decryptConnectionSecret(config.webhookTokenEnc, env)
+    } catch {
+      // A token that does not decrypt (a changed key) gets the same answer
+      // as an unknown connection, and the sender cannot tell them apart.
+      log.warn({
+        step: "plain_webhook.decrypt",
+        message: "The webhook token of a Plain connection does not decrypt",
+        connectionId,
+      })
+      return undefined
+    }
   }
+  return { orgId: row.orgId, status: config.status, webhookToken }
 }

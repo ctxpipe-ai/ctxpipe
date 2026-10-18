@@ -263,7 +263,7 @@ describe("Plain source adapter (Postgres + msw)", () => {
       .get(both)
       ?.files.find((file) => file.path.endsWith("/th_11.md"))?.content
     expect(thread).toContain("- Customer: Robin Lee")
-    expect(thread).toContain("It fails. Write to [email removed]")
+    expect(thread).toContain("It fails. Write to \\[email removed\\]")
     expect(thread).not.toContain("robin@example.com")
   })
 

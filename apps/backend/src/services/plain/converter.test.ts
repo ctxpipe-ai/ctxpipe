@@ -105,13 +105,16 @@ describe("plainArticleFile", () => {
     ).toBe("plain/help-centers/hc_1/etc--hca_01J0ARTICLE.md")
   })
 
-  it("keeps a Help Center id and an article id from leaving the folder", () => {
-    expect(
+  it("refuses a Help Center id or an article id that is not safe in a path", () => {
+    expect(() =>
+      plainArticleFile({ helpCenterId: "../hc_1", article }),
+    ).toThrow(/Help Center id/)
+    expect(() =>
       plainArticleFile({
-        helpCenterId: "../hc_1",
+        helpCenterId: "hc_1",
         article: { ...article, id: "../hca_1" },
-      }).path,
-    ).toBe("plain/help-centers/-.-hc_1/reset-a-password---.-hca_1.md")
+      }),
+    ).toThrow(/article id/)
   })
 })
 
@@ -122,13 +125,16 @@ describe("plainThreadFile", () => {
     expect(file.path).toBe("plain/threads/labels/lt_01J0LABEL/th_01J0THREAD.md")
   })
 
-  it("keeps a label id and a thread id from leaving the folder", () => {
-    expect(
+  it("refuses a label id or a thread id that is not safe in a path", () => {
+    expect(() => plainThreadFile({ labelTypeId: "../lt_1", thread })).toThrow(
+      /label id/,
+    )
+    expect(() =>
       plainThreadFile({
-        labelTypeId: "../lt_1",
-        thread: { ...thread, id: "../th_1" },
-      }).path,
-    ).toBe("plain/threads/labels/-.-lt_1/-.-th_1.md")
+        labelTypeId: "lt_1",
+        thread: { ...thread, id: "th/../../x" },
+      }),
+    ).toThrow(/thread id/)
   })
 
   it("renders the thread and its messages, with names only", () => {
@@ -199,7 +205,7 @@ describe("thread text that looks like structure", () => {
       "## Messages",
       "### Message: Bob, 2026-10-14T10:00:00Z (internal note)",
     ])
-    expect(content).toContain("> ### Agent, 2026-10-01 (internal note)")
+    expect(content).toContain("> \\### Agent, 2026-10-01 (internal note)")
     expect(content).toContain("- Customer: Jo ### Support Lead (internal note)")
   })
 
@@ -287,10 +293,10 @@ describe("personal data and private links in thread text", () => {
     )
     expect(content).not.toMatch(/jo(\.park)?@example\.com/)
     expect(content).not.toMatch(/555[\s-)]*123[\s-]*4567/)
-    expect(content).toContain("# T-4501: Refund for [email removed]")
-    expect(content).toContain("- Customer: [email removed]")
+    expect(content).toContain("# T-4501: Refund for \\[email removed\\]")
+    expect(content).toContain("- Customer: \\[email removed\\]")
     expect(content).toContain(
-      "Call me on [phone removed] or [phone removed] or [phone removed].",
+      "Call me on \\[phone removed\\] or \\[phone removed\\] or \\[phone removed\\].",
     )
   })
 
@@ -304,12 +310,14 @@ describe("personal data and private links in thread text", () => {
     ["an area code in brackets", "(02) 9876 5432"],
     ["an Australian 1300 number", "1300 123 456"],
   ])("removes %s", (_name, phone) => {
-    expect(text(`Call ${phone} today`)).toContain("Call [phone removed] today")
+    expect(text(`Call ${phone} today`)).toContain(
+      "Call \\[phone removed\\] today",
+    )
   })
 
   it("removes a number right after a word", () => {
     expect(text("Call Mob+61 412 345 678 today")).toContain(
-      "Call Mob[phone removed] today",
+      "Call Mob\\[phone removed\\] today",
     )
   })
 
@@ -404,5 +412,76 @@ describe("headings and links from the Plain API", () => {
       },
     })
     expect(content).toContain("> See the page and the site.")
+  })
+
+  it("adds no link, image, or HTML from thread text", () => {
+    const { content } = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        title: "Help [me](https://evil.example.com/x) <b>now</b>",
+        customerName: "![x](https://evil.example.com/p.png)",
+        labels: ["<img src=x>"],
+        messages: [
+          {
+            authorName: "Sam",
+            createdAt: null,
+            internal: false,
+            text: "See [here](https://help.example.com/ok) and <script>x</script>\n[ref]: https://evil.example.com\n<https://help.example.com/auto>",
+          },
+        ],
+      },
+    })
+    // Each bracket and angle bracket is literal text.
+    expect(content).not.toMatch(/(^|[^\\])[[<]/m)
+    expect(content).toContain("> See \\[here\\](https://help.example.com/ok)")
+  })
+
+  it("removes control and format characters from thread text", () => {
+    const { content } = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        title: "Pay\u202Eflow\u200B now",
+        messages: [
+          {
+            authorName: "Sam\u0007",
+            createdAt: null,
+            internal: false,
+            text: "one\u000btwo\u0085three\u2066four",
+          },
+        ],
+      },
+    })
+    for (const mark of [
+      "\u202E",
+      "\u200B",
+      "\u0007",
+      "\u000b",
+      "\u0085",
+      "\u2066",
+    ])
+      expect(content).not.toContain(mark)
+    expect(content).toContain("# T-4501: Payflow now")
+    expect(content).toContain("> onetwothreefour")
+  })
+
+  it("keeps a heading underline in a message as text", () => {
+    const { content } = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        messages: [
+          {
+            authorName: "Sam",
+            createdAt: null,
+            internal: false,
+            text: "Fake heading\n===\nmore\n---",
+          },
+        ],
+      },
+    })
+    expect(content).toContain("> \\===")
+    expect(content).toContain("> \\---")
   })
 })

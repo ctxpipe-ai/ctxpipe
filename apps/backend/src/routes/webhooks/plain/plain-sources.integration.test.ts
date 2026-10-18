@@ -126,6 +126,28 @@ describe("Plain webhook routes to Workspace sources (Postgres)", () => {
     expect((await post({ connection: "con_unknown" })).status).toBe(401)
   })
 
+  it("refuses a delivery whose token does not decrypt, as an unknown connection", async () => {
+    const tampered = encryptConnectionSecret(webhookToken, env)
+    const brokenId = await seed.addConnection("plain", {
+      workspaceId: "w_1",
+      workspaceName: "Acme",
+      apiKeyEnc: encryptConnectionSecret("key", env),
+      status: "installed",
+      webhookTargetId: "wht_2",
+      webhookTokenEnc: `${tampered.slice(0, -8)}AAAAAAAA`,
+    })
+    await getSystemDb()
+      .insert(connectionDirectory)
+      .values({ connectionId: brokenId, orgId: seed.orgId, type: "plain" })
+
+    const broken = await post({ connection: brokenId })
+    const unknown = await post({ connection: "con_unknown" })
+
+    expect(broken.status).toBe(401)
+    expect(await broken.json()).toEqual(await unknown.json())
+    expect(await sourceRuns()).toEqual([])
+  })
+
   it("acks a delivery for a revoked connection without a sync", async () => {
     expect((await post({ connection: revokedId })).status).toBe(200)
     expect(await sourceRuns()).toEqual([])
