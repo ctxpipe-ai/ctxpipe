@@ -22,24 +22,25 @@ environment variable.
 - A public HTTPS `AUTH_BASE_URL`. In production, keep
   `CTXPIPE_PUBLIC_APP_URL` on the same origin.
 - Permission to create a Linear OAuth application.
-- A ctx| GitHub App connection with write access to a destination repository.
+- A ctx| GitHub App connection with write access to the repository of each
+  Workspace that uses Linear.
 - The backend and worker able to reach `api.linear.app` over HTTPS.
 
 ## Connector state and backups
 
 Linear scope remains reviewable in Git:
 
-- Draft scope is `linear/config.yaml` on the generated configuration pull
-  request branch.
-- Live scope is the same YAML on the configured target branch after merge.
-- The deployment stores encrypted credentials, repository binding, and setup
-  status on the `connections` row.
+- Each Workspace has a source file at `sources/linear/<name>.md`. Draft scope is
+  the file on the branch of the pull request that adds it.
+- Live scope is the same file on the default branch after the merge.
+- The deployment stores encrypted credentials and setup status on the
+  `connections` row. The connection holds authorization only.
 - Signed Linear events update in-scope generated files through durable worker
   jobs.
 
-Back up PostgreSQL for connection credentials and binding state, and back up the
-target Git repository for both scope and mirrored content. PostgreSQL contains
-only credentials and binding state.
+Back up PostgreSQL for connection credentials, and back up the Workspace
+repositories for both scope and mirrored content. PostgreSQL contains only
+credentials and setup state.
 
 ## 1. Create a Linear application
 
@@ -100,8 +101,8 @@ after that. Copy them for the next step.
    form. The wizard shows the exact **Redirect URIs** and **Webhook URL** values
    for this deployment.
 3. Save the app, then continue to **Connect Linear workspace**.
-4. Complete OAuth, choose a GitHub repository and scope, and merge
-   `linear/config.yaml`.
+4. Complete OAuth. In **Add to Workspaces**, choose the Workspaces and the
+   scope, then merge the pull request that adds `sources/linear/<name>.md`.
 
 Secrets are stored encrypted on the Linear `connections` row. List and status
 APIs never return them.
@@ -179,14 +180,14 @@ backend and worker task definitions.
 3. Open **Connectors → Add connection → Linear**.
 4. If `LINEAR_*` is unset, complete **Register Linear OAuth app**, then Connect.
 5. Complete OAuth and confirm the expected Linear workspace appears.
-6. Choose a GitHub repository and scope. New empty repositories are supported:
-   ctx| creates the initial branch before opening the configuration pull
-   request.
-7. Merge the generated `linear/config.yaml` pull request.
+6. In **Add to Workspaces**, choose a Workspace and a scope. New empty
+   repositories are supported: ctx| creates the initial branch before it opens
+   the pull request.
+7. Merge the pull request that adds `sources/linear/<name>.md`.
 8. Confirm the GitHub App delivers the merge push to
    `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>`.
 9. Confirm the connector reaches **Connected** and generated files appear under
-   `linear/`.
+   `linear/` in the Workspace repository.
 10. Edit a mirrored Linear issue and confirm
     `POST /api/v1/webhook/linear` succeeds and the corresponding Git file
     changes.
@@ -226,14 +227,12 @@ using the env fallback, have `LINEAR_CLIENT_ID` and `LINEAR_CLIENT_SECRET`.
 Check outbound HTTPS, worker logs, and whether the application authorization
 was revoked in Linear.
 
-### Configuration pull request creation fails
+### The source pull request cannot open
 
-Open the connector and choose **Retry configuration pull request**. If the
-retry fails, confirm that the worker is running and that the selected GitHub App
-installation still has write access to the destination repository. This retry
-does not alter scope already present on the configuration pull request branch.
-If the pull request was never created, the setup dialog resubmits its local
-selection when retrying.
+If **Add to Workspaces** reports an error, confirm that the selected GitHub App
+installation still has write access to the repository of the Workspace. Also
+confirm that the Workspace repository uses format 2 or higher. Below that, the
+dialog shows **Upgrade this Workspace first**.
 
 ### Webhook endpoint returns 503
 

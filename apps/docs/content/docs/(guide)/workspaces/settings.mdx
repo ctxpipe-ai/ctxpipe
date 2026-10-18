@@ -1,0 +1,184 @@
+---
+title: Workspace settings
+description: Manage the sources of a Workspace, and read its write access, upgrade, and status messages.
+---
+
+Open a Workspace and choose the **Settings** tab. The pane has these groups:
+
+| Group | What it holds |
+| --- | --- |
+| **General** | **Name** and **URL name**. |
+| **Repositories** | The **Context repository** and the **Root folder**. |
+| **Sources** | The source files of the Workspace, grouped by provider. |
+| **Upgrades** | The repository format and the upgrade items. |
+| **Danger zone** | **Delete Workspace**. |
+
+## Sources
+
+A source tells the Workspace what to read through a connection. Each source is
+one Markdown file at `sources/<provider>/…md` in the workspace repository. The
+file holds the provider, the connection, and the scope in its front matter. The
+body is an optional description. The path of the file is the identity of the
+source.
+
+The **Sources** group shows one line of summary, for example "3 sources from 2
+connectors · 1 needs attention · 1 change awaiting merge". The note "Saved as one
+file for each source in `sources/`" names the folder. The table has the columns
+**Source**, **Connection**, **File**, and **Status**. Each provider that has a
+connection or a source has its own group. **Add another connection** opens
+**Connectors**.
+
+When the Workspace has no source and no connection, the group shows "No sources
+yet. Connect a tool under Connectors, then add it to this Workspace." Choose
+**Add connection** to open **Connectors**.
+
+Each change to a source is a pull request that a person merges. No agent can
+change `sources/` without that review. The buttons show only when ctx| can
+open a pull request: the Workspace must have a connected GitHub repository and
+must allow edits. See [Write access](#write-access). A Workspace repository
+that is below format 2 refuses each change with **Upgrade this Workspace first**.
+See [Upgrades](#upgrades).
+
+### Add a source
+
+<Steps>
+  <Step>
+    ### Open the dialog
+
+    In the group of the provider, choose **Add** (**Add repositories** for
+    GitHub). The button shows only when the organization has a connection of
+    that provider. Otherwise, the dialog says "Connect X on the Connectors page
+    first."
+
+    You can also start from **Connectors**. See
+    [Connections](/docs/connections).
+  </Step>
+
+  <Step>
+    ### Fill in the fields
+
+    The dialog **Add X source** has these fields:
+
+    - **Connection**: shown when the organization has more than one connection
+      of the provider.
+    - The scope editor of the provider, for example the teams of Linear or the
+      channels of Slack. Only an organization owner or admin can list the content
+      of most providers. A member sees "Ask an admin to choose what this source
+      syncs." Confluence is the exception.
+    - **File name (optional)**: the name of the file. The hint shows the result,
+      for example `sources/linear/linear.md`. A name has lowercase letters,
+      digits, `.`, `_`, and `-`. It starts with a letter or a digit and has at
+      most 100 characters. Without a name, ctx| names the file from the
+      provider, with a free suffix (`linear`, `linear-2`). A GitHub source is
+      always `sources/github/<owner>/<name>.md`.
+    - **Description (optional)**: what the source is for. People and agents read
+      it.
+  </Step>
+
+  <Step>
+    ### Open the pull request
+
+    Choose **Open a pull request**. The message "Pull request opened. The
+    change applies after the merge." confirms it. The group shows **New source**
+    with an **Awaiting merge** link to the pull request. After you merge the
+    pull request, the source syncs.
+  </Step>
+</Steps>
+
+### Edit a source
+
+Choose the pencil button of the row (**Edit sources/…md**). The dialog **Edit X
+source** says "The change goes to sources/…md." It has the same fields as the
+add dialog, with no file name. Choose **Open a pull request** to save.
+
+The row has no edit button when the source has no connection (a plain git
+source), or when the row is not a source file. For a plain git source, change the
+file with a pull request in Git.
+
+### Rename a source
+
+Choose the rename button of the row (**Rename sources/…md**). The dialog
+**Rename sources/…md** says "The change moves the file. Each file that lists this
+path in its sources gets the new path in the same change." It has one field,
+**File name**, with the hint "Saved as sources/…md". The folder stays, so the
+provider cannot change. The name has lowercase letters, digits, `.`, `_`, and
+`-`. **Open a pull request** is not available until the name is valid and
+different.
+
+The pull request moves the file. It also updates the `sources` list of each
+knowledge file that names the old path. A rename keeps the pin of a GitHub
+source. The next sync of a connector writes the new path into its mirror files.
+A rename that you make in Git gets the same update in a follow-up commit.
+
+### Remove a source
+
+Choose the remove button of the row (**Remove sources/…md**). The dialog **Remove
+sources/…md?** says "The change deletes the source file. After it lands, the sync
+deletes the files that the source wrote. Git history keeps them." Choose **Open a
+pull request** to confirm, or **Cancel**. A Slack source is the exception: ctx|
+keeps the threads that it captured.
+
+For a GitHub repository, choose the unlink button (**Unlink owner/name**). See
+[Linked repositories](/docs/workspaces/linked-repositories).
+
+### Pull requests that wait for a merge
+
+A row with an open pull request shows a link to it:
+
+| Link | The pull request |
+| --- | --- |
+| **Awaiting merge** | Adds or edits the source. |
+| **Rename awaiting merge** | Moves the source file. |
+| **Removal awaiting merge** | Deletes the source file. |
+
+The link opens the pull request on GitHub in a new tab. After the merge, the page
+reads the sources again by itself, and the row can take a few seconds to
+update. On **Connectors**, the
+**Used in** list of the connector shows the same pull requests with an **Open
+pull request** link.
+
+### Source status
+
+Each row has one status. The reason shows under the row.
+
+| Status | Meaning |
+| --- | --- |
+| **OK** | ctx| read the file, and the connection and the scope work. The source syncs. |
+| **Not valid** | The file does not parse, has a wrong shape, or breaks a rule. The sync skips it. The reason names the problem. |
+| **Connection missing** | The connection of the source was removed. The file stays. |
+| **Out of access** | The connection cannot reach the scope, for example a GitHub repository that is not in the GitHub App installation. Add the repository to the installation. ctx| checks again later. |
+
+A file under `sources/` that has an unknown provider or a path that breaks the
+rules shows in the group **Files not valid**. The reason names the problem. A row
+that shows "This row is not a source file. Edit the file that defines it." comes
+from the older `.ctxpipe/sources.yaml` format. The pane shows "The legacy sources
+file is not valid" when that file does not parse.
+
+These rules apply across files:
+
+- Two GitHub sources cannot name the same repository. The second file is **Not
+  valid**.
+- A GitHub source cannot name the workspace repository.
+- Two sources cannot write to the same folder. A source that already syncs keeps
+  its place.
+- A file larger than 64 KiB, or a file that is not text, is **Not valid**.
+
+### Source file format
+
+All files have the front matter keys `provider` and `connection`. The scope keys
+depend on the provider. An unknown key makes the row **Not valid**. A plain git
+source has no `connection`.
+
+| Provider | Path | Scope keys |
+| --- | --- | --- |
+| GitHub | `sources/github/<owner>/<name>.md` | `repository` (`owner/name`), optional `ref` (branch or tag) |
+| Linear | `sources/linear/<name>.md` | `teams` (team keys), `projects` (project ids), optional `customerRequests` (`exclude` or `limited`). At least one team or project. |
+| Notion | `sources/notion/<name>.md` | `pages` and `databases`, each a list of `id` and `title`. At least one of them. |
+| Confluence | `sources/confluence/<name>.md` | `spaces`: a list of `key` and `pages` (`all` or a list of page ids) |
+| Slack | `sources/slack/<name>.md` | `channels`: a list of channel ids |
+| PagerDuty | `sources/pagerduty/<name>.md` | `services`: a list of service ids |
+| Plain git | `sources/git/<host>/<name>.md` | `url` only |
+
+Each path segment after the provider folder matches
+`[a-z0-9][a-z0-9._-]{0,99}`. `id` and `kind` are not allowed in the front
+matter. Do not repeat the front matter in the body.

@@ -52,8 +52,9 @@ repositories and tools that the Workspace reads.
   <Step>
     ### Add code repositories and tools
 
-    ctx| first checks that it can write to the workspace repository. Then it
-    shows the **Sources** section of the new Workspace:
+    ctx| first checks that it can write to the workspace repository. The
+    page shows **Checking write access**, then **Setting up the Workspace
+    repository**. Then it shows the **Sources** section of the new Workspace:
 
     - Choose **Add repositories** under **GitHub** to link
       [code repositories](/docs/workspaces/linked-repositories).
@@ -61,10 +62,18 @@ repositories and tools that the Workspace reads.
     - Choose **Add another connection**, or **Add connection** when no tool
       is connected, to connect a new tool. This closes Add Workspace.
 
-    Each change goes to `.ctxpipe/sources.yaml` in the workspace repository,
-    as a pull request or a direct commit. This step is optional. You can make
-    the same changes later in **Settings**. Choose **Open Workspace** to
-    finish.
+    Each change adds a source file under `sources/` in the workspace
+    repository. ctx| opens a pull request for it. The change applies after you
+    merge the pull request. This step is optional. You can make the same
+    changes later in **Settings**. Choose **Open Workspace** to finish (or
+    **Done**, when you started from the **Get started** guide on Home).
+
+    If you chose a repository that has ctx| content from an earlier version, the
+    step shows **Upgrade this Workspace before you add sources**. Choose
+    **Review upgrades**. See [Upgrades](/docs/workspaces/settings#upgrades).
+    If the write check fails, the step shows **Read-only** or **Could not check
+    write access** with the reason. See
+    [Write access](/docs/workspaces/settings#write-access).
   </Step>
 
   <Step>
@@ -84,8 +93,8 @@ organization. Other Workspaces can still add it as a linked repository.
 The root folder is the folder in the workspace repository that holds the
 Workspace. The default is the repository root.
 
-- ctx| reads knowledge files, `AGENTS.md`, and `.ctxpipe/sources.yaml` only
-  below the root folder. Paths in the Files pane, in conversations, and in MCP
+- ctx| reads knowledge files, `AGENTS.md`, the source files in `sources/`, and
+  `.ctxpipe/workspace.yaml` only below the root folder. Paths in the Files pane, in conversations, and in MCP
   tools are relative to it.
 - ctx| writes only below the root folder. This applies to setup commits,
   connector mirrors, source pull requests, ingestion, and conversation
@@ -109,21 +118,18 @@ missing below the root folder:
 - `.agents/skills/ctxpipe-knowledge/SKILL.md`, which tells coding agents how to
   write knowledge files for this Workspace.
 
+On an empty repository, or a repository that has no ctx| content yet, the same
+commit also adds `.ctxpipe/workspace.yaml`. This file holds the
+[repository format](/docs/workspaces/settings#repository-format).
+
 Existing files are kept. ctx| only adds what is missing.
 
 ## Workspace settings
 
-Open the **Settings** tab in a Workspace to:
-
-- change the **display name** (stored in `AGENTS.md`) and the **slug** used in
-  URLs. Changing the slug breaks old links;
-- change the **workspace repository**. The current index keeps serving until
-  the new repository is indexed;
-- change the [root folder](#root-folder) of the Workspace in its repository;
-- add and remove [linked repositories](/docs/workspaces/linked-repositories);
-- see whether the Workspace is writable and whether its index is ready;
-- delete the Workspace. Deleting removes the Workspace, its conversations, and
-  its index from ctx|. The git repository is not deleted.
+Open the **Settings** tab in a Workspace to change its name, URL name, context
+repository, and root folder, to manage sources, and to see write access and
+upgrades. You can also delete the Workspace there. See
+[Workspace settings](/docs/workspaces/settings).
 
 <Cards>
   <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How to structure files ctx| can use." />

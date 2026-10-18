@@ -9,12 +9,22 @@ const config = withMDX({
     return [
       {
         source: "/docs/connections/connecting-docs",
-        destination: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
         permanent: false,
       },
       {
         source: "/docs/connections/connecting-tools",
-        destination: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/source-connectors",
+        destination: "/docs/connections",
         permanent: false,
       },
       {

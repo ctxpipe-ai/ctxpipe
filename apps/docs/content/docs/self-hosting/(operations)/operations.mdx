@@ -264,7 +264,7 @@ clones the repository again while a new base builds.
   merge pushes reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `linear-sync-config`, `linear-sync-content`, or
   `linear-sync-incremental` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [Linear](/docs/self-hosting/linear).
 
@@ -272,13 +272,13 @@ clones the repository again while a new base builds.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  merged `pagerduty/config.yaml`. There is no shared webhook secret; ctx|
+  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctx|
   stores the per-subscription secret on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `pagerduty-sync-config`, `pagerduty-sync-content`, or
   `pagerduty-sync-entity` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [PagerDuty](/docs/self-hosting/pagerduty).
 

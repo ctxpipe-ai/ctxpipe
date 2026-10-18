@@ -152,9 +152,8 @@ with `200` and never fetched.
 5. In **Add PagerDuty to Workspaces**, select one or more Workspaces and at
    least one service for each. Search, and show more services if the account
    has many.
-6. Merge the pull request that adds the source to `.ctxpipe/sources.yaml` in
-   each Workspace repository. A Workspace that allows direct commits gets a
-   commit instead.
+6. Merge the pull request that adds `sources/pagerduty/<name>.md` in each
+   Workspace repository.
 7. Confirm the source shows **OK** in the Workspace settings and generated
    files appear under `pagerduty/services/<serviceId>/incidents/`.
 8. Trigger or update an in-scope incident and confirm
