@@ -28,6 +28,7 @@ import {
   vercelIngestSandboxProvider,
 } from "../workspaces/ingest-sandbox-egress.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
+import { sandboxFetchUrl } from "../workspaces/sandbox-credential-rules.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import {
@@ -513,13 +514,16 @@ function shardRuntime(
               }),
               agentEnv,
               source: {
-                url: spec.source.url,
+                url: sandboxFetchUrl(spec.source),
                 sha: spec.source.sha,
                 // No later fetch can get a missing blob of a plain git
                 // source: clone each blob of the window now.
                 blobless: spec.source.kind !== "git",
               },
-              contexts: spec.destinations,
+              contexts: spec.destinations.map((destination) => ({
+                ...destination,
+                url: sandboxFetchUrl(destination),
+              })),
               now: new Date(),
               signal: lockSignal,
             })
@@ -552,7 +556,7 @@ function shardRuntime(
           const { usage } = await runIngestShardStep(root, {
             step: { ...step, signal },
             agentEnv,
-            remote: destination.url,
+            remote: sandboxFetchUrl(destination),
             sourceUrl: spec.source.url,
             sourcePath: destination.sourcePath,
             index: await indexOf(step),
