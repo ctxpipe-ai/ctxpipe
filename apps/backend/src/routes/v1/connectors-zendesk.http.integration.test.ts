@@ -151,7 +151,7 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     }
     return {
       state: new URL(authorizationUrl).searchParams.get("state") ?? "",
-      pkceCookie: (start.headers.get("set-cookie") ?? "").split(";")[0],
+      pkceCookie: (start.headers.get("set-cookie") ?? "").split(";")[0] ?? "",
     }
   }
 
