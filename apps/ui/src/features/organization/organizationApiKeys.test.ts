@@ -1,5 +1,13 @@
 import HyperDX from "@hyperdx/browser"
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest"
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -17,7 +25,7 @@ function jsonResponse(body: object): Response {
 }
 
 describe("API-key client", () => {
-  let addAction: ReturnType<typeof vi.spyOn<typeof HyperDX, "addAction">>
+  let addAction: MockInstance<(typeof HyperDX)["addAction"]>
 
   beforeEach(() => {
     vi.stubGlobal("fetch", fetchMock)
