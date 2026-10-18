@@ -574,12 +574,14 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
     const recorded = await store.list(`ingest:${runId}:0:`)
     expect(recorded.length).toBeGreaterThan(0)
     expect(recorded.some((row) => row.token === githubToken)).toBe(true)
-    // Prepare cloned through the firewall and the egress route.
+    // Prepare cloned through the firewall and the egress route, from the
+    // lower-case `.git` URL that the egress rules list (`sandboxFetchUrl`).
     expect(
       served.some(
         (entry) =>
-          entry.forwarded.startsWith(`github.com/${HELLO}.git/info/refs`) &&
-          entry.status === 200,
+          entry.forwarded.startsWith(
+            `github.com/${HELLO.toLowerCase()}.git/info/refs`,
+          ) && entry.status === 200,
       ),
       JSON.stringify(served.slice(0, 5)),
     ).toBe(true)

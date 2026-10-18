@@ -177,10 +177,43 @@ export async function prepareIngestSandbox(
 }
 
 /**
+ * Shell lines that copy the git checkout `from` to the new folder `to`.
+ * Root never runs git in `from`: it copies only the object store, the refs,
+ * HEAD, and the shallow list, and makes a new config and a new work tree.
+ * A `git clone` of a shallow blobless checkout fails, because the copy does
+ * not have most blobs of its history and cannot send them. The new copy is
+ * not a partial clone: a read of a missing blob fails and fetches nothing.
+ */
+export function copyCheckoutScript(input: {
+  from: string
+  to: string
+  /** The remote that later steps fetch from; default: `from`. */
+  remoteUrl?: string
+}): string[] {
+  const from = quote(`${input.from}/.git`)
+  const to = quote(input.to)
+  const git = `git -C ${to}`
+  return [
+    `rm -rf ${to}`,
+    `if [ -L ${from} ] || [ -n "$(find ${from} -maxdepth 1 -type l)" ]; then echo "Ingest prepare: the git folder of the checkout holds a symlink" >&2; exit 1; fi`,
+    `git init -q ${to}`,
+    `cp -R ${from}/objects/. ${to}/.git/objects/`,
+    `rm -f ${to}/.git/objects/info/alternates ${to}/.git/objects/info/http-alternates`,
+    `cp -R ${from}/refs/. ${to}/.git/refs/`,
+    `for f in HEAD packed-refs shallow; do if [ -f ${from}/$f ]; then cp ${from}/$f ${to}/.git/$f; fi; done`,
+    refuseSpecialFiles(`${input.to}/.git`),
+    `${git} remote add origin ${quote(input.remoteUrl ?? input.from)}`,
+    // The checkout of `from` has every blob of HEAD; root fetches nothing.
+    `GIT_NO_LAZY_FETCH=1 ${git} reset -q --hard`,
+  ]
+}
+
+/**
  * Copy a checkout that prepare cloned as the default user to
- * `/ctxpipe/<context|source>/<id>`, owned by root. Root clones it with git,
- * so no hook, config, or symlink in the user's copy reaches root. Git reads
- * it as the agent through a system `safe.directory` entry.
+ * `/ctxpipe/<context|source>/<id>`, owned by root. Root copies only its git
+ * objects and refs (`copyCheckoutScript`), so no hook, config, or symlink in
+ * the user's copy reaches root. Git reads it as the agent through a system
+ * `safe.directory` entry.
  */
 export async function sealIngestCheckout(
   root: RootExec,
@@ -201,16 +234,7 @@ export async function sealIngestCheckout(
     root,
     [
       "set -e",
-      `rm -rf ${next}`,
-      // The user's copy has another owner; a throwaway global config lets
-      // root read it (upload-pack ignores a -c safe.directory).
-      'export GIT_CONFIG_GLOBAL="$(mktemp)"',
-      "git config --global safe.directory '*'",
-      `git clone -q --no-hardlinks -- ${quote(input.from)} ${next}`,
-      'rm -f "$GIT_CONFIG_GLOBAL"',
-      ...(input.remoteUrl
-        ? [`git -C ${next} remote set-url origin ${quote(input.remoteUrl)}`]
-        : []),
+      ...copyCheckoutScript({ ...input, to: next }),
       `chown -R root:root ${next}`,
       `chmod -R u=rwX,go=rX ${next}`,
       `rm -rf ${target}`,

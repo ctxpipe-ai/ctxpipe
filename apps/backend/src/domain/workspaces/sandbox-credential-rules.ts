@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /**
  * The credentials that something outside a chat sandbox adds to its
@@ -62,6 +63,28 @@ export function githubFetchCredentialRules(
       authorization,
     })),
   )
+}
+
+/**
+ * The URL that an ingest sandbox fetches a shard repository from. A GitHub
+ * repository gets `https://github.com/<owner>/<name>.git`: the egress rules
+ * of {@link githubFetchCredentialRules} match only the paths of this URL, so
+ * a normalized Workspace URL (with no `.git`) gets a 403 from the proxy. A
+ * plain git source keeps its URL: its rules match the path of that URL
+ * (CTX-815).
+ *
+ * The path is in lower case, the form of the rules: `shardRepositories`
+ * builds their `owner/name` from the same lower-case name. A rule matches
+ * an exact path (Agent Vault in Docker, the Vercel firewall), and nothing
+ * promises that it ignores case, so the URL and the rules must be the same
+ * string. The hosted egress proxy (`ingest-egress-proxy.ts`) does accept
+ * another case, but we do not rely on that.
+ */
+export function sandboxFetchUrl(repo: { url: string; kind?: string }): string {
+  if (repo.kind === "git") return repo.url
+  const fullName = githubRepoFullNameFromWorkspaceUrl(repo.url)
+  if (!fullName) throw new Error("Ingest repositories must be on GitHub")
+  return `https://github.com/${fullName}.git`
 }
 
 /**

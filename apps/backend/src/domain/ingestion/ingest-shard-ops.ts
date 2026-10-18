@@ -295,13 +295,32 @@ export async function runIngestShardStep(
       signal: step.signal,
     })
     if (result.exitCode !== 0)
-      throw new Error(
+      throw new IngestStepCommandError(
+        part === command ? "skill" : "finish",
+        result.exitCode,
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
       )
     if (part === command && step.run === "model")
       usage = parseOpenCodeUsage(result.stdout)
   }
   return usage ? { usage } : {}
+}
+
+/**
+ * A failed command of an ingest step: the skill command (`opencode run` or
+ * the skill script) or `ctxpipe-finish`. The message holds the command's
+ * stderr, which can hold source text. `part` and `exitCode` hold no source
+ * text, so a log can show them.
+ */
+export class IngestStepCommandError extends Error {
+  constructor(
+    readonly part: "skill" | "finish",
+    readonly exitCode: number,
+    message: string,
+  ) {
+    super(message)
+    this.name = "IngestStepCommandError"
+  }
 }
 
 /**
