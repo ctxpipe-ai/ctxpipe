@@ -443,15 +443,18 @@ describe("workspace query HTTP helpers", () => {
     )
     // A new hosted sandbox needs about 40 seconds. Each timeout of a minute
     // or less has already passed when the answer comes.
-    const timeout = vi
-      .spyOn(AbortSignal, "timeout")
-      .mockImplementation((ms) =>
-        ms <= 60_000
-          ? AbortSignal.abort(
-              new DOMException("signal timed out", "TimeoutError"),
-            )
-          : new AbortController().signal,
-      )
+    vi.stubGlobal(
+      "AbortSignal",
+      class extends AbortSignal {
+        static override timeout(ms: number) {
+          return ms <= 60_000
+            ? AbortSignal.abort(
+                new DOMException("signal timed out", "TimeoutError"),
+              )
+            : new AbortController().signal
+        }
+      },
+    )
     try {
       const queryClient = new QueryClient({
         defaultOptions: { queries: { retry: false } },
@@ -462,7 +465,7 @@ describe("workspace query HTTP helpers", () => {
         ),
       ).resolves.toBeNull()
     } finally {
-      timeout.mockRestore()
+      vi.unstubAllGlobals()
     }
   })
 
