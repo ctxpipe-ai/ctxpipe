@@ -592,6 +592,104 @@ export const DiagListLaterAfterDone: Story = {
   play: ({ canvasElement }) => diagPlay(canvasElement, "laterAfterDone"),
 }
 
+function watchCancel() {
+  const onCancel = (event: Event) => {
+    const el = event.target as HTMLElement
+    stamp(
+      `animationcancel ${(event as AnimationEvent).animationName} on ${el.tagName} entering=${el.dataset.entering} exiting=${el.dataset.exiting}`,
+    )
+  }
+  document.addEventListener("animationcancel", onCancel, true)
+  return () => document.removeEventListener("animationcancel", onCancel, true)
+}
+function overlayAnimations() {
+  const dialog = document.querySelector('[role="dialog"][aria-labelledby]')
+  const out: Animation[] = []
+  for (
+    let node = dialog?.parentElement;
+    node && node !== document.body;
+    node = node.parentElement
+  )
+    out.push(...node.getAnimations())
+  return out
+}
+async function diagPlay2(
+  canvasElement: HTMLElement,
+  mode: "doneEarly" | "doneDuringEnter" | "hintBeforeDone",
+) {
+  const stop = watchCancel()
+  const observer = watchExit()
+  const guide = await findGuide(canvasElement)
+  await waitFor(() => expect(guide.getByText("1 of 6 done")).toBeVisible())
+  await userEvent.click(guide.getByRole("button", { name: "Create Workspace" }))
+  const body = within(canvasElement.ownerDocument.body)
+  const dialog = within(
+    await body.findByRole("dialog", { name: "Add Workspace" }),
+  )
+  let held: Animation[] = []
+  if (mode === "doneDuringEnter") {
+    held = overlayAnimations()
+    stamp(
+      `held ${held.map((a) => (a as CSSAnimation).animationName).join(",")}`,
+    )
+    for (const a of held) a.pause()
+  }
+  await userEvent.click(
+    await dialog.findByRole("radio", { name: /acme\/handbook/ }),
+  )
+  await userEvent.click(
+    dialog.getByRole("button", { name: "Create Workspace" }),
+  )
+  if (mode === "hintBeforeDone")
+    await waitFor(() =>
+      expect(
+        body.getByText("Add a Workspace for each team or product."),
+      ).toBeInTheDocument(),
+    )
+  if (mode === "doneEarly") await dialog.findByRole("button", { name: "Done" })
+  else await dialog.findByRole("button", { name: "Add repositories" })
+  stamp("click Done")
+  await userEvent.click(dialog.getByRole("button", { name: "Done" }))
+  stamp("clicked Done")
+  for (const a of held) a.play()
+  try {
+    await waitFor(
+      () =>
+        expect(
+          body.queryByRole("dialog", { name: "Add Workspace" }),
+        ).not.toBeInTheDocument(),
+      { timeout: 3000 },
+    )
+  } catch {
+    throw new Error(`DIAG ${mode} dialog stayed: ${diagState()}`)
+  } finally {
+    observer.disconnect()
+    stop()
+  }
+  stamp("dialog gone")
+  throw new Error(`DIAG ${mode} closed: ${diagState()}`)
+}
+function diagResetUngated() {
+  createState.created = false
+  diag.log = []
+  diag.gate = null
+}
+export const DiagDoneEarly: Story = {
+  beforeEach: diagResetUngated,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay2(canvasElement, "doneEarly"),
+}
+export const DiagDoneDuringEnter: Story = {
+  beforeEach: diagResetUngated,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay2(canvasElement, "doneDuringEnter"),
+}
+export const DiagHintBeforeDone: Story = {
+  beforeEach: diagResetUngated,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay2(canvasElement, "hintBeforeDone"),
+}
+
 /** After the first question the guide is one line. Expand still works. */
 export const GuideAdminAfterFirstQuestion: Story = {
   tags: ["workspace-golden"],
