@@ -45,16 +45,16 @@ function yamlScalar(value: string): string {
 }
 
 /**
- * Provider text on one line. A line break in a name or a branch cannot start
- * a new Markdown block (a heading, a list item, or a fence).
+ * Provider text as inline Markdown text. It is on one line, so a line break
+ * cannot start a block (a heading, a list item, or a fence). Each Markdown
+ * punctuation mark has a backslash, so the text cannot make a link, an
+ * image, HTML, a table cell, or emphasis.
  */
-function oneLine(value: string): string {
-  return value.replace(/\s+/g, " ").trim()
-}
-
-/** Link text without the brackets that would end it. */
-function linkText(value: string): string {
-  return oneLine(value).replace(/[[\]]/g, "\\$&")
+function escapeInline(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
 }
 
 /** An `https:` URL that is safe as a Markdown link target, or null. */
@@ -73,10 +73,10 @@ function linkUrl(value: string | null): string | null {
   }
 }
 
-/** `[text](url)` for a safe URL, else the text alone. */
-function link(text: string, url: string | null): string {
+/** `[label](url)` for a safe URL, else the label alone. The label is safe Markdown. */
+function link(label: string, url: string | null): string {
   const target = linkUrl(url)
-  return target ? `[${linkText(text)}](${target})` : oneLine(text)
+  return target ? `[${label}](${target})` : label
 }
 
 /**
@@ -122,14 +122,14 @@ function renderPipelineMarkdown(input: {
       ["repository", pipeline.repository],
       ["default_branch", pipeline.defaultBranch],
     ]),
-    `# ${oneLine(pipeline.name)}`,
+    `# ${escapeInline(pipeline.name)}`,
     "",
-    `- Buildkite: ${link(pipeline.name, pipeline.url)}`,
+    `- Buildkite: ${link(escapeInline(pipeline.name), pipeline.url)}`,
     ...(pipeline.repository
-      ? [`- Repository: ${oneLine(pipeline.repository)}`]
+      ? [`- Repository: ${escapeInline(pipeline.repository)}`]
       : []),
     ...(pipeline.defaultBranch
-      ? [`- Default branch: ${oneLine(pipeline.defaultBranch)}`]
+      ? [`- Default branch: ${escapeInline(pipeline.defaultBranch)}`]
       : []),
     "",
   ].join("\n")
@@ -176,34 +176,36 @@ function renderBuildMarkdown(input: {
       ["created_at", build.createdAt],
       ["finished_at", build.finishedAt],
     ]),
-    `# ${oneLine(pipeline.name)} build #${build.number}`,
+    `# ${escapeInline(pipeline.name)} build #${build.number}`,
     "",
-    `- Pipeline: [${linkText(pipeline.name)}](../pipeline.md)`,
+    `- Pipeline: [${escapeInline(pipeline.name)}](../pipeline.md)`,
     `- Buildkite: ${link(`#${build.number}`, build.url)}`,
-    `- State: ${oneLine(build.state)}`,
+    `- State: ${escapeInline(build.state)}`,
   ]
-  if (build.branch) lines.push(`- Branch: ${oneLine(build.branch)}`)
+  if (build.branch) lines.push(`- Branch: ${escapeInline(build.branch)}`)
   if (build.commit)
     lines.push(
       commitUrl
         ? `- Commit: [${build.commit.slice(0, 7)}](${commitUrl})`
-        : `- Commit: ${oneLine(build.commit)}`,
+        : `- Commit: ${escapeInline(build.commit)}`,
     )
   if (build.pullRequestNumber)
     lines.push(
       pullRequestUrl
         ? `- Pull request: [#${build.pullRequestNumber}](${pullRequestUrl})`
-        : `- Pull request: #${build.pullRequestNumber}`,
+        : `- Pull request: #${escapeInline(build.pullRequestNumber)}`,
     )
   if (build.creatorName)
-    lines.push(`- Created by: ${oneLine(build.creatorName)}`)
+    lines.push(`- Created by: ${escapeInline(build.creatorName)}`)
   lines.push("", "## Failed jobs", "")
   const failed = build.jobs.filter(
     (job) => FAILED_STATES.has(job.state) && !job.softFailed,
   )
   if (!failed.length) lines.push("No job failed.")
   for (const job of failed) {
-    lines.push(`- ${link(job.name, job.url)}${FAILED_STATES.get(job.state)}`)
+    lines.push(
+      `- ${link(escapeInline(job.name), job.url)}${FAILED_STATES.get(job.state)}`,
+    )
   }
   lines.push("")
   return lines.join("\n")

@@ -18,6 +18,7 @@ export const buildkiteSourceScopeSchema = z
     pipelines: z
       .array(buildkitePipelineSlugSchema)
       .min(1, "Select at least one Buildkite pipeline")
+      .max(50, "Select at most 50 Buildkite pipelines")
       .refine(
         (slugs) => new Set(slugs).size === slugs.length,
         "List each pipeline one time",

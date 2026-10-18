@@ -29,6 +29,17 @@ describe("Buildkite source scope", () => {
     expect(entry(scope).ok).toBe(false)
   })
 
+  it("accepts 50 pipelines and rejects 51 with a clear message", () => {
+    const slugs = (count: number) =>
+      Array.from({ length: count }, (_, index) => `pipeline-${index}`)
+    expect(entry({ pipelines: slugs(50) }).ok).toBe(true)
+    const result = entry({ pipelines: slugs(51) })
+    expect(result.ok).toBe(false)
+    expect(JSON.stringify(result)).toContain(
+      "Select at most 50 Buildkite pipelines",
+    )
+  })
+
   it("summarizes the pipeline count", () => {
     expect(summarizeSourceScope("buildkite", { pipelines: ["deploy"] })).toBe(
       "1 Buildkite pipeline",

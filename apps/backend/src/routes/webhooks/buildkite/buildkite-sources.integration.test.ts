@@ -132,6 +132,27 @@ describe("Buildkite webhook routes to Workspace sources (Postgres)", () => {
     ).toBe(401)
   })
 
+  it("refuses a delivery for a connection with a malformed config", async () => {
+    const malformedId = await seed.addConnection("buildkite", {
+      organizationSlug: 42,
+      status: "unknown",
+    })
+    await getSystemDb().insert(connectionDirectory).values({
+      connectionId: malformedId,
+      orgId: seed.orgId,
+      type: "buildkite",
+    })
+    expect(
+      (
+        await post({
+          event: "build.finished",
+          path: `/api/v1/webhook/buildkite/${malformedId}`,
+        })
+      ).status,
+    ).toBe(401)
+    expect(await sourceRuns()).toEqual([])
+  })
+
   it("acks a ping without a sync", async () => {
     expect((await post({ event: "ping" })).status).toBe(200)
     expect(await sourceRuns()).toEqual([])

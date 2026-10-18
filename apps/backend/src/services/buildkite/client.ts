@@ -12,6 +12,22 @@ export const BUILDKITE_REQUIRED_SCOPES = [
   "read_builds",
 ] as const
 
+/**
+ * The read scopes that a token may have. The token gets no other scope, so a
+ * leaked token cannot change Buildkite, and cannot read build logs or job
+ * environments.
+ */
+const BUILDKITE_ALLOWED_SCOPES: ReadonlySet<string> = new Set([
+  ...BUILDKITE_REQUIRED_SCOPES,
+  "read_organizations",
+  "read_user",
+  "read_teams",
+  "read_agents",
+  "read_clusters",
+  "read_artifacts",
+  "read_suites",
+])
+
 /** The number of finished builds that a source keeps for each pipeline. */
 export const BUILDKITE_BUILDS_PER_PIPELINE = 25
 
@@ -162,6 +178,20 @@ export async function verifyBuildkiteAccess(input: {
       }
     throw error
   }
+  const writeScopes = token.scopes.filter((scope) => scope.startsWith("write_"))
+  if (writeScopes.length)
+    return {
+      ok: false,
+      error: `Remove the write scopes from the token: ${writeScopes.join(", ")}. The connector only reads.`,
+    }
+  const extraScopes = token.scopes.filter(
+    (scope) => !BUILDKITE_ALLOWED_SCOPES.has(scope),
+  )
+  if (extraScopes.length)
+    return {
+      ok: false,
+      error: `Remove these scopes from the token: ${extraScopes.join(", ")}. Use only ${BUILDKITE_REQUIRED_SCOPES.join(" and ")}.`,
+    }
   const missing = BUILDKITE_REQUIRED_SCOPES.filter(
     (scope) => !token.scopes.includes(scope),
   )

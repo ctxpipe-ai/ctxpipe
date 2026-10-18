@@ -111,7 +111,7 @@ describe("buildkitePipelineFiles", () => {
         "",
         // A soft-failed job does not fail the build, so it is not listed.
         "- [:rspec: Unit \\[tests\\]](https://buildkite.com/acme/web-app/builds/42#job-1)",
-        "- Deploy | prod (timed out)",
+        "- Deploy \\| prod (timed out)",
         "",
       ].join("\n"),
     )
@@ -166,13 +166,70 @@ describe("buildkitePipelineFiles", () => {
     expect(body).not.toMatch(/^#+ Injected/m)
     expect(body).not.toMatch(/^- injected/m)
     expect(body).not.toMatch(/^```/m)
-    expect(buildFile?.content).toContain("# Web # Injected heading build #42")
+    expect(buildFile?.content).toContain("# Web \\# Injected heading build #42")
     expect(buildFile?.content).toContain("- Buildkite: #42\n")
-    expect(buildFile?.content).toContain("- Branch: main ## Injected section")
+    expect(buildFile?.content).toContain(
+      "- Branch: main \\#\\# Injected section",
+    )
     expect(buildFile?.content).not.toContain("commit_url")
     expect(buildFile?.content).toContain(
-      "- [Unit ```](https://buildkite.com/acme/web-app/builds/42#job-%281%29)",
+      "- [Unit \\`\\`\\`](https://buildkite.com/acme/web-app/builds/42#job-%281%29)",
     )
+  })
+})
+
+describe("Markdown in provider text", () => {
+  const payloads = [
+    "[x](https://evil.example)",
+    "![](https://evil.example/pixel.png)",
+    "<img src=x onerror=alert(1)>",
+  ]
+  const backslash = (value: string) =>
+    value.replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
+
+  const fields: Array<
+    [
+      string,
+      (payload: string) => {
+        pipeline?: Partial<BuildkitePipelineForMirror>
+        build?: Partial<BuildkiteBuildForMirror>
+      },
+    ]
+  > = [
+    ["pipeline name", (name) => ({ pipeline: { name } })],
+    ["repository", (repository) => ({ pipeline: { repository } })],
+    ["default branch", (defaultBranch) => ({ pipeline: { defaultBranch } })],
+    ["state", (state) => ({ build: { state } })],
+    ["branch", (branch) => ({ build: { branch } })],
+    ["creator", (creatorName) => ({ build: { creatorName } })],
+    ["commit", (commit) => ({ build: { commit } })],
+    ["pull request", (pullRequestNumber) => ({ build: { pullRequestNumber } })],
+    [
+      "job name",
+      (name) => ({
+        build: { jobs: [{ ...build.jobs[0], name } as never] },
+      }),
+    ],
+  ]
+
+  it.each(
+    fields,
+  )("escapes a link, an image, and a tag in the %s", (_name, set) => {
+    for (const payload of payloads) {
+      const patch = set(payload)
+      const files = buildkitePipelineFiles({
+        organizationSlug: "acme",
+        pipeline: { ...pipeline, ...patch.pipeline },
+        builds: [{ ...build, ...patch.build }],
+      })
+      const text = files.map((file) => file.content).join("\n")
+      // The front matter holds JSON strings. The body is Markdown.
+      const body = files
+        .map((file) => file.content.split("\n---\n").pop() ?? "")
+        .join("\n")
+      expect(body).not.toMatch(/(?<!\\)(\]\(https:\/\/evil|!\[|<img)/)
+      expect(text).toContain(backslash(payload))
+    }
   })
 })
 

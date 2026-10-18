@@ -1,4 +1,4 @@
-import { HttpResponse, http } from "msw"
+import { delay, HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
   afterAll,
@@ -33,6 +33,7 @@ afterEach(() => {
   server.resetHandlers()
   requests.length = 0
   vi.useRealTimers()
+  vi.restoreAllMocks()
 })
 afterAll(() => server.close())
 
@@ -104,6 +105,25 @@ describe("listBuildkiteBuilds", () => {
     expect(requests).toHaveLength(2)
   })
 
+  it("aborts a request that Buildkite does not answer in 15 seconds", async () => {
+    // Fake timers do not reach `AbortSignal.timeout`. Record its limit, and
+    // give the request a short real signal with the same behavior.
+    const limits: number[] = []
+    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
+    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
+      limits.push(ms)
+      return realTimeout(20)
+    })
+    server.use(
+      http.get(`${API}/organizations/acme/pipelines/web-app/builds`, () =>
+        delay("infinite"),
+      ),
+    )
+
+    await expect(read()).rejects.toMatchObject({ name: "TimeoutError" })
+    expect(limits).toEqual([15_000])
+  })
+
   it("throws a typed error when Buildkite refuses the token", async () => {
     server.use(
       http.get(`${API}/organizations/acme/pipelines/web-app/builds`, () =>
@@ -122,7 +142,7 @@ describe("verifyBuildkiteAccess", () => {
 
   it("accepts a token with the read scopes that lists the pipelines", async () => {
     server.use(
-      token(["read_pipelines", "read_builds", "x"]),
+      token(["read_pipelines", "read_builds", "read_organizations"]),
       http.get(`${API}/organizations/acme/pipelines`, ({ request }) => {
         requests.push(new URL(request.url).search)
         return HttpResponse.json([{ slug: "web-app", name: "Web App" }])
@@ -138,6 +158,24 @@ describe("verifyBuildkiteAccess", () => {
     expect(await verify()).toEqual({
       ok: false,
       error: "Give the token these scopes: read_builds.",
+    })
+  })
+
+  it("refuses a token with a write scope", async () => {
+    server.use(token(["read_pipelines", "read_builds", "write_builds"]))
+    expect(await verify()).toEqual({
+      ok: false,
+      error:
+        "Remove the write scopes from the token: write_builds. The connector only reads.",
+    })
+  })
+
+  it("refuses a token with a read scope outside the allowlist", async () => {
+    server.use(token(["read_pipelines", "read_builds", "read_job_env"]))
+    expect(await verify()).toEqual({
+      ok: false,
+      error:
+        "Remove these scopes from the token: read_job_env. Use only read_pipelines and read_builds.",
     })
   })
 
