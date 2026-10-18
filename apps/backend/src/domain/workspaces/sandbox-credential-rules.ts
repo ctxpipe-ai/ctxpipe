@@ -72,6 +72,13 @@ export function githubFetchCredentialRules(
  * a normalized Workspace URL (with no `.git`) gets a 403 from the proxy. A
  * plain git source keeps its URL: its rules match the path of that URL
  * (CTX-815).
+ *
+ * The path is in lower case, the form of the rules: `shardRepositories`
+ * builds their `owner/name` from the same lower-case name. A rule matches
+ * an exact path (Agent Vault in Docker, the Vercel firewall), and nothing
+ * promises that it ignores case, so the URL and the rules must be the same
+ * string. The hosted egress proxy (`ingest-egress-proxy.ts`) does accept
+ * another case, but we do not rely on that.
  */
 export function sandboxFetchUrl(repo: { url: string; kind?: string }): string {
   if (repo.kind === "git") return repo.url

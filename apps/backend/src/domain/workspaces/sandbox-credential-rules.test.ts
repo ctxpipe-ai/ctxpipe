@@ -26,6 +26,10 @@ describe("sandboxFetchUrl", () => {
       { url },
       { url, kind: "github" },
       { url: "https://github.com/acme/checkout-api/" },
+      // A URL that was never normalized keeps its case: the rules are in
+      // lower case, and a rule matches an exact path.
+      { url: "https://github.com/Acme/Checkout-API.git", kind: "github" },
+      { url: "git@github.com:Acme/Checkout-API.git" },
     ]) {
       const fetchUrl = sandboxFetchUrl(repo)
       expect(fetchUrl).toBe("https://github.com/acme/checkout-api.git")
