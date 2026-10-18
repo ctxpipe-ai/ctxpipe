@@ -1,6 +1,7 @@
 import type { Env } from "../../config/env.js"
 import type { ModelTier } from "../../retrieval/services/providers/providerTypes.js"
 import { parseSandboxCallbackHost } from "../workspaces/sandbox-callback-host.js"
+import type { IngestSource } from "./ingestion-run.js"
 import type { IngestSkillBundle } from "./skill-bundle.js"
 
 /*
@@ -40,12 +41,7 @@ export type IngestShardSpec = {
   runId: string
   shard: number
   bundle: IngestSkillBundle
-  source: {
-    url: string
-    githubConnectionId: string
-    sha: string
-    repositoryId: string | null
-  }
+  source: IngestSource & { sha: string; repositoryId: string | null }
   destinations: IngestDestination[]
 }
 

@@ -163,6 +163,11 @@ export type HostedTurnCredentials = {
   /** The exact path of the turn's tool bridge. */
   bridgePath: string
   bridgeToken: string
+  /**
+   * Ingest only: true while `prepareIngestShard` fetches the shard's plain
+   * git source. Only then may the sandbox reach the plain git host.
+   */
+  fetchSource?: boolean
 }
 
 /**

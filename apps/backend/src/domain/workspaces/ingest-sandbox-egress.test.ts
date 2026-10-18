@@ -4,6 +4,7 @@ import { INGEST_SHARD_LIMIT_MS } from "./chat-lifecycle.js"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import {
   hostedIngestEgressEnabled,
+  ingestCredentialRules,
   ingestNetworkPolicy,
   VERCEL_INGEST_EGRESS_PROVEN,
 } from "./ingest-sandbox-egress.js"
@@ -71,6 +72,59 @@ describe("ingestNetworkPolicy", () => {
       expect(JSON.stringify(policy)).not.toContain(value)
   })
 
+  it("forwards a plain git host to the egress proxy only while prepare fetches the source, never during a step (CTX-815)", () => {
+    const plainGit = [{ host: "git.example.org", path: "/team/app.git" }]
+    const sealedOf = (policy: NetworkPolicy, host: string) =>
+      new URL(allowOf(policy)[host]?.[0]?.forwardURL ?? "").pathname.replace(
+        "/api/v1/sandbox-egress/",
+        "",
+      )
+    const prepare = ingestNetworkPolicy({
+      git,
+      plainGit,
+      backendHost,
+      secret,
+      sandboxName: "sbx-ingest",
+      step: { ...step, fetchSource: true },
+    })
+    expect(Object.keys(allowOf(prepare)).sort()).toEqual([
+      backendHost,
+      "git.example.org",
+      "github.com",
+    ])
+    expect(
+      openIngestEgressScope(sealedOf(prepare, "git.example.org"), secret)
+        ?.plainGit,
+    ).toEqual(plainGit)
+    // A step, and a sandbox between steps: no plain git host, and no plain
+    // git repository in the sealed scope.
+    for (const policy of [
+      ingestNetworkPolicy({
+        git,
+        plainGit,
+        backendHost,
+        secret,
+        sandboxName: "sbx-ingest",
+        step,
+      }),
+      ingestNetworkPolicy({
+        git,
+        plainGit,
+        backendHost,
+        secret,
+        sandboxName: "sbx-ingest",
+      }),
+    ]) {
+      expect(Object.keys(allowOf(policy)).sort()).toEqual([
+        backendHost,
+        "github.com",
+      ])
+      expect(
+        openIngestEgressScope(sealedOf(policy, "github.com"), secret)?.plainGit,
+      ).toBeUndefined()
+    }
+  })
+
   it("denies private and link-local subnets", () => {
     const policy = ingestNetworkPolicy({
       git,
@@ -120,5 +174,49 @@ describe("hostedIngestEgressEnabled", () => {
 
   it("stays closed in the product until the live proof", () => {
     expect(VERCEL_INGEST_EGRESS_PROVEN).toBe(false)
+  })
+})
+
+describe("ingestCredentialRules", () => {
+  it("allows Git fetch of a plain git repository only for the source fetch, on port 443, with no credential, and adds the token only to GitHub (CTX-815)", () => {
+    const egress = {
+      repositories: [
+        { fullName: "acme/context", githubConnectionId: "con_1" },
+        {
+          kind: "git" as const,
+          host: "git.example.org",
+          path: "/team/app.git",
+        },
+      ],
+      modelProxyUrl: `https://${backendHost}/acme/api/v1/workspace-chat/openai/v1`,
+      capability: "ingest-capability",
+      bridge: { url: `https://${backendHost}/bridge`, token: "bridge-token" },
+    }
+    const access = [{ token: "git-1", repositories: ["acme/context"] }]
+    const rules = ingestCredentialRules(egress, access, { fetchSource: true })
+    const plain = rules.filter((rule) =>
+      rule.host.startsWith("git.example.org"),
+    )
+    expect(
+      plain.map(({ host, path, authorization }) => [host, path, authorization]),
+    ).toEqual([
+      ["git.example.org:443", "/team/app.git/info/refs", null],
+      ["git.example.org:443", "/team/app.git/git-upload-pack", null],
+    ])
+    expect(
+      rules
+        .filter((rule) => rule.host === "github.com")
+        .every((rule) => rule.authorization?.startsWith("Basic ")),
+    ).toBe(true)
+    // No rule allows a push or another path of the plain git host.
+    expect(rules.some((rule) => rule.path?.includes("receive-pack"))).toBe(
+      false,
+    )
+    // A step: no rule for the plain git host at all.
+    expect(
+      ingestCredentialRules(egress, access).some((rule) =>
+        rule.host.startsWith("git.example.org"),
+      ),
+    ).toBe(false)
   })
 })

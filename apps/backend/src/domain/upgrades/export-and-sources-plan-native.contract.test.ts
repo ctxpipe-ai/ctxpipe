@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { eq } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
@@ -13,6 +13,7 @@ import {
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import {
   slackLegacyBindings,
@@ -33,6 +34,18 @@ import { exportAndSourcesStep } from "./steps/export-and-sources.js"
  * Upgrade step 1 on a real Workspace repository and a real database. Each
  * test reads the commit of the step and the lines of its report.
  */
+
+// The DNS of the test: `hidden.example.com` resolves to a private address,
+// each other host to a public one.
+let restoreNetwork = () => {}
+beforeAll(() => {
+  restoreNetwork = usePlainGitNetwork({
+    lookup: async (host) => [
+      { address: host === "hidden.example.com" ? "10.0.0.7" : "93.184.215.14" },
+    ],
+  })
+})
+afterAll(() => restoreNetwork())
 
 async function runStep(
   f: NativeHydrationFixture,
@@ -168,11 +181,18 @@ it(
             "https://github.com/team-a/api.git",
             other,
           )
-          // A GitHub repository with no connection: nothing links it.
+          // A GitHub repository with no connection: main read it as a
+          // public repository, so it becomes a plain git source (CTX-815).
           const lost = await repository(f, "https://github.com/team-b/lost.git")
+          // A port that is not the default: no source links it.
           const gitlab = await repository(
             f,
-            "https://gitlab.com/team-c/tools.git",
+            "https://gitlab.com:8443/team-c/tools.git",
+          )
+          // A host name whose DNS answer is private: no source links it.
+          const hidden = await repository(
+            f,
+            "https://hidden.example.com/team-e/hidden.git",
           )
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
@@ -201,9 +221,13 @@ it(
           await seed(f, "Library", `lib:${own.id}:helpers`, {
             name: "Workspace helpers",
           })
+          await seed(f, "Service", `svc:${hidden.id}:hidden`, {
+            name: "Hidden service",
+            summary: "No source links this repository.",
+          })
           await seed(f, "Service", `svc:${lost.id}:worker`, {
             name: "Lost worker",
-            summary: "A repository that no source links.",
+            summary: "A plain git source links this repository.",
           })
           await link(f, tools.id, library.id, "USES")
           await link(f, tools.id, issue.id, "TRACKED_IN")
@@ -227,27 +251,42 @@ it(
         ).toEqual(["team-a/api"])
         expect(sources).toContain("team-a/api")
         expect(sources).not.toContain("team-b/lost")
-        expect(report).toContain(
-          "Not linked: https://github.com/team-b/lost. The repository has no GitHub connection.",
+        expect(tree.text.get("sources/git/github.com/team-b-lost.md")).toBe(
+          "---\nprovider: git\nurl: https://github.com/team-b/lost\n---\n",
         )
+        expect(report).toContain(
+          "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
+        )
+        expect(report).toContain(
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. ctx| keeps its knowledge and exports it.",
+        )
+        // Step 1 runs the DNS rule too: a private answer is not linked.
+        expect(report).toContain(
+          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL resolves to a private, loopback, or link-local address. ctx| keeps its knowledge and exports it.",
+        )
+        expect(
+          tree.paths.filter((path) => path.startsWith("sources/git/hidden")),
+        ).toEqual([])
 
         const exported = tree.paths.filter((path) =>
           path.startsWith("knowledge/"),
         )
         const all = exported.map((path) => tree.text.get(path)).join("\n")
         // Kept: the GitLab service, each object of the Workspace repository
-        // that no Markdown file backs, whatever its key prefix, the
-        // CODEOWNERS team, and the GitHub repository that no source links.
+        // that no Markdown file backs, whatever its key prefix, and the
+        // CODEOWNERS team. The re-ingestion makes the knowledge of the
+        // plain git source again.
         expect(all).toContain("Tools CLI")
+        expect(all).toContain("Hidden service")
         expect(all).toContain("Context service")
         expect(all).toContain("Workspace helpers")
         expect(all).toContain("Platform team")
-        expect(all).toContain("Lost worker")
+        expect(all).not.toContain("Lost worker")
         expect(all).not.toContain("Parser library")
         expect(report).toEqual(
           expect.arrayContaining([
             expect.stringMatching(
-              /^Kept 1 knowledge item\(s\) from https:\/\/github\.com\/team-b\/lost .*does not link this repository/,
+              /^Kept 1 knowledge item\(s\) from https:\/\/gitlab\.com:8443\/team-c\/tools .*public HTTPS git repositories/,
             ),
             expect.stringMatching(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
@@ -340,7 +379,7 @@ it(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
             ),
             expect.stringMatching(
-              /^Not exported, because ctx\| makes it again: 0 item\(s\) from GitHub repositories .*, 1 item\(s\) from Workspace repositories /,
+              /^Not exported, because ctx\| makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
             ),
           ]),
         )
