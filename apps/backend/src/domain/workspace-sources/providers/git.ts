@@ -102,9 +102,8 @@ export type PlainGitUrlPolicy = {
  * In each mode, the read stays a Git smart HTTP read (`info/refs` and
  * `git-upload-pack`) with no credential and no redirect, and git never
  * uses `ssh`, `git://`, or `file://`: the sandbox reaches the outside only
- * through an HTTP proxy. A git read of the backend or of codesearch
- * connects only to the checked addresses. The Docker sandbox fetch is not
- * pinned: Agent Vault resolves the host name again when it connects.
+ * through an HTTP proxy. The check does not pin the addresses: each git
+ * read, and Agent Vault, resolve the host name again when they connect.
  */
 export function plainGitUrlPolicy(
   deployment: PlainGitDeployment,

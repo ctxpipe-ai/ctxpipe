@@ -64,6 +64,11 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["a GitHub token and a suffix", `${gh}-x`],
     ["a GitHub token and an underscore suffix", `${gh}_x`],
     ["a GitHub App token in the current form", `git clone with ${ghApp}`],
+    ...["ghp", "gho", "ghu", "ghs", "ghr"].map((prefix): [string, string] => [
+      `a ${prefix}_ token`,
+      `see ${prefix}_${"A1b2C3d4E5".repeat(4)}`,
+    ]),
+    ["a github_pat_ token", `see github_pat_${"A1b2C3d4E5".repeat(9)}`],
     ["an AWS key id and a suffix", `${aws}-x`],
     ["a dictionary word and digits", "DB_PASSWORD=Password12345678"],
     ["a dictionary word and 4 digits", "API_TOKEN=secret123456"],

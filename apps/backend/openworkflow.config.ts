@@ -1,11 +1,10 @@
 import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
-import { BackendPostgres } from "openworkflow/postgres"
 import { initDb } from "./src/db/client.js"
 import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
-import { openWorkflowNamespaceId } from "./src/openworkflow/namespace.js"
+import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
 import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
@@ -70,10 +69,7 @@ bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()
 
 export default defineConfig({
-  backend: await BackendPostgres.connect(databaseUrl, {
-    namespaceId: openWorkflowNamespaceId(),
-    runMigrations: false,
-  }),
+  backend: await connectOpenWorkflowBackend(databaseUrl),
   dirs: ["./src/openworkflow/workflows"],
   // CLI imports every *.ts under dirs; skip Vitest files (dev-only deps).
   ignorePatterns: ["**/*.test.*", "**/*.spec.*"],
