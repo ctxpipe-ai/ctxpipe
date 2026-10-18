@@ -1,4 +1,4 @@
-import { useSuspenseQuery } from "@tanstack/react-query"
+import { type QueryClient, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
@@ -28,20 +28,23 @@ export const Route = createFileRoute("/")({
         ? search.pendingAccountClaim
         : undefined,
   }),
-  loader: async ({ context }) => {
-    // This loader only warms the cache. The page reads the session in the
-    // browser, so a failed server-render call must not stop the page.
-    const session = await fetchSsrSession().catch(() => null)
-    if (!session?.user.onboardingCompletedAt) return
-    const organizations = await fetchSsrOrganizations().catch(() => [])
-    await Promise.all(
-      organizations.map((org) =>
-        context.queryClient.ensureQueryData(workspaceListOptions(org.slug)),
-      ),
-    )
-  },
+  loader: ({ context }) => warmWorkspaceLists(context.queryClient),
   component: IndexRoutePage,
 })
+
+/** Exported for tests: the `/` loader. */
+export async function warmWorkspaceLists(queryClient: QueryClient) {
+  // This loader only warms the cache. The page reads the session in the
+  // browser, so a failed server-render call must not stop the page.
+  const session = await fetchSsrSession().catch(() => null)
+  if (!session?.user.onboardingCompletedAt) return
+  const organizations = await fetchSsrOrganizations().catch(() => [])
+  await Promise.all(
+    organizations.map((org) =>
+      queryClient.ensureQueryData(workspaceListOptions(org.slug)),
+    ),
+  )
+}
 
 /** Exported for Storybook / tests — same component as the `/` file route. */
 export function IndexRoutePage() {

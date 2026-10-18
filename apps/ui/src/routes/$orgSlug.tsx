@@ -26,7 +26,8 @@ export const Route = createFileRoute("/$orgSlug")({
   component: OrgScopedLayout,
 })
 
-async function resolveOrgGate(
+/** Exported for tests: the route loader's gate and list warm-up. */
+export async function resolveOrgGate(
   queryClient: QueryClient,
   orgSlug: string,
   options?: { awaitWorkspaceList?: boolean },
