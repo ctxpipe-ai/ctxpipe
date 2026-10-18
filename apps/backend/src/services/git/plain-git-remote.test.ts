@@ -9,12 +9,24 @@ import type { AddressInfo } from "node:net"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
-import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
+import { plainGitUrlPolicy } from "../../domain/workspace-sources/providers/git.js"
+import {
+  isMetadataAddress,
   isPublicAddress,
   PlainGitUrlError,
   plainGitPinnedRequest,
   plainGitRemote,
+  plainGitRemoteEnvironment,
   resolvePlainGitRemote,
   resolvePlainGitTip,
   usePlainGitNetwork,
@@ -103,9 +115,265 @@ describe("resolvePlainGitRemote", () => {
       "fd12:3456:789a::1",
       "fe80::1",
       "::ffff:10.0.0.1",
+      // IPv4-compatible (`::/96`), IPv4-mapped in its long form, and
+      // IPv4-translated forms of a private or metadata address.
+      "::169.254.169.254",
+      "::a9fe:a9fe",
+      "::7f00:1",
+      "0:0:0:0:0:ffff:7f00:1",
+      "::ffff:0:a9fe:a9fe",
       "not-an-address",
     ])
       expect(isPublicAddress(address), address).toBe(false)
+  })
+
+  it("tells the cloud metadata addresses, also in each IPv6 form", () => {
+    for (const address of [
+      "169.254.169.254",
+      "169.254.170.2",
+      "169.254.0.1",
+      "::ffff:169.254.169.254",
+      "::ffff:a9fe:aa02",
+      "::169.254.169.254",
+      "::ffff:0:169.254.169.254",
+      "64:ff9b::a9fe:a9fe",
+      "fd00:ec2::254",
+      "fe80::1",
+      "febf::1",
+    ])
+      expect(isMetadataAddress(address), address).toBe(true)
+    for (const address of ["10.0.0.5", "127.0.0.1", "fd00::5", "93.184.215.14"])
+      expect(isMetadataAddress(address), address).toBe(false)
+  })
+})
+
+describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () => {
+  const internal = async (host: string) =>
+    host === "git.internal" ? [{ address: "10.1.2.3" }] : lookup(host)
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  it("docker: reads a private host, an IP host, http, and another port, and pins the checked address", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    await expect(
+      resolvePlainGitRemote("http://git.internal:3000/team/app.git", internal),
+    ).resolves.toEqual({
+      url: "http://git.internal:3000/team/app.git",
+      host: "git.internal",
+      port: 3000,
+      path: "/team/app.git",
+      addresses: ["10.1.2.3"],
+    })
+    // An IP host is its own address: no DNS lookup.
+    const looked: string[] = []
+    await expect(
+      resolvePlainGitRemote("http://[fd00::5]:8080/team/app.git", async (h) => {
+        looked.push(h)
+        return []
+      }),
+    ).resolves.toMatchObject({ port: 8080, addresses: ["fd00::5"] })
+    expect(looked).toEqual([])
+    // Still no ssh.
+    await expect(
+      resolvePlainGitRemote("ssh://git@git.internal/team/app.git", internal),
+    ).rejects.toMatchObject({ rule: "not_https" })
+    const config = (env: NodeJS.ProcessEnv) =>
+      Object.fromEntries(
+        Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, i) => [
+          env[`GIT_CONFIG_KEY_${i}`],
+          env[`GIT_CONFIG_VALUE_${i}`],
+        ]),
+      )
+    const http = config(
+      plainGitRemoteEnvironment({
+        url: "http://git.internal:3000/team/app.git",
+        host: "git.internal",
+        port: 3000,
+        addresses: ["10.1.2.3"],
+      }),
+    )
+    expect(http).toMatchObject({
+      "credential.helper": "",
+      "http.followRedirects": "false",
+      "protocol.allow": "never",
+      "protocol.http.allow": "always",
+      "http.curloptResolve": "git.internal:3000:10.1.2.3",
+    })
+    // An https source gets no http.
+    expect(
+      config(
+        plainGitRemoteEnvironment({
+          url: "https://git.internal/team/app.git",
+          host: "git.internal",
+          port: 443,
+          addresses: ["10.1.2.3"],
+        }),
+      ),
+    ).not.toHaveProperty("protocol.http.allow")
+  })
+
+  it.each([
+    "169.254.169.254",
+    "169.254.170.2",
+    "::ffff:169.254.169.254",
+    "::169.254.169.254",
+    "64:ff9b::a9fe:a9fe",
+    "fd00:ec2::254",
+    "fe80::1",
+  ])("docker: refuses a host that resolves to the cloud metadata address %s", async (address) => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    await expect(
+      resolvePlainGitRemote(
+        "http://metadata.internal/team/app.git",
+        async () => [{ address }],
+      ),
+    ).rejects.toMatchObject({ rule: "metadata_address" })
+    // The same address as the host of the URL: no DNS lookup.
+    const host = address.includes(":") ? `[${address}]` : address
+    await expect(
+      resolvePlainGitRemote(
+        `http://${host}/latest/meta-data.git`,
+        async () => [],
+      ),
+    ).rejects.toMatchObject({ rule: "metadata_address" })
+  })
+
+  it("keeps only a short list of the backend variables in the git environment, and adds a low-speed limit", () => {
+    vi.stubEnv("CTXPIPE_TEST_SECRET", "not-for-git")
+    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:1")
+    vi.stubEnv("GIT_SSL_NO_VERIFY", "1")
+    vi.stubEnv("GIT_CONFIG_PARAMETERS", "'http.extraHeader'='X: leaked'")
+    vi.stubEnv("GIT_DIR", "/tmp/elsewhere")
+    const env = plainGitRemoteEnvironment({
+      url: "https://git.example.org/team/app.git",
+      host: "git.example.org",
+      port: 443,
+      addresses: ["93.184.215.14"],
+    })
+    expect(env.PATH).toBe(process.env.PATH)
+    for (const name of [
+      "CTXPIPE_TEST_SECRET",
+      "HTTPS_PROXY",
+      "GIT_SSL_NO_VERIFY",
+      "GIT_CONFIG_PARAMETERS",
+      "GIT_DIR",
+      "AUTH_SECRET",
+      "DATABASE_URL",
+    ])
+      expect(env, name).not.toHaveProperty(name)
+    expect(
+      Object.fromEntries(
+        Array.from({ length: Number(env.GIT_CONFIG_COUNT) }, (_, i) => [
+          env[`GIT_CONFIG_KEY_${i}`],
+          env[`GIT_CONFIG_VALUE_${i}`],
+        ]),
+      ),
+    ).toMatchObject({
+      "http.lowSpeedLimit": "1024",
+      "http.lowSpeedTime": "60",
+      "http.followRedirects": "false",
+      "protocol.allow": "never",
+    })
+  })
+
+  it.each([
+    ["vercel", "vercel"],
+    ["unset", undefined],
+  ])("%s: refuses a private host and http, and never allows http in git", async (_mode, value) => {
+    vi.stubEnv("SANDBOX_PROVIDER", value)
+    await expect(
+      resolvePlainGitRemote("https://git.internal/team/app.git", internal),
+    ).rejects.toMatchObject({ rule: "private_host" })
+    await expect(
+      resolvePlainGitRemote("http://git.example.org/team/app.git", lookup),
+    ).rejects.toMatchObject({ rule: "not_https" })
+    await expect(
+      resolvePlainGitRemote("https://private.example.org/team/app.git", lookup),
+    ).rejects.toMatchObject({ rule: "private_address" })
+    const env = plainGitRemoteEnvironment({
+      url: "http://git.example.org/team/app.git",
+      host: "git.example.org",
+      port: 80,
+      addresses: ["93.184.215.14"],
+    })
+    expect(
+      Array.from(
+        { length: Number(env.GIT_CONFIG_COUNT) },
+        (_, i) => env[`GIT_CONFIG_KEY_${i}`],
+      ),
+    ).not.toContain("protocol.http.allow")
+  })
+
+  it("docker: the hosted policy, as the hosted egress proxy gives it, stays strict", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    await expect(
+      resolvePlainGitRemote(
+        "https://private.example.org/team/app.git",
+        lookup,
+        plainGitUrlPolicy("hosted"),
+      ),
+    ).rejects.toMatchObject({ rule: "private_address" })
+  })
+})
+
+describe("a self-host plain git read over http with real git", () => {
+  let server: Server
+  let restore: () => void
+  const requests: Array<{ url: string; authorization: string | null }> = []
+  let port: number
+
+  beforeAll(async () => {
+    server = createServer((request, response) => {
+      requests.push({
+        url: request.url ?? "",
+        authorization: request.headers.authorization ?? null,
+      })
+      response.writeHead(302, { location: "http://elsewhere.internal/x.git" })
+      response.end()
+    })
+    await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+    port = (server.address() as AddressInfo).port
+    // `git.internal` resolves to the loopback address only in the DNS of
+    // the test: git reaches the server only through the pinned address.
+    restore = usePlainGitNetwork({
+      lookup: async (host) =>
+        host === "git.internal" ? [{ address: "127.0.0.1" }] : [],
+    })
+  })
+
+  beforeEach(() => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
+  })
+
+  afterAll(async () => {
+    restore()
+    await new Promise((resolve) => server.close(resolve))
+  })
+
+  it("connects over http to the internal host on its port, at the checked address, with no credential and no redirect", async () => {
+    await expect(
+      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+    ).rejects.toThrow(/returned error: 302/)
+    expect(requests).toEqual([
+      {
+        url: "/team/app.git/info/refs?service=git-upload-pack",
+        authorization: null,
+      },
+    ])
+  })
+
+  it("does not connect in hosted mode", async () => {
+    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    const before = requests.length
+    await expect(
+      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+    ).rejects.toMatchObject({ rule: "not_https" })
+    expect(requests.length).toBe(before)
   })
 })
 

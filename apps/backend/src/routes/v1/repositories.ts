@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
+import { plainGitSchemeRule } from "../../domain/workspace-sources/providers/git.js"
 import {
   createOrGetRepository,
   deriveRepositoryIndexingStatus,
@@ -12,6 +13,29 @@ import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import {
+  PlainGitUrlError,
+  resolvePlainGitRemote,
+} from "../../services/git/plain-git-remote.js"
+
+/**
+ * The reason why ctx| does not read `gitUrl`, or null (CTX-815). With no
+ * GitHub token, codesearch reads a repository as a plain git source, so
+ * each URL must obey the plain git rules of the deployment mode, also the
+ * DNS rule. The reason always states the protocol rule.
+ */
+async function refusedRepositoryUrl(gitUrl: string): Promise<string | null> {
+  try {
+    await resolvePlainGitRemote(gitUrl)
+    return null
+  } catch (error) {
+    if (!(error instanceof PlainGitUrlError)) throw error
+    const schemes = plainGitSchemeRule()
+    return error.message.includes(schemes)
+      ? error.message
+      : `${error.message.replace(/\.$/, "")}. ${schemes}`
+  }
+}
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -149,6 +173,14 @@ export const createRepositoryRoute = createRoute({
       },
       description: "Repository created",
     },
+    400: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "ctx| does not read this git URL",
+    },
     500: {
       content: {
         "application/json": {
@@ -246,6 +278,14 @@ export const reindexRepositoryRoute = createRoute({
     202: {
       description: "Repository reindex accepted",
     },
+    400: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "ctx| does not read the git URL of this repository",
+    },
     401: {
       content: {
         "application/json": {
@@ -327,6 +367,8 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
+      const refused = await refusedRepositoryUrl(body.gitUrl)
+      if (refused) return c.json({ error: refused }, 400)
       const { repository, created } = await createOrGetRepository({
         name: body.name,
         gitUrl: body.gitUrl,
@@ -378,6 +420,8 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Not found" }, 404)
       }
       applyAttribution({ "ctxpipe.repository.id": repository.id })
+      const refused = await refusedRepositoryUrl(repository.gitUrl)
+      if (refused) return c.json({ error: refused }, 400)
       await enqueueRepositoryIngestionWorkflow(
         {
           repositoryId: repository.id,

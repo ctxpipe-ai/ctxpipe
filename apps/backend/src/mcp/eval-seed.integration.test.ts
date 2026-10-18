@@ -31,6 +31,7 @@ import {
   listWorkspaceKnowledgeUnits,
 } from "../models/workspaces.js"
 import { closeGraphDb } from "../platform/graph/client.js"
+import { usePlainGitNetwork } from "../services/git/plain-git-remote.js"
 
 config({
   path: fileURLToPath(new URL("../../.env.local", import.meta.url)),
@@ -99,6 +100,9 @@ const server = setupServer(
 beforeAll(async () => {
   if (!process.env.DATABASE_URL) throw new Error("DATABASE_URL is required")
   if (!process.env.GRAPH_DB_URI) throw new Error("GRAPH_DB_URI is required")
+  // The repository has no GitHub token, so the backend checks it as a
+  // plain git URL (CTX-815). The test has its own DNS answer.
+  usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
   initDb(process.env.DATABASE_URL)
   expect(
     (await getSystemDb().execute(sql`select current_user as role`)).rows[0],

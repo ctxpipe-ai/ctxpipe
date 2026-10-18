@@ -72,13 +72,13 @@ the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml` of that
 Workspace. The same commit moves each `repositories/*.md` file of a GitHub
 repository into that source, with its `branch` as `ref`, and deletes the file.
 An organization repository that has no GitHub connection becomes a plain git
-source when its URL is a public HTTPS git URL (see below). ctx| does not link
+source when ctx| can read its URL as a plain git URL (see below). ctx| does not link
 the other repositories, and the upgrade pull request names each one.
 
 ## Plain git repositories
 
-ctx| can also read a public repository on another git host, or a public
-GitHub repository with no GitHub connection. Add a source file for it under
+ctx| can also read a repository on another git host that needs no
+credential, or a public GitHub repository with no GitHub connection. Add a source file for it under
 `sources/git/` in the workspace repository with a pull request:
 
 ```markdown
@@ -88,20 +88,35 @@ url: https://git.example.org/team/tools.git
 ---
 ```
 
-ctx| reads the repository with git over HTTPS, with no credential. The URL
-must obey these rules:
+ctx| reads the repository with git, with no credential. In each deployment,
+the URL must obey these rules:
 
-- It uses `https://` and the default port. ctx| does not support ssh
-  (`git@…` or `ssh://`), `git://`, or `file://` URLs: the sandbox reaches
-  the outside only through an HTTP proxy.
+- ctx| does not support ssh (`git@…` or `ssh://`), `git://`, or `file://`
+  URLs: the sandbox reaches the outside only through an HTTP proxy.
 - It has no user name, password, query, or fragment.
+
+On hosted ctx|, and on each deployment that does not set
+`SANDBOX_PROVIDER=docker`, the URL must also obey these rules:
+
+- It uses `https://` and the default port.
 - Its host is a domain name, not an IP address or a private name such as
   `localhost` or a `.local` or `.internal` name.
 - Each address of the host is public. ctx| does not read a host that
   resolves to a private, loopback, or link-local address.
 
+A self-hosted deployment with Docker sandboxes (`SANDBOX_PROVIDER=docker`,
+which Docker Compose and AWS CDK set) can also read a git server inside your
+network. Its URL can use `http://`, another port, an IP address, or an
+internal host name, for example `http://git.internal:3000/team/tools.git`.
+ctx| never reads a host that resolves to a cloud metadata or link-local
+address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
+`fd00:ec2::254`), also on a self-hosted deployment.
+Agent Vault connects to a private address only when that address is in its
+`AGENT_VAULT_NETWORK_ALLOWLIST`, so add the address of your git server
+there.
+
 ctx| does not follow a redirect. Use the exact clone URL of the repository.
-Private repositories on other git hosts are not supported.
+Repositories that need a credential on other git hosts are not supported.
 
 The sandbox that extracts knowledge can fetch the repository only while it
 prepares its copy of the source. The steps after that cannot reach the git
@@ -111,6 +126,8 @@ The source file links the repository to the Workspace. As before Workspaces,
 ctx| indexes a plain git repository when you add it with the repositories
 API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
 when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
+Both calls check the URL with the rules above and answer `400` with the
+rule when ctx| does not read it.
 Each index of the repository also updates the knowledge of each Workspace
 whose source file names it.
 
