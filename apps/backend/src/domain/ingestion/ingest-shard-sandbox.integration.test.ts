@@ -31,9 +31,7 @@ import {
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
 import { refreshIngestSandboxEgress } from "../workspaces/ingest-sandbox-egress.js"
 import { postgresSandboxLocks } from "../workspaces/sandbox-lock-store.js"
-import {
-  ingestShardStepEgress,
-} from "./ingest-shard-sandbox.js"
+import { ingestShardStepEgress } from "./ingest-shard-sandbox.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
 
 /*
