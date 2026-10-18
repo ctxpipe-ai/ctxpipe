@@ -126,7 +126,9 @@ another port, an IP address, or an internal host name. ssh (`git@…` or
 host that resolves to a cloud metadata or link-local address
 (`169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254`). With each other value
 of `SANDBOX_PROVIDER`, or with no value, the URL must use `https://` on the
-default port, and each address of its host must be public.
+default port, and each address of its host must be public. The backend and
+codesearch read the repository through the proxy of their environment
+(`HTTPS_PROXY`, `NO_PROXY`), if you set one.
 
 | Variable | Description |
 |---|---|

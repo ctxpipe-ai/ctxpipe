@@ -299,14 +299,10 @@ describe("POST /{repoId}/resolve-ref", () => {
     await rm(remoteRoot, { recursive: true, force: true })
   })
 
-  // The remote that the backend checked: `git.internal` has no DNS record,
-  // so git reaches the server only through the pinned address.
+  // The remote that the backend checked.
   const plainGit = () => ({
-    url: `http://git.internal:${server.port}/team/app.git`,
-    host: "git.internal",
-    port: server.port,
-    addresses: ["127.0.0.1"],
-    policy: { http: true, privateHosts: true },
+    url: `http://127.0.0.1:${server.port}/team/app.git`,
+    http: true,
   })
 
   const resolveRef = (body: Record<string, unknown>) =>
@@ -366,7 +362,7 @@ describe("POST /{repoId}/resolve-ref", () => {
       branch: "main",
       plainGit: {
         ...plainGit(),
-        url: `http://git.internal:${server.port}/team/missing.git`,
+        url: `http://127.0.0.1:${server.port}/team/missing.git`,
       },
     })
 
