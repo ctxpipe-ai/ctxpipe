@@ -3,6 +3,7 @@ import { inArray } from "drizzle-orm"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
+import { members } from "../../db/schema/auth.js"
 import { conversations } from "../../db/schema/conversations.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
@@ -97,6 +98,27 @@ function upgraded(socket: { status: number } | Socket): Socket {
   return socket
 }
 
+/** Sends one turn frame on a turn socket and waits for the end of the run. */
+async function sendTurn(
+  socket: Socket,
+  conversationId: string,
+  runId: string,
+): Promise<void> {
+  conversationWebSocketHandlers.message(
+    socket.ws,
+    JSON.stringify({
+      threadId: conversationId,
+      runId,
+      messages: [{ id: "user-1", role: "user", content: "Hello" }],
+      tools: [],
+      context: [],
+      state: {},
+      forwardedProps: { source: "ui" },
+    }),
+  )
+  await socket.runEnded
+}
+
 /** Resumes `runId` from the start and returns the replayed chunk types. */
 async function replay(
   seed: SeededOrg,
@@ -117,6 +139,8 @@ async function replay(
 describe("workspace chat socket resume", () => {
   let owner: SeededOrg | undefined
   let other: SeededOrg | undefined
+  // A second user who is also a member of the owner's organization.
+  let member: SeededOrg | undefined
   const ownConversation = generateObjectId("conv")
   const secondOwnConversation = generateObjectId("conv")
   const otherConversation = generateObjectId("conv")
@@ -128,6 +152,16 @@ describe("workspace chat socket resume", () => {
       throw new Error("DATABASE_URL is required for this integration test")
     owner = await seedOrg()
     other = await seedOrg()
+    member = await seedOrg()
+    await getSystemDb()
+      .insert(members)
+      .values({
+        id: generateObjectId("member"),
+        organizationId: owner.orgId,
+        userId: member.userId,
+        role: "member",
+        createdAt: now,
+      })
     const ownerSeed = owner
     await withOrgDbContext(ownerSeed.orgId, async (db) => {
       await db.insert(conversations).values(
@@ -156,24 +190,12 @@ describe("workspace chat socket resume", () => {
     // One turn in the owner's conversation. It has no Workspace, so the
     // turn ends at once with a run error; its run log keeps that chunk.
     runSocket = upgraded(await openSocket(ownerSeed, ownConversation))
-    conversationWebSocketHandlers.message(
-      runSocket.ws,
-      JSON.stringify({
-        threadId: ownConversation,
-        runId,
-        messages: [{ id: "user-1", role: "user", content: "Hello" }],
-        tools: [],
-        context: [],
-        state: {},
-        forwardedProps: { source: "ui" },
-      }),
-    )
-    await runSocket.runEnded
+    await sendTurn(runSocket, ownConversation, runId)
   })
 
   afterAll(async () => {
     if (runSocket) conversationWebSocketHandlers.close(runSocket.ws)
-    const seeds = [owner, other].filter((seed): seed is SeededOrg =>
+    const seeds = [owner, other, member].filter((seed): seed is SeededOrg =>
       Boolean(seed),
     )
     if (seeds.length === 0) return
@@ -218,5 +240,36 @@ describe("workspace chat socket resume", () => {
     expect(await replay(other, ownConversation, runId)).toEqual({
       status: 404,
     })
+  })
+
+  it("accepts the first turn of a conversation that does not exist yet", async () => {
+    if (!owner) throw new Error("seedOrg did not run")
+    // A warmed socket opens before the turn creates its conversation.
+    const newConversation = generateObjectId("conv")
+    const socket = upgraded(await openSocket(owner, newConversation))
+    try {
+      await sendTurn(socket, newConversation, `run-${randomUUID()}`)
+      expect(socket.chunks.map((chunk) => chunk.type)).toContain("RUN_ERROR")
+    } finally {
+      conversationWebSocketHandlers.close(socket.ws)
+    }
+  })
+
+  it("keeps a turn of another member of the organization out of the run log", async () => {
+    if (!owner || !member) throw new Error("seedOrg did not run")
+    const before = await replay(owner, ownConversation, runId)
+    expect(before).toEqual({ chunks: expect.arrayContaining(["RUN_ERROR"]) })
+    const intruder = upgraded(
+      await openSocket(
+        { ...member, orgId: owner.orgId, orgSlug: owner.orgSlug },
+        ownConversation,
+      ),
+    )
+    try {
+      await sendTurn(intruder, ownConversation, runId)
+    } finally {
+      conversationWebSocketHandlers.close(intruder.ws)
+    }
+    expect(await replay(owner, ownConversation, runId)).toEqual(before)
   })
 })
