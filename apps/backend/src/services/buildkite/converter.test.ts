@@ -55,6 +55,19 @@ describe("buildkitePipelineFiles", () => {
     ])
   })
 
+  it("keeps a pipeline slug from leaving its folder", () => {
+    const paths = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, slug: "../../.ctxpipe" },
+      builds: [build],
+    }).map((candidate) => candidate.path)
+
+    expect(paths).toEqual([
+      "buildkite/pipelines/-.-.-ctxpipe/pipeline.md",
+      "buildkite/pipelines/-.-.-ctxpipe/builds/42.md",
+    ])
+  })
+
   it("renders the name, repository, default branch, and link of the pipeline", () => {
     expect(file("buildkite/pipelines/web-app/pipeline.md")).toBe(
       [

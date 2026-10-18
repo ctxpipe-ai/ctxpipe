@@ -1,3 +1,4 @@
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { GitFileChange } from "../git/file-change.js"
 
 export const BUILDKITE_MANAGED_ROOT = "buildkite"
@@ -37,7 +38,7 @@ export type BuildkiteBuildForMirror = {
  * sync gives ownership by path prefix, so each pipeline has its own folder.
  */
 export function buildkitePipelineRoot(pipelineSlug: string): string {
-  return `${BUILDKITE_MANAGED_ROOT}/pipelines/${pipelineSlug}/`
+  return `${BUILDKITE_MANAGED_ROOT}/pipelines/${connectorPathSegment(pipelineSlug)}/`
 }
 
 function yamlScalar(value: string): string {
@@ -221,7 +222,7 @@ export function buildkitePipelineFiles(input: {
   return [
     { path: `${root}pipeline.md`, content: renderPipelineMarkdown(input) },
     ...input.builds.map((build) => ({
-      path: `${root}builds/${build.number}.md`,
+      path: `${root}builds/${connectorPathSegment(String(build.number))}.md`,
       content: renderBuildMarkdown({ ...input, build }),
     })),
   ]

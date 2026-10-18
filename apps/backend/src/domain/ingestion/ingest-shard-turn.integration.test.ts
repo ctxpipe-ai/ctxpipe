@@ -4,7 +4,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
 import { openIngestEgressScope } from "../workspaces/ingest-egress-proxy.js"
 import { vercelIngestSandboxProvider } from "../workspaces/ingest-sandbox-egress.js"
-import { withStepFirewall } from "./ingest-shard-sandbox.js"
+import { withStepFirewall } from "./ingest-shard-step.js"
 
 /*
  * The hosted step's firewall turn: the real ingest firewall on a Vercel

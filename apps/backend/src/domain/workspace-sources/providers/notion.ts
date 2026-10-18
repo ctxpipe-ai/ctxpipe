@@ -1,6 +1,15 @@
 import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The most root pages in one Notion source. Each root syncs its full page
+ * tree, and the Notion API allows about three requests each second.
+ */
+export const NOTION_SOURCE_MAX_PAGES = 100
+
+/** The most databases in one Notion source, for the same reason. */
+export const NOTION_SOURCE_MAX_DATABASES = 100
+
 /** A Notion page or data source id, in the dashed lowercase form of the API. */
 export const notionIdSchema = z
   .string()
@@ -27,10 +36,11 @@ const notionRootSchema = z
   })
   .strict()
 
-const rootList = (label: string) =>
+const rootList = (label: string, max: number) =>
   z
     .array(notionRootSchema)
     .min(1)
+    .max(max, `Select at most ${max} Notion ${label}s`)
     .refine(
       (roots) => new Set(roots.map((root) => root.id)).size === roots.length,
       `List each ${label} one time`,
@@ -39,9 +49,9 @@ const rootList = (label: string) =>
 export const notionSourceScopeSchema = z
   .object({
     /** Root pages. Each one syncs with all its child pages. */
-    pages: rootList("page").optional(),
+    pages: rootList("page", NOTION_SOURCE_MAX_PAGES).optional(),
     /** Databases (data sources). Each one syncs with all its rows. */
-    databases: rootList("database").optional(),
+    databases: rootList("database", NOTION_SOURCE_MAX_DATABASES).optional(),
   })
   .strict()
   .refine(

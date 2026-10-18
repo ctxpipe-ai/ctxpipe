@@ -30,12 +30,14 @@ import {
   getLogger,
   withLogger,
 } from "../observability/logger.js"
+import { repositoryGitRemote } from "../utils/git.js"
 import {
   repositoryNotFoundBody,
   repositoryNotFoundResponse,
   repositoryOrPathNotFoundResponse,
 } from "./errorBody.js"
 import { registerIndexPhaseRoutes } from "./indexPhases.js"
+import { plainGitRemoteSchema } from "./plainGitRemoteSchema.js"
 
 const repoIdParam = z
   .string()
@@ -60,6 +62,8 @@ const optionalGitRefOrSha = z
 const indexRequestSchema = z
   .object({
     githubToken: z.string().min(1).optional(),
+    /** The checked plain git remote of a repository with no token (CTX-815). */
+    plainGit: plainGitRemoteSchema.optional(),
     /** Commit SHA or ref to index. If omitted, the remote default branch is resolved. */
     targetHash: optionalGitRefOrSha.optional(),
     /** Previous indexed commit for partial-ingestion metadata (diff + ancestor check). */
@@ -270,6 +274,8 @@ const resolveRefRequestSchema = z
   .object({
     branch: z.string().min(1).optional(),
     githubToken: z.string().min(1).optional(),
+    /** The checked plain git remote of a repository with no token (CTX-815). */
+    plainGit: plainGitRemoteSchema.optional(),
   })
   .openapi("ResolveRefRequest")
 
@@ -471,6 +477,7 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
             clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
             scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
             githubToken: body.githubToken,
+            plainGit: body.plainGit,
             zoektRepoId: indexable.zoektRepoId,
             repoName: indexable.name,
             repoUrl: indexable.gitUrl,
@@ -635,14 +642,17 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const auth = c.get("auth")
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
-    const { branch, githubToken } = c.req.valid("json")
+    const { branch, githubToken, plainGit } = c.req.valid("json")
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     try {
       const resolved = await resolveRepositoryRef({
-        gitUrl: repo.gitUrl,
+        remote: repositoryGitRemote({
+          gitUrl: repo.gitUrl,
+          githubToken,
+          plainGit,
+        }),
         branch,
-        githubToken,
       })
       return c.json(resolved, 200)
     } catch (error) {

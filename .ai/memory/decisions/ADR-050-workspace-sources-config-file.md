@@ -221,3 +221,22 @@ sources:
 - **No write access.** A Workspace with no write access shows the upgrade state `blocked: write_access`. The 1-minute retry of the old export goes away. A click on "Check write access" retries one time.
 - **Legacy handover for every provider (CTX-737).** Before this revision, only the Notion and PagerDuty bindings handed over. Now `legacyBindingHandedOver` covers every legacy connector binding: Linear, Slack, Confluence, Notion and PagerDuty. A legacy sync stops when an `ok` Workspace source of the same connection owns its target. Confluence matches by the connection, not by the repository. Thus no connector writes the same content to the old sync repository and to the Workspace. This is the phase 1 gate of [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md).
 - **Writers check the format.** A source config edit on a Workspace below format 2 refuses with "Upgrade this Workspace first". The dual read of decision 15 stays until the next major.
+
+## Revision 2026-10-18: plain git sources (CTX-815)
+
+- **A new provider, `git`, for a repository that is not read through a GitHub connection.** A plain git source file is `sources/git/<host>/<name>.md`, with `provider: git` and `url`, and no `connection` and no other key. The URL must pass the plain git rules of [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) (revision 2026-10-18); otherwise the row is `invalid`. A plain git source is only a file: an entry of `.ctxpipe/sources.yaml` with `provider: git` is `invalid`.
+- **Rules across files.** A plain git source holds its repository as a GitHub source does: two sources that name the same repository (also a GitHub source file and a plain git file of the same `github.com` repository), or a plain git file that names the Workspace repository, give an `invalid` row. A plain git file that changes its URL is `invalid`; add a new file to link another repository.
+- **Edits.** The source edit service does not add or edit a plain git source, because it has no connection. A person adds, changes, renames, or removes the file with a pull request, as for each source. A plain git source has no pin in `workspace_sources.state`.
+- **The upgrade.** This changes the revision 2026-10-14 ("A repository that is not on GitHub is not linked"). Upgrade step 1 adds a plain git source file for each org repository of the first Workspace that has no GitHub connection and a URL that passes the plain git rules. Step 1 reports each other repository as not linked, and exports its knowledge as before.
+
+| Key | Type | Rule |
+| --- | --- | --- |
+| `url` | string | Required. A plain git URL that passes the URL policy of the deployment mode (ADR-052, revision 2026-10-18). |
+
+```markdown
+---
+provider: git
+url: https://git.example.org/team/tools.git
+---
+```
+

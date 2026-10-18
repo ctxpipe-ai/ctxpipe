@@ -18,6 +18,7 @@ import {
   reingestPollSeconds,
   reingestRunKey,
   reingestSlotTurn,
+  reingestSource,
   workspaceSourceRepositories,
 } from "../../domain/upgrades/reingest.js"
 import {
@@ -36,6 +37,11 @@ import {
   legacyKnowledgePaths,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
+import {
+  PlainGitUrlError,
+  plainGitRefusalReason,
+  resolvePlainGitTip,
+} from "../../services/git/plain-git-remote.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
@@ -83,7 +89,8 @@ const repositoryInputSchema = z
     upgradeRunId: z.string().min(1),
     repository: z.string().min(1),
     url: z.string().min(1),
-    githubConnectionId: z.string().min(1),
+    /** Null for a plain git repository (CTX-815). */
+    githubConnectionId: z.string().min(1).nullable(),
     sha: z.string().min(1),
     authorTime: z.string().min(1),
     /** Stop the ingestion run when its spend passes this (USD). Null: no cap. */
@@ -187,10 +194,7 @@ export function defineWorkspaceUpgradeReingestRepository(
           {
             orgId: input.orgId,
             shadow: false,
-            source: {
-              url: input.url,
-              githubConnectionId: input.githubConnectionId,
-            },
+            source: reingestSource(input),
             sha: input.sha,
             authorTime: input.authorTime,
             // Only this Workspace: the other Workspaces of the repository
@@ -269,8 +273,10 @@ const plannedSchema = z.union([
       z.object({
         repository: z.string(),
         url: z.string(),
-        githubConnectionId: z.string(),
+        githubConnectionId: z.string().nullable(),
         sha: z.string().nullable(),
+        /** Why ctx| could not read the tip (with no `sha`). */
+        tipError: z.string().nullable().optional(),
         /** Done at this commit by an earlier run of this upgrade. */
         done: z
           .object({
@@ -283,6 +289,25 @@ const plannedSchema = z.union([
     ),
   }),
 ])
+
+/**
+ * The reason of a failed tip read, for the report: the rule that refused a
+ * plain git URL (with the protocol rule), or the last line that git wrote (at most 300 characters).
+ * Git writes no credential there: a token goes in the environment, not in
+ * the URL.
+ */
+function tipErrorText(error: unknown): string {
+  if (error instanceof PlainGitUrlError) return plainGitRefusalReason(error)
+  const stderr = String((error as { stderr?: unknown }).stderr ?? "")
+  const line =
+    stderr
+      .split("\n")
+      .map((part) => part.trim())
+      .filter(Boolean)
+      .at(-1) ??
+    (error instanceof Error ? error.message.split("\n")[0] : String(error))
+  return (line ?? "").slice(0, 300)
+}
 
 /**
  * Check the gates again at the run, and pin each source repository at its
@@ -314,17 +339,28 @@ async function planReingest(input: {
     input.orgId,
     input.workspaceId,
   )) {
-    // A repository that ctx| cannot read gets no run; the report names it.
-    const tip = await resolveRepositoryReadTip({
-      orgId: input.orgId,
-      env,
-      remote: { url: source.url, connectionId: source.githubConnectionId },
-    }).catch(() => null)
+    // A repository that ctx| cannot read gets no run; the report names it
+    // and the reason. A plain git repository is read with no credential,
+    // from a host that passes the plain git rules (CTX-815).
+    let tipError: string | null = null
+    const tip = await (source.githubConnectionId
+      ? resolveRepositoryReadTip({
+          orgId: input.orgId,
+          env,
+          remote: { url: source.url, connectionId: source.githubConnectionId },
+        })
+      : resolvePlainGitTip(source.url)
+    ).catch((error: unknown) => {
+      tipError = tipErrorText(error)
+      return null
+    })
     const sha = tip?.sha ?? null
+    if (!sha && !tipError) tipError = "The repository has no default branch."
     const before = earlier.get(source.repository)
     repositories.push({
       ...source,
       sha,
+      tipError,
       done:
         sha && before?.status === "done" && before.sha === sha
           ? {
@@ -479,7 +515,7 @@ export function defineWorkspaceUpgradeReingest(
                   : r.sha
                     ? []
                     : [
-                        "ctx| cannot read the default branch of the repository.",
+                        `ctx| cannot read the default branch of the repository.${r.tipError ? ` ${r.tipError}` : ""}`,
                       ],
                 ...(r.done
                   ? {

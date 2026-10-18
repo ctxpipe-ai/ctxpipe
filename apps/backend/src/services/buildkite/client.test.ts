@@ -104,18 +104,24 @@ describe("listBuildkiteBuilds", () => {
     expect(requests).toHaveLength(2)
   })
 
-  it("aborts a request that Buildkite does not answer in 15 seconds", async () => {
-    // Fake timers do not reach `AbortSignal.timeout`, so this waits in real time.
+  it("aborts a request that Buildkite does not answer in the timeout", async () => {
+    // Fake timers do not reach `AbortSignal.timeout`, so the test gives a
+    // short timeout. Without the signal, the request never ends.
     server.use(
       http.get(`${API}/organizations/acme/pipelines/web-app/builds`, () =>
         delay("infinite"),
       ),
     )
 
-    const startedAt = Date.now()
-    await expect(read()).rejects.toMatchObject({ name: "TimeoutError" })
-    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(14_900)
-  }, 20_000)
+    await expect(
+      listBuildkiteBuilds({
+        apiToken: "token",
+        organizationSlug: "acme",
+        pipelineSlug: "web-app",
+        timeoutMs: 50,
+      }),
+    ).rejects.toMatchObject({ name: "TimeoutError" })
+  }, 5_000)
 
   it("throws a typed error when Buildkite refuses the token", async () => {
     server.use(

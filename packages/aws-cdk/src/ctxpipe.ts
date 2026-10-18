@@ -1,3 +1,4 @@
+import { BlockList, isIP } from "node:net"
 import * as cdk from "aws-cdk-lib"
 import * as acm from "aws-cdk-lib/aws-certificatemanager"
 import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
@@ -311,7 +312,15 @@ export class CtxPipe extends Construct {
         `sandboxHost.instanceType must be a Graviton (arm64) type such as t4g.xlarge or m7g.large; got ${instanceType}`,
       )
     }
-    return { instanceType, dockerVolumeSizeGiB }
+    const agentVaultNetworkAllowlist = [
+      ...(props.sandboxHost?.agentVaultNetworkAllowlist ?? []),
+    ]
+    for (const entry of agentVaultNetworkAllowlist)
+      if (!agentVaultAllowlistEntryOk(entry))
+        throw new Error(
+          `sandboxHost.agentVaultNetworkAllowlist must hold IPv4 or IPv6 addresses or CIDRs with no cloud metadata, link-local, loopback, or unspecified address; got ${JSON.stringify(entry)}`,
+        )
+    return { instanceType, dockerVolumeSizeGiB, agentVaultNetworkAllowlist }
   }
 
   private resolveCustomDomain(
@@ -430,4 +439,45 @@ export class CtxPipe extends Construct {
       ? hostedZoneId
       : `/hostedzone/${hostedZoneId}`
   }
+}
+
+/**
+ * True when `entry` is an IPv4 or IPv6 address or CIDR that holds no cloud
+ * metadata, link-local, loopback, or unspecified address. The entry goes into
+ * the host boot script, so only these characters can get through.
+ */
+function agentVaultAllowlistEntryOk(entry: string): boolean {
+  const [address = "", prefix, ...rest] = entry.split("/")
+  const family = isIP(address)
+  if (!family || rest.length) return false
+  const type = family === 4 ? "ipv4" : "ipv6"
+  const bits = prefix === undefined ? (family === 4 ? 32 : 128) : Number(prefix)
+  if (
+    (prefix !== undefined && !/^\d{1,3}$/.test(prefix)) ||
+    bits > (family === 4 ? 32 : 128)
+  )
+    return false
+  const range = new BlockList()
+  range.addSubnet(address, bits, type)
+  const denied = new BlockList()
+  const deniedSubnets = [
+    ["169.254.0.0", 16, "ipv4"],
+    ["fe80::", 10, "ipv6"],
+    ["127.0.0.0", 8, "ipv4"],
+    ["::1", 128, "ipv6"],
+    ["0.0.0.0", 32, "ipv4"],
+    ["::", 128, "ipv6"],
+    ["169.254.169.254", 32, "ipv4"],
+    ["169.254.170.2", 32, "ipv4"],
+    ["fd00:ec2::254", 128, "ipv6"],
+  ] as const
+  for (const [network, length, networkType] of deniedSubnets)
+    denied.addSubnet(network, length, networkType)
+  // Reject an entry that is inside a denied range or that covers one.
+  return (
+    !denied.check(address, type) &&
+    !deniedSubnets.some(([network, , networkType]) =>
+      range.check(network, networkType),
+    )
+  )
 }

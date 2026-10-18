@@ -8,8 +8,19 @@ import {
   listWorkspaceSourceRows,
   setWorkspaceSourceStatus,
 } from "../../models/workspace-sources.js"
+import { log } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import type { SourceAdapter, SourceFetchResult } from "./adapter.js"
+import { repositoryFilePathSchema } from "../../services/git/file-change.js"
+import type {
+  MirrorProvider,
+  SourceAdapter,
+  SourceFetchResult,
+} from "./adapter.js"
+import {
+  refusedSliceFile,
+  refuseMirrorPath,
+  unsafeMirrorPath,
+} from "./mirror-path.js"
 import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
 import { stampSources } from "./stamp-sources.js"
@@ -19,10 +30,13 @@ import { stampSources } from "./stamp-sources.js"
  * `ownedPrefixes` that are not in `files` are deleted, except files under
  * `keepPrefixes`, which another source still owns.
  */
+/** A removed source target of a provider with a connection. */
+type ConnectedSourceTarget = SourceTarget & { connectionId: string }
+
 export type WorkspaceSliceWrite = {
   orgId: string
   workspaceId: string
-  provider: SourceProvider
+  provider: MirrorProvider
   connectionId: string
   files: GitFileChange[]
   ownedPrefixes: string[]
@@ -42,7 +56,7 @@ export type WorkspaceSliceWrite = {
    * write only when the sources file has one of them again, because no later
    * projection plans a dropped cleanup again.
    */
-  removed?: SourceTarget[]
+  removed?: ConnectedSourceTarget[]
 }
 
 export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
@@ -89,16 +103,63 @@ function overlaps(a: string, b: string): boolean {
 
 function assertManagedPaths(adapter: SourceAdapter, prefixes: string[]) {
   for (const prefix of prefixes) {
-    const parts = prefix.slice(0, -1).split("/")
-    if (
-      !prefix.startsWith(`${adapter.provider}/`) ||
-      !prefix.endsWith("/") ||
-      prefix.includes("\\") ||
-      parts.some((part) => part === "" || part === "." || part === "..")
-    )
-      throw new Error(
-        `Managed path "${prefix}" must be a relative path under ${adapter.provider}/ that ends with "/"`,
-      )
+    const unsafe =
+      unsafeMirrorPath(prefix, true) ??
+      (prefix.startsWith(`${adapter.provider}/`)
+        ? null
+        : `is not under ${adapter.provider}/`)
+    if (unsafe)
+      refuseMirrorPath({
+        provider: adapter.provider,
+        path: prefix,
+        reason: unsafe,
+      })
+  }
+}
+
+/**
+ * Refuse the whole fetch result when one path is not safe, before any
+ * write. Each file and each deleted path must stay under a managed path of
+ * this sync. A kept or unreachable path must stay under the provider root.
+ * Provider data (ids, titles) makes these paths, so a bad provider answer
+ * must not write or delete a file outside the connector's paths.
+ */
+function assertFetchedPaths(
+  adapter: SourceAdapter,
+  result: SourceFetchResult,
+  managed: readonly string[],
+) {
+  const refuse = (path: string, reason: string) =>
+    refuseMirrorPath({ provider: adapter.provider, path, reason })
+  const files = "files" in result ? result.files : result.filesByScope.flat()
+  // A deleted path exists in the tree, so it needs only a valid repository
+  // path. A written path also needs a safe mirror path.
+  for (const [path, unsafe] of [
+    ...files.flatMap((file) =>
+      file ? [[file.path, unsafeMirrorPath(file.path)] as const] : [],
+    ),
+    ...(result.deletePaths ?? []).map(
+      (path) =>
+        [
+          path,
+          repositoryFilePathSchema.safeParse(path).success
+            ? null
+            : "is not a repository file path",
+        ] as const,
+    ),
+  ]) {
+    if (unsafe) refuse(path, unsafe)
+    if (!underAny(path, managed))
+      refuse(path, "is not under a managed path of this sync")
+  }
+  for (const path of [
+    ...(result.keepPaths ?? []),
+    ...(result.unreachable ?? []).map((lost) => lost.path),
+  ]) {
+    const unsafe = unsafeMirrorPath(path, path.endsWith("/"))
+    if (unsafe) refuse(path, unsafe)
+    if (!path.startsWith(`${adapter.provider}/`))
+      refuse(path, `is not under ${adapter.provider}/`)
   }
 }
 
@@ -191,6 +252,9 @@ export async function syncConnectionSources(input: {
   const result: SourceFetchResult = Array.isArray(fetched)
     ? { files: fetched }
     : fetched
+  assertFetchedPaths(adapter, result, [
+    ...new Set(rows.flatMap((row) => adapter.managedPaths(row.scope))),
+  ])
   // With `filesByScope`, a Workspace gets only the files of its own scopes,
   // and a failed scope (null) skips the write of each Workspace that has it.
   const byKey = new Map(
@@ -255,9 +319,22 @@ export async function syncConnectionSources(input: {
       deletePaths ? !deletePaths.includes(path) : underAny(path, keepPrefixes)
     const files = [
       ...fetchedFiles,
-      ...(existing?.restamps.get(workspaceId) ?? []).filter(
-        (file) => !fetched.has(file.path) && stays(file.path),
-      ),
+      ...(existing?.restamps.get(workspaceId) ?? []).filter((file) => {
+        if (fetched.has(file.path) || !stays(file.path)) return false
+        // A file in the tree can have a name that the write seam refuses
+        // (a ".notes.md" of a user). It keeps its old stamp, and the sync
+        // goes on.
+        const refused = refusedSliceFile(file.path, ownedPrefixes)
+        if (refused)
+          log.warn({
+            step: "workspace_sources.skipped_restamp",
+            message: "A restamp skipped a path that the write seam refuses",
+            provider: adapter.provider,
+            path: file.path,
+            reason: refused,
+          })
+        return !refused
+      }),
     ]
     const allKept = ownedPrefixes.every((prefix) =>
       keepPrefixes.includes(prefix),
@@ -391,12 +468,12 @@ export async function cleanupRemovedSources(input: {
     .filter((target) => target !== null)
   const writes: WorkspaceSliceWrite[] = []
   const byProvider = new Map<
-    SourceProvider,
+    MirrorProvider,
     {
       connectionId: string
       prefixes: Set<string>
       keep: Set<string>
-      removed: SourceTarget[]
+      removed: ConnectedSourceTarget[]
     }
   >()
   for (const source of input.removed) {

@@ -1,13 +1,14 @@
 import { applySourceFileChange, SourceChangeError } from "./edit.js"
 import {
+  GITHUB_SOURCE_MAX_REPOSITORIES,
+  githubLegacyScopeSchema,
   githubScopeRepositories,
-  githubScopeSchema,
 } from "./providers/github.js"
 import { githubSourcePath } from "./source-file.js"
 import { parseSourceFile } from "./source-file-text.js"
 import {
   type ParsedSourceEntry,
-  parseSourceEntry,
+  parseLegacySourceEntry,
   type SourceEntry,
   sourcesFileSchema,
 } from "./sources-file.js"
@@ -44,7 +45,9 @@ function readEntries(text: string | null): ParsedSourceEntry[] {
       409,
       "The sources file does not match version 1. Fix it in git first.",
     )
-  return file.data.sources.map(parseSourceEntry)
+  // An entry from before the cap (CTX-822) can hold more repositories than
+  // the cap. It still links them all.
+  return file.data.sources.map(parseLegacySourceEntry)
 }
 
 function githubEntries(entries: readonly ParsedSourceEntry[]): SourceEntry[] {
@@ -54,7 +57,7 @@ function githubEntries(entries: readonly ParsedSourceEntry[]): SourceEntry[] {
 }
 
 function scopeItems(entry: SourceEntry): LinkedItem[] {
-  const scope = githubScopeSchema.safeParse(entry.scope)
+  const scope = githubLegacyScopeSchema.safeParse(entry.scope)
   return scope.success ? githubScopeRepositories(scope.data) : []
 }
 
@@ -62,10 +65,13 @@ function scopeItems(entry: SourceEntry): LinkedItem[] {
  * Link GitHub repositories (`owner/name`, with an optional branch or tag) in
  * the text of `.ctxpipe/sources.yaml` (ADR-050). A repository that a GitHub
  * entry already links is not added again; when that link has no ref and the
- * request has one, the link gets the ref. The others go into the GitHub entry
- * of `connectionId` (the `linked-repositories` entry first), or into a new
- * `linked-repositories` entry. Returns the new text, or null when nothing
- * changes. Throws {@link SourceChangeError} when the file is not valid.
+ * request has one, the link gets the ref. The others go into the GitHub
+ * entries of `connectionId` (the `linked-repositories` entry first) until
+ * each is full, then into new entries `linked-repositories`,
+ * `linked-repositories-2`, and so on. No entry gets more than
+ * {@link GITHUB_SOURCE_MAX_REPOSITORIES} repositories. Returns the new text,
+ * or null when nothing changes. Throws {@link SourceChangeError} when the
+ * file is not valid.
  */
 export function linkGithubRepositories(input: {
   sourcesFile: string | null
@@ -98,14 +104,21 @@ export function linkGithubRepositories(input: {
       current.owner.changed = true
     }
   }
-  const target =
-    github.find(
-      ({ entry }) =>
-        entry.key === LINKED_REPOSITORIES_SOURCE_KEY &&
-        entry.connectionId === input.connectionId,
-    ) ?? github.find(({ entry }) => entry.connectionId === input.connectionId)
-  if (target && missing.length) {
-    target.items.push(...missing)
+  // A stored entry above the cap cannot be written back. Its overflow goes
+  // into new entries.
+  for (const target of github)
+    if (target.changed)
+      missing.unshift(...target.items.splice(GITHUB_SOURCE_MAX_REPOSITORIES))
+  const own = github.filter(
+    ({ entry }) => entry.connectionId === input.connectionId,
+  )
+  for (const target of [
+    ...own.filter(({ entry }) => entry.key === LINKED_REPOSITORIES_SOURCE_KEY),
+    ...own.filter(({ entry }) => entry.key !== LINKED_REPOSITORIES_SOURCE_KEY),
+  ]) {
+    const room = GITHUB_SOURCE_MAX_REPOSITORIES - target.items.length
+    if (room <= 0 || !missing.length) continue
+    target.items.push(...missing.splice(0, room))
     target.changed = true
   }
   let text = input.sourcesFile
@@ -119,18 +132,26 @@ export function linkGithubRepositories(input: {
       scope: { repositories: items.map(scopeItem) },
     }).text
   }
-  if (!target && missing.length) {
-    const keyTaken = entries.some(
-      (parsed) =>
-        (parsed.ok ? parsed.entry.key : parsed.key) ===
-        LINKED_REPOSITORIES_SOURCE_KEY,
-    )
+  const taken = new Set(
+    entries.flatMap(
+      (parsed) => (parsed.ok ? parsed.entry.key : parsed.key) ?? [],
+    ),
+  )
+  let suffix = 1
+  while (missing.length) {
+    let key = LINKED_REPOSITORIES_SOURCE_KEY
+    while (taken.has(key)) key = `${LINKED_REPOSITORIES_SOURCE_KEY}-${++suffix}`
+    taken.add(key)
     text = applySourcesYamlChange(text, {
       action: "add",
-      sourceKey: keyTaken ? undefined : LINKED_REPOSITORIES_SOURCE_KEY,
+      sourceKey: key,
       provider: "github",
       connectionId: input.connectionId,
-      scope: { repositories: missing.map(scopeItem) },
+      scope: {
+        repositories: missing
+          .splice(0, GITHUB_SOURCE_MAX_REPOSITORIES)
+          .map(scopeItem),
+      },
     }).text
   }
   return text === input.sourcesFile ? null : text
@@ -223,7 +244,8 @@ export function linkGithubSourceFile(input: {
       action: "edit",
       path: existing.file.path,
       provider: "github",
-      connectionId: existing.parsed.source.connectionId,
+      // A GitHub source file always has a connection.
+      connectionId: existing.parsed.source.connectionId ?? input.connectionId,
       scope: { ...existing.parsed.source.scope, ref },
     },
   })

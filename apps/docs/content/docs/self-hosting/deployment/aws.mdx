@@ -198,7 +198,7 @@ product onboarding flow.
 |---|---|
 | `size` | Capacity profile for single-tenant deployments. Valid values: `small`, `medium`, `large`. Defaults to `small` when omitted. |
 | `otel` | Optional OTLP export. Omit it and the tasks export nothing. The construct does not deploy a collector, Langfuse, or ClickStack. |
-| `sandboxHost` | Optional `instanceType` and `dockerVolumeSizeGiB` for the [chat sandbox host](#chat-sandbox-host). The host is always created; these only change its size. |
+| `sandboxHost` | Optional `instanceType` and `dockerVolumeSizeGiB` for the [chat sandbox host](#chat-sandbox-host), and `agentVaultNetworkAllowlist` for a [private git server](#private-git-servers). The host is always created; these only change its size and its allowlist. |
 
 ### `modelProvider` union
 
@@ -323,6 +323,31 @@ new CtxPipe(stack, "CtxPipe", {
 The instance type must be Graviton (arm64); other architectures are rejected
 at synth.
 
+### Private git servers
+
+Ingestion can read a plain git repository on a git server inside your network
+(see [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
+The ingestion sandbox fetches it through Agent Vault on the sandbox host, and
+Agent Vault connects only to the private addresses in its allowlist. By
+default, the allowlist holds only the backend subnets. Add the address or CIDR
+of your git server with `sandboxHost.agentVaultNetworkAllowlist`:
+
+```ts
+new CtxPipe(stack, "CtxPipe", {
+  // ...orgSlug, customDomain, modelProvider
+  sandboxHost: {
+    agentVaultNetworkAllowlist: ["10.20.0.0/24"],
+  },
+});
+```
+
+The stack adds each entry after the backend subnets. Each entry must be an
+IPv4 or IPv6 address or CIDR. Synth rejects an entry with a cloud metadata or
+link-local address. The sandbox host must also have a route to that network,
+for example VPC peering or a transit gateway. The git server must accept
+connections from the host. A change to the list replaces the host, as each
+change to its boot script does.
+
 ### What it sets up
 
 | Piece | Behavior |
@@ -331,7 +356,7 @@ at synth.
 | Docker volume | gp3 volume at `/var/lib/docker`. It belongs to the instance, so a replaced host starts empty. Conversations keep their work in their git branch and continue on the new host. |
 | Docker API | Port 2376 with mutual TLS at `sandbox-host.ctxpipe.local`, a Cloud Map name the host registers when it boots. The host creates the certificates on first boot and stores them in Secrets Manager; a replacement host reuses them. The CA key is not kept. |
 | Network | Backend and worker reach the Docker API and the Agent Vault API (port 14321). Only the backend reaches the sandboxes' agent ports. `DOCKER-USER` rules let sandboxes reach only the Agent Vault proxy (port 14322); a direct connection, a non-HTTP protocol, and DNS are rejected. Through the proxy, sandboxes reach Git hosts, the internet, and the backend (model proxy and per-run tool bridges), but not Postgres, Neptune, EFS, codesearch, the UI, or the worker. This is the [chat sandbox network policy](/docs/self-hosting/architecture#chat-sandbox-network-policy) shared with Docker Compose. |
-| Credentials | Agent Vault (`infisical/agent-vault:latest`) runs on the host on its own Docker bridge. Sandboxes hold no credential: Agent Vault adds the GitHub token and the backend credentials to each request. Agent Vault may dial the backend's subnets. These are the stack's only private subnets, so they also hold RDS, Neptune, EFS, and the UI and codesearch tasks; only security groups keep the proxy out of them. If you change security groups, never admit the sandbox host's group to those services. The stack generates its master password and owner password in Secrets Manager; the host reads the master password, and backend and worker get the owner password. If Agent Vault does not answer, chat fails closed. A replaced host starts an empty Agent Vault, and the backend registers again on first use. |
+| Credentials | Agent Vault (`infisical/agent-vault:latest`) runs on the host on its own Docker bridge. Sandboxes hold no credential: Agent Vault adds the GitHub token and the backend credentials to each request. Agent Vault may dial the backend's subnets, and the entries of `sandboxHost.agentVaultNetworkAllowlist`. The backend subnets are the stack's only private subnets, so they also hold RDS, Neptune, EFS, and the UI and codesearch tasks; only security groups keep the proxy out of them. If you change security groups, never admit the sandbox host's group to those services. The stack generates its master password and owner password in Secrets Manager; the host reads the master password, and backend and worker get the owner password. If Agent Vault does not answer, chat fails closed. A replaced host starts an empty Agent Vault, and the backend registers again on first use. |
 | Isolation | Each agent port needs a per-conversation password. Agent ports are reachable inside the VPC, so the host also blocks sandboxes from each other, from the host itself, and from instance metadata. |
 | Limits | All sandbox containers share one systemd slice capped at 85% of host memory. Container logs rotate at 3 × 10 MB. |
 | Chat image | `ghcr.io/ctxpipe-ai/chat-sandbox`, published for arm64 and amd64 with the same release tag as the service images. The backend pulls it through the host's Docker daemon on the first chat after a release, so releases never replace the host. |

@@ -8,26 +8,48 @@ import { connections } from "../db/schema/connections.js"
 export type GithubTokenLog = {
   minted: Array<{ installationId: number; repositories: string[] }>
   revoked: string[]
+  /** When set, the permissions that each mint asks for, in order. */
+  mintedPermissions?: Array<Record<string, string> | undefined>
 }
 
 /**
  * msw handlers for GitHub App installation tokens: a mint answers
- * `token(installationId)`, and a revoke records the token it got.
+ * `token(installationId)`, and a revoke records the token it got. The
+ * installation answers with `installationPermissions(installationId)`. The
+ * default is the App permissions of the self-host docs, with Issues.
  */
 export function githubTokenHandlers(
   log: GithubTokenLog,
   token: (installationId: number) => string,
+  installationPermissions: (
+    installationId: number,
+  ) => Record<string, string> = () => ({
+    contents: "write",
+    metadata: "read",
+    pull_requests: "write",
+    issues: "read",
+  }),
 ) {
   return [
+    http.get("https://api.github.com/app/installations/:id", ({ params }) =>
+      HttpResponse.json({
+        id: Number(params.id),
+        permissions: installationPermissions(Number(params.id)),
+      }),
+    ),
     http.post(
       "https://api.github.com/app/installations/:id/access_tokens",
       async ({ request, params }) => {
         const installationId = Number(params.id)
-        const body = (await request.json()) as { repositories?: string[] }
+        const body = (await request.json()) as {
+          repositories?: string[]
+          permissions?: Record<string, string>
+        }
         log.minted.push({
           installationId,
           repositories: body.repositories ?? [],
         })
+        log.mintedPermissions?.push(body.permissions)
         return HttpResponse.json(
           {
             token: token(installationId),

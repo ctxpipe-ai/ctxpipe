@@ -21,6 +21,7 @@ import {
   deleteRunVault,
   openRunVault,
   type RunVault,
+  type RunVaultRule,
   runVaultName,
   setRunVaultRules,
   writeProxyCa,
@@ -36,7 +37,8 @@ import {
   bearerUrlRule,
   githubFetchCredentialRules,
   modelProxyCredentialRules,
-  type SandboxCredentialRule,
+  type PlainGitRepository,
+  plainGitFetchRules,
 } from "./sandbox-credential-rules.js"
 import {
   type ConversationFirewall,
@@ -81,11 +83,47 @@ export function assertHostedIngestEgress(
     )
 }
 
-/** A repository that an ingest shard reads, and its GitHub connection. */
-export type IngestRepository = {
-  /** `owner/name`, as the sandbox writes it in `https://<host>/<owner>/<name>.git`. */
-  fullName: string
-  githubConnectionId: string
+/**
+ * A repository that an ingest shard reads: a GitHub repository and its
+ * connection, or a public plain git repository that the shard reads with no
+ * credential (CTX-815).
+ */
+export type IngestRepository =
+  | {
+      kind?: "github"
+      /** `owner/name`, as the sandbox writes it in `https://<host>/<owner>/<name>.git`. */
+      fullName: string
+      githubConnectionId: string
+    }
+  | ({ kind: "git" } & PlainGitRepository)
+
+type GithubIngestRepository = Exclude<IngestRepository, { kind: "git" }>
+
+function githubIngestRepositories(
+  repositories: readonly IngestRepository[],
+): GithubIngestRepository[] {
+  return repositories.filter(
+    (repository): repository is GithubIngestRepository =>
+      repository.kind !== "git",
+  )
+}
+
+/** The plain git repositories of a shard, each once. */
+export function plainGitIngestRepositories(
+  repositories: readonly IngestRepository[],
+): PlainGitRepository[] {
+  const found = new Map<string, PlainGitRepository>()
+  for (const repository of repositories)
+    if (repository.kind === "git")
+      found.set(
+        `${repository.host}:${repository.port ?? 443}${repository.path}`,
+        {
+          host: repository.host,
+          path: repository.path,
+          ...(repository.port ? { port: repository.port } : {}),
+        },
+      )
+  return [...found.values()]
 }
 
 /**
@@ -95,7 +133,8 @@ export type IngestRepository = {
 export type IngestEgress = {
   /**
    * The run's source repository and each destination Workspace repository.
-   * The sandbox can only fetch them (the run's ingest refs too).
+   * The sandbox can only fetch them (the run's ingest refs too). A plain git
+   * source is fetched with no credential.
    */
   repositories: IngestRepository[]
   /** The model proxy base URL as the sandbox sees it (`…/openai/v1`). */
@@ -121,7 +160,7 @@ async function coveredRepositoryGroups(
   repositories: IngestRepository[],
 ): Promise<Map<string, string[]>> {
   const groups = new Map<string, string[]>()
-  for (const repository of repositories) {
+  for (const repository of githubIngestRepositories(repositories)) {
     const names = groups.get(repository.githubConnectionId) ?? []
     groups.set(repository.githubConnectionId, names)
     if (!names.includes(repository.fullName)) names.push(repository.fullName)
@@ -193,11 +232,30 @@ export function revokeIngestGitTokens(input: {
   })
 }
 
-/** The credential rules of one ingest step; the only requests it can send. */
+/**
+ * The credential rules of one ingest step; the only requests it can send.
+ *
+ * A plain git repository gets rules only with `fetchSource`, while
+ * `prepareIngestShard` clones it. A step's agent never gets them: a Git
+ * fetch POSTs a body that no rule checks, so a host that an attacker runs
+ * could get Workspace content in it. The rules have no credential, and they
+ * match only the source's port: Agent Vault matches the host, the port, and
+ * the path, not the scheme. An `https://` source gets port 443 (or its own
+ * port), and an `http://` source (self-host only) gets port 80 (or its own
+ * port), so the rule follows the scheme of the source.
+ *
+ * The rule names the host, not the checked addresses: Agent Vault resolves
+ * the host name again when it connects, so this fetch is not pinned. The
+ * backend checks the host before it makes the rule (`shardRepositories`):
+ * on self-host too, it refuses a host that resolves to a cloud metadata or
+ * link-local address. A DNS answer that changes after that check is not
+ * covered here.
+ */
 export function ingestCredentialRules(
   egress: IngestEgress,
   git: IngestGitAccess[],
-): SandboxCredentialRule[] {
+  options: { fetchSource?: boolean } = {},
+): RunVaultRule[] {
   return [
     ...git.flatMap((entry) =>
       githubFetchCredentialRules(
@@ -205,6 +263,16 @@ export function ingestCredentialRules(
         entry.repositories,
         egress.gitHost,
       ),
+    ),
+    ...(options.fetchSource
+      ? plainGitIngestRepositories(egress.repositories)
+      : []
+    ).flatMap((repository) =>
+      plainGitFetchRules(repository).map((rule) => ({
+        ...rule,
+        host: `${rule.host}:${repository.port ?? 443}`,
+        authorization: null,
+      })),
     ),
     ...modelProxyCredentialRules(egress.modelProxyUrl, egress.capability),
     bearerUrlRule("tool-bridge", egress.bridge.url, egress.bridge.token),
@@ -302,7 +370,8 @@ export function dockerIngestSandboxProvider(input: {
           access,
           runKey,
           ttlSeconds: INGEST_VAULT_TTL_SECONDS,
-          rules: ingestCredentialRules(egress, git),
+          // A new sandbox is prepared next: it fetches its source first.
+          rules: ingestCredentialRules(egress, git, { fetchSource: true }),
           unmatchedHosts: "deny",
         })
         handle = await docker.create({
@@ -351,12 +420,15 @@ export function dockerIngestSandboxProvider(input: {
  * its tool bridge, and GitHub tokens of the current window. Call it while the
  * step holds the shard lock, before the agent runs. It replaces the whole
  * rule set: a repository that the step does not list cannot be fetched.
+ * `fetchSource` adds the plain git source, only for `prepareIngestShard`
+ * (see {@link ingestCredentialRules}).
  */
 export async function refreshIngestSandboxEgress(input: {
   orgId: string
   runId: string
   shard: number
   egress: IngestEgress
+  fetchSource?: boolean
   access?: AgentVaultAccess
 }): Promise<void> {
   const git = await ingestGitAccess({
@@ -366,7 +438,9 @@ export async function refreshIngestSandboxEgress(input: {
   await setRunVaultRules(
     requireAccess(input.access),
     ingestSandboxThreadId(input.runId, input.shard),
-    ingestCredentialRules(input.egress, git),
+    ingestCredentialRules(input.egress, git, {
+      fetchSource: input.fetchSource === true,
+    }),
     { replace: true },
   )
 }
@@ -388,17 +462,23 @@ const PRIVATE_SUBNETS = [
 ]
 
 /**
- * The hosted firewall of an ingest sandbox (T03b). It allows two hosts,
- * `github.com` and the backend host, and forwards each request to them to
- * the backend egress proxy (`ingestEgressProxy`). The proxy allows only Git
- * fetch of the shard's repositories and, during a step, the step's model
- * proxy and tool bridge, and it adds each credential. Each other request
+ * The hosted firewall of an ingest sandbox (T03b). It allows `github.com`
+ * and the backend host, and forwards each request to them to the backend
+ * egress proxy (`ingestEgressProxy`). The proxy allows only Git fetch of the
+ * shard's repositories and, during a step, the step's model proxy and tool
+ * bridge, and it adds each credential. Each other request
  * gets 403; each other host is not allowed. The forward URL carries the
  * sealed scope, bound to the sandbox name, so no credential is in the
  * policy. A sandbox with no name yet (at create) gets `"deny-all"`.
+ *
+ * The host of each plain git repository of the shard (CTX-815) is allowed
+ * only while `prepareIngestShard` fetches the source (`step.fetchSource`),
+ * never while a step's agent runs: see `ingestCredentialRules`.
  */
 export function ingestNetworkPolicy(input: {
   git: IngestGitAccess[]
+  /** The public plain git repositories of the shard (CTX-815). */
+  plainGit?: PlainGitRepository[]
   backendHost: string
   step?: HostedTurnCredentials
   /** The Vercel sandbox name; the egress proxy refuses other sandboxes. */
@@ -407,6 +487,7 @@ export function ingestNetworkPolicy(input: {
   secret: string
 }): NetworkPolicy {
   if (!input.sandboxName) return "deny-all"
+  const plainGit = input.step?.fetchSource ? (input.plainGit ?? []) : []
   const forwardURL = ingestEgressForwardUrl(
     {
       sandbox: input.sandboxName,
@@ -414,6 +495,7 @@ export function ingestNetworkPolicy(input: {
       exp: Date.now() + INGEST_SHARD_LIMIT_MS,
       backendHost: input.backendHost,
       git: input.git,
+      ...(plainGit.length ? { plainGit } : {}),
       ...(input.step ? { step: input.step } : {}),
     },
     input.secret,
@@ -421,6 +503,12 @@ export function ingestNetworkPolicy(input: {
   return {
     allow: {
       "github.com": [{ forwardURL }],
+      // During the source fetch, each plain git host goes to the egress
+      // proxy too, which allows only Git fetch of the shard's repository
+      // paths on it.
+      ...Object.fromEntries(
+        plainGit.map((repository) => [repository.host, [{ forwardURL }]]),
+      ),
       [input.backendHost]: [{ forwardURL }],
     },
     subnets: { deny: PRIVATE_SUBNETS },
@@ -509,13 +597,19 @@ export function vercelIngestSandboxProvider(input: {
 } {
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const names = [
-    ...new Set(input.repositories.map((repository) => repository.fullName)),
+    ...new Set(
+      githubIngestRepositories(input.repositories).map(
+        (repository) => repository.fullName,
+      ),
+    ),
   ]
+  const plainGit = plainGitIngestRepositories(input.repositories)
   const firewall = conversationFirewall(
     input.backendHost,
     (policy: HostedPolicyInput) =>
       ingestNetworkPolicy({
         git: [{ token: policy.gitToken, repositories: names }],
+        plainGit,
         backendHost: input.backendHost,
         secret: env.AUTH_SECRET,
         ...(policy.sandboxName ? { sandboxName: policy.sandboxName } : {}),

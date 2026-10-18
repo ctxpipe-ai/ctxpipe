@@ -608,7 +608,9 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           },
         })
         // The re-ingestion item shows too, blocked until the format upgrade
-        // merges, with the repositories that the upgrade links.
+        // merges, with the repositories that the upgrade links: the GitHub
+        // repository, and the public GitLab repository of main as a plain
+        // git source (CTX-815).
         const waiting = await row(reingestKey)
         expect(waiting).toMatchObject({
           status: "blocked",
@@ -618,7 +620,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           waiting?.upgrade.estimate?.perRepository.map(
             (entry) => entry.repository,
           ),
-        ).toEqual(["team-a/api"])
+        ).toEqual(["gitlab.com/team-c/tools", "team-a/api"])
         expect(opened).toEqual([])
         phase("list upgrades through the API")
         const listed = await api("GET", "/upgrades")
@@ -797,6 +799,25 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           status: "awaiting_operator",
           upgrade: { targetFormat: 3 },
         })
+        expect(sources).toEqual(
+          expect.arrayContaining([
+            expect.objectContaining({
+              source_key: "sources/git/gitlab.com/team-c-tools.md",
+              provider: "git",
+              status: "ok",
+              scope: {
+                url: expect.stringMatching(
+                  /^https:\/\/gitlab\.com\/team-c\/tools(\.git)?$/,
+                ),
+              },
+            }),
+          ]),
+        )
+        expect(
+          (await row(reingestKey))?.upgrade.estimate?.perRepository.map(
+            (entry) => entry.repository,
+          ),
+        ).toEqual(["gitlab.com/team-c/tools", "team-a/api"])
       } finally {
         await worker.stop()
         await backend.stop()

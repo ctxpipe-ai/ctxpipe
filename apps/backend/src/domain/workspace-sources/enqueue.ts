@@ -22,7 +22,7 @@ import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
-import { githubRepositoryUrls } from "./providers/github.js"
+import { sourceRepositoryUrls } from "./providers/git.js"
 import { checkSourcePath } from "./source-file.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
@@ -297,7 +297,7 @@ async function enqueueRepositoryRetractions(input: {
   const pairs = new Map<string, { url: string; sourcePath: string }>()
   for (const { sourceKey, target } of input.left) {
     if (!checkSourcePath(sourceKey).ok) continue
-    for (const url of githubRepositoryUrls(target))
+    for (const url of sourceRepositoryUrls(target))
       pairs.set(`${url}\0${sourceKey}`, { url, sourcePath: sourceKey })
   }
   if (!pairs.size || workspacePublishPipeline(input.format) !== "v2") return

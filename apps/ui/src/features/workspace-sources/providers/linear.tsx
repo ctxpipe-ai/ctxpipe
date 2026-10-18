@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query"
+import { linearScopeSchema } from "backend/domain/workspace-sources/providers/linear"
 import { useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { Checkbox } from "@/components/ui/Checkbox"
@@ -17,8 +18,10 @@ import {
   linearChecklistItems,
   linearScopeFromSelection,
   linearSelection,
+  linearSelectionScope,
   matchLinearSelection,
 } from "./linear-scope"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** Pick the Linear teams and projects that one Workspace syncs. */
 export function LinearScopeEditor(props: SourceScopeEditorProps) {
@@ -89,6 +92,14 @@ export function LinearScopeEditor(props: SourceScopeEditorProps) {
           Select at least one team or project.
         </p>
       ) : null}
+      <ScopeLimitAlert
+        schema={linearScopeSchema}
+        scope={linearSelectionScope({
+          base: initialScope,
+          selection,
+          includeCustomerRequests,
+        })}
+      />
       <Checkbox
         isSelected={includeCustomerRequests}
         onChange={(customers) => update({ customers })}
