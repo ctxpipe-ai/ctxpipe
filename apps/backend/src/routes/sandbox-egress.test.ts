@@ -35,6 +35,7 @@ import {
 const dnsAnswers = new Map<string, string[]>([
   ["git.example.org", ["93.184.215.14"]],
   ["private.example.org", ["93.184.215.14", "169.254.169.254"]],
+  ["lan.example.org", ["10.20.0.15"]],
 ])
 const lookup = async (host: string) =>
   (dnsAnswers.get(host) ?? []).map((address) => ({ address }))
@@ -98,6 +99,7 @@ const server = setupServer(
   http.all("https://github.com/*", record),
   http.all("https://git.example.org/*", record),
   http.all("https://private.example.org/*", record),
+  http.all("https://lan.example.org/*", record),
   http.all(`https://${backendHost}/*`, record),
 )
 
@@ -662,6 +664,7 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
     plainGit: [
       { host: "git.example.org", path: "/team/app.git" },
       { host: "private.example.org", path: "/team/app.git" },
+      { host: "lan.example.org", path: "/team/app.git" },
     ],
   }
   const sealed = () => sealIngestEgressScope(plainScope, secret)
@@ -830,7 +833,21 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
     expect(seen).toEqual([])
   })
 
-  it("does not follow a redirect of the plain git host", async () => {
+  it("refuses a plain git host with a private address also when the process is self-host", async () => {
+    // The proxy is hosted only: the Docker provider of the process must not
+    // loosen it (it passes the hosted policy, not the process policy).
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    const response = await forwarded(
+      "https://lan.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed() },
+    )
+    expect(response.status).toBe(403)
+    expect(outbound.filter((url) => url.includes("lan.example.org"))).toEqual(
+      [],
+    )
+  })
+
+  it("does not follow a redirect of the plain git host, and answers 502", async () => {
     server.use(
       http.get("https://git.example.org/team/app.git/info/refs", () =>
         HttpResponse.text("", {
@@ -846,10 +863,35 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
       "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
       { sealed: sealed() },
     )
-    expect(response.status).toBe(301)
+    expect(response.status).toBe(502)
     expect(
       outbound.filter((url) => url.includes("private.example.org")),
     ).toEqual([])
+  })
+
+  it("answers 502 when the plain git host does not start its answer in 60 seconds", async () => {
+    let reached = () => {}
+    const asked = new Promise<void>((resolve) => {
+      reached = resolve
+    })
+    server.use(
+      http.get("https://git.example.org/team/app.git/info/refs", () => {
+        reached()
+        return new Promise<never>(() => {})
+      }),
+    )
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const response = forwarded(
+        "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        { sealed: sealed() },
+      )
+      await asked
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect((await response).status).toBe(502)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 

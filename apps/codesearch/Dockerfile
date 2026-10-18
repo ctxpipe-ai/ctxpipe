@@ -8,10 +8,17 @@
 
 # ── Stage 1: Go toolchain and Zoekt binaries ─────────────────────────────────
 FROM golang:1.24-bookworm AS go-tools
-RUN GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1 && \
-    GOTOOLCHAIN=auto GOBIN=/zoekt-bin \
-    go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1
+# proxy.golang.org sometimes resets a connection in the middle of a module
+# download. The "|" in GOPROXY falls back to the origin on any error, and the
+# retry keeps the modules that the module cache already holds.
+RUN export GOTOOLCHAIN=auto GOBIN=/zoekt-bin GOPROXY='https://proxy.golang.org|direct' && \
+    for attempt in 1 2 3 4 5; do \
+      go install github.com/sourcegraph/zoekt/cmd/zoekt-index@596c362fcf1388fe0082acfcfc80c4d172efb7c1 && \
+      go install github.com/sourcegraph/zoekt/cmd/zoekt-webserver@596c362fcf1388fe0082acfcfc80c4d172efb7c1 && exit 0; \
+      echo "go install failed (attempt $attempt of 5)" >&2; \
+      sleep $((attempt * 5)); \
+    done; \
+    exit 1
 
 # ── Stage 2: Node toolchain and npm-distributed SCIP tools ───────────────────
 FROM node:22-bookworm-slim AS node-tools

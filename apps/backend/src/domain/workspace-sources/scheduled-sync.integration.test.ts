@@ -62,6 +62,7 @@ let enqueue: typeof import("./enqueue.js")
 let backend: BackendPostgres
 
 type QueuedSync = {
+  id: string
   connectionId: string
   idempotencyKey: string | null
   availableAt: Date | null
@@ -74,6 +75,7 @@ async function queuedSyncs(connectionIds: string[]): Promise<QueuedSync[]> {
   return runs.data
     .filter((run) => run.workflowName === "workspace-sources-sync")
     .map((run) => ({
+      id: run.id,
       connectionId: String(
         (run.input as { connectionId?: string })?.connectionId,
       ),
@@ -301,6 +303,49 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
     expect(await schedulerRuns()).toHaveLength(1)
   })
 
+  it("starts one Sync now for a double click that crosses a minute boundary", async () => {
+    const connection = await seed.addConnection("pagerduty", pagerdutyConfig())
+    await addSource({
+      connectionId: connection,
+      slug: "sync-now-boundary",
+      provider: "pagerduty",
+      scope: { services: [CHECKOUT] },
+    })
+    // The next full minute: the first click is 1 ms before it, the second
+    // click is on it.
+    const boundary = (Math.floor(Date.now() / 60_000) + 1) * 60_000
+
+    for (const at of [boundary - 1, boundary])
+      expect(
+        await enqueue.requestConnectionSourcesSync({
+          orgId: seed.orgId,
+          connectionId: connection,
+          now: new Date(at),
+        }),
+      ).toBe(true)
+
+    expect(await queuedSyncs([connection])).toHaveLength(1)
+  })
+
+  it("starts one Sync now for two clicks at the same time", async () => {
+    const connection = await seed.addConnection("pagerduty", pagerdutyConfig())
+    await addSource({
+      connectionId: connection,
+      slug: "sync-now-together",
+      provider: "pagerduty",
+      scope: { services: [CHECKOUT] },
+    })
+    const click = () =>
+      enqueue.requestConnectionSourcesSync({
+        orgId: seed.orgId,
+        connectionId: connection,
+        now: new Date(),
+      })
+
+    expect(await Promise.all([click(), click()])).toEqual([true, true])
+    expect(await queuedSyncs([connection])).toHaveLength(1)
+  })
+
   it("does not count a Sync now toward the bounded failure tries", async () => {
     const connection = await seed.addConnection("pagerduty", pagerdutyConfig())
     const workspaceId = await addSource({
@@ -315,6 +360,7 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
     // More clicks than the try limit, each more than one hour apart.
     for (let click = 0; click <= PAGERDUTY_SYNC_MAX_TRIES; click += 1) {
       const now = new Date(start + click * 2 * 60 * 60 * 1000)
+      const before = await queuedSyncs([connection])
       expect(
         await enqueue.requestConnectionSourcesSync({
           orgId: seed.orgId,
@@ -323,9 +369,7 @@ describe("Scheduled full sync of Workspace sources (Postgres)", () => {
         }),
       ).toBe(true)
       const queued = (await queuedSyncs([connection])).find(
-        (run) =>
-          run.idempotencyKey ===
-          `workspace-sources:${connection}:sync-now:${Math.floor(now.getTime() / 60_000)}`,
+        (run) => !before.some((old) => old.id === run.id),
       )
       const input = queued?.input as {
         orgId: string

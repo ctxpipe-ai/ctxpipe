@@ -465,7 +465,9 @@ jobs:
     # NEON_API_KEY comes from this protected environment.
     environment: Preview
     outputs:
-      handoff_key: ${{ steps.owner.outputs.handoff_key }}
+      # Hex of the cache key. A masked value is dropped from a job output, and
+      # the consumers must mask the key before any step shows it.
+      handoff_key_hex: ${{ steps.owner.outputs.handoff_key_hex }}
     steps:
       - name: Refuse a closed PR
         # A deploy must not create or roll a preview after the PR-close
@@ -529,14 +531,16 @@ jobs:
           umask 077
           mkdir -p "$HANDOFF"
           printf '%s' "$OWNER_DB_URL" >"$HANDOFF/owner-db-url"
-          echo "handoff_key=$HANDOFF_KEY" >>"$GITHUB_OUTPUT"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+          echo "handoff_key_hex=$(printf '%s' "$HANDOFF_KEY" | od -An -tx1 | tr -d ' \n')" >>"$GITHUB_OUTPUT"
           echo "Neon branch preview/pr-$PR_NUMBER: $BRANCH_ID, owner password reset"
 
       - name: Hand the branch owner URL to the migrate job
         uses: actions/cache/save@v4
         with:
           path: ${{ runner.temp }}/preview-db-handoff
-          key: ${{ steps.owner.outputs.handoff_key }}
+          key: ${{ env.HANDOFF_KEY }}
 
   # Runs branch code: pnpm install and migrate. It gets no account token, only
   # the owner URL of the preview branch, which does not work on production.
@@ -548,7 +552,18 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+    env:
+      HANDOFF_KEY_HEX: ${{ needs.prepare_pr_database.outputs.handoff_key_hex }}
     steps:
+      - name: Mask the handoff key
+        # The hex comes from the job env, which the log does not show. A step
+        # `env:` or `with:` shows its values before any mask exists.
+        run: |
+          set -euo pipefail
+          HANDOFF_KEY="$(python3 -c 'import sys; print(bytes.fromhex(sys.argv[1]).decode())' "$HANDOFF_KEY_HEX")"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
@@ -559,7 +574,7 @@ jobs:
         uses: actions/cache/restore@v4
         with:
           path: ${{ runner.temp }}/preview-db-handoff
-          key: ${{ needs.prepare_pr_database.outputs.handoff_key }}
+          key: ${{ env.HANDOFF_KEY }}
           fail-on-cache-miss: true
 
       - name: Mask the branch owner URL for later steps
@@ -607,16 +622,26 @@ jobs:
   delete_db_handoff:
     name: Delete the owner URL handoff
     needs: [prepare_pr_database, migrate_pr_database]
-    if: always() && needs.prepare_pr_database.outputs.handoff_key != ''
+    if: always() && needs.prepare_pr_database.outputs.handoff_key_hex != ''
     runs-on: blacksmith-2vcpu-ubuntu-2404
     timeout-minutes: 5
     permissions:
       actions: write
+    env:
+      HANDOFF_KEY_HEX: ${{ needs.prepare_pr_database.outputs.handoff_key_hex }}
     steps:
+      - name: Mask the handoff key
+        # The hex comes from the job env, which the log does not show. A step
+        # `env:` or `with:` shows its values before any mask exists.
+        run: |
+          set -euo pipefail
+          HANDOFF_KEY="$(python3 -c 'import sys; print(bytes.fromhex(sys.argv[1]).decode())' "$HANDOFF_KEY_HEX")"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+
       - name: Delete the owner URL handoff
         env:
           GH_TOKEN: ${{ github.token }}
-          HANDOFF_KEY: ${{ needs.prepare_pr_database.outputs.handoff_key }}
         # The entry is absent when the save step of prepare_pr_database
         # failed: then there is nothing to delete.
         run: |

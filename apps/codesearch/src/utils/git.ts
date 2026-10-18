@@ -1,6 +1,6 @@
 import {
-  type PinnedPlainGitRemote,
-  pinnedPlainGitRemoteFault,
+  type CheckedPlainGitRemote,
+  plainGitRemoteFault,
   plainGitRemoteEnvironment,
 } from "../../../../shared/plain-git.js"
 
@@ -109,25 +109,25 @@ export class GitRemoteRefusedError extends Error {
  *   a credential helper ({@link gitCommandEnv}).
  * - With a plain git remote that the backend checked: its checked URL, never
  *   the stored URL, with the shared plain git environment (no redirect, only
- *   HTTPS or self-host `http`, no system or global config, the checked
- *   addresses only, a low-speed limit) and a time and size limit. Codesearch
- *   checks the remote again before it uses it.
+ *   HTTPS or self-host `http`, no system or global config, a low-speed
+ *   limit) and a time and size limit. Codesearch checks the URL again
+ *   before it uses it.
  * - Each other case is refused: codesearch never reads a stored URL with
- *   the git defaults (a redirect, `file://`, ssh, a proxy, global config).
+ *   the git defaults (a redirect, `file://`, ssh, global config).
  */
 export function repositoryGitRemote(input: {
   gitUrl: string
   githubToken?: string
-  plainGit?: PinnedPlainGitRemote
+  plainGit?: CheckedPlainGitRemote
 }): GitRemote {
   if (input.plainGit) {
-    const fault = pinnedPlainGitRemoteFault(input.plainGit)
+    const fault = plainGitRemoteFault(input.plainGit)
     if (fault) throw new GitRemoteRefusedError(fault)
-    const { url, policy } = input.plainGit
+    const { url, http } = input.plainGit
     return {
       url,
-      env: plainGitRemoteEnvironment(input.plainGit, {
-        allowHttp: policy.http && url.startsWith("http://"),
+      env: plainGitRemoteEnvironment({
+        allowHttp: http && url.startsWith("http://"),
         extra: plainGitLimits.config,
       }),
       limits: plainGitLimits,

@@ -207,7 +207,7 @@ export async function withNativeChatFixture<T>(
       MODEL_PROVIDER: "openai-like",
       MODEL_PROVIDER_URL: `http://127.0.0.1:${address.port}/model/v1`,
       MODEL_PROVIDER_API_KEY: "native-fixture-model-key",
-      MODEL_FAST_NAME: "openai/gpt-5.6-terra",
+      MODEL_FAST_NAME: "test/model-fast",
     })
     const git = (...args: string[]) =>
       execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()

@@ -20,8 +20,10 @@ import {
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
+import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 import { turnAgentPassword } from "./vercel-sandbox-provider.js"
+import { workspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
 
 function deferred<T>(): {
   promise: Promise<T>
@@ -36,6 +38,45 @@ function deferred<T>(): {
   })
   return { promise, resolve, reject }
 }
+
+it(
+  "starts the real OpenCode again on a fresh port when its port is taken",
+  { timeout: 30_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-port-"))
+    // The chat picks a port with bind(0) and closes it. Another socket can
+    // take that port before serve binds it.
+    const holder = createServer()
+    await new Promise<void>((resolve, reject) => {
+      holder.once("error", reject)
+      holder.listen(0, "127.0.0.1", () => resolve())
+    })
+    const address = holder.address()
+    if (!address || typeof address === "string")
+      throw new Error("Could not hold a local port")
+    const sandbox = await withOpencodeServeRetry(
+      localProcessSandbox({ dir: directory, removeOnDestroy: true }),
+    ).create({ id: directory, workspace: { source: { type: "none" } } })
+    let server: SandboxOpencodeServer | undefined
+    try {
+      await sandbox.env.set(
+        syntheticOpencodeEnv(directory, "http://127.0.0.1:9"),
+      )
+      server = await startOpencodeServerInSandbox(sandbox, {
+        port: address.port,
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      expect(server.baseUrl).not.toBe(`http://127.0.0.1:${address.port}`)
+      expect((await fetch(`${server.baseUrl}/global/health`)).status).toBe(200)
+    } finally {
+      await server?.dispose()
+      await sandbox.destroy()
+      await new Promise<void>((resolve) => holder.close(() => resolve()))
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 it(
   "escalates a TERM-resistant OpenCode wrapper during server disposal",
@@ -464,6 +505,131 @@ it(
   },
 )
 
+it(
+  "refuses a chat write outside the repository at once, with a tool error the agent sees (CTX-846)",
+  { timeout: 60_000 },
+  async () => {
+    // OpenCode asks before it touches a path outside its directory. The
+    // adapter answers only the older permission event, so an ask that the
+    // chat config does not answer holds the turn until it is cancelled.
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-"))
+    const outside = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-"))
+    const target = join(outside, "idle-probe.txt")
+    const bodies: string[] = []
+    const model = createServer((request, response) => {
+      if (request.url !== "/model/v1/chat/completions") {
+        response.writeHead(404)
+        response.end()
+        return
+      }
+      let body = ""
+      request.on("data", (chunk) => {
+        body += chunk
+      })
+      request.on("end", () => {
+        bodies.push(body)
+        const chunks = body.includes("call_outside")
+          ? [
+              completionChunk({ role: "assistant", content: "done" }),
+              completionChunk({}, "stop"),
+            ]
+          : [
+              completionChunk({
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_outside",
+                    type: "function",
+                    function: {
+                      name: "write",
+                      arguments: JSON.stringify({
+                        filePath: target,
+                        content: "idle-probe\n",
+                      }),
+                    },
+                  },
+                ],
+              }),
+              completionChunk({}, "tool_calls"),
+            ]
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        for (const chunk of chunks)
+          response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+        response.end("data: [DONE]\n\n")
+      })
+    })
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({ id: directory, workspace: { source: { type: "none" } } })
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve) =>
+        model.listen(0, "127.0.0.1", () => resolve()),
+      )
+      const address = model.address()
+      if (!address || typeof address === "string")
+        throw new Error("model fixture did not bind")
+      await sandbox.env.set(
+        syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${address.port}/model/v1`,
+          workspaceChatOpenCodeConfig({
+            modelBase: "probe",
+            proxyAddsCredentials: true,
+          }).permission,
+        ),
+      )
+      const server = await startOpencodeServerInSandbox(sandbox, {
+        port: await freeLoopbackPort(),
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      try {
+        session = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: () => undefined,
+          onPermissionRequest: () => "reject",
+        })
+        const reply = await Promise.race([
+          session.prompt(`Create ${target}.`),
+          new Promise<"hung">((resolve) => {
+            timer = setTimeout(() => resolve("hung"), 20_000)
+          }),
+        ])
+        expect(reply).not.toBe("hung")
+      } finally {
+        await session?.abort()
+        await session?.dispose()
+        await server.dispose()
+      }
+      // The model got the refusal as the result of its tool call.
+      const toolResults = bodies.flatMap((body) =>
+        (
+          JSON.parse(body) as {
+            messages: Array<{ role: string; content: unknown }>
+          }
+        ).messages.filter((message) => message.role === "tool"),
+      )
+      expect(JSON.stringify(toolResults)).toMatch(
+        /prevents you from using this specific tool call/,
+      )
+      await expect(readFile(target, "utf8")).rejects.toThrow()
+    } finally {
+      clearTimeout(timer)
+      model.closeAllConnections()
+      model.close()
+      await sandbox.destroy()
+      await rm(directory, { recursive: true, force: true })
+      await rm(outside, { recursive: true, force: true })
+    }
+  },
+)
+
 function freeLoopbackPort(): Promise<number> {
   return new Promise((resolve, reject) => {
     const probe = createServer()
@@ -484,6 +650,7 @@ function freeLoopbackPort(): Promise<number> {
 function syntheticOpencodeEnv(
   directory: string,
   baseURL: string,
+  permission?: Record<string, unknown>,
 ): Record<string, string> {
   return {
     XDG_CONFIG_HOME: join(directory, "config"),
@@ -500,6 +667,7 @@ function syntheticOpencodeEnv(
           models: { probe: { name: "probe", reasoning: true } },
         },
       },
+      ...(permission ? { permission } : {}),
     }),
   }
 }
