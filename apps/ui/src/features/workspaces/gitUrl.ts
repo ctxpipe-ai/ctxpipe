@@ -1,9 +1,19 @@
-/** Compare installation clone URLs to stored workspace repository URLs. */
+/**
+ * Compare installation clone URLs to stored workspace repository URLs.
+ * GitHub names are not case-sensitive, and the stored URL can be in lowercase,
+ * so the key is in lowercase.
+ */
 export function canonicalWorkspaceGitUrl(raw: string): string {
   return raw
     .trim()
     .replace(/\/+$/, "")
     .replace(/\.git$/i, "")
+    .toLowerCase()
+}
+
+/** True when the two git URLs name the same repository. */
+export function sameGitUrl(a: string, b: string): boolean {
+  return canonicalWorkspaceGitUrl(a) === canonicalWorkspaceGitUrl(b)
 }
 
 export function eligibleInstallationRepos<

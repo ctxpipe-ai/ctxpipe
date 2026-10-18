@@ -423,6 +423,108 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
   },
 }
 
+const linkState = { opened: false }
+const sourcesPath = ({ request }: { request: Request }) =>
+  /\/api\/v1\/workspaces\/[^/]+\/sources$/.test(new URL(request.url).pathname)
+/**
+ * "Link repositories" opens Add repositories on Home, with focus in the
+ * dialog. After the pull request, the row shows "Awaiting merge" (CTX-864).
+ */
+export const GuideAdminLinksRepositoriesOnHome: Story = {
+  beforeEach: () => {
+    linkState.opened = false
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          ...adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github", displayName: "acme" },
+            ]),
+            detail: emptyLinkedWorkspaceDetail,
+          }),
+          http.get(sourcesPath, () =>
+            HttpResponse.json(
+              workspaceSourceList(
+                linkState.opened
+                  ? {
+                      pendingChanges: [
+                        {
+                          path: "sources/github/acme/api.md",
+                          provider: "github",
+                          action: "add",
+                          pullRequestUrl: "https://github.com/acme/docs/pull/9",
+                          createdAt: "2026-10-18T00:00:00.000Z",
+                        },
+                      ],
+                    }
+                  : {},
+              ),
+            ),
+          ),
+          http.post(sourcesPath, () => {
+            linkState.opened = true
+            return HttpResponse.json({
+              outcome: "pull_request",
+              path: "sources/github/acme/api.md",
+              pullRequestUrl: "https://github.com/acme/docs/pull/9",
+            })
+          }),
+          githubInstallationReposHandler([
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+            },
+          ]),
+          orgActivityHandler(),
+          ...workspaceShellHandlers({
+            workspaces: [quietWorkspace],
+            detail: emptyLinkedWorkspaceDetail,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+    await userEvent.click(
+      guide.getByRole("button", { name: "Link repositories" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog", { name: "Add repositories" })
+    // Focus goes into the dialog, not to the composer.
+    await waitFor(() =>
+      expect(dialog.contains(canvasElement.ownerDocument.activeElement)).toBe(
+        true,
+      ),
+    )
+    await userEvent.click(
+      await within(dialog).findByRole("checkbox", { name: "acme/api" }),
+    )
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() =>
+      expect(
+        body.queryByRole("dialog", { name: "Add repositories" }),
+      ).not.toBeInTheDocument(),
+    )
+    // Home stays, and the row shows the pull request that waits.
+    const after = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(
+        after.getByRole("link", { name: /^Awaiting merge/ }),
+      ).toHaveAttribute("href", "https://github.com/acme/docs/pull/9"),
+    )
+    await expect(after.getByText("2 of 6 done")).toBeVisible()
+  },
+}
+
 /** After the first question the guide is one line. Expand still works. */
 export const GuideAdminAfterFirstQuestion: Story = {
   tags: ["workspace-golden"],

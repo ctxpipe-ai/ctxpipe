@@ -1,5 +1,5 @@
 import HyperDX from "@hyperdx/browser"
-import { IconUnlink } from "@tabler/icons-react"
+import { IconExternalLink, IconPlus, IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useMemo, useState } from "react"
 import { Heading } from "react-aria-components"
@@ -16,6 +16,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/Tooltip"
+import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
 import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
@@ -29,9 +30,13 @@ import {
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
-import { eligibleInstallationRepos } from "@/features/workspaces/gitUrl"
+import {
+  eligibleInstallationRepos,
+  sameGitUrl,
+} from "@/features/workspaces/gitUrl"
 import {
   unlinkWorkspaceRepository,
+  workspaceDetailOptions,
   workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
@@ -45,6 +50,7 @@ import {
   sourceChangeMessage,
   type WorkspaceSource,
   workspaceSourceKeys,
+  workspaceSourcesOptions,
 } from "./queries"
 import type { SourceConnectionOption } from "./SourceEditorDialog"
 import {
@@ -213,6 +219,8 @@ export function GithubSourceRepositories(props: {
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
+  /** No repository and no pending add: the body shows the primary add button. */
+  showEmptyAction: boolean
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
@@ -264,9 +272,25 @@ export function GithubSourceRepositories(props: {
   return (
     <>
       {rows.length === 0 ? (
-        <p className="border-t border-white/[0.06] px-3 py-2 text-sm text-muted-foreground">
-          No GitHub repositories in this Workspace.
-        </p>
+        props.showEmptyAction ? (
+          <div className="flex flex-col items-start gap-3 border-t border-white/[0.06] px-3 py-3">
+            <p className="text-sm text-muted-foreground">
+              Add the code repositories of this Workspace. ctxpipe reads them to
+              answer questions.
+            </p>
+            <Button
+              variant="primary"
+              onPress={() => props.onAddOpenChange(true)}
+            >
+              <IconPlus className="size-4" aria-hidden />
+              Add repositories
+            </Button>
+          </div>
+        ) : (
+          <p className="border-t border-white/[0.06] px-3 py-2 text-sm text-muted-foreground">
+            No GitHub repositories in this Workspace.
+          </p>
+        )
       ) : (
         <>
           {rows.length > 8 || query !== "" ? (
@@ -429,13 +453,11 @@ export function GithubSourceRepositories(props: {
         </>
       )}
       <AddGithubRepositoriesModal
-        {...props}
-        takenUrls={[
-          ...(props.workspaceRepositoryUrl
-            ? [props.workspaceRepositoryUrl]
-            : []),
-          ...rows.map((row) => row.gitUrl),
-        ]}
+        orgSlug={orgSlug}
+        workspaceSlug={workspaceSlug}
+        connections={props.connections}
+        workspaceRepositoryUrl={props.workspaceRepositoryUrl}
+        takenUrls={rows.map((row) => row.gitUrl)}
         isOpen={props.addOpen}
         onOpenChange={props.onAddOpenChange}
       />
@@ -444,13 +466,65 @@ export function GithubSourceRepositories(props: {
 }
 
 /**
- * "Add repositories": pick repositories of the GitHub connections. The pick
- * adds to the GitHub source of each connection, or adds a new source.
+ * "Add repositories" for a page that does not show the sources, for example
+ * the Get started guide on Home. It reads the same queries as the Sources
+ * section, so both show the same list.
+ */
+export function WorkspaceAddRepositoriesDialog(props: {
+  orgSlug: string
+  workspaceSlug: string
+  isOpen: boolean
+  onOpenChange: (open: boolean) => void
+}) {
+  const { orgSlug, workspaceSlug, isOpen } = props
+  const detailQuery = useQuery({
+    ...workspaceDetailOptions(orgSlug, workspaceSlug),
+    enabled: isOpen,
+  })
+  const sourcesQuery = useQuery({
+    ...workspaceSourcesOptions(orgSlug, workspaceSlug),
+    enabled: isOpen,
+  })
+  const connectionsQuery = useQuery({
+    ...orgConnectionsOptions(orgSlug),
+    enabled: isOpen,
+  })
+  const rows = repositoryRows(
+    detailQuery.data?.linkedRepositories ?? [],
+    (sourcesQuery.data?.items ?? []).filter(
+      (item) => item.provider === "github",
+    ),
+  )
+  return (
+    <AddGithubRepositoriesModal
+      {...props}
+      connections={(connectionsQuery.data ?? [])
+        .filter((connection) => connection.type === "github")
+        .map(({ id, displayName }) => ({ id, displayName }))}
+      connectionsPending={
+        detailQuery.isPending ||
+        sourcesQuery.isPending ||
+        connectionsQuery.isPending
+      }
+      workspaceRepositoryUrl={detailQuery.data?.workspaceRepositoryUrl ?? null}
+      takenUrls={rows.map((row) => row.gitUrl)}
+    />
+  )
+}
+
+/**
+ * "Add repositories": pick repositories of the GitHub connections. Each pick
+ * adds one GitHub source file. The Workspace repository shows, but the user
+ * cannot pick it: a Workspace cannot link its own repository.
  */
 function AddGithubRepositoriesModal(props: {
   orgSlug: string
   workspaceSlug: string
   connections: SourceConnectionOption[]
+  /** True while the caller still loads the connections or the taken URLs. */
+  connectionsPending?: boolean
+  workspaceRepositoryUrl: string | null
+  /** The repositories that the Workspace already links. */
   takenUrls: string[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -459,6 +533,8 @@ function AddGithubRepositoriesModal(props: {
     orgSlug,
     workspaceSlug,
     connections,
+    connectionsPending = false,
+    workspaceRepositoryUrl,
     takenUrls,
     isOpen,
     onOpenChange,
@@ -474,6 +550,9 @@ function AddGithubRepositoriesModal(props: {
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, connectionIds),
     enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
+    // The user can give access on GitHub in another tab. The list then
+    // loads again when the user comes back to this tab.
+    refetchOnWindowFocus: "always",
   })
 
   const eligibleRepos = useMemo(
@@ -488,6 +567,22 @@ function AddGithubRepositoriesModal(props: {
       }),
     [reposQuery.data?.repositories, takenUrls],
   )
+  const disabledLabels = useMemo(
+    () =>
+      new Map<number, string>(
+        workspaceRepositoryUrl
+          ? eligibleRepos
+              .filter((repo) =>
+                sameGitUrl(repo.clone_url, workspaceRepositoryUrl),
+              )
+              .map((repo): [number, string] => [
+                repo.id,
+                "This Workspace's repository",
+              ])
+          : [],
+      ),
+    [eligibleRepos, workspaceRepositoryUrl],
+  )
   const filteredRepos = useMemo(() => {
     const q = searchQuery.trim().toLowerCase()
     const matching = q
@@ -495,7 +590,10 @@ function AddGithubRepositoriesModal(props: {
       : eligibleRepos
     return sortGithubRepos(matching, sort)
   }, [eligibleRepos, searchQuery, sort])
-  const selected = eligibleRepos.filter((repo) => selectedIds.has(repo.id))
+  const selected = eligibleRepos.filter(
+    (repo) => selectedIds.has(repo.id) && !disabledLabels.has(repo.id),
+  )
+  const manageUrl = reposQuery.data?.manageUrl ?? null
 
   const close = () => {
     setSearchQuery("")
@@ -578,10 +676,20 @@ function AddGithubRepositoriesModal(props: {
         >
           Add repositories
         </Heading>
-        <p className="mt-1 text-sm text-muted-foreground">
-          Select repositories from GitHub. Each repository gets a source file
-          under sources/github/ in this Workspace.
-        </p>
+        <div className="mt-1 max-w-prose space-y-1 text-sm text-muted-foreground">
+          <p>
+            ctxpipe reads the default branch of each repository. It uses the
+            code to answer questions and to keep this Workspace current.
+          </p>
+          <p>
+            <strong className="font-medium text-foreground">
+              Open a pull request
+            </strong>{" "}
+            adds one file for each repository under{" "}
+            <code className="font-mono text-xs">sources/github/</code> in this
+            Workspace. The repositories become active when you merge it.
+          </p>
+        </div>
 
         <div className="mt-5 space-y-3">
           {isAdmin === false ? (
@@ -601,7 +709,9 @@ function AddGithubRepositoriesModal(props: {
               <GithubRepoSortSelect value={sort} onChange={setSort} />
             </div>
           )}
-          {isAdmin === false ? null : connectionIds.length === 0 ? (
+          {isAdmin === false ? null : connectionsPending ? (
+            <InlineLoader label="Loading repositories" />
+          ) : connectionIds.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Connect GitHub on the Connectors page first.
             </p>
@@ -615,9 +725,14 @@ function AddGithubRepositoriesModal(props: {
             <p className="text-sm text-muted-foreground">
               No installation repositories left to link.
             </p>
+          ) : filteredRepos.length === 0 ? (
+            <p className="text-sm text-muted-foreground">
+              No repositories match that search.
+            </p>
           ) : (
             <GithubRepoPickerList
               repos={filteredRepos}
+              disabledLabels={disabledLabels}
               selectedIds={selectedIds}
               onToggle={(id, isSelected) => {
                 setSelectedIds((previous) => {
@@ -630,6 +745,24 @@ function AddGithubRepositoriesModal(props: {
               className="rounded-md border-border bg-zinc-900/40"
             />
           )}
+          {isAdmin !== false &&
+          !connectionsPending &&
+          reposQuery.isSuccess &&
+          manageUrl ? (
+            <p className="text-sm text-muted-foreground">
+              Don't see a repository?{" "}
+              <Link
+                href={manageUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
+              >
+                Give ctxpipe access on GitHub
+                <IconExternalLink className="size-3.5" aria-hidden />
+              </Link>
+              .
+            </p>
+          ) : null}
           {selected.length > 0 ? (
             <p className="text-xs tabular-nums text-muted-foreground">
               {selected.length}{" "}

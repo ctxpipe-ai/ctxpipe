@@ -130,7 +130,7 @@ function connectorsSummary(
     .join(" · ")
 }
 
-function AwaitingMergeLink(props: { change: PendingSourceChange }) {
+export function AwaitingMergeLink(props: { change: PendingSourceChange }) {
   const { change } = props
   const label =
     change.action === "remove"
@@ -617,6 +617,14 @@ export function WorkspaceSources(props: {
                   ? repositories.filter(repositoryNeedsAttention).length
                   : sources.filter((item) => item.status !== "ok").length
                 const connected = connectionsOf(provider).length > 0
+                // A GitHub group with nothing in it gets one primary add
+                // button in its body, in place of the quiet one in the header.
+                const githubEmptyAction =
+                  repositories != null &&
+                  repositories.length === 0 &&
+                  pendingAdds.length === 0 &&
+                  connected &&
+                  canEdit
                 const meta =
                   [
                     repositories
@@ -646,7 +654,10 @@ export function WorkspaceSources(props: {
                     meta={meta}
                     note={<SharedStatusDetails details={shared} />}
                     action={
-                      provider === "github" && connected && canEdit ? (
+                      provider === "github" &&
+                      connected &&
+                      canEdit &&
+                      !githubEmptyAction ? (
                         <Button
                           variant="quiet"
                           onPress={() => setGithubAddOpen(true)}
@@ -676,6 +687,7 @@ export function WorkspaceSources(props: {
                           sources={sources}
                           connections={connectionsOf(provider)}
                           canEdit={canEdit}
+                          showEmptyAction={githubEmptyAction}
                           addOpen={githubAddOpen}
                           onAddOpenChange={setGithubAddOpen}
                         />

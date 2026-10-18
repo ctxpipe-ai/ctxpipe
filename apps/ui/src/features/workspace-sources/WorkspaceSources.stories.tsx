@@ -1,5 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import {
+  focusManager,
+  QueryClient,
+  QueryClientProvider,
+} from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
+import { useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
@@ -1206,7 +1212,10 @@ export const PickerShowsConnectionNames: Story = {
   },
 }
 
-/** The GitHub group with no repositories yet. */
+/**
+ * The GitHub group with no repositories yet: one primary "Add repositories"
+ * button and a short line of text in the body (CTX-864).
+ */
 export const GithubNoRepositories: Story = {
   parameters: {
     msw: {
@@ -1217,15 +1226,230 @@ export const GithubNoRepositories: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("No GitHub repositories in this Workspace.")
+    await canvas.findByText(
+      "Add the code repositories of this Workspace. ctxpipe reads them to answer questions.",
+    )
     const section = canvasElement.querySelector<HTMLElement>("#source-github")
     if (!section) throw new Error("Missing GitHub group")
     const group = within(section)
     await expect(group.getByText("No GitHub sources yet")).toBeVisible()
     await expect(group.queryByRole("searchbox")).toBeNull()
+    // One add button, and it is the primary one.
+    const [add, ...others] = group.getAllByRole("button", {
+      name: "Add repositories",
+    })
+    await expect(others).toHaveLength(0)
+    await expect(add).toHaveClass("bg-primary")
+    await userEvent.click(add as HTMLElement)
+    await within(document.body).findByRole("dialog", {
+      name: "Add repositories",
+    })
+  },
+}
+
+/** The repositories of the GitHub App. The Workspace repository is acme/docs. */
+const reposWithWorkspaceRepository = githubInstallationReposHandler([
+  {
+    id: 1,
+    name: "Docs",
+    // GitHub keeps the letter case; the stored Workspace URL is in lowercase.
+    clone_url: "https://github.com/Acme/Docs.git",
+    full_name: "Acme/Docs",
+  },
+  {
+    id: 2,
+    name: "api",
+    clone_url: "https://github.com/acme/api.git",
+    full_name: "acme/api",
+  },
+])
+
+async function openAddRepositories(canvasElement: HTMLElement) {
+  await userEvent.click(
+    await within(canvasElement).findByRole("button", {
+      name: "Add repositories",
+    }),
+  )
+  return within(
+    await within(document.body).findByRole("dialog", {
+      name: "Add repositories",
+    }),
+  )
+}
+
+/**
+ * The dialog says what ctxpipe does with a repository and what "Open a pull
+ * request" does. Under the list, a hint links to the GitHub App access.
+ */
+export const AddRepositoriesExplains: Story = {
+  args: { workspaceRepositoryUrl: "https://github.com/acme/docs" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByText(
+      "ctxpipe reads the default branch of each repository. It uses the code to answer questions and to keep this Workspace current.",
+    )
     await expect(
-      group.getByRole("button", { name: "Add repositories" }),
+      dialog.getByText(/The repositories become active when you merge it\./),
     ).toBeVisible()
+    await dialog.findByRole("checkbox", { name: "acme/api" })
+    await expect(dialog.getByText(/Don't see a repository\?/)).toBeVisible()
+    await expect(
+      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+    ).toHaveAttribute(
+      "href",
+      "https://github.com/organizations/acme/settings/installations/123",
+    )
+  },
+}
+
+/** A search with no match: the hint shows the next step, not a dead end. */
+export const AddRepositoriesEmptySearchHint: Story = {
+  args: { workspaceRepositoryUrl: "https://github.com/acme/docs" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByRole("checkbox", { name: "acme/api" })
+    await userEvent.type(
+      dialog.getByRole("searchbox", { name: "Search GitHub repositories" }),
+      "billing",
+    )
+    await dialog.findByText("No repositories match that search.")
+    await expect(
+      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+    ).toBeVisible()
+  },
+}
+
+/**
+ * The Workspace repository shows in the list, disabled, with a label. The
+ * match ignores the letter case of the name.
+ */
+export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
+  args: { workspaceRepositoryUrl: "https://github.com/acme/docs" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          reposWithWorkspaceRepository,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    const own = await dialog.findByRole("checkbox", { name: /Acme\/Docs/ })
+    await waitFor(() => expect(own).toBeDisabled())
+    await expect(dialog.getByText("This Workspace's repository")).toBeVisible()
+    await waitFor(() =>
+      expect(dialog.getByRole("checkbox", { name: "acme/api" })).toBeEnabled(),
+    )
+    await expect(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    ).toBeDisabled()
+  },
+}
+
+const accessReads = { count: 0 }
+/**
+ * The user gives access on GitHub in another tab, then comes back: the list
+ * loads again and shows the new repository. The query client here keeps data
+ * fresh for 60 seconds, as the app does, so a plain focus refetch does not run.
+ */
+export const AddRepositoriesRefreshesOnReturn: Story = {
+  decorators: [
+    (Story) => {
+      const [client] = useState(
+        () =>
+          new QueryClient({
+            defaultOptions: { queries: { staleTime: 60_000, retry: false } },
+          }),
+      )
+      return (
+        <QueryClientProvider client={client}>
+          <Story />
+        </QueryClientProvider>
+      )
+    },
+  ],
+  beforeEach: () => {
+    accessReads.count = 0
+    return () => focusManager.setFocused(undefined)
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith(
+                "/api/v1/github/installation/repositories",
+              ),
+            () => {
+              accessReads.count += 1
+              const repositories = [
+                {
+                  name: "api",
+                  clone_url: "https://github.com/acme/api.git",
+                  full_name: "acme/api",
+                },
+                ...(accessReads.count > 1
+                  ? [
+                      {
+                        name: "billing",
+                        clone_url: "https://github.com/acme/billing.git",
+                        full_name: "acme/billing",
+                      },
+                    ]
+                  : []),
+              ]
+              return HttpResponse.json({
+                repositories,
+                repositorySelection: "selected",
+                manageUrl:
+                  "https://github.com/organizations/acme/settings/installations/123",
+                hasMore: false,
+                totalCount: repositories.length,
+              })
+            },
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openAddRepositories(canvasElement)
+    await dialog.findByRole("checkbox", { name: "acme/api" })
+    await expect(accessReads.count).toBe(1)
+    // The tab loses focus while the user is on GitHub, then gets it back.
+    focusManager.setFocused(false)
+    focusManager.setFocused(true)
+    await dialog.findByRole("checkbox", { name: "acme/billing" })
+    await expect(accessReads.count).toBe(2)
   },
 }
 
