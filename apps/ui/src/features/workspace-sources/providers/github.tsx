@@ -17,6 +17,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 function initialRepositories(scope: Record<string, unknown>): string[] {
   const value = scope.repositories
@@ -121,6 +122,10 @@ export function GithubScopeEditor(props: SourceScopeEditorProps) {
           ? "Select at least one repository."
           : `${selected.length} selected`}
       </p>
+      <ScopeLimitAlert
+        schema={SOURCE_SCOPES.github.schema}
+        scope={{ repositories: selected }}
+      />
     </fieldset>
   )
 }

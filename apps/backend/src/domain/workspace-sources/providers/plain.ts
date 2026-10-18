@@ -17,6 +17,13 @@ export const PLAIN_REQUIRED_PERMISSIONS = [
   "webhookTarget:delete",
 ]
 
+/**
+ * The most Help Centers, and the most thread labels, in one Plain source.
+ * Each one adds list requests to each sync, and Plain limits the API
+ * requests of one key. A team selects far fewer.
+ */
+export const PLAIN_SOURCE_MAX_ITEMS = 50
+
 /** A Plain id, for example `lt_01HXYZ`. It is also a path segment. */
 export const plainIdSchema = z
   .string()
@@ -25,6 +32,10 @@ export const plainIdSchema = z
 const uniqueIds = (what: string) =>
   z
     .array(plainIdSchema)
+    .max(
+      PLAIN_SOURCE_MAX_ITEMS,
+      `Select at most ${PLAIN_SOURCE_MAX_ITEMS} ${what}s`,
+    )
     .refine(
       (ids) => new Set(ids).size === ids.length,
       `List each ${what} one time`,

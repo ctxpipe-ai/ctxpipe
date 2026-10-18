@@ -64,9 +64,9 @@ export function startIngestionV2Publish(
 
 /**
  * The ingestion source of an org repository: a GitHub repository with its
- * connection, else a plain git repository that ctx| reads over public HTTPS
- * with no credential, as the old ingestion on main read it (CTX-815). Null
- * when neither applies.
+ * connection, else a plain git repository that ctx| reads with no
+ * credential under the plain git URL policy of the deployment mode, as the
+ * old ingestion on main read it (CTX-815). Null when neither applies.
  */
 export function ingestSourceOf(repository: {
   gitUrl: string

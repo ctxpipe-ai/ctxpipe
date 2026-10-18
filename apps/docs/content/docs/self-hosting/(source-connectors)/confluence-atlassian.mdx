@@ -63,12 +63,15 @@ media redirects and never persists Atlassian download URLs.
 After Atlassian is linked and Forge is installed:
 
 1. Link or confirm the GitHub connector.
-2. Choose the GitHub repository used as the Confluence sync target.
+2. In **Add to Workspaces**, select the Workspaces that receive Confluence
+   content.
 3. Select the Confluence spaces and pages to ingest.
-4. Review and merge the generated `confluence/config.yaml` pull request.
+4. Review and merge the pull request that adds `sources/confluence/<name>.md`
+   in each Workspace repository.
 
-Confluence content is then synced into the selected repository and moves through
-the same indexing and graph ingestion path as other source material.
+Confluence content is then synced into each selected Workspace repository and
+moves through the same indexing and graph ingestion path as other source
+material.
 
 ## Error codes (provision)
 
@@ -92,8 +95,8 @@ the same indexing and graph ingestion path as other source material.
 ## Related pages
 
 <Cards>
-  <Card title="Confluence user guide" href="/docs/connections/source-connectors/confluence" description="Complete the product wizard, approve scope, and merge the configuration pull request." />
-  <Card title="GitHub" href="/docs/self-hosting/github" description="Configure the App that receives Confluence configuration and content." />
+  <Card title="Confluence user guide" href="/docs/connections/source-connectors/confluence" description="Complete the product wizard, choose the scope, and merge the source pull request." />
+  <Card title="GitHub" href="/docs/self-hosting/github" description="Configure the App that opens source pull requests and receives Confluence content." />
   <Card title="Production readiness" href="/docs/self-hosting/production-readiness" description="Verify public callbacks, secrets, persistence, and recovery." />
   <Card title="Operations" href="/docs/self-hosting/operations" description="Monitor connector jobs, logs, and service health." />
 </Cards>

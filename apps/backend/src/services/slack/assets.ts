@@ -6,6 +6,7 @@ import {
   createConnectorAssetBudget,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   type SlackCaptureAssetLink,
@@ -78,7 +79,7 @@ export async function captureSlackThreadAssets(input: {
   const linksBySourceKey = new Map<string, SlackCaptureAssetLink>()
   let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
   const preserveExistingAsset = (sourceKey: string) => {
-    const prefix = `${input.threadDir}/assets/${sourceKey}--`
+    const prefix = `${input.threadDir}/assets/${connectorPathSegment(sourceKey)}--`
     const matching = [...existingByPath.keys()]
       .filter((path) => path.startsWith(prefix))
       .sort()
@@ -139,7 +140,7 @@ export async function captureSlackThreadAssets(input: {
     }
 
     const filename = downloaded.filename
-    const relativePath = `assets/${media.sourceKey}--${filename}`
+    const relativePath = `assets/${connectorPathSegment(media.sourceKey)}--${filename}`
     const gitPath = `${input.threadDir}/${relativePath}`
     const kind = slackAssetKind(
       filename,

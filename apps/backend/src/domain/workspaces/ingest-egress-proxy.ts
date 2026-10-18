@@ -12,6 +12,7 @@ import {
   plainGitPinnedRequest,
   resolvePlainGitRemote,
 } from "../../services/git/plain-git-remote.js"
+import { plainGitUrlPolicy } from "../workspace-sources/providers/git.js"
 import type { IngestGitAccess } from "./ingest-sandbox-egress.js"
 import {
   bearerUrlRule,
@@ -328,12 +329,14 @@ export async function ingestEgressProxy(input: {
       // and the request connects only to the addresses of that check, so a
       // new DNS answer cannot send it to a private address. The proxy
       // follows no redirect, and a redirect to another path or host has no
-      // rule.
+      // rule. This proxy is hosted only, so it always uses the strict
+      // hosted policy, whatever the environment of the process is.
       let plainGitAddresses: string[] | undefined
       if (!rule.authorization) {
         const checked = await resolvePlainGitRemote(
           `https://${url.host}${url.pathname}`,
           input.lookup,
+          plainGitUrlPolicy("hosted"),
         ).then(
           (remote) => remote.addresses,
           (error: unknown) =>

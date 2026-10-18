@@ -1,7 +1,6 @@
 {
   "title": "Source connectors",
   "pages": [
-    "index",
     "github",
     "linear",
     "notion",
