@@ -6,7 +6,7 @@ import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
 import { getRepositoryReadCloneToken } from "../../models/github-installation.js"
 import { getRepositoryReadBinding } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
-import { pinnedPlainGitRemote } from "../../services/git/plain-git-remote.js"
+import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -47,7 +47,7 @@ export async function resolveRepositoryRef(input: {
   // checked plain git remote (CTX-815); a refused URL throws its rule.
   const plainGit = githubToken
     ? undefined
-    : await pinnedPlainGitRemote(repository.gitUrl)
+    : await checkedPlainGitRemote(repository.gitUrl)
   const url = `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`
   let res: Response
   try {

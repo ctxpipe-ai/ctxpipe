@@ -10,6 +10,11 @@ import {
   mergeModelParams,
   restrictModelParamsForProvider,
 } from "./modelParams.js"
+import {
+  dropEmptyEnvValues,
+  modelNameShape,
+  tierModelSpec,
+} from "./modelTierSpecs.js"
 import { modelParamsFromSpec, modelSpecBase } from "./parseModelSpec.js"
 import { azureModelProvider } from "./providers/azureModelProvider.js"
 import { bedrockModelProvider } from "./providers/bedrockModelProvider.js"
@@ -34,28 +39,15 @@ const modelProviderSchema = z.enum([
   "bedrock",
 ])
 
-// An empty value is unset, as in `parseEnv`: Compose passes unset settings as "".
 const modelEnvSchema = z.preprocess(
-  (env) =>
-    Object.fromEntries(
-      Object.entries(env as Record<string, string | undefined>).filter(
-        ([, value]) => value?.trim() !== "",
-      ),
-    ),
+  dropEmptyEnvValues,
   z
     .object({
       MODEL_PROVIDER: modelProviderSchema.default("openai-like"),
       MODEL_PROVIDER_API_KEY: z.string().optional(),
       MODEL_PROVIDER_URL: z.string().url().optional(),
       MODEL_BEDROCK_AWS_REGION: z.string().optional(),
-      MODEL_FAST_NAME: z
-        .string()
-        .default("openai/gpt-6-luna?reasoning.effort=high"),
-      MODEL_MEDIUM_NAME: z
-        .string()
-        .default("openai/gpt-6-luna?reasoning.effort=xhigh"),
-      MODEL_HIGH_NAME: z.string().default("xiaomi/mimo-v2.6-pro"),
-      MODEL_EMBEDDING_NAME: z.string().default("openai/text-embedding-3-large"),
+      ...modelNameShape,
     })
     .superRefine((data, ctx) => {
       if (data.MODEL_PROVIDER === "azure") {
@@ -132,15 +124,6 @@ function buildModelParamsForSpec(
     params = mergeModelParams(params, { reasoning: { effort: "none" } })
   }
   return Object.keys(params).length > 0 ? params : undefined
-}
-
-function tierModelSpec(
-  tier: ModelTier,
-  env: z.infer<typeof modelEnvSchema>,
-): string {
-  if (tier === "fast") return env.MODEL_FAST_NAME
-  if (tier === "medium") return env.MODEL_MEDIUM_NAME
-  return env.MODEL_HIGH_NAME
 }
 
 /** Resolve the shared deployment settings for host and legacy calls. */
