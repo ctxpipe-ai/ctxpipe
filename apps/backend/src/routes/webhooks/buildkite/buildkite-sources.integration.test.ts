@@ -33,12 +33,18 @@ async function post(input: {
   token?: string
   path?: string
   at?: number
+  /** Pad the body to this many bytes. */
+  padTo?: number
 }) {
   // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
   const { registerBuildkiteWebhookRoute } = await import("./buildkite.js")
   const hono = app()
   registerBuildkiteWebhookRoute(hono)
-  const body = JSON.stringify({ event: input.event, build: { number: 1 } })
+  const body = JSON.stringify({
+    event: input.event,
+    build: { number: 1 },
+    pad: "x".repeat(input.padTo ?? 0),
+  })
   const timestamp = String(Math.floor((input.at ?? Date.now()) / 1000))
   const signature = createHmac("sha256", input.token ?? webhookToken)
     .update(`${timestamp}.${body}`)
@@ -150,6 +156,52 @@ describe("Buildkite webhook routes to Workspace sources (Postgres)", () => {
         })
       ).status,
     ).toBe(401)
+    expect(await sourceRuns()).toEqual([])
+  })
+
+  it("refuses a delivery whose secret does not decrypt, as an unknown connection", async () => {
+    const tampered = encryptConnectionSecret(webhookToken, env)
+    const brokenId = await seed.addConnection("buildkite", {
+      organizationSlug: "acme",
+      apiTokenEnc: encryptConnectionSecret("fixture-api-token", env),
+      webhookTokenEnc: `${tampered.slice(0, -8)}AAAAAAAA`,
+      status: "installed",
+    })
+    await getSystemDb().insert(connectionDirectory).values({
+      connectionId: brokenId,
+      orgId: seed.orgId,
+      type: "buildkite",
+    })
+
+    const broken = await post({
+      event: "build.finished",
+      path: `/api/v1/webhook/buildkite/${brokenId}`,
+    })
+    const unknown = await post({
+      event: "build.finished",
+      path: "/api/v1/webhook/buildkite/con_unknown",
+    })
+
+    expect(broken.status).toBe(401)
+    expect(await broken.json()).toEqual(await unknown.json())
+    expect(await sourceRuns()).toEqual([])
+  })
+
+  it("answers 413 for a body over 2 MB before it looks up the connection", async () => {
+    const tooBig = 2 * 1024 * 1024 + 1
+    // The unknown connection would answer 401 if the route read the body.
+    expect(
+      (
+        await post({
+          event: "build.finished",
+          path: "/api/v1/webhook/buildkite/con_unknown",
+          padTo: tooBig,
+        })
+      ).status,
+    ).toBe(413)
+    expect(
+      (await post({ event: "build.finished", padTo: tooBig })).status,
+    ).toBe(413)
     expect(await sourceRuns()).toEqual([])
   })
 

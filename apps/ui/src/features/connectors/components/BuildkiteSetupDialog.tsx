@@ -257,7 +257,8 @@ function ConnectStep(props: {
           </code>{" "}
           and{" "}
           <code className="font-mono text-xs text-foreground">read_builds</code>{" "}
-          scopes. ctx| only reads with it, and keeps it encrypted.
+          scopes. ctx| refuses a token with more scopes. It only reads with the
+          token, and keeps it encrypted.
         </p>
       </div>
       {props.revoked ? (

@@ -135,7 +135,7 @@ describe("verifyBuildkiteAccess", () => {
 
   it("accepts a token with the read scopes that lists the pipelines", async () => {
     server.use(
-      token(["read_pipelines", "read_builds", "read_organizations"]),
+      token(["read_pipelines", "read_builds"]),
       http.get(`${API}/organizations/acme/pipelines`, ({ request }) => {
         requests.push(new URL(request.url).search)
         return HttpResponse.json([{ slug: "web-app", name: "Web App" }])
@@ -160,6 +160,22 @@ describe("verifyBuildkiteAccess", () => {
       ok: false,
       error:
         "Remove the write scopes from the token: write_builds. The connector only reads.",
+    })
+  })
+
+  it.each([
+    "read_user",
+    "read_organizations",
+    "read_artifacts",
+    "read_suites",
+    "read_agents",
+    "read_clusters",
+    "read_teams",
+  ])("refuses a token that also has %s", async (extra) => {
+    server.use(token(["read_pipelines", "read_builds", extra]))
+    expect(await verify()).toEqual({
+      ok: false,
+      error: `Remove these scopes from the token: ${extra}. Use only read_pipelines and read_builds.`,
     })
   })
 
@@ -195,6 +211,51 @@ describe("verifyBuildkiteAccess", () => {
       ok: false,
       error: expect.stringContaining('"acme"'),
     })
+  })
+})
+
+describe("rate limits in a browser request", () => {
+  it("stops the wait of the pipeline picker after 10 seconds", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    server.use(
+      http.get(`${API}/organizations/acme/pipelines`, () => {
+        requests.push("pipelines")
+        return HttpResponse.json(
+          { message: "Too many requests" },
+          { status: 429, headers: { "RateLimit-Reset": "6" } },
+        )
+      }),
+    )
+
+    const listed = listBuildkitePipelines({
+      apiToken: "token",
+      organizationSlug: "acme",
+    })
+    const failed = expect(listed).rejects.toThrow("failed (429)")
+    // One wait of 6 s fits in the limit. A second wait of 6 s does not.
+    await vi.advanceTimersByTimeAsync(6_000)
+
+    await failed
+    expect(requests).toEqual(["pipelines", "pipelines"])
+  })
+
+  it("stops the wait of the connect check after 10 seconds", async () => {
+    vi.useFakeTimers({ toFake: ["setTimeout"] })
+    server.use(
+      http.get(`${API}/access-token`, () => {
+        requests.push("token")
+        return HttpResponse.json(
+          { message: "Too many requests" },
+          { status: 429, headers: { "RateLimit-Reset": "11" } },
+        )
+      }),
+    )
+
+    // The first wait of 11 s is over the limit, so there is no wait at all.
+    await expect(
+      verifyBuildkiteAccess({ apiToken: "token", organizationSlug: "acme" }),
+    ).rejects.toThrow("failed (429)")
+    expect(requests).toEqual(["token"])
   })
 })
 

@@ -15,7 +15,7 @@ import {
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import {
   connectionDirectory,
@@ -53,6 +53,7 @@ const server = setupServer(
 
 describe("Buildkite connector routes (Postgres + msw)", () => {
   let seed: SeededOrg
+  let otherSeed: SeededOrg
   const env = parseEnv(process.env as Record<string, string | undefined>)
 
   function createApp() {
@@ -76,18 +77,20 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     return app
   }
 
-  const request = (path: string, init: RequestInit = {}) =>
+  const requestAs = (who: SeededOrg, path: string, init: RequestInit = {}) =>
     createApp().request(
-      `http://backend.test/${seed.orgSlug}/api/v1/connectors${path}`,
+      `http://backend.test/${who.orgSlug}/api/v1/connectors${path}`,
       {
         ...init,
         headers: {
-          cookie: seed.cookie,
+          cookie: who.cookie,
           "content-type": "application/json",
           ...init.headers,
         },
       },
     )
+  const request = (path: string, init: RequestInit = {}) =>
+    requestAs(seed, path, init)
 
   const connect = (body: Record<string, unknown>) =>
     request("/buildkite", { method: "POST", body: JSON.stringify(body) })
@@ -117,8 +120,9 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL)
       throw new Error("DATABASE_URL is required for this integration test")
-    server.listen({ onUnhandledRequest: "bypass" })
+    server.listen({ onUnhandledRequest: "error" })
     seed = await seedOrg()
+    otherSeed = await seedOrg()
   })
   afterEach(() => server.resetHandlers())
   afterAll(async () => {
@@ -129,7 +133,12 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     await getSystemDb()
       .delete(connectionDirectory)
       .where(eq(connectionDirectory.orgId, seed.orgId))
-    if (seed) await cleanupSeededOrg(seed)
+    for (const cleaned of [otherSeed, seed]) {
+      if (!cleaned) continue
+      // cleanupSeededOrg closes the pool, so open it again for the next seed.
+      initDb(process.env.DATABASE_URL ?? "")
+      await cleanupSeededOrg(cleaned)
+    }
     vi.unstubAllEnvs()
   })
 
@@ -292,6 +301,77 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
         .from(connectionDirectory)
         .where(eq(connectionDirectory.connectionId, connectionId)),
     ).toEqual([])
+  })
+
+  it("answers 404 when an admin of another org names this connection, and changes nothing", async () => {
+    const { connectionId } = (await (
+      await connect({ organizationSlug: "acme", apiToken: GOOD_TOKEN })
+    ).json()) as { connectionId: string }
+    const before = await storedConfig(connectionId)
+    const asOther = (path: string, init?: RequestInit) =>
+      requestAs(otherSeed, path, init)
+
+    const responses = [
+      await asOther(`/buildkite/status?connectionId=${connectionId}`),
+      await asOther(`/buildkite/pipelines?connectionId=${connectionId}`),
+      await asOther("/buildkite/webhook-token", {
+        method: "PUT",
+        body: JSON.stringify({ connectionId, webhookToken: "stolen-hook" }),
+      }),
+      await asOther("/buildkite", {
+        method: "POST",
+        body: JSON.stringify({
+          connectionId,
+          organizationSlug: "acme",
+          apiToken: GOOD_TOKEN,
+        }),
+      }),
+      await asOther(`/buildkite?connectionId=${connectionId}`, {
+        method: "DELETE",
+      }),
+    ]
+
+    expect(responses.map((res) => res.status)).toEqual([
+      404, 404, 404, 404, 404,
+    ])
+    expect(await storedConfig(connectionId)).toEqual(before)
+    expect(
+      await getSystemDb()
+        .select()
+        .from(connectionDirectory)
+        .where(eq(connectionDirectory.connectionId, connectionId)),
+    ).toHaveLength(1)
+  })
+
+  // A personal key gets a session with the role of its user, so only the
+  // admin gate stops it (403). REST routes do not accept an org key at all
+  // (401). Neither key may save a connection.
+  it.each([
+    ["an org API key", () => seed.orgApiKey, 401],
+    ["a personal API key", () => seed.personalApiKey, 403],
+  ])("refuses %s on the connect route", async (_name, key, status) => {
+    const before = await withOrgDbContext(seed.orgId, (db) =>
+      db.select().from(connections).where(eq(connections.orgId, seed.orgId)),
+    )
+    const res = await createApp().request(
+      `http://backend.test/${seed.orgSlug}/api/v1/connectors/buildkite`,
+      {
+        method: "POST",
+        headers: {
+          "x-api-key": key(),
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          organizationSlug: "acme",
+          apiToken: GOOD_TOKEN,
+        }),
+      },
+    )
+    expect(res.status).toBe(status)
+    const after = await withOrgDbContext(seed.orgId, (db) =>
+      db.select().from(connections).where(eq(connections.orgId, seed.orgId)),
+    )
+    expect(after).toHaveLength(before.length)
   })
 
   it("refuses an org member who is not an admin", async () => {

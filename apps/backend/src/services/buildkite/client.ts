@@ -12,22 +12,6 @@ export const BUILDKITE_REQUIRED_SCOPES = [
   "read_builds",
 ] as const
 
-/**
- * The read scopes that a token may have. The token gets no other scope, so a
- * leaked token cannot change Buildkite, and cannot read build logs or job
- * environments.
- */
-const BUILDKITE_ALLOWED_SCOPES: ReadonlySet<string> = new Set([
-  ...BUILDKITE_REQUIRED_SCOPES,
-  "read_organizations",
-  "read_user",
-  "read_teams",
-  "read_agents",
-  "read_clusters",
-  "read_artifacts",
-  "read_suites",
-])
-
 /** The number of finished builds that a source keeps for each pipeline. */
 export const BUILDKITE_BUILDS_PER_PIPELINE = 25
 
@@ -42,6 +26,9 @@ export class BuildkiteUnauthorizedError extends Error {
   }
 }
 
+/** The routes that the admin calls in the browser wait at most this long. */
+const BUILDKITE_INTERACTIVE_MAX_WAIT_MS = 10_000
+
 /**
  * One GET. On a rate limit, wait for the reset that Buildkite gives and send
  * the same request again, so the caller's step still succeeds.
@@ -50,10 +37,17 @@ async function buildkiteGet(input: {
   apiToken: string
   path: string
   search?: Record<string, string>
+  /**
+   * The most time that rate-limit waits may add up to. A browser HTTP request
+   * sets it, so the admin does not wait for minutes. Sync has no limit. When
+   * the next wait is over the limit, the 429 response goes to the caller.
+   */
+  maxWaitMs?: number
 }): Promise<Response> {
   const url = new URL(`${BUILDKITE_API}${input.path}`)
   for (const [name, value] of Object.entries(input.search ?? {}))
     url.searchParams.set(name, value)
+  let waitedMs = 0
   for (let attempt = 0; ; attempt += 1) {
     // No redirect: the token and the reads stay on the Buildkite API host.
     const response = await fetch(url, {
@@ -71,6 +65,9 @@ async function buildkiteGet(input: {
       Number.isFinite(reset) && reset > 0
         ? Math.min(reset, 60) * 1000
         : 500 * 2 ** attempt
+    if (waitedMs + delayMs > (input.maxWaitMs ?? Number.POSITIVE_INFINITY))
+      return response
+    waitedMs += delayMs
     await new Promise((resolve) => setTimeout(resolve, delayMs))
   }
 }
@@ -166,7 +163,11 @@ export async function verifyBuildkiteAccess(input: {
   let token: { scopes: string[] }
   try {
     token = await readJson(
-      await buildkiteGet({ apiToken: input.apiToken, path: "/access-token" }),
+      await buildkiteGet({
+        apiToken: input.apiToken,
+        path: "/access-token",
+        maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
+      }),
       z.object({ scopes: z.array(z.string()) }),
       "token check",
     )
@@ -184,8 +185,11 @@ export async function verifyBuildkiteAccess(input: {
       ok: false,
       error: `Remove the write scopes from the token: ${writeScopes.join(", ")}. The connector only reads.`,
     }
+  // ADR-054: no scope beyond the two. `read_user` and `read_organizations`
+  // are not needed, because the admin types the slug.
   const extraScopes = token.scopes.filter(
-    (scope) => !BUILDKITE_ALLOWED_SCOPES.has(scope),
+    (scope) =>
+      !(BUILDKITE_REQUIRED_SCOPES as readonly string[]).includes(scope),
   )
   if (extraScopes.length)
     return {
@@ -204,6 +208,7 @@ export async function verifyBuildkiteAccess(input: {
     apiToken: input.apiToken,
     path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
     search: { per_page: "1" },
+    maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
   })
   if (response.status === 403 || response.status === 404)
     return {
@@ -229,6 +234,7 @@ export async function listBuildkitePipelines(input: {
       apiToken: input.apiToken,
       path: `/organizations/${encodeURIComponent(input.organizationSlug)}/pipelines`,
       search: { page: String(page), per_page: "100" },
+      maxWaitMs: BUILDKITE_INTERACTIVE_MAX_WAIT_MS,
     })
     const items = await readJson(
       response,

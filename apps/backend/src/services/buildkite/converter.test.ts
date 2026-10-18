@@ -178,6 +178,64 @@ describe("buildkitePipelineFiles", () => {
   })
 })
 
+describe("credentials in a git remote", () => {
+  it.each([
+    [
+      "https://user:s3cret-token@git.example.com/org/repo.git",
+      "https://git.example.com/org/repo.git",
+    ],
+    [
+      "https://s3cret-token@git.example.com:8443/org/repo.git?x=s3cret-token#s3cret-token",
+      "https://git.example.com:8443/org/repo.git",
+    ],
+    [
+      "ssh://deploy:s3cret-token@git.example.com/org/repo.git",
+      "ssh://git.example.com/org/repo.git",
+    ],
+    [
+      "user:s3cret-token@git.example.com:org/repo.git",
+      "git.example.com:org/repo.git",
+    ],
+  ])("keeps only the host and path of %s", (remote, expected) => {
+    const files = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, repository: remote },
+      builds: [build],
+    })
+    const [pipelineFile, buildFile] = files
+    expect(pipelineFile?.content).toContain(`repository: "${expected}"`)
+    expect(pipelineFile?.content).toContain(
+      `- Repository: ${expected.replace(/[\\`*_[\]()!<>#|]/g, "\\$&")}`,
+    )
+    expect(files.map((file) => file.content).join("\n")).not.toContain(
+      "s3cret-token",
+    )
+    expect(buildFile?.content).not.toContain("s3cret-token")
+  })
+})
+
+describe("control and format characters in provider text", () => {
+  it("removes them from the front matter and the body", () => {
+    const [pipelineFile, buildFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, name: "Web‮App​\u0000" },
+      builds: [
+        {
+          ...build,
+          branch: "main⁦\u001b[31m",
+          creatorName: "Sam‮ Rivera",
+        },
+      ],
+    })
+    const text = `${pipelineFile?.content}${buildFile?.content}`
+    // Line feeds are the line ends of the files.
+    expect(text.replaceAll("\n", "")).not.toMatch(/[\p{Cc}\p{Cf}]/u)
+    expect(pipelineFile?.content).toContain("# WebApp\n")
+    expect(buildFile?.content).toContain('branch: "main[31m"')
+    expect(buildFile?.content).toContain("- Created by: Sam Rivera")
+  })
+})
+
 describe("Markdown in provider text", () => {
   const payloads = [
     "[x](https://evil.example)",

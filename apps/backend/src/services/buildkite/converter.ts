@@ -40,8 +40,20 @@ export function buildkitePipelineRoot(pipelineSlug: string): string {
   return `${BUILDKITE_MANAGED_ROOT}/pipelines/${pipelineSlug}/`
 }
 
+/**
+ * One line of plain text, with no control or format character. A format
+ * character (such as a bidi override or a zero-width mark) can change how a
+ * reader or an agent sees the text. White space folds to one space.
+ */
+function plainText(value: string): string {
+  return value
+    .replace(/\s+/g, " ")
+    .replace(/[\p{Cc}\p{Cf}]/gu, "")
+    .trim()
+}
+
 function yamlScalar(value: string): string {
-  return JSON.stringify(value)
+  return JSON.stringify(plainText(value))
 }
 
 /**
@@ -51,10 +63,7 @@ function yamlScalar(value: string): string {
  * image, HTML, a table cell, or emphasis.
  */
 function escapeInline(value: string): string {
-  return value
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
+  return plainText(value).replace(/[\\`*_[\]()!<>#|]/g, "\\$&")
 }
 
 /** An `https:` URL that is safe as a Markdown link target, or null. */
@@ -92,6 +101,22 @@ export function githubRepositoryUrl(remote: string | null): string | null {
   return match ? `https://github.com/${match[1]}/${match[2]}` : null
 }
 
+/**
+ * A git remote without credentials. A remote can hold `user:token@host`, and
+ * every Workspace member can read the mirror. A URL keeps its scheme, host,
+ * and path only. The user of an SSH remote in the `user@host:path` form is
+ * kept when it is `git`, which is not a secret. Text that has no user part
+ * is not changed.
+ */
+function remoteWithoutCredentials(remote: string): string {
+  const match = remote
+    .trim()
+    .match(/^([a-z][a-z0-9+.-]*:\/\/)?([^/?#]*@)?([\s\S]*)$/i)
+  const [, scheme, userInfo, rest = ""] = match ?? []
+  if (!scheme) return userInfo === "git@" || !userInfo ? remote : rest
+  return `${scheme}${rest.replace(/[?#][\s\S]*$/, "")}`
+}
+
 function frontMatter(
   fields: Array<[string, string | number | null]>,
 ): string[] {
@@ -112,6 +137,8 @@ function renderPipelineMarkdown(input: {
   pipeline: BuildkitePipelineForMirror
 }): string {
   const { pipeline } = input
+  const remote =
+    pipeline.repository && remoteWithoutCredentials(pipeline.repository)
   return [
     ...frontMatter([
       ["source", "buildkite"],
@@ -119,15 +146,13 @@ function renderPipelineMarkdown(input: {
       ["pipeline", pipeline.slug],
       ["buildkite_id", pipeline.id],
       ["url", pipeline.url],
-      ["repository", pipeline.repository],
+      ["repository", remote],
       ["default_branch", pipeline.defaultBranch],
     ]),
     `# ${escapeInline(pipeline.name)}`,
     "",
     `- Buildkite: ${link(escapeInline(pipeline.name), pipeline.url)}`,
-    ...(pipeline.repository
-      ? [`- Repository: ${escapeInline(pipeline.repository)}`]
-      : []),
+    ...(remote ? [`- Repository: ${escapeInline(remote)}`] : []),
     ...(pipeline.defaultBranch
       ? [`- Default branch: ${escapeInline(pipeline.defaultBranch)}`]
       : []),
