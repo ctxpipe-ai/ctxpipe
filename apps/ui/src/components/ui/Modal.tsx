@@ -1,4 +1,5 @@
 "use client"
+import { useEffect, useSyncExternalStore } from "react"
 import type { ModalOverlayProps } from "react-aria-components"
 import {
   composeRenderProps,
@@ -39,6 +40,40 @@ const modalStyles = tv({
   },
 })
 
+/** How many modals are on the page. Every modal dialog uses this Modal. */
+let openModals = 0
+const openModalListeners = new Set<() => void>()
+
+function subscribeOpenModals(listener: () => void) {
+  openModalListeners.add(listener)
+  return () => {
+    openModalListeners.delete(listener)
+  }
+}
+
+function addOpenModals(change: number) {
+  openModals += change
+  for (const listener of openModalListeners) listener()
+}
+
+/** Counts this modal while it is on the page (also while it fades out). */
+function OpenModalMarker() {
+  useEffect(() => {
+    addOpenModals(1)
+    return () => addOpenModals(-1)
+  }, [])
+  return null
+}
+
+/** True while a modal dialog is on the page. */
+export function useIsModalOpen() {
+  return useSyncExternalStore(
+    subscribeOpenModals,
+    () => openModals > 0,
+    () => false,
+  )
+}
+
 type ModalSize = "default" | "medium" | "wide"
 type ModalPlacement = "center" | "top"
 
@@ -67,6 +102,7 @@ export function Modal(
   } = props
   return (
     <ModalOverlay {...overlayProps} className={overlayStyles}>
+      <OpenModalMarker />
       <div className={frameStyles({ placement })}>
         <RACModal
           className={composeRenderProps(

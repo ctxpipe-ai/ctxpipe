@@ -4,6 +4,8 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
 import { recordSourceAccessCheck } from "../../models/workspace-sources.js"
+import { log } from "../../observability/logger.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
@@ -38,6 +40,22 @@ export async function checkGithubSourceAccess(input: {
       githubConnectionId: input.connectionId,
     })
     if (repository?.coverage === "foreign") missing.push(name)
+    // Code search reads the published org checkout of a linked repository
+    // (ADR-051). A link is often the first reference to a repository, and
+    // no webhook ingests it until its next push, so start the first org
+    // ingestion here. An ingestion that runs already absorbs this request.
+    if (repository?.coverage === "covers" && !repository.ingested)
+      await enqueueRepositoryIngestionWorkflow(
+        { repositoryId: repository.id, orgId: input.orgId },
+        { error: () => {} },
+      ).catch((error: unknown) => {
+        // The next access check tries again.
+        log.error({
+          step: "workspace_sources.github.enqueue_first_ingestion",
+          repositoryId: repository.id,
+          message: error instanceof Error ? error.message : String(error),
+        })
+      })
   }
   return missing.length
     ? `ctx| has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`

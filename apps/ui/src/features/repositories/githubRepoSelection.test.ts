@@ -49,6 +49,21 @@ describe("githubCloneUrlKey", () => {
       "https://github.com/acme/web",
     )
   })
+
+  it("also ignores a trailing slash and the space around the URL", () => {
+    expect(githubCloneUrlKey(" https://github.com/Acme/Web.git/ ")).toBe(
+      "https://github.com/acme/web",
+    )
+    expect(githubCloneUrlKey("https://github.com/acme/web/")).toBe(
+      "https://github.com/acme/web",
+    )
+  })
+
+  it("keeps two repositories apart", () => {
+    expect(githubCloneUrlKey("https://github.com/acme/web")).not.toBe(
+      githubCloneUrlKey("https://github.com/acme/web-2"),
+    )
+  })
 })
 
 describe("sortGithubRepos", () => {

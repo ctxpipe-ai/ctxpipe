@@ -33,7 +33,7 @@ export async function sendEmail(
   // An SMTP reply or a nodemailer error message can repeat the recipient, so log only its code fields.
   try {
     const info = await transporter.sendMail({
-      from: env.EMAIL_FROM_ADDRESS,
+      from: { name: "ctxpipe", address: env.EMAIL_FROM_ADDRESS },
       to,
       subject,
       html,

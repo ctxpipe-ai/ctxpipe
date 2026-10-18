@@ -980,7 +980,7 @@ it(
         // A node under the same revision key that the projection does not have.
         await graph.query(
           `MATCH (n:WorkspaceKnowledgeUnit) WITH n LIMIT 1
-        CREATE (:WorkspaceKnowledgeUnit {projectionKey: n.projectionKey, id: "stale", kind: "KnowledgeUnit", name: "stale"})`,
+        CREATE (:WorkspaceKnowledgeUnit {projectionKey: n.projectionKey, id: "stale", path: "stale.md", kind: "KnowledgeUnit", name: "stale"})`,
         )
         expect(await readGraph(f)).toEqual({
           status: 202,

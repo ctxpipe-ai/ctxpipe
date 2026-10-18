@@ -47,7 +47,11 @@ import {
   SourceChangeError,
   sourceAddPath,
 } from "./edit.js"
-import { FILE_ERROR_SOURCE_KEY } from "./projection-plan.js"
+import {
+  FILE_ERROR_SOURCE_KEY,
+  sourceNamesWorkspaceRepository,
+  WORKSPACE_REPOSITORY_SOURCE_DETAIL,
+} from "./projection-plan.js"
 import { plainGitSchemeRule } from "./providers/git.js"
 import { workspaceGithubRepository } from "./repository.js"
 import {
@@ -359,6 +363,19 @@ async function assertCanEdit(workspace: WorkspaceRecord) {
   return repository
 }
 
+/**
+ * Refuse (400) an add or an edit that names the Workspace repository. The
+ * projection marks such a file invalid after the merge, so the refusal comes
+ * before the pull request (ADR-050 decision 6).
+ */
+function assertNotWorkspaceRepository(
+  workspace: WorkspaceRecord,
+  change: { provider: SourceProvider; scope: unknown },
+) {
+  if (sourceNamesWorkspaceRepository(change, workspace.workspaceRepositoryUrl))
+    throw new SourceChangeError(400, WORKSPACE_REPOSITORY_SOURCE_DETAIL)
+}
+
 /** The projected sources of the Workspace, as the change checks read them. */
 async function projectedSources(workspace: WorkspaceRecord) {
   return (
@@ -458,6 +475,8 @@ export async function changeWorkspaceSource(input: {
 }): Promise<WorkspaceSourceChangeResult> {
   const { workspace, change } = input
   assertSourceChangeShape(change)
+  if (change.action === "add" || change.action === "edit")
+    assertNotWorkspaceRepository(workspace, change)
   const repository = await assertCanEdit(workspace)
   if (change.action === "add" || change.action === "edit")
     await assertConnection(
@@ -519,7 +538,10 @@ export async function addWorkspaceSources(input: {
   const { workspace, changes } = input
   if (!changes.length)
     throw new SourceChangeError(400, "Add at least one source")
-  for (const change of changes) assertSourceChangeShape(change)
+  for (const change of changes) {
+    assertSourceChangeShape(change)
+    assertNotWorkspaceRepository(workspace, change)
+  }
   const repository = await assertCanEdit(workspace)
   for (const change of changes)
     await assertConnection(

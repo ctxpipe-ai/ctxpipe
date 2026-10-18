@@ -32,11 +32,6 @@ function formatShortDate(ms: number): string {
   }).format(new Date(ms))
 }
 
-/** Workspace hydrate units use repo-relative paths as node ids. */
-function isWorkspaceFilePath(id: string): boolean {
-  return id.includes("/") && !id.includes("://") && !id.startsWith("/")
-}
-
 /** 0–1 confidence → label (shown verbatim) + colour token. */
 function confidenceTone(c: number | null): { label: string; cls: string } {
   if (c == null) return { label: "—", cls: "text-muted-foreground" }
@@ -263,7 +258,7 @@ function NodeDetailDrawerBody({
 
   const copyId = () => {
     void navigator.clipboard
-      .writeText(node.id)
+      .writeText(sourcePath)
       .then(() => {
         setCopied(true)
         window.setTimeout(() => setCopied(false), 1800)
@@ -271,7 +266,8 @@ function NodeDetailDrawerBody({
       .catch(() => {})
   }
 
-  const canOpenSource = onOpenSource != null && isWorkspaceFilePath(node.id)
+  const sourcePath = node.path ?? node.id
+  const canOpenSource = onOpenSource != null && node.path != null
 
   return (
     <>
@@ -332,9 +328,9 @@ function NodeDetailDrawerBody({
           <div className="flex h-5 items-center gap-1">
             <p
               className="min-w-0 flex-1 truncate font-mono text-sm leading-5 text-foreground"
-              title={node.id}
+              title={sourcePath}
             >
-              {node.id}
+              {sourcePath}
             </p>
             <Button
               variant="quiet"
@@ -351,7 +347,7 @@ function NodeDetailDrawerBody({
             {canOpenSource ? (
               <Button
                 variant="quiet"
-                onPress={() => onOpenSource(node.id)}
+                onPress={() => onOpenSource(sourcePath)}
                 aria-label="Go to definition"
                 className="size-5 min-h-5 min-w-5 p-0"
               >

@@ -19,7 +19,7 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d129
  	}
  	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
-index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4cdeb1fdd 100644
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..f4d454927c272641ae9c6ef81d885aae8393a17c 100644
 --- a/dist/esm/process/server.js
 +++ b/dist/esm/process/server.js
 @@ -54,6 +54,18 @@ async function startOpencodeSession(options) {
@@ -41,7 +41,29 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4
  	const teardown = async () => {
  		if (lifecycle.disposed) return;
  		lifecycle.disposed = true;
-@@ -100,11 +112,20 @@ async function startOpencodeSession(options) {
+@@ -78,16 +90,18 @@ async function startOpencodeSession(options) {
+ 			throwOnError: true
+ 		})).data.id;
+ 		const resolvedSessionId = sessionId;
+-		const handlePermission = async (permission) => {
++		const handlePermission = async (permission, reply) => {
+ 			try {
+ 				const response = await options.onPermissionRequest({
+ 					id: permission.id,
+ 					sessionID: permission.sessionID,
+ 					type: permission.type,
+ 					title: permission.title,
+-					...permission.callID !== void 0 && { callID: permission.callID }
++					...permission.callID !== void 0 && { callID: permission.callID },
++					...permission.patterns !== void 0 && { patterns: permission.patterns, metadata: permission.metadata }
+ 				});
+-				await client.postSessionIdPermissionsPermissionId({
++				if (reply) await reply(response);
++				else await client.postSessionIdPermissionsPermissionId({
+ 					path: {
+ 						id: permission.sessionID,
+ 						permissionID: permission.id
+@@ -100,23 +114,57 @@ async function startOpencodeSession(options) {
  				if (!lifecycle.disposed) options.onError?.(error);
  			}
  		};
@@ -63,7 +85,31 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4
  					const sid = sessionIdOf(event);
  					if (sid !== void 0 && sid !== resolvedSessionId) continue;
  					if (event.type === "permission.updated") {
-@@ -114,9 +135,12 @@ async function startOpencodeSession(options) {
+ 						handlePermission(event.properties);
+ 						continue;
+ 					}
++					// ctxpipe patch (upstream issue: to be opened): OpenCode 1.x asks
++					// with permission.asked and takes the answer at its own route.
++					if (event.type === "permission.asked") {
++						const asked = event.properties;
++						handlePermission({
++							id: asked.id,
++							sessionID: asked.sessionID,
++							type: asked.permission,
++							title: [asked.permission, ...asked.patterns ?? []].join(" "),
++							callID: asked.tool?.callID,
++							patterns: asked.patterns ?? [],
++							metadata: asked.metadata ?? {}
++						}, (response) => client._client.post({
++							url: "/permission/{requestID}/reply",
++							path: { requestID: asked.id },
++							query: dirQuery,
++							body: { reply: response },
++							headers: { "Content-Type": "application/json" },
++							throwOnError: true
++						}));
++						continue;
++					}
  					options.onEvent(event);
  				}
  			} catch (error) {
@@ -76,7 +122,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4
  		return {
  			sessionId: resolvedSessionId,
  			resumed,
-@@ -136,6 +160,9 @@ async function startOpencodeSession(options) {
+@@ -136,6 +184,9 @@ async function startOpencodeSession(options) {
  					},
  					throwOnError: true
  				})).data;
@@ -86,7 +132,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4
  				return {
  					message: data.info,
  					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
-@@ -151,9 +178,7 @@ async function startOpencodeSession(options) {
+@@ -151,9 +202,7 @@ async function startOpencodeSession(options) {
  			},
  			dispose: async () => {
  				lifecycle.disposed = true;

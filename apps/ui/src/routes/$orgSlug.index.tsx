@@ -3,6 +3,7 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
@@ -24,8 +25,10 @@ import {
 } from "@/features/workspaces/queries"
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
+import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/$orgSlug/")({
   validateSearch: activitySearch,
@@ -38,6 +41,25 @@ export const Route = createFileRoute("/$orgSlug/")({
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
   return <OrgHomePageContent orgSlug={orgSlug} />
+}
+
+/**
+ * After onboarding, Home stays hidden until its first data is ready, then
+ * fades in once, so nothing pops in. A slow or failed read does not keep
+ * Home hidden: after `SKELETON_DELAY_MS` Home shows, with its skeletons or
+ * its error.
+ */
+function useFirstDataReveal(hold: boolean, ready: boolean) {
+  // `hold` can turn on after the first render (hydration reads it late), so
+  // keep "data came" apart from "hold".
+  const [done, setDone] = useState(false)
+  if (!done && ready) setDone(true)
+  useEffect(() => {
+    if (!hold || done) return
+    const timer = setTimeout(() => setDone(true), SKELETON_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [hold, done])
+  return !hold || done
 }
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
@@ -60,6 +82,14 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // the first Workspace moves the guide below the composer, and that
   // remounts the guide.
   const [createOpen, setCreateOpen] = useState(false)
+  // Onboarding opened Home: hold it until its first data is ready (the
+  // session, the Workspace list, and the guide signals), then fade it in.
+  // The flag goes after the fade, so a reload does not hold Home again.
+  const fromOnboarding = useSessionFlag(onboardingHandOffFlag)
+  const revealed = useFirstDataReveal(fromOnboarding, guide.status === "ready")
+  useEffect(() => {
+    if (fromOnboarding && revealed) onboardingHandOffFlag.clear()
+  }, [fromOnboarding, revealed])
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -149,7 +179,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
-      <div className="mx-auto box-border w-full max-w-2xl p-8">
+      <div
+        aria-busy={!revealed || undefined}
+        className={cn(
+          "mx-auto box-border w-full max-w-2xl p-8",
+          fromOnboarding &&
+            (revealed
+              ? "animate-in fade-in duration-100 ease-out"
+              : "invisible"),
+        )}
+      >
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}

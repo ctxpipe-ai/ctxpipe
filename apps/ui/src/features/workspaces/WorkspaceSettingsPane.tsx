@@ -516,7 +516,6 @@ export function WorkspaceSettingsPane(props: {
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
-              workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
             />
           </SettingsGroup>
 

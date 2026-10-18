@@ -5,6 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   workspaceActivityHandler,
+  workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
@@ -293,8 +294,17 @@ export const AddRepositories: Story = {
     workspace: emptyLinkedWorkspaceDetail,
   },
   parameters: {
-    // Only an owner or admin sees the repository pickers.
-    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
+    // Only an owner or admin sees the repository pickers. The Add
+    // repositories dialog reads the Workspace and its format (2 or higher).
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("owner")],
+        detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

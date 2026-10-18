@@ -36,6 +36,8 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 }): Promise<{
   id: string
   created: boolean
+  /** True when an org ingestion published a revision of the repository. */
+  ingested: boolean
   /** What GitHub said about the requested connection's read access. */
   coverage: "covers" | "foreign" | "unknown"
 } | null> {
@@ -81,7 +83,12 @@ export async function ensureOrgRepositoryForGitUrl(input: {
 
   if (existing[0]) {
     await reconcileBinding(existing[0])
-    return { id: existing[0].id, created: false, coverage }
+    return {
+      id: existing[0].id,
+      created: false,
+      ingested: existing[0].lastIngestedHash !== null,
+      coverage,
+    }
   }
 
   const created = await bulkCreateRepositoriesForOrg(
@@ -91,12 +98,18 @@ export async function ensureOrgRepositoryForGitUrl(input: {
       ? { githubConnectionId: requestedConnectionId }
       : undefined,
   )
-  if (created[0]) return { id: created[0].id, created: true, coverage }
+  if (created[0])
+    return { id: created[0].id, created: true, ingested: false, coverage }
 
   const raced = await findRepositoriesByNormalizedGitUrls([gitUrl])
   if (!raced[0]) return null
   await reconcileBinding(raced[0])
-  return { id: raced[0].id, created: false, coverage }
+  return {
+    id: raced[0].id,
+    created: false,
+    ingested: raced[0].lastIngestedHash !== null,
+    coverage,
+  }
 }
 
 export async function ensureOrgRepositoryAndIngest(input: {
