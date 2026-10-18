@@ -14,9 +14,11 @@ const docker = async (...args: string[]) =>
 
 /**
  * An upstream on the test network: it echoes the request headers at
- * `/echo/*` (HTTP) and at every path over HTTPS on 443 (a GitHub API stand-in
- * for `gh`), and serves the bare repository `/srv/repo.git` with
- * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`.
+ * `/echo/*` (HTTP) and at every other path over HTTPS on 443 (a GitHub API
+ * stand-in for `gh`), and serves the bare repository `/srv/repo.git` with
+ * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`,
+ * and at `/public/*` with no auth, over HTTP and over HTTPS on 443 (a public
+ * plain git repository, CTX-815).
  */
 const UPSTREAM = `
 const http = require("node:http")
@@ -27,18 +29,7 @@ const echo = (req, res) => {
   res.setHeader("content-type", "application/json")
   res.end(JSON.stringify({ url: req.url, headers: req.headers }))
 }
-https.createServer({ key: fs.readFileSync("/tls/server.key"), cert: fs.readFileSync("/tls/server.crt") }, echo).listen(443, "0.0.0.0")
-http.createServer((req, res) => {
-  if (req.url.startsWith("/echo/")) {
-    echo(req, res)
-    return
-  }
-  const expected = "Basic " + Buffer.from("x-access-token:" + process.env.GIT_TOKEN).toString("base64")
-  if (req.headers.authorization !== expected) {
-    res.writeHead(401, { "www-authenticate": 'Basic realm="git"' })
-    res.end()
-    return
-  }
+const gitBackend = (req, res) => {
   const url = new URL(req.url, "http://upstream")
   const cgi = spawn("git", ["http-backend"], { env: {
     ...process.env,
@@ -46,7 +37,7 @@ http.createServer((req, res) => {
     GIT_HTTP_EXPORT_ALL: "1",
     REMOTE_USER: "x-access-token",
     REQUEST_METHOD: req.method,
-    PATH_INFO: url.pathname.replace(/^\\/git/, ""),
+    PATH_INFO: url.pathname.replace(/^\\/(git|public)/, ""),
     QUERY_STRING: url.search.slice(1),
     CONTENT_TYPE: req.headers["content-type"] || "",
     HTTP_CONTENT_ENCODING: req.headers["content-encoding"] || "",
@@ -70,6 +61,24 @@ http.createServer((req, res) => {
     res.write(head.subarray(end + 4))
   })
   cgi.on("close", () => res.end())
+}
+https.createServer({ key: fs.readFileSync("/tls/server.key"), cert: fs.readFileSync("/tls/server.crt") }, (req, res) => {
+  if (req.url.startsWith("/public/")) gitBackend(req, res)
+  else echo(req, res)
+}).listen(443, "0.0.0.0")
+http.createServer((req, res) => {
+  if (req.url.startsWith("/echo/")) {
+    echo(req, res)
+    return
+  }
+  const expected = "Basic " + Buffer.from("x-access-token:" + process.env.GIT_TOKEN).toString("base64")
+  const open = req.url.startsWith("/public/")
+  if (!open && req.headers.authorization !== expected) {
+    res.writeHead(401, { "www-authenticate": 'Basic realm="git"' })
+    res.end()
+    return
+  }
+  gitBackend(req, res)
 }).listen(8080, "0.0.0.0")
 `
 

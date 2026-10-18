@@ -10,7 +10,11 @@ import {
   setWorkspaceSourceStatus,
 } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import type { SourceAdapter, SourceFetchResult } from "./adapter.js"
+import type {
+  MirrorProvider,
+  SourceAdapter,
+  SourceFetchResult,
+} from "./adapter.js"
 import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
 import { stampSources } from "./stamp-sources.js"
@@ -20,10 +24,13 @@ import { stampSources } from "./stamp-sources.js"
  * `ownedPrefixes` that are not in `files` are deleted, except files under
  * `keepPrefixes`, which another source still owns.
  */
+/** A removed source target of a provider with a connection. */
+type ConnectedSourceTarget = SourceTarget & { connectionId: string }
+
 export type WorkspaceSliceWrite = {
   orgId: string
   workspaceId: string
-  provider: SourceProvider
+  provider: MirrorProvider
   connectionId: string
   files: GitFileChange[]
   ownedPrefixes: string[]
@@ -43,7 +50,7 @@ export type WorkspaceSliceWrite = {
    * write only when the sources file has one of them again, because no later
    * projection plans a dropped cleanup again.
    */
-  removed?: SourceTarget[]
+  removed?: ConnectedSourceTarget[]
 }
 
 export type SliceWriter = (write: WorkspaceSliceWrite) => Promise<void>
@@ -453,12 +460,12 @@ export async function cleanupRemovedSources(input: {
     .filter((target) => target !== null)
   const writes: WorkspaceSliceWrite[] = []
   const byProvider = new Map<
-    SourceProvider,
+    MirrorProvider,
     {
       connectionId: string
       prefixes: Set<string>
       keep: Set<string>
-      removed: SourceTarget[]
+      removed: ConnectedSourceTarget[]
     }
   >()
   for (const source of input.removed) {

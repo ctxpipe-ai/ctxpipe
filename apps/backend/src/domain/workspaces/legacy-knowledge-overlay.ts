@@ -1,4 +1,5 @@
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { sourceRepositoryName } from "../workspace-sources/providers/git.js"
 import { assignImportedRepository } from "./dest-workspace-first.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import {
@@ -10,7 +11,6 @@ import {
 } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { CODE_FORMAT, INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 /** Why an edit of a main-era knowledge path is refused. */
 export const LEGACY_KNOWLEDGE_READ_ONLY =
@@ -76,7 +76,8 @@ export async function legacyKnowledgeOverlay(input: {
     const url = repositoryId
       ? source.repositoryGitUrlById.get(repositoryId)
       : undefined
-    const name = url ? githubRepoFullNameFromWorkspaceUrl(url) : null
+    // `owner/name` for GitHub, `<host>/<path>` for plain git (CTX-815).
+    const name = url ? sourceRepositoryName(url) : null
     if (name && input.reingestedRepositories.has(name.toLowerCase()))
       return false
     if (!input.onlyRepositoryUrls) return true

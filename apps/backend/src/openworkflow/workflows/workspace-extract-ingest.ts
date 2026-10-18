@@ -9,7 +9,7 @@ import {
   retiredPublishPipelineField,
   workspacePublishPipeline,
 } from "../../domain/ingestion/ingestion-v2-config.js"
-import { githubRepositoryUrls } from "../../domain/workspace-sources/providers/github.js"
+import { sourceRepositoryUrls } from "../../domain/workspace-sources/providers/git.js"
 import { parseSourceFile } from "../../domain/workspace-sources/source-file-text.js"
 import { ingestPublishSourceSchema } from "../../domain/workspaces/extraction-source.js"
 import { workspaceRevisionSchema } from "../../domain/workspaces/revision.js"
@@ -115,7 +115,7 @@ export function defineWorkspaceExtractIngestWorkflow() {
         const parsed = parseSourceFile(file.path, file.content)
         return (
           !parsed.ok ||
-          !githubRepositoryUrls(parsed.source).includes(
+          !sourceRepositoryUrls(parsed.source).includes(
             normalizeWorkspaceRepositoryUrl(source.url),
           )
         )

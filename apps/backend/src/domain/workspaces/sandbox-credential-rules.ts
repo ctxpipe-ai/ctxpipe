@@ -64,6 +64,25 @@ export function githubFetchCredentialRules(
   )
 }
 
+/** One public plain git repository: its host and its path (CTX-815). */
+export type PlainGitRepository = { host: string; path: string }
+
+/**
+ * Git fetch only of one public plain git repository, with no credential
+ * (CTX-815): `info/refs` and `git-upload-pack` below the repository path,
+ * the paths that git requests for `https://<host><path>`. As for GitHub,
+ * no rule allows `git-receive-pack`, so a push is refused.
+ */
+export function plainGitFetchRules(
+  repository: PlainGitRepository,
+): Array<Omit<SandboxCredentialRule, "authorization">> {
+  return ["info/refs", "git-upload-pack"].map((path) => ({
+    name: `git-plain-${createHash("sha256").update(`${repository.host}${repository.path}/${path}`).digest("hex").slice(0, 16)}`,
+    host: repository.host,
+    path: `${repository.path}/${path}`,
+  }))
+}
+
 /** A Bearer token on one exact URL (host and path). */
 export function bearerUrlRule(
   name: string,
