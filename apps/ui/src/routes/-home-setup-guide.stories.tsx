@@ -651,7 +651,7 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
       await within(dialog).findByRole("checkbox", { name: "acme/api" }),
     )
     const doc = canvasElement.ownerDocument
-    const dialogElement = dialog.getByRole("heading").closest("section") as HTMLElement
+    const dialogElement = dialog
     const events: string[] = []
     const record = (event: Event) => {
       const target = event.target as HTMLElement
