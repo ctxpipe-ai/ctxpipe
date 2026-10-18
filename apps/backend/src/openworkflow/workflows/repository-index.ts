@@ -51,6 +51,12 @@ const repositoryIndexInputSchema = z
     orgId: z.string().min(1),
     targetHash: z.string().regex(/^(?:[a-f0-9]{40}|[a-f0-9]{64})$/),
     requestId: z.string().min(1).optional(),
+    /**
+     * Ingestion v2 needs only the codesearch index at its pinned SHA. It
+     * does not own a repository ingestion request, so the run does not
+     * capture one and does not write the indexing-step columns.
+     */
+    ingestionV2: z.literal(true).optional(),
     fromHash: z.string().optional(),
     githubConnectionId: z.string().optional(),
     workspaceId: z.string().min(1).optional(),
@@ -59,6 +65,10 @@ const repositoryIndexInputSchema = z
     revision: workspaceRevisionSchema.optional(),
     linkedRevision: linkedRevisionSchema.optional(),
   })
+  .refine(
+    (input) => !input.ingestionV2 || (!input.requestId && !input.workspaceId),
+    "An ingestion v2 index cannot own a request or a workspace",
+  )
   .refine(
     (input) =>
       !input.revision ||
@@ -237,10 +247,11 @@ export const repositoryIndex = defineWorkflow(
           input.orgId,
           input.repositoryId,
         )
-        const requestId = input.workspaceId
-          ? undefined
-          : ((await captureRepositoryIngestionRequest(input, run.id)) ??
-            undefined)
+        const requestId =
+          input.workspaceId || input.ingestionV2
+            ? undefined
+            : ((await captureRepositoryIngestionRequest(input, run.id)) ??
+              undefined)
         const targetRevision = input.linkedRevision ?? input.revision
         const linkedRevision = input.linkedRevision
         if (
