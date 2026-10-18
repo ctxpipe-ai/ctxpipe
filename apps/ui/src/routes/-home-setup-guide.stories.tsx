@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http, type RequestHandler } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
@@ -238,6 +238,59 @@ export const GuideAdminNewOrg: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText("No commits on the default branch yet."),
+      ).toBeVisible(),
+    )
+  },
+}
+
+/**
+ * The step that connects the agents of the user is one of the main steps,
+ * not under "More". Its copy button copies the setup command for this
+ * origin. Storybook does not run on the hosted origin, so the command has
+ * `--base-url`.
+ */
+export const GuideEditorStepCopiesCommand: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(guide.getByText("Use ctx| from your agents")).toBeVisible(),
+    )
+    expect(guide.getByText(/Cursor, Claude Code, Codex/)).toBeVisible()
+    expect(
+      guide.queryByRole("button", { name: "More" }),
+    ).not.toBeInTheDocument()
+    const origin = window.location.origin
+    const command = `npx ctxpipe init --base-url ${origin}`
+    expect(guide.getByText(command)).toBeVisible()
+    expect(guide.getByText(`${origin}/mcp`)).toBeVisible()
+    expect(
+      guide.getByRole("link", { name: "Steps for each client" }),
+    ).toHaveAttribute("href", "https://docs.ctxpipe.ai/docs/mcp/mcp-docs")
+
+    const writeText = fn(async (_text: string) => {})
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+    await userEvent.click(
+      guide.getByRole("button", { name: "Copy setup command" }),
+    )
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(command))
+    await waitFor(() =>
+      expect(
+        guide.getByRole("button", { name: "Setup command copied" }),
       ).toBeVisible(),
     )
   },

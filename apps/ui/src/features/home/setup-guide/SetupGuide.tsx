@@ -11,7 +11,7 @@ import {
   IconUsersPlus,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useSyncExternalStore } from "react"
 import {
   Button as RACButton,
   ProgressBar as RACProgressBar,
@@ -19,7 +19,9 @@ import {
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
+import { Link as TextLink } from "@/components/ui/Link"
 import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import { CopyableBlock } from "@/features/connectors/components/github-setup/CopyableBlock"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
 import { WorkspaceAddRepositoriesDialog } from "@/features/workspace-sources/GithubSourceRepositories"
@@ -27,6 +29,7 @@ import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { editorSetupCommand, mcpServerUrl } from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
@@ -350,13 +353,74 @@ function GuideRows(props: {
   )
 }
 
+const noSubscribe = () => () => {}
+
+/**
+ * Connects the user's own agents to ctx| (CTX-871). It is not a counted
+ * row: no signal tells that a client uses the MCP server. The command and
+ * the URL name the origin of this app, so they also work on a self-hosted
+ * deployment or a preview.
+ */
+function EditorSetupStep() {
+  // The server holds no public origin (its config names the private backend
+  // URL), so the server and hydration value is `null`. The fields stay empty
+  // and Copy stays off until the browser origin replaces it.
+  const origin = useSyncExternalStore(
+    noSubscribe,
+    () => window.location.origin,
+    () => null,
+  )
+  return (
+    <div className="mt-1 flex items-start gap-3 px-2 py-3">
+      <span className="ctx-node size-7 text-zinc-300 [&>svg]:size-4">
+        <IconTerminal2 stroke={1.5} aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="pt-1 text-sm font-medium text-foreground">
+          Use ctx| from your agents
+        </p>
+        <p className="mt-0.5 text-sm text-muted-foreground">
+          It works with the agents you already use, in an IDE, a CLI or terminal
+          UI, or a desktop app: Cursor, Claude Code, Codex, or any MCP client.
+          Run this command. It signs you in, finds your agents, and adds the
+          ctx| MCP server to them.
+        </p>
+        <div className="mt-3 space-y-2">
+          <CopyableBlock
+            value={origin ? editorSetupCommand(origin) : ""}
+            copyAriaLabel="Copy setup command"
+            copiedAriaLabel="Setup command copied"
+            copyErrorMessage="Could not copy. Copy the command manually."
+          />
+          <p className="pt-1 text-xs text-muted-foreground">
+            To set up a client by hand, use this MCP server URL.{" "}
+            <TextLink
+              href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
+              target="_blank"
+              rel="noopener noreferrer"
+              variant="secondary"
+            >
+              Steps for each client
+            </TextLink>
+          </p>
+          <CopyableBlock
+            value={origin ? mcpServerUrl(origin) : ""}
+            copyAriaLabel="Copy MCP server URL"
+            copiedAriaLabel="MCP server URL copied"
+            copyErrorMessage="Could not copy. Copy the URL manually."
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SetupGuidePanel(props: {
   guide: ReadyGuide
   actions: GuideActions
   onOpenBuild: () => void
 }) {
   const { guide, actions } = props
-  const [moreOpen, setMoreOpen] = useState(false)
   const { view } = guide
 
   if (view.kind === "hidden") return null
@@ -452,48 +516,7 @@ function SetupGuidePanel(props: {
             primaryId={view.next}
             onOpenBuild={props.onOpenBuild}
           />
-          <Disclosure isExpanded={moreOpen} onExpandedChange={setMoreOpen}>
-            <RACButton
-              slot="trigger"
-              className={cn(
-                "mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:text-foreground",
-                focusVisibleClassName,
-              )}
-            >
-              <IconChevronRight
-                className={cn(
-                  "size-3.5 transition-transform",
-                  moreOpen && "rotate-90",
-                )}
-                aria-hidden
-              />
-              More
-            </RACButton>
-            <DisclosurePanel>
-              <div className="flex items-center gap-3 px-2 py-2">
-                <span className="ctx-node size-7 text-muted-foreground [&>svg]:size-4">
-                  <IconTerminal2 stroke={1.5} aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-zinc-300">
-                    Use it from your editor
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Add the ctx| MCP server to Cursor or Claude Code.
-                  </p>
-                </div>
-                <Button
-                  variant="quiet"
-                  className="h-7 px-1 text-xs"
-                  href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Set up
-                </Button>
-              </div>
-            </DisclosurePanel>
-          </Disclosure>
+          <EditorSetupStep />
         </DisclosurePanel>
       </Disclosure>
     </section>
@@ -506,45 +529,49 @@ function SetupGuidePanel(props: {
  */
 export function SetupGuideSkeleton(props: { collapsed: boolean }) {
   return (
-    <section
-      aria-busy
-      className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800"
-    >
-      <span className="sr-only">Loading the setup guide</span>
-      <div
-        className={cn(
-          "flex items-center gap-x-3 px-2 pt-1",
-          props.collapsed ? "pb-1" : "pb-2",
-        )}
-      >
-        <Skeleton className="h-7 w-48" />
-      </div>
-      {props.collapsed ? null : (
-        // The disclosure panel of the card has `pt-0.5`.
-        <div className="pt-0.5">
-          <ul className="space-y-1">
-            <li className="flex items-start gap-3 rounded-md px-2 py-3">
-              <Skeleton className="size-7 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="pt-1">
-                  <SkeletonText className="text-sm" boneClassName="w-40" />
-                </div>
-                <SkeletonText className="mt-0.5 text-sm" boneClassName="w-72" />
-                <Skeleton className="mt-3 block h-9 w-32" />
-              </div>
-            </li>
-            {[0, 1, 2, 3, 4].map((row) => (
-              <li key={row} className="flex items-center gap-3 px-2 py-2">
-                <Skeleton className="size-7 shrink-0" />
-                <SkeletonText className="flex-1 text-sm" boneClassName="w-48" />
-              </li>
-            ))}
-          </ul>
-          <div className="mt-1 px-2 py-2">
-            <SkeletonText className="text-xs" boneClassName="w-12" />
-          </div>
+    <section className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800">
+      {/* The editor step has live Copy buttons, so it stays outside the busy region. */}
+      <div aria-busy>
+        <span className="sr-only">Loading the setup guide</span>
+        <div
+          className={cn(
+            "flex items-center gap-x-3 px-2 pt-1",
+            props.collapsed ? "pb-1" : "pb-2",
+          )}
+        >
+          <Skeleton className="h-7 w-48" />
         </div>
-      )}
+        {props.collapsed ? null : (
+          // The disclosure panel of the card has `pt-0.5`.
+          <div className="pt-0.5">
+            <ul className="space-y-1">
+              <li className="flex items-start gap-3 rounded-md px-2 py-3">
+                <Skeleton className="size-7 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="pt-1">
+                    <SkeletonText className="text-sm" boneClassName="w-40" />
+                  </div>
+                  <SkeletonText
+                    className="mt-0.5 text-sm"
+                    boneClassName="w-72"
+                  />
+                  <Skeleton className="mt-3 block h-9 w-32" />
+                </div>
+              </li>
+              {[0, 1, 2, 3, 4].map((row) => (
+                <li key={row} className="flex items-center gap-3 px-2 py-2">
+                  <Skeleton className="size-7 shrink-0" />
+                  <SkeletonText
+                    className="flex-1 text-sm"
+                    boneClassName="w-48"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      {props.collapsed ? null : <EditorSetupStep />}
     </section>
   )
 }
