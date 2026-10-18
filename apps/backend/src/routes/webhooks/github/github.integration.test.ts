@@ -4,7 +4,15 @@ import { Webhooks } from "@octokit/webhooks"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import {
   cleanupSeededOrg,
   type SeededOrg,
@@ -142,6 +150,29 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
 
   afterAll(async () => {
     if (seed) await cleanupSeededOrg(seed)
+  })
+
+  it("refuses an unsigned delivery on the shared route before it parses the body", async () => {
+    const body = JSON.stringify({ zen: `unsigned-${seed.orgId}` })
+    const parse = vi.spyOn(JSON, "parse")
+    try {
+      const res = await createApp().request(
+        "http://backend.test/api/v1/webhook/github",
+        {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-github-event": "ping",
+            "x-hub-signature-256": "sha256=00",
+          },
+          body,
+        },
+      )
+      expect(res.status).toBe(401)
+      expect(parse).not.toHaveBeenCalledWith(body)
+    } finally {
+      parse.mockRestore()
+    }
   })
 
   it("does not deliver deployment App events to a connection with its own App", async () => {
