@@ -473,25 +473,31 @@ async function refreshGitAccess(
  * The boot time in `/proc/stat` cannot replace `startedAt`: measured in the
  * Vercel lane, the boot time after a resume is earlier than the change time
  * of the link from before the stop, so the old link would pass.
+ *
+ * `startedAt` can be a function. A resume of a stopping sandbox returns before
+ * the start, and the first command starts it. The function is read for each
+ * check, so a start that happens during the wait is seen.
  */
 async function waitForCaBundle(
   handle: SandboxHandle,
-  startedAt?: number,
+  startedAt?: number | (() => number | undefined),
 ): Promise<void> {
   const bundle = "/etc/ssl/certs/ca-certificates.crt"
   const whole = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
-  const check =
-    startedAt === undefined
+  const checkNow = () => {
+    const threshold = typeof startedAt === "function" ? startedAt() : startedAt
+    return threshold === undefined
       ? whole
       : // `stat -c %Z` (no `-L`) reads the change time of the link itself,
         // because the rewrite recreates the link.
-        `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${startedAt} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
+        `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${threshold} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
+  }
   for (let attempt = 0; attempt < 20; attempt++) {
-    const result = await handle.process.exec(check).catch(() => undefined)
+    const result = await handle.process.exec(checkNow()).catch(() => undefined)
     if (result?.exitCode === 0) {
       // The same file, read again, shows a finished write.
       await new Promise((resolve) => setTimeout(resolve, 250))
-      const again = await handle.process.exec(check).catch(() => undefined)
+      const again = await handle.process.exec(checkNow()).catch(() => undefined)
       if (again?.exitCode === 0) return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -637,7 +643,8 @@ export function vercelConversationProvider(input: {
       let started: number | undefined
       const before = beforeStart()
       try {
-        // The SDK calls `onResume` only when it started a stopped sandbox.
+        // The SDK calls `onResume` when it starts a stopped sandbox: here, or
+        // later, when a command starts a stopping one.
         sandbox = await Sandbox.get({
           ...credentials,
           name: id,
@@ -651,7 +658,7 @@ export function vercelConversationProvider(input: {
       }
       await refreshGitAccess(sandbox, access)
       const handle = conversationHandle(sandbox, input.agentPassword)
-      await waitForCaBundle(handle, started)
+      await waitForCaBundle(handle, () => started)
       return handle
     },
     async destroy({ id }) {

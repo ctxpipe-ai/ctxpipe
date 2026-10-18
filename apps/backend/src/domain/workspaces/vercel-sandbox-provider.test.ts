@@ -576,15 +576,26 @@ describe("vercelConversationProvider CA bundle after a start", () => {
    * of the "link newer than" check from the command text (`-ge <seconds>`),
    * so it follows the provider's check, whatever the shell text around it.
    */
-  const withSandboxApi = (resumed: boolean) => {
+  const withSandboxApi = (resumed: boolean, stopping = false) => {
     const vm = { checks: 0, rewritten: false }
+    // A stopping session: the first command gets "gone", and the SDK then
+    // resumes the sandbox (a lazy start, after `Sandbox.get` returned).
+    let lazyStartPending = stopping
     server.use(
       http.post("https://vercel.com/api/v2/sandboxes", () =>
         HttpResponse.json({ sandbox, session, routes: [] }),
       ),
-      http.get("https://vercel.com/api/v2/sandboxes/:name", () =>
-        HttpResponse.json({ sandbox, session, routes: [], resumed }),
-      ),
+      http.get("https://vercel.com/api/v2/sandboxes/:name", ({ request }) => {
+        const resuming = new URL(request.url).searchParams.get("resume")
+        const starts = stopping && resuming === "true"
+        return HttpResponse.json({
+          sandbox,
+          session:
+            stopping && !starts ? { ...session, status: "stopping" } : session,
+          routes: [],
+          resumed: stopping ? starts : resumed,
+        })
+      }),
       http.patch("https://vercel.com/api/v2/sandboxes/:name", () =>
         HttpResponse.json({ sandbox }),
       ),
@@ -595,6 +606,13 @@ describe("vercelConversationProvider CA bundle after a start", () => {
       http.post(
         "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
         async ({ request }) => {
+          if (lazyStartPending) {
+            lazyStartPending = false
+            return HttpResponse.json(
+              { error: { code: "sandbox_stopped", message: "stopped" } },
+              { status: 410 },
+            )
+          }
           const command = await request.text()
           vm.checks += 1
           if (vm.checks > 2) vm.rewritten = true
@@ -674,6 +692,15 @@ describe("vercelConversationProvider CA bundle after a start", () => {
 
   it("returns from resume of a stopped sandbox only after it has rewritten the bundle", async () => {
     const vm = withSandboxApi(true)
+    const handle = await settle(provider().resume({ id: "sbx-ca" }))
+    expect(handle).not.toBeNull()
+    expect(vm.rewritten).toBe(true)
+  })
+
+  it("waits for the rewrite when resume finds a stopping sandbox that the first command then starts", async () => {
+    // `Sandbox.get` reports resumed=false; the lazy start fires `onResume`
+    // only after the provider read its start time.
+    const vm = withSandboxApi(false, true)
     const handle = await settle(provider().resume({ id: "sbx-ca" }))
     expect(handle).not.toBeNull()
     expect(vm.rewritten).toBe(true)
