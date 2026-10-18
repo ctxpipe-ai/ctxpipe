@@ -14,7 +14,7 @@ import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
-import { WorkspaceQueryErrorBoundary } from "./WorkspaceSurface"
+import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
 
 export function WorkspaceNavList(props: {
   orgSlug: string
