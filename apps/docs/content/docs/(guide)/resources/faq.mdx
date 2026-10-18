@@ -13,10 +13,25 @@ sources you select, builds searchable and graph context, and exposes it through
 
 ### Is ctx| only for GitHub?
 
-The OSS stack emphasizes **Git** and includes **GitHub App** flows for installs and
-webhooks. Other Git hosts generally work when you can supply a clone URL and
-credentials acceptable to your deployment. GitLab does not currently have a
-dedicated first-party setup flow.
+No. ctx| also reads Confluence, Linear, Notion, Slack, and PagerDuty. For code,
+the best-supported path is the **GitHub App**. GitLab and other git hosts have no
+first-party setup flow.
+
+ctx| can read a repository on another git host as a plain git source. Plain git
+sources are read-only. ctx| reads them with git over HTTP(S) and no credential,
+so a private repository on another host does not work. The URL rules depend on
+where ctx| runs:
+
+- **Hosted ctx|:** the URL uses `https://` and the default port. The host is a
+  public domain name. ctx| refuses an IP address, a private name such as
+  `localhost`, and a host that resolves to a private address.
+- **Self-hosted ctx| (Docker sandboxes):** the URL can also use `http://`, a
+  custom port, an IP address, a private host name, or a host on your own network.
+- **Both:** ssh (`git@…` or `ssh://`), `git://`, and `file://` URLs are not
+  supported. The URL has no user name, password, query, or fragment. ctx| does
+  not follow a redirect.
+
+See [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories).
 
 ### Where does the marketing site fit?
 
@@ -25,11 +40,20 @@ site** is the technical companion. Some content overlaps by design.
 
 ## MCP
 
-### Why must I pass `orgSlug` on `/mcp`?
+### How does an MCP tool call choose the organization?
 
-ctx| is multi-tenant. The slug selects the **organization context** for every tool
-call and is validated against your membership. There is no separate `orgId` field
-inside tools for agents to spoof.
+The `/mcp` URL is the same for every organization. Each tool call names one
+organization with the `org` argument (the slug from your ctx| URL). Only
+`list_workspaces` can omit it. Then it lists each organization of the
+connection.
+
+ctx| is multi-tenant, so the server checks every call. It allows the call only
+when the organization is in the set that you chose when you authorized the
+client, and you are still a member. Tools have no `orgId` argument for an agent
+to spoof. An organization API key reads one organization, and `org` must name it.
+
+The server accepts the old `?orgSlug=` URL parameter and ignores it. You can
+leave it in an old client configuration or remove it.
 
 ### Streamable HTTP vs SSE?
 
