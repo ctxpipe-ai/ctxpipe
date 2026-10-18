@@ -117,15 +117,19 @@ address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
 `fd00:ec2::254`), also on a self-hosted deployment.
 The sandbox fetches the repository through Agent Vault. Agent Vault connects
 to a private address only when that address is in its network allowlist. Add
-the address or CIDR of your git server to it:
+the address of your git server to it:
 
 - Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Add only
-  your git server address or network, for example
+  the single host address of your git server, for example
   `AGENT_VAULT_NETWORK_ALLOWLIST=10.20.0.15`. Compose always keeps
   `172.30.99.10` (the backend) in the list.
 - AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
-  `["10.20.0.0/24"]`. ctx| adds it after the backend subnets. The sandbox host
-  must also have a route to that network.
+  `["10.20.0.15/32"]`. ctx| adds it after the backend subnets. The sandbox host
+  must also have a route to that address.
+
+<Callout type="warn">
+  Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet.
+</Callout>
 
 Do not add a cloud metadata, link-local, or loopback address.
 
