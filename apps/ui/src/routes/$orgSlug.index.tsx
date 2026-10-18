@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
@@ -77,6 +78,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     listQuery.data?.items.find((item) => item.id === selectedId) ?? landing
   const workspaces = listQuery.data?.items ?? []
   const guide = useSetupGuide(orgSlug)
+  const guideShown = useRevealOnce(guide.status === "ready")
   const [composerKey, setComposerKey] = useState(0)
   // Add Workspace from the guide. The dialog lives here, not in the guide:
   // the first Workspace moves the guide below the composer, and that
@@ -122,7 +124,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       }
     : undefined
   const guideCard =
-    guide.status === "ready" ? (
+    guide.status === "ready" && guideShown ? (
       <SetupGuideReveal>
         <SetupGuideCard
           orgSlug={orgSlug}
@@ -192,15 +194,17 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}
-          <WorkspaceActivity
-            orgSlug={orgSlug}
-            workspaceSlug={
-              sessionPending || listQuery.isPending
-                ? null
-                : (selected?.slug ?? ALL_WORKSPACES)
-            }
-            workspaces={workspaces}
-          />
+          <div className="[view-transition-name:home-below]">
+            <WorkspaceActivity
+              orgSlug={orgSlug}
+              workspaceSlug={
+                sessionPending || listQuery.isPending
+                  ? null
+                  : (selected?.slug ?? ALL_WORKSPACES)
+              }
+              workspaces={workspaces}
+            />
+          </div>
         </div>
       </div>
       <WorkspaceCreateModal

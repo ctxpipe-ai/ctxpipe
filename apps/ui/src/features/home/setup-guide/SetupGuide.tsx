@@ -513,15 +513,11 @@ function SetupGuidePanel(props: {
 }
 
 /**
- * Opens the guide to its height when the signals are ready. The guide may not
- * show at all, so it holds no space while it loads. With reduced motion, it
- * appears without animation.
+ * Names the guide for the view transition that shows it (`useRevealOnce`).
+ * The guide may not show at all, so it holds no space while it loads.
  */
 export function SetupGuideReveal(props: { children: ReactNode }) {
   return (
-    <div className="ctx-reveal-height">
-      {/* The 1 px of room keeps the ring of the card inside the clip. */}
-      <div className="-m-px min-h-0 overflow-hidden p-px">{props.children}</div>
-    </div>
+    <div className="[view-transition-name:home-guide]">{props.children}</div>
   )
 }

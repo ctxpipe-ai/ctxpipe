@@ -1036,7 +1036,8 @@ export const GuideSignalFailureKeepsHome: Story = {
 const loadingGate = responseGate()
 /**
  * The guide may not show, so it holds no space while a signal loads. When the
- * signals are ready, it opens to its height.
+ * signals are ready, it appears in a view transition that moves the blocks
+ * below with transforms, never with height.
  */
 export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {

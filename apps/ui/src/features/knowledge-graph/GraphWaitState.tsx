@@ -33,8 +33,8 @@ export function GraphWaitState({
       >
         {isDeterminate ? (
           <div
-            className="h-full bg-teal-400 transition-[width] duration-150 ease-linear"
-            style={{ width: `${clamped}%` }}
+            className="h-full w-full origin-left bg-teal-400 transition-[scale] duration-150 ease-linear"
+            style={{ scale: `${clamped / 100} 1` }}
           />
         ) : (
           <span className="inline-loader-indeterminate absolute inset-y-0 w-1/3 bg-teal-400" />

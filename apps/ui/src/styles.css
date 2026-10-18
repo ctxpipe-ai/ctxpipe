@@ -286,21 +286,17 @@
 
 /*
  * A block that may not show (the Get started guide) holds no space while it
- * loads. When it mounts, it opens its height (DESIGN.md "Loading states").
- * Reduced motion shortens the animation to 0.01 ms, by the motion rule below.
+ * loads. When it appears, a view transition (useRevealOnce) moves the blocks
+ * below it with transforms, so nothing animates height (DESIGN.md "Motion").
  */
-@keyframes ctx-reveal-height {
-  from {
-    grid-template-rows: 0fr;
-  }
-  to {
-    grid-template-rows: 1fr;
-  }
-}
-
-.ctx-reveal-height {
-  display: grid;
-  animation: ctx-reveal-height 150ms ease-out;
+::view-transition-group(home-guide),
+::view-transition-group(home-below),
+::view-transition-old(home-guide),
+::view-transition-new(home-guide),
+::view-transition-old(home-below),
+::view-transition-new(home-below) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
 }
 
 @keyframes ctx-indexing-pulse {
