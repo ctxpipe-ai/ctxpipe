@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest"
 import { parseSourceEntry } from "../sources-file.js"
 
 const parse = (provider: string, scope: Record<string, unknown>) =>
-  parseSourceEntry({ id: "a-source", provider, connection: "con_abc", ...scope })
+  parseSourceEntry({
+    id: "a-source",
+    provider,
+    connection: "con_abc",
+    ...scope,
+  })
 
 /** Make `count` distinct values with `make`. */
 const many = <T>(count: number, make: (index: number) => T) =>
@@ -32,13 +37,26 @@ describe("a source scope list has a maximum length", () => {
   })
 
   it("stops a Notion source at 100 pages and 100 databases", () => {
-    expect(parse("notion", { pages: many(100, (i) => ({ id: notionId(i), title: "P" })) }).ok).toBe(true)
-    expect(parse("notion", { pages: many(101, (i) => ({ id: notionId(i), title: "P" })) }).ok).toBe(false)
-    expect(parse("notion", { databases: many(101, (i) => ({ id: notionId(i), title: "D" })) }).ok).toBe(false)
+    expect(
+      parse("notion", {
+        pages: many(100, (i) => ({ id: notionId(i), title: "P" })),
+      }).ok,
+    ).toBe(true)
+    expect(
+      parse("notion", {
+        pages: many(101, (i) => ({ id: notionId(i), title: "P" })),
+      }).ok,
+    ).toBe(false)
+    expect(
+      parse("notion", {
+        databases: many(101, (i) => ({ id: notionId(i), title: "D" })),
+      }).ok,
+    ).toBe(false)
   })
 
   it("stops a Slack source at 100 channels", () => {
-    const channel = (index: number) => `C${index.toString(36).toUpperCase().padStart(8, "0")}`
+    const channel = (index: number) =>
+      `C${index.toString(36).toUpperCase().padStart(8, "0")}`
     expect(parse("slack", { channels: many(100, channel) }).ok).toBe(true)
     expect(parse("slack", { channels: many(101, channel) }).ok).toBe(false)
   })
