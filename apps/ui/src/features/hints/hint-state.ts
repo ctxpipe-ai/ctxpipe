@@ -11,8 +11,13 @@ export function activeHint(input: {
   seen: readonly string[]
   /** The user finished onboarding in the guide window. */
   newUser: boolean
+  /**
+   * A modal dialog is open. No hint shows over it (CTX-863). The hint that
+   * is due shows when the dialog closes, if it is still due then.
+   */
+  modalOpen: boolean
 }): HintId | null {
-  if (!input.newUser) return null
+  if (!input.newUser || input.modalOpen) return null
   for (const id of HINT_ORDER) {
     if (!input.mounted.includes(id) || input.seen.includes(id)) continue
     if (id === "create-pr" && !input.seen.includes("panes")) continue

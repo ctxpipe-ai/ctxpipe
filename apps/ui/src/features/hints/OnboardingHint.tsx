@@ -5,6 +5,7 @@ import {
   useSyncExternalStore,
 } from "react"
 import { Button } from "@/components/ui/Button"
+import { useIsModalOpen } from "@/components/ui/Modal"
 import { Popover } from "@/components/ui/Popover"
 import { isWithinGuideWindow } from "@/features/home/setup-guide/guide-state"
 import { useSession } from "@/lib/auth-client"
@@ -32,8 +33,9 @@ const NO_HINTS: HintId[] = []
 
 /**
  * A one-time popover on real UI, for users who finished onboarding in the
- * last 14 days. It does not take focus. Only "Got it" or Escape records the
- * hint as seen; a blur, a scroll or an outside click does not.
+ * last 14 days. It does not show while a modal dialog is open, and it does
+ * not take focus. Only "Got it" or Escape records the hint as seen; a blur,
+ * a scroll or an outside click does not.
  */
 export function OnboardingHint(props: {
   id: HintId
@@ -46,6 +48,7 @@ export function OnboardingHint(props: {
   const { data: session } = useSession()
   const user = sessionUser(session)
   const [guide, updateGuide, loaded] = useOrgGuide(props.orgSlug)
+  const modalOpen = useIsModalOpen()
   const onPage = useSyncExternalStore(
     subscribe,
     () => mounted,
@@ -64,6 +67,7 @@ export function OnboardingHint(props: {
       mounted: onPage,
       seen: guide.hintsSeen ?? [],
       newUser: isWithinGuideWindow(user?.onboardingCompletedAt, Date.now()),
+      modalOpen,
     }) === id
 
   const markSeen = useCallback(

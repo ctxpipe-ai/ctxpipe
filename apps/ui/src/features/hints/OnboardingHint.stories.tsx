@@ -1,5 +1,9 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { useState } from "react"
 import { expect, fn, userEvent, waitFor, within } from "storybook/test"
+import { Button } from "@/components/ui/Button"
+import { Dialog } from "@/components/ui/Dialog"
+import { Modal } from "@/components/ui/Modal"
 import { ConversationCtaActions } from "@/features/workspaces/WorkspaceChatChrome"
 import { WorkspaceNavList } from "@/features/workspaces/WorkspaceNavList"
 import { WorkspacePaneTriggers } from "@/features/workspaces/WorkspacePane"
@@ -97,10 +101,64 @@ export const AddWorkspaceHint: Story = {
     // Escape records the hint while focus stays on the page.
     await userEvent.keyboard("{Escape}")
     const body = within(canvasElement.ownerDocument.body)
-    await waitFor(() =>
-      expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull(),  // play-timing: ok findHint above waited for the hint; Escape closes it
+    await waitFor(
+      () => expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull(), // play-timing: ok findHint above waited for the hint; Escape closes it
     )
     expect(storedHintsSeen()).toContain("add-workspace")
+  },
+}
+
+/** The side nav with a modal dialog that is open when the story starts. */
+function NavWithOpenDialog() {
+  const [open, setOpen] = useState(true)
+  return (
+    <>
+      <ul className="w-64 bg-zinc-950 py-2">
+        <WorkspaceNavList orgSlug="acme" expanded onSelectNav={() => {}} />
+      </ul>
+      <Modal isOpen={open} onOpenChange={setOpen}>
+        <Dialog aria-label="Story dialog">
+          <Button variant="secondary" onPress={() => setOpen(false)}>
+            Close dialog
+          </Button>
+        </Dialog>
+      </Modal>
+    </>
+  )
+}
+
+/**
+ * CTX-863: no hint shows while a modal dialog is open. The hint that is due
+ * waits, and shows when the dialog closes.
+ */
+export const AddWorkspaceHintWaitsForDialog: Story = {
+  beforeEach: () => seedHintsSeen([]),
+  render: () => <NavWithOpenDialog />,
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceListHandler([docsWorkspace]),
+          conversationsListHandler(docsConversations),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("dialog", { name: "Story dialog" })
+    // The Workspace list loaded, so the add-workspace hint is due.
+    await within(canvasElement).findAllByText("Docs")
+    // Give the hint time to open, as it does without a dialog.
+    await new Promise((resolve) => setTimeout(resolve, 300))
+    expect(body.queryByRole("dialog", { name: "Hint" })).toBeNull()
+    await waitFor(async () => {
+      const close = body.queryByRole("button", { name: "Close dialog" })
+      if (close) await userEvent.click(close)
+      expect(body.queryByRole("dialog", { name: "Story dialog" })).toBeNull()
+    })
+    await findHint(canvasElement, "Add a Workspace for each team or product.")
+    expect(storedHintsSeen()).not.toContain("add-workspace")
   },
 }
 
