@@ -1,5 +1,8 @@
-import { IconPlus } from "@tabler/icons-react"
-import { useSuspenseQuery } from "@tanstack/react-query"
+import { IconPlus, IconRefresh } from "@tabler/icons-react"
+import {
+  QueryErrorResetBoundary,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
 import { useRef, useState } from "react"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
@@ -11,6 +14,7 @@ import { isWorkspaceNavOpen } from "./nav"
 import { workspaceListOptions } from "./queries"
 import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
+import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
 
 export function WorkspaceNavList(props: {
   orgSlug: string
@@ -20,34 +24,84 @@ export function WorkspaceNavList(props: {
   onSelectNav: (next: SideNavLocation) => void
 }) {
   return (
-    <SkeletonSuspense
-      fallback={
-        <>
-          {props.expanded ? (
-            <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
-              <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
-                Workspaces
-              </p>
-            </li>
-          ) : null}
-          <li className="w-full">
-            <ul className="space-y-0.5" aria-busy>
-              <li className="sr-only">Loading workspaces</li>
-              {(props.expanded ? [0, 1, 2] : [0]).map((row) => (
-                <li key={row} className="w-full">
-                  <SideNavRowSkeleton
-                    navExpanded={props.expanded}
-                    gutter={<Skeleton className="size-4" />}
-                  />
+    <QueryErrorResetBoundary>
+      {({ reset: resetQueries }) => (
+        // The key resets a failed state when the org changes: the layout
+        // stays mounted on an org switch.
+        <WorkspaceQueryErrorBoundary
+          key={props.orgSlug}
+          fallback={(_error, resetBoundary) => (
+            <NavListError
+              expanded={props.expanded}
+              onRetry={() => {
+                resetQueries()
+                resetBoundary()
+              }}
+            />
+          )}
+        >
+          <SkeletonSuspense
+            fallback={
+              <>
+                {props.expanded ? (
+                  <li className="mx-1.5 mt-2.5 mb-0.5 flex h-8 w-[calc(100%-0.75rem)] items-center pl-2">
+                    <p className="text-[10px] font-normal uppercase tracking-tighter text-muted-foreground">
+                      Workspaces
+                    </p>
+                  </li>
+                ) : null}
+                <li className="w-full">
+                  <ul className="space-y-0.5" aria-busy>
+                    <li className="sr-only">Loading workspaces</li>
+                    {(props.expanded ? [0, 1, 2] : [0]).map((row) => (
+                      <li key={row} className="w-full">
+                        <SideNavRowSkeleton
+                          navExpanded={props.expanded}
+                          gutter={<Skeleton className="size-4" />}
+                        />
+                      </li>
+                    ))}
+                  </ul>
                 </li>
-              ))}
-            </ul>
-          </li>
-        </>
-      }
-    >
-      <WorkspaceNavListReady {...props} />
-    </SkeletonSuspense>
+              </>
+            }
+          >
+            <WorkspaceNavListReady {...props} />
+          </SkeletonSuspense>
+        </WorkspaceQueryErrorBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  )
+}
+
+// A quiet line, not an InlineAlert: an exception to the product-ui "Error:
+// InlineAlert + next step" rule, because a nav row is too narrow for a slab.
+function NavListError(props: { expanded: boolean; onRetry: () => void }) {
+  if (props.expanded) {
+    return (
+      <li className="mx-1.5 flex items-center justify-between gap-2 pl-2 text-xs text-muted-foreground">
+        <p>Could not load Workspaces.</p>
+        <Button variant="ghost" onPress={props.onRetry}>
+          Retry
+        </Button>
+      </li>
+    )
+  }
+  return (
+    <li className="flex w-full justify-center">
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        aria-label="Retry loading Workspaces"
+        onPress={props.onRetry}
+      >
+        <IconRefresh
+          className="size-4 text-muted-foreground"
+          stroke={1.4}
+          aria-hidden
+        />
+      </Button>
+    </li>
   )
 }
 

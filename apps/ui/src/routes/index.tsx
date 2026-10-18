@@ -1,6 +1,5 @@
-import { useSuspenseQuery } from "@tanstack/react-query"
+import { type QueryClient, useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
-import { Suspense } from "react"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import {
   isGuideRecent,
@@ -28,20 +27,26 @@ export const Route = createFileRoute("/")({
         ? search.pendingAccountClaim
         : undefined,
   }),
-  loader: async ({ context }) => {
-    // This loader only warms the cache. The page reads the session in the
-    // browser, so a failed server-render call must not stop the page.
-    const session = await fetchSsrSession().catch(() => null)
-    if (!session?.user.onboardingCompletedAt) return
-    const organizations = await fetchSsrOrganizations().catch(() => [])
-    await Promise.all(
-      organizations.map((org) =>
-        context.queryClient.ensureQueryData(workspaceListOptions(org.slug)),
-      ),
-    )
-  },
+  loader: ({ context }) => warmWorkspaceLists(context.queryClient),
   component: IndexRoutePage,
 })
+
+/** Exported for tests: the `/` loader. */
+export async function warmWorkspaceLists(queryClient: QueryClient) {
+  // This loader only warms the cache. The page reads the session in the
+  // browser, so a failed server-render call must not stop the page. A failed
+  // list read does not throw: Home shows that error.
+  const session = await fetchSsrSession().catch(() => null)
+  if (!session?.user.onboardingCompletedAt) return
+  const organizations = await fetchSsrOrganizations().catch(() => [])
+  await Promise.all(
+    organizations.map((org) =>
+      queryClient
+        .ensureQueryData(workspaceListOptions(org.slug))
+        .catch(() => undefined),
+    ),
+  )
+}
 
 /** Exported for Storybook / tests — same component as the `/` file route. */
 export function IndexRoutePage() {
@@ -101,16 +106,17 @@ export function IndexRoutePage() {
     )
   }
 
-  return (
-    <Suspense fallback={null}>
-      <WorkspaceLandingRedirect orgSlug={selected.slug} />
-    </Suspense>
-  )
+  return <WorkspaceLandingRedirect orgSlug={selected.slug} />
 }
 
 function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const { orgSlug } = props
-  const { data } = useSuspenseQuery(workspaceListOptions(orgSlug))
+  const { data, isError } = useQuery(workspaceListOptions(orgSlug))
+  // Home shows a failed list read. Do not send it to the root error screen.
+  // A failed background refetch keeps the cached list, so land as usual.
+  if (isError && !data)
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+  if (!data) return null
   const workspace = landingWorkspace(data)
   // With no Workspace, Home shows the setup guide (CTX-552).
   if (!workspace) {
