@@ -300,6 +300,25 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
           )
       }
 
+    // HANDOFF_KEY is the cache key of the owner URL handoff. The log shows a
+    // step `env:` or `with:` value before any mask exists, so a job masks the
+    // key (from the job env, which the log hides) before a step shows it, and
+    // never echoes it.
+    const masked = job.lines.find(({ text }) =>
+      /add-mask::.*\bHANDOFF_KEY\b/.test(text),
+    )
+    for (const { text, number } of job.lines) {
+      if (/add-mask::/.test(text) || /GITHUB_(ENV|OUTPUT)/.test(text)) continue
+      const shown =
+        /\$\{\{[^}]*\bHANDOFF_KEY\b[^}]*\}\}/.test(text) ||
+        /^\s*HANDOFF_KEY:/.test(text)
+      const echoed = /\b(echo|printf)\b.*\bHANDOFF_KEY\b/.test(text)
+      if ((shown && (!masked || number < masked.number)) || echoed)
+        failures.push(
+          `${file}:${number}: job ${job.name} can show HANDOFF_KEY in the log. Mask it with ::add-mask:: in an earlier step, and do not echo it.`,
+        )
+    }
+
     const productionJob = productionJobs.has(`${name}:${job.name}`)
     if (productionJob) {
       if (
