@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
-import type { PinnedPlainGitRemote } from "../../../../../shared/plain-git.js"
+import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import {
   assertNotInOrgDbContext,
@@ -48,7 +48,7 @@ export type IndexPhaseRepoContext = {
    * GitHub token (CTX-815). Codesearch reads that repository only through
    * it, never through `repoGitUrl`.
    */
-  plainGit?: PinnedPlainGitRemote
+  plainGit?: CheckedPlainGitRemote
 }
 
 export type CloneCheckoutResult = {

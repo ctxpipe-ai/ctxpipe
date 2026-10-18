@@ -245,8 +245,7 @@ export function revokeIngestGitTokens(input: {
  * port), so the rule follows the scheme of the source.
  *
  * The rule names the host, not the checked addresses: Agent Vault resolves
- * the host name again when it connects, so this fetch is not pinned. The
- * backend checks the host before it makes the rule (`shardRepositories`):
+ * the host name again when it connects. The backend checks the host before it makes the rule (`shardRepositories`):
  * on self-host too, it refuses a host that resolves to a cloud metadata or
  * link-local address. A DNS answer that changes after that check is not
  * covered here.

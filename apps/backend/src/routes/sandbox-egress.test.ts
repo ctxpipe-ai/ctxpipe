@@ -847,7 +847,7 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
     )
   })
 
-  it("does not follow a redirect of the plain git host", async () => {
+  it("does not follow a redirect of the plain git host, and answers 502", async () => {
     server.use(
       http.get("https://git.example.org/team/app.git/info/refs", () =>
         HttpResponse.text("", {
@@ -863,10 +863,35 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
       "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
       { sealed: sealed() },
     )
-    expect(response.status).toBe(301)
+    expect(response.status).toBe(502)
     expect(
       outbound.filter((url) => url.includes("private.example.org")),
     ).toEqual([])
+  })
+
+  it("answers 502 when the plain git host does not start its answer in 60 seconds", async () => {
+    let reached = () => {}
+    const asked = new Promise<void>((resolve) => {
+      reached = resolve
+    })
+    server.use(
+      http.get("https://git.example.org/team/app.git/info/refs", () => {
+        reached()
+        return new Promise<never>(() => {})
+      }),
+    )
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout"] })
+    try {
+      const response = forwarded(
+        "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        { sealed: sealed() },
+      )
+      await asked
+      await vi.advanceTimersByTimeAsync(60_000)
+      expect((await response).status).toBe(502)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 })
 
