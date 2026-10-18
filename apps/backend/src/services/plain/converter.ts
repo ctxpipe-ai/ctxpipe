@@ -81,19 +81,50 @@ function isKeptUrl(url: string): boolean {
 }
 
 /**
- * Text with only the URLs that may stay (see `isKeptUrl`). A Markdown link
- * to another URL keeps only its text; a bare URL becomes a stub.
+ * A stub for removed text. Its brackets are escaped, so they stay text: a
+ * stub that sits before `(` or `:` cannot become a link or a definition.
+ */
+const stub = (what: string) => `\\[${what} removed\\]`
+
+/**
+ * Text that has no Markdown link, image, autolink, reference definition, or
+ * raw HTML: the characters `\`, `[`, `]`, `<`, and `>` become literal. A
+ * backslash is escaped only when it comes before one of these characters.
+ */
+const withoutMarkdownSyntax = (text: string) =>
+  text.replace(/\\(?=[\\[\]<>])|[[\]<>]/g, "\\$&")
+
+/**
+ * Text with only the URLs that may stay (see `isKeptUrl`). A bare URL that
+ * does not stay becomes a stub. The pattern is linear: it has no length cap
+ * and no nested quantifier. A URL over 2,048 characters does not stay, so a
+ * credential at the end of a long URL cannot pass.
  */
 function withHttpsUrlsOnly(text: string): string {
-  return text
-    .replace(
-      /\[([^\]]{0,500})\]\((\S{1,2048}?)(?:\s+"[^"]{0,500}")?\)/g,
-      (link, label: string, url: string) => (isKeptUrl(url) ? link : label),
-    )
-    .replace(/https?:\/\/[^\s<>()"']{1,2048}/g, (url) =>
-      isKeptUrl(url) ? url : "[link removed]",
-    )
+  return text.replace(/https?:\/\/[^\s<>"']+/g, (match) => {
+    // Punctuation after a URL is not part of the URL.
+    let end = match.length
+    while (end > 0 && ".,;:!?)]}\\".includes(match.charAt(end - 1))) end -= 1
+    const url = match.slice(0, end)
+    return url.length <= 2_048 && isKeptUrl(url)
+      ? match
+      : `${stub("link")}${match.slice(end)}`
+  })
 }
+
+/**
+ * Text without the destination of a Markdown link, unless the destination
+ * is a URL that may stay. The escape that follows turns each link into
+ * text, so this step only keeps a relative path or a token out of the file.
+ * The pattern is linear: a destination has no space, and a bracket pair in
+ * it has no other bracket.
+ */
+const withoutLinkDestinations = (text: string) =>
+  text.replace(
+    /\]\(\s*((?:[^\s()]|\([^\s()]*\))*)\)?/g,
+    (link, destination: string) =>
+      destination.length <= 2_048 && isKeptUrl(destination) ? link : "]",
+  )
 
 /**
  * Thread text without contact details or private URLs (ADR-055). Messages
