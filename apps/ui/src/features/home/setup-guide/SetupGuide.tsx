@@ -29,7 +29,7 @@ import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { editorSetupCommand, mcpServerUrl } from "./editor-setup"
+import { editorSetupCommand } from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
@@ -357,57 +357,47 @@ const noSubscribe = () => () => {}
 
 /**
  * Connects the user's own agents to ctx| (CTX-871). It is not a counted
- * row: no signal tells that a client uses the MCP server. The command and
- * the URL name the origin of this app, so they also work on a self-hosted
- * deployment or a preview.
+ * row: no signal tells that a client uses the MCP server. The command names
+ * the origin of this app, so it also works on a self-hosted deployment or a
+ * preview.
  */
 function EditorSetupStep() {
   // The server holds no public origin (its config names the private backend
-  // URL), so the server and hydration value is `null`. The fields stay empty
+  // URL), so the server and hydration value is `null`. The field stays empty
   // and Copy stays off until the browser origin replaces it.
   const origin = useSyncExternalStore(
     noSubscribe,
     () => window.location.origin,
     () => null,
   )
+  const command = origin ? editorSetupCommand(origin) : ""
   return (
-    <div className="mt-1 flex items-start gap-3 px-2 py-3">
+    <div className="mt-1 flex items-start gap-3 px-2 py-2">
       <span className="ctx-node size-7 text-zinc-300 [&>svg]:size-4">
         <IconTerminal2 stroke={1.5} aria-hidden />
       </span>
       <div className="min-w-0 flex-1">
-        <p className="pt-1 text-sm font-medium text-foreground">
+        <p className="text-sm font-medium text-foreground">
           Use ctx| from your agents
         </p>
-        <p className="mt-0.5 text-sm text-muted-foreground">
-          It works with the agents you already use, in an IDE, a CLI or terminal
-          UI, or a desktop app: Cursor, Claude Code, Codex, or any MCP client.
-          Run this command. It signs you in, finds your agents, and adds the
-          ctx| MCP server to them.
+        <p className="text-sm text-muted-foreground">
+          Works with Cursor, Claude Code, Codex, and any MCP client.{" "}
+          <TextLink
+            href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="secondary"
+          >
+            Setup guide
+          </TextLink>
         </p>
-        <div className="mt-3 space-y-2">
+        {/* A long command scrolls inside the field, so Copy stays in view. */}
+        <div className="mt-2" title={command || undefined}>
           <CopyableBlock
-            value={origin ? editorSetupCommand(origin) : ""}
+            value={command}
             copyAriaLabel="Copy setup command"
             copiedAriaLabel="Setup command copied"
             copyErrorMessage="Could not copy. Copy the command manually."
-          />
-          <p className="pt-1 text-xs text-muted-foreground">
-            To set up a client by hand, use this MCP server URL.{" "}
-            <TextLink
-              href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
-              target="_blank"
-              rel="noopener noreferrer"
-              variant="secondary"
-            >
-              Steps for each client
-            </TextLink>
-          </p>
-          <CopyableBlock
-            value={origin ? mcpServerUrl(origin) : ""}
-            copyAriaLabel="Copy MCP server URL"
-            copiedAriaLabel="MCP server URL copied"
-            copyErrorMessage="Could not copy. Copy the URL manually."
           />
         </div>
       </div>

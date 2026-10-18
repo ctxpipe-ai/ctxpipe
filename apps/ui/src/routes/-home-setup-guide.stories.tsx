@@ -268,17 +268,22 @@ export const GuideEditorStepCopiesCommand: Story = {
     await waitFor(() =>
       expect(guide.getByText("Use ctx| from your agents")).toBeVisible(),
     )
-    expect(guide.getByText(/Cursor, Claude Code, Codex/)).toBeVisible()
+    expect(
+      guide.getByText(/Works with Cursor, Claude Code, Codex/),
+    ).toBeVisible()
     expect(
       guide.queryByRole("button", { name: "More" }),
     ).not.toBeInTheDocument()
     const origin = window.location.origin
     const command = `npx ctxpipe init --base-url ${origin}`
     expect(guide.getByText(command)).toBeVisible()
-    expect(guide.getByText(`${origin}/mcp`)).toBeVisible()
-    expect(
-      guide.getByRole("link", { name: "Steps for each client" }),
-    ).toHaveAttribute("href", "https://docs.ctxpipe.ai/docs/mcp/mcp-docs")
+    expect(guide.getByTitle(command)).toBeInTheDocument()
+    expect(guide.queryByText(`${origin}/mcp`)).not.toBeInTheDocument()
+    expect(guide.queryByText(/MCP server URL/)).not.toBeInTheDocument()
+    expect(guide.getByRole("link", { name: "Setup guide" })).toHaveAttribute(
+      "href",
+      "https://docs.ctxpipe.ai/docs/mcp/mcp-docs",
+    )
 
     const writeText = fn(async (_text: string) => {})
     Object.defineProperty(navigator, "clipboard", {
