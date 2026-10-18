@@ -451,6 +451,39 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     expect(await storedConfig(connectionId)).toBeUndefined()
   })
 
+  // A personal key gets a session with the role of its user, so only the
+  // admin gate stops it (403). REST routes do not accept an org key at all
+  // (401). Neither key may start a connection.
+  it.each([
+    ["an org API key", () => seed.orgApiKey, 401],
+    ["a personal API key", () => seed.personalApiKey, 403],
+  ])("refuses %s on the setup route", async (_name, key, status) => {
+    const res = await createApp().request(
+      `http://backend.test/${seed.orgSlug}/api/v1/connectors/zendesk`,
+      {
+        method: "POST",
+        headers: { "x-api-key": key(), "content-type": "application/json" },
+        body: JSON.stringify({ subdomain: "acme" }),
+      },
+    )
+    expect(res.status).toBe(status)
+  })
+
+  it("refuses a personal API key on the OAuth callback", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    const { state, pkceCookie } = await startOAuth(connectionId)
+
+    const res = await createApp().request(
+      `http://backend.test/api/v1/integrations/zendesk/callback?code=the-code&state=${encodeURIComponent(state)}`,
+      { headers: { "x-api-key": seed.personalApiKey, cookie: pkceCookie } },
+    )
+
+    expect(res.status).toBe(403)
+    expect(zendesk.tokenRequests).toBe(0)
+    expect(await status(connectionId)).toMatchObject({ status: "pending" })
+  })
+
   it("refuses an org member who is not an admin", async () => {
     await setRole("member")
     try {

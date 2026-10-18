@@ -7,6 +7,7 @@ import {
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { readBoundedJson } from "../connectors/bounded-json.js"
 
 /**
  * The scopes that ctx| asks for (ADR-054): read Help Center, tickets,
@@ -198,7 +199,10 @@ async function requestTokens(input: {
     )
   if (!response.ok)
     throw new Error(`Zendesk token request failed (${response.status})`)
-  const tokens = tokenResponseSchema.parse(await response.json())
+  // A token answer is a few hundred bytes.
+  const tokens = tokenResponseSchema.parse(
+    await readBoundedJson(response, 1024 * 1024),
+  )
   return {
     accessToken: tokens.access_token,
     refreshToken: tokens.refresh_token ?? null,

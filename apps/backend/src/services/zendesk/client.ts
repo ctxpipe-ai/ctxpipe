@@ -1,5 +1,6 @@
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
+import { readBoundedJson } from "../connectors/bounded-json.js"
 import type {
   ZendeskArticleForMirror,
   ZendeskTicketForMirror,
@@ -8,6 +9,15 @@ import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
 /** A source keeps this many of the most recently updated tickets of a view. */
 export const ZENDESK_TICKETS_PER_VIEW = 100
+
+/**
+ * The most bytes of one Zendesk answer. A page of 100 tickets or 100
+ * comments is far below it.
+ */
+const ZENDESK_MAX_RESPONSE_BYTES = 32 * 1024 * 1024
+
+const readJson = (response: Response) =>
+  readBoundedJson(response, ZENDESK_MAX_RESPONSE_BYTES)
 
 type ZendeskAuth = { subdomain: string; accessToken: string }
 
@@ -82,7 +92,7 @@ async function readPages<T extends z.ZodTypeAny>(
     if (!pages.length && response.status === 403) return "forbidden"
     if (!response.ok)
       throw new Error(`Zendesk ${what} failed (${response.status})`)
-    const body: unknown = await response.json()
+    const body: unknown = await readJson(response)
     pages.push(schema.parse(body))
     const page = pageSchema.parse(body)
     const next = page.meta?.has_more ? page.links?.next : null
@@ -249,7 +259,7 @@ export async function listZendeskViewTickets(
     throw new Error(`Zendesk view tickets failed (${response.status})`)
   const { tickets } = z
     .object({ tickets: z.array(ticketSchema) })
-    .parse(await response.json())
+    .parse(await readJson(response))
   const result: ZendeskTicketForMirror[] = []
   for (const ticket of tickets) {
     const pages = await readPages(
@@ -328,7 +338,7 @@ export async function createZendeskArticleWebhook(
     throw new Error(`Zendesk webhook create failed (${created.status})`)
   const { webhook } = z
     .object({ webhook: z.object({ id }) })
-    .parse(await created.json())
+    .parse(await readJson(created))
   const secret = await zendeskRequest(
     input,
     apiUrl(input, `/webhooks/${webhook.id}/signing_secret`),
@@ -337,7 +347,7 @@ export async function createZendeskArticleWebhook(
     throw new Error(`Zendesk webhook secret read failed (${secret.status})`)
   const { signing_secret } = z
     .object({ signing_secret: z.object({ secret: z.string().min(1) }) })
-    .parse(await secret.json())
+    .parse(await readJson(secret))
   return { webhookId: webhook.id, signingSecret: signing_secret.secret }
 }
 

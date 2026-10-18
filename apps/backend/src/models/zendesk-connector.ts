@@ -14,6 +14,7 @@ import {
   encryptConnectionSecret,
 } from "../lib/connection-secrets.js"
 import { generateObjectId } from "../lib/id.js"
+import { log } from "../observability/logger.js"
 import type { ZendeskOAuthClient } from "../services/zendesk/oauth.js"
 import {
   deleteConnectionDirectory,
@@ -333,12 +334,23 @@ export async function getZendeskWebhookTarget(
 > {
   const row = await loadConnectionViaDirectory(connectionId)
   if (row?.type !== CONNECTION_TYPE_ZENDESK) return undefined
-  const config = parseConfig(row)
-  return {
-    orgId: row.orgId,
-    status: config.status,
-    webhookSecret: config.webhookSecretEnc
-      ? decryptConnectionSecret(config.webhookSecretEnc, env)
-      : null,
+  const parsed = zendeskConnectionConfigStoredSchema.safeParse(row.config)
+  if (!parsed.success) return undefined
+  const config = parsed.data
+  let webhookSecret: string | null = null
+  if (config.webhookSecretEnc) {
+    try {
+      webhookSecret = decryptConnectionSecret(config.webhookSecretEnc, env)
+    } catch {
+      // A secret that does not decrypt (a changed key) gets the same answer
+      // as an unknown connection, and the sender cannot tell them apart.
+      log.warn({
+        step: "zendesk_webhook.decrypt",
+        message: "The webhook secret of a Zendesk connection does not decrypt",
+        connectionId,
+      })
+      return undefined
+    }
   }
+  return { orgId: row.orgId, status: config.status, webhookSecret }
 }

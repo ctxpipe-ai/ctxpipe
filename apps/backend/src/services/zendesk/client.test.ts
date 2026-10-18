@@ -162,6 +162,30 @@ describe("listZendeskCategoryArticles", () => {
     ).toBe("not_found")
   })
 
+  it("stops the read of an answer above 32 MiB", async () => {
+    const MiB = 1024 * 1024
+    let pulledBytes = 0
+    server.use(
+      http.get(`${API}/help_center/categories/36/articles`, () => {
+        let left = 64
+        const body = new ReadableStream<Uint8Array>({
+          pull(controller) {
+            if (left-- === 0) return controller.close()
+            pulledBytes += MiB
+            controller.enqueue(new Uint8Array(MiB).fill(0x20))
+          },
+        })
+        return new HttpResponse(body, {
+          headers: { "content-type": "application/json" },
+        })
+      }),
+    )
+    await expect(
+      listZendeskCategoryArticles({ ...ctx, categoryId: "36" }),
+    ).rejects.toThrow(/larger than/)
+    expect(pulledBytes).toBeLessThan(40 * MiB)
+  })
+
   it("waits for Retry-After on a rate limit and sends the request again", async () => {
     vi.useFakeTimers({ toFake: ["setTimeout"] })
     server.use(

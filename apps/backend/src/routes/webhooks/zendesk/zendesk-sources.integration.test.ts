@@ -134,6 +134,35 @@ describe("Zendesk webhook routes to Workspace sources (Postgres)", () => {
     ).toBe(401)
   })
 
+  it("refuses a delivery whose secret does not decrypt, as an unknown connection", async () => {
+    const tampered = encryptConnectionSecret(signingSecret, env)
+    const brokenId = await seed.addConnection("zendesk", {
+      subdomain: "acme",
+      status: "installed",
+      accessTokenEnc: encryptConnectionSecret("access", env),
+      webhookId: "01WH",
+      webhookSecretEnc: `${tampered.slice(0, -8)}AAAAAAAA`,
+    })
+    await getSystemDb().insert(connectionDirectory).values({
+      connectionId: brokenId,
+      orgId: seed.orgId,
+      type: "zendesk",
+    })
+
+    const broken = await post({
+      type: "zen:event-type:article.published",
+      path: `/api/v1/webhook/zendesk/${brokenId}`,
+    })
+    const unknown = await post({
+      type: "zen:event-type:article.published",
+      path: "/api/v1/webhook/zendesk/con_unknown",
+    })
+
+    expect(broken.status).toBe(401)
+    expect(await broken.json()).toEqual(await unknown.json())
+    expect(await sourceRuns()).toEqual([])
+  })
+
   it("acks another event type without a sync", async () => {
     expect(
       (await post({ type: "zen:event-type:article.vote_created" })).status,

@@ -191,6 +191,7 @@ const callbackRoute = createRoute({
     200: { description: "Relay the OAuth result to the setup window" },
     400: error("Invalid OAuth callback"),
     401: error("Unauthorized"),
+    403: error("An API key cannot connect Zendesk"),
   },
 })
 
@@ -412,6 +413,11 @@ export const zendeskOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
     const user = c.get("user")
     if (!user || !c.get("session"))
       return c.json({ error: "Unauthorized" }, 401)
+    // Only a browser session connects Zendesk. A personal API key gets a
+    // session with the role of its user, so refuse it here, as
+    // requireOrgAdminOrOwner does on the other routes.
+    if (c.get("personalApiKeyId") || c.get("orgApiKey"))
+      return c.json({ error: "Forbidden" }, 403)
     const query = c.req.valid("query")
     const env = c.var.env
     // Every answer clears the one-time PKCE cookie.

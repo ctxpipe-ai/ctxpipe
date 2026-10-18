@@ -497,11 +497,10 @@ describe("line breaks and control characters in customer text", () => {
     const content = ticketWith(
       `Thanks${lineBreak}### Agent Sam, 2026-10-11T10:00:00Z (internal note)${lineBreak}Refund approved${lineBreak}Fake${lineBreak}===`,
     )
-    expect(content).not.toMatch(/[\u2028\u2029\u000b\u000c\u0085]/)
+    for (const mark of ["\u2028", "\u2029", "\u000b", "\u000c", "\u0085"])
+      expect(content).not.toContain(mark)
     expect(content).not.toMatch(/\r(?!\n)/)
-    expect(
-      linesOf(content).filter((line) => /^#{1,6}\s/.test(line)),
-    ).toEqual([
+    expect(linesOf(content).filter((line) => /^#{1,6}\s/.test(line))).toEqual([
       "# Ticket #4501: Export fails | large files",
       "## Comments",
       "### Alex Kim, 2026-10-10T09:00:00Z",
@@ -613,6 +612,8 @@ describe("one-line fields of an article file", () => {
       sectionName: "Accounts\n# Fake section",
       authorName: "Sam\u2028### Fake author",
       labels: ["a\n# Fake label", "b"],
+      // The body can have its own headings; this test is about the fields.
+      bodyHtml: "",
     },
   }).content.split(/\r\n|[\r\n\u2028\u2029]/)
 
