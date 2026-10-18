@@ -78,7 +78,6 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     listQuery.data?.items.find((item) => item.id === selectedId) ?? landing
   const workspaces = listQuery.data?.items ?? []
   const guide = useSetupGuide(orgSlug)
-  const guideShown = useRevealOnce(guide.status === "ready")
   const [composerKey, setComposerKey] = useState(0)
   // Add Workspace from the guide. The dialog lives here, not in the guide:
   // the first Workspace moves the guide below the composer, and that
@@ -89,6 +88,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // The flag goes after the fade, so a reload does not hold Home again.
   const fromOnboarding = useSessionFlag(onboardingHandOffFlag)
   const revealed = useFirstDataReveal(fromOnboarding, guide.status === "ready")
+  // After onboarding, Home fades in as a whole: the guide needs no transition.
+  const guideShown = useRevealOnce(guide.status === "ready", fromOnboarding)
   useEffect(() => {
     if (fromOnboarding && revealed) onboardingHandOffFlag.clear()
   }, [fromOnboarding, revealed])
