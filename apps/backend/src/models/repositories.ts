@@ -301,7 +301,12 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
 export async function findRepositoriesByNormalizedGitUrls(
   urls: readonly string[],
 ): Promise<
-  Array<{ id: string; gitUrl: string; githubConnectionId: string | null }>
+  Array<{
+    id: string
+    gitUrl: string
+    githubConnectionId: string | null
+    lastIngestedHash: string | null
+  }>
 > {
   if (urls.length === 0) return []
   const wanted = new Set(
@@ -314,6 +319,7 @@ export async function findRepositoriesByNormalizedGitUrls(
         id: repositories.id,
         gitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
+        lastIngestedHash: repositories.lastIngestedHash,
       })
       .from(repositories)
       .where(eq(repositories.orgId, requireCurrentOrgId()))
