@@ -514,16 +514,49 @@ it(
   },
 )
 
-it(
-  "refuses a chat write outside the repository at once, with a tool error the agent sees (CTX-846)",
+it.each([
+  {
+    name: "a write outside the repository",
+    ask: "external_directory",
+    tool: "write",
+    args: (target: string) => ({ filePath: target, content: "idle-probe\n" }),
+    file: "idle-probe.txt",
+    inside: false,
+  },
+  {
+    name: "a read of a .env file",
+    ask: "read",
+    tool: "read",
+    args: (target: string) => ({ filePath: target }),
+    file: ".env",
+    inside: true,
+  },
+] as const)(
+  "hard-denies the OpenCode ask for $name without the judge (CTX-846, CTX-852)",
   { timeout: 60_000 },
-  async () => {
-    // By default, OpenCode asks before it touches a path outside its
-    // directory. The chat config denies such a path, so OpenCode refuses the
-    // call at once and the model gets the refusal as a tool result.
-    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-"))
-    const outside = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-"))
-    const target = join(outside, "idle-probe.txt")
+  async ({ ask, tool, args, file, inside }) => {
+    // OpenCode asks before it touches a path outside its directory or reads
+    // a .env file. The chat config keeps both asks, and the real chat
+    // handler refuses them at once without the judge. Without an answer,
+    // the turn waits until it is cancelled.
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-")),
+    )
+    const outside = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-")),
+    )
+    const target = join(inside ? directory : outside, file)
+    if (inside) await writeFile(target, "SECRET_PROBE=1\n")
+    const judgeCalls: string[] = []
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      judge: async (toolName) => {
+        judgeCalls.push(toolName)
+        return "allow"
+      },
+    })
+    const asks: OpencodePermissionRequest[] = []
+    const answers: string[] = []
     const bodies: string[] = []
     const model = createServer((request, response) => {
       if (request.url !== "/model/v1/chat/completions") {
@@ -551,11 +584,8 @@ it(
                     id: "call_outside",
                     type: "function",
                     function: {
-                      name: "write",
-                      arguments: JSON.stringify({
-                        filePath: target,
-                        content: "idle-probe\n",
-                      }),
+                      name: tool,
+                      arguments: JSON.stringify(args(target)),
                     },
                   },
                 ],
@@ -602,10 +632,15 @@ it(
           providerID: "synthetic",
           modelID: "probe",
           onEvent: () => undefined,
-          onPermissionRequest: () => "reject",
+          onPermissionRequest: async (request) => {
+            asks.push(request)
+            const reply = await handler(request)
+            answers.push(reply)
+            return reply
+          },
         })
         const reply = await Promise.race([
-          session.prompt(`Create ${target}.`),
+          session.prompt(`Use ${target}.`),
           new Promise<"hung">((resolve) => {
             timer = setTimeout(() => resolve("hung"), 20_000)
           }),
@@ -616,18 +651,13 @@ it(
         await session?.dispose()
         await server.dispose()
       }
-      // The model got the refusal as the result of its tool call.
-      const toolResults = bodies.flatMap((body) =>
-        (
-          JSON.parse(body) as {
-            messages: Array<{ role: string; content: unknown }>
-          }
-        ).messages.filter((message) => message.role === "tool"),
-      )
-      expect(JSON.stringify(toolResults)).toMatch(
-        /prevents you from using this specific tool call/,
-      )
-      await expect(readFile(target, "utf8")).rejects.toThrow()
+      expect(asks).toEqual([expect.objectContaining({ type: ask })])
+      expect(answers).toEqual(["reject"])
+      expect(judgeCalls).toEqual([])
+      // "reject" stops the turn: the model never gets the tool result.
+      expect(bodies.filter((body) => body.includes("call_outside"))).toEqual([])
+      expect(bodies.join("\n")).not.toContain("SECRET_PROBE")
+      if (!inside) await expect(readFile(target, "utf8")).rejects.toThrow()
     } finally {
       clearTimeout(timer)
       model.closeAllConnections()
@@ -657,6 +687,14 @@ it.each([
     judged: true,
   },
   {
+    // The handler stops waiting for the judge after 10 s.
+    name: "the judge does not answer",
+    file: "notes.md",
+    judge: () => new Promise<"allow">(() => {}),
+    answer: "reject",
+    judged: true,
+  },
+  {
     name: "a hard deny matches the tool input",
     file: "auth_secret.md",
     judge: async () => "allow" as const,
@@ -664,14 +702,15 @@ it.each([
     judged: false,
   },
 ] as const)(
-  "sends the OpenCode 1.18 doom_loop ask to the chat permission handler when $name",
+  "sends the OpenCode doom_loop ask of its own session to the chat permission handler when $name",
   { timeout: 60_000 },
   async ({ file, judge, answer, judged }) => {
-    // OpenCode 1.18 asks with `permission.asked` and takes the answer at
+    // OpenCode asks with `permission.asked` and takes the answer at
     // `POST /permission/{requestID}/reply`. The chat config keeps OpenCode's
     // "ask" for doom_loop: three same calls of one tool in one step. The
     // real workspace chat handler must get the ask, and OpenCode must apply
     // its answer. Without an answer, the turn waits until it is cancelled.
+    // A second session on the same server must not get the ask.
     // OpenCode resolves its directory through symlinks (macOS /var is one).
     const directory = await realpath(
       await mkdtemp(join(tmpdir(), "ctxpipe-opencode-ask-")),
@@ -732,6 +771,7 @@ it.each([
     })
     const asks: OpencodePermissionRequest[] = []
     const answers: string[] = []
+    const bystanderAsks: OpencodePermissionRequest[] = []
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise<void>((resolve) =>
@@ -756,7 +796,20 @@ it.each([
         cwd: ".",
       })
       let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      let bystander:
+        | Awaited<ReturnType<typeof startOpencodeSession>>
+        | undefined
       try {
+        bystander = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: () => undefined,
+          onPermissionRequest: (request) => {
+            bystanderAsks.push(request)
+            return "once"
+          },
+        })
         session = await startOpencodeSession({
           baseUrl: server.baseUrl,
           providerID: "synthetic",
@@ -779,8 +832,10 @@ it.each([
       } finally {
         await session?.abort()
         await session?.dispose()
+        await bystander?.dispose()
         await server.dispose()
       }
+      expect(bystanderAsks).toEqual([])
       expect(asks).toEqual([
         expect.objectContaining({
           type: "doom_loop",
