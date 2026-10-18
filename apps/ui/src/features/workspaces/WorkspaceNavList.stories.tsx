@@ -176,7 +176,8 @@ export const LoadFailsCollapsed: Story = {
     })
     listReadFails = false
     await userEvent.click(retry)
-    await canvas.findByRole("link", {
+    // The row has two links with this name: the title and the compose link.
+    await canvas.findAllByRole("link", {
       name: `New conversation in ${docsWorkspace.displayName}`,
     })
     await waitFor(() =>
