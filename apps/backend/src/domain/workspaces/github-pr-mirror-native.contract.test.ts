@@ -579,3 +579,86 @@ it(
     )
   },
 )
+
+it(
+  "enqueues the backfill of a new link when hydrate retries after it records the source row",
+  { timeout: 120_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        namespaceId: openWorkflowNamespaceId(),
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: FILES,
+      },
+      async (f) => {
+        serveSourceGraphql(f, { merged: [7], pageSize: 20 })
+        // Postgres refuses the first backfill that hydrate enqueues. The
+        // projection wrote the source row before, so the retry sees the link
+        // as known. A sequence is not transactional, so the retry passes.
+        const { Pool } = await import("pg")
+        const { ownerUrlForMigrate } = await import(
+          "../../db/owner-migrate-url.js"
+        )
+        const owner = new Pool({
+          connectionString: ownerUrlForMigrate(f.databaseUrl),
+        })
+        const fault = `ctx761_fault_${f.id.replace(/[^a-z0-9]/gi, "_")}`
+        await owner.query(`
+          create sequence public.${fault}_seq;
+          create function public.${fault}() returns trigger
+          language plpgsql as $$
+          begin
+            if new.workflow_name = 'github-sync-pull-request'
+              and new.input->>'workspaceId' = '${f.workspaceId}'
+              and nextval('public.${fault}_seq') = 1 then
+              raise exception 'Backfill admission is unavailable one time';
+            end if;
+            return new;
+          end $$;
+          create trigger ${fault} before insert on openworkflow.workflow_runs
+            for each row execute function public.${fault}();
+        `)
+        try {
+          await f.worker.start()
+          await f.handle.result({ timeoutMs: 60_000 })
+        } finally {
+          await owner.query(`
+            drop trigger ${fault} on openworkflow.workflow_runs;
+            drop function public.${fault}();
+            drop sequence public.${fault}_seq;
+          `)
+          await owner.end()
+        }
+        const steps = (
+          await f.backend.listStepAttempts({
+            workflowRunId: f.handle.workflowRun.id,
+            limit: 1000,
+          })
+        ).data
+        expect(
+          steps
+            .filter((step) => step.status === "failed")
+            .map((step) => step.stepName),
+        ).toEqual(["enqueue-github-pr-backfills"])
+        const backfills = (
+          await f.backend.listWorkflowRuns({ limit: 200 })
+        ).data.filter(
+          (run) =>
+            run.workflowName === "github-sync-pull-request" &&
+            (run.input as { workspaceId?: string }).workspaceId ===
+              f.workspaceId,
+        )
+        try {
+          expect(backfills.map((run) => run.input)).toEqual([
+            { orgId: f.org.id, workspaceId: f.workspaceId, gitUrl: SOURCE_URL },
+          ])
+        } finally {
+          for (const run of backfills)
+            await cancelWorkflowRunIfOpen(f.backend, run.id)
+        }
+      },
+    )
+  },
+)

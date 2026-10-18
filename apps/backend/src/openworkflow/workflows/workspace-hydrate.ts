@@ -541,26 +541,29 @@ export function defineWorkspaceHydrateWorkflow() {
               })
 
               let activated = !pending.postgres
-              let newGithubLinks: string[] = []
+              // A step before the sources projection writes the rows. A retry
+              // after the projection sees the links as known and its live
+              // `pending` as done, so only this memoized output still names
+              // the new links. The enqueue waits for the projection below
+              // (CTX-761).
+              const newGithubLinks = planning.needed
+                ? await step.run(
+                    { name: "find-new-github-pr-links" },
+                    async () => {
+                      // Import at the admission boundary: the mirror enqueues hydrate.
+                      const { newGithubPrBackfillLinks } = await import(
+                        "./github-sync-pull-request.js"
+                      )
+                      return newGithubPrBackfillLinks({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                        workspaceUrl: revision.remote.url,
+                        gitUrls: parsed.linked.map((remote) => remote.git),
+                      })
+                    },
+                  )
+                : []
               if (pending.postgres) {
-                // Before the sources projection changes the pinned state, so a
-                // replay still sees which GitHub links are new. The enqueue
-                // waits for the projection below (CTX-761).
-                newGithubLinks = await step.run(
-                  { name: "find-new-github-pr-links" },
-                  async () => {
-                    // Import at the admission boundary: the mirror enqueues hydrate.
-                    const { newGithubPrBackfillLinks } = await import(
-                      "./github-sync-pull-request.js"
-                    )
-                    return newGithubPrBackfillLinks({
-                      orgId: input.orgId,
-                      workspaceId: workspace.id,
-                      workspaceUrl: revision.remote.url,
-                      gitUrls: parsed.linked.map((remote) => remote.git),
-                    })
-                  },
-                )
                 const formatVersion = workspaceFormatCache({
                   text: formatFile,
                   paths: treePaths,
@@ -661,23 +664,24 @@ export function defineWorkspaceHydrateWorkflow() {
                     })
                   },
                 )
-                // After the projection: a backfill stamps each file with the
-                // source file of its repository, which it reads from the rows.
-                if (newGithubLinks.length)
-                  await step.run(
-                    { name: "enqueue-github-pr-backfills" },
-                    async () => {
-                      const { enqueueGithubPrBackfills } = await import(
-                        "./github-sync-pull-request.js"
-                      )
-                      await enqueueGithubPrBackfills({
-                        orgId: input.orgId,
-                        workspaceId: workspace.id,
-                        gitUrls: newGithubLinks,
-                      })
-                    },
-                  )
               }
+              // After the projection: a backfill stamps each file with the
+              // source file of its repository, which it reads from the rows.
+              // Only memoized output gates it, so a retry still enqueues.
+              if (activated && newGithubLinks.length)
+                await step.run(
+                  { name: "enqueue-github-pr-backfills" },
+                  async () => {
+                    const { enqueueGithubPrBackfills } = await import(
+                      "./github-sync-pull-request.js"
+                    )
+                    await enqueueGithubPrBackfills({
+                      orgId: input.orgId,
+                      workspaceId: workspace.id,
+                      gitUrls: newGithubLinks,
+                    })
+                  },
+                )
 
               if (activated && pending.graph) {
                 try {
