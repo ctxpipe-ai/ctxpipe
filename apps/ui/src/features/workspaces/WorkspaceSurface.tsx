@@ -4,14 +4,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate, useRouterState, useSearch } from "@tanstack/react-router"
-import {
-  Component,
-  type ReactNode,
-  useCallback,
-  useEffect,
-  useRef,
-  useState,
-} from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { useSideNavLocation } from "@/components/ShellLayoutContext"
 import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
@@ -54,7 +47,7 @@ import {
   WorkspaceHydrateProgress,
 } from "./WorkspaceHydrateProgress"
 import { WorkspacePane, WorkspacePaneTriggers } from "./WorkspacePane"
-import { WorkspaceRouteError } from "./WorkspaceRouteError"
+import { WorkspaceQueryErrorBoundary } from "./WorkspaceQueryErrorBoundary"
 import { workspaceChatColumnClassName } from "./workspaceChrome"
 import { WorkspaceSurfaceSkeleton } from "./workspaceSkeletons"
 import { WriteCheckStallContext } from "./writeCheckStall"
@@ -101,37 +94,6 @@ export function WorkspaceSurface(props: {
       </WorkspaceQueryErrorBoundary>
     </SkeletonRegion>
   )
-}
-
-class WorkspaceQueryErrorBoundary extends Component<
-  {
-    children: ReactNode
-    fallback?: (error: unknown, reset: () => void) => ReactNode
-  },
-  { error: unknown }
-> {
-  state: { error: unknown } = { error: null }
-
-  static getDerivedStateFromError(error: unknown) {
-    return { error }
-  }
-
-  render() {
-    if (this.state.error) {
-      if (this.props.fallback) {
-        return this.props.fallback(this.state.error, () =>
-          this.setState({ error: null }),
-        )
-      }
-      return (
-        <WorkspaceRouteError
-          error={this.state.error}
-          reset={() => this.setState({ error: null })}
-        />
-      )
-    }
-    return this.props.children
-  }
 }
 
 function WorkspaceColumnError(props: {

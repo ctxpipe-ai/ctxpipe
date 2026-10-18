@@ -4,7 +4,7 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { ownershipMigrationFiles } from "../ingestion/ownership-migration.js"
 import { planSourcesConversion } from "../workspace-sources/convert-to-files.js"
-import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
+import { repositorySourcePathsAtRevision } from "../workspace-sources/github-sources.js"
 import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { bootstrapWorkspaceFiles } from "../workspaces/bootstrap.js"
@@ -114,7 +114,7 @@ export const ownershipMigrationStep: GitUpgradeStep = {
       ownershipMigrationFiles({
         workspaceRepositoryUrl: workspace.url,
         // The projection decides which source file owns a repository.
-        sourcePaths: githubSourcePathsByRepository(
+        sourcePaths: repositorySourcePathsAtRevision(
           sourceFiles,
           await listWorkspaceSourceRows({
             orgId: ctx.orgId,

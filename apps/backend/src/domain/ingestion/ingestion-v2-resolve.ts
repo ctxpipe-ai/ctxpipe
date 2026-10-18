@@ -5,9 +5,12 @@ import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listOrgWorkspaces } from "../../models/workspaces.js"
-import { githubSourcePaths } from "../workspace-sources/github-sources.js"
+import {
+  PlainGitUrlError,
+  resolvePlainGitRemote,
+} from "../../services/git/plain-git-remote.js"
+import { repositorySourcePaths } from "../workspace-sources/github-sources.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import type { IngestDestination } from "./ingest-shard-runtime.js"
 import type { IngestionV2Input } from "./ingestion-run.js"
 import { ingestionV2EnabledFor } from "./ingestion-v2-config.js"
@@ -16,8 +19,9 @@ export type IngestionV2Resolution =
   | {
       skipped:
         | "source_is_workspace"
-        | "not_github"
         | "no_destination"
+        // A plain git URL that the DNS check refuses (CTX-815).
+        | "refused_url"
         // Each destination is below format 3: the run publishes nothing.
         | "upgrade_needed"
     }
@@ -32,9 +36,10 @@ export type IngestionV2Resolution =
 /**
  * The `resolve` step (concept sections 2 and 4.1): the destination Workspaces
  * of the source, each with the binding generation and the default-branch
- * commit that the run pins. A destination is a Workspace with an `ok` GitHub
- * source file under `sources/` that names the source repository (ADR-050
- * revision 2026-10-16). The path of that file is the `sourcePath` of the
+ * commit that the run pins. A destination is a Workspace with an `ok` source
+ * file under `sources/` that names the source repository (ADR-050 revision
+ * 2026-10-16): a GitHub source file for a GitHub source, and a plain git
+ * source file (`sources/git/...`, CTX-815) for a plain git source. The path of that file is the `sourcePath` of the
  * destination: each file that the run owns lists it in `sources`. An entry
  * of `.ctxpipe/sources.yaml` has no source path, so it makes no destination;
  * the conversion (CTX-744) gives the Workspace its source files. The run
@@ -46,8 +51,22 @@ export async function resolveIngestionV2Run(
   input: Pick<IngestionV2Input, "orgId" | "source" | "shadow" | "destinations">,
 ): Promise<IngestionV2Resolution> {
   const sourceUrl = normalizeWorkspaceRepositoryUrl(input.source.url)
-  if (!githubRepoFullNameFromWorkspaceUrl(sourceUrl))
-    return { skipped: "not_github" }
+  // A GitHub source needs a GitHub source file, and a plain git source a
+  // plain git source file: a GitHub source file gives a connection that a
+  // plain git run never uses.
+  const provider = input.source.kind === "git" ? "git" : "github"
+  // A plain git host must resolve only to public addresses before any read
+  // of the run: the codesearch index, the host source tree, or the sandbox.
+  if (input.source.kind === "git") {
+    const refused = await resolvePlainGitRemote(input.source.url).then(
+      () => false,
+      (error: unknown) => {
+        if (error instanceof PlainGitUrlError) return true
+        throw error
+      },
+    )
+    if (refused) return { skipped: "refused_url" }
+  }
   const orgWorkspaces = await withOrgDbContext(input.orgId, () =>
     listOrgWorkspaces(input.orgId),
   )
@@ -74,7 +93,7 @@ export async function resolveIngestionV2Run(
           .from(workspaceSources)
           .where(
             and(
-              eq(workspaceSources.provider, "github"),
+              eq(workspaceSources.provider, provider),
               eq(workspaceSources.status, "ok"),
             ),
           ),
@@ -84,7 +103,7 @@ export async function resolveIngestionV2Run(
       ]),
   )
   const sourcePath = (workspaceId: string) =>
-    githubSourcePaths(
+    repositorySourcePaths(
       sourceRows.filter((row) => row.workspaceId === workspaceId),
     ).get(sourceUrl)
   const repositoryId = (url: string) =>

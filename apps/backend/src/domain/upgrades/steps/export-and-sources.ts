@@ -5,6 +5,10 @@ import {
   type RepositoryWorkspaceMaps,
 } from "../../../models/workspace-export.js"
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
+import {
+  PlainGitUrlError,
+  resolvePlainGitRemote,
+} from "../../../services/git/plain-git-remote.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
 import { SourceChangeError } from "../../workspace-sources/edit.js"
 import { githubSourceRepositories } from "../../workspace-sources/github-sources.js"
@@ -13,6 +17,15 @@ import {
   SOURCE_MIGRATION_HOOKS,
   type SourceMigrationHook,
 } from "../../workspace-sources/migration-plan.js"
+import { sourceRepositoryUrls } from "../../workspace-sources/providers/git.js"
+import {
+  gitSourcePath,
+  SOURCE_FILES_FOLDER,
+} from "../../workspace-sources/source-file.js"
+import {
+  parseSourceFile,
+  renderSourceFile,
+} from "../../workspace-sources/source-file-text.js"
 import {
   SOURCES_FILE_PATH,
   type SourceProvider,
@@ -49,8 +62,9 @@ import type {
  * files. People and MCP clients could not write knowledge on main.
  *
  * - `kept`: nothing makes this knowledge again, so step 1 exports it:
- *   - `not_github`: an org repository that is not on GitHub. Fresh ingestion
- *     reads only GitHub sources.
+ *   - `not_github`: an org repository that is not on GitHub and that no
+ *     plain git source links (its URL is not a public HTTPS git URL, see
+ *     `resolvePlainGitRemote`). Fresh ingestion cannot read it.
  *   - `not_linked`: a GitHub repository that the final sources file does
  *     not link.
  *   - `workspace_repository`: an object of the repository of a Workspace
@@ -59,8 +73,9 @@ import type {
  *     makes objects only from Markdown files.
  *   - `codeowners`: a team from a CODEOWNERS file (`team:github:` key).
  *     Hydrate does not make it, and it has no org repository.
- * - `github`: a GitHub repository that the final sources file links. The
- *   re-ingestion upgrade makes its knowledge again (ADR-053 section 5).
+ * - `github`: a repository that a GitHub source or a plain git source of
+ *   the Workspace links (CTX-815). The re-ingestion upgrade makes its
+ *   knowledge again (ADR-053 section 5).
  * - `workspace`: an object of the repository of a Workspace that a Markdown
  *   file of the Workspace backs. Hydrate makes it again from that file.
  * - `no_repository`: no org repository. These are connector items (Linear
@@ -89,7 +104,7 @@ export function legacyKnowledgeOrigin(input: {
   markdownBacked: boolean
   workspaceByRepositoryId: ReadonlyMap<string, string>
   repositoryGitUrlById: ReadonlyMap<string, string>
-  /** The normalized GitHub URLs that the final sources file links. */
+  /** The normalized URLs that the final GitHub and plain git sources link. */
   linkedGitUrls: ReadonlySet<string>
 }): LegacyKnowledgeOrigin {
   const key = input.object.deduplicationKey?.trim() ?? ""
@@ -111,16 +126,16 @@ export function legacyKnowledgeOrigin(input: {
     return repositoryId?.startsWith("repo_")
       ? { kind: "deleted_repository" }
       : { kind: "no_repository" }
+  if (input.linkedGitUrls.has(normalizeWorkspaceRepositoryUrl(gitUrl)))
+    return { kind: "github" }
   if (!githubRepoFullNameFromWorkspaceUrl(gitUrl))
     return { kind: "kept", from: gitUrl, reason: "not_github" }
-  return input.linkedGitUrls.has(normalizeWorkspaceRepositoryUrl(gitUrl))
-    ? { kind: "github" }
-    : { kind: "kept", from: gitUrl, reason: "not_linked" }
+  return { kind: "kept", from: gitUrl, reason: "not_linked" }
 }
 
 const KEPT_REASONS = {
   not_github:
-    "Fresh ingestion reads only GitHub repositories, so it cannot make them again.",
+    "Fresh ingestion reads only GitHub repositories and public HTTPS git repositories, so it cannot make them again.",
   not_linked: `\`${SOURCES_FILE_PATH}\` does not link this repository, so fresh ingestion cannot make them again.`,
   workspace_repository:
     "This is the Workspace repository and no Markdown file of the Workspace holds them. Ingestion v2 does not ingest it, and hydrate makes items only from Markdown files, so nothing makes them again.",
@@ -136,6 +151,7 @@ const PROVIDER_NAMES: Record<SourceProvider, string> = {
   confluence: "Confluence",
   pagerduty: "PagerDuty",
   buildkite: "Buildkite",
+  git: "Git",
 }
 
 /** The connection scopes: the source entries from the connection settings. */
@@ -346,16 +362,69 @@ export async function formatOneLinkedRepositories(input: {
         gitUrl,
         source.repositoryConnectionById.get(id) ?? null,
       )
+  // A repository with a GitHub connection becomes a GitHub source. Each
+  // other repository becomes a plain git source when its URL passes every
+  // plain git rule, also the DNS rule (`resolvePlainGitRemote`), as the old
+  // ingestion on main read it with no credential (CTX-815). A refused URL is
+  // not linked, so step 1 keeps its knowledge and exports it.
+  const viaGithub = (gitUrl: string) =>
+    !!connectionByUrl.get(gitUrl) &&
+    !!githubRepoFullNameFromWorkspaceUrl(gitUrl)
   const linkedRepositories = upgradeLinkedRepositories({
     sourcesFile: input.sourcesFile,
     connectionId: input.connectionId,
     files: input.repositoryFiles,
-    repositories: linkedUrls.map((gitUrl) => ({
+    repositories: linkedUrls.filter(viaGithub).map((gitUrl) => ({
       gitUrl,
       connectionId: connectionByUrl.get(gitUrl) ?? null,
     })),
   })
-  return { linkedUrls, linkedRepositories }
+  const plainGit: Array<{ gitUrl: string; url: string }> = []
+  const plainGitRefused: Array<{ gitUrl: string; reason: string }> = []
+  for (const gitUrl of linkedUrls) {
+    if (viaGithub(gitUrl)) continue
+    try {
+      const remote = await resolvePlainGitRemote(gitUrl)
+      plainGit.push({ gitUrl, url: remote.url })
+    } catch (error) {
+      if (!(error instanceof PlainGitUrlError)) throw error
+      plainGitRefused.push({ gitUrl, reason: error.message })
+    }
+  }
+  return { linkedUrls, linkedRepositories, plainGit, plainGitRefused }
+}
+
+/**
+ * The plain git source files that step 1 adds: one for each plain git
+ * repository that no source file of the tree names yet. A file that already
+ * names the URL (also at another path) stays, so a plan on its own output
+ * changes nothing.
+ */
+async function plainGitSourceFiles(input: {
+  tree: UpgradeTreeReader
+  plainGit: ReadonlyArray<{ url: string }>
+}): Promise<Array<{ path: string; url: string }>> {
+  const sourcePaths = input.tree
+    .paths()
+    .filter((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`))
+  const named = new Set<string>()
+  for (const path of sourcePaths) {
+    const parsed = parseSourceFile(path, (await input.tree.read(path)) ?? "")
+    if (parsed.ok)
+      for (const url of sourceRepositoryUrls(parsed.source)) named.add(url)
+  }
+  const taken = new Set(sourcePaths)
+  const added: Array<{ path: string; url: string }> = []
+  for (const { url } of input.plainGit) {
+    const key = normalizeWorkspaceRepositoryUrl(url)
+    if (named.has(key)) continue
+    const path = gitSourcePath(url, taken)
+    if (!path) continue
+    named.add(key)
+    taken.add(path)
+    added.push({ path, url })
+  }
+  return added
 }
 
 export function exportAndSourcesStep(
@@ -393,7 +462,7 @@ export function exportAndSourcesStep(
           })),
       )
       const source = await loadKnowledgeProjectionSource()
-      const { linkedUrls, linkedRepositories } =
+      const { linkedUrls, linkedRepositories, plainGit, plainGitRefused } =
         await formatOneLinkedRepositories({
           workspaceId: ctx.workspaceId,
           connectionId,
@@ -445,7 +514,17 @@ export function exportAndSourcesStep(
         report.push(`Removed \`${path}\`: its repository is now a source.`)
       for (const skipped of linkedRepositories.skipped)
         report.push(`Not linked: ${skipped.item}. ${skipped.reason}.`)
-      if (linkedRepositories.skipped.length)
+      // Plain git repositories: one source file for each (CTX-815).
+      const plainGitFiles = await plainGitSourceFiles({ tree, plainGit })
+      for (const file of plainGitFiles)
+        report.push(
+          `Linked ${file.url} as a plain git source in \`${file.path}\`. Fresh ingestion reads it over HTTPS with no credential.`,
+        )
+      for (const refused of plainGitRefused)
+        report.push(
+          `Not linked: ${refused.gitUrl}. ctx| does not read it as a plain git source: ${refused.reason.replace(/\.$/, "")}. ctx| keeps its knowledge and exports it.`,
+        )
+      if (linkedRepositories.skipped.length || plainGitRefused.length)
         notices.push({
           kind: "risk",
           text: "ctx| could not link some repositories as sources. Fresh ingestion does not read them.",
@@ -485,6 +564,8 @@ export function exportAndSourcesStep(
       } catch (error) {
         if (!(error instanceof SourceChangeError)) throw error
       }
+      for (const { url } of plainGit)
+        linkedGitUrls.add(normalizeWorkspaceRepositoryUrl(url))
       // Hydrate makes an object again only from a Markdown file that is in
       // the tree after this step: a moved file stays, a deleted one does not.
       const treePaths = new Set(tree.paths())
@@ -597,7 +678,7 @@ export function exportAndSourcesStep(
           text: "ctx| removed some links between knowledge items, because this Workspace does not get their target.",
         })
       report.push(
-        `Not exported, because ctx| makes it again: ${counts.github} item(s) from GitHub repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
+        `Not exported, because ctx| makes it again: ${counts.github} item(s) from source repositories (the re-ingestion upgrade), ${counts.workspace} item(s) from Workspace repositories and ${counts.no_repository} connector item(s) (hydrate makes Workspace items again from their Markdown files, and fresh ingestion of the connector sources fetches connector items again).`,
       )
 
       if (counts.deleted_repository) {
@@ -614,6 +695,19 @@ export function exportAndSourcesStep(
       if (sourcesText !== null && sourcesText !== sourcesFile)
         writes.push({ path: SOURCES_FILE_PATH, content: sourcesText })
       writes.push(...connectors.writes)
+      for (const file of plainGitFiles)
+        writes.push({
+          path: file.path,
+          content: renderSourceFile(
+            {
+              path: file.path,
+              provider: "git",
+              connectionId: null,
+              scope: { url: file.url },
+            },
+            "",
+          ),
+        })
       return {
         writes,
         deletes: [...linkedRepositories.deletePaths, ...connectors.deletes],

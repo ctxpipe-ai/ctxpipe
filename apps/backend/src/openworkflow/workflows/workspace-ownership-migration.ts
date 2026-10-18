@@ -1,5 +1,5 @@
 import { ownershipMigrationFiles } from "../../domain/ingestion/ownership-migration.js"
-import { githubSourcePathsByRepository } from "../../domain/workspace-sources/github-sources.js"
+import { repositorySourcePathsAtRevision } from "../../domain/workspace-sources/github-sources.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
 import { defineKnowledgeRewriteWorkflow } from "./workspace-knowledge-rewrite.js"
@@ -19,7 +19,7 @@ export const workspaceOwnershipMigration = defineKnowledgeRewriteWorkflow({
   transform: async (files, revision, sourceFiles, orgId) =>
     ownershipMigrationFiles({
       workspaceRepositoryUrl: revision.remote.url,
-      sourcePaths: githubSourcePathsByRepository(
+      sourcePaths: repositorySourcePathsAtRevision(
         sourceFiles,
         await listWorkspaceSourceRows({
           orgId,

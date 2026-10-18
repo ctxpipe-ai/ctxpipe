@@ -148,6 +148,7 @@ async function runStep(
         shard: 2,
         bundle: "bundle-1",
         source: {
+          kind: "github" as const,
           url: "https://github.com/example-org/shop",
           githubConnectionId: "con_source",
           sha: "a".repeat(40),

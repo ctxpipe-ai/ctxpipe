@@ -103,7 +103,11 @@ it("counts changed foreign files from the run base and pins the old published co
     input: {
       orgId: "org_fixture",
       shadow: true,
-      source: { url: source, githubConnectionId: "con_fixture" },
+      source: {
+        kind: "github" as const,
+        url: source,
+        githubConnectionId: "con_fixture",
+      },
       sha: "c".repeat(40),
       authorTime: "2026-10-01T00:00:00.000Z",
     },

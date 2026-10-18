@@ -1,5 +1,5 @@
 import { ownershipMigrationFiles } from "../ingestion/ownership-migration.js"
-import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
+import { repositorySourcePathsAtRevision } from "../workspace-sources/github-sources.js"
 import type {
   PreviousSourceRow,
   SourceFileBlob,
@@ -93,7 +93,7 @@ export async function planHydrateWrites(input: {
     ops_folder_map: removeFolderMapMarkers(agentsMd) === agentsMd ? 0 : 1,
     ownership_migration: ownershipMigrationFiles({
       workspaceRepositoryUrl: input.revision.remote.url,
-      sourcePaths: githubSourcePathsByRepository(
+      sourcePaths: repositorySourcePathsAtRevision(
         input.sourceFiles,
         input.sourceRows,
       ),

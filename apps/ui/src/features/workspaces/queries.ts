@@ -11,6 +11,7 @@ import type {
 import { getApiClient } from "@/lib/api"
 import {
   ApiError,
+  apiFetch,
   pollWhileOk,
   readApiJson,
   retryQuery,
@@ -173,10 +174,19 @@ export async function prepareWorkspaceChat(
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.conversations[
     ":conversationId"
-  ].prepare.$post({
-    param: { orgSlug, conversationId },
-    json: { workspaceId },
-  })
+  ].prepare.$post(
+    {
+      param: { orgSlug, conversationId },
+      json: { workspaceId },
+    },
+    {
+      // The answer comes when the sandbox is ready. A new hosted sandbox
+      // takes 40 seconds or more, which is longer than the default timeout.
+      // The backend closes an idle connection after 255 seconds.
+      fetch: (input: RequestInfo | URL, init?: RequestInit) =>
+        apiFetch(input, { ...init, timeoutMs: 240_000 }),
+    },
+  )
   if (!res.ok) {
     // The server explains refusals people can act on (e.g. at capacity).
     const body = (await res.json().catch(() => null)) as {

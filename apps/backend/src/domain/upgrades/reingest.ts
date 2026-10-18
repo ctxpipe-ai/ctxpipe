@@ -1,5 +1,5 @@
 import { gunzipSync } from "node:zlib"
-import { and, eq, sql } from "drizzle-orm"
+import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -8,8 +8,15 @@ import {
   INGEST_SHARD_MAX_ROOTS,
   plannedIngestSkills,
 } from "../ingestion/ingestion-plan.js"
-import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
+import {
+  INGESTION_V2_WORKFLOW_NAME,
+  type IngestSource,
+} from "../ingestion/ingestion-run.js"
 import { ingestionV2EnabledFor } from "../ingestion/ingestion-v2-config.js"
+import {
+  gitSourceScopeUrl,
+  sourceRepositoryName,
+} from "../workspace-sources/providers/git.js"
 import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
@@ -23,7 +30,8 @@ import {
 
 /*
  * The fresh re-ingestion upgrade (ADR-053 section 5, CTO decision G1). It
- * runs ingestion v2 again for each GitHub source repository of a Workspace.
+ * runs ingestion v2 again for each source repository of a Workspace: each
+ * GitHub source repository, and each plain git source repository (CTX-815).
  * An owner or admin starts it after the UI shows the estimate. Nothing
  * starts it automatically.
  */
@@ -94,16 +102,31 @@ export function ingestSandboxUnavailable(
 }
 
 export type ReingestRepository = {
-  /** `owner/name`. */
+  /** `owner/name` for GitHub; `<host>/<path>` for plain git (`sourceRepositoryName`). */
   repository: string
   url: string
-  githubConnectionId: string
+  /** Null for a plain git repository, which ctx| reads with no credential. */
+  githubConnectionId: string | null
+}
+
+/** The ingestion source of a re-ingestion repository. */
+export function reingestSource(repository: {
+  url: string
+  githubConnectionId: string | null
+}): IngestSource {
+  return repository.githubConnectionId
+    ? {
+        kind: "github",
+        url: repository.url,
+        githubConnectionId: repository.githubConnectionId,
+      }
+    : { kind: "git", url: repository.url }
 }
 
 /**
- * The GitHub source repositories of a Workspace: each repository of a valid
- * GitHub source (`status` ok), once, sorted. Call it outside an org
- * transaction.
+ * The source repositories of a Workspace: each repository of a valid GitHub
+ * source and each URL of a valid plain git source (`status` ok), once,
+ * sorted. Call it outside an org transaction.
  */
 export async function workspaceSourceRepositories(
   orgId: string,
@@ -112,6 +135,7 @@ export async function workspaceSourceRepositories(
   const rows = await withOrgDbContext(orgId, (db) =>
     db
       .select({
+        provider: workspaceSources.provider,
         connectionId: workspaceSources.connectionId,
         scope: workspaceSources.scope,
       })
@@ -119,13 +143,24 @@ export async function workspaceSourceRepositories(
       .where(
         and(
           eq(workspaceSources.workspaceId, workspaceId),
-          eq(workspaceSources.provider, "github"),
+          inArray(workspaceSources.provider, ["github", "git"]),
           eq(workspaceSources.status, "ok"),
         ),
       ),
   )
   const found = new Map<string, ReingestRepository>()
   for (const row of rows) {
+    if (row.provider === "git") {
+      const url = gitSourceScopeUrl(row.scope)
+      const repository = url ? sourceRepositoryName(url) : null
+      if (!url || !repository || found.has(repository.toLowerCase())) continue
+      found.set(repository.toLowerCase(), {
+        repository,
+        url,
+        githubConnectionId: null,
+      })
+      continue
+    }
     if (!row.connectionId) continue
     // A source file (`sources/github/...`, format 2 and up) has one
     // `repository`; a `.ctxpipe/sources.yaml` entry has `repositories`.
