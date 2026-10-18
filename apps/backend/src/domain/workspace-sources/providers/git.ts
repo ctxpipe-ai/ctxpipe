@@ -62,7 +62,8 @@ export type PlainGitDeployment = "hosted" | "self-host"
 
 /**
  * The deployment mode of the plain git URL policy. Only
- * `SANDBOX_PROVIDER=docker`, exactly, is self-host. Each other value
+ * `SANDBOX_PROVIDER=docker` is self-host. Spaces around the value are
+ * removed, as `lockedSandboxProvider` does. Each other value
  * (`vercel`, `unsandboxed`, or no value) gets the strict rule of hosted.
  * The UI has no `process`, so this function gives the strict rule there.
  * The UI does not use it to judge a plain git URL: the UI has no editor
@@ -72,7 +73,7 @@ export type PlainGitDeployment = "hosted" | "self-host"
 export function plainGitDeployment(
   env: Record<string, string | undefined> = globalThis.process?.env ?? {},
 ): PlainGitDeployment {
-  return env.SANDBOX_PROVIDER === "docker" ? "self-host" : "hosted"
+  return env.SANDBOX_PROVIDER?.trim() === "docker" ? "self-host" : "hosted"
 }
 
 /** What a plain git URL may use. */

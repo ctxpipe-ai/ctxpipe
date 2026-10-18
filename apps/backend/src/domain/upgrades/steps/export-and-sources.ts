@@ -7,6 +7,7 @@ import {
 import { listOrgLinkedRepositories } from "../../../models/workspaces.js"
 import {
   PlainGitUrlError,
+  plainGitRefusalReason,
   resolvePlainGitRemote,
 } from "../../../services/git/plain-git-remote.js"
 import { isConnectorMirrorPath } from "../../codeIngestion/connectorMirrorPaths.js"
@@ -388,7 +389,7 @@ export async function formatOneLinkedRepositories(input: {
       plainGit.push({ gitUrl, url: remote.url })
     } catch (error) {
       if (!(error instanceof PlainGitUrlError)) throw error
-      plainGitRefused.push({ gitUrl, reason: error.message })
+      plainGitRefused.push({ gitUrl, reason: plainGitRefusalReason(error) })
     }
   }
   return { linkedUrls, linkedRepositories, plainGit, plainGitRefused }

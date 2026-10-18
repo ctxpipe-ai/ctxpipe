@@ -51,6 +51,7 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
       "github.com": "140.82.112.3",
       "metadata.example.org": "169.254.169.254",
       "metadata.internal": "169.254.170.2",
+      "private.example.org": "10.1.2.3",
     }
     usePlainGitNetwork({
       lookup: async (host) =>
@@ -268,6 +269,20 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
       "ssh (git@… or ssh://), git:// and file:// are not supported",
     )
     expect(await rowsWithUrl(gitUrl)).toEqual([])
+  })
+
+  it("hosted: gives one message for a host with no address and a host with a private address", async () => {
+    const refusal = async (host: string) => {
+      const gitUrl = `https://${host}/team/app.git`
+      const res = await create(gitUrl)
+      const text = await res.text()
+      expect(res.status, text).toBe(400)
+      expect(await rowsWithUrl(gitUrl)).toEqual([])
+      return (JSON.parse(text).error as string).replaceAll(host, "<host>")
+    }
+    const none = await refusal("nothing.example.org")
+    expect(none).toContain("are not supported")
+    expect(await refusal("private.example.org")).toBe(none)
   })
 
   it.each([

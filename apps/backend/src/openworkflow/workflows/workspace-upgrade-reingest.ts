@@ -39,6 +39,7 @@ import {
 import { getLogger } from "../../observability/logger.js"
 import {
   PlainGitUrlError,
+  plainGitRefusalReason,
   resolvePlainGitTip,
 } from "../../services/git/plain-git-remote.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
@@ -291,12 +292,12 @@ const plannedSchema = z.union([
 
 /**
  * The reason of a failed tip read, for the report: the rule that refused a
- * plain git URL, or the last line that git wrote (at most 300 characters).
+ * plain git URL (with the protocol rule), or the last line that git wrote (at most 300 characters).
  * Git writes no credential there: a token goes in the environment, not in
  * the URL.
  */
 function tipErrorText(error: unknown): string {
-  if (error instanceof PlainGitUrlError) return error.message
+  if (error instanceof PlainGitUrlError) return plainGitRefusalReason(error)
   const stderr = String((error as { stderr?: unknown }).stderr ?? "")
   const line =
     stderr

@@ -259,11 +259,12 @@ it(
           "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
         )
         expect(report).toContain(
-          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
         )
-        // Step 1 runs the DNS rule too: a private answer is not linked.
+        // Step 1 runs the DNS rule too: a private answer is not linked. The
+        // report states the protocol rule, as the repositories route does.
         expect(report).toContain(
-          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL resolves to a private, loopback, or link-local address. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
         )
         expect(
           tree.paths.filter((path) => path.startsWith("sources/git/hidden")),
@@ -479,7 +480,7 @@ it(
         })
         const report = (await runStep(f)).steps[0]?.report ?? []
         expect(report).toContain(
-          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must not have a user name or a password. ctx| keeps its knowledge and exports it.",
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must not have a user name or a password. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
         )
         expect(report.join("\n")).not.toContain("s3cr3t-token")
         expect(report.join("\n")).not.toContain("deploy:")
