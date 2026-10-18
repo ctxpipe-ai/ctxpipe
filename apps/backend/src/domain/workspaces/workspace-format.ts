@@ -18,7 +18,7 @@ export const WORKSPACE_FORMAT_PATH = ".ctxpipe/workspace.yaml"
 
 /**
  * The newest Workspace format that this code reads and writes.
- * 0 = no file (a repository from before Workspaces, or a foreign one).
+ * 0 = no file in a repository with ctx| content (from before Workspaces).
  * 1 = the main data is exported, and `.ctxpipe/sources.yaml` holds the sources.
  * 2 = one file for each source under `sources/` (CTX-721).
  * 3 = the ownership front matter of ingestion v2 (CTX-640).
@@ -88,9 +88,32 @@ export function readWorkspaceFormat(text: string | null): WorkspaceFormatRead {
   return { kind: "format", format: parsed.data.format }
 }
 
-/** The value that hydrate writes to `workspaces.format_version`. */
+/** The format value of a read: an integer, or {@link WORKSPACE_FORMAT_INVALID}. */
 export function workspaceFormatCacheValue(read: WorkspaceFormatRead): number {
   return read.kind === "format" ? read.format : WORKSPACE_FORMAT_INVALID
+}
+
+/**
+ * The value that hydrate writes to `workspaces.format_version`, from the
+ * format file text and the paths of the tree. When ctx| can write, a tree
+ * with no format file and no ctx| content gets null (not known yet), not 0:
+ * the bootstrap commit adds the format file to that repository (see
+ * {@link hasCtxpipeContent}), and its hydrate caches the format. A cached 0
+ * before that commit would ask for an upgrade that the repository does not
+ * need. A read-only repository gets no bootstrap commit, so it stays at 0.
+ */
+export function workspaceFormatCache(input: {
+  text: string | null
+  paths: Iterable<string>
+  writeStatus: string
+}): number | null {
+  if (
+    input.text === null &&
+    input.writeStatus !== WORKSPACE_WRITE_STATUSES.read_only &&
+    !hasCtxpipeContent(input.paths)
+  )
+    return null
+  return workspaceFormatCacheValue(readWorkspaceFormat(input.text))
 }
 
 /**
@@ -187,10 +210,11 @@ export const UPGRADE_FIRST_MESSAGE =
  * resume. The first read is a change too, also null to 0: a repository with
  * no format file is below the newest format, so it needs an upgrade item. A
  * Workspace that joins after the scan of a release gets no other scan.
+ * Null to null (no format yet) is not a change.
  */
 export function formatChangeNeedsScan(
   previous: number | null,
-  next: number,
+  next: number | null,
 ): boolean {
   return previous !== next
 }

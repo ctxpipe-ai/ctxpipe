@@ -505,21 +505,15 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
     const signature = c.req.header("x-hub-signature-256")
     const eventName = c.req.header("x-github-event") ?? ""
 
-    const verified = Boolean(
-      signature && (await webhooks.verify(rawBody, signature)),
-    )
+    if (!signature || !(await webhooks.verify(rawBody, signature))) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
 
     let payload: unknown
     try {
       payload = JSON.parse(rawBody) as unknown
     } catch {
-      return verified
-        ? c.json({ error: "Bad request" }, 400)
-        : c.json({ error: "Unauthorized" }, 401)
-    }
-
-    if (!verified) {
-      return c.json({ error: "Unauthorized" }, 401)
+      return c.json({ error: "Bad request" }, 400)
     }
 
     await processGithubWebhookPayload(eventName, payload, { log, env })

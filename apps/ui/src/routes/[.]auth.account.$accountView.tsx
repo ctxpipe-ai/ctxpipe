@@ -64,7 +64,7 @@ export function AccountSettingsBody(props: { accountView: string }) {
           localization={{
             PROVIDERS: "OAuth Providers",
             PROVIDERS_DESCRIPTION:
-              "Connect your account with third-party OAuth services. GitHub App repository installation is managed in Repositories.",
+              "Connect your account with third-party OAuth services. Manage the GitHub App in Connectors.",
             LINK: "Link OAuth",
             UNLINK: "Unlink OAuth",
           }}

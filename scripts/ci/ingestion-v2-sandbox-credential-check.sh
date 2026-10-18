@@ -30,7 +30,9 @@ processes=0
 files=0
 proxy_vars=0
 
-token_pattern='gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}'
+# A GitHub token. The installation token form has a numeric id and a second
+# underscore (CTX-845).
+token_pattern='gh[pousr]_([0-9]{1,20}_[A-Za-z0-9_-]{16,}|[A-Za-z0-9]{20,})|github_pat_[A-Za-z0-9_]{20,}'
 key_pattern='-----BEGIN [A-Z ]*PRIVATE KEY-----|sk-or-v1-[A-Za-z0-9]{20,}|sk-ant-[A-Za-z0-9_-]{20,}|sk-[A-Za-z0-9]{40,}'
 
 finding() { printf 'FINDING %s %s %s\n' "$1" "$2" "$3" >>"$tmp/findings"; }

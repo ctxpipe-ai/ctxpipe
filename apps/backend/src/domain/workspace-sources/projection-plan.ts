@@ -1,9 +1,7 @@
 import { isDeepStrictEqual } from "node:util"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import {
-  githubRepositoryUrls,
-  githubSourceScopeRepositories,
-} from "./providers/github.js"
+import { gitSourceScopeUrl, sourceRepositoryUrls } from "./providers/git.js"
+import { githubSourceScopeRepositories } from "./providers/github.js"
 import {
   checkSourcePath,
   SOURCE_FILE_MAX_BYTES,
@@ -57,6 +55,14 @@ export function unmatchedSourceDetail(
 }
 
 export type SourceConnection = { id: string; type: string }
+
+/**
+ * A valid source of the projection: a YAML entry or a source file. Only a
+ * plain git source file has no connection (CTX-815).
+ */
+type ProjectedEntry = Omit<SourceEntry, "connectionId"> & {
+  connectionId: string | null
+}
 
 /**
  * Tell why a valid entry is out of its connection's reach, or return null.
@@ -122,7 +128,7 @@ const HOLDING_STATUSES: ReadonlySet<string> = new Set<SourceStatus>([
  * fields of an invalid one with its reason.
  */
 type ParsedSource =
-  | { entry: SourceEntry; origin: "file" | "yaml" }
+  | { entry: ProjectedEntry; origin: "file" | "yaml" }
   | {
       entry: null
       sourceKey: string
@@ -193,9 +199,13 @@ export async function planSourceRows(
   if (!checkAccess) return rows
   for (const row of rows) {
     const entry = entries.get(row.sourceKey)
-    const connection = entry && connections.get(entry.connectionId)
-    if (row.status !== "ok" || !entry || !connection) continue
-    const accessIssue = await checkAccess(entry, connection)
+    const connectionId = entry?.connectionId
+    const connection = connectionId && connections.get(connectionId)
+    if (row.status !== "ok" || !entry || !connectionId || !connection) continue
+    const accessIssue = await checkAccess(
+      { ...entry, connectionId },
+      connection,
+    )
     if (typeof accessIssue === "string") {
       row.status = "out_of_access"
       row.statusDetail = accessIssue
@@ -206,7 +216,7 @@ export async function planSourceRows(
 
 function resolve(input: SourceRowsInput): {
   rows: PlannedSourceRow[]
-  entries: Map<string, SourceEntry>
+  entries: Map<string, ProjectedEntry>
 } {
   const legacy = planLegacyYamlSources(input.text)
   const parsed = [
@@ -380,28 +390,32 @@ function checkSource(
     scope: entry.scope,
   }
   const expectedType = SOURCE_FILE_SCOPES[entry.provider].connectionType
-  const connection = input.connections
-    ? input.connections.get(entry.connectionId)
-    : { id: entry.connectionId, type: expectedType }
-  if (!connection)
-    return {
-      ...base,
-      status: "connection_missing",
-      statusDetail: "The connection does not exist in this organization",
-    }
-  if (connection.type !== expectedType)
-    return {
-      ...base,
-      status: "invalid",
-      statusDetail: `The connection is a ${connection.type} connection, not ${expectedType}`,
-    }
+  // A plain git source has no connection (CTX-815).
+  if (expectedType !== null) {
+    const connection = !entry.connectionId
+      ? undefined
+      : input.connections
+        ? input.connections.get(entry.connectionId)
+        : { id: entry.connectionId, type: expectedType }
+    if (!connection)
+      return {
+        ...base,
+        status: "connection_missing",
+        statusDetail: "The connection does not exist in this organization",
+      }
+    if (connection.type !== expectedType)
+      return {
+        ...base,
+        status: "invalid",
+        statusDetail: `The connection is a ${connection.type} connection, not ${expectedType}`,
+      }
+  }
   // A YAML entry that names the Workspace repository stays ok and links only
   // its other repositories, as before the source files (ADR-050 decision 15).
   if (
     source.origin === "file" &&
     input.workspaceUrl &&
-    entry.provider === "github" &&
-    githubRepositoryKeys(entry).includes(repositoryKey(input.workspaceUrl))
+    sourceRepositoryKeys(entry).includes(repositoryKey(input.workspaceUrl))
   )
     return {
       ...base,
@@ -420,6 +434,22 @@ function githubRepositoryKeys(entry: { scope: unknown }): string[] {
   return githubSourceScopeRepositories(entry.scope).map(({ name }) =>
     repositoryKey(`https://github.com/${name}`),
   )
+}
+
+/**
+ * The repositories that a source names: the GitHub repositories of a GitHub
+ * source, or the URL of a plain git source. A GitHub repository that a plain
+ * git source names (`https://github.com/...`) has the same key, so two
+ * sources cannot link it two times.
+ */
+function sourceRepositoryKeys(entry: {
+  provider: string | null
+  scope: unknown
+}): string[] {
+  if (entry.provider === "github") return githubRepositoryKeys(entry)
+  if (entry.provider !== "git") return []
+  const url = gitSourceScopeUrl(entry.scope)
+  return url ? [repositoryKey(url)] : []
 }
 
 /** True when one managed path is equal to, or below, the other. */
@@ -447,7 +477,7 @@ function holdsOverlap(a: Holds, b: Holds): boolean {
  */
 function refuseRepositoryChanges(
   rows: PlannedSourceRow[],
-  entries: ReadonlyMap<string, SourceEntry>,
+  entries: ReadonlyMap<string, ProjectedEntry>,
   yamlKeys: ReadonlySet<string>,
   previous: ReadonlyArray<PreviousSourceRow>,
 ): void {
@@ -457,7 +487,7 @@ function refuseRepositoryChanges(
     if (
       !entry ||
       !before ||
-      entry.provider !== "github" ||
+      (entry.provider !== "github" && entry.provider !== "git") ||
       yamlKeys.has(row.sourceKey) ||
       !HOLDING_STATUSES.has(row.status)
     )
@@ -469,10 +499,12 @@ function refuseRepositoryChanges(
           ? before
           : null
     const linked =
-      target && (target as { provider?: unknown }).provider === "github"
-        ? githubRepositoryKeys(target as { scope: unknown })
+      target && (target as { provider?: unknown }).provider === entry.provider
+        ? sourceRepositoryKeys(
+            target as { provider: string | null; scope: unknown },
+          )
         : []
-    const named = githubRepositoryKeys(entry)
+    const named = sourceRepositoryKeys(entry)
     if (
       linked.length &&
       (linked.length !== named.length ||
@@ -493,7 +525,7 @@ function refuseRepositoryChanges(
  */
 function applyCrossSourceRules(
   rows: PlannedSourceRow[],
-  entries: ReadonlyMap<string, SourceEntry>,
+  entries: ReadonlyMap<string, ProjectedEntry>,
   yamlKeys: ReadonlySet<string>,
   input: Pick<
     SourceRowsInput,
@@ -503,14 +535,18 @@ function applyCrossSourceRules(
   const workspace = input.workspaceUrl
     ? repositoryKey(input.workspaceUrl)
     : null
-  const holdsOf = (entry: SourceEntry): Holds => ({
-    repositories:
-      entry.provider === "github"
-        ? githubRepositoryKeys(entry).filter(
-            (repository) => repository !== workspace,
-          )
-        : [],
-    paths: input.managedPaths?.(entry) ?? [],
+  const holdsOf = (entry: ProjectedEntry): Holds => ({
+    repositories: sourceRepositoryKeys(entry).filter(
+      (repository) => repository !== workspace,
+    ),
+    // A source with no connection syncs no files.
+    paths:
+      entry.connectionId === null
+        ? []
+        : (input.managedPaths?.({
+            ...entry,
+            connectionId: entry.connectionId,
+          }) ?? []),
   })
   const previous = input.previousRows ?? []
   refuseRepositoryChanges(rows, entries, yamlKeys, previous)
@@ -529,7 +565,7 @@ function applyCrossSourceRules(
       holdsOf({
         key: row.sourceKey,
         provider: provider.data,
-        connectionId: row.connectionId ?? "",
+        connectionId: row.connectionId,
         scope,
       }),
     ]
@@ -635,8 +671,8 @@ export async function sourcesHaveNone(
 }
 
 /**
- * Tell if no GitHub source names the repository `gitUrl`, with any
- * connection or status. An invalid entry still names the repository that it
+ * Tell if no GitHub or plain git source names the repository `gitUrl`, with
+ * any connection or status. An invalid entry still names the repository that it
  * names. As in {@link sourcesHaveNone}, a file that cannot be read gives false.
  */
 export async function sourcesHaveNoRepository(
@@ -645,7 +681,7 @@ export async function sourcesHaveNoRepository(
 ): Promise<boolean> {
   const target = normalizeWorkspaceRepositoryUrl(gitUrl)
   return sourcesHoldNo(sources, (row) =>
-    githubRepositoryUrls(row).includes(target),
+    sourceRepositoryUrls(row).includes(target),
   )
 }
 

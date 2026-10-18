@@ -40,11 +40,22 @@ import { revokeFinishedIngestGitTokens } from "./run-git-tokens.js"
 const orgId = generateObjectId("org")
 const alpha = generateObjectId("con")
 const beta = generateObjectId("con")
-const log: GithubTokenLog = { minted: [], revoked: [] }
+const log: GithubTokenLog = { minted: [], revoked: [], mintedPermissions: [] }
 
 // biome-ignore lint/correctness/useHookAtTopLevel: vitest file-scope MSW setup, not a React hook
 const server = useMswServer(
-  ...githubTokenHandlers(log, (installationId) => `ghs_${installationId}`),
+  ...githubTokenHandlers(
+    log,
+    (installationId) => `ghs_${installationId}`,
+    // The beta installation follows the self-host docs without the optional
+    // Issues permission.
+    (installationId): Record<string, string> => ({
+      contents: "write",
+      metadata: "read",
+      pull_requests: "write",
+      ...(installationId === 222 ? {} : { issues: "read" }),
+    }),
+  ),
 )
 
 beforeAll(async () => {
@@ -75,6 +86,7 @@ beforeAll(async () => {
 beforeEach(() => {
   log.minted.length = 0
   log.revoked.length = 0
+  log.mintedPermissions = []
 })
 
 afterEach(() => {
@@ -156,6 +168,28 @@ describe("ingest GitHub tokens", () => {
         (rule) => rule.path === "/alpha-owner/source.git/git-upload-pack",
       )?.authorization,
     ).toBe(basic("ghs_111"))
+  })
+
+  it("asks for Issues read only when the installation grants Issues", async () => {
+    await ingestGitAccess({
+      orgId,
+      runId: `run_${crypto.randomUUID()}`,
+      shard: 0,
+      repositories: [
+        { fullName: "alpha-owner/source", githubConnectionId: alpha },
+        { fullName: "beta-owner/context", githubConnectionId: beta },
+      ],
+    })
+    expect(log.minted.map((mint) => mint.installationId)).toEqual([111, 222])
+    expect(log.mintedPermissions).toEqual([
+      {
+        contents: "read",
+        issues: "read",
+        pull_requests: "read",
+        metadata: "read",
+      },
+      { contents: "read", pull_requests: "read", metadata: "read" },
+    ])
   })
 
   it("throws when a connection does not cover a repository, and mints nothing", async () => {

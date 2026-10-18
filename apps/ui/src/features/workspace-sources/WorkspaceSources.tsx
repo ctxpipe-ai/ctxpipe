@@ -699,7 +699,10 @@ export function WorkspaceSources(props: {
                               )
                             }
                             onEdit={
-                              canEdit && source.removable
+                              // A plain git source has no connection to edit.
+                              canEdit &&
+                              source.removable &&
+                              SOURCE_SCOPES[provider].connectionType !== null
                                 ? () =>
                                     setEditor({
                                       kind: "edit",

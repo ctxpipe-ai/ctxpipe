@@ -1,18 +1,20 @@
 import { execFileSync } from "node:child_process"
 import { eq } from "drizzle-orm"
-import { expect, it } from "vitest"
+import { afterAll, beforeAll, expect, it } from "vitest"
 import { parse } from "yaml"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { claims } from "../../db/schema/claims.js"
 import { connections } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
+import { generateObjectId } from "../../lib/id.js"
 import { persistOrgFirstWorkspace } from "../../models/workspaces.js"
 import {
   type GitPack,
   readGitPackFromRemote,
   withGitDirectory,
 } from "../../services/git/pack.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { pagerdutySourceMigrationHook } from "../../services/pagerduty/workspace-source-migration.js"
 import {
   slackLegacyBindings,
@@ -33,6 +35,18 @@ import { exportAndSourcesStep } from "./steps/export-and-sources.js"
  * Upgrade step 1 on a real Workspace repository and a real database. Each
  * test reads the commit of the step and the lines of its report.
  */
+
+// The DNS of the test: `hidden.example.com` resolves to a private address,
+// each other host to a public one.
+let restoreNetwork = () => {}
+beforeAll(() => {
+  restoreNetwork = usePlainGitNetwork({
+    lookup: async (host) => [
+      { address: host === "hidden.example.com" ? "10.0.0.7" : "93.184.215.14" },
+    ],
+  })
+})
+afterAll(() => restoreNetwork())
 
 async function runStep(
   f: NativeHydrationFixture,
@@ -168,11 +182,18 @@ it(
             "https://github.com/team-a/api.git",
             other,
           )
-          // A GitHub repository with no connection: nothing links it.
+          // A GitHub repository with no connection: main read it as a
+          // public repository, so it becomes a plain git source (CTX-815).
           const lost = await repository(f, "https://github.com/team-b/lost.git")
+          // A port that is not the default: no source links it.
           const gitlab = await repository(
             f,
-            "https://gitlab.com/team-c/tools.git",
+            "https://gitlab.com:8443/team-c/tools.git",
+          )
+          // A host name whose DNS answer is private: no source links it.
+          const hidden = await repository(
+            f,
+            "https://hidden.example.com/team-e/hidden.git",
           )
           await persistOrgFirstWorkspace({
             orgId: f.org.id,
@@ -201,9 +222,13 @@ it(
           await seed(f, "Library", `lib:${own.id}:helpers`, {
             name: "Workspace helpers",
           })
+          await seed(f, "Service", `svc:${hidden.id}:hidden`, {
+            name: "Hidden service",
+            summary: "No source links this repository.",
+          })
           await seed(f, "Service", `svc:${lost.id}:worker`, {
             name: "Lost worker",
-            summary: "A repository that no source links.",
+            summary: "A plain git source links this repository.",
           })
           await link(f, tools.id, library.id, "USES")
           await link(f, tools.id, issue.id, "TRACKED_IN")
@@ -227,27 +252,43 @@ it(
         ).toEqual(["team-a/api"])
         expect(sources).toContain("team-a/api")
         expect(sources).not.toContain("team-b/lost")
-        expect(report).toContain(
-          "Not linked: https://github.com/team-b/lost. The repository has no GitHub connection.",
+        expect(tree.text.get("sources/git/github.com/team-b-lost.md")).toBe(
+          "---\nprovider: git\nurl: https://github.com/team-b/lost\n---\n",
         )
+        expect(report).toContain(
+          "Linked https://github.com/team-b/lost as a plain git source in `sources/git/github.com/team-b-lost.md`. Fresh ingestion reads it over HTTPS with no credential.",
+        )
+        expect(report).toContain(
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+        )
+        // Step 1 runs the DNS rule too: a private answer is not linked. The
+        // report states the protocol rule, as the repositories route does.
+        expect(report).toContain(
+          "Not linked: https://hidden.example.com/team-e/hidden. ctx| does not read it as a plain git source: The host hidden.example.com of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+        )
+        expect(
+          tree.paths.filter((path) => path.startsWith("sources/git/hidden")),
+        ).toEqual([])
 
         const exported = tree.paths.filter((path) =>
           path.startsWith("knowledge/"),
         )
         const all = exported.map((path) => tree.text.get(path)).join("\n")
         // Kept: the GitLab service, each object of the Workspace repository
-        // that no Markdown file backs, whatever its key prefix, the
-        // CODEOWNERS team, and the GitHub repository that no source links.
+        // that no Markdown file backs, whatever its key prefix, and the
+        // CODEOWNERS team. The re-ingestion makes the knowledge of the
+        // plain git source again.
         expect(all).toContain("Tools CLI")
+        expect(all).toContain("Hidden service")
         expect(all).toContain("Context service")
         expect(all).toContain("Workspace helpers")
         expect(all).toContain("Platform team")
-        expect(all).toContain("Lost worker")
+        expect(all).not.toContain("Lost worker")
         expect(all).not.toContain("Parser library")
         expect(report).toEqual(
           expect.arrayContaining([
             expect.stringMatching(
-              /^Kept 1 knowledge item\(s\) from https:\/\/github\.com\/team-b\/lost .*does not link this repository/,
+              /^Kept 1 knowledge item\(s\) from https:\/\/gitlab\.com:8443\/team-c\/tools .*public HTTPS git repositories/,
             ),
             expect.stringMatching(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
@@ -340,7 +381,7 @@ it(
               /^Kept 2 knowledge item\(s\) from .*Ingestion v2 does not ingest it/,
             ),
             expect.stringMatching(
-              /^Not exported, because ctx\| makes it again: 0 item\(s\) from GitHub repositories .*, 1 item\(s\) from Workspace repositories /,
+              /^Not exported, because ctx\| makes it again: 0 item\(s\) from source repositories .*, 1 item\(s\) from Workspace repositories /,
             ),
           ]),
         )
@@ -406,6 +447,67 @@ it(
             .map((path) => tree.text.get(path))
             .join("\n"),
         ).toContain("Parser library")
+      },
+    ),
+)
+
+it(
+  "never prints the user name or the password of a stored repository URL in the report",
+  { timeout: 90_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { github: true, files: [{ path: "README.md", body: "# Context\n" }] },
+      async (f) => {
+        // A row that `POST /v1/repositories` stored before CTX-815: the URL
+        // has a credential, so no plain git source links it.
+        const stored =
+          "https://deploy:s3cr3t-token@gitlab.com:8443/team-c/tools.git"
+        await withOrgIdContext(f.org, async () => {
+          const own = await repository(f, f.workspaceUrl, f.connectionId)
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(repositories).values({
+              id: generateObjectId("repo"),
+              orgId: f.org.id,
+              name: "team-c/tools",
+              gitUrl: stored,
+            }),
+          )
+          await persistOrgFirstWorkspace({
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            sourceRepositoryId: own.id,
+          })
+        })
+        const report = (await runStep(f)).steps[0]?.report ?? []
+        expect(report).toContain(
+          "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must not have a user name or a password. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
+        )
+        expect(report.join("\n")).not.toContain("s3cr3t-token")
+        expect(report.join("\n")).not.toContain("deploy:")
+      },
+    ),
+)
+
+it(
+  "does not print the credential of a stored URL when the org has no first Workspace",
+  { timeout: 90_000 },
+  async () =>
+    withNativeHydrationFixture(
+      { files: [{ path: "README.md", body: "# Context\n" }] },
+      async (f) => {
+        await withOrgDbContext(f.org.id, (db) =>
+          db.insert(repositories).values({
+            id: generateObjectId("repo"),
+            orgId: f.org.id,
+            name: "team-c/tools",
+            gitUrl: "https://deploy:s3cr3t-token@gitlab.com/team-c/tools.git",
+          }),
+        )
+        const report = (await runStep(f)).steps[0]?.report ?? []
+        expect(report).toContain(
+          "Not linked: https://gitlab.com/team-c/tools. The org has no first Workspace, so no Workspace gets this repository.",
+        )
+        expect(report.join("\n")).not.toContain("s3cr3t-token")
       },
     ),
 )

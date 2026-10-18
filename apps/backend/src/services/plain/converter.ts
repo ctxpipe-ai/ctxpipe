@@ -1,6 +1,7 @@
 import slugify from "@sindresorhus/slugify"
 import { NodeHtmlMarkdown } from "node-html-markdown"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { GitFileChange } from "../git/file-change.js"
 
 export type PlainArticleForMirror = {
@@ -40,11 +41,11 @@ export type PlainThreadForMirror = {
  * sync gives ownership by path prefix, so each item has its own folder.
  */
 export function plainHelpCenterRoot(helpCenterId: string): string {
-  return `plain/help-centers/${helpCenterId}/`
+  return `plain/help-centers/${connectorPathSegment(helpCenterId)}/`
 }
 
 export function plainLabelRoot(labelTypeId: string): string {
-  return `plain/threads/labels/${labelTypeId}/`
+  return `plain/threads/labels/${connectorPathSegment(labelTypeId)}/`
 }
 
 /** Plain priorities: a lower number is more urgent. */
@@ -194,7 +195,7 @@ export function plainArticleFile(input: {
   const body = articleBodyMarkdown(article.contentHtml).trim()
   if (body) lines.push(body, "")
   return {
-    path: `${plainHelpCenterRoot(input.helpCenterId)}${slug}--${article.id}.md`,
+    path: `${plainHelpCenterRoot(input.helpCenterId)}${slug}--${connectorPathSegment(article.id)}.md`,
     content: lines.join("\n"),
   }
 }
@@ -249,7 +250,7 @@ export function plainThreadFile(input: {
       "",
     )
   return {
-    path: `${plainLabelRoot(input.labelTypeId)}${thread.id}.md`,
+    path: `${plainLabelRoot(input.labelTypeId)}${connectorPathSegment(thread.id)}.md`,
     content: lines.join("\n"),
   }
 }

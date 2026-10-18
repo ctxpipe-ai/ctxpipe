@@ -12,6 +12,7 @@ import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate
 import { workspaceRoutes } from "../../routes/v1/workspaces.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import {
   CODE_FORMAT,
   WORKSPACE_FORMAT_INVALID,
@@ -21,8 +22,29 @@ import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 const unit = { path: "knowledge/a.md", body: "# A\nCommitted body.\n" }
 
+// ctx| content from before Workspaces: the sources file of format 1.
+const legacySources = {
+  path: SOURCES_FILE_PATH,
+  body: "version: 1\nsources: []\n",
+}
+
 it.each([
-  { name: "no format file", file: null, format: 0, reason: null },
+  {
+    name: "no format file",
+    file: null,
+    extra: [legacySources],
+    format: 0,
+    reason: null,
+  },
+  // A repository with no ctx| content gets its format file from the
+  // bootstrap commit. Until then the format is not known: 0 would ask for an
+  // upgrade that the repository does not need.
+  {
+    name: "no format file and no ctx| content as not known",
+    file: null,
+    format: null,
+    reason: null,
+  },
   {
     name: "the code format",
     file: `format: ${CODE_FORMAT}\n`,
@@ -44,12 +66,13 @@ it.each([
 ])(
   "hydrate caches $name from git and gates writes, and a rebuilt database reads it again",
   { timeout: 90_000 },
-  async ({ file, format, reason }) =>
+  async ({ file, extra = [], format, reason }) =>
     withNativeHydrationFixture(
       {
         writeStatus: "writable",
         files: [
           unit,
+          ...extra,
           ...(file ? [{ path: WORKSPACE_FORMAT_PATH, body: file }] : []),
         ],
       },

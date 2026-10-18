@@ -62,7 +62,11 @@ function treeFor(holder: string, remote = url, commitSha = sha) {
   return ingestSourceTree({
     orgId: "org_fixture",
     runId: RUN_ID,
-    source: { url: remote, githubConnectionId: "con_fixture" },
+    source: {
+      kind: "github" as const,
+      url: remote,
+      githubConnectionId: "con_fixture",
+    },
     sha: commitSha,
     env,
     holder,

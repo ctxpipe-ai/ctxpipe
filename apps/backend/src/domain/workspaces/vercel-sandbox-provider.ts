@@ -163,6 +163,11 @@ export type HostedTurnCredentials = {
   /** The exact path of the turn's tool bridge. */
   bridgePath: string
   bridgeToken: string
+  /**
+   * Ingest only: true while `prepareIngestShard` fetches the shard's plain
+   * git source. Only then may the sandbox reach the plain git host.
+   */
+  fetchSource?: boolean
 }
 
 /**
@@ -457,16 +462,42 @@ async function refreshGitAccess(
  * many END lines as BEGIN lines. The wait is bounded (about 15 seconds). On a
  * timeout the call logs a warning and goes on, so an image without a bundle
  * never blocks a start.
+ *
+ * A sandbox that starts from a snapshot (create), or from saved state (resume
+ * of a stopped sandbox), has the whole bundle of the earlier sandbox. The
+ * platform rewrites the file about one to two seconds after the start call
+ * returns. A check of the old file passes, and git then reads the file during
+ * the rewrite. `startedAt` (seconds, taken before the start) makes the check
+ * wait for that rewrite: the bundle link must be newer than the start, and no
+ * `update-ca-trust` or `trust` process may run (both run during the rewrite).
+ * The boot time in `/proc/stat` cannot replace `startedAt`: measured in the
+ * Vercel lane, the boot time after a resume is earlier than the change time
+ * of the link from before the stop, so the old link would pass.
+ *
+ * `startedAt` can be a function. A resume of a stopping sandbox returns before
+ * the start, and the first command starts it. The function is read for each
+ * check, so a start that happens during the wait is seen.
  */
-async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
+async function waitForCaBundle(
+  handle: SandboxHandle,
+  startedAt?: number | (() => number | undefined),
+): Promise<void> {
   const bundle = "/etc/ssl/certs/ca-certificates.crt"
-  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
+  const whole = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
+  const checkNow = () => {
+    const threshold = typeof startedAt === "function" ? startedAt() : startedAt
+    return threshold === undefined
+      ? whole
+      : // `stat -c %Z` (no `-L`) reads the change time of the link itself,
+        // because the rewrite recreates the link.
+        `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${threshold} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
+  }
   for (let attempt = 0; attempt < 20; attempt++) {
-    const result = await handle.process.exec(check).catch(() => undefined)
+    const result = await handle.process.exec(checkNow()).catch(() => undefined)
     if (result?.exitCode === 0) {
       // The same file, read again, shows a finished write.
       await new Promise((resolve) => setTimeout(resolve, 250))
-      const again = await handle.process.exec(check).catch(() => undefined)
+      const again = await handle.process.exec(checkNow()).catch(() => undefined)
       if (again?.exitCode === 0) return
     }
     await new Promise((resolve) => setTimeout(resolve, 500))
@@ -475,6 +506,11 @@ async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
     step: "workspace-ca-bundle-wait",
     message: `The CA bundle was not whole after the wait; git may fail to load it`,
   })
+}
+
+/** The second before a start, one second early for a clock that runs behind. */
+function beforeStart(): number {
+  return Math.floor(Date.now() / 1000) - 1
 }
 
 /** The stock handle, with the agent port behind the OpenCode password and kill enabled. */
@@ -542,8 +578,10 @@ export function vercelConversationProvider(input: {
     async create() {
       // Secrets reach the session through `env.set`, not the create request.
       const gitToken = await access.mintGitToken()
-      const start = (snapshotId: string) =>
-        Sandbox.create({
+      let startedAt = 0
+      const start = (snapshotId: string) => {
+        startedAt = beforeStart()
+        return Sandbox.create({
           ...credentials,
           source: { type: "snapshot", snapshotId },
           resources: VERCEL_SANDBOX.resources,
@@ -555,6 +593,7 @@ export function vercelConversationProvider(input: {
           networkPolicy: access.firewall.policy(gitToken),
           tags: input.tags,
         })
+      }
       const fromAgent = async () => {
         const snapshotId = await input.agentSnapshot()
         return start(snapshotId).catch((error: unknown) => {
@@ -596,20 +635,30 @@ export function vercelConversationProvider(input: {
       }
       await access.tokens.put(sandbox.name, gitToken)
       const handle = conversationHandle(sandbox, input.agentPassword)
-      await waitForCaBundle(handle)
+      await waitForCaBundle(handle, startedAt)
       return handle
     },
     async resume({ id }) {
       let sandbox: Sandbox
+      let started: number | undefined
+      const before = beforeStart()
       try {
-        sandbox = await Sandbox.get({ ...credentials, name: id })
+        // The SDK calls `onResume` when it starts a stopped sandbox: here, or
+        // later, when a command starts a stopping one.
+        sandbox = await Sandbox.get({
+          ...credentials,
+          name: id,
+          onResume: async () => {
+            started = before
+          },
+        })
       } catch {
         // Deleted or past retention: TanStack creates a new one.
         return null
       }
       await refreshGitAccess(sandbox, access)
       const handle = conversationHandle(sandbox, input.agentPassword)
-      await waitForCaBundle(handle)
+      await waitForCaBundle(handle, () => started)
       return handle
     },
     async destroy({ id }) {
@@ -828,6 +877,7 @@ export async function startVercelWorkspaceBase(input: {
         }),
     )
   let sandbox: Sandbox
+  const startedAt = beforeStart()
   try {
     sandbox = await Sandbox.create({
       ...input.credentials,
@@ -842,7 +892,7 @@ export async function startVercelWorkspaceBase(input: {
     throw error
   }
   const handle = new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
-  await waitForCaBundle(handle)
+  await waitForCaBundle(handle, startedAt)
   return {
     builderId: sandbox.name,
     handle,

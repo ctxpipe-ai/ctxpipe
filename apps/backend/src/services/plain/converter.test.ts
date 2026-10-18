@@ -104,6 +104,15 @@ describe("plainArticleFile", () => {
       }).path,
     ).toBe("plain/help-centers/hc_1/etc--hca_01J0ARTICLE.md")
   })
+
+  it("keeps a Help Center id and an article id from leaving the folder", () => {
+    expect(
+      plainArticleFile({
+        helpCenterId: "../hc_1",
+        article: { ...article, id: "../hca_1" },
+      }).path,
+    ).toBe("plain/help-centers/-.-hc_1/reset-a-password---.-hca_1.md")
+  })
 })
 
 describe("plainThreadFile", () => {
@@ -111,6 +120,15 @@ describe("plainThreadFile", () => {
 
   it("writes the thread under its label", () => {
     expect(file.path).toBe("plain/threads/labels/lt_01J0LABEL/th_01J0THREAD.md")
+  })
+
+  it("keeps a label id and a thread id from leaving the folder", () => {
+    expect(
+      plainThreadFile({
+        labelTypeId: "../lt_1",
+        thread: { ...thread, id: "../th_1" },
+      }).path,
+    ).toBe("plain/threads/labels/-.-lt_1/-.-th_1.md")
   })
 
   it("renders the thread and its messages, with names only", () => {

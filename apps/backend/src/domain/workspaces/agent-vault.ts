@@ -72,7 +72,14 @@ export function agentVaultAccess(
   }
 }
 
-export type RunVaultRule = SandboxCredentialRule
+/**
+ * A rule of a run vault. A rule with a null `authorization` allows its
+ * exact host and path with no credential (a public plain git repository,
+ * CTX-815).
+ */
+export type RunVaultRule = Omit<SandboxCredentialRule, "authorization"> & {
+  authorization: string | null
+}
 
 export type RunVault = {
   name: string
@@ -257,7 +264,8 @@ function credentialKey(rule: string, part: string): string {
  * Each rule as an Agent Vault service that sets the whole `Authorization`
  * header (a path rule matches that exact path). Agent Vault sets the `Host`
  * header from the target it dials, so a rule cannot send its header to
- * another site.
+ * another site. A rule with no credential is a passthrough service: the
+ * proxy allows its exact host and path and adds no header.
  */
 function servicesFor(rules: RunVaultRule[]): {
   credentials: Record<string, string>
@@ -265,11 +273,14 @@ function servicesFor(rules: RunVaultRule[]): {
 } {
   const credentials: Record<string, string> = {}
   const services: ServiceInput[] = rules.map((rule) => {
+    const host = `${rule.host}${rule.path ?? ""}`
+    if (rule.authorization === null)
+      return { name: rule.name, host, auth: { type: "passthrough" } }
     const key = credentialKey(rule.name, "AUTHORIZATION")
     credentials[key] = rule.authorization
     return {
       name: rule.name,
-      host: `${rule.host}${rule.path ?? ""}`,
+      host,
       auth: { type: "custom", headers: { Authorization: `{{ ${key} }}` } },
     }
   })

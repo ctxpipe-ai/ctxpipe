@@ -23,6 +23,22 @@ describe("maskCredentials", () => {
     expect(masked).not.toContain(fill(20))
   })
 
+  it("masks a GitHub App installation token in the current form (CTX-845)", () => {
+    // A numeric id, a second underscore, and a value with "_", "." and "-".
+    const token = `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}.${"c4De-F7gH_i0Jk"}`
+    expect(maskCredentials(`token ${token} end.`)).toBe("token [masked] end.")
+    expect(maskCredentials(`GH_TOKEN=${token}.`)).toBe("GH_TOKEN=[masked].")
+  })
+
+  it("keeps short names and identifiers that start like a GitHub token", () => {
+    for (const text of [
+      "The ghs_foo prefix marks an installation token.",
+      "const ghs_count_total_for_each_repository_owner = 0",
+      "see ghs_12_build.log",
+    ])
+      expect(maskCredentials(text)).toBe(text)
+  })
+
   it("masks a password with an empty user name", () => {
     expect(maskCredentials("redis://:hunter2secret@cache:6379")).toBe(
       "redis://[masked]@cache:6379",

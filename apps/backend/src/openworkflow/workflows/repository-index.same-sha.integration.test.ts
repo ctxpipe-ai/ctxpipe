@@ -15,9 +15,13 @@ import {
   withOrgDbContext,
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
-import { repositories } from "../../db/schema/repositories.js"
+import {
+  repositories,
+  repositoryIngestionRequests,
+} from "../../db/schema/repositories.js"
 import { generateObjectId } from "../../lib/id.js"
 import { markRepositoryIndexingReady } from "../../models/repositories.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { repositoryIndex } from "./repository-index.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -25,6 +29,7 @@ config({ path: resolve(__dirname, "../../../.env.local"), override: false })
 
 const SHA = "de34390e40cd3a1160f130f50ad3a96374cc1838"
 const NEWER = "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+const V2 = "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb"
 const CODESEARCH = "http://codesearch.same-sha.test"
 
 describeWithDatabase("repository-index same-SHA coalescing", () => {
@@ -68,6 +73,9 @@ describeWithDatabase("repository-index same-SHA coalescing", () => {
   let runner: OpenWorkflow | undefined
 
   beforeAll(async () => {
+    // The repository has no GitHub token, so the backend checks it as a
+    // plain git URL (CTX-815). The test has its own DNS answer.
+    usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
     const databaseUrl = process.env.DATABASE_URL
     if (!databaseUrl) return
     vi.stubEnv("CODESEARCH_URL", CODESEARCH)
@@ -152,6 +160,54 @@ describeWithDatabase("repository-index same-SHA coalescing", () => {
       expect(cloneCheckouts).toEqual([SHA, SHA])
       await runIndex(NEWER)
       expect(cloneCheckouts).toEqual([SHA, SHA, NEWER])
+    },
+  )
+
+  it(
+    "lets an ingestion v2 index run beside a legacy request, but stops a legacy run that has no request",
+    { timeout: 45_000 },
+    async () => {
+      if (!runner) throw new Error("OpenWorkflow runner missing")
+      // The legacy pipeline left a request for this repository. The v2 index
+      // run is not a descendant of the request owner.
+      await withOrgDbContext(orgId, (db) =>
+        db.insert(repositoryIngestionRequests).values({
+          repositoryId,
+          orgId,
+          requestId: generateObjectId("req"),
+          repositoryUrl: "https://github.com/fixture/stampede.git",
+          workflowRunId: `legacy_${suffix}`,
+        }),
+      )
+      const legacy = await runner.runWorkflow(repositoryIndex.spec, {
+        orgId,
+        repositoryId,
+        targetHash: V2,
+      })
+      await expect(legacy.result({ timeoutMs: 15_000 })).rejects.toThrow(
+        "Repository ingestion request superseded",
+      )
+      const v2 = await runner.runWorkflow(repositoryIndex.spec, {
+        orgId,
+        repositoryId,
+        targetHash: V2,
+        ingestionV2: true,
+      })
+      expect(await v2.result({ timeoutMs: 15_000 })).toMatchObject({
+        targetHash: V2,
+        searchIndexOk: true,
+      })
+      expect(cloneCheckouts.at(-1)).toBe(V2)
+      const [row] = await withOrgDbContext(orgId, (db) =>
+        db
+          .select({
+            indexingStep: repositories.indexingStep,
+            indexingStepKey: repositories.indexingStepKey,
+          })
+          .from(repositories)
+          .where(eq(repositories.id, repositoryId)),
+      )
+      expect(row).toEqual({ indexingStep: null, indexingStepKey: null })
     },
   )
 })

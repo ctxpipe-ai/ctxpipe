@@ -1,5 +1,6 @@
 import slugify from "@sindresorhus/slugify"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 export const PAGERDUTY_MANAGED_ROOT = "pagerduty"
 export const PAGERDUTY_CONFIG_PATH = `${PAGERDUTY_MANAGED_ROOT}/config.yaml`
@@ -94,7 +95,7 @@ export function pagerdutyIncidentImageStub(
 
 function stableSlug(title: string, id: string): string {
   const readable = slugify(title).slice(0, 80) || "incident"
-  return `${readable}--${id}`
+  return `${readable}--${connectorPathSegment(id)}`
 }
 
 export function pagerdutyIncidentMarkdownPath(
@@ -102,7 +103,7 @@ export function pagerdutyIncidentMarkdownPath(
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${root}${number}--${id}.md`
+  return `${root}${number}--${connectorPathSegment(id)}.md`
 }
 
 export function pagerdutyIncidentAssetPrefix(
@@ -110,7 +111,7 @@ export function pagerdutyIncidentAssetPrefix(
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${root}${number}--${id}/`
+  return `${root}${number}--${connectorPathSegment(id)}/`
 }
 
 export function pagerdutyIncidentAssetDir(
@@ -337,8 +338,8 @@ export function pagerdutyManagedPathsForIncidentId(
   incidentId: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string[] {
-  const fileSuffix = `--${incidentId}.md`
-  const dirNeedle = `--${incidentId}/`
+  const fileSuffix = `--${connectorPathSegment(incidentId)}.md`
+  const dirNeedle = `--${connectorPathSegment(incidentId)}/`
   return paths.filter(
     (path) =>
       path.startsWith(root) &&

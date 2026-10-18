@@ -13,6 +13,7 @@ import {
 import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import {
   CONFLUENCE_SYNC_MAX_TRIES,
   confluenceSourceAdapter,
@@ -88,6 +89,7 @@ describe("Confluence source adapter (Postgres + msw)", () => {
     seed = await seedSourcesOrg("wsrc_confluence")
   })
   afterEach(() => {
+    server.resetHandlers()
     pageReads.length = 0
     site.spaces = [
       { id: "100", key: "ENG", name: "Engineering", homepageId: "1" },
@@ -151,6 +153,94 @@ describe("Confluence source adapter (Postgres + msw)", () => {
     expect(connection?.sourceSync?.spaces.ENG?.lastSyncedAt).toEqual(
       expect.any(String),
     )
+  })
+
+  it("keeps a hostile page id and title from the provider under the space folder", async () => {
+    const forge = await seed.addConnection("forge", installed)
+    const workspaceId = await seed.addWorkspace("conf-hostile")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "9".repeat(40),
+      rows: [confluenceRow("eng", forge, "all")],
+    })
+    const hostileId = "../../../../.ctxpipe/workspace"
+    server.use(
+      http.get(`${api}/api/v2/pages`, () =>
+        HttpResponse.json({
+          results: [
+            { id: "1", title: "Home", spaceId: "100" },
+            {
+              id: hostileId,
+              title: "../../sources/evil",
+              spaceId: "100",
+              parentId: "1",
+            },
+          ],
+        }),
+      ),
+      http.get(`${api}/api/v2/pages/:pageId`, () =>
+        HttpResponse.json({
+          id: hostileId,
+          title: "../../sources/evil",
+          body: { storage: { value: "<p>Body</p>" } },
+        }),
+      ),
+    )
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: confluenceSourceAdapter,
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+    const paths = writes
+      .filter((write) => write.workspaceId === workspaceId)
+      .flatMap((write) => write.files.map((file) => file.path))
+    expect(paths.length).toBeGreaterThan(0)
+    const safeId = connectorPathSegment(hostileId)
+    for (const path of paths) {
+      expect(path.startsWith("confluence/ENG/")).toBe(true)
+      for (const segment of path.split("/"))
+        expect([".", "..", ""]).not.toContain(segment)
+    }
+    expect(paths.some((path) => path.endsWith(`--${safeId}.md`))).toBe(true)
+  })
+
+  it("writes the pages of two entries that share a space together, and deletes none of them", async () => {
+    const forge = await seed.addConnection("forge", installed)
+    const workspace = await seed.addWorkspace("conf-split")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: workspace,
+      revision: "c".repeat(40),
+      rows: [
+        confluenceRow("eng-a", forge, ["2"]),
+        confluenceRow("eng-b", forge, ["3"]),
+      ],
+    })
+
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: confluenceSourceAdapter,
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+
+    expect(writes).toHaveLength(1)
+    const paths = (writes[0]?.files ?? []).map((file) => file.path)
+    expect(paths).toHaveLength(2)
+    expect(new Set(paths).size).toBe(2)
+    expect(paths.some((path) => path.endsWith("--2.md"))).toBe(true)
+    expect(paths.some((path) => path.endsWith("--3.md"))).toBe(true)
+    expect(writes[0]?.ownedPrefixes).toEqual(["confluence/ENG/"])
   })
 
   it("does not leak a Workspace scope into the legacy migration", async () => {

@@ -1,6 +1,10 @@
 import { z } from "zod"
 import { confluenceSourceScope } from "./providers/confluence.js"
-import { githubSourceScope } from "./providers/github.js"
+import { gitSourceScope } from "./providers/git.js"
+import {
+  githubLegacyScopeSchema,
+  githubSourceScope,
+} from "./providers/github.js"
 import { linearSourceScope } from "./providers/linear.js"
 import { notionSourceScope } from "./providers/notion.js"
 import { pagerdutySourceScope } from "./providers/pagerduty.js"
@@ -24,6 +28,7 @@ export const SOURCE_PROVIDERS = [
   "slack",
   "pagerduty",
   "plain",
+  "git",
 ] as const
 
 export const sourceProviderSchema = z.enum(SOURCE_PROVIDERS)
@@ -38,6 +43,7 @@ export const SOURCE_SCOPES: Record<SourceProvider, SourceScopeDefinition> = {
   slack: slackSourceScope,
   pagerduty: pagerdutySourceScope,
   plain: plainSourceScope,
+  git: gitSourceScope,
 }
 
 export const SOURCE_STATUSES = [
@@ -114,6 +120,24 @@ function issuesText(error: z.ZodError): string {
 
 /** Split one entry into generic fields and provider scope, and validate both. */
 export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
+  return parseEntry(raw, {})
+}
+
+/**
+ * {@link parseSourceEntry} with no cap on the repositories of a GitHub
+ * entry. Use it only where ctx| reads an entry that it wrote before the cap
+ * (CTX-822), so that a long entry still links each of its repositories.
+ */
+export function parseLegacySourceEntry(raw: unknown): ParsedSourceEntry {
+  return parseEntry(raw, { github: githubLegacyScopeSchema })
+}
+
+function parseEntry(
+  raw: unknown,
+  scopeSchemas: Partial<
+    Record<SourceProvider, z.ZodType<Record<string, unknown>>>
+  >,
+): ParsedSourceEntry {
   const record =
     raw && typeof raw === "object" && !Array.isArray(raw)
       ? (raw as Record<string, unknown>)
@@ -131,10 +155,21 @@ export function parseSourceEntry(raw: unknown): ParsedSourceEntry {
   const base = sourceEntryBaseSchema.safeParse(record)
   if (!base.success)
     return { ok: false, ...partial, detail: issuesText(base.error) }
+  // A plain git source has no connection, and it exists only as a source
+  // file (CTX-815).
+  if (base.data.provider === "git")
+    return {
+      ok: false,
+      ...partial,
+      detail:
+        "A plain git source is a file under sources/git/, not an entry of this file",
+    }
   const rawScope = Object.fromEntries(
     Object.entries(record).filter(([name]) => !RESERVED_ENTRY_KEYS.has(name)),
   )
-  const scope = SOURCE_SCOPES[base.data.provider].schema.safeParse(rawScope)
+  const scope = (
+    scopeSchemas[base.data.provider] ?? SOURCE_SCOPES[base.data.provider].schema
+  ).safeParse(rawScope)
   if (!scope.success)
     return { ok: false, ...partial, detail: issuesText(scope.error) }
   return {

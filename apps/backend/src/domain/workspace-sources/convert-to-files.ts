@@ -3,8 +3,8 @@ import YAML, { isNode, type Node, type YAMLSeq } from "yaml"
 import type { UpgradeNotice } from "../upgrades/registry.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import {
+  githubLegacyScopeSchema,
   githubScopeRepositories,
-  githubScopeSchema,
 } from "./providers/github.js"
 import {
   checkSourcePath,
@@ -16,7 +16,7 @@ import {
 } from "./source-file.js"
 import { parseSourceFile, renderSourceFile } from "./source-file-text.js"
 import {
-  parseSourceEntry,
+  parseLegacySourceEntry,
   SOURCES_FILE_PATH,
   sourcesFileSchema,
 } from "./sources-file.js"
@@ -350,8 +350,10 @@ function convertEntry(
     return
   }
   // The same parse as the projection of the YAML file, so an entry that was
-  // invalid there does not start to sync here.
-  const parsed = parseSourceEntry(raw)
+  // invalid there does not start to sync here. Only a GitHub entry above the
+  // repository cap (CTX-822) converts: it gives one file for each repository,
+  // and it linked each of them before the cap.
+  const parsed = parseLegacySourceEntry(raw)
   if (!parsed.ok) {
     plan.writeUnconverted(name, raw, parsed.detail, origin)
     return
@@ -398,7 +400,7 @@ function convertEntry(
     return
   }
 
-  const scope = githubScopeSchema.parse(entry.scope)
+  const scope = githubLegacyScopeSchema.parse(entry.scope)
   for (const { name: repository, ref } of githubScopeRepositories(scope)) {
     const source = {
       provider: "github" as const,
