@@ -450,19 +450,24 @@ async function* streamTanstackWorkspaceChatBody(
   const resolved = input.resolveRuntime ? await input.resolveRuntime() : {}
   const turn: TanstackWorkspaceChatInput = { ...input, ...resolved }
   await turn.onUserPersist?.()
-  const title = startConversationTitle(turn)
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
+  // The title starts when the run is accepted (its first event). A rejected
+  // run must not spend a model call or rename the conversation.
+  let title: ReturnType<typeof startConversationTitle> | undefined
   yield workspaceChatSandboxSetupChunk("ready")
   const masked = credentialMaskedChunks()
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
-    if (typed.type === "RUN_STARTED") continue
+    if (typed.type === "RUN_STARTED") {
+      title ??= startConversationTitle(turn)
+      continue
+    }
     if (typed.type === "RUN_ERROR") await turn.onError?.()
     if (typed.type === "RUN_FINISHED") {
       // The final event does not wait for the title. A title that is not
       // ready yet is still saved; the client reads it with the conversation.
-      const name = title.name()
+      const name = title?.name() ?? null
       if (name) yield conversationRenameChunk(name)
       await turn.onFinish?.()
     }
