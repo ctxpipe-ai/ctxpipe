@@ -28,6 +28,7 @@ import {
 import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"
 import {
   capIngestText,
+  ingestErrorFields,
   logIngestEvent,
   withIngestSpan,
 } from "../../domain/ingestion/ingest-telemetry.js"
@@ -693,8 +694,8 @@ async function attemptSkillStep(
       const refused = error instanceof IngestRefRefusedError
       reason = refused ? "broker_refused" : "step_failed"
       // The error text can hold source text, so the log has only where the
-      // attempt failed: the stage, the step command and its exit code, or
-      // the time limit.
+      // attempt failed (the stage, the step command and its exit code, or
+      // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
       logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
         ingestionRunId: run.runId,
@@ -704,6 +705,13 @@ async function attemptSkillStep(
         attempt,
         stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
         ...(command ? { exitCode: command.exitCode } : {}),
+        ...(command?.model
+          ? {
+              modelCalls: command.model.calls,
+              modelErrors: command.model.errors,
+            }
+          : {}),
+        ...ingestErrorFields(error),
       })
       span.setAttribute(
         "error.type",

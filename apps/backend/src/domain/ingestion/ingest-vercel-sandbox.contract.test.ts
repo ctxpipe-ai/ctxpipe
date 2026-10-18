@@ -69,8 +69,8 @@ import {
 
 /*
  * Contract (hosted): one ingest shard on a real Vercel sandbox, through the
- * production shard runtime, with the hosted egress gate open for this test
- * only (`VERCEL_INGEST_EGRESS_PROVEN` stays false in the product).
+ * production shard runtime, with the hosted egress gate
+ * (`VERCEL_INGEST_EGRESS_PROVEN`) open.
  *
  * The backend must be public for the Vercel firewall, and a CI runner is not.
  * A second sandbox with a public port stands in for the backend's address:
@@ -88,6 +88,9 @@ const HELLO_URL = `https://github.com/${HELLO}.git`
 const HELLO_SHA = "7fd1a60b01f91b314f59955a4e4d4e80d8edf11d"
 const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
 const UPSTREAM_KEY = "sk-contract-upstream"
+/** The context file that the model step adds, and its text. */
+const PATCH_PATH = "knowledge/vercel-contract.md"
+const PATCH_TEXT = "Written by the hosted model step."
 const TUNNEL_PORT = 8080
 const environment = `ci-contract-ingest-${Date.now()}`
 const orgId = generateObjectId("org")
@@ -126,7 +129,10 @@ const server = setupServer(
     // tool bridge now, through the firewall and the egress proxy.
     bridgeDuringStep ??= agentStatus(bridgeCall())
     await bridgeDuringStep
-    const body = (await request.json()) as { stream?: boolean }
+    const body = (await request.json()) as {
+      stream?: boolean
+      messages?: { role?: string }[]
+    }
     const usage = { prompt_tokens: 11, completion_tokens: 7, total_tokens: 18 }
     if (!body.stream)
       return HttpResponse.json({
@@ -145,6 +151,45 @@ const server = setupServer(
       })
     const chunk = (fields: Record<string, unknown>) =>
       `data: ${JSON.stringify({ id: "chatcmpl_contract", object: "chat.completion.chunk", created: 1, model: "stand-in", ...fields })}\n\n`
+    // The first answer is one bash call that adds a context file through
+    // `ctxpipe-stage`, so the step writes a patch. After the tool result,
+    // the model stops.
+    if (!body.messages?.some((message) => message.role === "tool"))
+      return new HttpResponse(
+        [
+          chunk({
+            choices: [
+              {
+                index: 0,
+                delta: {
+                  role: "assistant",
+                  tool_calls: [
+                    {
+                      index: 0,
+                      id: "call_contract",
+                      type: "function",
+                      function: {
+                        name: "bash",
+                        arguments: JSON.stringify({
+                          command: `f=$(ctxpipe-stage ${PATCH_PATH} | awk '{print $NF}') && printf '${PATCH_TEXT}' > "$f"`,
+                          description: "Add a context file",
+                        }),
+                      },
+                    },
+                  ],
+                },
+                finish_reason: null,
+              },
+            ],
+          }),
+          chunk({
+            choices: [{ index: 0, delta: {}, finish_reason: "tool_calls" }],
+          }),
+          chunk({ choices: [], usage }),
+          "data: [DONE]\n\n",
+        ].join(""),
+        { headers: { "content-type": "text/event-stream" } },
+      )
     return new HttpResponse(
       [
         chunk({
@@ -601,7 +646,11 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
       signal: AbortSignal.timeout(600_000),
     })
     report(`[vercel] ingest model step ${Date.now() - started}ms`)
-    expect(result.tar.byteLength).toBeGreaterThan(0)
+    // The agent wrote a context file through the model step: the patch
+    // holds its path and its text.
+    const patch = Buffer.from(result.tar)
+    expect(patch.includes("vercel-contract.md")).toBe(true)
+    expect(patch.includes(PATCH_TEXT)).toBe(true)
     // The usage reaches the run, so the cost cap counts hosted steps too.
     expect(result.usage?.inputTokens).toBeGreaterThan(0)
     expect(result.usage?.outputTokens).toBeGreaterThan(0)

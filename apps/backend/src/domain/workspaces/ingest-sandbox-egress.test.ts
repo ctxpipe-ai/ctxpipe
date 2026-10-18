@@ -172,8 +172,8 @@ describe("hostedIngestEgressEnabled", () => {
     ).toBe(true)
   })
 
-  it("stays closed in the product until the live proof", () => {
-    expect(VERCEL_INGEST_EGRESS_PROVEN).toBe(false)
+  it("is open in the product after the live proof", () => {
+    expect(VERCEL_INGEST_EGRESS_PROVEN).toBe(true)
   })
 })
 

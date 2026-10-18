@@ -4,12 +4,15 @@ import type { IngestStepUsage } from "./ingest-shard-runtime.js"
  * The model usage of one ingest model step. `opencode run --format json`
  * writes one JSON event on each line. Each model call ends with a
  * `step_finish` event; its part holds the tokens and the cost of that call.
- * The command keeps only those lines on stdout, because the other events
- * (tool output, text) can be large.
+ * A failed model call gives an `error` event. The command keeps only those
+ * lines on stdout, because the other events (tool output, text) can be
+ * large.
  */
 
 /** The start of each `step_finish` line (`JSON.stringify({ type, … })`). */
 const STEP_FINISH = '{"type":"step_finish"'
+/** The start of each `error` line. */
+const ERROR = '{"type":"error"'
 
 function quote(value: string): string {
   return `'${value.replace(/'/g, "'\\''")}'`
@@ -17,8 +20,8 @@ function quote(value: string): string {
 
 /**
  * The shell command of one model step: `opencode run` with JSON events, and
- * only the `step_finish` lines on stdout. The command exits with the exit
- * code of `opencode run`, not of the filter.
+ * only the `step_finish` and `error` lines on stdout. The command exits with
+ * the exit code of `opencode run`, not of the filter.
  */
 export function ingestModelRunCommand(input: {
   prompt: string
@@ -27,7 +30,13 @@ export function ingestModelRunCommand(input: {
   const run = `opencode run --format json${input.model ? ` --model ${quote(input.model)}` : ""} ${quote(input.prompt)}`
   // POSIX sh has no pipefail: fd 3 carries the exit code of `opencode run`
   // out of the pipe, and fd 4 carries the filtered lines to stdout.
-  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep -F ${quote(STEP_FINISH)} >&4; true; }; } 3>&1 ); exit "$code"`
+  return `exec 4>&1; code=$( { { ${run}; echo $? >&3; } | { grep -F -e ${quote(STEP_FINISH)} -e ${quote(ERROR)} >&4; true; }; } 3>&1 ); exit "$code"`
+}
+
+/** The count of finished model calls (`step_finish` lines). */
+export function openCodeModelCalls(stdout: string): number {
+  return stdout.split("\n").filter((line) => line.startsWith(STEP_FINISH))
+    .length
 }
 
 /** A number, or 0. */
@@ -77,4 +86,40 @@ export function parseOpenCodeUsage(
     outputTokens,
     ...(costKnown ? { costUsd } : {}),
   }
+}
+
+/** A failed model call: the error name and the HTTP status, no message. */
+export type OpenCodeError = { name: string; status?: number }
+
+/**
+ * The `error` events in the stdout of `ingestModelRunCommand`. The message,
+ * the response body, and the URL can hold source text or a host name, so
+ * only the error name (when it is an identifier) and the HTTP status stay.
+ */
+export function parseOpenCodeErrors(stdout: string): OpenCodeError[] {
+  const errors: OpenCodeError[] = []
+  for (const line of stdout.split("\n")) {
+    if (!line.startsWith(ERROR)) continue
+    let event: { error?: { name?: unknown; data?: { statusCode?: unknown } } }
+    try {
+      event = JSON.parse(line)
+    } catch {
+      continue
+    }
+    const name = event.error?.name
+    const status = event.error?.data?.statusCode
+    errors.push({
+      name:
+        typeof name === "string" && /^[A-Za-z][A-Za-z0-9_]{0,63}$/.test(name)
+          ? name
+          : "unknown",
+      ...(typeof status === "number" &&
+      Number.isInteger(status) &&
+      status >= 100 &&
+      status <= 599
+        ? { status }
+        : {}),
+    })
+  }
+  return errors
 }

@@ -6,6 +6,7 @@ import { promisify } from "node:util"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import {
   ingestModelRunCommand,
+  parseOpenCodeErrors,
   parseOpenCodeUsage,
 } from "./ingest-opencode-usage.js"
 
@@ -97,6 +98,49 @@ describe("parseOpenCodeUsage", () => {
   })
 })
 
+/** An `error` event as OpenCode 1.18.34 writes it for a failed model call. */
+const errorEvent = (error: Record<string, unknown>) =>
+  JSON.stringify({
+    type: "error",
+    timestamp: 1760700000000,
+    sessionID: session,
+    error,
+  })
+
+describe("parseOpenCodeErrors", () => {
+  it("gives the name and the HTTP status of each error event, and no message text", () => {
+    const stdout = [
+      errorEvent({
+        name: "APIError",
+        data: {
+          message: "upstream said: source text",
+          statusCode: 502,
+          isRetryable: true,
+          responseBody: "source text",
+          metadata: { url: "http://backend.test/v1/chat/completions" },
+        },
+      }),
+      errorEvent({
+        name: "UnknownError",
+        data: { message: "fetch failed: source text" },
+      }),
+      errorEvent({ name: "not a name: source text", data: {} }),
+    ].join("\n")
+    const errors = parseOpenCodeErrors(stdout)
+    expect(errors).toEqual([
+      { name: "APIError", status: 502 },
+      { name: "UnknownError" },
+      { name: "unknown" },
+    ])
+    expect(JSON.stringify(errors)).not.toContain("source text")
+  })
+
+  it("gives no error for other events and broken lines", () => {
+    expect(parseOpenCodeErrors(recorded([0, 0]))).toEqual([])
+    expect(parseOpenCodeErrors('{"type":"error" broken')).toEqual([])
+  })
+})
+
 describe("ingestModelRunCommand", () => {
   let bin: string
   const run = promisify(execFile)
@@ -105,7 +149,10 @@ describe("ingestModelRunCommand", () => {
     // A stand-in `opencode` on PATH: it writes the recorded events, keeps its
     // arguments in a file, writes a text line, then exits with $OPENCODE_EXIT.
     bin = await mkdtemp(join(tmpdir(), "opencode-usage-"))
-    await writeFile(join(bin, "events.jsonl"), `${recorded([0.01, 0.02])}\n`)
+    await writeFile(
+      join(bin, "events.jsonl"),
+      `${recorded([0.01, 0.02])}\n${errorEvent({ name: "APIError", data: { statusCode: 429 } })}\n`,
+    )
     await writeFile(
       join(bin, "opencode"),
       `#!/bin/sh\ncat "${join(bin, "events.jsonl")}"\necho "$*" > "${join(bin, "args")}"\necho "Done."\nexit "\${OPENCODE_EXIT:-0}"\n`,
@@ -137,14 +184,19 @@ describe("ingestModelRunCommand", () => {
     )
   }
 
-  it("keeps only the step_finish lines, with JSON events and the model", async () => {
+  it("keeps only the step_finish and error lines, with JSON events and the model", async () => {
     const result = await sh(0)
     expect(result.code).toBe(0)
     const lines = result.stdout.trim().split("\n")
-    expect(lines).toHaveLength(2)
+    expect(lines).toHaveLength(3)
     expect(
-      lines.every((line) => line.startsWith('{"type":"step_finish"')),
+      lines
+        .slice(0, 2)
+        .every((line) => line.startsWith('{"type":"step_finish"')),
     ).toBe(true)
+    expect(parseOpenCodeErrors(result.stdout)).toEqual([
+      { name: "APIError", status: 429 },
+    ])
     expect(parseOpenCodeUsage(result.stdout)?.costUsd).toBeCloseTo(0.03, 10)
     expect((await readFile(join(bin, "args"), "utf8")).trim()).toBe(
       "run --format json --model ctxpipe/m Run the skill.",
