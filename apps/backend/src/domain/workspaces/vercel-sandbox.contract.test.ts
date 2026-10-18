@@ -1,4 +1,3 @@
-import { gunzipSync } from "node:zlib"
 import {
   bootstrapWorkspace,
   defineWorkspace,
@@ -78,6 +77,37 @@ async function gitWithCaDiagnostics(
     `[vercel] git failed (exit ${result.exitCode}): ${result.stderr.trim()}\n[vercel] CA bundle state:\n${state.stdout}${state.stderr}`,
   )
   return result
+}
+
+/**
+ * Every string in the given trees that has the shape of a credential of this
+ * lane: a GitHub token, or a turn's model capability or bridge token. The
+ * search runs in the sandbox and prints only the matches, so no secret enters
+ * the sandbox and the reply stays small. The caller looks for its own secrets
+ * in the reply. CTX-841: a tar of the same trees was 720 MB (373 MB as
+ * base64) in one 34 s exec, and a CI run lost that single response stream to
+ * `read ETIMEDOUT`. A canary file proves that the search reads files.
+ */
+async function credentialShapesInside(
+  handle: {
+    process: {
+      exec: (
+        command: string,
+      ) => Promise<{ exitCode: number; stdout: string; stderr: string }>
+    }
+  },
+  trees: string,
+): Promise<string> {
+  const canary = `ghs_${"c".repeat(36)}`
+  await handle.process.exec(
+    `printf '%s' ${canary} > /tmp/ctxpipe-credential-canary`,
+  )
+  const shapes = "gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}"
+  const found = await handle.process.exec(
+    `LC_ALL=C grep -rhaoE -D skip -e '${shapes}|contract-(model|bridge)-[a-z0-9]+' ${trees} 2>/dev/null | sort -u | head -c 100000`,
+  )
+  expect(found.stdout, "the credential search reads files").toContain(canary)
+  return found.stdout
 }
 
 const OPENCODE_VERSION = "1.18.34"
@@ -657,11 +687,11 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     expect(inside.stdout.length).toBeGreaterThan(0)
     for (const secret of secrets)
       expect(inside.stdout.includes(secret)).toBe(false)
-    const tree = await handle.process.exec(
-      'tar -czf - --ignore-failed-read /vercel/sandbox "$HOME" /etc /tmp 2>/dev/null | base64 -w0',
+    const shapes = await credentialShapesInside(
+      handle,
+      '/vercel/sandbox "$HOME" /etc /tmp',
     )
-    const archive = gunzipSync(Buffer.from(tree.stdout, "base64"))
-    for (const secret of secrets) expect(archive.includes(secret)).toBe(false)
+    for (const secret of secrets) expect(shapes.includes(secret)).toBe(false)
 
     started = Date.now()
     await firewall.closeTurn(handle.id)
@@ -899,19 +929,18 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
     expect(await npmReachable(conversation)).toBe(true)
     // The base holds the token nowhere: not in the git config or the
     // environment, and not in any file under .git, $HOME, /etc or /tmp. The
-    // token never enters the sandbox: the sandbox streams those trees as a
-    // tar, and the search runs here, in the test process.
+    // token never enters the sandbox: the search there matches token shapes
+    // and the check for the token runs here, in the test process.
     const config = await conversation.process.exec(
       "git -C /vercel/sandbox config --list --show-origin; env",
     )
     expect(config.stdout.length).toBeGreaterThan(0)
     expect(config.stdout.includes(token)).toBe(false)
-    const tree = await conversation.process.exec(
-      'tar -czf - --ignore-failed-read /vercel/sandbox/.git "$HOME" /etc /tmp 2>/dev/null | base64 -w0',
+    const shapes = await credentialShapesInside(
+      conversation,
+      '/vercel/sandbox/.git "$HOME" /etc /tmp',
     )
-    const archive = gunzipSync(Buffer.from(tree.stdout, "base64"))
-    expect(archive.includes("vercel/sandbox/.git/config")).toBe(true)
-    expect(archive.includes(token)).toBe(false)
+    expect(shapes.includes(token)).toBe(false)
 
     // Measure (ADR-048): does a sandbox survive deletion of its source
     // snapshot? Delete the base the way a crashed build would be cleaned up:
