@@ -416,9 +416,9 @@ export function dockerIngestSandboxProvider(input: {
 
 /**
  * Give a later step of the shard its own credentials: the step's capability,
- * its tool bridge, and GitHub tokens of the current window. Call it while the
- * step holds the shard lock, before the agent runs. It replaces the whole
- * rule set: a repository that the step does not list cannot be fetched.
+ * its tool bridge, and GitHub tokens that are younger than 50 minutes. Call
+ * it while the step holds the shard lock, before the agent runs. It replaces
+ * the whole rule set: a repository that the step does not list cannot be fetched.
  * `fetchSource` adds the plain git source, only for `prepareIngestShard`
  * (see {@link ingestCredentialRules}).
  */

@@ -21,10 +21,15 @@ import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
  * revokes them; the sweep revokes those of finished runs.
  *
  * GitHub installation tokens are valid for 60 minutes. A token is used only
- * in the 50-minute window it was minted in, so a token in use has at least
- * 10 minutes left.
+ * for 50 minutes after its mint, so a token in use has at least 10 minutes
+ * left. The `<window>` of the key is the 50-minute clock window of the mint.
+ * It makes parallel mints of one label meet at one key. It does not limit
+ * the reuse: a token minted just before a window boundary stays in use after
+ * the boundary.
  */
-const WINDOW_MS = 50 * 60_000
+const REUSE_MS = 50 * 60_000
+// The key bucket equals the reuse age, so a young token is in one of two keys.
+const WINDOW_MS = REUSE_MS
 const TOKEN_LIFETIME_MS = 60 * 60_000
 const SWEEP_MIN_AGE_MS = 2 * 60_000
 
@@ -52,8 +57,8 @@ const storeFor = (input: RunTokenOptions) =>
   )
 
 /**
- * The conversation's recorded token for `label` in the current window, or a
- * new uncached token from `mint`, recorded before it is returned.
+ * The owner's recorded token for `label` that is younger than 50 minutes, or
+ * a new uncached token from `mint`, recorded before it is returned.
  */
 export async function recordedRunGitToken(
   input: RunTokenOptions &
@@ -63,9 +68,22 @@ export async function recordedRunGitToken(
     },
 ): Promise<string | undefined> {
   const store = storeFor(input)
-  const key = `${keyBase(input)}${input.label}:${Math.floor(Date.now() / WINDOW_MS)}`
-  const recorded = await store.get(key)
+  const prefix = `${keyBase(input)}${input.label}:`
+  const now = Date.now()
+  // The key window comes from `now`, before the mint. `mintedAt` is set after
+  // the mint, so a young token can be one window older than its age suggests:
+  // it is in the key of one of the last three windows.
+  const bucket = Math.floor(now / WINDOW_MS)
+  let recorded: { token: string } | undefined
+  for (const candidate of [bucket, bucket - 1, bucket - 2]) {
+    const row = await store.get(`${prefix}${candidate}`)
+    if (row && now - row.mintedAt.getTime() < REUSE_MS) {
+      recorded = row
+      break
+    }
+  }
   if (recorded) return recorded.token
+  const key = `${prefix}${bucket}`
   const minted = await input.mint()
   if (!minted) return undefined
   if (await store.add(key, minted)) return minted
