@@ -679,6 +679,7 @@ it.each([
     const target = join(directory, file)
     await writeFile(target, "ask-probe-content\n")
     const callIDs = ["call_doom_0", "call_doom_1", "call_doom_2"]
+    let resultRequests = 0
     const model = createServer((request, response) => {
       if (request.url !== "/model/v1/chat/completions") {
         response.writeHead(404)
@@ -690,6 +691,7 @@ it.each([
         body += chunk
       })
       request.on("end", () => {
+        if (body.includes("call_doom_")) resultRequests += 1
         const chunks = body.includes("call_doom_")
           ? [
               completionChunk({ role: "assistant", content: "done" }),
@@ -730,7 +732,6 @@ it.each([
     })
     const asks: OpencodePermissionRequest[] = []
     const answers: string[] = []
-    const toolStatus = new Map<string, string>()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise<void>((resolve) =>
@@ -760,12 +761,7 @@ it.each([
           baseUrl: server.baseUrl,
           providerID: "synthetic",
           modelID: "probe",
-          onEvent: (event) => {
-            if (event.type !== "message.part.updated") return
-            const part = event.properties.part
-            if (part.type === "tool" && "callID" in part)
-              toolStatus.set(part.callID, part.state.status)
-          },
+          onEvent: () => undefined,
           onPermissionRequest: async (request) => {
             asks.push(request)
             const reply = await handler(request)
@@ -794,10 +790,11 @@ it.each([
       ])
       expect(answers).toEqual([answer])
       expect(judgeCalls).toEqual(judged ? ["doom_loop"] : [])
-      // OpenCode applied the answer: "once" runs the third call.
-      expect(toolStatus.get("call_doom_2")).toBe(
-        answer === "once" ? "completed" : "error",
-      )
+      // OpenCode applied the answer. After "once" the turn goes on and sends
+      // the tool results to the model. After "reject" the turn stops. (The
+      // third read can run before the ask is answered: OpenCode starts a
+      // tool when the model sends the call, and doom_loop does not wait.)
+      expect(resultRequests).toBe(answer === "once" ? 1 : 0)
     } finally {
       clearTimeout(timer)
       model.closeAllConnections()
