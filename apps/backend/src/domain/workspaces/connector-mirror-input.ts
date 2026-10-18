@@ -77,13 +77,14 @@ export const connectorMirrorContentSchema = z
   })
   .strict()
   .refine(
+    // A delete names a path that exists in the tree and cannot plant content,
+    // so it needs no name rules beyond `repositoryFilePathSchema`.
     (input) =>
       [...input.files.map((file) => file.path), ...input.deletePaths].every(
         (path) =>
           path.startsWith(`${input.mirror.provider}/`) &&
-          path !== `${input.mirror.provider}/config.yaml` &&
-          unsafeMirrorPath(path) === null,
-      ),
+          path !== `${input.mirror.provider}/config.yaml`,
+      ) && input.files.every((file) => unsafeMirrorPath(file.path) === null),
     "A mirror may only change safe paths under its managed provider root",
   )
   .refine(

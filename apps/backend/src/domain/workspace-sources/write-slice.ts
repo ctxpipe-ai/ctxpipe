@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import {
   packRootTree,
   readGitPackFromRemote,
@@ -29,15 +30,24 @@ export async function writeWorkspaceSlice(
 ): Promise<{ queued: boolean }> {
   // Each changed path must be safe and under a path that this write owns:
   // another source of the Workspace owns the other paths of the provider.
-  for (const path of [
-    ...write.files.map((file) => file.path),
-    ...(write.deletePaths ?? []),
-  ]) {
+  // A delete names an existing path, so it needs only a valid repository
+  // path and the owned prefix: a `.gitkeep` or an older non-NFC name must
+  // be deletable. A write also needs a safe mirror path.
+  const owns = (path: string) =>
+    write.ownedPrefixes.some((prefix) => path.startsWith(prefix))
+  for (const path of write.files.map((file) => file.path)) {
     const unsafe =
       unsafeMirrorPath(path) ??
-      (write.ownedPrefixes.some((prefix) => path.startsWith(prefix))
+      (owns(path) ? null : "is not under a path that the write owns")
+    if (unsafe)
+      refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
+  }
+  for (const path of write.deletePaths ?? []) {
+    const unsafe = !repositoryFilePathSchema.safeParse(path).success
+      ? "is not a repository file path"
+      : owns(path)
         ? null
-        : "is not under a path that the write owns")
+        : "is not under a path that the write owns"
     if (unsafe)
       refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
   }

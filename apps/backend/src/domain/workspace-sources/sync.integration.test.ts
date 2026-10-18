@@ -675,6 +675,30 @@ describe("Workspace source sync frame (Postgres)", () => {
       expect(kept.writes).toEqual([])
     })
 
+    it("deletes an existing dot file or a name that NFC changes", async () => {
+      const { run, writes, workspaceId } = await syncWith({
+        files: ["confluence/ENG/home.md"],
+        deletePaths: [
+          "confluence/ENG/.gitkeep",
+          "confluence/ENG/.DS_Store",
+          "confluence/ENG/cafe\u0301.md",
+        ],
+      })
+      await expect(run).resolves.toEqual({
+        fetchedScopes: 1,
+        workspaces: [workspaceId],
+      })
+      expect(writes).toMatchObject([
+        {
+          deletePaths: [
+            "confluence/ENG/.gitkeep",
+            "confluence/ENG/.DS_Store",
+            "confluence/ENG/cafe\u0301.md",
+          ],
+        },
+      ])
+    })
+
     it("still writes a normal path", async () => {
       const { run, writes, workspaceId } = await syncWith({
         files: ["confluence/ENG/home.md", "confluence/ENG/team/page.md"],

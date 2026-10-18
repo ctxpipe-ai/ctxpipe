@@ -82,6 +82,20 @@ it("refuses a mirror path that the sources sync refuses", () => {
     "pagerduty/incidents/.gitattributes",
   ]) {
     expect(parse([path])).toBe(false)
+    // A delete removes a file that exists, so the name rules of a write do
+    // not apply.
+    expect(parse([], [path])).toBe(true)
+  }
+  for (const path of [
+    "pagerduty/incidents/../../knowledge/a.md",
+    "pagerduty/incidents//1.md",
+    "pagerduty/incidents/..\\..\\a.md",
+    "pagerduty/.git/config",
+    "/pagerduty/incidents/1.md",
+    "linear/teams/ENG/README.md",
+    "pagerduty/config.yaml",
+  ]) {
+    expect(parse([path])).toBe(false)
     expect(parse([], [path])).toBe(false)
   }
   // A GitHub repository can have the name ".github": its pull requests mirror.

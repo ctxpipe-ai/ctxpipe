@@ -9,6 +9,7 @@ import {
   setWorkspaceSourceStatus,
 } from "../../models/workspace-sources.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
+import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import type {
   MirrorProvider,
   SourceAdapter,
@@ -126,11 +127,22 @@ function assertFetchedPaths(
   const refuse = (path: string, reason: string) =>
     refuseMirrorPath({ provider: adapter.provider, path, reason })
   const files = "files" in result ? result.files : result.filesByScope.flat()
-  for (const path of [
-    ...files.flatMap((file) => (file ? [file.path] : [])),
-    ...(result.deletePaths ?? []),
+  // A deleted path exists in the tree, so it needs only a valid repository
+  // path. A written path also needs a safe mirror path.
+  for (const [path, unsafe] of [
+    ...files.flatMap((file) =>
+      file ? [[file.path, unsafeMirrorPath(file.path)] as const] : [],
+    ),
+    ...(result.deletePaths ?? []).map(
+      (path) =>
+        [
+          path,
+          repositoryFilePathSchema.safeParse(path).success
+            ? null
+            : "is not a repository file path",
+        ] as const,
+    ),
   ]) {
-    const unsafe = unsafeMirrorPath(path)
     if (unsafe) refuse(path, unsafe)
     if (!underAny(path, managed))
       refuse(path, "is not under a managed path of this sync")

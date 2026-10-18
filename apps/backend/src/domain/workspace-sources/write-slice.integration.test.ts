@@ -338,6 +338,21 @@ it(
             env,
           ),
         ).rejects.toThrow("The linear sync refused an unsafe path.")
+        // A delete that starts with an owned path but leaves it.
+        for (const path of [
+          "linear/teams/ENG/../OPS/README.md",
+          "linear/teams/ENG/./../OPS/README.md",
+          "linear/teams/ENG//README.md",
+          "linear/teams/ENG/..\\OPS\\README.md",
+          "linear/teams/ENG/.git/config",
+          "linear/teams/ENG/README.md/",
+        ])
+          await expect(
+            writeWorkspaceSlice(
+              { ...write, files: [], deletePaths: [path] },
+              env,
+            ),
+          ).rejects.toThrow("The linear sync refused an unsafe path.")
         expect(await connectorMirrorJobs(f)).toEqual([])
       },
     )
@@ -392,6 +407,56 @@ it(
             "linear/teams/ENG/README.md",
           ),
         ).toMatch(/^100644 blob /)
+      },
+    )
+  },
+)
+
+it(
+  "deletes a dot file and a name that NFC changes inside a managed folder",
+  { timeout: 90_000 },
+  async () => {
+    // Names that a sync does not write, but that can exist in the tree.
+    const odd = ["linear/teams/ENG/.notes.md", "linear/teams/ENG/cafe\u0301.md"]
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "linear/teams/ENG/README.md", body: "# ENG\n" },
+          ...odd.map((path) => ({ path, body: "# Odd\n" })),
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        // A full-replace sync of ENG: the fetch no longer has these files.
+        const synced = await writeWorkspaceSlice(
+          {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            provider: "linear",
+            connectionId: "con_linear",
+            files: [
+              { path: "linear/teams/ENG/README.md", content: "# ENG 2\n" },
+            ],
+            ownedPrefixes: ["linear/teams/ENG/"],
+            keepPrefixes: [],
+            deletePaths: odd,
+            sourcesRevision: f.git("rev-parse", "HEAD"),
+          },
+          parseEnv(process.env),
+        )
+        expect(synced).toEqual({ queued: true })
+        const [job] = await connectorMirrorJobs(f)
+        if (!job) throw new Error("Expected a queued connector mirror")
+        await runConnectorMirror(f, job.id)
+        expect(
+          f
+            .git("--git-dir", f.remote, "ls-tree", "-r", "--name-only", "main")
+            .split("\n")
+            .filter((path) => path.startsWith("linear/teams/ENG/")),
+        ).toEqual(["linear/teams/ENG/README.md"])
       },
     )
   },
