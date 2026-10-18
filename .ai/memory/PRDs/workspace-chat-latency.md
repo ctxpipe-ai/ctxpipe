@@ -10,7 +10,11 @@ tool/serve loop.
 
 - **SLO:** On the product UI path (workspace open, compose mounted, then Send),
   a complete useful assistant answer to a typical first question must land in
-  **about 5 seconds** (not first-token only). The example “what’s in this repo?”
+  **about 12 seconds** (target) and never later than **20 seconds** (fail
+  budget). This is not a first-token measure. A CTO decision of 2026-10-18
+  ([CTX-848](https://linear.app/ctxpipe/issue/CTX-848)) replaced the first
+  target of 5 seconds. A later turn on the same conversation keeps the
+  budget of 5 seconds (target) and 15 seconds (fail). The example “what’s in this repo?”
   is a stand-in for that class of question. Do not put that wording, or a precomputed inventory, into the OpenCode instructions or the chat prompt. Get the latency from a warm sandbox, not from a special case for one question.
 - **Same lock:** TanStack `chat()` + `withSandbox` + `opencodeText`, one sandbox per
   conversation, configured `MODEL_FAST_NAME` / `MEDIUM` / `HIGH` only through the

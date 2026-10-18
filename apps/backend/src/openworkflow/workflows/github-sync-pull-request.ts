@@ -11,11 +11,7 @@ import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/writ
 import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { GITHUB_PR_PULLS_PREFIX } from "../../services/github/pull-request-mirror/converter.js"
 import { shouldMirrorGithubPullRequest } from "../../services/github/pull-request-mirror/policy.js"
 import {
@@ -131,105 +127,101 @@ async function readStampsToWrite(input: {
  */
 export const githubSyncPullRequest = defineWorkflow(
   {
+    logFields: (input) => ({
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      gitUrl: input.gitUrl,
+    }),
     name: "github-sync-pull-request",
     schema: GithubSyncPullRequestInputSchema,
   },
-  async ({ input, step, run }) =>
-    withLogger(
-      createLogger({
-        workflow: "github-sync-pull-request",
+  async ({ input, step, run }) => {
+    if (input.candidate && !shouldMirrorGithubPullRequest(input.candidate))
+      return { written: 0, skipped: "policy" as const }
+    const target = await step.run(
+      { name: "capture-github-pr-mirror-target" },
+      () => captureTarget(input),
+    )
+    if ("skipped" in target) return { written: 0, skipped: target.skipped }
+    const source = {
+      orgId: input.orgId,
+      env: parseEnv(process.env),
+      connectionId: target.connectionId,
+      repository: target.repository,
+    }
+    const files: GithubPrMirrorFile[] = []
+    if (input.numbers) {
+      const numbers = input.numbers
+      const captured = await step.run(
+        { name: "mirror-github-pull-requests" },
+        () => captureGithubPullRequests({ ...source, numbers }),
+      )
+      files.push(...captured.files)
+    } else {
+      let after: string | null = null
+      let pulls = 0
+      for (let page = 0; ; page++) {
+        const cursor: string | null = after
+        const captured: Awaited<
+          ReturnType<typeof captureClosedGithubPullRequestPage>
+        > = await step.run(
+          { name: `mirror-github-pull-requests:${page}` },
+          () =>
+            captureClosedGithubPullRequestPage({
+              ...source,
+              after: cursor,
+            }),
+        )
+        files.push(...captured.files)
+        pulls += captured.pulls
+        after = captured.nextAfter
+        if (!after || pulls >= GITHUB_PR_BACKFILL_MAX) break
+      }
+    }
+    const sourcePath = target.sourcePath
+    // Stamp each file with the source file of the repository (ADR-050),
+    // and restamp from Git the closed pull requests of an older stamp.
+    const stamped = sourcePath
+      ? stampMirrorFiles(
+          files,
+          sourcePath,
+          await step.run({ name: "read-github-pr-mirror-stamps" }, () =>
+            readStampsToWrite({
+              orgId: input.orgId,
+              workspaceId: input.workspaceId,
+              repository: target.repository,
+              sourcePath,
+            }),
+          ),
+        )
+      : files
+    if (stamped.length === 0) return { written: 0 }
+    await step.runWorkflow(
+      workspaceConnectorMirror.spec,
+      {
         orgId: input.orgId,
         workspaceId: input.workspaceId,
-        gitUrl: input.gitUrl,
-      }),
-      async () => {
-        if (input.candidate && !shouldMirrorGithubPullRequest(input.candidate))
-          return { written: 0, skipped: "policy" as const }
-        const target = await step.run(
-          { name: "capture-github-pr-mirror-target" },
-          () => captureTarget(input),
-        )
-        if ("skipped" in target) return { written: 0, skipped: target.skipped }
-        const source = {
-          orgId: input.orgId,
-          env: parseEnv(process.env),
-          connectionId: target.connectionId,
-          repository: target.repository,
-        }
-        const files: GithubPrMirrorFile[] = []
-        if (input.numbers) {
-          const numbers = input.numbers
-          const captured = await step.run(
-            { name: "mirror-github-pull-requests" },
-            () => captureGithubPullRequests({ ...source, numbers }),
-          )
-          files.push(...captured.files)
-        } else {
-          let after: string | null = null
-          let pulls = 0
-          for (let page = 0; ; page++) {
-            const cursor: string | null = after
-            const captured: Awaited<
-              ReturnType<typeof captureClosedGithubPullRequestPage>
-            > = await step.run(
-              { name: `mirror-github-pull-requests:${page}` },
-              () =>
-                captureClosedGithubPullRequestPage({
-                  ...source,
-                  after: cursor,
-                }),
-            )
-            files.push(...captured.files)
-            pulls += captured.pulls
-            after = captured.nextAfter
-            if (!after || pulls >= GITHUB_PR_BACKFILL_MAX) break
-          }
-        }
-        const sourcePath = target.sourcePath
-        // Stamp each file with the source file of the repository (ADR-050),
-        // and restamp from Git the closed pull requests of an older stamp.
-        const stamped = sourcePath
-          ? stampMirrorFiles(
-              files,
-              sourcePath,
-              await step.run({ name: "read-github-pr-mirror-stamps" }, () =>
-                readStampsToWrite({
-                  orgId: input.orgId,
-                  workspaceId: input.workspaceId,
-                  repository: target.repository,
-                  sourcePath,
-                }),
-              ),
-            )
-          : files
-        if (stamped.length === 0) return { written: 0 }
-        await step.runWorkflow(
-          workspaceConnectorMirror.spec,
-          {
-            orgId: input.orgId,
-            workspaceId: input.workspaceId,
-            revision: target.revision,
-            mirror: { provider: "github", gitUrl: input.gitUrl },
-            jobId: `wjob_${run.id}_mirror`,
-            files: stamped,
-            deletePaths: [],
-          },
-          { name: "commit-github-pull-requests" },
-        )
-        if (target.workspaceRepositoryId)
-          await runConnectorRepositoryIngestionWorkflow(
-            step,
-            {
-              orgId: input.orgId,
-              repositoryId: target.workspaceRepositoryId,
-              targetBranch: target.revision.defaultBranch,
-              indexingReason: "Mirroring GitHub pull requests",
-            },
-            { error: (error) => getLogger().error(error) },
-          )
-        return { written: stamped.length }
+        revision: target.revision,
+        mirror: { provider: "github", gitUrl: input.gitUrl },
+        jobId: `wjob_${run.id}_mirror`,
+        files: stamped,
+        deletePaths: [],
       },
-    ),
+      { name: "commit-github-pull-requests" },
+    )
+    if (target.workspaceRepositoryId)
+      await runConnectorRepositoryIngestionWorkflow(
+        step,
+        {
+          orgId: input.orgId,
+          repositoryId: target.workspaceRepositoryId,
+          targetBranch: target.revision.defaultBranch,
+          indexingReason: "Mirroring GitHub pull requests",
+        },
+        { error: (error) => getLogger().error(error) },
+      )
+    return { written: stamped.length }
+  },
 )
 
 /**
