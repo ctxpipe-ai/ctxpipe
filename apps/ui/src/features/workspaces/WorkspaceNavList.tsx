@@ -1,7 +1,10 @@
-import { IconPlus } from "@tabler/icons-react"
-import { useSuspenseQuery } from "@tanstack/react-query"
+import { IconPlus, IconRefresh } from "@tabler/icons-react"
+import {
+  QueryErrorResetBoundary,
+  useSuspenseQuery,
+} from "@tanstack/react-query"
 import { useLocation } from "@tanstack/react-router"
-import { useRef, useState } from "react"
+import { Component, type ReactNode, useRef, useState } from "react"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
@@ -13,6 +16,79 @@ import { WorkspaceCreateModal } from "./WorkspaceCreateModal"
 import { WorkspaceNavRow } from "./WorkspaceNavRow"
 
 export function WorkspaceNavList(props: {
+  orgSlug: string
+  expanded: boolean
+  currentWorkspaceSlug?: string
+  currentConversationId?: string
+  onSelectNav: (next: SideNavLocation) => void
+}) {
+  return (
+    <QueryErrorResetBoundary>
+      {({ reset }) => (
+        <WorkspaceNavListBoundary
+          onReset={reset}
+          fallback={(retry) =>
+            props.expanded ? (
+              <li className="mx-1.5 flex w-[calc(100%-0.75rem)] items-center justify-between gap-2 pl-2 text-xs text-muted-foreground">
+                <p>Could not load Workspaces.</p>
+                <Button variant="ghost" onPress={retry}>
+                  Retry
+                </Button>
+              </li>
+            ) : (
+              <li className="flex w-full justify-center">
+                <Button
+                  variant="ghost"
+                  size="icon-sm"
+                  aria-label="Retry loading Workspaces"
+                  onPress={retry}
+                >
+                  <IconRefresh
+                    className="size-4 text-muted-foreground"
+                    stroke={1.4}
+                    aria-hidden
+                  />
+                </Button>
+              </li>
+            )
+          }
+        >
+          <WorkspaceNavListSuspense {...props} />
+        </WorkspaceNavListBoundary>
+      )}
+    </QueryErrorResetBoundary>
+  )
+}
+
+/**
+ * Catches a failed Workspace list read, so the error stays in the nav and
+ * the rest of the app keeps working. Retry resets the query, then renders
+ * the list again.
+ */
+class WorkspaceNavListBoundary extends Component<
+  {
+    children: ReactNode
+    onReset: () => void
+    fallback: (retry: () => void) => ReactNode
+  },
+  { failed: boolean }
+> {
+  state = { failed: false }
+
+  static getDerivedStateFromError() {
+    return { failed: true }
+  }
+
+  render() {
+    if (!this.state.failed) return this.props.children
+    return this.props.fallback(() => {
+      this.props.onReset()
+      this.setState({ failed: false })
+    })
+  }
+}
+
+function WorkspaceNavListSuspense(props: {
   orgSlug: string
   expanded: boolean
   currentWorkspaceSlug?: string
