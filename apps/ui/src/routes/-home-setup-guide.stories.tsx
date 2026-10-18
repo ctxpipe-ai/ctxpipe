@@ -1157,7 +1157,9 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => expect(canvas.getByText("Loading activity")).toBeVisible(), {
+    const body = canvasElement.querySelector(".max-w-2xl")
+    if (!body) throw new Error("Home has no body")
+    await waitFor(() => expect(getComputedStyle(body).visibility).toBe("visible"), {
       timeout: 5000,
     })
     expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()

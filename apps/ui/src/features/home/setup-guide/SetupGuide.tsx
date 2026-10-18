@@ -20,7 +20,6 @@ import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
 import { Link as TextLink } from "@/components/ui/Link"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
 import { CopyableBlock } from "@/features/connectors/components/github-setup/CopyableBlock"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
@@ -534,7 +533,7 @@ export function SetupGuideReveal(props: { children: ReactNode }) {
   useEffect(() => {
     const frame = requestAnimationFrame(() => setOpen(true))
     // With reduced motion, no transition ends: settle after the duration.
-    const timer = setTimeout(() => setSettled(true), 300)
+    const timer = setTimeout(() => setSettled(true), 250)
     return () => {
       cancelAnimationFrame(frame)
       clearTimeout(timer)
@@ -543,7 +542,7 @@ export function SetupGuideReveal(props: { children: ReactNode }) {
   return (
     <div
       className={cn(
-        "grid transition-[grid-template-rows] duration-200 ease-out motion-reduce:transition-none",
+        "grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none",
         open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
       )}
       onTransitionEnd={(event) => {
