@@ -47,6 +47,17 @@ const SOURCE_FILES: Record<string, string> = {
   "services/orders/src/index.ts": "export const orders = []\n",
 }
 const CONTEXT_FILES: Record<string, string> = { "README.md": "# Context\n" }
+/**
+ * A first source commit older than the 180-day window: the source clone is
+ * shallow, and it has no blob of this commit.
+ */
+const OLD_SOURCE_FILES: Record<string, string> = {
+  "package.json": '{ "name": "checkout-api", "private": true }\n',
+}
+const OLD_DATE = {
+  GIT_AUTHOR_DATE: "2025-01-01T00:00:00Z",
+  GIT_COMMITTER_DATE: "2025-01-01T00:00:00Z",
+}
 /** A script skill of the plan: it stages one library file for its root. */
 const LIBRARIES_SCRIPT = `#!/usr/bin/env node
 import { execFileSync } from "node:child_process"
@@ -63,38 +74,67 @@ function quote(value: string) {
   return `'${value.replaceAll("'", `'\\''`)}'`
 }
 
-/** The same commit on the host and in the container: fixed dates and author. */
-function hostRepo(files: Record<string, string>): { dir: string; sha: string } {
+/** The same commits on the host and in the container: fixed dates and author. */
+function hostRepo(
+  files: Record<string, string>,
+  old?: Record<string, string>,
+): { dir: string; sha: string } {
   const dir = mkdtempSync(join(host, "repo-"))
-  for (const [path, content] of Object.entries(files)) {
-    mkdirSync(dirname(join(dir, path)), { recursive: true })
-    writeFileSync(join(dir, path), content)
+  const write = (tree: Record<string, string>) => {
+    for (const [path, content] of Object.entries(tree)) {
+      mkdirSync(dirname(join(dir, path)), { recursive: true })
+      writeFileSync(join(dir, path), content)
+    }
   }
-  const git = (...args: string[]) =>
+  const git = (args: string[], dates = {}) =>
     execFileSync("git", args, {
       cwd: dir,
       encoding: "utf8",
-      env: { ...process.env, ...GIT_ENV },
+      env: { ...process.env, ...GIT_ENV, ...dates },
     }).trim()
-  git("init", "-q", "-b", "main")
-  git("add", "-A")
-  git("commit", "-q", "-m", "seed")
-  return { dir, sha: git("rev-parse", "HEAD") }
+  git(["init", "-q", "-b", "main"])
+  if (old) {
+    write(old)
+    git(["add", "-A"])
+    git(["commit", "-q", "-m", "old"], OLD_DATE)
+  }
+  write(files)
+  git(["add", "-A"])
+  git(["commit", "-q", "-m", "seed"])
+  return { dir, sha: git(["rev-parse", "HEAD"]) }
 }
 
 async function containerRepo(
   handle: SandboxHandle,
   remote: string,
   files: Record<string, string>,
+  old?: Record<string, string>,
 ): Promise<string> {
   const work = `${remote}.work`
-  for (const [path, content] of Object.entries(files)) {
-    await handle.process.exec(`mkdir -p ${quote(dirname(`${work}/${path}`))}`)
-    await handle.fs.write(`${work}/${path}`, content)
+  const commit = async (
+    tree: Record<string, string>,
+    message: string,
+    dates = {},
+  ) => {
+    for (const [path, content] of Object.entries(tree)) {
+      await handle.process.exec(`mkdir -p ${quote(dirname(`${work}/${path}`))}`)
+      await handle.fs.write(`${work}/${path}`, content)
+    }
+    const result = await handle.process.exec(
+      `cd ${work} && git add -A && git commit -q -m ${message}`,
+      { env: { ...GIT_ENV, ...dates } },
+    )
+    if (result.exitCode !== 0) throw new Error(result.stderr)
   }
+  await handle.process.exec(
+    `mkdir -p ${work} && git -C ${work} init -q -b main`,
+  )
+  if (old) await commit(old, "old", OLD_DATE)
+  await commit(files, "seed")
+  // The remote allows a filter, as GitHub does, so a blobless clone of it
+  // is partial.
   const result = await handle.process.exec(
-    `cd ${work} && git init -q -b main && git add -A && git commit -q -m seed && git clone -q --bare ${work} ${remote} && git rev-parse HEAD`,
-    { env: GIT_ENV },
+    `git clone -q --bare ${work} ${remote} && git -C ${remote} config uploadpack.allowFilter true && git -C ${work} rev-parse HEAD`,
   )
   if (result.exitCode !== 0) throw new Error(result.stderr)
   return result.stdout.trim()
@@ -143,13 +183,14 @@ describe("ingest shard commands in a Docker sandbox", () => {
           handle,
           "/tmp/remotes/source.git",
           SOURCE_FILES,
+          OLD_SOURCE_FILES,
         )
         const contextSha = await containerRepo(
           handle,
           "/tmp/remotes/context.git",
           CONTEXT_FILES,
         )
-        const hostSource = hostRepo(SOURCE_FILES)
+        const hostSource = hostRepo(SOURCE_FILES, OLD_SOURCE_FILES)
         const hostContext = hostRepo(CONTEXT_FILES)
         expect([sourceSha, contextSha]).toEqual([
           hostSource.sha,
@@ -170,8 +211,10 @@ describe("ingest shard commands in a Docker sandbox", () => {
             toolBridgeUrl: "http://127.0.0.1:9/tool-bridge",
           }),
           agentEnv,
+          // A file URL: git ignores the filter and the history window for
+          // a plain path, so only this clone is shallow and blobless.
           source: {
-            url: "/tmp/remotes/source.git",
+            url: "file:///tmp/remotes/source.git",
             sha: sourceSha,
             blobless: true,
           },
@@ -182,10 +225,11 @@ describe("ingest shard commands in a Docker sandbox", () => {
         })
         expect(await ingestShardPrepared(root)).toBe(true)
         const heads = await root(
-          `git -C /ctxpipe/source/source rev-parse HEAD && stat -c %U /ctxpipe/source/source /ctxpipe/context/${WORKSPACE_ID}`,
+          `git -C /ctxpipe/source/source rev-parse HEAD --is-shallow-repository && stat -c %U /ctxpipe/source/source /ctxpipe/context/${WORKSPACE_ID}`,
         )
         expect(heads.stdout.trim().split("\n")).toEqual([
           sourceSha,
+          "true",
           "root",
           "root",
         ])
