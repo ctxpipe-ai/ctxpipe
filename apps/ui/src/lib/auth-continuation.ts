@@ -1,3 +1,5 @@
+import { safeAuthRedirectPath } from "./safe-auth-redirect"
+
 export type AuthContinuationProps = {
   redirectTo?: string
 }
@@ -13,16 +15,19 @@ export function getOAuthRedirectUri(data: unknown): string | undefined {
   return undefined
 }
 
+/** The `redirectTo` of the query, only when it stays on `origin`. */
 export function getAuthContinuationProps(
-  _pathname: string,
   search: string,
+  origin: string,
 ): AuthContinuationProps {
   const normalizedSearch = search.startsWith("?") ? search : `?${search}`
   const searchParams = new URLSearchParams(
     normalizedSearch === "?" ? "" : normalizedSearch.slice(1),
   )
 
-  const redirectTo = searchParams.get("redirectTo") ?? undefined
+  const redirectTo =
+    safeAuthRedirectPath(searchParams.get("redirectTo"), "", origin) ||
+    undefined
 
   return { redirectTo }
 }

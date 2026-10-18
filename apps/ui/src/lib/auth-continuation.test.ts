@@ -4,11 +4,13 @@ import {
   getOAuthRedirectUri,
 } from "./auth-continuation"
 
+const origin = "https://app.example"
+
 describe("getAuthContinuationProps", () => {
   it("extracts redirectTo when present", () => {
     const result = getAuthContinuationProps(
-      "/.auth/sign-in",
       "?response_type=code&redirectTo=%2Fdocs&state=abc",
+      origin,
     )
 
     expect(result).toEqual({
@@ -17,11 +19,24 @@ describe("getAuthContinuationProps", () => {
   })
 
   it("returns undefined redirectTo when omitted", () => {
-    const result = getAuthContinuationProps("/.auth/consent", "")
+    const result = getAuthContinuationProps("", origin)
 
     expect(result).toEqual({
       redirectTo: undefined,
     })
+  })
+
+  it.each([
+    "https://evil.example/",
+    "//evil.example",
+    "javascript:alert(1)",
+  ])("drops a redirectTo that leaves the origin: %j", (value) => {
+    const result = getAuthContinuationProps(
+      `?redirectTo=${encodeURIComponent(value)}`,
+      origin,
+    )
+
+    expect(result).toEqual({ redirectTo: undefined })
   })
 })
 

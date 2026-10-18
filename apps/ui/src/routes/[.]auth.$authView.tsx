@@ -68,7 +68,13 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       : `${window.location.pathname}${window.location.search}`
   const invitationId = props.invitationId ?? params.get("invitationId") ?? ""
   const redirectTo =
-    props.redirectTo ?? params.get("redirectTo") ?? "/onboarding"
+    typeof window === "undefined"
+      ? "/onboarding"
+      : safeAuthRedirectPath(
+          props.redirectTo ?? params.get("redirectTo"),
+          "/onboarding",
+          window.location.origin,
+        )
   const invitationEmailFromUrl =
     props.invitationEmail ?? params.get("email") ?? null
   const [name, setName] = useState("")
@@ -396,6 +402,7 @@ function SignOutView() {
     return safeAuthRedirectPath(
       new URLSearchParams(window.location.search).get("redirectTo"),
       "/.auth/sign-in",
+      window.location.origin,
     )
   }, [])
 
@@ -445,10 +452,7 @@ function AuthViewRoute() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(
-          window.location.pathname,
-          window.location.search,
-        )
+      : getAuthContinuationProps(window.location.search, window.location.origin)
 
   const inviteFromRedirect =
     authView === "sign-up" && continuation?.redirectTo

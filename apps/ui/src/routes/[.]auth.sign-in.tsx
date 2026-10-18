@@ -18,10 +18,7 @@ export function SignInRoutePage() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(
-          window.location.pathname,
-          window.location.search,
-        )
+      : getAuthContinuationProps(window.location.search, window.location.origin)
 
   return (
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
