@@ -86,12 +86,32 @@ describe("withOpencodeServeRetry", () => {
     expect(err).toContain("EADDRINUSE")
   })
 
+  it("starts again when OpenCode 1.18.34 says only ServeError for a taken port", async () => {
+    const { provider, commands } = standIn([
+      {
+        stdout: [
+          "Warning: OPENCODE_SERVER_PASSWORD is not set; server is unsecured.\n",
+        ],
+        stderr: [
+          "\u001b[91m\u001b[1mError: \u001b[0mUnexpected error\n\nServeError\n",
+        ],
+      },
+      {
+        stdout: ["opencode server listening on http://127.0.0.1:5002"],
+        stderr: [],
+      },
+    ])
+    const { out } = await start(provider, [5002])
+    expect(commands).toHaveLength(2)
+    expect(out).toContain("opencode server listening")
+  })
+
   it("does not start again for another cause, and keeps its output", async () => {
     const { provider, commands } = standIn([
-      { stdout: [], stderr: ["Error: Unexpected error ServeError"] },
+      { stdout: [], stderr: ["Error: Unexpected error\n\nConfigInvalidError"] },
     ])
     const { err } = await start(provider, [5002])
     expect(commands).toHaveLength(1)
-    expect(err).toContain("ServeError")
+    expect(err).toContain("ConfigInvalidError")
   })
 })
