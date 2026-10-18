@@ -1,5 +1,7 @@
+import { mkdtempSync } from "node:fs"
 import { BlockList, isIP } from "node:net"
-import { devNull } from "node:os"
+import { devNull, tmpdir } from "node:os"
+import { join } from "node:path"
 
 /*
  * The plain git rules that the backend and codesearch share (CTX-815). The
@@ -163,13 +165,13 @@ export function pinnedPlainGitRemoteFault(
 
 /**
  * The only variables of the parent process that a plain git read keeps: the
- * program path, the home and temporary folders, the locale, and the TLS
- * trust store. Each other variable (a proxy, `GIT_SSL_NO_VERIFY`, a
- * `GIT_CONFIG_*` of a parent, a token) stays out.
+ * program path, the temporary folder, the locale, and the TLS trust store.
+ * Each other variable (a proxy, `GIT_SSL_NO_VERIFY`, a `GIT_CONFIG_*` of a
+ * parent, a token) stays out. `HOME` is an empty folder
+ * ({@link emptyHome}).
  */
 const KEPT_VARIABLES = [
   "PATH",
-  "HOME",
   "TMPDIR",
   "LANG",
   "LC_ALL",
@@ -180,11 +182,24 @@ const KEPT_VARIABLES = [
   "GIT_SSL_CAPATH",
 ]
 
+let home: string | undefined
+
+/**
+ * An empty home folder for each plain git read of this process. Curl reads
+ * `~/.netrc`, so the home folder of the process user could send a
+ * credential to a plain git host.
+ */
+function emptyHome(): string {
+  home ??= mkdtempSync(join(tmpdir(), "ctxpipe-plain-git-home-"))
+  return home
+}
+
 /**
  * The full git environment of one read of a checked plain git remote. Do
  * not merge it over `process.env`: it is the whole environment.
  *
- * - No credential and no prompt. Git reads no system or global config.
+ * - No credential and no prompt. Git reads no system or global config,
+ *   and `HOME` is an empty folder, so curl reads no `.netrc` file.
  * - Only HTTPS, and also `http` when `allowHttp` is true (an `http://` URL
  *   on self-host). Never `ssh`, `git://`, or `file://`.
  * - No redirect.
@@ -234,6 +249,7 @@ export function plainGitRemoteEnvironment(
     if (value !== undefined) env[name] = value
   }
   Object.assign(env, {
+    HOME: emptyHome(),
     GIT_TERMINAL_PROMPT: "0",
     GIT_ASKPASS: "",
     SSH_ASKPASS: "",
