@@ -7,6 +7,7 @@ import {
 } from "../../db/schema/connections.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { configBoundRepositoryUrl } from "../../domain/workspace-sources/legacy-handover.js"
+import { parseLegacyScope } from "../../domain/workspace-sources/legacy-scope.js"
 import type {
   LegacySourceBinding,
   SourceMigrationHook,
@@ -38,7 +39,7 @@ export function notionScopeFromLegacyConfig(
       }))
   const pages = roots("page")
   const databases = roots("database")
-  const parsed = notionSourceScopeSchema.safeParse({
+  const parsed = parseLegacyScope(notionSourceScopeSchema, {
     ...(pages.length ? { pages } : {}),
     ...(databases.length ? { databases } : {}),
   })
