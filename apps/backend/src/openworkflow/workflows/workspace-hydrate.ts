@@ -180,6 +180,36 @@ export function defineWorkspaceHydrateWorkflow() {
           return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
             const orgSql = <T>(fn: () => Promise<T>) =>
               withOrgDbContext(input.orgId, fn)
+            const enqueueBackfills = (gitUrls: readonly string[]) =>
+              step.run({ name: "enqueue-github-pr-backfills" }, async () => {
+                const { enqueueGithubPrBackfills } = await import(
+                  "./github-sync-pull-request.js"
+                )
+                await enqueueGithubPrBackfills({
+                  orgId: input.orgId,
+                  workspaceId: input.workspaceId,
+                  gitUrls,
+                })
+              })
+            // A retry can end early after the projection wrote a source row
+            // and before the enqueue was recorded. A later hydrate sees that
+            // link as known, so this retry must start its backfill. This
+            // reads only memoized output: a step that no attempt recorded gets
+            // an empty value, which is safe because the run ends after this
+            // call. The projection step must be recorded, so that the row
+            // exists before the backfill starts.
+            const enqueueRecordedBackfills = async () => {
+              const links = await step.run(
+                { name: "find-new-github-pr-links" },
+                async (): Promise<string[]> => [],
+              )
+              if (!links.length) return
+              const projected = await step.run(
+                { name: "project-workspace-sources" },
+                async () => null,
+              )
+              if (projected) await enqueueBackfills(links)
+            }
             let failingRevision: WorkspaceRevision | undefined = input.revision
             try {
               const resolved = await resolveWorkspaceReadRevision({
@@ -188,8 +218,10 @@ export function defineWorkspaceHydrateWorkflow() {
                 env,
                 expected: input.revision,
               })
-              if (!resolved)
+              if (!resolved) {
+                await enqueueRecordedBackfills()
                 return { hydrated: false, reason: "cas_discarded" as const }
+              }
               const { revision, token, workspace } = resolved
               failingRevision = revision
               const desiredSha = revision.sha
@@ -380,6 +412,7 @@ export function defineWorkspaceHydrateWorkflow() {
                 !pending.index &&
                 !pending.graph
               ) {
+                if (planning.needed) await enqueueRecordedBackfills()
                 await enqueueRemainingWrites()
                 return { hydrated: false, reason: "noop" as const }
               }
@@ -389,6 +422,7 @@ export function defineWorkspaceHydrateWorkflow() {
                 !pending.embeddings &&
                 !pending.graph
               ) {
+                if (planning.needed) await enqueueRecordedBackfills()
                 await enqueueLaggingIndex({
                   orgId: input.orgId,
                   revision,
@@ -541,24 +575,29 @@ export function defineWorkspaceHydrateWorkflow() {
               })
 
               let activated = !pending.postgres
+              // This step runs before the sources projection writes the rows.
+              // A retry after the projection sees the links as known and its
+              // live `pending` as done, so only this memoized output still
+              // names the new links. The enqueue waits for the projection
+              // below (CTX-854).
+              const newGithubLinks = planning.needed
+                ? await step.run(
+                    { name: "find-new-github-pr-links" },
+                    async () => {
+                      // Import at the admission boundary: the mirror enqueues hydrate.
+                      const { findNewGithubPrBackfillLinks } = await import(
+                        "./github-sync-pull-request.js"
+                      )
+                      return findNewGithubPrBackfillLinks({
+                        orgId: input.orgId,
+                        workspaceId: workspace.id,
+                        workspaceUrl: revision.remote.url,
+                        gitUrls: parsed.linked.map((remote) => remote.git),
+                      })
+                    },
+                  )
+                : []
               if (pending.postgres) {
-                // Before the sources projection changes the pinned state, so a
-                // replay still sees which GitHub links are new and the backfill
-                // key dedupes the enqueue.
-                await step.run(
-                  { name: "enqueue-github-pr-backfills" },
-                  async () => {
-                    // Import at the admission boundary: the mirror enqueues hydrate.
-                    const { enqueueGithubPrBackfillsForNewLinks } =
-                      await import("./github-sync-pull-request.js")
-                    await enqueueGithubPrBackfillsForNewLinks({
-                      orgId: input.orgId,
-                      workspaceId: workspace.id,
-                      workspaceUrl: revision.remote.url,
-                      gitUrls: parsed.linked.map((remote) => remote.git),
-                    })
-                  },
-                )
                 const formatVersion = workspaceFormatCache({
                   text: formatFile,
                   paths: treePaths,
@@ -604,7 +643,7 @@ export function defineWorkspaceHydrateWorkflow() {
                   formatChangeNeedsScan(workspace.formatVersion, formatVersion)
                 )
                   await step.run({ name: "enqueue-upgrade-scan" }, async () => {
-                    // Import at the admission boundary, like the PR backfill above.
+                    // Import at the admission boundary, like the other enqueue steps.
                     const { enqueueWorkspaceUpgradeScan } = await import(
                       "./workspace-upgrade-scan.js"
                     )
@@ -615,14 +654,19 @@ export function defineWorkspaceHydrateWorkflow() {
                   })
               }
 
-              if (activated && pending.postgres && planning.needed) {
+              // Not `pending.postgres`: the commit above makes the revision
+              // active, so a retry after a failed projection reads it as done.
+              // `planning.needed` is memoized, so the retry projects again.
+              if (planning.needed) {
                 // Two steps: a retry of the follow-ups reuses the memoized
                 // diff, because a second projection of the same revision finds
-                // no diff.
+                // no diff. A retry reads the tree again inside a step that is
+                // not recorded, because its eager read above is skipped.
                 const projected = await step.run(
                   { name: "project-workspace-sources" },
-                  () =>
-                    projectWorkspaceSources({
+                  async () => {
+                    const { sourcesFile, sourceFiles, files } = await readTree()
+                    return projectWorkspaceSources({
                       orgId: input.orgId,
                       workspaceId: workspace.id,
                       revision: revision.sha,
@@ -639,12 +683,14 @@ export function defineWorkspaceHydrateWorkflow() {
                           }))
                         : [],
                       env,
-                    }),
+                    })
+                  },
                 )
                 await step.run(
                   { name: "enqueue-source-follow-ups" },
                   async () => {
-                    // Import at the admission boundary, like the PR backfill above.
+                    const { formatFile } = await readTree()
+                    // Import at the admission boundary, like the other enqueue steps.
                     const { enqueueSourceProjectionFollowUps } = await import(
                       "../../domain/workspace-sources/enqueue.js"
                     )
@@ -660,6 +706,11 @@ export function defineWorkspaceHydrateWorkflow() {
                   },
                 )
               }
+              // After the projection: a backfill stamps each file with the
+              // source file of its repository, which it reads from the rows.
+              // Only the memoized output controls it, so a retry still
+              // enqueues.
+              if (newGithubLinks.length) await enqueueBackfills(newGithubLinks)
 
               if (activated && pending.graph) {
                 try {
