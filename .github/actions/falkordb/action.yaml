@@ -8,13 +8,21 @@ description: >
   real GRAPH.QUERY. It does not retry. On failure it runs diagnose.sh, which
   prints the health check results, the runner state and the stack of each
   server thread.
+
+  The server runs with CMD_INFO off. Two stalls on 4.20.7 showed the main
+  thread in pthread_rwlock_wrlock inside Globals_AddGraph, the first graph
+  creation, while no other thread held the lock. With CMD_INFO on, the module
+  starts a cron thread before it initializes that lock, and the cron task
+  takes the lock for reading about every 250 ms. CMD_INFO off removes that
+  task, so no other thread uses the lock at start. This is a mitigation, not
+  a proven cause. CI does not use GRAPH.INFO.
 runs:
   using: composite
   steps:
     - shell: bash
       run: |
         sudo sysctl -w vm.overcommit_memory=1
-        docker run -d --name falkordb -p 6379:6379 \
+        docker run -d --name falkordb -p 6379:6379 -e FALKORDB_ARGS="CMD_INFO no" \
           --health-cmd "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'" \
           --health-interval 5s --health-timeout 5s --health-retries 12 \
           falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d

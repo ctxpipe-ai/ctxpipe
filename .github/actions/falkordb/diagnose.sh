@@ -70,6 +70,7 @@ if command -v gdb > /dev/null; then
   exe="/proc/$pid/root$(sudo readlink "/proc/$pid/exe")"
   sudo timeout 90 gdb "$exe" -p "$pid" -batch -nx \
     -ex "set sysroot /proc/$pid/root" -ex 'set auto-load safe-path /' -ex 'set pagination off' \
+    -ex 'echo Globals lock words (the lock is the first field of _globals)\n' -ex 'x/14wx &_globals' \
     -ex 'info threads' -ex 'thread apply all bt' 2>&1 | grep -v '^warning: ' | head -n 400
 else
   echo "gdb is not available"
