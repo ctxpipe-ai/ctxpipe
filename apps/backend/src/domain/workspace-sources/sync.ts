@@ -8,6 +8,7 @@ import {
   listWorkspaceSourceRows,
   setWorkspaceSourceStatus,
 } from "../../models/workspace-sources.js"
+import { log } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import type {
@@ -15,7 +16,11 @@ import type {
   SourceAdapter,
   SourceFetchResult,
 } from "./adapter.js"
-import { refuseMirrorPath, unsafeMirrorPath } from "./mirror-path.js"
+import {
+  refusedSliceFile,
+  refuseMirrorPath,
+  unsafeMirrorPath,
+} from "./mirror-path.js"
 import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
 import { stampSources } from "./stamp-sources.js"
@@ -314,9 +319,22 @@ export async function syncConnectionSources(input: {
       deletePaths ? !deletePaths.includes(path) : underAny(path, keepPrefixes)
     const files = [
       ...fetchedFiles,
-      ...(existing?.restamps.get(workspaceId) ?? []).filter(
-        (file) => !fetched.has(file.path) && stays(file.path),
-      ),
+      ...(existing?.restamps.get(workspaceId) ?? []).filter((file) => {
+        if (fetched.has(file.path) || !stays(file.path)) return false
+        // A file in the tree can have a name that the write seam refuses
+        // (a ".notes.md" of a user). It keeps its old stamp, and the sync
+        // goes on.
+        const refused = refusedSliceFile(file.path, ownedPrefixes)
+        if (refused)
+          log.warn({
+            step: "workspace_sources.skipped_restamp",
+            message: "A restamp skipped a path that the write seam refuses",
+            provider: adapter.provider,
+            path: file.path,
+            reason: refused,
+          })
+        return !refused
+      }),
     ]
     const allKept = ownedPrefixes.every((prefix) =>
       keepPrefixes.includes(prefix),

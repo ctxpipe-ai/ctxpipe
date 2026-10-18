@@ -6,12 +6,14 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { workspaceWriteJobs } from "../../db/schema/workspaces.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
-import { cleanupRemovedSources } from "./sync.js"
-import { writeWorkspaceSlice } from "./write-slice.js"
+import { stampSources } from "./stamp-sources.js"
+import { cleanupRemovedSources, syncConnectionSources } from "./sync.js"
+import { readWorkspaceBlobs, writeWorkspaceSlice } from "./write-slice.js"
 
 beforeAll(() => {
   if (!process.env.DATABASE_URL)
@@ -457,6 +459,77 @@ it(
             .split("\n")
             .filter((path) => path.startsWith("linear/teams/ENG/")),
         ).toEqual(["linear/teams/ENG/README.md"])
+      },
+    )
+  },
+)
+
+it(
+  "skips the restamp of a file that the write seam refuses and restamps the others",
+  { timeout: 90_000 },
+  async () => {
+    const page = (title: string) => `---\nsource: linear\n---\n# ${title}\n`
+    // Stamped with a source path from before a rename.
+    const old = (title: string) =>
+      stampSources(page(title), ["sources/linear/before.md"])
+    const dotted = "linear/teams/ENG/.notes.md"
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "linear/teams/ENG/ok.md", body: old("ok") },
+          { path: dotted, body: old("notes") },
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        const revision = f.git("rev-parse", "HEAD")
+        await replaceWorkspaceSourceRows({
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          revision,
+          rows: [
+            {
+              sourceKey: "sources/linear/eng.md",
+              provider: "linear",
+              connectionId: "con_linear",
+              scope: { teams: ["ENG"] },
+              status: "ok",
+              statusDetail: null,
+            },
+          ],
+        })
+        const env = parseEnv(process.env)
+        const synced = await syncConnectionSources({
+          orgId: f.org.id,
+          connectionId: "con_linear",
+          env,
+          adapter: {
+            provider: "linear",
+            managedPaths: () => ["linear/teams/ENG/"],
+            // An incremental patch: the adapter writes nothing again.
+            fetch: async () => ({ files: [], deletePaths: [] }),
+          },
+          write: async (write) => {
+            expect(await writeWorkspaceSlice(write, env)).toEqual({
+              queued: true,
+            })
+          },
+          readExisting: (workspaceId, owners) =>
+            readWorkspaceBlobs({ orgId: f.org.id, workspaceId, env, owners }),
+        })
+        expect(synced.workspaces).toEqual([f.workspaceId])
+        const [job] = await connectorMirrorJobs(f)
+        if (!job) throw new Error("Expected a queued connector mirror")
+        await runConnectorMirror(f, job.id)
+        const show = (path: string) =>
+          f.git("--git-dir", f.remote, "show", `main:${path}`)
+        expect(show("linear/teams/ENG/ok.md")).toBe(
+          stampSources(page("ok"), ["sources/linear/eng.md"]).trim(),
+        )
+        expect(show(dotted)).toBe(old("notes").trim())
       },
     )
   },

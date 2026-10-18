@@ -34,6 +34,22 @@ export function unsafeMirrorPath(path: string, folder = false): string | null {
 }
 
 /**
+ * Why the write seam refuses to write the slice file `path`, or null: the
+ * path must be a safe mirror path under one of `ownedPrefixes`.
+ */
+export function refusedSliceFile(
+  path: string,
+  ownedPrefixes: readonly string[],
+): string | null {
+  return (
+    unsafeMirrorPath(path) ??
+    (ownedPrefixes.some((prefix) => path.startsWith(prefix))
+      ? null
+      : "is not under a path that the write owns")
+  )
+}
+
+/**
  * Refuse a mirror path. The log gets the path and the reason. The error
  * does not, because the path can contain provider ids and the error goes
  * to workflow errors.

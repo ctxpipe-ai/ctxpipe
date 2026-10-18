@@ -12,7 +12,7 @@ import {
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import { listExistingBlobs } from "./existing-blobs.js"
-import { refuseMirrorPath, unsafeMirrorPath } from "./mirror-path.js"
+import { refusedSliceFile, refuseMirrorPath } from "./mirror-path.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
 import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
@@ -36,9 +36,7 @@ export async function writeWorkspaceSlice(
   const owns = (path: string) =>
     write.ownedPrefixes.some((prefix) => path.startsWith(prefix))
   for (const path of write.files.map((file) => file.path)) {
-    const unsafe =
-      unsafeMirrorPath(path) ??
-      (owns(path) ? null : "is not under a path that the write owns")
+    const unsafe = refusedSliceFile(path, write.ownedPrefixes)
     if (unsafe)
       refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
   }
