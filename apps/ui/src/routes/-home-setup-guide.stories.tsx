@@ -634,19 +634,8 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    const doc = canvasElement.ownerDocument
-    const events: string[] = []
-    const record = (event: Event) => {
-      const target = event.target as HTMLElement
-      events.push(
-        `${Math.round(performance.now())} ${event.type} ${"animationName" in event ? (event as AnimationEvent).animationName : ""} ${target.tagName} ${String(target.className).slice(0, 60)}`,
-      )
-    }
-    for (const type of ["animationstart", "animationend", "animationcancel"])
-      doc.addEventListener(type, record, true)
     const guide = await findGuide(canvasElement)
     await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
-    events.push(`${Math.round(performance.now())} click link`)
     await userEvent.click(
       guide.getByRole("button", { name: "Link repositories" }),
     )
@@ -661,27 +650,14 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     await userEvent.click(
       await within(dialog).findByRole("checkbox", { name: "acme/api" }),
     )
-    events.push(`${Math.round(performance.now())} submit`)
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Open a pull request" }),
     )
-    try {
-      await waitFor(
-        () =>
-          expect(
-            body.queryByRole("dialog", { name: "Add repositories" }),
-          ).not.toBeInTheDocument(),
-        { timeout: 3000 },
-      )
-    } catch (error) {
-      throw new Error(
-        `DIAG Add repositories stayed. viewTransition=${String((doc as unknown as { activeViewTransition?: unknown }).activeViewTransition ?? "none")} events=${JSON.stringify(events)} state=${describeExit(dialog, 0, doc)}`,
-        { cause: error },
-      )
-    } finally {
-      for (const type of ["animationstart", "animationend", "animationcancel"])
-        doc.removeEventListener(type, record, true)
-    }
+    await waitFor(() =>
+      expect(
+        body.queryByRole("dialog", { name: "Add repositories" }),
+      ).not.toBeInTheDocument(),
+    )
     // Home stays, and the row shows the pull request that waits.
     const after = await findGuide(canvasElement)
     await waitFor(() =>
