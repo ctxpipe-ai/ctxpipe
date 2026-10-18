@@ -567,24 +567,30 @@ async function diagPlay(
   // Fail on purpose so the log is visible in CI for the passing case too.
   throw new Error(`DIAG ${when} closed: ${diagState()}`)
 }
-function diagStory(when: "beforeDone" | "afterDone" | "laterAfterDone"): Story {
-  return {
-    beforeEach: () => {
-      createState.created = false
-      diag.log = []
-      let release: () => void = () => {}
-      const open = new Promise<void>((resolve) => {
-        release = resolve
-      })
-      diag.gate = { open, release }
-    },
-    parameters: { msw: { handlers: diagHandlers() } },
-    play: ({ canvasElement }) => diagPlay(canvasElement, when),
-  }
+function diagReset() {
+  createState.created = false
+  diag.log = []
+  let release: () => void = () => {}
+  const open = new Promise<void>((resolve) => {
+    release = resolve
+  })
+  diag.gate = { open, release }
 }
-export const DiagListBeforeDone = diagStory("beforeDone")
-export const DiagListAfterDone = diagStory("afterDone")
-export const DiagListLaterAfterDone = diagStory("laterAfterDone")
+export const DiagListBeforeDone: Story = {
+  beforeEach: diagReset,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay(canvasElement, "beforeDone"),
+}
+export const DiagListAfterDone: Story = {
+  beforeEach: diagReset,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay(canvasElement, "afterDone"),
+}
+export const DiagListLaterAfterDone: Story = {
+  beforeEach: diagReset,
+  parameters: { msw: { handlers: diagHandlers() } },
+  play: ({ canvasElement }) => diagPlay(canvasElement, "laterAfterDone"),
+}
 
 /** After the first question the guide is one line. Expand still works. */
 export const GuideAdminAfterFirstQuestion: Story = {
