@@ -393,6 +393,60 @@ export const GuideAdminWorkspaceBuildFailed: Story = {
   },
 }
 
+/**
+ * The state of the Add Workspace overlay and modal, for the message of a
+ * failed wait (CTX-873). The ancestors of the dialog are the React Aria modal
+ * and its overlay. `donePresses` counts the clicks on Done that reached the
+ * button. `data-exiting` shows that Done reached `onDone`, because only a
+ * close sets it.
+ */
+function describeExit(
+  dialogElement: HTMLElement,
+  donePresses: number,
+  doc: Document,
+) {
+  const chain: HTMLElement[] = []
+  for (
+    let node: HTMLElement | null = dialogElement;
+    node && node !== doc.body;
+    node = node.parentElement
+  ) {
+    chain.push(node)
+  }
+  const elements = chain.map((node) => {
+    const style = getComputedStyle(node)
+    return {
+      tag: node.tagName.toLowerCase(),
+      role: node.getAttribute("role"),
+      inDom: node.isConnected,
+      exiting: node.getAttribute("data-exiting"),
+      entering: node.getAttribute("data-entering"),
+      animationName: style.animationName,
+      animationPlayState: style.animationPlayState,
+      animations: node.getAnimations().map((animation) => ({
+        name: "animationName" in animation ? animation.animationName : null,
+        state: animation.playState,
+        currentTime: animation.currentTime,
+      })),
+    }
+  })
+  return JSON.stringify(
+    {
+      donePresses,
+      dialogInDom: dialogElement.isConnected,
+      documentAnimations: doc.getAnimations().map((animation) => ({
+        target:
+          (animation.effect as KeyframeEffect | null)?.target?.tagName ?? null,
+        state: animation.playState,
+        currentTime: animation.currentTime,
+      })),
+      elements,
+    },
+    null,
+    2,
+  )
+}
+
 const createState = { created: false }
 const workspacesPath = ({ request }: { request: Request }) =>
   /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
@@ -461,12 +515,46 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     // Step 2 has settled when its sources show. Before that, the card above
     // Done still changes height, and a click can land on a button that moves.
     await dialog.findByRole("button", { name: "Add repositories" })
-    await userEvent.click(dialog.getByRole("button", { name: "Done" }))
-    await waitFor(() =>
-      expect(
-        body.queryByRole("dialog", { name: "Add Workspace" }),
-      ).not.toBeInTheDocument(),
-    )
+    const dialogElement = body.getByRole("dialog", { name: "Add Workspace" })
+    const doc = canvasElement.ownerDocument
+    let donePresses = 0
+    const countDone = (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("button")?.textContent === "Done" &&
+        dialogElement.contains(event.target)
+      ) {
+        donePresses += 1
+      }
+    }
+    doc.addEventListener("click", countDone, true)
+    try {
+      await userEvent.click(dialog.getByRole("button", { name: "Done" }))
+      // The create call has invalidated the list, so the guide behind the
+      // modal shows the finished step. Then only the exit animation is left.
+      const settled = await findGuide(canvasElement)
+      await waitFor(() =>
+        expect(settled.getByText("2 of 6 done")).toBeVisible(),
+      )
+      try {
+        // The slow step is the CSS exit animation of the modal and overlay:
+        // React Aria unmounts them when `animation.finished` resolves.
+        await waitFor(
+          () =>
+            expect(
+              body.queryByRole("dialog", { name: "Add Workspace" }),
+            ).not.toBeInTheDocument(),
+          { timeout: 3000 },
+        )
+      } catch (error) {
+        throw new Error(
+          `Add Workspace did not leave 3 s after Done. The slow step is the exit animation of the modal and overlay. State: ${describeExit(dialogElement, donePresses, doc)}`,
+          { cause: error },
+        )
+      }
+    } finally {
+      doc.removeEventListener("click", countDone, true)
+    }
     // Home stays, and the guide shows the build of the new Workspace.
     const after = await findGuide(canvasElement)
     await waitFor(() => expect(after.getByText("2 of 6 done")).toBeVisible())
