@@ -112,7 +112,8 @@ run_state() { proof STATUS status --run-id "$1" --spent-before "$total_spend" --
 
 for ((i = 0; i < count; i++)); do
   url=$(jq -r ".repositories[$i].url" <<<"$seed")
-  name=$(jq -r ".repositories[$i].name" <<<"$seed")
+  # The Actions log and summary are public: name a repository by its position.
+  name="Repository $((i + 1))"
   sha=$(jq -r ".repositories[$i].sha" <<<"$seed")
   # The worker-kill test runs in the last repository: it is the largest one
   # when the list is ordered small to large.
