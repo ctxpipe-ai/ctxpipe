@@ -122,6 +122,19 @@ export function pagerdutyIncidentAssetDir(
   return `${pagerdutyIncidentAssetPrefix(number, id, root)}assets/`
 }
 
+/**
+ * The link from an incident Markdown file to one of its mirrored assets. It
+ * uses the same cleaned id as the paths above, so the link and the path
+ * always match.
+ */
+export function pagerdutyIncidentAssetLink(
+  number: number,
+  id: string,
+  assetPath: string,
+): string {
+  return `./${number}--${connectorPathSegment(id)}/assets/${assetPath.slice(assetPath.lastIndexOf("/") + 1)}`
+}
+
 function yamlScalar(value: string): string {
   return JSON.stringify(value)
 }
@@ -165,7 +178,7 @@ export function pagerdutyAlertAssetCandidates(
       candidates.push({
         sourceUrl: context.src,
         sourceKey: `${alert.id}-image-${index}`,
-        filename: `${alert.id}-image-${index}.png`,
+        filename: `${connectorPathSegment(alert.id)}-image-${index}.png`,
         label: context.text ?? "alert image",
       })
     }
