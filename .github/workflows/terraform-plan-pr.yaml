@@ -33,58 +33,65 @@ jobs:
       contents: read
       pull-requests: write
 
+    # Values that are not secret. Each secret goes in the env of the steps
+    # that need it: Terraform Init gets the state keys only.
     env:
       TF_IN_AUTOMATION: "true"
       TF_VAR_image_tag: ${{ github.event.pull_request.base.sha }}
-      TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
-      TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
       TF_VAR_model_provider: ${{ vars.MODEL_PROVIDER || 'openrouter' }}
-      TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
-      TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
-      TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
-      TF_VAR_github_webhook_secret: ${{ secrets.GH_WEBHOOK_SECRET }}
-      TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
-      TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
-      TF_VAR_slack_client_id: ${{ secrets.SLACK_CLIENT_ID }}
-      TF_VAR_slack_client_secret: ${{ secrets.SLACK_CLIENT_SECRET }}
-      TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
-      TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
-      TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
       TF_VAR_linear_redirect_uri: ${{ vars.LINEAR_REDIRECT_URI }}
-      TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
-      TF_VAR_notion_client_id: ${{ secrets.NOTION_CLIENT_ID }}
-      TF_VAR_notion_client_secret: ${{ secrets.NOTION_CLIENT_SECRET }}
-      TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}
-      TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
-      TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
       TF_VAR_pagerduty_redirect_uri: ${{ vars.PAGERDUTY_REDIRECT_URI }}
-      TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
-      TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
       # A pull request must not get the production Vercel token, and only the
       # Production environment holds it. The plan does not need the real
       # value: a non-empty placeholder passes the module validation, and the
       # plan shows a masked VERCEL_TOKEN change that the deploy does not apply.
       TF_VAR_vercel_access_token: pr-plan-placeholder
-      R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
-      R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
-      RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-
     steps:
       - name: Checkout repository
-        uses: useblacksmith/checkout@v1
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
       - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
+        uses: hashicorp/setup-terraform@b9cd54a3c349d3f38e8881555d616ced269862dd # v3
         with:
           terraform_version: 1.14.7
 
       - name: Terraform Init
-        run: terraform init -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"
+        # -lockfile=readonly: each provider must match the hashes in
+        # .terraform.lock.hcl (scripts/ci/check-secret-jobs.mjs).
+        env:
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+        run: terraform init -lockfile=readonly -backend-config="access_key=$R2_ACCESS_KEY_ID" -backend-config="secret_key=$R2_SECRET_ACCESS_KEY" -backend-config="key=production/terraform.tfstate"
 
       - name: Terraform Plan
         id: plan
-        uses: nick-fields/retry@v4
+        env:
+          TF_VAR_better_auth_secret: ${{ secrets.BETTER_AUTH_SECRET }}
+          TF_VAR_model_provider_api_key: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+          TF_VAR_smtp_connection_url: ${{ secrets.SMTP_CONNECTION_URL }}
+          TF_VAR_github_private_key: ${{ secrets.GH_APP_PRIVATE_KEY }}
+          TF_VAR_github_client_secret: ${{ secrets.GH_CLIENT_SECRET }}
+          TF_VAR_github_webhook_secret: ${{ secrets.GH_WEBHOOK_SECRET }}
+          TF_VAR_atlassian_client_id: ${{ secrets.ATLASSIAN_CLIENT_ID }}
+          TF_VAR_atlassian_client_secret: ${{ secrets.ATLASSIAN_CLIENT_SECRET }}
+          TF_VAR_slack_client_id: ${{ secrets.SLACK_CLIENT_ID }}
+          TF_VAR_slack_client_secret: ${{ secrets.SLACK_CLIENT_SECRET }}
+          TF_VAR_slack_signing_secret: ${{ secrets.SLACK_SIGNING_SECRET }}
+          TF_VAR_linear_client_id: ${{ secrets.LINEAR_CLIENT_ID }}
+          TF_VAR_linear_client_secret: ${{ secrets.LINEAR_CLIENT_SECRET }}
+          TF_VAR_linear_webhook_secret: ${{ secrets.LINEAR_WEBHOOK_SECRET }}
+          TF_VAR_notion_client_id: ${{ secrets.NOTION_CLIENT_ID }}
+          TF_VAR_notion_client_secret: ${{ secrets.NOTION_CLIENT_SECRET }}
+          TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}
+          TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
+          TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
+          TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
+          TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          RAILWAY_TOKEN: ${{ secrets.RAILWAY_TOKEN }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 10
           max_attempts: 2
@@ -125,7 +132,7 @@ jobs:
       - name: Find existing Terraform Plan comment
         if: always()
         id: find-plan-comment
-        uses: peter-evans/find-comment@v3
+        uses: peter-evans/find-comment@3eae4d37986fb5a8592848f6a574fdf654e61f9e # v3
         with:
           issue-number: ${{ github.event.pull_request.number }}
           comment-author: 'github-actions[bot]'
@@ -133,7 +140,7 @@ jobs:
 
       - name: Create or update Terraform Plan comment
         if: always()
-        uses: peter-evans/create-or-update-comment@v5
+        uses: peter-evans/create-or-update-comment@e8674b075228eee787fea43ef493e45ece1004c9 # v5
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           comment-id: ${{ steps.find-plan-comment.outputs.comment-id }}

@@ -6,7 +6,8 @@
  *
  * `--seed` is the JSON file that `run-seed.ts ci` writes: the run name, the
  * user id, the remotes file, and a personal API key for the two fixture
- * orgs. Each model needs `<PROVIDER>_API_KEY`, for example ANTHROPIC_API_KEY.
+ * orgs. Every model runs through OpenRouter with MODEL_PROVIDER_API_KEY
+ * (base URL: MODEL_PROVIDER_URL, default https://openrouter.ai/api/v1).
  * A case with `cursorFrom` moves the Workspace to its second projection with
  * `run-seed.ts advance`, so the backend environment (DATABASE_URL and the
  * other store settings) must be set too. Run each seed once.
@@ -33,6 +34,7 @@ import {
   gateThresholds,
   type RunResult,
 } from "./gate.js"
+import { openRouterClient } from "./models.js"
 
 const baselinePath = new URL("./baseline.json", import.meta.url)
 
@@ -77,10 +79,11 @@ async function main() {
     meadow: `mcp-eval-${seed.run}-meadow`,
   }
   const clients = models.map((model) => {
-    const name = `${model.split("/")[0]?.toUpperCase().replace(/\W/g, "_")}_API_KEY`
-    const apiKey = process.env[name]
-    if (!apiKey) setupError(`Set ${name} for ${model}.`)
-    return { model, apiKey }
+    try {
+      return { model, ...openRouterClient(model, process.env) }
+    } catch (error) {
+      return setupError(error instanceof Error ? error.message : String(error))
+    }
   })
 
   const manager = new MCPClientManager()
@@ -131,14 +134,15 @@ async function main() {
         advanced = true
       }
       const prompt = casePrompt(evalCase, cursors.get(evalCase.id))
-      for (const { model, apiKey } of clients) {
+      for (const { model, apiKey, sdkModel, customProviders } of clients) {
         const passes = result.passes[model] ?? {}
         passes[evalCase.id] = 0
         const failures: string[] = []
         const runner = new HostRunner({
           tools: await manager.getToolsForAiSdk(["ctxpipe"]),
-          model,
+          model: sdkModel,
           apiKey,
+          customProviders,
           maxSteps: 12,
           systemPrompt: systemPrompt(evalCase, instructions),
         })

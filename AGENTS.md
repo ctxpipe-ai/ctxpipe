@@ -97,6 +97,13 @@ Customer-facing documentation lives in [`apps/docs/content/docs/`](apps/docs/con
 
 **preview-env:** critical-flow run against local host dev or a Railway PR preview (`backend-pr-N`), starting from a fresh registration — the full browser + MCP catalogue or one area (onboarding, auth, org-home, workspaces, hydrate, graph, chat, files-publish, connectors, mcp, resilience). Never production. [`.agents/skills/preview-env/`](.agents/skills/preview-env/)
 
+### GitHub environments
+
+- `Preview`: only the jobs that deploy, roll or delete the Railway PR preview.
+- `workbench`: the environment for checks, evals, proofs and live contracts that call outside services, with spend-capped or test-scoped keys.
+- `Production`: the production deploy.
+- A new check that needs a paid or outside service uses `workbench`. Do not add another environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces this.
+
 ### Adversarial review
 
 Every adversarial review of a diff is three axes — **Standards**, **Spec**, and **Simplicity** — via [`code-review`](.agents/skills/code-review/SKILL.md). Do not run the review as spec-only. Simplicity names the job, the thinnest machine, and leftover machinery; spec-match is not a defense. See [`simplicity-audit`](.agents/skills/simplicity-audit/SKILL.md).
@@ -135,7 +142,7 @@ Cloud agents run on an isolated Ubuntu machine. This repo provides a default clo
   - `pnpm lint`
   - `pnpm --filter @ctxpipe/backend test`
   - `pnpm --filter @ctxpipe/ui test`
-- **GitHub Actions after a cloud-agent push:** CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request` because Cloud Agent commits sometimes skip `synchronize`. Jobs run **exactly one** of those events: `cursor[bot]` / `cursoragent` on `push` only; everyone else on `pull_request` only. Concurrency is keyed by event name so a skipped `pull_request` run does not cancel the agent `push` suite. Manual fallback: Actions → PR Deploy → Run workflow → PR number.
+- **GitHub Actions after a cloud-agent push:** CI, CLI tests, Changeset Guard, and PR Deploy listen to both `push` and `pull_request` because Cloud Agent commits sometimes skip `synchronize`. Jobs run **exactly one** of those events: `cursor[bot]` / `cursoragent` on `push` only; everyone else on `pull_request` only. Concurrency is keyed by event name so a skipped `pull_request` run does not cancel the agent `push` suite. PR Deploy is the exception: one concurrency group per PR branch holds a whole run, and a run that it skips gets its own group. The PR-close cleanup has its own group for each PR, so a later push cannot cancel it. Manual fallback: Actions → PR Deploy → Run workflow, with the **PR branch** as the branch, then the PR number. PR Deploy refuses a run from `main`, because every branch can read the Actions cache of `main`.
 - **Running dev servers on cloud VMs** (without portless) — **default for Cursor Cloud and headless VMs**:
   - **Why:** Portless requires HTTPS on port 443 and a local CA; that does not work on headless cloud VMs. **`pnpm dev`** invokes portless via [`scripts/dev-apps.sh`](scripts/dev-apps.sh) — skip it here.
   - **Steps** (run migrations once after infra is up):
