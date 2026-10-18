@@ -27,7 +27,9 @@ import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
  * the reuse: a token minted just before a window boundary stays in use after
  * the boundary.
  */
-const WINDOW_MS = 50 * 60_000
+const REUSE_MS = 50 * 60_000
+// The key bucket equals the reuse age, so a young token is in one of two keys.
+const WINDOW_MS = REUSE_MS
 const TOKEN_LIFETIME_MS = 60 * 60_000
 const SWEEP_MIN_AGE_MS = 2 * 60_000
 
@@ -68,16 +70,18 @@ export async function recordedRunGitToken(
   const store = storeFor(input)
   const prefix = `${keyBase(input)}${input.label}:`
   const now = Date.now()
-  // Only `<prefix><window>` keys: a label can start with another label.
-  const recorded = (await store.list(prefix))
-    .filter(
-      (row) =>
-        /^\d+$/.test(row.key.slice(prefix.length)) &&
-        now - row.mintedAt.getTime() < WINDOW_MS,
-    )
-    .sort((a, b) => b.mintedAt.getTime() - a.mintedAt.getTime())[0]
+  // A young token is in the key of the current or the previous window.
+  const bucket = Math.floor(now / WINDOW_MS)
+  let recorded: { token: string } | undefined
+  for (const candidate of [bucket, bucket - 1]) {
+    const row = await store.get(`${prefix}${candidate}`)
+    if (row && now - row.mintedAt.getTime() < REUSE_MS) {
+      recorded = row
+      break
+    }
+  }
   if (recorded) return recorded.token
-  const key = `${prefix}${Math.floor(now / WINDOW_MS)}`
+  const key = `${prefix}${bucket}`
   const minted = await input.mint()
   if (!minted) return undefined
   if (await store.add(key, minted)) return minted
