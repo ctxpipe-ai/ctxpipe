@@ -5,7 +5,7 @@ import type { SourceScopeDefinition } from "./scope.js"
 
 /*
  * A plain git source (CTX-815): a repository that ctx| reads with git over
- * public HTTPS, with no connection and no credential. On main, an operator
+ * HTTP(S), with no connection and no credential ({@link plainGitUrlPolicy}). On main, an operator
  * added such a repository with `POST /v1/repositories` and the old ingestion
  * cloned it with no token. A source file `sources/git/<host>/<name>.md`
  * links it to a Workspace.
@@ -60,6 +60,18 @@ const PRIVATE_NAME_SUFFIXES = [
 /** Where ctx| runs: ctx| runs the service (`hosted`), or a customer does. */
 export type PlainGitDeployment = "hosted" | "self-host"
 
+/**
+ * The deployment mode of the plain git URL policy. Only
+ * `SANDBOX_PROVIDER=docker`, exactly, is self-host. Each other value
+ * (`vercel`, `unsandboxed`, or no value) gets the strict rule of hosted.
+ * The UI has no `process`, so it gets the strict rule too.
+ */
+export function plainGitDeployment(
+  env: Record<string, string | undefined> = globalThis.process?.env ?? {},
+): PlainGitDeployment {
+  return env.SANDBOX_PROVIDER === "docker" ? "self-host" : "hosted"
+}
+
 /** What a plain git URL may use. */
 export type PlainGitUrlPolicy = {
   /** `http://` too, not only `https://`. */
@@ -72,18 +84,32 @@ export type PlainGitUrlPolicy = {
 
 /**
  * The plain git URL policy of one deployment mode: the one place that
- * decides it. Each mode has the strict rule now: HTTPS, the default port,
- * and a public host only. A product decision about private hosts, `http`,
- * or other ports on self-host changes only this function. The fetch pins
- * (`http.curloptResolve`, the egress proxy, and the vault rule) use port
- * 443, so a rule that allows more must change them too. In each mode, git
- * never uses `ssh`, `git://`, or `file://`: the sandbox reaches the outside
- * only through an HTTP proxy.
+ * decides it.
+ *
+ * - Hosted: HTTPS, the default port, and a public host only. The host must
+ *   not be an IP address or a private name, and each of its addresses must
+ *   be public.
+ * - Self-host (Docker): the customer runs ctx| inside its own network, as
+ *   on main. A URL may use `http://`, another port, an IP address, a
+ *   private name, and a host with private addresses.
+ *
+ * In each mode, the read stays a Git smart HTTP read (`info/refs` and
+ * `git-upload-pack`) with no credential and no redirect, git connects only
+ * to the checked addresses, and git never uses `ssh`, `git://`, or
+ * `file://`: the sandbox reaches the outside only through an HTTP proxy.
  */
 export function plainGitUrlPolicy(
-  _deployment: PlainGitDeployment,
+  deployment: PlainGitDeployment,
 ): PlainGitUrlPolicy {
-  return { http: false, otherPorts: false, privateHosts: false }
+  const selfHost = deployment === "self-host"
+  return { http: selfHost, otherPorts: selfHost, privateHosts: selfHost }
+}
+
+/** The scheme rule as a person reads it, for each message about the scheme. */
+export function plainGitSchemeRule(
+  policy: PlainGitUrlPolicy = plainGitUrlPolicy(plainGitDeployment()),
+): string {
+  return `Plain git sources must use ${policy.http ? "an http:// or https://" : "an https://"} URL. ssh (git@… or ssh://), git:// and file:// are not supported.`
 }
 
 const LABEL = /^(?!-)[a-z0-9-]{1,63}(?<!-)$/
@@ -95,20 +121,19 @@ const PATH_SEGMENT = /^[A-Za-z0-9._~-]+$/
  * port (or another, when `policy` allows it), no query or fragment, a host
  * name (not an IP address) that is not a private name (unless `policy`
  * allows private hosts), and a simple path. The default policy is the
- * strict one of hosted. A redirect is never followed, so a redirect cannot
- * go around these rules.
+ * policy of this process's deployment mode ({@link plainGitDeployment}). A
+ * redirect is never followed, so a redirect cannot go around these rules.
  */
 export function checkPlainGitUrl(
   raw: string,
-  policy: PlainGitUrlPolicy = plainGitUrlPolicy("hosted"),
+  policy: PlainGitUrlPolicy = plainGitUrlPolicy(plainGitDeployment()),
 ): PlainGitUrlCheck {
   const refuse = (rule: PlainGitUrlRule, reason: string): PlainGitUrlCheck => ({
     ok: false,
     rule,
     reason,
   })
-  // The rule as a person reads it, in each message about the scheme.
-  const schemes = `Plain git sources must use ${policy.http ? "an http:// or https://" : "an https://"} URL. ssh (git@… or ssh://), git:// and file:// are not supported.`
+  const schemes = plainGitSchemeRule(policy)
   let url: URL
   try {
     url = new URL(raw.trim())
@@ -122,7 +147,8 @@ export function checkPlainGitUrl(
       "userinfo",
       "A plain git URL must not have a user name or a password",
     )
-  // The URL parser removes the default port (443), so each port is another.
+  // The URL parser removes the default port of the scheme (443, or 80 for
+  // `http`), so each port is another.
   if (url.port && !policy.otherPorts)
     return refuse("port", "A plain git URL must use the default HTTPS port")
   if (url.search || url.hash || raw.includes("?") || raw.includes("#"))
@@ -133,19 +159,23 @@ export function checkPlainGitUrl(
   const host = url.hostname.toLowerCase()
   // The URL parser writes each IPv4 form (also hex and integer forms) as
   // dotted digits, and each IPv6 address in brackets.
-  if (!policy.privateHosts && (host.startsWith("[") || /^[0-9.]+$/.test(host)))
+  const ipHost = host.startsWith("[") || /^[0-9.]+$/.test(host)
+  if (!policy.privateHosts && ipHost)
     return refuse(
       "ip_address",
       "A plain git URL must use a host name, not an IP address",
     )
   const labels = host.split(".")
   if (
-    !policy.privateHosts &&
-    (labels.length < 2 || !labels.every((label) => LABEL.test(label)))
+    !ipHost &&
+    ((!policy.privateHosts && labels.length < 2) ||
+      !labels.every((label) => LABEL.test(label)))
   )
     return refuse(
       "private_host",
-      "A plain git URL must use a public host name with a domain",
+      policy.privateHosts
+        ? "A plain git URL must use a valid host name"
+        : "A plain git URL must use a public host name with a domain",
     )
   if (
     !policy.privateHosts &&
@@ -185,7 +215,7 @@ export const plainGitUrlSchema = z.string().superRefine((value, ctx) => {
   if (!checked.ok) ctx.addIssue({ code: "custom", message: checked.reason })
 })
 
-/** The scope of a plain git source file: one public HTTPS git URL. */
+/** The scope of a plain git source file: one plain git URL. */
 export const gitFileScopeSchema = z.strictObject({ url: plainGitUrlSchema })
 
 export type GitFileScope = z.infer<typeof gitFileScopeSchema>
@@ -199,8 +229,9 @@ export const gitSourceScope: SourceScopeDefinition = {
 }
 
 /**
- * The plain git URL of a source scope in its checked form (`https://<host>`
- * in lower case, then the path), or null when it does not parse.
+ * The plain git URL of a source scope in its checked form (the scheme, the
+ * host in lower case and its port, then the path), or null when it does not
+ * parse.
  */
 export function gitSourceScopeUrl(scope: unknown): string | null {
   const parsed = gitFileScopeSchema.safeParse(scope)

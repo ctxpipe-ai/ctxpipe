@@ -115,10 +115,14 @@ export function plainGitIngestRepositories(
   const found = new Map<string, PlainGitRepository>()
   for (const repository of repositories)
     if (repository.kind === "git")
-      found.set(`${repository.host}${repository.path}`, {
-        host: repository.host,
-        path: repository.path,
-      })
+      found.set(
+        `${repository.host}:${repository.port ?? 443}${repository.path}`,
+        {
+          host: repository.host,
+          path: repository.path,
+          ...(repository.port ? { port: repository.port } : {}),
+        },
+      )
   return [...found.values()]
 }
 
@@ -235,8 +239,10 @@ export function revokeIngestGitTokens(input: {
  * `prepareIngestShard` clones it. A step's agent never gets them: a Git
  * fetch POSTs a body that no rule checks, so a host that an attacker runs
  * could get Workspace content in it. The rules have no credential, and they
- * match only port 443: Agent Vault matches the host, the port, and the
- * path, not the scheme, and an `http://` request goes to port 80.
+ * match only the source's port: Agent Vault matches the host, the port, and
+ * the path, not the scheme. An `https://` source gets port 443 (or its own
+ * port), and an `http://` source (self-host only) gets port 80 (or its own
+ * port), so the rule follows the scheme of the source.
  */
 export function ingestCredentialRules(
   egress: IngestEgress,
@@ -257,7 +263,7 @@ export function ingestCredentialRules(
     ).flatMap((repository) =>
       plainGitFetchRules(repository).map((rule) => ({
         ...rule,
-        host: `${rule.host}:443`,
+        host: `${rule.host}:${repository.port ?? 443}`,
         authorization: null,
       })),
     ),

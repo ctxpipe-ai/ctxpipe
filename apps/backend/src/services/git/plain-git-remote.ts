@@ -5,21 +5,22 @@ import { devNull } from "node:os"
 import { Readable } from "node:stream"
 import {
   checkPlainGitUrl,
-  type PlainGitDeployment,
   type PlainGitUrl,
+  type PlainGitUrlPolicy,
   type PlainGitUrlRule,
+  plainGitDeployment,
   plainGitUrlPolicy,
 } from "../../domain/workspace-sources/providers/git.js"
-import { lockedSandboxProvider } from "../../domain/workspaces/sandbox-provider.js"
 import { resolveGitRemoteTip } from "./clone-tree.js"
 
 /*
  * The backend side of a plain git source (CTX-815). ctx| reads the
- * repository over public HTTPS with no credential. Before each read, the
- * host name must resolve only to public addresses, and git connects to the
- * addresses that this check saw (`http.curloptResolve`), so a DNS answer
- * that changes after the check cannot send git to a private address. Git
- * follows no redirect.
+ * repository with no credential. Before each read, the host must obey the
+ * URL policy of the deployment mode (`plainGitUrlPolicy`). Hosted: the
+ * host name must resolve only to public addresses. In each mode, git
+ * connects only to the addresses that this check saw (`http.curloptResolve`),
+ * so a DNS answer that changes after the check cannot send git to another
+ * address. Git follows no redirect.
  */
 
 /** A plain git URL that ctx| does not read, with the rule that refused it. */
@@ -121,29 +122,26 @@ export function usePlainGitNetwork(next: PlainGitNetwork): () => void {
   }
 }
 
-/** The deployment mode: hosted runs Vercel sandboxes, self-host Docker. */
-export function plainGitDeployment(
-  env: Record<string, string | undefined> = process.env,
-): PlainGitDeployment {
-  return lockedSandboxProvider(env) === "vercel" ? "hosted" : "self-host"
-}
-
 /**
  * Check a plain git URL with every rule of the deployment's policy
  * ({@link plainGitUrlPolicy}): the URL rules of {@link checkPlainGitUrl},
- * then the DNS rule. Each address of the host must be public. Returns the
- * URL and the addresses that git must use.
+ * then the DNS rule. Unless the policy allows private hosts, each address
+ * of the host must be public. Returns the URL and the addresses that git
+ * must use. A caller that must keep the strict rule in each mode (the
+ * hosted egress proxy) gives the hosted policy.
  */
 export async function resolvePlainGitRemote(
   raw: string,
   lookup: PlainGitLookup = network.lookup,
+  policy: PlainGitUrlPolicy = plainGitUrlPolicy(plainGitDeployment()),
 ): Promise<PlainGitUrl & { addresses: string[] }> {
-  const policy = plainGitUrlPolicy(plainGitDeployment())
   const checked = checkPlainGitUrl(raw, policy)
   if (!checked.ok) throw new PlainGitUrlError(checked.rule, checked.reason)
+  // An IP host (self-host only) is its own address: no DNS lookup.
+  const literal = ipLiteral(checked.host)
   let answers: ReadonlyArray<{ address: string }>
   try {
-    answers = await lookup(checked.host)
+    answers = literal ? [{ address: literal }] : await lookup(checked.host)
   } catch {
     answers = []
   }
@@ -162,10 +160,17 @@ export async function resolvePlainGitRemote(
   return { ...url, addresses }
 }
 
+/** The address of an IP host (`10.0.0.5`, `[fd00::1]`), or null. */
+function ipLiteral(host: string): string | null {
+  const bare = host.replace(/^\[(.*)\]$/, "$1")
+  return isIP(bare) ? bare : null
+}
+
 /**
  * The git environment of one read of a checked plain git remote: no
- * credential and no prompt, HTTPS only, no redirect, and the host pinned to
- * the checked addresses. Git reads no system or global config, and no
+ * credential and no prompt, HTTPS only (also `http` for an `http://` URL
+ * when the policy of the deployment mode allows it: self-host only), no
+ * redirect, and a host name pinned to the checked addresses. Git reads no system or global config, and no
  * config from a `git -c` of a parent process: a credential helper or an
  * `http.extraHeader` there cannot send a credential to the plain git host.
  * The read also drops the proxy variables and `GIT_SSL_NO_VERIFY` of the
@@ -175,20 +180,36 @@ export async function resolvePlainGitRemote(
  * over `process.env`. `extra` is the test config of {@link PlainGitNetwork}.
  */
 export function plainGitRemoteEnvironment(
-  remote: { host: string; port?: number; addresses: readonly string[] },
+  remote: {
+    url?: string
+    host: string
+    port?: number
+    addresses: readonly string[]
+  },
   extra: ReadonlyArray<readonly [string, string]> = [],
 ): NodeJS.ProcessEnv {
+  const http =
+    remote.url?.startsWith("http://") === true &&
+    plainGitUrlPolicy(plainGitDeployment()).http
   const config: Array<readonly [string, string]> = [
     ["credential.helper", ""],
     ["http.followRedirects", "false"],
     ["protocol.allow", "never"],
     ["protocol.https.allow", "always"],
-    [
-      "http.curloptResolve",
-      `${remote.host}:${remote.port ?? 443}:${remote.addresses
-        .map((address) => (address.includes(":") ? `[${address}]` : address))
-        .join(",")}`,
-    ],
+    ...(http ? [["protocol.http.allow", "always"] as const] : []),
+    // An IP host has no DNS answer to pin.
+    ...(ipLiteral(remote.host)
+      ? []
+      : [
+          [
+            "http.curloptResolve",
+            `${remote.host}:${remote.port ?? 443}:${remote.addresses
+              .map((address) =>
+                address.includes(":") ? `[${address}]` : address,
+              )
+              .join(",")}`,
+          ] as const,
+        ]),
     ...extra,
   ]
   return {
