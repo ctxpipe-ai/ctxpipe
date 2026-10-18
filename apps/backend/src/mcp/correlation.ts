@@ -15,7 +15,9 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
+import { getLogger } from "../observability/logger.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
+import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
 
 /**
  * Correlation for one MCP tool call (ADR-051 section 9).
@@ -298,6 +300,20 @@ function isUserErrorCode(code: unknown): boolean {
   )
 }
 
+/** The `code` of the machine-readable error of a result, when it has one. */
+function resultErrorCode(result: {
+  isError?: boolean
+  _meta?: Record<string, unknown>
+}): string | undefined {
+  if (!result.isError) return undefined
+  const error = result._meta?.[TOOL_ERROR_META_KEY]
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? error.code
+      : undefined
+  return typeof code === "string" ? code : undefined
+}
+
 async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
   input: {
     kind: "tool" | "resource"
@@ -339,10 +355,22 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
     ? [{ context: correlation.parent }]
     : []
   const callContext = contextWithForkedAttributionBag(context.active())
-  const withMeta = (result: R): R => ({
-    ...result,
-    _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
-  })
+  const withMeta = (result: R): R => {
+    const final = {
+      ...result,
+      _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
+    }
+    // The size of what the client gets, and why a tool call failed.
+    const bytes = Buffer.byteLength(JSON.stringify(final))
+    trace.getActiveSpan()?.setAttribute("ctxpipe.mcp.result.bytes", bytes)
+    getLogger().set({ "ctxpipe.mcp.result.bytes": bytes })
+    applyAttribution({
+      "ctxpipe.mcp.error.code": resultErrorCode(
+        final as { isError?: boolean; _meta?: Record<string, unknown> },
+      ),
+    })
+    return final
+  }
 
   return trace
     .getTracer("ctxpipe-backend")
@@ -357,11 +385,16 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
         } catch (error) {
           const exception =
             error instanceof Error ? error : new Error(String(error))
-          const userError =
+          const errorData =
             error instanceof McpError &&
             typeof error.data === "object" &&
-            error.data !== null &&
-            isUserErrorCode((error.data as { code?: unknown }).code)
+            error.data !== null
+              ? (error.data as { code?: unknown })
+              : undefined
+          const userError = isUserErrorCode(errorData?.code)
+          if (typeof errorData?.code === "string") {
+            applyAttribution({ "ctxpipe.mcp.error.code": errorData.code })
+          }
           // A bad call is not a server fault, as for a tool call that
           // returns `isError`. Only an internal error marks the span.
           if (!userError) {
