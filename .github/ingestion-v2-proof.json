@@ -1,5 +1,7 @@
 {
-  "repos": ["https://github.com/ctxpipe-ai/test-ky"],
+  "repos": [
+    "https://github.com/ctxpipe-ai/test-ky"
+  ],
   "workspace_repo": "https://github.com/ctxpipe-ai/test-ctx630-workspace",
-  "spend_cap_usd": 30
+  "spend_cap_usd": 10
 }
