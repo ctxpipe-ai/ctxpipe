@@ -93,7 +93,7 @@ function appWithRoutes(input: {
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_URL: input.upstreamUrl,
     MODEL_PROVIDER_API_KEY: input.apiKey,
-    MODEL_FAST_NAME: input.fastModel ?? "openai/gpt-5.6-terra",
+    MODEL_FAST_NAME: input.fastModel ?? "test/model-fast",
   })
 
   const app = new OpenAPIHono<AppEnv>().basePath(
@@ -160,7 +160,7 @@ describe("workspace-chat openai completions", () => {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({
-          model: "openai/gpt-5.6-terra",
+          model: "test/model-fast",
           messages: [{ role: "user", content: "hi" }],
         }),
       },
@@ -179,7 +179,7 @@ describe("workspace-chat openai completions", () => {
           authorization: "Bearer sess_user",
         },
         body: JSON.stringify({
-          model: "openai/gpt-5.6-terra",
+          model: "test/model-fast",
           messages: [{ role: "user", content: "hi" }],
         }),
       },
@@ -201,7 +201,7 @@ describe("workspace-chat openai completions", () => {
     const app = appWithRoutes({
       upstreamUrl: upstream.origin,
       apiKey: "sk-upstream",
-      fastModel: "openai/gpt-5.6-terra",
+      fastModel: "test/model-fast",
     })
     const res = await app.request(
       "/acme/api/v1/workspace-chat/openai/v1/chat/completions",
@@ -223,7 +223,7 @@ describe("workspace-chat openai completions", () => {
     })
     expect(seen.authorization).toBe("Bearer sk-upstream")
     expect(seen.body).toMatchObject({
-      model: "openai/gpt-5.6-terra",
+      model: "test/model-fast",
       messages: [{ role: "user", content: "hi" }],
     })
   })
@@ -281,7 +281,7 @@ describe("workspace-chat openai completions", () => {
           authorization: `Bearer ${payload}.${signature}`,
         },
         body: JSON.stringify({
-          model: "openai/gpt-5.6-terra",
+          model: "test/model-fast",
           messages: [{ role: "user", content: "hi" }],
         }),
       },
@@ -314,7 +314,7 @@ describe("workspace-chat openai completions", () => {
             authorization: `Bearer ${await chatToken()}`,
           },
           body: JSON.stringify({
-            model: "openai/gpt-5.6-terra",
+            model: "test/model-fast",
             messages: [{ role: "user", content: "hi" }],
           }),
         },

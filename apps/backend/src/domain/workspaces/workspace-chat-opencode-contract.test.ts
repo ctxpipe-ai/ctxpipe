@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs"
 import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
+import { modelCallSettings } from "../../retrieval/services/modelProvider.js"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
@@ -21,21 +22,46 @@ describe("workspaceChatOpenCodeContract", () => {
     process.env = { ...saved }
   })
 
-  it("defaults chat to the LangChain fast spec and addresses OpenCode as ctxpipe/<base>", () => {
+  it("with no MODEL_*_NAME set, picks the model that modelProvider defaults to for each tier", () => {
+    const env = {
+      MODEL_PROVIDER: "openai-like",
+      MODEL_PROVIDER_API_KEY: "sk-test",
+    }
+    for (const tier of ["fast", "medium", "high"] as const) {
+      const result = workspaceChatOpenCodeContract(env, tier)
+      process.env = { ...saved, ...env }
+      for (const name of [
+        "MODEL_FAST_NAME",
+        "MODEL_MEDIUM_NAME",
+        "MODEL_HIGH_NAME",
+      ]) {
+        delete process.env[name]
+      }
+      const { callOpts } = modelCallSettings(tier)
+      expect(result).toMatchObject({
+        ok: true,
+        tier,
+        modelBase: callOpts.models[0],
+        opencodeModel: `ctxpipe/${callOpts.models[0]}`,
+        modelParams: callOpts.modelParams,
+      })
+    }
+  })
+
+  it("treats an empty MODEL_*_NAME as unset, as modelProvider does", () => {
     const result = workspaceChatOpenCodeContract({
       MODEL_PROVIDER: "openai-like",
       MODEL_PROVIDER_API_KEY: "sk-test",
+      MODEL_FAST_NAME: "  ",
     })
-    expect(result).toEqual({
+    process.env = {
+      ...saved,
+      MODEL_PROVIDER_API_KEY: "sk-test",
+      MODEL_FAST_NAME: "  ",
+    }
+    expect(result).toMatchObject({
       ok: true,
-      tier: "fast",
-      modelSpec: "openai/gpt-5.6-terra?reasoning.effort=low",
-      modelBase: "openai/gpt-5.6-terra",
-      opencodeModel: "ctxpipe/openai/gpt-5.6-terra",
-      provider: "openai-like",
-      upstreamBaseUrl: "https://openrouter.ai/api/v1",
-      modelParams: { reasoning: { effort: "low" } },
-      apiKey: "sk-test",
+      modelBase: modelCallSettings("fast").callOpts.models[0],
     })
   })
 
@@ -44,14 +70,14 @@ describe("workspaceChatOpenCodeContract", () => {
       MODEL_PROVIDER: "openrouter",
       MODEL_PROVIDER_API_KEY: "sk-or",
       MODEL_PROVIDER_URL: "https://openrouter.ai/api/v1",
-      MODEL_FAST_NAME: "openai/gpt-5.6-terra?reasoning.effort=high",
+      MODEL_FAST_NAME: "test/model-fast?reasoning.effort=high",
     })
     expect(result).toMatchObject({
       ok: true,
       tier: "fast",
-      modelSpec: "openai/gpt-5.6-terra?reasoning.effort=high",
-      modelBase: "openai/gpt-5.6-terra",
-      opencodeModel: "ctxpipe/openai/gpt-5.6-terra",
+      modelSpec: "test/model-fast?reasoning.effort=high",
+      modelBase: "test/model-fast",
+      opencodeModel: "ctxpipe/test/model-fast",
       provider: "openrouter",
       modelParams: { reasoning: { effort: "high" } },
     })
@@ -97,7 +123,7 @@ describe("workspaceChatOpenCodeContract", () => {
   it("builds an OpenCode config that allowlists only ctxpipe", () => {
     expect(
       workspaceChatOpenCodeConfig({
-        modelBase: "openai/gpt-5.6-terra",
+        modelBase: "test/model-fast",
       }),
     ).toEqual({
       $schema: "https://opencode.ai/config.json",
@@ -111,11 +137,11 @@ describe("workspaceChatOpenCodeContract", () => {
             apiKey: "{env:CTXPIPE_OPENCODE_RUN_TOKEN}",
           },
           models: {
-            "openai/gpt-5.6-terra": { name: "openai/gpt-5.6-terra" },
+            "test/model-fast": { name: "test/model-fast" },
           },
         },
       },
-      model: "ctxpipe/openai/gpt-5.6-terra",
+      model: "ctxpipe/test/model-fast",
       permission: {
         task: "deny",
         webfetch: "deny",
@@ -164,7 +190,7 @@ describe("workspaceChatOpenCodeContract", () => {
 
   it("tells the agent the product vocabulary in the prompt it gets", () => {
     const { prompt } = workspaceChatOpenCodeConfig({
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
     }).agent.build
 
     expect(prompt).toMatch(/clone of the Workspace repository/)
@@ -183,7 +209,7 @@ describe("workspaceChatOpenCodeContract", () => {
 
   it("gives the agent the context advisor role in the prompt it gets", () => {
     const { prompt } = workspaceChatOpenCodeConfig({
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
     }).agent.build
 
     expect(prompt).toMatch(/context advisor/i)
@@ -202,7 +228,7 @@ describe("workspaceChatOpenCodeContract", () => {
   it("embeds a bridged MCP server when tools are provisioned", () => {
     expect(
       workspaceChatOpenCodeConfig({
-        modelBase: "openai/gpt-5.6-terra",
+        modelBase: "test/model-fast",
         mcp: {
           name: "tanstack",
           url: "http://host.docker.internal:4123/mcp",
@@ -260,7 +286,7 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(
       writeWorkspaceChatOpenCodeConfig({
         conversationId,
-        modelBase: "openai/gpt-5.6-terra",
+        modelBase: "test/model-fast",
         isolation: "docker",
       }).homeEnv.HOME,
     ).toBe(`/home/node/ctxpipe-opencode/${slug}`)
@@ -270,7 +296,7 @@ describe("workspaceChatOpenCodeContract", () => {
     process.env.PATH = "/backend/private/bin"
     const written = writeWorkspaceChatOpenCodeConfig({
       conversationId: "conv_container",
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
       isolation: "docker",
     })
     expect(written.homeEnv.HOME).toBe(
@@ -290,7 +316,7 @@ describe("workspaceChatOpenCodeContract", () => {
     // The firewall sets the Authorization header on the model proxy path.
     const written = writeWorkspaceChatOpenCodeConfig({
       conversationId: "conv_vercel_key",
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
       isolation: "vercel",
     })
     const options = JSON.parse(written.configJson).provider.ctxpipe.options
@@ -308,7 +334,7 @@ describe("workspaceChatOpenCodeContract", () => {
       JSON.parse(
         writeWorkspaceChatOpenCodeConfig({
           conversationId: `conv_${isolation}_web`,
-          modelBase: "openai/gpt-5.6-terra",
+          modelBase: "test/model-fast",
           isolation,
         }).configJson,
       ).permission
@@ -326,7 +352,7 @@ describe("workspaceChatOpenCodeContract", () => {
     process.env.PATH = "/backend/private/bin"
     const written = writeWorkspaceChatOpenCodeConfig({
       conversationId: "conv_vercel",
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
       isolation: "vercel",
     })
     expect(written.homeEnv.PATH).toBe(
@@ -337,7 +363,7 @@ describe("workspaceChatOpenCodeContract", () => {
   it("writes OpenCode config next to that home, not as cwd opencode.json", () => {
     const written = writeWorkspaceChatOpenCodeConfig({
       conversationId: "conv_cfg",
-      modelBase: "openai/gpt-5.6-terra",
+      modelBase: "test/model-fast",
     })
     const configPath = workspaceChatOpenCodeConfigPath("conv_cfg")
     expect(written.homeEnv.OPENCODE_CONFIG).toBe(configPath)

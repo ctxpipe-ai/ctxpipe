@@ -807,7 +807,7 @@ describe("agent snapshot and Workspace base", { timeout: 900_000 }, () => {
           PATH:
             writeWorkspaceChatOpenCodeConfig({
               conversationId: "conv_contract",
-              modelBase: "openai/gpt-5.6-terra",
+              modelBase: "test/model-fast",
               isolation: "vercel",
             }).homeEnv.PATH ?? "",
         },

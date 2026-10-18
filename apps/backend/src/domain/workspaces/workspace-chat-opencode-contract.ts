@@ -6,6 +6,7 @@ import {
   type ModelParams,
   restrictModelParamsForProvider,
 } from "../../retrieval/services/modelParams.js"
+import { tierModelSpecFromEnv } from "../../retrieval/services/modelTierSpecs.js"
 import {
   modelParamsFromSpec,
   modelSpecBase,
@@ -33,12 +34,6 @@ export const VERCEL_SANDBOX = {
 export const WORKSPACE_CHAT_OPENCODE_PROVIDER_ID = "ctxpipe" as const
 
 const DEFAULT_OPENROUTER_BASE = "https://openrouter.ai/api/v1"
-
-const DEFAULT_TIER_SPECS = {
-  fast: "openai/gpt-5.6-terra?reasoning.effort=low",
-  medium: "openai/gpt-5.6-terra?reasoning.effort=medium",
-  high: "openai/gpt-5.6-terra?reasoning.effort=high",
-} as const
 
 type WorkspaceChatOpenCodeProvider = "openai-like" | "openrouter"
 
@@ -78,17 +73,6 @@ function resolveProvider(raw: string | undefined): ModelProviderKind {
     return value
   }
   return "openai-like"
-}
-
-function resolveTierSpec(env: NodeJS.ProcessEnv, tier: ModelTier): string {
-  const fromEnv =
-    tier === "fast"
-      ? env.MODEL_FAST_NAME
-      : tier === "medium"
-        ? env.MODEL_MEDIUM_NAME
-        : env.MODEL_HIGH_NAME
-  const trimmed = fromEnv?.trim()
-  return trimmed || DEFAULT_TIER_SPECS[tier]
 }
 
 export function workspaceChatOpenCodeModel(modelBase: string): string {
@@ -454,7 +438,7 @@ export function workspaceChatOpenCodeContract(
     }
   }
 
-  const modelSpec = resolveTierSpec(env, tier)
+  const modelSpec = tierModelSpecFromEnv(tier, env)
   const modelBase = modelSpecBase(modelSpec)
   const parsedParams = modelParamsFromSpec(modelSpec)
   const modelParams = restrictModelParamsForProvider(
