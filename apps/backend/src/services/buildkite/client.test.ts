@@ -33,7 +33,6 @@ afterEach(() => {
   server.resetHandlers()
   requests.length = 0
   vi.useRealTimers()
-  vi.restoreAllMocks()
 })
 afterAll(() => server.close())
 
@@ -106,23 +105,17 @@ describe("listBuildkiteBuilds", () => {
   })
 
   it("aborts a request that Buildkite does not answer in 15 seconds", async () => {
-    // Fake timers do not reach `AbortSignal.timeout`. Record its limit, and
-    // give the request a short real signal with the same behavior.
-    const limits: number[] = []
-    const realTimeout = AbortSignal.timeout.bind(AbortSignal)
-    vi.spyOn(AbortSignal, "timeout").mockImplementation((ms) => {
-      limits.push(ms)
-      return realTimeout(20)
-    })
+    // Fake timers do not reach `AbortSignal.timeout`, so this waits in real time.
     server.use(
       http.get(`${API}/organizations/acme/pipelines/web-app/builds`, () =>
         delay("infinite"),
       ),
     )
 
+    const startedAt = Date.now()
     await expect(read()).rejects.toMatchObject({ name: "TimeoutError" })
-    expect(limits).toEqual([15_000])
-  })
+    expect(Date.now() - startedAt).toBeGreaterThanOrEqual(14_900)
+  }, 20_000)
 
   it("throws a typed error when Buildkite refuses the token", async () => {
     server.use(
