@@ -160,6 +160,61 @@ describe("createWorkspaceChatPermissionHandler", () => {
   })
 })
 
+describe("the chat permission handler refuses when it cannot decide", () => {
+  it("refuses when the judge cannot run", async () => {
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      judge: async () => {
+        throw new Error("model provider is unavailable")
+      },
+    })
+    await expect(
+      handler({
+        id: "per_doom",
+        sessionID: "ses_1",
+        type: "doom_loop",
+        title: "doom_loop bash",
+      }),
+    ).resolves.toBe("reject")
+  })
+
+  it("refuses when the branch lookup fails", async () => {
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      getCurrentBranch: async () => {
+        throw new Error("git is unavailable")
+      },
+      judge: async () => "allow",
+    })
+    await expect(
+      handler({
+        id: "per_commit",
+        sessionID: "ses_1",
+        type: "bash",
+        title: "git commit -am save",
+      }),
+    ).resolves.toBe("reject")
+  })
+
+  it("refuses an ask that names no permission, also when the judge allows", async () => {
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "writable",
+      judge: async () => "allow",
+    })
+    // The shape of an OpenCode ask that the adapter could not read.
+    for (const type of [undefined, "", "  "]) {
+      await expect(
+        handler({
+          id: "per_unknown",
+          sessionID: "ses_1",
+          type: type as unknown as string,
+          title: "read notes.md",
+        }),
+      ).resolves.toBe("reject")
+    }
+  })
+})
+
 describe("read-only sandbox tools skip the judge", () => {
   it("auto-allows in-sandbox reads without calling the judge", async () => {
     const judge = vi.fn(async () => "deny" as const)

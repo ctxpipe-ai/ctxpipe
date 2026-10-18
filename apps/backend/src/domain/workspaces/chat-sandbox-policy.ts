@@ -217,8 +217,13 @@ export function createWorkspaceChatPermissionHandler(input: {
     argsExcerpt: string,
   ) => Promise<"allow" | "deny" | "timeout" | "garbage">
 }): PermissionHandler {
-  return async (request) => {
-    const toolName = request.type || request.title
+  // OpenCode runs the tool only after an answer. An error or an ask that
+  // names no permission gets "reject", so the turn does not wait and the
+  // tool does not run.
+  const decide: PermissionHandler = async (request) => {
+    if (typeof request.type !== "string" || !request.type.trim())
+      return "reject"
+    const toolName = request.type
     const argsExcerpt = [request.title, request.type, JSON.stringify(request)]
       .filter(Boolean)
       .join(" ")
@@ -245,6 +250,13 @@ export function createWorkspaceChatPermissionHandler(input: {
     return decideChatPermission({ ...classified, judge }) === "allow"
       ? "once"
       : "reject"
+  }
+  return async (request) => {
+    try {
+      return await decide(request)
+    } catch {
+      return "reject"
+    }
   }
 }
 

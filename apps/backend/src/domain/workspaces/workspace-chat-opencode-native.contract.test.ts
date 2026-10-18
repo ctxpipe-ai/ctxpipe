@@ -641,34 +641,44 @@ it(
 
 it.each([
   {
-    file: "local.env",
+    name: "the judge allows",
+    file: "notes.md",
+    judge: async () => "allow" as const,
     answer: "once",
-    tool: {
-      status: "completed",
-      output: expect.stringMatching(/ask-probe-secret/),
-    },
+    judged: true,
   },
   {
-    file: "auth_secret.env",
-    answer: "reject",
-    tool: {
-      status: "error",
-      error: expect.stringMatching(/rejected permission/),
+    name: "the judge cannot run",
+    file: "notes.md",
+    judge: async (): Promise<"allow"> => {
+      throw new Error("model provider is unavailable")
     },
+    answer: "reject",
+    judged: true,
+  },
+  {
+    name: "a hard deny matches the tool input",
+    file: "auth_secret.md",
+    judge: async () => "allow" as const,
+    answer: "reject",
+    judged: false,
   },
 ] as const)(
-  "sends the OpenCode 1.18 permission ask for $file to the chat permission handler and applies its $answer",
+  "sends the OpenCode 1.18 doom_loop ask to the chat permission handler when $name",
   { timeout: 60_000 },
-  async ({ file, answer, tool }) => {
-    // OpenCode 1.18 asks with `permission.asked`, and the chat config keeps
-    // OpenCode's "ask" for a read of a .env file. The workspace chat handler
-    // must get the ask, and OpenCode must apply its answer.
+  async ({ file, judge, answer, judged }) => {
+    // OpenCode 1.18 asks with `permission.asked` and takes the answer at
+    // `POST /permission/{requestID}/reply`. The chat config keeps OpenCode's
+    // "ask" for doom_loop: three same calls of one tool in one step. The
+    // real workspace chat handler must get the ask, and OpenCode must apply
+    // its answer. Without an answer, the turn waits until it is cancelled.
     // OpenCode resolves its directory through symlinks (macOS /var is one).
     const directory = await realpath(
       await mkdtemp(join(tmpdir(), "ctxpipe-opencode-ask-")),
     )
     const target = join(directory, file)
-    await writeFile(target, "ask-probe-secret\n")
+    await writeFile(target, "ask-probe-content\n")
+    const callIDs = ["call_doom_0", "call_doom_1", "call_doom_2"]
     const model = createServer((request, response) => {
       if (request.url !== "/model/v1/chat/completions") {
         response.writeHead(404)
@@ -680,7 +690,7 @@ it.each([
         body += chunk
       })
       request.on("end", () => {
-        const chunks = body.includes("call_ask")
+        const chunks = body.includes("call_doom_")
           ? [
               completionChunk({ role: "assistant", content: "done" }),
               completionChunk({}, "stop"),
@@ -688,17 +698,15 @@ it.each([
           : [
               completionChunk({
                 role: "assistant",
-                tool_calls: [
-                  {
-                    index: 0,
-                    id: "call_ask",
-                    type: "function",
-                    function: {
-                      name: "read",
-                      arguments: JSON.stringify({ filePath: target }),
-                    },
+                tool_calls: callIDs.map((id, index) => ({
+                  index,
+                  id,
+                  type: "function",
+                  function: {
+                    name: "read",
+                    arguments: JSON.stringify({ filePath: target }),
                   },
-                ],
+                })),
               }),
               completionChunk({}, "tool_calls"),
             ]
@@ -712,15 +720,17 @@ it.each([
       dir: directory,
       removeOnDestroy: true,
     }).create({ id: directory, workspace: { source: { type: "none" } } })
+    const judgeCalls: string[] = []
     const handler = createWorkspaceChatPermissionHandler({
       writeStatus: "read_only",
-      judge: async () => {
-        throw new Error("a read must not go to the judge")
+      judge: (toolName) => {
+        judgeCalls.push(toolName)
+        return judge()
       },
     })
     const asks: OpencodePermissionRequest[] = []
     const answers: string[] = []
-    const toolStates: unknown[] = []
+    const toolStatus = new Map<string, string>()
     let timer: ReturnType<typeof setTimeout> | undefined
     try {
       await new Promise<void>((resolve) =>
@@ -751,12 +761,10 @@ it.each([
           providerID: "synthetic",
           modelID: "probe",
           onEvent: (event) => {
-            if (
-              event.type === "message.part.updated" &&
-              event.properties.part.type === "tool" &&
-              event.properties.part.callID === "call_ask"
-            )
-              toolStates.push(event.properties.part.state)
+            if (event.type !== "message.part.updated") return
+            const part = event.properties.part
+            if (part.type === "tool" && "callID" in part)
+              toolStatus.set(part.callID, part.state.status)
           },
           onPermissionRequest: async (request) => {
             asks.push(request)
@@ -766,7 +774,7 @@ it.each([
           },
         })
         const reply = await Promise.race([
-          session.prompt(`Read ${target}.`),
+          session.prompt(`Read ${target} three times.`),
           new Promise<"hung">((resolve) => {
             timer = setTimeout(() => resolve("hung"), 20_000)
           }),
@@ -778,11 +786,18 @@ it.each([
         await server.dispose()
       }
       expect(asks).toEqual([
-        expect.objectContaining({ type: "read", callID: "call_ask" }),
+        expect.objectContaining({
+          type: "doom_loop",
+          patterns: ["read"],
+          metadata: { tool: "read", input: { filePath: target } },
+        }),
       ])
       expect(answers).toEqual([answer])
-      // OpenCode applied the answer to the tool call.
-      expect(toolStates.at(-1)).toEqual(expect.objectContaining(tool))
+      expect(judgeCalls).toEqual(judged ? ["doom_loop"] : [])
+      // OpenCode applied the answer: "once" runs the third call.
+      expect(toolStatus.get("call_doom_2")).toBe(
+        answer === "once" ? "completed" : "error",
+      )
     } finally {
       clearTimeout(timer)
       model.closeAllConnections()
