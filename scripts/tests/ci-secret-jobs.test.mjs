@@ -493,3 +493,37 @@ test("accepts the workflows of this repository", () => {
   assert.equal(result.stderr, "")
   assert.equal(result.status, 0)
 })
+
+const maskStep = `      - run: |
+          echo "::add-mask::$HANDOFF_KEY"
+`
+const keyStep = `      - uses: actions/cache/restore@v4
+        with:
+          key: \${{ env.HANDOFF_KEY }}
+`
+
+test("accepts a handoff key that a job masks before a step shows it", () => {
+  const result = check(workflow(`  job:\n    steps:\n${maskStep}${keyStep}`))
+  assert.equal(result.stderr, "")
+  assert.equal(result.status, 0)
+})
+
+test("rejects a handoff key that a step shows before it is masked", () => {
+  rejects(
+    workflow(`  job:\n    steps:\n${keyStep}${maskStep}`),
+    /can show HANDOFF_KEY in the log/,
+  )
+  rejects(
+    workflow(`  job:\n    steps:\n${keyStep}`),
+    /can show HANDOFF_KEY in the log/,
+  )
+})
+
+test("rejects a step that echoes the handoff key", () => {
+  rejects(
+    workflow(
+      `  job:\n    steps:\n${maskStep}      - run: echo "key $HANDOFF_KEY"\n`,
+    ),
+    /can show HANDOFF_KEY in the log/,
+  )
+})
