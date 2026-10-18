@@ -93,7 +93,7 @@ async function gitWithCaDiagnostics(
  * tree and one in `/tmp`, prove that the search reads files.
  */
 const credentialShapes =
-  "gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|contract-(model|bridge)-[a-z0-9]+"
+  "gh[pousr]_[A-Za-z0-9_.-]{30,}|github_pat_[A-Za-z0-9_]{30,}|contract-(model|bridge)-[a-z0-9]+"
 
 function expectCredentialShape(secrets: string[]) {
   for (const secret of secrets)
@@ -254,7 +254,8 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
         .status,
     ).not.toBe("running")
     started = Date.now()
-    // The provider's CA wait relies on this callback for a stopped sandbox.
+    // The provider's CA wait relies on this callback. The API reports the
+    // resume of a stopped sandbox on the first command, not in `get`.
     let onResumeFired = false
     const resumed = await Sandbox.get({
       ...credentials,
@@ -263,8 +264,8 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
         onResumeFired = true
       },
     })
-    expect(onResumeFired, "the API reports resumed: true").toBe(true)
     expect(await handle(resumed).fs.read("/workspace/state.txt")).toBe("kept")
+    expect(onResumeFired, "the API reports resumed: true").toBe(true)
     const kept = await handle(resumed).process.exec(
       `for p in ${places.join(" ")}; do [ "$(cat "$p" 2>/dev/null)" = kept ] && echo "kept $p" || echo "lost $p"; done`,
     )
