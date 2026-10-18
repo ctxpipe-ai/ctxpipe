@@ -1,4 +1,6 @@
 import { execFile } from "node:child_process"
+import { once } from "node:events"
+import { createServer, type Socket } from "node:net"
 import { fileURLToPath } from "node:url"
 import { promisify } from "node:util"
 import { defineWorkflow, OpenWorkflow } from "openworkflow"
@@ -26,6 +28,19 @@ it.each([
       { github: true, githubWriteView: "writable", writeStatus: "writable" },
       async (f) => {
         const jobId = `wjob_${f.id}_ack`
+        // The client must not reach a real host: the parent's msw does not
+        // cover it. Each HTTP request that leaves it goes to this proxy, which
+        // accepts the connection and never answers.
+        const held = new Set<Socket>()
+        const stalled = createServer((socket) => {
+          held.add(socket)
+        })
+        stalled.listen(0, "127.0.0.1")
+        await once(stalled, "listening")
+        const address = stalled.address()
+        if (!address || typeof address === "string")
+          throw new Error("Stalled proxy did not listen")
+        const proxy = `http://127.0.0.1:${address.port}`
         const result = await withLostNativeWorkflowInsertAck(
           f.databaseUrl,
           "workspace-write-ui-file-edit",
@@ -45,7 +60,16 @@ it.each([
               ],
               {
                 cwd: fileURLToPath(new URL("../../", import.meta.url)),
-                env: { ...process.env, DATABASE_URL: databaseUrl },
+                env: {
+                  ...process.env,
+                  DATABASE_URL: databaseUrl,
+                  HTTP_PROXY: proxy,
+                  HTTPS_PROXY: proxy,
+                  http_proxy: proxy,
+                  https_proxy: proxy,
+                  NO_PROXY: "",
+                  no_proxy: "",
+                },
                 timeout: mode === "disconnect" ? 10_000 : 20_000,
                 maxBuffer: 1024 * 1024,
               },
@@ -56,7 +80,10 @@ it.each([
             return output ? JSON.parse(output.stdout) : null
           },
           mode,
-        )
+        ).finally(() => {
+          for (const socket of held) socket.destroy()
+          stalled.close()
+        })
         expect(result.lostAcknowledgement).toBe(true)
         if (mode === "returned-row")
           expect(result.result).toEqual({ started: true })
