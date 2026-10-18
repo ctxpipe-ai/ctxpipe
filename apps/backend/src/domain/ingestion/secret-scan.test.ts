@@ -34,6 +34,7 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
   // The values are built at run time, so no literal secret is in the repository.
   const pw = ["Q9f3Kd8L", "mZ2xT7pW"].join("")
   const gh = `ghp_${"A1b2C3d4E5".repeat(4)}`
+  const ghApp = `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}`
   const aws = `AKIA${"Q9F3KD8LMZ2XT7PW"}`
   const found = (line: string) => findSuspectedSecret(`# N\n\n${line}\n`)
   it.each([
@@ -62,6 +63,7 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ["a list with one literal", `password: [${pw}]`],
     ["a GitHub token and a suffix", `${gh}-x`],
     ["a GitHub token and an underscore suffix", `${gh}_x`],
+    ["a GitHub App token in the current form", `git clone with ${ghApp}`],
     ["an AWS key id and a suffix", `${aws}-x`],
     ["a dictionary word and digits", "DB_PASSWORD=Password12345678"],
     ["a dictionary word and 4 digits", "API_TOKEN=secret123456"],
@@ -88,6 +90,12 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
     ],
     ["a placeholder token with a suffix", `ghp_${"x".repeat(36)}-example`],
     ["words after a word", "research pass: ByteRover CLI 3"],
+    ["a short GitHub prefix in prose", "The ghs_foo prefix marks a token."],
+    [
+      "a code identifier with a GitHub prefix",
+      "const ghs_count_total_for_each_repository_owner = 0",
+    ],
+    ["a file name with a GitHub prefix", "see ghs_12_build.log"],
     ["a short word and digits", "DB_PASSWORD=password123"],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()

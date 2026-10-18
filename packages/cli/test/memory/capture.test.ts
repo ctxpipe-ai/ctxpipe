@@ -45,6 +45,12 @@ describe("memory/capture", () => {
     expect(text).toContain("[REDACTED_SECRET]")
   })
 
+  it("redacts a GitHub App installation token in the current form", () => {
+    const token = `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}`
+    const { text } = redactText(`clone with ${token}.`)
+    expect(text).toBe("clone with [REDACTED_SECRET].")
+  })
+
   it("redacts connection strings", () => {
     const { text, redacted } = redactText(
       "DATABASE_URL=postgres://user:hunter2@db.example:5432/app",
