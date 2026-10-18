@@ -41,11 +41,7 @@ import {
   pushWorkspaceIngestAssemble,
 } from "../../domain/workspaces/write-broker.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
-import {
-  createLogger,
-  getLogger,
-  withLogger,
-} from "../../observability/logger.js"
+import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
@@ -139,27 +135,23 @@ export function defineRepositoryIngestionV2Workflow(
   const env = deps.env ?? (() => parseEnv(process.env))
   return defineWorkflow(
     {
+      logFields: (input, run) => ({
+        orgId: input.orgId,
+        ingestionRunId: run.id,
+        sourceSha: input.sha,
+      }),
       name: INGESTION_V2_WORKFLOW_NAME,
       schema: ingestionV2InputSchema,
     },
     async ({ input, step, run }) => {
-      return withLogger(
-        createLogger({
-          workflow: INGESTION_V2_WORKFLOW_NAME,
-          orgId: input.orgId,
-          ingestionRunId: run.id,
-          sourceSha: input.sha,
-        }),
-        // A failed run also deletes the worker's copy of the source tree,
-        // and the index repositories of its repository step (shard 0).
-        () =>
-          cleanUpUnlessParked(
-            () => ingestWithSpan(),
-            async () => {
-              await releaseIngestSourceTree(run.id, input.sha)
-              await releaseIngestStepIndexes(run.id, 0)
-            },
-          ),
+      // A failed run also deletes the worker's copy of the source tree,
+      // and the index repositories of its repository step (shard 0).
+      return cleanUpUnlessParked(
+        () => ingestWithSpan(),
+        async () => {
+          await releaseIngestSourceTree(run.id, input.sha)
+          await releaseIngestStepIndexes(run.id, 0)
+        },
       )
 
       // Export one summary for the terminal execution. Shards run in separate

@@ -33,7 +33,9 @@ import {
 import type { ParsedPane } from "./pane"
 import {
   conversationTurnChangesOptions,
+  isDefaultConversationName,
   refreshConversationAfterTurn,
+  waitForConversationTitle,
   workspaceChatPrepareOptions,
   workspaceKeys,
 } from "./queries"
@@ -123,6 +125,8 @@ export function WorkspaceChatSession(props: {
   // The conversation that the user renamed in this session. Its automatic
   // title can arrive later and must not replace the user's name.
   const userRenamedRef = useRef<string | null>(null)
+  // Reads a title that the backend saves after the final event of a turn.
+  const titleWaitRef = useRef<AbortController | null>(null)
   useEffect(() => {
     setHeaderTitle(title)
   }, [title])
@@ -143,6 +147,7 @@ export function WorkspaceChatSession(props: {
     connection.warm()
     return () => {
       connection.dispose()
+      titleWaitRef.current?.abort()
     }
   }, [connection])
 
@@ -224,6 +229,26 @@ export function WorkspaceChatSession(props: {
             orgSlug,
             conversationId,
           )
+          const named = queryClient.getQueryData<ConversationDetail>(
+            workspaceKeys.conversation(orgSlug, conversationId, workspace.id),
+          )?.conversation.name
+          if (
+            isDefaultConversationName(named) &&
+            userRenamedRef.current !== conversationId
+          ) {
+            titleWaitRef.current?.abort()
+            const wait = new AbortController()
+            titleWaitRef.current = wait
+            void waitForConversationTitle(
+              orgSlug,
+              conversationId,
+              workspace.id,
+              { signal: wait.signal },
+            ).then((name) => {
+              if (name && userRenamedRef.current !== conversationId)
+                applyRename(name)
+            })
+          }
         }
       }
     },
