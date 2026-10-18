@@ -414,6 +414,61 @@ describe("plainRequest", () => {
     expect(calls).toBe(2)
   })
 
+  it("sends every request with redirect set to error, so the API key goes to one URL", async () => {
+    const redirects: string[] = []
+    server.use(
+      http.post(API, ({ request }) => {
+        redirects.push(request.redirect)
+        return HttpResponse.json({ data: { helpCenters: page([]) } })
+      }),
+    )
+    await listPlainHelpCenters("key")
+    expect(redirects).toEqual(["error"])
+  })
+
+  it("retries an admin request one time on a rate limit, and waits at most 5 seconds", async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    plain({
+      PlainHelpCenters: () => {
+        calls += 1
+        return new HttpResponse(null, {
+          status: 429,
+          headers: { "retry-after": "60" },
+        })
+      },
+    })
+    const listed = listPlainHelpCenters("key")
+    const outcome = expect(listed).rejects.toThrow(
+      "Plain PlainHelpCenters failed (429)",
+    )
+    await vi.advanceTimersByTimeAsync(5000)
+    await outcome
+    expect(calls).toBe(2)
+  })
+
+  it("keeps the longer retries for a background sync", async () => {
+    vi.useFakeTimers()
+    let calls = 0
+    plain({
+      PlainHelpCenterArticles: () => {
+        calls += 1
+        return new HttpResponse(null, {
+          status: 429,
+          headers: { "retry-after": "60" },
+        })
+      },
+    })
+    const listed = listPlainHelpCenterArticles({
+      apiKey: "key",
+      helpCenterId: "hc_1",
+    })
+    const outcome = expect(listed).rejects.toThrow("failed (429)")
+    await vi.advanceTimersByTimeAsync(4 * 60_000)
+    await outcome
+    expect(calls).toBe(5)
+  })
+
   it.each([
     ["a 401", () => new HttpResponse(null, { status: 401 })],
     [
@@ -443,6 +498,64 @@ describe("plainRequest", () => {
     await expect(listPlainHelpCenters("key")).rejects.toThrow(
       "Plain PlainHelpCenters failed: Boom",
     )
+  })
+})
+
+describe("text that goes into a heading", () => {
+  const entry = {
+    timestamp: iso("2026-03-01T01:00:00.000Z"),
+    llmText: "Hello",
+    entry: { __typename: "EmailEntry" },
+    actor: { __typename: "SystemActor" },
+  }
+  const base = {
+    id: "th_1",
+    ref: "T-12",
+    title: "Export fails",
+    status: "TODO",
+    priority: 1,
+    createdAt: iso("2026-03-01T00:00:00.000Z"),
+    updatedAt: iso("2026-03-02T00:00:00.000Z"),
+    customer: null,
+    labels: [],
+    timelineEntries: page([entry]),
+  }
+  const read = (thread: Record<string, unknown>) => {
+    plain({
+      PlainLabelThreads: () => ({
+        labelType: { isArchived: false },
+        threads: page([{ ...base, ...thread }]),
+      }),
+    })
+    return listPlainLabelThreads({ apiKey: "key", labelTypeId: "lt_1" })
+  }
+
+  it.each([
+    ["a ref with a line break", { ref: "T-1\n# Injected" }],
+    ["a ref with a space", { ref: "T 1" }],
+    ["a status with a line break", { status: "TODO\n# Injected" }],
+    ["a status with a digit", { status: "TODO2" }],
+    [
+      "a thread time that is not ISO 8601",
+      { createdAt: iso("2026-03-01\n# Injected") },
+    ],
+    [
+      "a message time that is not ISO 8601",
+      { timelineEntries: page([{ ...entry, timestamp: iso("yesterday") }]) },
+    ],
+  ])("refuses %s", async (_name, thread) => {
+    await expect(read(thread)).rejects.toThrow()
+  })
+
+  it("accepts a time zone offset and a status with an underscore", async () => {
+    const [thread] = (await read({
+      status: "IN_PROGRESS",
+      createdAt: iso("2026-03-01T10:00:00+10:00"),
+    })) as Array<{ status: string; createdAt: string }>
+    expect(thread).toMatchObject({
+      status: "IN_PROGRESS",
+      createdAt: "2026-03-01T10:00:00+10:00",
+    })
   })
 })
 

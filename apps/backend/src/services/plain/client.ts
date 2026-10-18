@@ -34,17 +34,28 @@ const graphqlErrorsSchema = z
 
 /**
  * One GraphQL operation. On a rate limit, wait for `Retry-After` and send
- * the same request again, so the caller's sync still succeeds.
+ * the same request again, so the caller's sync still succeeds. An
+ * `interactive` operation (an admin request) retries one time and waits at
+ * most 5 seconds, so a person never waits for minutes.
  */
 async function plainRequest<T extends z.ZodTypeAny>(
   apiKey: string,
-  operation: { name: string; query: string; variables?: object },
+  operation: {
+    name: string
+    query: string
+    variables?: object
+    interactive?: boolean
+  },
   schema: T,
 ): Promise<z.infer<T>> {
   assertNotInOrgDbContext()
+  const maxRetries = operation.interactive ? 1 : 4
+  const maxWaitSeconds = operation.interactive ? 5 : 60
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch("https://core-api.uk.plain.com/graphql/v1", {
       signal: AbortSignal.timeout(30_000),
+      // The API key must go only to this URL: a redirect is an error.
+      redirect: "error",
       method: "POST",
       headers: {
         accept: "application/json",
@@ -58,12 +69,12 @@ async function plainRequest<T extends z.ZodTypeAny>(
       }),
     })
     if (response.status === 401) throw new PlainUnauthorizedError()
-    if (response.status === 429 && attempt < 4) {
+    if (response.status === 429 && attempt < maxRetries) {
       const retryAfter = Number(response.headers.get("retry-after"))
       const delayMs =
         Number.isFinite(retryAfter) && retryAfter > 0
-          ? Math.min(retryAfter, 60) * 1000
-          : 1000 * 2 ** attempt
+          ? Math.min(retryAfter, maxWaitSeconds) * 1000
+          : Math.min(1000 * 2 ** attempt, maxWaitSeconds * 1000)
       await new Promise((resolve) => setTimeout(resolve, delayMs))
       continue
     }
@@ -85,8 +96,16 @@ async function plainRequest<T extends z.ZodTypeAny>(
   }
 }
 
+/** A time as ISO 8601: it goes into a heading, so no other text may pass. */
 const iso = z
-  .object({ iso8601: z.string() })
+  .object({
+    iso8601: z
+      .string()
+      .regex(
+        /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{1,9})?(?:Z|[+-]\d{2}:\d{2})$/,
+        "Use an ISO 8601 time",
+      ),
+  })
   .transform((value) => value.iso8601)
 
 type Page<T> = {
@@ -157,6 +176,7 @@ export async function verifyPlainApiKey(
       apiKey,
       {
         name: "PlainAccess",
+        interactive: true,
         query:
           "query PlainAccess { myWorkspace { id name } myPermissions { permissions } }",
       },
@@ -199,6 +219,7 @@ export async function listPlainHelpCenters(
           apiKey,
           {
             name: "PlainHelpCenters",
+            interactive: true,
             query: `query PlainHelpCenters($after: String) {
               helpCenters(first: 100, after: $after) {
                 edges { node { id internalName isDeleted } }
@@ -227,6 +248,7 @@ export async function listPlainLabelTypes(
           apiKey,
           {
             name: "PlainLabelTypes",
+            interactive: true,
             query: `query PlainLabelTypes($after: String) {
               labelTypes(filters: { isArchived: false }, first: 100, after: $after) {
                 edges { node { id name } }
@@ -324,9 +346,10 @@ const actorSchema = z
 const threadNode = z.object({
   // The id is a path segment of the file (ADR-055).
   id: plainIdSchema,
-  ref: z.string(),
+  // The ref and the status go into headings: a short token, no other text.
+  ref: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, "Use a Plain thread ref"),
   title: z.string(),
-  status: z.string(),
+  status: z.string().regex(/^[A-Za-z_]{1,32}$/, "Use a Plain thread status"),
   priority: z.number(),
   createdAt: iso,
   updatedAt: iso,
@@ -444,6 +467,7 @@ export async function createPlainWebhookTarget(input: {
     input.apiKey,
     {
       name: "PlainCreateWebhookTarget",
+      interactive: true,
       query: `mutation PlainCreateWebhookTarget($input: CreateWebhookTargetInput!) {
         createWebhookTarget(input: $input) { webhookTarget { id } error { message } }
       }`,
@@ -483,6 +507,7 @@ export async function deletePlainWebhookTarget(input: {
     input.apiKey,
     {
       name: "PlainDeleteWebhookTarget",
+      interactive: true,
       query: `mutation PlainDeleteWebhookTarget($webhookTargetId: ID!) {
         deleteWebhookTarget(input: { webhookTargetId: $webhookTargetId }) { error { message } }
       }`,

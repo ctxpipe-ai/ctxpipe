@@ -15,7 +15,7 @@ import {
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import {
   connectionDirectory,
@@ -110,6 +110,7 @@ const server = setupServer(
 
 describe("Plain connector routes (Postgres + msw)", () => {
   let seed: SeededOrg
+  let otherSeed: SeededOrg
   const env = parseEnv(process.env as Record<string, string | undefined>)
 
   function createApp() {
@@ -133,13 +134,17 @@ describe("Plain connector routes (Postgres + msw)", () => {
     return app
   }
 
-  const request = (path: string, init: RequestInit = {}) =>
+  const request = (
+    path: string,
+    init: RequestInit = {},
+    as: SeededOrg = seed,
+  ) =>
     createApp().request(
-      `http://backend.test/${seed.orgSlug}/api/v1/connectors${path}`,
+      `http://backend.test/${as.orgSlug}/api/v1/connectors${path}`,
       {
         ...init,
         headers: {
-          cookie: seed.cookie,
+          cookie: as.cookie,
           "content-type": "application/json",
           ...init.headers,
         },
@@ -194,6 +199,7 @@ describe("Plain connector routes (Postgres + msw)", () => {
       throw new Error("DATABASE_URL is required for this integration test")
     server.listen({ onUnhandledRequest: "bypass" })
     seed = await seedOrg()
+    otherSeed = await seedOrg()
   })
   afterEach(() => {
     server.resetHandlers()
@@ -210,7 +216,11 @@ describe("Plain connector routes (Postgres + msw)", () => {
     await getSystemDb()
       .delete(connectionDirectory)
       .where(eq(connectionDirectory.orgId, seed.orgId))
-    if (seed) await cleanupSeededOrg(seed)
+    for (const cleaned of [otherSeed, seed]) {
+      // cleanupSeededOrg closes the pool, so open it again for the next seed.
+      initDb(process.env.DATABASE_URL ?? "")
+      if (cleaned) await cleanupSeededOrg(cleaned)
+    }
     vi.unstubAllEnvs()
   })
 
@@ -345,6 +355,37 @@ describe("Plain connector routes (Postgres + msw)", () => {
         .from(connectionDirectory)
         .where(eq(connectionDirectory.connectionId, connectionId)),
     ).toEqual([])
+  })
+
+  it("gives an admin of another org 404 for a connection of this org, and changes nothing", async () => {
+    const { connectionId } = await connected()
+    const deletedBefore = pl.deletedTargets.length
+
+    const asOther = (path: string, init: RequestInit = {}) =>
+      request(path, init, otherSeed)
+    const query = `connectionId=${connectionId}`
+    const responses = await Promise.all([
+      asOther(`/plain/status?${query}`),
+      asOther(`/plain/catalog?${query}`),
+      asOther(`/plain?${query}`, { method: "DELETE" }),
+    ])
+
+    expect(responses.map((res) => res.status)).toEqual([404, 404, 404])
+    for (const res of responses)
+      expect(await res.json()).toEqual({ error: "Unknown Plain connection" })
+    // The delete reached neither Plain nor the connection.
+    expect(pl.deletedTargets).toHaveLength(deletedBefore)
+    expect(await status(connectionId)).toMatchObject({ status: "installed" })
+    expect((await request(`/plain/catalog?${query}`)).status).toBe(200)
+    // A reconnect of that id, with a valid key, is also unknown to the other org.
+    expect(
+      (
+        await asOther("/plain", {
+          method: "POST",
+          body: JSON.stringify({ connectionId, apiKey: GOOD_KEY }),
+        })
+      ).status,
+    ).toBe(404)
   })
 
   it("refuses an org member who is not an admin", async () => {

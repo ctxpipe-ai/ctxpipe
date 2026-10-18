@@ -24,8 +24,9 @@ You select Help Centers, thread labels, or both, for each Workspace.
   A longer thread says that Plain has more messages.
 
 ctx| writes people by name only. In thread text, ctx| removes email addresses,
-phone numbers in common formats, and links that carry a credential. Other
-personal data in the text can remain.
+phone numbers in common formats, and links that carry a credential. ctx|
+keeps only `https:` links. For any other link, ctx| keeps the text and removes
+the link. Other personal data in the text can remain.
 
 <Callout type="warn" title="Thread messages are personal data">
   Thread messages are text from your customers, and they can hold personal

@@ -62,39 +62,36 @@ function frontMatter(fields: Array<[string, string | null]>): string[] {
 }
 
 /**
- * A URL that carries a credential: a signed URL, a token, a key, a code, or
- * a password in the query or the fragment, or another scheme.
+ * A URL that may stay in a file: an absolute `https:` URL that carries no
+ * credential (a signed URL, a token, a key, a code, or a password in the
+ * query or the fragment). A relative, `http:`, `mailto:`, or other URL does
+ * not stay: a relative link has no meaning in git, and the others are not
+ * needed.
  */
-function isPrivateUrl(url: string): boolean {
-  // A link with another scheme (javascript:, data:) is never kept.
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase()
-  if (scheme && !["http", "https", "mailto"].includes(scheme)) return true
-  // A relative link resolves first, so its query is checked too.
-  const absolute = scheme
-    ? url
-    : `https://plain.invalid${url.startsWith("/") ? "" : "/"}${url}`
-  return (
-    isConnectorAssetCredentialUrl(absolute, {
+function isKeptUrl(url: string): boolean {
+  if (!/^https:\/\//i.test(url)) return false
+  return !(
+    isConnectorAssetCredentialUrl(url, {
       includeGenericCredentials: true,
     }) ||
     /[?&#][\w.-]*(token|key|secret|password|passwd|signature)=|[?&#](code|pwd|sig|auth)=/i.test(
-      absolute,
+      url,
     )
   )
 }
 
 /**
- * Text without private URLs. A Markdown link to one keeps only its text; a
- * bare URL becomes a stub.
+ * Text with only the URLs that may stay (see `isKeptUrl`). A Markdown link
+ * to another URL keeps only its text; a bare URL becomes a stub.
  */
-function withoutPrivateUrls(text: string): string {
+function withHttpsUrlsOnly(text: string): string {
   return text
     .replace(
       /\[([^\]]{0,500})\]\((\S{1,2048}?)(?:\s+"[^"]{0,500}")?\)/g,
-      (link, label: string, url: string) => (isPrivateUrl(url) ? label : link),
+      (link, label: string, url: string) => (isKeptUrl(url) ? link : label),
     )
     .replace(/https?:\/\/[^\s<>()"']{1,2048}/g, (url) =>
-      isPrivateUrl(url) ? "[link removed]" : url,
+      isKeptUrl(url) ? url : "[link removed]",
     )
 }
 
@@ -105,7 +102,7 @@ function withoutPrivateUrls(text: string): string {
  */
 function redactThreadText(text: string): string {
   return (
-    withoutPrivateUrls(text)
+    withHttpsUrlsOnly(text)
       .replace(
         /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
         "[email removed]",
@@ -171,7 +168,7 @@ function articleBodyMarkdown(html: string): string {
       }),
     },
   )
-  return withoutPrivateUrls(markdown)
+  return withHttpsUrlsOnly(markdown)
 }
 
 export function plainArticleFile(input: {
@@ -219,9 +216,9 @@ export function plainThreadFile(input: {
       ["created_at", thread.createdAt],
       ["updated_at", thread.updatedAt],
     ]),
-    `# ${thread.ref}: ${field(thread.title)}`,
+    `# ${oneLine(thread.ref)}: ${field(thread.title)}`,
     "",
-    `- Status: ${thread.status}`,
+    `- Status: ${oneLine(thread.status)}`,
     `- Priority: ${priority}`,
   ]
   if (thread.labels.length)
@@ -235,7 +232,7 @@ export function plainThreadFile(input: {
     const kind = message.internal ? "Internal note" : "Message"
     const heading = [
       message.authorName ? field(message.authorName) : "Unknown",
-      message.createdAt,
+      message.createdAt ? oneLine(message.createdAt) : null,
     ]
       .filter(Boolean)
       .join(", ")
@@ -248,7 +245,7 @@ export function plainThreadFile(input: {
   }
   if (thread.moreMessages)
     lines.push(
-      `Plain has more messages in this thread. Open ${thread.ref} in Plain to read them.`,
+      `Plain has more messages in this thread. Open ${oneLine(thread.ref)} in Plain to read them.`,
       "",
     )
   return {

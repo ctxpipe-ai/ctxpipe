@@ -320,3 +320,71 @@ describe("personal data and private links in thread text", () => {
     expect(text(`See ${link}.`)).not.toContain("SECRET1")
   })
 })
+
+describe("headings and links from the Plain API", () => {
+  it("keeps the ref, the status, and a message time on one line", () => {
+    const { content } = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        ref: "T-1\n# Injected",
+        status: "TODO\n## Injected",
+        moreMessages: true,
+        messages: [
+          {
+            authorName: "Sam",
+            createdAt: "2026-10-10T09:00:00Z\n# Injected",
+            internal: false,
+            text: "Hello",
+          },
+        ],
+      },
+    })
+    expect(content.split("\n").filter((line) => /^#+ /.test(line))).toEqual([
+      "# T-1 # Injected: Export fails | large files",
+      "## Messages",
+      "### Message: Sam, 2026-10-10T09:00:00Z # Injected",
+    ])
+    expect(content).toContain("- Status: TODO ## Injected")
+    expect(content).toContain("Open T-1 # Injected in Plain")
+  })
+
+  it("keeps the text of a link that is not an https link", () => {
+    const { content } = plainArticleFile({
+      helpCenterId: "hc_1",
+      article: {
+        ...article,
+        contentHtml: [
+          '<p><a href="/internal/page">relative</a>',
+          '<a href="http://help.example.com/plain">insecure</a>',
+          '<a href="mailto:help@example.com">mail</a>',
+          '<a href="//cdn.example.com/x">protocol-relative</a>',
+          '<a href="https://help.example.com/ok">secure</a>',
+          "http://help.example.com/bare</p>",
+        ].join(" "),
+      },
+    })
+    expect(content).toContain(
+      "relative insecure mail protocol-relative [secure](https://help.example.com/ok) [link removed]",
+    )
+    expect(content).not.toMatch(/\]\((\/|http:|mailto:)/)
+  })
+
+  it("keeps the text of a thread link that is not an https link", () => {
+    const { content } = plainThreadFile({
+      labelTypeId: "lt_1",
+      thread: {
+        ...thread,
+        messages: [
+          {
+            authorName: "Sam",
+            createdAt: null,
+            internal: false,
+            text: "See [the page](/internal) and [the site](http://x.example.com/a).",
+          },
+        ],
+      },
+    })
+    expect(content).toContain("> See the page and the site.")
+  })
+})
