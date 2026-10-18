@@ -24,10 +24,12 @@ If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixtu
 ### FP-2 Create and save a file in a conversation
 **Requires** FP-1; Workspace `Writable`.
 **Steps**
-1. In **Files**, create `ctxpipe-preview-sweep/{run-id}/note.md` (**New file**), write one line naming `run-id` and the origin, and save (autosave or **Save**).
+1. In **Files**, click **New file**. Enter the one-segment name `note-{run-id}.md` and click **Create**. The **Name** field does not accept a `/`, and **Create** stays disabled until the name is valid. To make a file in a folder, make the folder first (**New folder**), then right-click it and choose **New file**.
+2. Click the editor and wait about 500 ms. Type one line that names `run-id` and the origin. In a script, set a key delay of at least 30 ms. A script that types at once after the click loses the first characters.
+3. Click **Save** (autosave runs 10 s after the last key press, or when the editor loses focus). Wait until **Save** is disabled again.
 
-**Expect (UI)** the tree shows the path and the editor holds the line; no stale-worktree error left on screen (a `stale_worktree` error retries on its own).
-**Expect (backend)** the file exists in the conversation sandbox (`PUT …/files/blob` returned 200; `GET …/files/status` shows it dirty or committed).
+**Expect (UI)** the tree shows the file and the editor holds the line; no stale-worktree error left on screen (a `stale_worktree` error retries on its own).
+**Expect (backend)** the file exists in the conversation sandbox. The `PUT …/files/blob` that saves the line returned 200 with that line in `body` (the first `PUT` of an empty `body` is the create). `GET …/files/status` shows it dirty or committed.
 **Budget** 2 s / 8 s, save to confirmed.
 **Evidence** `FP-2-1.png`; trace.
 
@@ -36,8 +38,8 @@ If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixtu
 **Steps**
 1. Click **Diff** (`pane=diff`).
 
-**Expect (UI)** the new path appears in the diff list against the default branch.
-**Expect (backend)** `GET …/conversations/{id}/files/diff` returns 200 with that path.
+**Expect (UI)** the new path appears in the diff list against the default branch, with `1 added` for a one-line file. `0 added` means the line was not saved: FAIL.
+**Expect (backend)** `GET …/conversations/{id}/files/diff` returns 200. The item for that path has `status` `added`, `additions` `1`, and the line in `body`.
 **Budget** 2 s / 8 s.
 **Evidence** `FP-3-1.png`.
 
@@ -80,7 +82,7 @@ If **Settings** shows **Read-only**, publish controls are hidden: `SKIP(no-fixtu
 ### FP-7 Workspace Files edit on the default branch (`gated-default-branch-write`)
 **Requires** flag `default-branch-write`; Workspace `Writable`.
 **Steps**
-1. On the bare Workspace URL (no conversation), open **Files**, save `ctxpipe-preview-sweep/{run-id}/workspace-note.md`.
+1. On the bare Workspace URL (no conversation), open **Files**, save the file `workspace-note-{run-id}.md`. The **Name** field takes one segment, as in FP-2.
 
 **Expect (UI)** the file appears in the tree once the job finishes (**Files** reflects the committed revision, not a draft).
 **Expect (backend)** a `workspace-file-edit` run produced **one** commit with a model-written subject on the default branch (fast-forward only); `workspace_write_jobs` row done; a re-hydrate follows ([HYD-3](../hydrate/SKILL.md)).

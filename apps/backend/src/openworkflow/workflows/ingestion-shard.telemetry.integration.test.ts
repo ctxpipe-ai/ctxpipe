@@ -24,6 +24,7 @@ import {
   listStepFiles,
   pushIngestStep,
 } from "../../domain/ingestion/ingest-refs.js"
+import { IngestStepCommandError } from "../../domain/ingestion/ingest-shard-ops.js"
 import type { IngestShardRuntime } from "../../domain/ingestion/ingest-shard-runtime.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import {
@@ -249,6 +250,42 @@ describe("ingestion step telemetry with the local git broker", () => {
       expect(
         events.find((e) => e.step === "ingestion-v2.step-partial")?.reason,
       ).toBe("step_failed")
+      // Each failed attempt logs where it failed, with no error text.
+      expect(
+        events
+          .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
+          .map((e) => [e.attempt, e.stage, e.exitCode]),
+      ).toEqual([
+        [1, "runtime", undefined],
+        [2, "runtime", undefined],
+        [3, "runtime", undefined],
+      ])
+      expect(JSON.stringify([events, spans()])).not.toContain(
+        "private sentinel",
+      )
+    },
+  )
+  it(
+    "logs the step command and its exit code of a failed attempt, with no stderr",
+    { timeout: 25000 },
+    async () => {
+      const runtime = {
+        ensure: async () => {},
+        discoverRoots: async () => ({}),
+        runStep: async () => {
+          throw new IngestStepCommandError("finish", 3, "private sentinel")
+        },
+      }
+      expect((await runStep({}, { runtime })).partial).toBe(1)
+      expect(
+        events
+          .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
+          .map((e) => [e.stage, e.exitCode]),
+      ).toEqual([
+        ["finish", 3],
+        ["finish", 3],
+        ["finish", 3],
+      ])
       expect(JSON.stringify([events, spans()])).not.toContain(
         "private sentinel",
       )

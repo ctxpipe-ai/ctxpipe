@@ -14,6 +14,7 @@ describe("maskCredentials", () => {
     ["ghp_", `export GH_TOKEN=ghp_${fill(36)}`],
     ["gho_", `gho_${fill(36)}`],
     ["ghu_", `"ghu_${fill(36)}"`],
+    ["ghr_", `see ghr_${fill(76)}`],
     ["github_pat_", `github_pat_${fill(22)}_${fill(59)}`],
     ["sk- key", `OPENAI_API_KEY=sk-${fill(40)}`],
     ["sk-ant- key", `key: sk-ant-api03-${fill(60)}`],

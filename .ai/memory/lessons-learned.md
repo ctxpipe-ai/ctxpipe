@@ -206,7 +206,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** migrated from patterns.md
 
 ### Default LLM tiers
-- **Rule:** unset `MODEL_*_NAME` defaults are fast `openai/gpt-6-luna?reasoning.effort=high`, medium `openai/gpt-6-luna?reasoning.effort=xhigh`, and high `xiaomi/mimo-v2.6-pro`. The fast tier is the low slot. Do not revert these to GPT-5.6 Terra.
+- **Rule:** unset `MODEL_*_NAME` defaults are fast `openai/gpt-6-luna?reasoning.effort=high`, medium `openai/gpt-6-luna?reasoning.effort=xhigh`, and high `xiaomi/mimo-v2.6-pro`. The fast tier is the low slot. Do not revert these to GPT-5.6 Terra. The defaults live only in `modelTierSpecs.ts`. Workspace chat reads them from there. Do not add a second table of model ids.
 - **Category:** convention
 - **Date:** 2026-09-28
 - **Source:** product default model update
