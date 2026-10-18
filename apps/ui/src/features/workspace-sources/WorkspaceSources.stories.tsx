@@ -1299,11 +1299,16 @@ export const AddRepositoriesExplains: Story = {
     await dialog.findByText(
       "ctxpipe reads the default branch of each repository. It uses the code to answer questions and to keep this Workspace current.",
     )
-    await expect(
-      dialog.getByText(/The repositories become active when you merge it\./),
-    ).toBeVisible()
+    // The dialog fades in, so each visibility check waits.
+    await waitFor(() =>
+      expect(
+        dialog.getByText(/The repositories become active when you merge it\./),
+      ).toBeVisible(),
+    )
     await dialog.findByRole("checkbox", { name: "acme/api" })
-    await expect(dialog.getByText(/Don't see a repository\?/)).toBeVisible()
+    await waitFor(() =>
+      expect(dialog.getByText(/Don't see a repository\?/)).toBeVisible(),
+    )
     await expect(
       dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
     ).toHaveAttribute(
@@ -1335,9 +1340,11 @@ export const AddRepositoriesEmptySearchHint: Story = {
       "billing",
     )
     await dialog.findByText("No repositories match that search.")
-    await expect(
-      dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("link", { name: "Give ctxpipe access on GitHub" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -1362,7 +1369,9 @@ export const AddRepositoriesWorkspaceRepositoryDisabled: Story = {
     const dialog = await openAddRepositories(canvasElement)
     const own = await dialog.findByRole("checkbox", { name: /Acme\/Docs/ })
     await waitFor(() => expect(own).toBeDisabled())
-    await expect(dialog.getByText("This Workspace's repository")).toBeVisible()
+    await waitFor(() =>
+      expect(dialog.getByText("This Workspace's repository")).toBeVisible(),
+    )
     await waitFor(() =>
       expect(dialog.getByRole("checkbox", { name: "acme/api" })).toBeEnabled(),
     )
