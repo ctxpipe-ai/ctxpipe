@@ -26,7 +26,8 @@ function emptyChatHydration(): ChatHydrationResult {
 
 /**
  * Official TanStack `webSocket()` with handshake started on compose mount.
- * Reuses the already-open socket for the first Send (same path, ignore search).
+ * The first Send takes the socket that `warm()` opened (same path, ignore
+ * search). No other send reuses it.
  */
 export function workspaceChatWebSocket(
   orgSlug: string,
@@ -49,18 +50,18 @@ export function workspaceChatWebSocket(
     protocols?: string | string[],
   ): WebSocket {
     const target = String(url)
+    // Only the socket that `warm()` opened, and only once. A resume or join
+    // socket never goes to a later run.
     if (
       warmed &&
       warmed.readyState <= 1 &&
       shouldReuseWarmedWorkspaceChatSocket(warmed.url, target)
     ) {
-      return warmed
+      const socket = warmed
+      warmed = undefined
+      return socket
     }
-    const socket = track(
-      protocols ? new WebSocket(url, protocols) : new WebSocket(url),
-    )
-    warmed = socket
-    return socket
+    return track(protocols ? new WebSocket(url, protocols) : new WebSocket(url))
   }
 
   const connection = webSocket(path, {
@@ -123,10 +124,14 @@ export function workspaceChatWebSocket(
   }
 }
 
+/**
+ * Only an `offset` makes a resume, as on the backend. The first Send of a run
+ * also has `?runId=`; it must use the warmed socket, because a new socket
+ * adds a full handshake to the first turn.
+ */
 export function workspaceChatSocketIsResume(url: string): boolean {
   try {
-    const parsed = new URL(url, "http://localhost")
-    return parsed.searchParams.has("offset") || parsed.searchParams.has("runId")
+    return new URL(url, "http://localhost").searchParams.has("offset")
   } catch {
     return false
   }
