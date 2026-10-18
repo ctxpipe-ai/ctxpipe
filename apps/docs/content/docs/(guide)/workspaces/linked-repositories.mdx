@@ -25,9 +25,11 @@ index, so search in one Workspace never returns another Workspace's code.
 
     Choose **Add repositories**. Search the repositories the ctx| GitHub App can
     see (sort by recently pushed, newest, oldest, or name) and select one or
-    more. This list shows only GitHub repositories. To link a public
-    repository on another git host, see
-    [Plain git repositories](#plain-git-repositories).
+    more. This list shows only GitHub repositories. To link a repository on
+    another git host that needs no credential, see
+    [Plain git repositories](#plain-git-repositories). On hosted ctx|, that
+    host must be public. A self-hosted deployment can also read a git server
+    inside your network.
   </Step>
 
   <Step>
@@ -67,13 +69,16 @@ source already links, is linked only one time.
 ## Repositories from before Workspaces
 
 When an organization moves to Workspaces, ctx| links the organization's
-other repositories to its first Workspace. The knowledge export adds them to
-the GitHub source `linked-repositories` in `.ctxpipe/sources.yaml` of that
-Workspace. The same commit moves each `repositories/*.md` file of a GitHub
-repository into that source, with its `branch` as `ref`, and deletes the file.
+other repositories to its first Workspace. The knowledge export adds each
+GitHub repository to the GitHub source `linked-repositories` in
+`.ctxpipe/sources.yaml` of that Workspace. The same commit moves each
+`repositories/*.md` file of a GitHub repository into that source, with its
+`branch` as `ref`, and deletes the file.
 An organization repository that has no GitHub connection becomes a plain git
-source when ctx| can read its URL as a plain git URL (see below). ctx| does not link
-the other repositories, and the upgrade pull request names each one.
+source file under `sources/git/<host>/` when ctx| can read its URL as a plain
+git URL (see below). A plain git repository is never an entry of
+`.ctxpipe/sources.yaml`. ctx| does not link the other repositories, and the
+upgrade pull request names each one.
 
 ## Plain git repositories
 
@@ -111,9 +116,18 @@ internal host name, for example `http://git.internal:3000/team/tools.git`.
 ctx| never reads a host that resolves to a cloud metadata or link-local
 address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
 `fd00:ec2::254`), also on a self-hosted deployment.
-Agent Vault connects to a private address only when that address is in its
-`AGENT_VAULT_NETWORK_ALLOWLIST`, so add the address of your git server
-there.
+The sandbox fetches the repository through Agent Vault. Agent Vault connects
+to a private address only when that address is in its network allowlist. Add
+the address or CIDR of your git server to it:
+
+- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Keep
+  `172.30.99.10` (the backend) in the list, for example
+  `AGENT_VAULT_NETWORK_ALLOWLIST=172.30.99.10,10.20.0.15`.
+- AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
+  `["10.20.0.0/24"]`. ctx| adds it after the backend subnets. The sandbox host
+  must also have a route to that network.
+
+Do not add a cloud metadata or link-local address.
 
 ctx| does not follow a redirect. Use the exact clone URL of the repository.
 Repositories that need a credential on other git hosts are not supported.
