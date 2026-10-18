@@ -1055,6 +1055,77 @@ it(
 )
 
 it(
+  "refuses an add of the Workspace repository with a 400 before it opens a pull request",
+  { timeout: 60_000 },
+  async () => {
+    const writes: Array<{ method: string; path: string; body: unknown }> = []
+    const opened: unknown[] = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: (body) => {
+          opened.push(body)
+        },
+      },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40), writes),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const inWorkspace = <T>(
+          run: (
+            workspace: NonNullable<
+              Awaited<ReturnType<typeof getWorkspaceById>>
+            >,
+          ) => Promise<T>,
+        ) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return run(workspace)
+          })
+        // GitHub names ignore the letter case, and the stored URL ends in .git.
+        const own = {
+          action: "add" as const,
+          provider: "github" as const,
+          connectionId: f.connectionId,
+          scope: { repository: "Fixture/Hydration-Contract" },
+        }
+        const refused = {
+          status: 400,
+          message: expect.stringContaining(
+            "A Workspace cannot link its own repository",
+          ),
+        }
+
+        await expect(
+          inWorkspace((workspace) =>
+            changeWorkspaceSource({ workspace, change: own }),
+          ),
+        ).rejects.toMatchObject(refused)
+        // One refused add refuses the whole batch.
+        await expect(
+          inWorkspace((workspace) =>
+            addWorkspaceSources({
+              workspace,
+              changes: [{ ...own, scope: { repository: "acme/web" } }, own],
+            }),
+          ),
+        ).rejects.toMatchObject(refused)
+        expect(writes).toEqual([])
+        expect(opened).toEqual([])
+      },
+    )
+  },
+)
+
+it(
   "adds several GitHub repositories in one pull request and lists each as pending",
   { timeout: 60_000 },
   async () => {
