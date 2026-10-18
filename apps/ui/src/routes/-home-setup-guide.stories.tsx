@@ -655,7 +655,7 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
       if (cls.includes("isolate z-20") || cls.includes("font-sans w-full min-h-0")) {
         const at = Math.round(performance.now())
         events.push(
-          `${at} getAnimations ${cls.slice(0, 20)} exiting=${this.getAttribute("data-exiting")} -> ${JSON.stringify(list.map((a) => [(a as CSSAnimation).animationName, a.playState, a.currentTime]))}`,
+          `${at} getAnimations ${cls.slice(0, 20)} exiting=${this.getAttribute("data-exiting")} -> ${JSON.stringify(list.map((a) => [a.constructor.name, (a as CSSAnimation).animationName, (a as CSSTransition).transitionProperty, a.playState, a.currentTime, (a.effect as KeyframeEffect | null)?.getTiming().duration, (a.effect as KeyframeEffect | null)?.getKeyframes()]))} style=${(() => { const cs = getComputedStyle(this); return JSON.stringify([cs.transitionProperty, cs.transitionDuration, cs.height]) })()}}`,
         )
         for (const a of list)
           a.finished.then(
