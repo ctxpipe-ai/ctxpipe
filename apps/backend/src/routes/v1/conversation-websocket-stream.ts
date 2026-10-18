@@ -45,14 +45,15 @@ type ConversationChatSocketRun = Parameters<
 
 /**
  * Start a turn or a resume on a chat socket. The run log key holds the
- * organization and the conversation of the socket, so a resume finds only a
- * run of that conversation. A run of another conversation fails as an
- * unknown run.
+ * organization, the user, and the conversation of the socket. Thus a resume
+ * finds only a run that the same user started in that conversation, and a
+ * turn of another user cannot add chunks to that run log. Any other run
+ * fails as an unknown run.
  */
 export function startConversationChatSocket(
   socket: WebSocketLike,
   request: Request,
-  scope: { orgId: string; conversationId: string },
+  scope: { orgId: string; userId: string; conversationId: string },
   onRun: ConversationChatSocketRun,
   transport: {
     resume: typeof resumeWebSocketStream
@@ -63,7 +64,7 @@ export function startConversationChatSocket(
   },
 ) {
   const runLog = (runId: string) =>
-    `${scope.orgId}/${scope.conversationId}/${runId}`
+    `${scope.orgId}/${scope.userId}/${scope.conversationId}/${runId}`
   if (conversationWebSocketHasResumeOffset(request.url)) {
     const query = new URL(request.url).searchParams
     transport.resume(socket, {

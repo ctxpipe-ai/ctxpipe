@@ -170,7 +170,11 @@ export const conversationWebSocketHandlers = {
     startConversationChatSocket(
       like,
       ws.data.request,
-      { orgId: ws.data.orgId, conversationId: ws.data.conversationId },
+      {
+        orgId: ws.data.orgId,
+        userId: ws.data.userId,
+        conversationId: ws.data.conversationId,
+      },
       (ctx) =>
         streamWorkspaceChatSocketTurn({
           conversationId: ws.data.conversationId,
