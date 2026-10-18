@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { zendeskCatalogHandler } from "@/mocks/zendesk-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
@@ -62,7 +62,7 @@ type Story = StoryObj<typeof meta>
 export const SelectCategoriesAndViews: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
       canvas.getByText("Select at least one category or view."),
     ).toBeVisible()
@@ -86,9 +86,9 @@ export const FilterKeepsTheSelection: Story = {
   args: { label: "Support", initialScope: { categories: ["360001"] } },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByRole("checkbox", { name: "Accounts" }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(canvas.getByRole("checkbox", { name: "Accounts" })).toBeChecked(),
+    )
     await userEvent.type(
       canvas.getByRole("searchbox", {
         name: "Filter Zendesk categories and views for Support",
@@ -164,6 +164,8 @@ export const LoadError: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText(/Reconnect Zendesk/)).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/Reconnect Zendesk/)).toBeVisible(),
+    )
   },
 }

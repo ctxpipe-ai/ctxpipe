@@ -573,9 +573,11 @@ export const ZendeskFromCatalog: Story = {
   ]),
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("button", { name: "Zendesk connector actions" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Zendesk connector actions" }),
+      ).toBeVisible(),
+    )
     await expect(body.queryByText("GitHub")).toBeNull()
     await userEvent.click(body.getByRole("button", { name: "Add connection" }))
     await userEvent.click(

@@ -99,9 +99,11 @@ export const NoWebhook: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Zendesk" }),
     )
-    await expect(
-      await canvas.findByText(/Help Center articles sync once a day/),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/Help Center articles sync once a day/),
+      ).toBeVisible(),
+    )
     onOpenSetup.mockClear()
     const [add] = await canvas.findAllByRole("button", {
       name: /^Add the webhook/,

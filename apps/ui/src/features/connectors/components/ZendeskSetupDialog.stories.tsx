@@ -113,9 +113,11 @@ export const AccountThenOAuthClient: Story = {
     )
     await userEvent.type(subdomain, "acme")
     await userEvent.click(body.getByRole("button", { name: "Continue" }))
-    await expect(
-      await body.findByRole("heading", { name: "Register an OAuth client" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Register an OAuth client" }),
+      ).toBeVisible(),
+    )
     await expect(
       body.getByText(
         "https://app.example.com/api/v1/integrations/zendesk/callback",
@@ -167,9 +169,11 @@ export const SaveOAuthClient: Story = {
     await userEvent.click(
       body.getByRole("button", { name: "Save OAuth client" }),
     )
-    await expect(
-      await body.findByRole("heading", { name: "Connect Zendesk" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Connect Zendesk" }),
+      ).toBeVisible(),
+    )
     await expect(calls).toEqual([
       {
         method: "PUT",
@@ -251,9 +255,11 @@ export const ConnectThroughThePopup: Story = {
       { type: "zendesk-oauth-complete", orgSlug, connectionId },
       view.location.origin,
     )
-    await expect(
-      await body.findByRole("heading", { name: "Add Zendesk to Workspaces" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Add Zendesk to Workspaces" }),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -280,9 +286,11 @@ export const OAuthError: Story = {
       },
       view.location.origin,
     )
-    await expect(
-      await body.findByText("Zendesk authorization failed: access_denied"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByText("Zendesk authorization failed: access_denied"),
+      ).toBeVisible(),
+    )
   },
 }
 
@@ -341,9 +349,11 @@ export const AddToWorkspaces: Story = {
     await userEvent.click(
       body.getByRole("button", { name: "Add to Workspaces" }),
     )
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
     await expect(addCalls).toEqual([
       {
         method: "POST",
