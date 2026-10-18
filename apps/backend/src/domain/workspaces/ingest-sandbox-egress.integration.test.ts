@@ -49,15 +49,12 @@ const server = useMswServer(
     (installationId) => `ghs_${installationId}`,
     // The beta installation follows the self-host docs without the optional
     // Issues permission.
-    (installationId) =>
-      installationId === 222
-        ? { contents: "write", metadata: "read", pull_requests: "write" }
-        : {
-            contents: "write",
-            metadata: "read",
-            pull_requests: "write",
-            issues: "read",
-          },
+    (installationId): Record<string, string> => ({
+      contents: "write",
+      metadata: "read",
+      pull_requests: "write",
+      ...(installationId === 222 ? {} : { issues: "read" }),
+    }),
   ),
 )
 
