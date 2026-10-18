@@ -12,6 +12,7 @@ import type {
   IngestDestination,
   IngestShardRuntime,
   IngestShardRuntimeFactory,
+  IngestStepUsage,
 } from "../../domain/ingestion/ingest-shard-runtime.js"
 import {
   releaseIngestStepIndexes,
@@ -41,6 +42,8 @@ import {
   type IngestSkillBundle,
   readIngestSkillBundle,
 } from "../../domain/ingestion/skill-bundle.js"
+import { checkSourcePath } from "../../domain/workspace-sources/source-file.js"
+import { workspaceRootPathSchema } from "../../domain/workspaces/root-path.js"
 import {
   findWorkspaceStepCommit,
   listWorkspaceIngestStepFiles,
@@ -76,6 +79,11 @@ export const ingestionDestinationSchema = z.object({
   generation: z.number().int(),
   pinnedRevision: sha,
   repositoryId: z.string().nullable(),
+  rootPath: workspaceRootPathSchema.optional(),
+  /** The source file of the run's repository in this Workspace (ADR-050). */
+  sourcePath: z
+    .string()
+    .refine((path) => checkSourcePath(path).ok, "Use a source file path"),
 })
 
 /** A planned root, as `resolveDiscoveredRoots` gave it. */
@@ -135,6 +143,11 @@ export type IngestionShardWorkspace = {
   rejects: number
   /** Steps that failed after their retries; their root is `partial`. */
   partial: number
+  /**
+   * The roots of the steps that failed. Their deletes are not published (no
+   * retraction, concept section 7.3). A repository-wide step has no root.
+   */
+  partialRoots: string[]
 }
 
 export type IngestionShardOutput = {
@@ -147,7 +160,7 @@ const STEP_ATTEMPTS = 3
 /** A skill runs at most this many pages; then it is `partial` (ADR-052 section 6). */
 export const INGEST_MAX_PAGES = 20
 
-type StepResult =
+type StepResult = (
   | {
       tip: string
       ops: number
@@ -156,6 +169,10 @@ type StepResult =
       partial?: undefined
     }
   | { partial: true }
+) & {
+  /** The model usage of the step's attempts, when the runtime reports it (the re-ingestion cost cap reads it). */
+  usage?: IngestStepUsage
+}
 
 export type IngestionV2Deps = {
   runtime: IngestShardRuntimeFactory
@@ -237,6 +254,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
                 ops: start?.ops ?? 0,
                 rejects: 0,
                 partial: 0,
+                partialRoots: [],
               } satisfies IngestionShardWorkspace,
             ]
           }),
@@ -447,6 +465,11 @@ type SkillPages = {
  */
 export async function runSkillPages(ctx: SkillPages): Promise<void> {
   const { state } = ctx
+  const failed = () => {
+    state.partial++
+    if (ctx.root !== null && !state.partialRoots.includes(ctx.root))
+      state.partialRoots.push(ctx.root)
+  }
   const label = skillStepName(
     ctx.root,
     ctx.skill.name,
@@ -465,7 +488,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       runSkillStep({ ...ctx, name, oldTip, opsBefore }),
     )
     if (result.partial) {
-      state.partial++
+      failed()
       return
     }
     state.tip = result.tip
@@ -473,7 +496,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     state.rejects += result.rejects
     if (!result.more) return
     if (result.ops === 0) {
-      state.partial++
+      failed()
       logStepPartial(
         ctx,
         label,
@@ -482,7 +505,7 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       return
     }
   }
-  state.partial++
+  failed()
   logStepPartial(
     ctx,
     label,
@@ -550,6 +573,9 @@ async function attemptSkillStep(
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
+  let usage: IngestStepUsage | undefined
+  const withUsage = <T extends object>(result: T) =>
+    usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
     try {
@@ -557,12 +583,12 @@ async function attemptSkillStep(
       // `Ctxpipe-More` trailer says whether a next page waits.
       const found = await broker.find(ref, ctx.name)
       if (found)
-        return {
+        return withUsage({
           tip: found.sha,
           ops: found.ops,
           rejects: found.rejects,
           more: found.more,
-        }
+        })
       const baseCommit = ctx.oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
       const fetchRef = ctx.oldTip
@@ -579,7 +605,7 @@ async function attemptSkillStep(
           ? []
           : await broker.listFiles(destination.pinnedRevision, baseCommit),
       )
-      const { tar } = await ctx.runtime.runStep({
+      const stepRun = await ctx.runtime.runStep({
         name: ctx.name,
         skill: ctx.skill.name,
         run: ctx.skill.run,
@@ -591,7 +617,25 @@ async function attemptSkillStep(
         rootMap,
         signal: ingestStepSignal(),
       })
-      const pushed = await withIngestStepOutput(tar, (stagedDir) =>
+      // A runtime that cannot report the usage of a model step makes the
+      // spend unknown. The step counts as unknown, so that the spend does not
+      // look complete.
+      const stepUsage =
+        stepRun.usage ??
+        (ctx.skill.run === "model"
+          ? { inputTokens: 0, outputTokens: 0, unknownSteps: 1 }
+          : undefined)
+      if (stepUsage?.unknownSteps)
+        logIngestEvent("warn", "ingestion-v2.usage-unknown", {
+          ingestionRunId: run.runId,
+          ...(run.shard === undefined ? {} : { shard: run.shard }),
+          workspaceId: destination.workspaceId,
+          ingestStep: ctx.name,
+          reason:
+            "The model step reported no usage: the spend of the run is unknown, and the cost cap counts only the known spend",
+        })
+      usage = addIngestUsage(usage, stepUsage)
+      const pushed = await withIngestStepOutput(stepRun.tar, (stagedDir) =>
         broker.push({
           ref,
           oldTip: ctx.oldTip,
@@ -605,6 +649,7 @@ async function attemptSkillStep(
           patch: {
             stagedDir,
             source: { url: run.source.url, sha: run.source.sha },
+            sourcePath: destination.sourcePath,
             skill: ctx.skill.name,
             sourcePathExists: (path) => broker.sourcePathExists(path),
             readSourceFile: (path) => broker.readSourceFile(path),
@@ -634,12 +679,12 @@ async function attemptSkillStep(
           ingestStep: ctx.name,
           reason: `The validator rejected ${pushed.validation.rejections.length} ops and accepted ${pushed.validation.accepted.length}`,
         })
-      return {
+      return withUsage({
         tip: pushed.sha,
         ops: pushed.validation.accepted.length,
         rejects: pushed.validation.rejections.length,
         more: pushed.more,
-      }
+      })
     } catch (error) {
       if (isWorkflowControlSignal(error)) throw error
       const refused = error instanceof IngestRefRefusedError
@@ -653,7 +698,27 @@ async function attemptSkillStep(
     }
   }
   logStepPartial(ctx, ctx.name, reason)
-  return { partial: true }
+  return withUsage({ partial: true as const })
+}
+
+function addIngestUsage(
+  total: IngestStepUsage | undefined,
+  next: IngestStepUsage | undefined,
+): IngestStepUsage | undefined {
+  if (!next) return total
+  if (!total) return next
+  // A part with no tokens (an unknown step) does not drop the known cost.
+  const cost = (u: IngestStepUsage) =>
+    u.costUsd ?? (u.inputTokens + u.outputTokens === 0 ? 0 : undefined)
+  const [a, b] = [cost(total), cost(next)]
+  const costUsd = a !== undefined && b !== undefined ? a + b : undefined
+  const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
+  return {
+    inputTokens: total.inputTokens + next.inputTokens,
+    outputTokens: total.outputTokens + next.outputTokens,
+    ...(costUsd !== undefined ? { costUsd } : {}),
+    ...(unknownSteps ? { unknownSteps } : {}),
+  }
 }
 
 let productionBundle: Promise<IngestSkillBundle> | undefined

@@ -3,6 +3,7 @@ import {
   type QueryClient,
   queryOptions,
 } from "@tanstack/react-query"
+import type { WorkspaceSourceChangeResult } from "backend/routes/v1/workspace-sources-contract"
 import type {
   ConversationDetail,
   ConversationListItem,
@@ -104,7 +105,7 @@ export async function fetchWorkspaces(
   const res = await client[":orgSlug"].api.v1.workspaces.$get({
     param: { orgSlug },
   })
-  return readApiJson<WorkspaceListResponse>(res, {
+  return readApiJson(res, {
     message: "Failed to load Workspaces",
   })
 }
@@ -121,11 +122,14 @@ export async function fetchConversation(
     param: { orgSlug, conversationId },
     query: workspaceId ? { workspaceId } : {},
   })
-  return readApiJson<ConversationDetail | null>(res, {
+  const data = await readApiJson(res, {
     emptyOn: [404],
     empty: null,
     message: "Failed to load conversation",
   })
+  return data === null
+    ? null
+    : { ...data, messages: data.messages as ConversationDetail["messages"] }
 }
 
 export async function renameConversation(
@@ -140,7 +144,7 @@ export async function renameConversation(
     param: { orgSlug, conversationId },
     json: { name },
   })
-  return readApiJson<ConversationListItem>(res, {
+  return readApiJson(res, {
     message: "Failed to rename conversation",
   })
 }
@@ -196,9 +200,11 @@ export async function fetchWorkspaceFiles(
   ].files.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<WorkspaceFilesResponse>(res, {
+  const data = await readApiJson(res, {
     message: "Failed to load Workspace files",
   })
+  // The recursive schema leaves the type of `children` loose.
+  return { ...data, tree: data.tree as WorkspaceFilesResponse["tree"] }
 }
 
 export async function fetchWorkspaceGitTree(
@@ -211,7 +217,7 @@ export async function fetchWorkspaceGitTree(
   ].files.tree.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<WorkspaceGitTreeResponse>(res, {
+  return readApiJson(res, {
     emptyOn: [409],
     empty: { sha: "", paths: [] },
     message: "Failed to load Workspace files",
@@ -230,7 +236,7 @@ export async function fetchWorkspaceGitBlob(
     param: { orgSlug, workspaceSlug },
     query: { path },
   })
-  return readApiJson<WorkspaceGitBlobResponse>(res, {
+  return readApiJson(res, {
     emptyOn: [404],
     empty: { path, body: null, binary: false },
     message: "Failed to load file",
@@ -247,7 +253,7 @@ export async function fetchWorkspaceGitStatus(
   ].files.status.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<WorkspaceGitStatusResponse>(res, {
+  return readApiJson(res, {
     message: "Failed to load git status",
   })
 }
@@ -256,7 +262,7 @@ export async function enqueueWorkspaceFileJob(
   orgSlug: string,
   workspaceSlug: string,
   input: WorkspaceFileJobRequest,
-): Promise<void> {
+): Promise<{ jobId: string }> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[
     ":workspaceSlug"
@@ -264,7 +270,9 @@ export async function enqueueWorkspaceFileJob(
     param: { orgSlug, workspaceSlug },
     json: input,
   })
-  await readApiJson<void>(res, { message: "Failed to save file changes" })
+  return readApiJson(res, {
+    message: "Failed to save file changes",
+  })
 }
 
 /** The graph route answers `building` while the graph of the active revision builds. */
@@ -286,7 +294,7 @@ export async function fetchWorkspaceGraph(
   ].graph.$get({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<WorkspaceGraphRead>(res, {
+  return readApiJson(res, {
     message: "Failed to load Workspace graph",
   })
 }
@@ -301,7 +309,7 @@ export async function fetchWorkspace(
       param: { orgSlug, workspaceSlug },
     },
   )
-  return readApiJson<WorkspaceDetail | null>(res, {
+  return readApiJson(res, {
     emptyOn: [404],
     empty: null,
     message: "Failed to load Workspace",
@@ -408,7 +416,7 @@ export async function fetchWorkspaceActivity(
     param: { orgSlug, workspaceSlug },
     query: date ? { date } : {},
   })
-  return readApiJson<WorkspaceActivityResponse>(res, {
+  return readApiJson(res, {
     message: "Failed to load workspace activity",
   })
 }
@@ -422,7 +430,7 @@ async function fetchOrgActivity(
     param: { orgSlug },
     query: date ? { date } : {},
   })
-  return readApiJson<WorkspaceActivityResponse>(res, {
+  return readApiJson(res, {
     message: "Failed to load activity",
   })
 }
@@ -469,7 +477,7 @@ export function activityCommitsOptions(
           : await client[":orgSlug"].api.v1.workspaces[
               ":workspaceSlug"
             ].activity.$get({ param: { orgSlug, workspaceSlug }, query })
-      return readApiJson<WorkspaceActivityResponse>(res, {
+      return readApiJson(res, {
         message: "Failed to load commits",
       })
     },
@@ -602,9 +610,10 @@ export async function fetchConversationGitStatus(
     param: { orgSlug, conversationId },
   })
   if (res.status === 409) return readConversationFilesBlocked(res)
-  return readApiJson(res, {
+  // TODO: the route types the file status as a string, so the body is cast.
+  return (await readApiJson(res, {
     message: "Failed to load conversation git status",
-  })
+  })) as ConversationGitStatusResponse
 }
 
 export async function fetchConversationGitDiff(
@@ -636,7 +645,10 @@ export async function putConversationFile(
     param: { orgSlug, conversationId },
     json: input,
   })
-  return readApiJson(res, { message: "Failed to save conversation file" })
+  // TODO: the route types the file status as a string, so the body is cast.
+  return (await readApiJson(res, {
+    message: "Failed to save conversation file",
+  })) as ConversationFileWriteResponse
 }
 
 export function conversationWorktreeVersionFromCache(
@@ -887,6 +899,8 @@ export function conversationGitBlobOptions(
 }
 
 class ConversationSandboxBusy extends Error {
+  /** The backend answered 409. The error reporter treats it as expected. */
+  readonly status = 409
   constructor() {
     super("Conversation sandbox is not ready")
   }
@@ -908,7 +922,11 @@ export function conversationGitStatusOptions(
     }): Promise<PolledFiles<ConversationGitStatusResponse>> => {
       const status = await fetchConversationGitStatus(orgSlug, conversationId)
       if ("blocked" in status) {
-        if (!status.busy) throw new Error("Conversation sandbox is not ready")
+        if (!status.busy) {
+          throw Object.assign(new Error("Conversation sandbox is not ready"), {
+            status: 409,
+          })
+        }
         const cached = client.getQueryData<ConversationGitStatusResponse>(
           workspaceKeys.conversationGitStatus(orgSlug, conversationId),
         )
@@ -954,8 +972,11 @@ export async function fetchConversationTurnChanges(
 export function conversationTurnChangesOptions(
   orgSlug: string,
   conversationId: string,
+  /** False while the conversation has no server row: the route answers 404. */
+  enabled = true,
 ) {
   return queryOptions({
+    enabled,
     queryKey: workspaceKeys.conversationTurnChanges(orgSlug, conversationId),
     queryFn: () => fetchConversationTurnChanges(orgSlug, conversationId),
     // A turn records its changes just before it ends, and the backend answers
@@ -992,6 +1013,7 @@ export async function createWorkspace(
     slug?: string
     githubConnectionId?: string
     source?: "select" | "paste"
+    rootPath?: string
   },
 ): Promise<Workspace> {
   const client = await getApiClient()
@@ -999,7 +1021,7 @@ export async function createWorkspace(
     param: { orgSlug },
     json: input,
   })
-  return readApiJson<Workspace>(res, { message: "Failed to create Workspace" })
+  return readApiJson(res, { message: "Failed to create Workspace" })
 }
 
 export async function updateWorkspace(
@@ -1011,6 +1033,7 @@ export async function updateWorkspace(
     workspaceRepositoryUrl?: string
     githubConnectionId?: string | null
     source?: "select" | "paste"
+    rootPath?: string
   },
 ): Promise<Workspace> {
   const client = await getApiClient()
@@ -1020,7 +1043,7 @@ export async function updateWorkspace(
     param: { orgSlug, workspaceSlug },
     json: input,
   })
-  return readApiJson<Workspace>(res, { message: "Failed to update Workspace" })
+  return readApiJson(res, { message: "Failed to update Workspace" })
 }
 
 export async function deleteWorkspace(
@@ -1035,7 +1058,7 @@ export async function deleteWorkspace(
     param: { orgSlug, workspaceSlug },
     json: { confirmName },
   })
-  await readApiJson<void>(res, { message: "Failed to delete Workspace" })
+  await readApiJson(res, { message: "Failed to delete Workspace" })
 }
 
 export async function touchWorkspace(
@@ -1048,7 +1071,7 @@ export async function touchWorkspace(
   ].touch.$post({
     param: { orgSlug, workspaceSlug },
   })
-  await readApiJson<void>(res, {
+  await readApiJson(res, {
     message: "Failed to record last-used Workspace",
   })
 }
@@ -1063,7 +1086,7 @@ export async function retryPrepareWorkspace(
   ].$post({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<Workspace>(res, {
+  return readApiJson(res, {
     message: "Failed to retry Workspace prepare",
   })
 }
@@ -1079,7 +1102,7 @@ export async function checkWorkspaceWriteAccess(
   ].$post({
     param: { orgSlug, workspaceSlug },
   })
-  return readApiJson<Workspace>(res, {
+  return readApiJson(res, {
     message: "Failed to check write access",
   })
 }
@@ -1088,14 +1111,16 @@ export async function unlinkWorkspaceRepository(
   orgSlug: string,
   workspaceSlug: string,
   linkedId: string,
-): Promise<void> {
+): Promise<WorkspaceSourceChangeResult> {
   const client = await getApiClient()
   const res = await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"][
     "linked-repositories"
   ][":linkedId"].$delete({
     param: { orgSlug, workspaceSlug, linkedId },
   })
-  await readApiJson<void>(res, { message: "Failed to unlink repository" })
+  return readApiJson(res, {
+    message: "Failed to unlink repository",
+  })
 }
 
 export function landingWorkspace(

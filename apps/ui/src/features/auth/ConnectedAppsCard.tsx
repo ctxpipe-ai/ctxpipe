@@ -24,23 +24,23 @@ import {
 } from "@/components/ui/Skeleton"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
 import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { userClient } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 
-export type ConnectedApp = {
-  /** The consent id. */
-  id: string
-  /** From before multi-org grants: one org, revoke only. */
-  legacy: boolean
-  clientId: string
-  clientName: string | null
-  scopes: string[]
-  organizations: { id: string; slug: string; name: string }[]
-  connectedAt: string | null
+export type ConnectedApp = Awaited<
+  ReturnType<typeof fetchConnectedApps>
+>[number]
+
+async function fetchConnectedApps() {
+  const res = await userClient.api.v1.me["connected-apps"].$get()
+  const body = await readApiJson(res, {
+    message: "Could not load connected apps",
+  })
+  return body.apps
 }
 
-const CONNECTED_APPS_PATH = "/api/v1/me/connected-apps"
 const connectedAppsQueryKey = ["me", "connected-apps"] as const
 
 const SCOPE_LABEL: Record<string, string> = {
@@ -68,29 +68,18 @@ export function ConnectedAppsCard() {
 
   const appsQuery = useQuery({
     queryKey: connectedAppsQueryKey,
-    queryFn: async () => {
-      const res = await apiFetch(CONNECTED_APPS_PATH, {
-        credentials: "include",
-      })
-      const body = await readApiJson<{ apps: ConnectedApp[] }>(res, {
-        message: "Could not load connected apps",
-      })
-      return body.apps
-    },
+    queryFn: fetchConnectedApps,
   })
 
   const saveMutation = useMutation({
     mutationFn: async (input: { id: string; organizationIds: string[] }) => {
-      const res = await apiFetch(
-        `${CONNECTED_APPS_PATH}/${encodeURIComponent(input.id)}/organizations`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ organizationIds: input.organizationIds }),
-        },
-      )
-      await readApiJson<undefined>(res, {
+      const res = await userClient.api.v1.me["connected-apps"][
+        ":consentId"
+      ].organizations.$put({
+        param: { consentId: input.id },
+        json: { organizationIds: input.organizationIds },
+      })
+      await readApiJson(res, {
         message: "Could not save the organizations",
       })
     },
@@ -102,11 +91,10 @@ export function ConnectedAppsCard() {
 
   const revokeMutation = useMutation({
     mutationFn: async (id: string) => {
-      const res = await apiFetch(
-        `${CONNECTED_APPS_PATH}/${encodeURIComponent(id)}`,
-        { method: "DELETE", credentials: "include" },
-      )
-      await readApiJson<undefined>(res, {
+      const res = await userClient.api.v1.me["connected-apps"][
+        ":consentId"
+      ].$delete({ param: { consentId: id } })
+      await readApiJson(res, {
         message: "Could not revoke the app",
       })
     },
@@ -155,8 +143,14 @@ export function ConnectedAppsCard() {
                   </div>
                   {/* The two buttons of a loaded row: Edit organizations, Revoke. */}
                   <div className="flex shrink-0 items-center gap-2">
-                    <Skeleton className="h-9 w-39 shrink-0 rounded-md" />
-                    <Skeleton className="h-9 w-25 shrink-0 rounded-md" />
+                    {/* The hidden labels give each bone the width of its button in any font. */}
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible">Edit organizations</span>
+                    </Skeleton>
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center gap-2 rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible size-4" />
+                      <span className="invisible">Revoke</span>
+                    </Skeleton>
                   </div>
                 </div>
               ))}

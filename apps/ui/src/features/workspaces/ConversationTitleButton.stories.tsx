@@ -120,3 +120,48 @@ export const EscapeReturnsFocus: Story = {
     expect(patches).toEqual([])
   },
 }
+
+async function renameTo(
+  canvasElement: HTMLElement,
+  name: string,
+  commit: () => Promise<unknown>,
+) {
+  const canvas = within(canvasElement)
+  await userEvent.click(
+    await canvas.findByRole("button", {
+      name: "Rename conversation: New conversation",
+    }),
+  )
+  const input = await canvas.findByRole("textbox", {
+    name: "Conversation name",
+  })
+  // Focus selects the old name, so typing replaces it.
+  await waitFor(() => expect(input).toHaveFocus())
+  await userEvent.keyboard(name)
+  await commit()
+  await waitFor(() =>
+    expect(
+      canvas.getByRole("button", {
+        name: `Rename conversation: ${name}`,
+      }),
+    ).toBeVisible(),
+  )
+  expect(canvas.queryByRole("textbox")).toBeNull()
+  // A late blur or a second save would add a request.
+  await new Promise((resolve) => setTimeout(resolve, 300))
+  expect(patches).toEqual([name])
+}
+
+/** Enter saves the typed name once: one PATCH with the new name, and the new title shows. */
+export const RenameSavesNewName: Story = {
+  play: ({ canvasElement }) =>
+    renameTo(canvasElement, "Quarterly plan", () =>
+      userEvent.keyboard("{Enter}"),
+    ),
+}
+
+/** A blur saves the typed name once, the same way. */
+export const RenameSavesOnBlur: Story = {
+  play: ({ canvasElement }) =>
+    renameTo(canvasElement, "Quarterly plan", () => userEvent.tab()),
+}

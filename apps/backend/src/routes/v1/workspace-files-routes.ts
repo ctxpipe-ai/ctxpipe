@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { CodesearchCheckoutError } from "../../domain/codeIngestion/codesearchClient.js"
 import {
   listWorkspaceCheckoutPaths,
@@ -15,12 +16,22 @@ import {
   parseWorkspaceFileJobRequest,
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
+import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
+import {
+  WRITE_JOB_STATUSES,
+  type WriteJobStatus,
+} from "../../domain/workspaces/write-job-intent.js"
+import { generateObjectId } from "../../lib/id.js"
+import { getWorkspaceFileJobStatus } from "../../models/workspace-write-jobs.js"
 import {
   getWorkspaceBySlug,
   getWorkspaceSearchProjection,
+  legacyKnowledgePaths,
   listWorkspaceKnowledgeFiles,
+  writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
@@ -126,6 +137,10 @@ const WorkspaceGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    readOnlyReason: z.string().optional().openapi({
+      description:
+        "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
+    }),
   })
   .openapi("WorkspaceGitBlobResponse")
 
@@ -232,28 +247,48 @@ const WorkspaceFileJobRequestSchema = z
   .openapi("WorkspaceFileJobRequest")
 
 const WorkspaceFileJobQueuedSchema = z
-  .object({ queued: z.literal(true) })
+  .object({
+    queued: z.literal(true),
+    jobId: z.string().openapi({
+      description: "Read its status at `GET …/files/jobs/{jobId}`.",
+    }),
+  })
   .openapi("WorkspaceFileJobQueued")
 
-const enqueueWorkspaceFileJobRoute = createRoute({
-  method: "post",
-  path: "/{workspaceSlug}/files/jobs",
-  request: {
-    params: WorkspaceSlugParamsSchema,
-    body: {
-      content: {
-        "application/json": { schema: WorkspaceFileJobRequestSchema },
-      },
-    },
-  },
+const WorkspaceFileJobParamsSchema = WorkspaceSlugParamsSchema.extend({
+  jobId: z.string().min(1),
+}).openapi("WorkspaceFileJobParams")
+
+const WorkspaceFileJobStatusSchema = z
+  .object({
+    status: z
+      .enum(
+        Object.values(WRITE_JOB_STATUSES) as [
+          WriteJobStatus,
+          ...WriteJobStatus[],
+        ],
+      )
+      .openapi({
+        description:
+          "`queued`, `running` and `paused`: the write is not done. `completed`: the write is on the default branch. `failed`: the write is lost and does not retry; send the edit again as a new job.",
+      }),
+    failureReason: z.string().nullable().openapi({
+      description:
+        "Why the job failed, when the reason is known. For example `superseded`: the Workspace repository changed before the write.",
+    }),
+  })
+  .openapi("WorkspaceFileJobStatus")
+
+const getWorkspaceFileJobRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/files/jobs/{jobId}",
+  request: { params: WorkspaceFileJobParamsSchema },
   responses: {
-    202: {
-      content: { "application/json": { schema: WorkspaceFileJobQueuedSchema } },
-      description: "Files pane write queued",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or read-only Workspace",
+    200: {
+      content: {
+        "application/json": { schema: WorkspaceFileJobStatusSchema },
+      },
+      description: "Status of a Files pane write job",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -263,16 +298,51 @@ const enqueueWorkspaceFileJobRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Write status unknown or cannot browse git",
-    },
-    502: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Checkout read failed",
-    },
   },
 })
+
+const enqueueWorkspaceFileJobRoute = createRoute(
+  directWriteRoute({
+    method: "post",
+    path: "/{workspaceSlug}/files/jobs",
+    request: {
+      params: WorkspaceSlugParamsSchema,
+      body: {
+        content: {
+          "application/json": { schema: WorkspaceFileJobRequestSchema },
+        },
+      },
+    },
+    responses: {
+      202: {
+        content: {
+          "application/json": { schema: WorkspaceFileJobQueuedSchema },
+        },
+        description: "Files pane write queued",
+      },
+      400: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Invalid request or read-only Workspace",
+      },
+      401: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Unauthorized",
+      },
+      404: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Not found",
+      },
+      409: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Write status unknown or cannot browse git",
+      },
+      502: {
+        content: { "application/json": { schema: ErrorResponseSchema } },
+        description: "Checkout read failed",
+      },
+    },
+  }),
+)
 
 async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
   if (!c.get("user") || !c.get("session")) {
@@ -309,6 +379,7 @@ async function loadWorkspaceGitExplorer(c: Context<AppEnv>) {
       workspaceId: workspace.id,
       repositoryId: repository.id,
       sha: published.sha,
+      rootPath: workspaceRootPath(published),
     },
   }
 }
@@ -367,7 +438,22 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
         path,
       })
       const blob = explorerBlobFromGitFile(file)
-      if (!blob) return c.json({ error: "Not found" }, 404)
+      if (!blob) {
+        // A main-era knowledge unit that hydrate serves from Postgres.
+        const legacy = (
+          await legacyKnowledgePaths(loaded.workspace.id, [path])
+        ).get(path)
+        if (legacy === undefined) return c.json({ error: "Not found" }, 404)
+        return c.json(
+          {
+            path,
+            body: legacy,
+            binary: false,
+            readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
+          },
+          200,
+        )
+      }
       return c.json({ path, ...blob }, 200)
     } catch (error) {
       const failure = gitExplorerReadFailure(
@@ -404,6 +490,22 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           return explorerBlobFromGitFile(file)?.body ?? null
         },
       })
+      // A main-era knowledge unit is not in git: it is read-only. The check
+      // reads the paths that the job writes, and the paths of the request.
+      if (
+        await writesLegacyKnowledge(loaded.workspace.id, [
+          raw.path,
+          raw.from,
+          raw.to,
+          ...(planned.ok
+            ? [
+                ...planned.plan.mergeFiles.map((file) => file.path),
+                ...planned.plan.mergeDeletePaths,
+              ]
+            : []),
+        ])
+      )
+        return c.json({ error: LEGACY_KNOWLEDGE_READ_ONLY }, 400)
       if (!planned.ok) return c.json({ error: planned.error }, 400)
       if (
         planned.plan.mergeFiles.length === 0 &&
@@ -411,8 +513,10 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       ) {
         return c.json({ error: "Nothing to write." }, 400)
       }
+      const jobId = generateObjectId("wjob")
       const admitted = await enqueueWorkspaceWriteCommit(
         {
+          jobId,
           orgId: loaded.workspace.orgId,
           workspaceId: loaded.workspace.id,
           kind: "ui_file_edit",
@@ -429,7 +533,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           },
           409,
         )
-      return c.json({ queued: true as const }, 202)
+      return c.json({ queued: true as const, jobId }, 202)
     } catch (error) {
       const failure = gitExplorerReadFailure(
         error,
@@ -437,6 +541,25 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       )
       return c.json({ error: failure.error }, failure.status)
     }
+  })
+  .openapi(getWorkspaceFileJobRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const { workspaceSlug, jobId } = WorkspaceFileJobParamsSchema.parse(
+      c.req.param(),
+    )
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const job = await getWorkspaceFileJobStatus(workspace.id, jobId)
+    if (!job) return c.json({ error: "Not found" }, 404)
+    return c.json(
+      {
+        status: job.status as WriteJobStatus,
+        failureReason: job.failureReason,
+      },
+      200,
+    )
   })
   .openapi(listWorkspaceFilesRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {

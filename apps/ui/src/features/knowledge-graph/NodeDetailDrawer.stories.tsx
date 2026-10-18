@@ -26,11 +26,11 @@ const linearFacts: NodeFacts = {
   predicateCounts: new Map([["mirrors_into", 1]]),
   firstObserved: observedAt,
   lastObserved: observedAt,
-  neighbourKindCounts: new Map([["Pattern", 1]]),
+  neighborKindCounts: new Map([["Pattern", 1]]),
   claims: [
     {
       predicate: "mirrors_into",
-      neighbourId: gitCanonical.id,
+      neighborId: gitCanonical.id,
       direction: "out",
       confidence: 0.76,
       observedAt,
@@ -69,7 +69,7 @@ const meta = {
     open: true,
     onClose: fn(),
     onFocus: fn(),
-    onNeighbourSelect: fn(),
+    onNeighborSelect: fn(),
     onOpenSource: fn(),
   },
 } satisfies Meta<typeof NodeDetailDrawer>

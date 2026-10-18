@@ -1,7 +1,15 @@
-import { QueryClient } from "@tanstack/react-query"
+import { QueryClient, QueryObserver } from "@tanstack/react-query"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import {
   clearAllConversationGitTreeSnapshots,
   readConversationGitTreeSnapshot,
@@ -33,6 +41,7 @@ function ws(id: string, slug: string): Workspace {
     slug,
     displayName: slug,
     workspaceRepositoryUrl: `https://github.com/acme/${slug}`,
+    rootPath: "",
     githubConnectionId: null,
     desiredGeneration: 1,
     desiredSha: null,
@@ -44,7 +53,6 @@ function ws(id: string, slug: string): Workspace {
     hydrateError: null,
     readOnlyReason: null,
     mostRecentConversationId: null,
-    migrationExportSha: null,
     createdAt: "2026-08-15T00:00:00.000Z",
     updatedAt: "2026-08-15T00:00:00.000Z",
   }
@@ -151,6 +159,30 @@ describe("workspace query HTTP helpers", () => {
     expect(calls).toBe(3)
     expect(data.items.map((item) => item.runId)).toEqual(["run_1"])
   }, 10_000)
+
+  it("sends no turn-changes request until the conversation has started", async () => {
+    let calls = 0
+    server.use(
+      http.get("*/api/v1/conversations/conv_new/turns", () => {
+        calls += 1
+        return HttpResponse.json({ items: [], syncs: [] })
+      }),
+    )
+    const client = new QueryClient()
+    const observer = new QueryObserver(
+      client,
+      conversationTurnChangesOptions("acme", "conv_new", false),
+    )
+    const unsubscribe = observer.subscribe(() => {})
+    await new Promise((resolve) => setTimeout(resolve, 50))
+    expect(calls).toBe(0)
+
+    observer.setOptions(
+      conversationTurnChangesOptions("acme", "conv_new", true),
+    )
+    await vi.waitFor(() => expect(calls).toBe(1))
+    unsubscribe()
+  })
 
   it("returns pending after a successful retry", async () => {
     server.use(

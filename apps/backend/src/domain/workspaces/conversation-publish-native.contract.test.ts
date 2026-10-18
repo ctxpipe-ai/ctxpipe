@@ -8,6 +8,7 @@ import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
 import {
+  workspaceKnowledgeUnits,
   workspaceSandboxInstances,
   workspaces,
 } from "../../db/schema/workspaces.js"
@@ -56,6 +57,7 @@ it.each([
   "default_changed",
   "session_advanced",
   "large_base",
+  "oversized_pack",
 ])(
   "brokers conversation publishing without agent write credentials: %s",
   { timeout: 30_000 },
@@ -107,8 +109,26 @@ it.each([
           )
           await raw.process.exec("chmod 700 .git/hooks/pre-push")
           await recordSandbox(f, conversationId, raw.id, f.revision)
+          const handle = adaptTanstackHandle(raw)
           const request = {
-            handle: adaptTanstackHandle(raw),
+            handle:
+              scenario === "oversized_pack"
+                ? {
+                    ...handle,
+                    // The sandbox reports a pack size above the limit.
+                    exec: (
+                      command: string,
+                      options?: Parameters<typeof handle.exec>[1],
+                    ) =>
+                      command.startsWith("wc -c <")
+                        ? Promise.resolve({
+                            exitCode: 0,
+                            stdout: `${100 * 1024 * 1024 + 1}\n`,
+                            stderr: "",
+                          })
+                        : handle.exec(command, options),
+                  }
+                : handle,
             conversationId,
             orgId: f.org.id,
             workspaceId: f.workspaceId,
@@ -164,7 +184,7 @@ it.each([
             ).toBe("# Conversation edit")
           } else {
             expect(result).toEqual(
-              scenario === "session_advanced"
+              scenario === "session_advanced" || scenario === "oversized_pack"
                 ? { status: "failed", reason: "push_failed", dirty: false }
                 : scenario === "default_changed"
                   ? // The session branch became the default: never pushed to.
@@ -196,12 +216,17 @@ it.each([
                 (request as { permissions?: { contents?: string } }).permissions
                   ?.contents === "write",
             ),
-          ).toEqual([
-            {
-              repositories: ["hydration-contract"],
-              permissions: { contents: "write", metadata: "read" },
-            },
-          ])
+          ).toEqual(
+            // An oversized pack is refused before the write token exists.
+            scenario === "oversized_pack"
+              ? []
+              : [
+                  {
+                    repositories: ["hydration-contract"],
+                    permissions: { contents: "write", metadata: "read" },
+                  },
+                ],
+          )
         } finally {
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>
@@ -390,6 +415,242 @@ it(
 
           expect(first).toMatchObject({ status: "pushed", files: 2 })
           expect(renamed).toMatchObject({ status: "pushed", files: 1 })
+        } finally {
+          await raw.destroy()
+          await withOrgDbContext(f.org.id, (db) =>
+            db
+              .delete(conversations)
+              .where(eq(conversations.id, conversationId)),
+          )
+        }
+      },
+    )
+  },
+)
+
+const HUMAN_UNIT = "---\nkind: Service\nname: Checkout\n---\n\n# Checkout\n"
+const GENERATED_UNIT =
+  "---\nkind: Service\nname: Billing\ngenerated_by: ctxpipe-extract\nsources:\n  - https://github.com/fixture/billing\n---\n\n# Billing\n"
+
+// CTX-722: a chat agent can change the Workspace sources config, because a
+// publish only reaches the session branch, and the change reaches the default
+// branch only through a pull request that a person merges. The agent cannot
+// give a person's file to ingestion.
+it.each([
+  {
+    name: "edits the sources config",
+    edit: "printf 'sources:\\n  - other\\n' > .ctxpipe/sources.yaml",
+    reason: null,
+  },
+  {
+    name: "deletes the sources config",
+    edit: "git rm -q .ctxpipe/sources.yaml",
+    reason: null,
+  },
+  {
+    name: "renames the sources config",
+    edit: "git mv .ctxpipe/sources.yaml sources.yaml",
+    reason: null,
+  },
+  {
+    name: "adds a file under .ctxpipe",
+    edit: "printf '# Skill\\n' > .ctxpipe/skill.md",
+    reason: null,
+  },
+  {
+    name: "adds generated_by to a human file",
+    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md`,
+    reason: "host_only_field",
+  },
+  {
+    name: "copies a generated file to a new path",
+    edit: "cp knowledge/services/billing.md knowledge/services/billing-copy.md",
+    reason: "host_only_field",
+  },
+  {
+    name: "removes generated_by and sources from a generated file",
+    edit: `printf '%s' ${shellSingleQuote("---\nkind: Service\nname: Billing\n---\n\n# Billing\n")} > knowledge/services/billing.md`,
+    reason: null,
+  },
+  {
+    name: "renames a generated file",
+    edit: "git mv knowledge/services/billing.md knowledge/services/billing-v2.md",
+    reason: null,
+  },
+  {
+    name: "renames a pushed text file with ownership fields to Markdown",
+    first: `printf '%s' ${shellSingleQuote(GENERATED_UNIT)} > knowledge/services/y.txt`,
+    edit: "git mv knowledge/services/y.txt knowledge/services/y.md",
+    reason: "host_only_field",
+  },
+  {
+    name: "edits the sources config when the session branch is the default",
+    edit: "printf 'sources:\\n  - other\\n' > .ctxpipe/sources.yaml",
+    sessionIsDefault: true,
+    reason: "default_branch",
+  },
+  {
+    name: "adds and then removes generated_by in two commits",
+    edit: `printf '%s' ${shellSingleQuote(HUMAN_UNIT.replace("name: Checkout\n", "name: Checkout\ngenerated_by: ctxpipe-extract\n"))} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam add && printf '%s' ${shellSingleQuote(HUMAN_UNIT)} > knowledge/services/checkout.md && git -c user.name=Fixture -c user.email=fixture@example.test commit -qam remove`,
+    reason: "host_only_field",
+  },
+  {
+    name: "changes the Workspace format file",
+    format: 2,
+    edit: "printf 'format: 3\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds the Workspace format file",
+    edit: "printf 'format: 2\\n' > .ctxpipe/workspace.yaml",
+    reason: "format_file",
+  },
+  {
+    name: "adds a source file below format 2",
+    format: 1,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "adds a source file with no format file",
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: "upgrade_needed",
+  },
+  {
+    name: "writes a path of main-era knowledge that is not in git",
+    legacyPath: "knowledge/services/tools-cli.md",
+    edit: "printf '# Tools\\n' > knowledge/services/tools-cli.md",
+    reason: "legacy_knowledge",
+  },
+  {
+    name: "adds a source file at format 2",
+    format: 2,
+    edit: "mkdir -p sources/linear && printf -- '---\\nprovider: linear\\n---\\n' > sources/linear/eng.md",
+    reason: null,
+  },
+] as Array<{
+  name: string
+  first?: string
+  sessionIsDefault?: boolean
+  /** The Workspace format file at the base, when there is one. */
+  format?: number
+  /** A main-era knowledge unit that hydrate serves from Postgres. */
+  legacyPath?: string
+  edit: string
+  reason: string | null
+}>)(
+  "conversation publish when the agent $name",
+  { timeout: 30_000 },
+  async ({ first, edit, sessionIsDefault, format, legacyPath, reason }) => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: ".ctxpipe/sources.yaml", body: "sources: []\n" },
+          { path: "knowledge/services/checkout.md", body: HUMAN_UNIT },
+          { path: "knowledge/services/billing.md", body: GENERATED_UNIT },
+          ...(format === undefined
+            ? []
+            : [
+                {
+                  path: ".ctxpipe/workspace.yaml",
+                  body: `format: ${format}\n`,
+                },
+              ]),
+        ],
+      },
+      async (f) => {
+        const conversationId = `conv_${f.id}`
+        const raw = await localProcessSandbox().create({ id: conversationId })
+        try {
+          await withOrgDbContext(f.org.id, (db) =>
+            db.insert(conversations).values({
+              id: conversationId,
+              orgId: f.org.id,
+              userId: `user_${f.id}`,
+              workspaceId: f.workspaceId,
+            }),
+          )
+          await raw.process.exec("git init -b main")
+          await raw.process.exec(`git fetch ${shellSingleQuote(f.remote)} main`)
+          await raw.process.exec("git checkout -B main FETCH_HEAD")
+          f.git(
+            "config",
+            "--file",
+            process.env.GIT_CONFIG_GLOBAL ?? "missing",
+            "--add",
+            `url.${f.remote}.insteadOf`,
+            "https://github.com/fixture/hydration-contract.git",
+          )
+          await recordSandbox(f, conversationId, raw.id, f.revision)
+          if (legacyPath)
+            await withOrgDbContext(f.org.id, (db) =>
+              db.insert(workspaceKnowledgeUnits).values({
+                servingId: `unit_legacy_${f.id}`,
+                orgId: f.org.id,
+                workspaceId: f.workspaceId,
+                path: legacyPath,
+                source: "legacy",
+                body: "The release tools.",
+                projectionSha: f.sha,
+              }),
+            )
+          const push = () =>
+            withOrgIdContext(f.org, () =>
+              withUserIdContext(`user_${f.id}`, () =>
+                pushConversationSession({
+                  handle: adaptTanstackHandle(raw),
+                  conversationId,
+                  orgId: f.org.id,
+                  workspaceId: f.workspaceId,
+                  env: parseEnv(process.env),
+                  commit: { subject: "Conversation edit" },
+                }),
+              ),
+            )
+          const branch = conversationSessionBranch(conversationId)
+          if (first) {
+            expect((await raw.process.exec(first)).exitCode).toBe(0)
+            expect(await push()).toMatchObject({ status: "pushed", branch })
+          }
+          const commits = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-list",
+            "--all",
+            "--count",
+          )
+          expect((await raw.process.exec(edit)).exitCode).toBe(0)
+          if (sessionIsDefault) {
+            f.git(
+              "--git-dir",
+              f.remote,
+              "update-ref",
+              `refs/heads/${branch}`,
+              f.sha,
+            )
+            f.git(
+              "--git-dir",
+              f.remote,
+              "symbolic-ref",
+              "HEAD",
+              `refs/heads/${branch}`,
+            )
+          }
+
+          const result = await push()
+
+          if (reason) {
+            expect(result).toEqual({ status: "skipped", reason, dirty: false })
+            expect(
+              f.git("--git-dir", f.remote, "rev-list", "--all", "--count"),
+            ).toBe(commits)
+          } else {
+            expect(result).toMatchObject({ status: "pushed", branch })
+          }
+          expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
         } finally {
           await raw.destroy()
           await withOrgDbContext(f.org.id, (db) =>

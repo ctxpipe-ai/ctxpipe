@@ -27,7 +27,7 @@ let restoreFetch = () => {}
 type ReadState = { open: number[] } | "merged" | "projected"
 
 const pull = (number: number): PendingSourceChange => ({
-  sourceKey: `linear-${number}`,
+  path: `linear-${number}`,
   provider: "linear",
   action: "add",
   pullRequestUrl: `https://github.com/acme/context/pull/${number}`,
@@ -47,7 +47,7 @@ function usage(state: ReadState): ConnectionUsageResponse {
         sources: projected
           ? [
               {
-                sourceKey: "linear-40",
+                path: "sources/linear/linear-40.md",
                 provider: "linear",
                 status: "ok",
                 scopeSummary: "1 Linear team",
@@ -62,12 +62,11 @@ function usage(state: ReadState): ConnectionUsageResponse {
 
 function sources(state: ReadState): WorkspaceSourceListResponse {
   return {
-    path: ".ctxpipe/sources.yaml",
+    path: "sources",
     revision: null,
     fileError: null,
     items: [],
     canEdit: true,
-    directCommitAllowed: true,
     pendingChanges: typeof state === "object" ? state.open.map(pull) : [],
   }
 }

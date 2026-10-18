@@ -1,5 +1,8 @@
 import { createHash } from "node:crypto"
 import { isAlias, isMap, isSeq } from "yaml"
+import { SourceChangeError } from "../workspace-sources/edit.js"
+import { linkGithubRepositories } from "../workspace-sources/github-links.js"
+import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
 import {
   assignImportedRepository,
   classifyUnkeyedKnowledgeCollision,
@@ -8,6 +11,7 @@ import {
   shouldExportClaim,
   unkeyedCollisionExcerpt,
 } from "./dest-workspace-first.js"
+import { isHostOnlyPath } from "./host-only.js"
 import {
   editableMetadataNode,
   materializeMetadataAlias,
@@ -16,44 +20,200 @@ import {
 } from "./knowledge-metadata.js"
 import {
   greenfieldKnowledgePath,
+  isLinkedRepositoryDeclaration,
   knowledgeAreaFromObjectKind,
+  parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
-import { changeLinkedRepository } from "./link-declarations.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import { normalizeSlug, normalizeWorkspaceRepositoryUrl } from "./slug.js"
+import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
-export const MIGRATION_EXPORT_KIND = "migration_export"
+/**
+ * The org repositories (the legacy `repositories` table) that the migration
+ * links into a Workspace: only the first Workspace of the org links them,
+ * and a repository that is the repository of a Workspace is not linked.
+ */
+export function migrationLinkedRepositoryUrls(input: {
+  workspaceId: string
+  firstWorkspaceId: string | null
+  repositories: ReadonlyArray<{ id: string; gitUrl: string }>
+  workspaceByRepositoryId: ReadonlyMap<string, string>
+}): string[] {
+  if (input.workspaceId !== input.firstWorkspaceId) return []
+  return input.repositories
+    .filter((repository) => !input.workspaceByRepositoryId.has(repository.id))
+    .map((repository) => repository.gitUrl)
+}
 
-export function migrationExportFiles(input: {
-  imported: ReadonlyArray<{ slug: string; body: string; area?: string }>
-  takenPaths: Iterable<string>
-  existingFiles?: ReadonlyArray<{ path: string; content: string }>
-  linkedUrls: Iterable<string>
-}): Array<{ path: string; content: string }> {
-  const taken = new Set(input.takenPaths)
-  const files: Array<{ path: string; content: string }> = []
-  for (const item of input.imported) {
-    const path = nextKnowledgeUnitPath(item.area ?? "topics", item.slug, taken)
-    taken.add(path)
-    files.push({ path, content: item.body })
+/**
+ * Link GitHub repositories through `.ctxpipe/sources.yaml` (ADR-050): add
+ * each repository that no GitHub source of the file links, with its `ref`
+ * when it has one, to the GitHub source of `connectionId`
+ * (`linked-repositories` first, or a new `linked-repositories` entry). It
+ * returns the new file text, or null when the file already links each
+ * repository, when no URL is a GitHub repository, or when the file is not a
+ * valid version 1 file.
+ */
+export function migrationSourcesFile(input: {
+  sourcesFile: string | null
+  connectionId: string
+  repositories: Iterable<{ gitUrl: string; ref?: string | null }>
+}): string | null {
+  const wanted: Array<{ name: string; ref: string | null }> = []
+  for (const { gitUrl, ref } of input.repositories) {
+    const name = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+    if (name) wanted.push({ name, ref: ref ?? null })
   }
-  const occupied = new Map(
-    [...taken].map((path) => [path, { path, content: "" }]),
-  )
-  for (const file of input.existingFiles ?? []) occupied.set(file.path, file)
-  for (const url of input.linkedUrls) {
-    const linked = changeLinkedRepository({
-      files: [...occupied.values()],
-      action: "link",
-      gitUrl: url,
+  if (!wanted.length) return null
+  try {
+    return linkGithubRepositories({
+      sourcesFile: input.sourcesFile,
+      connectionId: input.connectionId,
+      repositories: wanted,
     })
-    for (const file of linked.files) {
-      occupied.set(file.path, file)
-      files.push(file)
+  } catch (error) {
+    if (error instanceof SourceChangeError) return null
+    throw error
+  }
+}
+
+/**
+ * Move the `repositories/*.md` files and the org repositories into the
+ * GitHub sources of `.ctxpipe/sources.yaml` (ADR-050). A file links under
+ * the GitHub connection of the Workspace (`connectionId`). An org repository
+ * links under its own GitHub connection. A file goes away only when the new
+ * file links its repository with the same ref. `sourcesFile` is the new text,
+ * or null when the text does not change. `skipped` tells why a file or a URL
+ * stays out of the sources file. `invalid` is true when the sources file is
+ * not a valid version 1 file: then nothing is linked, and `skipped` names
+ * each GitHub item. Running it again on its own result changes nothing.
+ */
+export function upgradeLinkedRepositories(input: {
+  sourcesFile: string | null
+  connectionId: string | null
+  files: ReadonlyArray<{ path: string; content: string }>
+  repositories?: ReadonlyArray<{
+    gitUrl: string
+    ref?: string | null
+    connectionId: string | null
+  }>
+}): {
+  sourcesFile: string | null
+  deletePaths: string[]
+  skipped: Array<{ item: string; reason: string }>
+  invalid: boolean
+} {
+  const onlyGithub = "ctx| links only GitHub repositories"
+  const skips = new Map<string, string>()
+  const moved: Array<{ path: string; gitUrl: string; ref: string | null }> = []
+  const byConnection = new Map<
+    string,
+    Array<{ item: string; gitUrl: string; ref: string | null }>
+  >()
+  const link = (
+    connectionId: string | null,
+    item: string,
+    gitUrl: string,
+    ref: string | null,
+    noConnection: string,
+  ) => {
+    if (!connectionId) {
+      skips.set(item, noConnection)
+      return
+    }
+    const group = byConnection.get(connectionId) ?? []
+    group.push({ item, gitUrl, ref })
+    byConnection.set(connectionId, group)
+  }
+  for (const file of input.files) {
+    if (!isLinkedRepositoryDeclaration(file.path)) continue
+    const parsed = parseLinkedRepositoryMarkdown(file.content)
+    if (parsed.malformed) {
+      skips.set(file.path, "The file cannot be read as a linked repository")
+      continue
+    }
+    const gitUrl = normalizeWorkspaceRepositoryUrl(parsed.git)
+    if (!githubRepoFullNameFromWorkspaceUrl(gitUrl)) {
+      skips.set(file.path, onlyGithub)
+      continue
+    }
+    moved.push({ path: file.path, gitUrl, ref: parsed.branch })
+    link(
+      input.connectionId,
+      file.path,
+      gitUrl,
+      parsed.branch,
+      "The Workspace has no GitHub connection",
+    )
+  }
+  for (const repository of input.repositories ?? []) {
+    if (!githubRepoFullNameFromWorkspaceUrl(repository.gitUrl)) {
+      skips.set(repository.gitUrl, onlyGithub)
+      continue
+    }
+    link(
+      repository.connectionId,
+      repository.gitUrl,
+      repository.gitUrl,
+      repository.ref ?? null,
+      "The repository has no GitHub connection",
+    )
+  }
+  let text = input.sourcesFile
+  let invalid: string | null = null
+  try {
+    for (const [connectionId, group] of byConnection) {
+      const wanted = group.flatMap(({ gitUrl, ref }) => {
+        const name = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+        return name ? [{ name, ref }] : []
+      })
+      text =
+        linkGithubRepositories({
+          sourcesFile: text,
+          connectionId,
+          repositories: wanted,
+        }) ?? text
+    }
+  } catch (error) {
+    if (!(error instanceof SourceChangeError)) throw error
+    invalid = `\`.ctxpipe/sources.yaml\` is not a valid version 1 file (${error.message})`
+  }
+  const deletePaths: string[] = []
+  if (invalid) {
+    for (const group of byConnection.values())
+      for (const { item } of group) skips.set(item, invalid)
+  } else {
+    const linkedRefs = new Map(
+      githubSourceRepositories(text, null).map((linked) => [
+        linked.gitUrl,
+        linked.ref,
+      ]),
+    )
+    for (const file of moved) {
+      if (skips.has(file.path) || !linkedRefs.has(file.gitUrl)) continue
+      const ref = linkedRefs.get(file.gitUrl) ?? null
+      if (ref === file.ref) deletePaths.push(file.path)
+      else
+        skips.set(
+          file.path,
+          `The repository is linked with ${ref ? `ref ${ref}` : "no ref"}, but the file asks for ${file.ref ? `ref ${file.ref}` : "no ref"}`,
+        )
     }
   }
-  return files
+  const order = [
+    ...input.files.map((file) => file.path),
+    ...(input.repositories ?? []).map(({ gitUrl }) => gitUrl),
+  ]
+  return {
+    sourcesFile: invalid || text === input.sourcesFile ? null : text,
+    deletePaths,
+    skipped: [...new Set(order)].flatMap((item) => {
+      const reason = skips.get(item)
+      return reason ? [{ item, reason }] : []
+    }),
+    invalid: invalid !== null,
+  }
 }
 
 export function importKeyFromDedup(
@@ -224,23 +384,6 @@ function formatYamlNumber(value: number): string {
   if (!Number.isFinite(value)) return "0"
   const clamped = Math.min(1, Math.max(0, value))
   return String(Number(clamped.toFixed(6)))
-}
-
-export function noOpExportUsesResolvedTip(
-  filesWouldChange: boolean,
-  resolvedTip: string,
-): { commit: false; exportSha: string } | { commit: true } {
-  if (!filesWouldChange) return { commit: false, exportSha: resolvedTip }
-  return { commit: true }
-}
-
-/** Cutover treats a recorded commit SHA as export completion, including no-ops. */
-export function completedNoOpExportSha(
-  noOp: { commit: false; exportSha: string } | { commit: true },
-): string | null {
-  if (noOp.commit) return null
-  const sha = noOp.exportSha.trim()
-  return sha.length > 0 ? sha : null
 }
 
 const DEDUP_REPO_PREFIX = /^[^:]+:([^:]+):/
@@ -460,7 +603,6 @@ export async function planKnowledgeProjection(input: {
   objects: readonly ExportObjectRow[]
   claims: readonly ExportClaimRow[]
   existingKnowledge: readonly ExistingKnowledgeFile[]
-  linkedUrls: Iterable<string>
   workspaceRepositoryUrl?: string | null
   repositoryGitUrlById?: ReadonlyMap<string, string>
   knownKnowledgePaths?: Readonly<Record<string, string>>
@@ -468,10 +610,24 @@ export async function planKnowledgeProjection(input: {
   claimIdentity?: (fromPath: string, claim: ImportedMarkdownClaim) => string
   stampImportKey?: boolean
   classifyUnkeyed?: (prompt: string) => Promise<string>
+  /**
+   * The objects that get a file. The default is every assigned object. A
+   * link to an assigned object with no file goes to the file that has its
+   * import key, or to the tree path of `resolveUnwritten`. Otherwise the
+   * link is in `droppedLinks`.
+   */
+  writeObjectIds?: ReadonlySet<string>
+  resolveUnwritten?: (object: ExportObjectRow) => string | null
 }): Promise<{
   files: Array<{ path: string; content: string }>
   wouldChange: boolean
   knowledgePaths: Record<string, string>
+  /** The links of a written object that the export cannot keep. */
+  droppedLinks: Array<{
+    from: ExportObjectRow
+    predicate: string
+    to: ExportObjectRow | null
+  }>
 }> {
   const claimIdentity = input.claimIdentity
   const objectWorkspace = new Map(
@@ -491,6 +647,10 @@ export async function planKnowledgeProjection(input: {
     objectWorkspace.set(object.id, assignment.workspaceId)
     if (assignment.workspaceId === input.workspaceId) assigned.push(object)
   }
+  const written = input.writeObjectIds
+    ? assigned.filter((object) => input.writeObjectIds?.has(object.id))
+    : assigned
+  const objectById = new Map(input.objects.map((object) => [object.id, object]))
 
   const existingByImportKey = new Map<string, ExistingKnowledgeFile>()
   const existingByPath = new Map(
@@ -501,7 +661,9 @@ export async function planKnowledgeProjection(input: {
   for (const file of input.existingKnowledge) {
     taken.add(file.path)
     const key = importKeyFromExisting(file.content)
-    if (key && !existingByImportKey.has(key)) existingByImportKey.set(key, file)
+    // An import key cannot route a write into a host-only path (CTX-722).
+    if (key && !isHostOnlyPath(file.path) && !existingByImportKey.has(key))
+      existingByImportKey.set(key, file)
   }
 
   const stampImportKey = input.stampImportKey !== false
@@ -530,7 +692,7 @@ export async function planKnowledgeProjection(input: {
     }>
   >()
 
-  for (const object of assigned) {
+  for (const object of written) {
     const importKey = importKeyForExportedObject(object)
     const title = objectTitleFromPayload(object.payload)
     const importedBody = objectBodyFromPayload(object.payload, title)
@@ -588,20 +750,50 @@ export async function planKnowledgeProjection(input: {
     if (existing && !claimsByPath.has(path))
       claimsByPath.set(path, claimsFromExisting(existing.content))
   }
+  // A link target with no file of its own: the file with its import key,
+  // or a tree path that hydrate reads (for example a connector file).
+  const writtenIds = new Set(written.map((object) => object.id))
+  for (const object of assigned) {
+    if (writtenIds.has(object.id) || pathByObjectId.has(object.id)) continue
+    const path =
+      existingByImportKey.get(importKeyForExportedObject(object))?.path ??
+      input.resolveUnwritten?.(object) ??
+      null
+    if (!path) continue
+    pathByObjectId.set(object.id, path)
+    titleByObjectId.set(object.id, objectTitleFromPayload(object.payload))
+  }
+  const droppedLinks: Array<{
+    from: ExportObjectRow
+    predicate: string
+    to: ExportObjectRow | null
+  }> = []
   const claimSubjectPaths = new Set<string>()
   for (const claim of input.claims) {
     if (objectWorkspace.get(claim.subjectId) !== input.workspaceId) continue
     if (
-      !shouldExportClaim({
-        fromWorkspaceId: input.workspaceId,
-        toWorkspaceId: objectWorkspace.get(claim.objectId) ?? null,
-      })
-    ) {
+      input.writeObjectIds &&
+      !writtenIds.has(claim.subjectId) &&
+      !input.referencePaths?.has(claim.subjectId)
+    )
+      continue
+    const fromPath = pathByObjectId.get(claim.subjectId)
+    const toPath = shouldExportClaim({
+      fromWorkspaceId: input.workspaceId,
+      toWorkspaceId: objectWorkspace.get(claim.objectId) ?? null,
+    })
+      ? pathByObjectId.get(claim.objectId)
+      : undefined
+    if (!fromPath || !toPath) {
+      const from = objectById.get(claim.subjectId)
+      if (fromPath && from)
+        droppedLinks.push({
+          from,
+          predicate: claim.predicate,
+          to: objectById.get(claim.objectId) ?? null,
+        })
       continue
     }
-    const fromPath = pathByObjectId.get(claim.subjectId)
-    const toPath = pathByObjectId.get(claim.objectId)
-    if (!fromPath || !toPath) continue
     claimSubjectPaths.add(fromPath)
     const subject = assigned.find((object) => object.id === claim.subjectId)
     const current = claimsByPath.get(fromPath) ?? []
@@ -632,7 +824,7 @@ export async function planKnowledgeProjection(input: {
   }
 
   const files: Array<{ path: string; content: string }> = []
-  for (const object of assigned) {
+  for (const object of written) {
     const path = pathByObjectId.get(object.id)
     if (!path) continue
     const importKey = stampImportKey ? importKeyForExportedObject(object) : null
@@ -693,22 +885,14 @@ export async function planKnowledgeProjection(input: {
       ),
     })
   }
-  files.push(
-    ...migrationExportFiles({
-      imported: [],
-      takenPaths: taken,
-      linkedUrls: input.linkedUrls,
-      existingFiles: input.existingKnowledge,
-    }),
-  )
-
   const contentByPath = new Map(
     input.existingKnowledge.map((file) => [file.path, file.content]),
   )
   return {
     files,
+    droppedLinks,
     knowledgePaths: Object.fromEntries(
-      assigned.flatMap((object) => {
+      written.flatMap((object) => {
         const path = pathByObjectId.get(object.id)
         return path ? [[importKeyForExportedObject(object), path]] : []
       }),

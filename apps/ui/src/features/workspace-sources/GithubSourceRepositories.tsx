@@ -1,5 +1,5 @@
 import HyperDX from "@hyperdx/browser"
-import { IconGitBranch, IconUnlink } from "@tabler/icons-react"
+import { IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useId, useMemo, useState } from "react"
 import { Heading } from "react-aria-components"
@@ -10,6 +10,12 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/Tooltip"
 import { GithubRepoPickerList } from "@/features/repositories/components/GithubRepoPickerList"
 import { GithubRepoSortSelect } from "@/features/repositories/components/GithubRepoSortSelect"
 import {
@@ -29,33 +35,75 @@ import {
   workspaceKeys,
 } from "@/features/workspaces/queries"
 import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { cn } from "@/lib/utils"
 import {
   createWorkspaceSource,
+  createWorkspaceSourcesBatch,
   deleteWorkspaceSource,
-  type SourceDelivery,
   sourceChangeMessage,
-  updateWorkspaceSource,
   type WorkspaceSource,
   workspaceSourceKeys,
 } from "./queries"
 import type { SourceConnectionOption } from "./SourceEditorDialog"
+import {
+  sourceRowActionsClassName,
+  sourceRowClassName,
+  sourceRowMetaClassName,
+  sourceRowNoteClassName,
+  sourceRowSeparatorClassName,
+  sourceRowStatusClassName,
+  sourceRowsClassName,
+} from "./source-table"
 
-function scopeRepositories(source: WorkspaceSource): string[] {
+/** One item of a GitHub scope: `owner/name`, or a map with a branch or tag. */
+type ScopeItem = string | { name: string; ref?: string }
+
+function itemName(item: ScopeItem): string {
+  return typeof item === "string" ? item : item.name
+}
+
+/**
+ * The repositories of a GitHub source. A source file names one `repository`
+ * (with an optional `ref`); a legacy `.ctxpipe/sources.yaml` row lists
+ * `repositories`.
+ */
+function scopeItems(source: WorkspaceSource): ScopeItem[] {
+  const { repository, ref } = source.scope
+  if (typeof repository === "string")
+    return [typeof ref === "string" ? { name: repository, ref } : repository]
   const value = source.scope.repositories
   return Array.isArray(value)
-    ? value.filter((name): name is string => typeof name === "string")
+    ? value.filter(
+        (item): item is ScopeItem =>
+          typeof item === "string" ||
+          (typeof item === "object" &&
+            item !== null &&
+            typeof (item as { name?: unknown }).name === "string"),
+      )
     : []
+}
+
+function scopeRepositories(source: WorkspaceSource): string[] {
+  return scopeItems(source).map(itemName)
 }
 
 function sameName(a: string, b: string): boolean {
   return a.toLowerCase() === b.toLowerCase()
 }
 
-type StatusTag = { label: string; className: string; dotClassName: string }
+type StatusTag = {
+  label: string
+  /** What the status means, for the tip on hover and focus. */
+  hint: string
+  className: string
+  dotClassName: string
+}
 
 const pendingTag: StatusTag = {
   label: "Pending",
+  hint: "ctx| has not read this repository yet.",
   className:
     "inline-flex items-center gap-1.5 rounded-md border border-border bg-zinc-800 px-2 py-0.5 text-xs text-muted-foreground",
   dotClassName: "size-1.5 rounded-full bg-zinc-500",
@@ -68,6 +116,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed && item.indexingStatus === "complete_with_issues") {
     return {
       label: "Indexed with issues",
+      hint: "ctx| indexed the latest commit that it knows, but some parts of the index are incomplete.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 rounded-full bg-amber-300",
@@ -76,6 +125,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (indexed) {
     return {
       label: "Indexed",
+      hint: "ctx| indexed the latest commit of this repository that it knows.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5 text-xs text-teal-200",
       dotClassName: "size-1.5 rounded-full bg-teal-300",
@@ -84,6 +134,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
   if (item.desiredSha && item.indexedSha !== item.desiredSha) {
     return {
       label: "Indexing",
+      hint: "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
       className:
         "inline-flex items-center gap-1.5 rounded-md border border-amber-400/30 bg-amber-400/10 px-2 py-0.5 text-xs text-amber-200",
       dotClassName: "size-1.5 animate-pulse rounded-full bg-amber-300",
@@ -135,7 +186,7 @@ export function repositoryRows(
     for (const name of scopeRepositories(source)) {
       if (rows.some((row) => sameName(row.title, name))) continue
       rows.push({
-        key: `${source.sourceKey}:${name}`,
+        key: `${source.path}:${name}`,
         title: name,
         gitUrl: `https://github.com/${name}.git`,
         linked: null,
@@ -151,9 +202,8 @@ export function repositoryRows(
 
 /**
  * The GitHub section body of the Workspace sources: one list of the linked
- * repositories. Repositories from GitHub sources change through
- * `.ctxpipe/sources.yaml`. Repositories that only an old
- * `repositories/*.md` file links still show, and unlink as before.
+ * repositories. Each GitHub source file under `sources/github/` links one
+ * repository; each change goes through that file.
  */
 export function GithubSourceRepositories(props: {
   orgSlug: string
@@ -163,11 +213,10 @@ export function GithubSourceRepositories(props: {
   sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
   canEdit: boolean
-  directCommitAllowed: boolean
   addOpen: boolean
   onAddOpenChange: (open: boolean) => void
 }) {
-  const { orgSlug, workspaceSlug, rows, canEdit, directCommitAllowed } = props
+  const { orgSlug, workspaceSlug, rows, canEdit } = props
   const queryClient = useQueryClient()
   const [query, setQuery] = useState("")
   const [showAll, setShowAll] = useState(false)
@@ -184,39 +233,21 @@ export function GithubSourceRepositories(props: {
   const unlinkMutation = useMutation({
     mutationFn: async (row: RepositoryRow) => {
       const { source, linked } = row
-      // A repositories/*.md file can link the repository too. Its unlink
-      // deletes that file, and does nothing when no file links it.
-      if (linked)
-        await unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
-      if (!source) return null
-      const delivery: SourceDelivery = directCommitAllowed
-        ? "commit"
-        : "pull_request"
-      const repositories = scopeRepositories(source).filter(
-        (name) => !sameName(name, row.title),
-      )
-      if (repositories.length === 0)
-        return deleteWorkspaceSource(
-          orgSlug,
-          workspaceSlug,
-          source.sourceKey,
-          delivery,
-        )
-      if (!source.connectionId)
+      // Without a source row (the file changed since the last projection),
+      // the unlink opens a pull request that removes the repository from
+      // each file that links it.
+      if (!source) {
+        if (linked)
+          return unlinkWorkspaceRepository(orgSlug, workspaceSlug, linked.id)
+        return null
+      }
+      // One file holds one repository, so an unlink deletes the file. A
+      // legacy row has no file that a delete can name.
+      if (!source.removable)
         throw new Error(
-          "This GitHub source has no connection. Edit sources.yaml.",
+          "This repository is in .ctxpipe/sources.yaml. Edit that file.",
         )
-      return updateWorkspaceSource(
-        orgSlug,
-        workspaceSlug,
-        source.sourceKey,
-        {
-          provider: "github",
-          connectionId: source.connectionId,
-          scope: { repositories },
-        },
-        delivery,
-      )
+      return deleteWorkspaceSource(orgSlug, workspaceSlug, source.path)
     },
     onSuccess: (result) => {
       void queryClient.invalidateQueries({
@@ -225,7 +256,7 @@ export function GithubSourceRepositories(props: {
       void queryClient.invalidateQueries({
         queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
       })
-      if (result) toast.success(sourceChangeMessage(result))
+      if (result) toast.success(sourceChangeMessage())
     },
     onError: (error: Error) => toast.error(error.message),
   })
@@ -233,30 +264,31 @@ export function GithubSourceRepositories(props: {
   return (
     <>
       {rows.length === 0 ? (
-        <p className="px-2 py-2 text-sm text-muted-foreground">
+        <p className="border-t border-white/[0.06] px-3 py-2 text-sm text-muted-foreground">
           No GitHub repositories in this Workspace.
         </p>
       ) : (
         <>
           {rows.length > 8 || query !== "" ? (
-            <SearchField
-              value={query}
-              onChange={setQuery}
-              placeholder="Filter repositories"
-              aria-label="Filter linked repositories"
-              className="mt-2"
-            />
+            <div className="border-t border-white/[0.06] px-3 py-2">
+              <SearchField
+                value={query}
+                onChange={setQuery}
+                placeholder="Filter repositories"
+                aria-label="Filter linked repositories"
+              />
+            </div>
           ) : null}
           <ul
             id={listId}
             aria-label="GitHub repositories"
             className={cn(
-              "mt-1 flex flex-col",
+              sourceRowsClassName,
               expanded && filtered.length > 5 && "max-h-80 overflow-auto",
             )}
           >
             {filtered.length === 0 ? (
-              <li className="px-2 py-2 text-sm text-muted-foreground">
+              <li className="px-3 py-2 text-sm text-muted-foreground">
                 No repositories match that filter.
               </li>
             ) : (
@@ -265,63 +297,116 @@ export function GithubSourceRepositories(props: {
                 const status = row.linked
                   ? linkedStatus(row.linked)
                   : pendingTag
-                const canUnlink = row.source ? canEdit : true
+                const canUnlink = row.source
+                  ? canEdit && row.source.removable
+                  : true
                 return (
-                  <li
-                    key={row.key}
-                    className="flex items-center gap-3 rounded-md px-2 py-2 hover:bg-foreground/[0.04]"
-                  >
-                    <span
-                      className="ctx-node size-8 shrink-0 rounded-md text-muted-foreground"
-                      aria-hidden
-                    >
-                      <IconGitBranch className="size-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      {webUrl ? (
-                        <Link
-                          href={webUrl}
-                          target="_blank"
-                          rel="noreferrer"
-                          variant="secondary"
-                          className="block truncate text-sm text-foreground no-underline hover:text-teal-300"
-                        >
-                          {row.title}
-                        </Link>
+                  <li key={row.key} className={sourceRowClassName}>
+                    {webUrl ? (
+                      <Link
+                        href={webUrl}
+                        target="_blank"
+                        rel="noreferrer"
+                        variant="secondary"
+                        className="block min-w-0 truncate text-sm text-foreground no-underline hover:text-teal-300"
+                      >
+                        {row.title}
+                      </Link>
+                    ) : (
+                      <p className="truncate text-sm text-foreground">
+                        {row.title}
+                      </p>
+                    )}
+                    <p className={sourceRowMetaClassName}>
+                      <span className="truncate">
+                        {row.source
+                          ? (row.source.connectionName ?? "No connection")
+                          : "Linked by a repositories file"}
+                      </span>
+                      {row.source ? (
+                        <>
+                          <span
+                            aria-hidden
+                            className={sourceRowSeparatorClassName}
+                          >
+                            ·
+                          </span>
+                          <code className="truncate font-mono">
+                            {row.source.path}
+                          </code>
+                        </>
                       ) : (
-                        <p className="truncate text-sm text-foreground">
-                          {row.title}
-                        </p>
+                        <span className="hidden @3xl:block" />
                       )}
-                      {row.source ? null : (
-                        <p className="truncate text-xs text-muted-foreground">
-                          Linked by a repositories file
-                        </p>
-                      )}
-                      {row.linked?.indexingStatus === "complete_with_issues" &&
-                      row.linked.indexingError ? (
-                        <p className="mt-0.5 text-xs text-amber-200/80">
-                          {row.linked.indexingError}
-                        </p>
+                    </p>
+                    <span className={sourceRowStatusClassName}>
+                      <TooltipProvider delay={200}>
+                        <Tooltip>
+                          {/* The trigger is a button, so keyboard focus opens the tip. */}
+                          <TooltipTrigger
+                            className={cn(
+                              status.className,
+                              focusVisibleClassName,
+                            )}
+                          >
+                            <span className={status.dotClassName} aria-hidden />
+                            {status.label}
+                            {/* Base UI sets no description, so the status carries it. */}
+                            <span className="sr-only">{status.hint}</span>
+                          </TooltipTrigger>
+                          <TooltipContent side="top">
+                            {status.hint}
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
+                    </span>
+                    <div className={sourceRowActionsClassName}>
+                      {canUnlink ? (
+                        <Button
+                          variant="quiet"
+                          size="icon-sm"
+                          aria-label={`Unlink ${row.title}`}
+                          isDisabled={unlinkMutation.isPending}
+                          onPress={() => unlinkMutation.mutate(row)}
+                        >
+                          <IconUnlink
+                            className="size-4 text-muted-foreground"
+                            aria-hidden
+                          />
+                        </Button>
                       ) : null}
                     </div>
-                    <span className={cn("shrink-0", status.className)}>
-                      <span className={status.dotClassName} aria-hidden />
-                      {status.label}
-                    </span>
-                    {canUnlink ? (
-                      <Button
-                        variant="quiet"
-                        size="icon-sm"
-                        aria-label={`Unlink ${row.title}`}
-                        isDisabled={unlinkMutation.isPending}
-                        onPress={() => unlinkMutation.mutate(row)}
+                    {row.source?.description ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "line-clamp-2 text-muted-foreground",
+                        )}
                       >
-                        <IconUnlink
-                          className="size-4 text-muted-foreground"
-                          aria-hidden
-                        />
-                      </Button>
+                        {row.source.description}
+                      </p>
+                    ) : null}
+                    {row.source && !row.source.removable ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "text-muted-foreground",
+                        )}
+                      >
+                        Defined in .ctxpipe/sources.yaml. Edit that file to
+                        unlink it.
+                      </p>
+                    ) : null}
+                    {row.linked?.indexingStatus === "complete_with_issues" &&
+                    row.linked.indexingError ? (
+                      <p
+                        className={cn(
+                          sourceRowNoteClassName,
+                          "text-amber-200/80",
+                        )}
+                      >
+                        {row.linked.indexingError}
+                      </p>
                     ) : null}
                   </li>
                 )
@@ -329,15 +414,17 @@ export function GithubSourceRepositories(props: {
             )}
           </ul>
           {!filtering && rows.length > 5 ? (
-            <Button
-              variant="quiet"
-              className="mt-1 h-8 px-2 text-xs text-muted-foreground tabular-nums"
-              aria-expanded={expanded}
-              aria-controls={listId}
-              onPress={() => setShowAll(!showAll)}
-            >
-              {showAll ? "Show fewer" : `Show all ${rows.length}`}
-            </Button>
+            <div className="border-t border-white/[0.06] px-1 py-1">
+              <Button
+                variant="quiet"
+                className="h-8 px-2 text-xs text-muted-foreground tabular-nums"
+                aria-expanded={expanded}
+                aria-controls={listId}
+                onPress={() => setShowAll(!showAll)}
+              >
+                {showAll ? "Show fewer" : `Show all ${rows.length}`}
+              </Button>
+            </div>
           ) : null}
         </>
       )}
@@ -363,9 +450,7 @@ export function GithubSourceRepositories(props: {
 function AddGithubRepositoriesModal(props: {
   orgSlug: string
   workspaceSlug: string
-  sources: WorkspaceSource[]
   connections: SourceConnectionOption[]
-  directCommitAllowed: boolean
   takenUrls: string[]
   isOpen: boolean
   onOpenChange: (open: boolean) => void
@@ -373,9 +458,7 @@ function AddGithubRepositoriesModal(props: {
   const {
     orgSlug,
     workspaceSlug,
-    sources,
     connections,
-    directCommitAllowed,
     takenUrls,
     isOpen,
     onOpenChange,
@@ -386,9 +469,11 @@ function AddGithubRepositoriesModal(props: {
   const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
 
   const connectionIds = connections.map((connection) => connection.id)
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, connectionIds),
-    enabled: isOpen && connectionIds.length > 0,
+    enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
   })
 
   const eligibleRepos = useMemo(
@@ -419,47 +504,31 @@ function AddGithubRepositoriesModal(props: {
   }
 
   const addMutation = useMutation({
-    mutationFn: async (input: {
-      repos: GithubRepoItem[]
-      delivery: SourceDelivery
-    }) => {
+    mutationFn: async (repos: GithubRepoItem[]) => {
+      // One source file for each repository. The server names each file
+      // sources/github/<owner>/<name>.md. Several repositories share one
+      // request, so they share one pull request (the route takes 20).
+      const toInput = (repo: GithubRepoItem) => ({
+        provider: "github" as const,
+        connectionId: repo.githubConnectionId ?? "",
+        scope: { repository: repo.full_name },
+      })
+      const [only] = repos
+      if (repos.length === 1 && only)
+        return [
+          await createWorkspaceSource(orgSlug, workspaceSlug, toInput(only)),
+        ]
       const results = []
-      for (const connectionId of new Set(
-        input.repos.map((repo) => repo.githubConnectionId ?? ""),
-      )) {
-        const names = input.repos
-          .filter((repo) => repo.githubConnectionId === connectionId)
-          .map((repo) => repo.full_name)
-        const existing = sources.find(
-          (source) => source.connectionId === connectionId,
-        )
+      for (let i = 0; i < repos.length; i += 20)
         results.push(
-          existing
-            ? await updateWorkspaceSource(
-                orgSlug,
-                workspaceSlug,
-                existing.sourceKey,
-                {
-                  provider: "github",
-                  connectionId,
-                  scope: {
-                    repositories: [...scopeRepositories(existing), ...names],
-                  },
-                },
-                input.delivery,
-              )
-            : await createWorkspaceSource(
-                orgSlug,
-                workspaceSlug,
-                {
-                  provider: "github",
-                  connectionId,
-                  scope: { repositories: names },
-                },
-                input.delivery,
-              ),
+          await createWorkspaceSourcesBatch(
+            orgSlug,
+            workspaceSlug,
+            repos.slice(i, i + 20).map((repo) => ({
+              source: toInput(repo),
+            })),
+          ),
         )
-      }
       return results
     },
     onSuccess: (results) => {
@@ -471,14 +540,27 @@ function AddGithubRepositoriesModal(props: {
       })
       HyperDX.addAction("repository_index_started")
       const first = results[0]
-      if (first) toast.success(sourceChangeMessage(first))
+      if (first)
+        toast.success(
+          results.length > 1
+            ? `${results.length} pull requests opened. Each change applies after its merge.`
+            : sourceChangeMessage(),
+          {
+            // Long enough to read the text and to press the action.
+            duration: 10_000,
+            action: {
+              label: "View pull request",
+              onClick: () =>
+                window.open(first.pullRequestUrl, "_blank", "noopener"),
+            },
+          },
+        )
       close()
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const add = (delivery: SourceDelivery) =>
-    addMutation.mutate({ repos: selected, delivery })
+  const add = () => addMutation.mutate(selected)
 
   return (
     <Modal
@@ -497,22 +579,29 @@ function AddGithubRepositoriesModal(props: {
           Add repositories
         </Heading>
         <p className="mt-1 text-sm text-muted-foreground">
-          Select repositories from GitHub. The change goes to the sources file
-          of this Workspace.
+          Select repositories from GitHub. Each repository gets a source file
+          under sources/github/ in this Workspace.
         </p>
 
         <div className="mt-5 space-y-3">
-          <div className="flex flex-col gap-3 sm:flex-row">
-            <SearchField
-              value={searchQuery}
-              onChange={setSearchQuery}
-              placeholder="Search repositories"
-              aria-label="Search GitHub repositories"
-              className="min-w-0 flex-1"
-            />
-            <GithubRepoSortSelect value={sort} onChange={setSort} />
-          </div>
-          {connectionIds.length === 0 ? (
+          {isAdmin === false ? (
+            <p className="text-sm text-muted-foreground">
+              Ask an admin to add repositories. Only an owner or admin can list
+              the GitHub repositories.
+            </p>
+          ) : (
+            <div className="flex flex-col gap-3 sm:flex-row">
+              <SearchField
+                value={searchQuery}
+                onChange={setSearchQuery}
+                placeholder="Search repositories"
+                aria-label="Search GitHub repositories"
+                className="min-w-0 flex-1"
+              />
+              <GithubRepoSortSelect value={sort} onChange={setSort} />
+            </div>
+          )}
+          {isAdmin === false ? null : connectionIds.length === 0 ? (
             <p className="text-sm text-muted-foreground">
               Connect GitHub on the Connectors page first.
             </p>
@@ -557,20 +646,11 @@ function AddGithubRepositoriesModal(props: {
           >
             Cancel
           </Button>
-          {directCommitAllowed ? (
-            <Button
-              variant="secondary"
-              isDisabled={selected.length === 0 || addMutation.isPending}
-              onPress={() => add("commit")}
-            >
-              Commit directly
-            </Button>
-          ) : null}
           <Button
             variant="primary"
             isDisabled={selected.length === 0}
             isPending={addMutation.isPending}
-            onPress={() => add("pull_request")}
+            onPress={() => add()}
           >
             Open a pull request
           </Button>

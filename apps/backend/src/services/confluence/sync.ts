@@ -25,6 +25,7 @@ import {
   createPullRequestWithFiles,
   getFileContent,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   type ConfluenceAttachment,
@@ -726,6 +727,10 @@ export async function syncConfluenceConfigYaml(input: {
     ))
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForSyncTarget(input.orgId, input.target)
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName,
+  })
 
   const priorNum = input.target.pendingConfigPullUrl
     ? parseGithubPullNumberFromUrl(input.target.pendingConfigPullUrl)
@@ -754,6 +759,7 @@ export async function syncConfluenceConfigYaml(input: {
     branch: input.target.branch,
     path: CONFLUENCE_CONFIG_PATH,
     githubConnectionId,
+    rootPath,
   })
   if (!hasConfigYamlChanged({ current, next: yaml })) {
     return { changed: false }
@@ -769,6 +775,7 @@ export async function syncConfluenceConfigYaml(input: {
     body: pr.body,
     commitMessage: pr.commitMessage,
     files: [{ path: CONFLUENCE_CONFIG_PATH, content: yaml }],
+    rootPath,
   })
   return { pullUrl: created.pullUrl, changed: true }
 }

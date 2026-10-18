@@ -23,8 +23,8 @@ export function AddSlackConnectorButton({
       <span className="min-w-0">
         <span className="font-medium text-foreground">Slack</span>
         <span className="mt-1 block text-sm text-muted-foreground">
-          Capture specific Slack threads into your context repository by
-          mentioning the bot.
+          Capture specific Slack threads into your Workspace by mentioning the
+          bot.
         </span>
       </span>
     </button>

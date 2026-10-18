@@ -138,6 +138,7 @@ async function runStep(
     ops: 0,
     rejects: 0,
     partial: 0,
+    partialRoots: [],
   }
   await withLogger(createLogger({ workflow: "test" }), () =>
     runSkillPages({
@@ -166,6 +167,7 @@ async function runStep(
         generation: 1,
         pinnedRevision: pinned,
         repositoryId: null,
+        sourcePath: "sources/github/example-org/shop.md",
       },
       ref: options.ref ?? ref,
       runBase: pinned,

@@ -11,6 +11,7 @@ import {
 } from "vitest"
 import {
   BuildkiteUnauthorizedError,
+  getBuildkitePipeline,
   listBuildkiteBuilds,
   listBuildkitePipelines,
   verifyBuildkiteAccess,
@@ -195,5 +196,46 @@ describe("listBuildkitePipelines", () => {
       truncated: false,
     })
     expect(requests).toEqual(["1", "2"])
+  })
+})
+
+describe("getBuildkitePipeline", () => {
+  const read = () =>
+    getBuildkitePipeline({
+      apiToken: "token",
+      organizationSlug: "acme",
+      pipelineSlug: "web-app",
+    })
+  const pipelineJson = (slug: string) => ({
+    id: "p1",
+    slug,
+    name: "Web App",
+    web_url: "https://buildkite.com/acme/web-app",
+    repository: null,
+    default_branch: "main",
+  })
+
+  it("keeps the slug of the scope, not the slug in the answer", async () => {
+    server.use(
+      http.get(`${API}/organizations/acme/pipelines/web-app`, () =>
+        HttpResponse.json(pipelineJson("../../sources/github/x")),
+      ),
+    )
+    expect(await read()).toMatchObject({ slug: "web-app", name: "Web App" })
+  })
+
+  it("does not follow a redirect away from the Buildkite API", async () => {
+    const elsewhere: string[] = []
+    server.use(
+      http.get(`${API}/organizations/acme/pipelines/web-app`, () =>
+        HttpResponse.redirect("https://elsewhere.example/pipeline", 302),
+      ),
+      http.get("https://elsewhere.example/pipeline", ({ request }) => {
+        elsewhere.push(request.headers.get("authorization") ?? "")
+        return HttpResponse.json(pipelineJson("web-app"))
+      }),
+    )
+    await expect(read()).rejects.toThrow()
+    expect(elsewhere).toEqual([])
   })
 })

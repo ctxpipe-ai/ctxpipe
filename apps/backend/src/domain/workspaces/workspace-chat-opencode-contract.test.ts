@@ -3,7 +3,6 @@ import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
-  WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
   WORKSPACE_CHAT_OPENCODE_HOME_SLUG_MAX_LENGTH,
@@ -140,8 +139,17 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
       /folder structure is the map.*update the folder list in AGENTS\.md/,
     )
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /Do not add or change the generated_by and sources.*\.ctxpipe\/.*pull request/,
+    )
     expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).not.toMatch(
       /what'?s in this repo/i,
+    )
+  })
+
+  it("tells the agent that a change under sources/ needs a pull request (CTX-721)", () => {
+    expect(WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT).toMatch(
+      /Each file under sources\/ is one source.*session branch.*pull request/,
     )
   })
 
@@ -154,8 +162,8 @@ describe("workspaceChatOpenCodeContract", () => {
     expect(prompt).toMatch(
       /Each Markdown file in it, connector mirrors included, is a knowledge unit/,
     )
-    expect(prompt).toMatch(/except AGENTS\.md, \.agents\/, and repositories\//)
-    expect(prompt).toMatch(/repositories\/<name>\.md/)
+    expect(prompt).toMatch(/except AGENTS\.md and \.agents\//)
+    expect(prompt).toMatch(/\.ctxpipe\/sources\.yaml/)
     expect(prompt).toMatch(/Linked repositories are read-only and not cloned/)
     expect(prompt).toMatch(/\.ai\/memory\/lessons-learned\.md/)
     expect(prompt).toMatch(/\.ai\/memory\/decisions\//)
@@ -202,18 +210,7 @@ describe("workspaceChatOpenCodeContract", () => {
     })
   })
 
-  it("scrubs host provider keys and pins the OpenCode CLI", () => {
-    expect(WORKSPACE_CHAT_LOCAL_PROCESS_SCRUB_ENV).toEqual(
-      expect.arrayContaining([
-        "AUTH_SECRET",
-        "DATABASE_URL",
-        "MODEL_PROVIDER_API_KEY",
-        "ANTHROPIC_API_KEY",
-        "OPENAI_API_KEY",
-        "OPENROUTER_API_KEY",
-        "GITHUB_PRIVATE_KEY",
-      ]),
-    )
+  it("pins the OpenCode CLI", () => {
     expect(WORKSPACE_CHAT_OPENCODE_CLI).toBe("opencode-ai@1.18.34")
   })
 

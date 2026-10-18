@@ -10,18 +10,16 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import {
-  captureWorkspaceRevision,
   commitHydrateProjection,
   getWorkspaceProjectionSnapshot,
   listOrgLinkedRepositories,
   persistWorkspaceIndexResult,
 } from "../../models/workspaces.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { hydrateKnowledgeTree } from "./hydrate.js"
 import type { WorkspaceRevision } from "./revision.js"
 import {
@@ -98,8 +96,8 @@ async function withChatProjection(
           units: parsed.units,
           skipped: [],
           embeddingModel: "fixture-embedding",
-          remotes: [],
           displayName: null,
+          formatVersion: 0,
         }),
       ).toBe(true)
       const repositoryId = generateObjectId("repo")
@@ -247,51 +245,49 @@ it("an absent workspace has no chat tools", { timeout: 30_000 }, async () => {
 })
 
 it(
-  "publishing a changed linked branch invalidates its prior indexed revision",
+  "projecting a changed linked ref invalidates its prior indexed revision",
   { timeout: 30_000 },
   async () => {
     await withChatProjection(async (f) => {
       const linkedId = generateObjectId("wlr")
+      const gitUrl = "https://github.com/example/other"
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: f.org.id,
           workspaceId: f.workspaceId,
-          gitUrl: "https://example.test/other",
+          gitUrl,
           desiredRef: "main",
           desiredSha: "c".repeat(40),
           indexedSha: "c".repeat(40),
         }),
       )
-      const next = await captureWorkspaceRevision({
-        workspaceId: f.workspaceId,
-        expected: {
-          generation: 1,
-          url: f.revision.remote.url,
-          sha: f.revision.sha,
-          defaultBranch: "main",
-          githubConnectionId: null,
-        },
-        tip: { sha: "b".repeat(40), branch: "main" },
-      })
-      if (!next) throw new Error("Missing next fixture revision")
-      await commitHydrateProjection({
+      await replaceWorkspaceSourceRows({
         orgId: f.org.id,
-        revision: next,
-        units: [],
-        skipped: [],
-        embeddingModel: "fixture-embedding",
-        remotes: [{ git: "https://example.test/other", branch: "release" }],
-        displayName: null,
+        workspaceId: f.workspaceId,
+        revision: f.revision.sha,
+        rows: [
+          {
+            sourceKey: "linked-repositories",
+            provider: "github",
+            connectionId: null,
+            scope: {
+              repositories: [{ name: "example/other", ref: "release" }],
+            },
+            status: "ok",
+            statusDetail: null,
+          },
+        ],
       })
-      expect(await listOrgLinkedRepositories(f.org.id)).toMatchObject([
-        {
-          id: linkedId,
-          desiredRef: "release",
-          desiredSha: null,
-          indexedSha: null,
-        },
-      ])
+      const [linked] = await listOrgLinkedRepositories(f.org.id)
+      // A new ref is a new link: a new id, and no SHA of the old ref.
+      expect(linked).toMatchObject({
+        gitUrl,
+        desiredRef: "release",
+        desiredSha: null,
+        indexedSha: null,
+      })
+      expect(linked?.id).not.toBe(linkedId)
     })
   },
 )

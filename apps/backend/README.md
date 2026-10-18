@@ -8,7 +8,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 
 - org-scoped REST APIs (`/:orgSlug/api/v1/*`)
 - MCP endpoint (`/mcp`) for agent integrations
-- ingestion orchestration for repository indexing and context extraction
+- repository indexing, and ingestion v2 (sandbox skills that write patches) for context extraction
 - authentication and organisation access control
 
 ## Stack
@@ -112,7 +112,7 @@ sharing.
 
 - Endpoint: `POST /api/v1/webhook/github`
 - HMAC verification via `GITHUB_WEBHOOK_SECRET`
-- `push` events to the default branch trigger repository ingestion (with UI “indexing recent changes”)
+- `push` events to the default branch trigger repository indexing (with UI “indexing recent changes”). Ingestion v2 publishes at Workspace format 3 or more; below format 3 no ingestion runs
 - `repository.created` can trigger repository sync when auto-sync options are enabled
 
 The GitHub App must be subscribed to `push` webhook events on connected repositories for re-indexing to fire on merge / direct push. `pull_request` events are intentionally not a fallback — they don't cover direct pushes to the default branch (hotfixes, incident response).

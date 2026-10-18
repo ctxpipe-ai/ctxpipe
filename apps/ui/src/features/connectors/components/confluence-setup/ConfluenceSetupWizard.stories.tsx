@@ -395,11 +395,11 @@ export const AddToWorkspaces: Story = {
   play: async ({ canvasElement }) => {
     addCalls.length = 0
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("heading", {
-        name: "Add Confluence to Workspaces",
-      }),
-    ).toBeVisible()
+    const heading = await body.findByRole("heading", {
+      name: "Add Confluence to Workspaces",
+    })
+    // The modal fades in; wait until the step is visible.
+    await waitFor(() => expect(heading).toBeVisible())
     const add = body.getByRole("button", { name: "Add to Workspaces" })
     await expect(add).toBeDisabled()
     await userEvent.click(
@@ -410,9 +410,10 @@ export const AddToWorkspaces: Story = {
     )
     await userEvent.click(add)
     // The add opened a pull request: the last step is the merge.
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    const merge = await body.findByRole("heading", {
+      name: "Merge the pull request",
+    })
+    await waitFor(() => expect(merge).toBeVisible())
     // The sync starts after the merge, so the last step links the pull request.
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
@@ -427,7 +428,6 @@ export const AddToWorkspaces: Story = {
             connectionId: atlassianConnectionId,
             scope: { spaces: [{ key: "ENG", pages: "all" }] },
           },
-          delivery: "pull_request",
         },
       },
     ])
@@ -452,7 +452,7 @@ export const ManageKeepsTheCurrentScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "confluence",
+                  path: "sources/confluence/confluence.md",
                   provider: "confluence",
                   status: "ok",
                   scopeSummary: "1 Confluence space",
@@ -464,7 +464,7 @@ export const ManageKeepsTheCurrentScope: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "confluence",
+                  path: "sources/confluence/confluence.md",
                   provider: "confluence",
                   connectionId: atlassianConnectionId,
                   scope: { spaces: [{ key: "ENG", pages: "all" }] },
@@ -478,12 +478,14 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeChecked()
-    await expect(
-      await body.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /Engineering/ })).toBeChecked(),
+    )
     await expect(
       body.getByRole("button", { name: "Save changes" }),
     ).toBeDisabled()
@@ -518,9 +520,11 @@ export const ReplacedSetup: Story = {
     await expect(
       body.getByRole("link", { name: "configuration pull request" }),
     ).toHaveAttribute("href", "https://github.com/acme/wiki/pull/12")
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeVisible(),
+    )
   },
 }
 

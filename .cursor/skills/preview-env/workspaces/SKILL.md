@@ -6,10 +6,10 @@ disable-model-invocation: true
 
 # preview-env workspaces
 
-Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 1 exists from [ONB-5](../onboarding/SKILL.md). Flow format: [run-setup](../run-setup.md#flow-format). A Workspace has one workspace repository and zero or more linked repositories; a URL is the workspace repository of at most one Workspace per org.
+Workspace identity and lifecycle. [Harness](../harness.md) is `PASS`; Workspace 1 exists from [ONB-4](../onboarding/SKILL.md). Flow format: [run-setup](../run-setup.md#flow-format). A Workspace has one workspace repository and zero or more linked repositories; a URL is the workspace repository of at most one Workspace per org.
 
 ### WS-1 Open and switch panes
-**Requires** ONB-5.
+**Requires** ONB-4.
 **Steps**
 1. Open `{BASE_URL}/{orgSlug}/ws/{workspace1Slug}`.
 2. Click **Files**, **Graph**, **Settings**; then close the pane.
@@ -75,7 +75,7 @@ Delete the extra Workspaces afterward through WS-7 so later areas see only Works
 3. Click **Unlink** (`aria-label` "Unlink {repo}") and confirm.
 
 **Expect (UI)** a row with chip **Pending** or **Indexing**, then **Indexed**; after unlink the row is gone.
-**Expect (backend)** `workspace_linked_repositories` row; a `workspace-link-unlink` run that commits `repositories/{name}.md` to the workspace repository; a `repository-index` run until the code index completes; on unlink a commit removing that file and the row deleted. After ticket 12 (per-Workspace PR mirror) lands, link also triggers the merged-PR backfill ([CON-8](../connectors/SKILL.md)).
+**Expect (backend)** `workspace_linked_repositories` row; a pull request that adds the source to `.ctxpipe/sources.yaml`; a `repository-index` run until the code index completes; on unlink a pull request that removes the source and the row deleted. After ticket 12 (per-Workspace PR mirror) lands, link also triggers the merged-PR backfill ([CON-8](../connectors/SKILL.md)).
 **Budget** 3 s / 10 s, **Link** to the row; 90 s / 5 min, **Link** to **Indexed**; 30 s / 2 min, **Unlink** to the removal commit.
 **Evidence** `WS-6-1.png`, `WS-6-2.png`; `gh api` commits; trace and run ids.
 Keep the repository linked when a later flow needs it (chat code questions, [CON-8](../connectors/SKILL.md)); unlink at the end of the run.

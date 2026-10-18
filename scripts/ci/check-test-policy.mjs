@@ -1,6 +1,7 @@
 import { execFileSync } from "node:child_process"
 import { createHash } from "node:crypto"
-import { relative, resolve } from "node:path"
+import { readFileSync } from "node:fs"
+import { join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import ts from "typescript"
 import { readTestConfiguration } from "./test-configuration.mjs"
@@ -125,10 +126,7 @@ function importedMainTestPaths(root) {
 try {
   const root = fileURLToPath(new URL("../../", import.meta.url))
   const classification = new Map(
-    readGate0File(
-      root,
-      "docs/plans/workspace-recovery-gate-0/test-classification.tsv",
-    )
+    readFileSync(join(root, "scripts/ci/test-classification.tsv"), "utf8")
       .trim()
       .split("\n")
       .slice(1)
@@ -621,12 +619,32 @@ try {
             : undefined
           // Network edges may use MSW. Module replacement cannot prove execution
           // of the application or its runtime collaborators.
-          const networkSdk =
+          const networkSdkPattern =
+            /^(?:@aws-sdk\/|@hyperdx\/browser$|@linear\/sdk$|@langchain\/(?:aws|core\/)|@langfuse\/|octokit$)/
+          // spyOn may also target a bare identifier bound by a default or
+          // namespace import of such a module.
+          const importedNetworkSdk =
+            property === "spyOn" &&
             target &&
-            ts.isStringLiteral(target) &&
-            /^(?:@aws-sdk\/|@hyperdx\/browser$|@linear\/sdk$|@langchain\/(?:aws|core\/)|@langfuse\/|octokit$)/.test(
-              target.text,
+            ts.isIdentifier(target) &&
+            source.statements.some(
+              (statement) =>
+                ts.isImportDeclaration(statement) &&
+                ts.isStringLiteral(statement.moduleSpecifier) &&
+                networkSdkPattern.test(statement.moduleSpecifier.text) &&
+                (statement.importClause?.name?.text === target.text ||
+                  (statement.importClause?.namedBindings &&
+                    ts.isNamespaceImport(
+                      statement.importClause.namedBindings,
+                    ) &&
+                    statement.importClause.namedBindings.name.text ===
+                      target.text)),
             )
+          const networkSdk =
+            importedNetworkSdk ||
+            (target &&
+              ts.isStringLiteral(target) &&
+              networkSdkPattern.test(target.text))
           let fixtureOnly =
             (path === "apps/codesearch/src/domain/repositories/purge.test.ts" &&
               target?.getText(source) === '"../../config/paths.js"') ||

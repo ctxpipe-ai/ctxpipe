@@ -1,6 +1,6 @@
 import { execFileSync } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
-import { join } from "node:path"
+import { dirname, join } from "node:path"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { OpenWorkflow } from "openworkflow"
@@ -10,25 +10,28 @@ import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { upsertConnectionDirectory } from "../../models/connection-directory.js"
-import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { listOrgLinkedRepositories } from "../../models/workspaces.js"
-import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { githubSyncPullRequest } from "../../openworkflow/workflows/github-sync-pull-request.js"
 import { workspaceConnectorMirror } from "../../openworkflow/workflows/workspace-connector-mirror.js"
 import { workspaceHydrate } from "../../openworkflow/workflows/workspace-hydrate.js"
-import { workspaceLinkUnlink } from "../../openworkflow/workflows/workspace-link-unlink.js"
+import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { maybeEnqueueGithubPrMirror } from "../../routes/webhooks/github/github-pr-mirror-events.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
 } from "../../test/native-hydration-fixture.js"
+import { linkGithubSourceFile } from "../workspace-sources/github-links.js"
+import { cancelWorkflowRunIfOpen } from "../../test/open-workflow-runs.js"
 
 const SOURCE_URL = "https://github.com/fixture/source-app"
 const SECOND_URL = "https://github.com/fixture/second-workspace.git"
-const DECLARATION = `---\ngit: ${JSON.stringify(SOURCE_URL)}\n---\n`
+// The fixture puts its GitHub connection id in place of `{{connectionId}}`.
+const SOURCES =
+  'version: 1\nsources:\n  - id: linked-repositories\n    provider: github\n    connection: "{{connectionId}}"\n    repositories: [fixture/source-app]\n'
 const FILES = [
-  { path: "repositories/source-app.md", body: DECLARATION },
+  { path: ".ctxpipe/sources.yaml", body: SOURCES },
   { path: "knowledge/owner.md", body: "# Owner text\n" },
 ]
 const pullPath = (number: number) =>
@@ -229,10 +232,7 @@ it(
 
         const runner = new OpenWorkflow({ backend: f.backend })
         runner.implementWorkflow(workspaceHydrate.spec, workspaceHydrate.fn)
-        runner.implementWorkflow(
-          workspaceLinkUnlink.spec,
-          workspaceLinkUnlink.fn,
-        )
+        runner.implementWorkflow(workspaceTipCheck.spec, workspaceTipCheck.fn)
         runner.implementWorkflow(
           githubSyncPullRequest.spec,
           githubSyncPullRequest.fn,
@@ -266,36 +266,42 @@ it(
               .filter((linked) => linked.workspaceId === workspaceId)
               .map((linked) => linked.gitUrl),
           )
-        const writeLink = async (
-          jobId: string,
-          linkAction: "link" | "unlink",
-        ) => {
-          await withOrgIdContext(f.org, () =>
-            enqueueWriteJob(
-              {
-                orgId: f.org.id,
-                workspaceId: workspaceB,
-                kind: "link_unlink",
-                jobId,
-                linkAction,
-                linkGitUrl: SOURCE_URL,
-              },
-              {
-                error: (error) => {
-                  throw error
-                },
-              },
-            ),
+        // A person merges a pull request that adds or removes the source file
+        // of the repository: a commit on the remote of B, then a hydrate.
+        const writeLink = async (action: "link" | "unlink") => {
+          // The mirror commits to the remote too, so start from its tip.
+          gitB("fetch", "--quiet", remoteB, "main")
+          gitB("reset", "--hard", "--quiet", "FETCH_HEAD")
+          const linked = linkGithubSourceFile({
+            files: [],
+            connectionId: f.connectionId,
+            repository: { name: "fixture/source-app", ref: null },
+          })
+          for (const file of linked?.writes ?? []) {
+            const path = join(sourceB, file.path)
+            if (action === "link") {
+              mkdirSync(dirname(path), { recursive: true })
+              writeFileSync(path, file.content)
+            } else gitB("rm", "-q", file.path)
+          }
+          gitB("add", ".")
+          gitB(
+            "-c",
+            "user.name=Contract",
+            "-c",
+            "user.email=contract@example.test",
+            "commit",
+            "-m",
+            `${action} source`,
           )
-          await expect
-            .poll(
-              () =>
-                withOrgIdContext(f.org, () =>
-                  reconcileWorkspaceWriteJob(jobId),
-                ),
-              { timeout: 60_000, interval: 250 },
-            )
-            .toMatchObject({ status: "completed" })
+          gitB("push", remoteB, "main")
+          await withOrgIdContext(f.org, () =>
+            enqueueWorkspaceTipCheck(f.org.id, {
+              error: (error) => {
+                throw error
+              },
+            }),
+          )
         }
         const webhook = (payload: unknown) =>
           maybeEnqueueGithubPrMirror({
@@ -320,7 +326,7 @@ it(
           expect(filesIn(f, f.remote)).toContain(pullPath(7))
 
           // Linking B: its hydrate records the link and backfills B.
-          await writeLink(`wjob_${f.id}_link`, "link")
+          await writeLink("link")
           await expect
             .poll(() => linkedTo(workspaceB), { timeout: 60_000 })
             .toEqual([SOURCE_URL])
@@ -360,10 +366,7 @@ it(
           expect(await mirrorRuns()).toHaveLength(4)
 
           // Unlinking B: new pull requests stop, earlier files stay.
-          await writeLink(`wjob_${f.id}_unlink`, "unlink")
-          expect(filesIn(f, remoteB)).not.toContain(
-            "repositories/source-app.md",
-          )
+          await writeLink("unlink")
           await expect
             .poll(() => linkedTo(workspaceB), { timeout: 60_000 })
             .toEqual([])
@@ -386,7 +389,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
           await withOrgDbContext(f.org.id, (db) =>
@@ -467,7 +470,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
         }
@@ -541,7 +544,7 @@ it(
           for (const run of (await f.backend.listWorkflowRuns({ limit: 200 }))
             .data) {
             if (!["completed", "failed", "canceled"].includes(run.status))
-              await f.runner.cancelWorkflowRun(run.id)
+              await cancelWorkflowRunIfOpen(f.backend, run.id)
           }
           await worker.stop()
         }

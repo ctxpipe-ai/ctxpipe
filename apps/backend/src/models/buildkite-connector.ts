@@ -227,7 +227,9 @@ export async function getBuildkiteWebhookTarget(
 > {
   const row = await loadConnectionViaDirectory(connectionId)
   if (row?.type !== CONNECTION_TYPE_BUILDKITE) return undefined
-  const config = buildkiteConnectionConfigStoredSchema.parse(row.config)
+  const parsed = buildkiteConnectionConfigStoredSchema.safeParse(row.config)
+  if (!parsed.success) return undefined
+  const config = parsed.data
   return {
     orgId: row.orgId,
     status: config.status,

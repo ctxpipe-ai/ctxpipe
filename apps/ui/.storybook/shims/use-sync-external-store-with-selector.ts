@@ -9,4 +9,5 @@ const mod = withSelectorPkg as {
   useSyncExternalStoreWithSelector: (...args: unknown[]) => unknown
 }
 
-export const useSyncExternalStoreWithSelector = mod.useSyncExternalStoreWithSelector
+export const useSyncExternalStoreWithSelector =
+  mod.useSyncExternalStoreWithSelector

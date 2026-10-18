@@ -33,7 +33,7 @@ export type BuildkiteBuildForMirror = {
 }
 
 /**
- * The folder of one pipeline in a Workspace source (ADR-053). The sources
+ * The folder of one pipeline in a Workspace source (ADR-054). The sources
  * sync gives ownership by path prefix, so each pipeline has its own folder.
  */
 export function buildkitePipelineRoot(pipelineSlug: string): string {
@@ -44,9 +44,39 @@ function yamlScalar(value: string): string {
   return JSON.stringify(value)
 }
 
+/**
+ * Provider text on one line. A line break in a name or a branch cannot start
+ * a new Markdown block (a heading, a list item, or a fence).
+ */
+function oneLine(value: string): string {
+  return value.replace(/\s+/g, " ").trim()
+}
+
 /** Link text without the brackets that would end it. */
 function linkText(value: string): string {
-  return value.replace(/\s*\n\s*/g, " ").replace(/[[\]]/g, "\\$&")
+  return oneLine(value).replace(/[[\]]/g, "\\$&")
+}
+
+/** An `https:` URL that is safe as a Markdown link target, or null. */
+function linkUrl(value: string | null): string | null {
+  if (!value) return null
+  try {
+    const url = new URL(value)
+    return url.protocol === "https:"
+      ? url.href.replace(
+          /[()]/g,
+          (c) => `%${c.charCodeAt(0).toString(16).toUpperCase()}`,
+        )
+      : null
+  } catch {
+    return null
+  }
+}
+
+/** `[text](url)` for a safe URL, else the text alone. */
+function link(text: string, url: string | null): string {
+  const target = linkUrl(url)
+  return target ? `[${linkText(text)}](${target})` : oneLine(text)
 }
 
 /**
@@ -92,12 +122,14 @@ function renderPipelineMarkdown(input: {
       ["repository", pipeline.repository],
       ["default_branch", pipeline.defaultBranch],
     ]),
-    `# ${pipeline.name}`,
+    `# ${oneLine(pipeline.name)}`,
     "",
-    `- Buildkite: [${linkText(pipeline.name)}](${pipeline.url})`,
-    ...(pipeline.repository ? [`- Repository: ${pipeline.repository}`] : []),
+    `- Buildkite: ${link(pipeline.name, pipeline.url)}`,
+    ...(pipeline.repository
+      ? [`- Repository: ${oneLine(pipeline.repository)}`]
+      : []),
     ...(pipeline.defaultBranch
-      ? [`- Default branch: ${pipeline.defaultBranch}`]
+      ? [`- Default branch: ${oneLine(pipeline.defaultBranch)}`]
       : []),
     "",
   ].join("\n")
@@ -119,7 +151,9 @@ function renderBuildMarkdown(input: {
   // branch is in a fork.
   const repository = githubRepositoryUrl(pipeline.repository)
   const commitUrl =
-    repository && build.commit ? `${repository}/commit/${build.commit}` : null
+    repository && build.commit && /^[0-9a-f]{7,40}$/i.test(build.commit)
+      ? `${repository}/commit/${build.commit}`
+      : null
   const pullRequestUrl =
     repository &&
     build.pullRequestNumber &&
@@ -142,18 +176,18 @@ function renderBuildMarkdown(input: {
       ["created_at", build.createdAt],
       ["finished_at", build.finishedAt],
     ]),
-    `# ${pipeline.name} build #${build.number}`,
+    `# ${oneLine(pipeline.name)} build #${build.number}`,
     "",
     `- Pipeline: [${linkText(pipeline.name)}](../pipeline.md)`,
-    `- Buildkite: [#${build.number}](${build.url})`,
-    `- State: ${build.state}`,
+    `- Buildkite: ${link(`#${build.number}`, build.url)}`,
+    `- State: ${oneLine(build.state)}`,
   ]
-  if (build.branch) lines.push(`- Branch: ${build.branch}`)
+  if (build.branch) lines.push(`- Branch: ${oneLine(build.branch)}`)
   if (build.commit)
     lines.push(
       commitUrl
         ? `- Commit: [${build.commit.slice(0, 7)}](${commitUrl})`
-        : `- Commit: ${build.commit}`,
+        : `- Commit: ${oneLine(build.commit)}`,
     )
   if (build.pullRequestNumber)
     lines.push(
@@ -161,15 +195,15 @@ function renderBuildMarkdown(input: {
         ? `- Pull request: [#${build.pullRequestNumber}](${pullRequestUrl})`
         : `- Pull request: #${build.pullRequestNumber}`,
     )
-  if (build.creatorName) lines.push(`- Created by: ${build.creatorName}`)
+  if (build.creatorName)
+    lines.push(`- Created by: ${oneLine(build.creatorName)}`)
   lines.push("", "## Failed jobs", "")
   const failed = build.jobs.filter(
     (job) => FAILED_STATES.has(job.state) && !job.softFailed,
   )
   if (!failed.length) lines.push("No job failed.")
   for (const job of failed) {
-    const name = job.url ? `[${linkText(job.name)}](${job.url})` : job.name
-    lines.push(`- ${name}${FAILED_STATES.get(job.state)}`)
+    lines.push(`- ${link(job.name, job.url)}${FAILED_STATES.get(job.state)}`)
   }
   lines.push("")
   return lines.join("\n")

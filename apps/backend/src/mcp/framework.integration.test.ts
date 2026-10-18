@@ -21,14 +21,15 @@ import {
   organizations,
 } from "../db/schema/auth.js"
 import { oauthGrantOrganizations } from "../db/schema/oauth_grant_organizations.js"
-import { workspaceSources } from "../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../db/schema/workspaces.js"
+import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
+import { listLinkedRepositoryPins } from "../models/workspace-source-state.js"
 import { registerMcpRoutes } from "../routes/mcp.js"
 import { withTestRequestLogger } from "../test/hono-test-logger.js"
+import {
+  insertLinkedRepositoryRows,
+  insertProjectedSourceRows,
+} from "../test/workspace-links-fixture.js"
 import { mcpOrgSlugHash } from "./correlation.js"
 import { fitPage } from "./framework/budget.js"
 import {
@@ -298,7 +299,8 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
           desiredDefaultBranch: "main",
         },
       ])
-      await db.insert(workspaceLinkedRepositories).values(
+      await insertLinkedRepositoryRows(
+        db,
         [
           "https://github.com/example/payments-api",
           "git@github.com:example/ledger.git",
@@ -311,8 +313,8 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
         })),
       )
       // ADR-050: GitHub sources in .ctxpipe/sources.yaml link repositories
-      // too. Only an `ok` source counts.
-      await db.insert(workspaceSources).values([
+      // too. Only an `ok` source serves its repositories.
+      await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
           orgId: seed.orgId,
@@ -629,6 +631,28 @@ describe("MCP tool framework (Postgres + MCP SDK Client)", () => {
       excluded: ["example/payments-api"],
     })
     await client.close()
+  })
+
+  it("hides the repository of an out_of_access source and keeps its pins", async () => {
+    const client = await connect()
+    try {
+      const result = await call(client, "probe_repositories", {
+        org: seed.orgSlug,
+        excludeRepositories: [],
+      })
+      expect(result.structuredContent?.repositories).not.toContain(
+        "example/broken",
+      )
+    } finally {
+      await client.close()
+    }
+    // The pins stay, so the link keeps its id and SHAs when access returns.
+    const pins = await withOrgDbContext(seed.orgId, (db) =>
+      listLinkedRepositoryPins(db, { workspaceId: readyWorkspaceId }),
+    )
+    expect(pins.map((pin) => pin.gitUrl)).toContain(
+      "https://github.com/example/broken",
+    )
   })
 
   it("walks a cursor and gives stale_cursor after a new projection", async () => {

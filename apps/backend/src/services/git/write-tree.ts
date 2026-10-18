@@ -11,15 +11,40 @@ import {
   nativeGit,
   withGitDirectory,
 } from "./pack.js"
+import {
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "./root-folder.js"
+
+/** Repository paths below the root folder, mapped to root-relative paths. */
+function rootRelativePaths(root: string, paths: readonly string[]): string[] {
+  return paths.map((path) => {
+    const relative = workspaceRelativePath(root, path)
+    if (relative === null)
+      throw new Error("The change is outside the Workspace root folder")
+    return relative
+  })
+}
 
 export type StagedGitTree = { pack: GitPack; tree: string }
 
-/** Stage a native tree; all returned objects survive loss of this worker's files. */
+/**
+ * Stage a native tree; all returned objects survive loss of this worker's
+ * files. Paths are relative to the pack's root folder.
+ */
 export async function stageGitFiles(
   pack: GitPack,
-  files: readonly GitFileChange[],
-  deletePaths: readonly string[] = [],
+  rootFiles: readonly GitFileChange[],
+  rootDeletePaths: readonly string[] = [],
 ): Promise<StagedGitTree> {
+  const root = pack.root ?? ""
+  const files = rootFiles.map((file) => ({
+    ...file,
+    path: workspaceRepositoryPath(root, file.path),
+  }))
+  const deletePaths = rootDeletePaths.map((path) =>
+    workspaceRepositoryPath(root, path),
+  )
   return withGitDirectory(
     pack.sha,
     async (directory) => {
@@ -34,7 +59,7 @@ export async function stageGitFiles(
           }),
       )
       const entries = files.map((file) => {
-        const mode = modes.get(file.path) ?? "100644"
+        const mode = file.mode ?? modes.get(file.path) ?? "100644"
         if (!["100644", "100755", "120000"].includes(mode))
           throw new Error("File edits cannot replace a Git submodule")
         return { mode, file }
@@ -118,12 +143,13 @@ export async function validateGitTree(
         .toString()
         .split("\0")
         .filter(Boolean)
+      const relative = rootRelativePaths(staged.pack.root ?? "", changed)
       if (
-        (!options.allowNoChanges && !changed.length) ||
-        changed.some((path) => !allowedPaths.includes(path))
+        (!options.allowNoChanges && !relative.length) ||
+        relative.some((path) => !allowedPaths.includes(path))
       )
         throw new Error("Invalid write tree")
-      return changed
+      return relative
     },
     staged.pack,
   )
@@ -156,7 +182,10 @@ export async function commitGitTree(
       )
         .toString()
         .trim()
-      return captureGitPack(directory, sha)
+      const committed = await captureGitPack(directory, sha)
+      return staged.pack.root
+        ? { ...committed, root: staged.pack.root }
+        : committed
     },
     staged.pack,
   )
@@ -198,13 +227,16 @@ export async function readGitCommitChanges(
           .toString()
           .split("\0"),
       )
+      const root = pack.root ?? ""
+      const relative = rootRelativePaths(root, changed)
       const files: GitFileChange[] = []
       const deletePaths: string[] = []
-      for (const path of changed) {
-        if (!existing.has(path)) deletePaths.push(path)
+      for (const [index, path] of changed.entries()) {
+        const rootPath = relative[index] ?? path
+        if (!existing.has(path)) deletePaths.push(rootPath)
         else
           files.push({
-            path,
+            path: rootPath,
             content: (
               await nativeGit(directory, ["show", `${pack.sha}:${path}`])
             ).toString("base64"),

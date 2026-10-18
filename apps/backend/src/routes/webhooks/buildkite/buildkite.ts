@@ -16,7 +16,7 @@ const SYNC_WINDOW_MS = 10 * 60 * 1000
 
 /**
  * The admin adds this webhook in Buildkite with its own token, so the URL
- * names the connection, as the GitHub App webhook does (ADR-053).
+ * names the connection, as the GitHub App webhook does (ADR-054).
  */
 async function handleBuildkiteWebhook(c: Context<AppEnv>) {
   const connectionId = c.req.param("connectionId") ?? ""

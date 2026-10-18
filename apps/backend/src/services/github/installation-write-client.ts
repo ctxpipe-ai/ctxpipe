@@ -1,13 +1,20 @@
 import type { Env } from "../../config/env.js"
+import { withOrgDbContext } from "../../db/client.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
 import {
   type GitHubInstallation,
   getInstallationOctokitForOrg,
 } from "../../models/github-installation.js"
-import { getDesiredWorkspaceRevision } from "../../models/workspaces.js"
+import {
+  getDesiredWorkspaceRevision,
+  listOrgWorkspaces,
+} from "../../models/workspaces.js"
+import { workspaceRepositoryPath } from "../git/root-folder.js"
 
 type InstallationContext = NonNullable<
   Awaited<ReturnType<typeof getInstallationOctokitForOrg>>
@@ -24,6 +31,46 @@ type BaseInput = {
   env: Env
   /** When the org has multiple GitHub App connections, selects the installation token. */
   githubConnectionId?: string
+}
+
+/**
+ * The root folder of the org's Workspace on the GitHub repository
+ * `repositoryName` (`owner/name`), or `""` when no Workspace uses it.
+ * Connector config files are relative to this folder (CTX-709).
+ */
+export async function workspaceRootPathOfRepository(input: {
+  orgId: string
+  repositoryName: string
+}): Promise<string> {
+  const url = normalizeWorkspaceRepositoryUrl(
+    `https://github.com/${input.repositoryName}`,
+  )
+  const workspace = (
+    await withOrgDbContext(input.orgId, () => listOrgWorkspaces(input.orgId))
+  ).find(
+    (row) =>
+      normalizeWorkspaceRepositoryUrl(row.workspaceRepositoryUrl) === url,
+  )
+  return workspaceRootPath(workspace)
+}
+
+/** Maps root-relative change paths below the Workspace root folder. Throws on an unsafe path. */
+function withRootedPaths<
+  T extends { files: CommitFile[]; deletePaths?: string[]; rootPath?: string },
+>(input: T): T {
+  if (input.rootPath === undefined) return input
+  const root = input.rootPath
+  return {
+    ...input,
+    rootPath: undefined,
+    files: input.files.map((file) => ({
+      ...file,
+      path: workspaceRepositoryPath(root, file.path),
+    })),
+    deletePaths: input.deletePaths?.map((path) =>
+      workspaceRepositoryPath(root, path),
+    ),
+  }
 }
 
 export type CommitFile = {
@@ -123,6 +170,7 @@ async function getInstallationContext(
 ): Promise<{
   installation: GitHubInstallation
   octokit: InstallationContext["octokit"]
+  appBotLogin: InstallationContext["appBotLogin"]
   owner: string
   repo: string
 }> {
@@ -142,6 +190,7 @@ async function getInstallationContext(
   return {
     installation: installationContext.installation,
     octokit: installationContext.octokit,
+    appBotLogin: installationContext.appBotLogin,
     owner,
     repo,
   }
@@ -311,8 +360,13 @@ export type GitHubFileBytes =
   | { kind: "bytes"; bytes: Buffer }
 
 export async function getFileContentBytes(
-  input: BaseInput & { branch: string; path: string },
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
 ): Promise<GitHubFileBytes> {
+  if (input.rootPath)
+    input = {
+      ...input,
+      path: workspaceRepositoryPath(input.rootPath, input.path),
+    }
   const context = await getInstallationContext(input)
   for (let a = 0; a < GITHUB_API_MAX_ATTEMPTS; a += 1) {
     let data: Awaited<
@@ -355,7 +409,7 @@ export async function getFileContentBytes(
 }
 
 export async function getFileContent(
-  input: BaseInput & { branch: string; path: string },
+  input: BaseInput & { branch: string; path: string; rootPath?: string },
 ): Promise<string | undefined> {
   const file = await getFileContentBytes(input)
   if (file.kind === "missing") return undefined
@@ -398,8 +452,11 @@ export async function commitFiles(
     deletePaths?: string[]
     /** When set, commit against this parent and refuse overlay-on-latest-head. */
     expectedParentSha?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
+  input = withRootedPaths(input)
   const context = await getInstallationContext(input, { contents: "write" })
   await assertConfigBranch(context, input.branch)
   const fileEntries: GitTreeEntry[] = []
@@ -567,8 +624,12 @@ export async function createPullRequestWithFiles(
     requireNewBranch?: boolean
     /** Defaults to the historical Confluence prefix. */
     featureBranchPrefix?: string
+    /** Workspace root folder; paths are relative to it and never leave it. */
+    rootPath?: string
   },
 ) {
+  // Check the paths before any branch exists.
+  withRootedPaths(input)
   const context = await getInstallationContext(input, {
     contents: "write",
     pull_requests: "write",
@@ -610,6 +671,7 @@ export async function createPullRequestWithFiles(
     message: input.commitMessage,
     files: input.files,
     deletePaths: input.deletePaths,
+    rootPath: input.rootPath,
   })
 
   const { data: pull } = await withTransientGitHubRetry(() =>
@@ -636,6 +698,37 @@ export function parseGithubPullNumberFromUrl(url: string): number | undefined {
   return m?.[1] ? Number.parseInt(m[1], 10) : undefined
 }
 
+/** Merge an open pull request by its URL. Returns the SHA of the merge commit. */
+export async function mergePullRequest(
+  input: BaseInput & { pullUrl: string },
+): Promise<string> {
+  const pullNumber = parseGithubPullNumberFromUrl(input.pullUrl)
+  if (pullNumber === undefined)
+    throw new Error(`Not a pull request URL: ${input.pullUrl}`)
+  const context = await getInstallationContext(input, {
+    contents: "write",
+    pull_requests: "write",
+  })
+  const urlRepository = input.pullUrl.match(
+    /^https:\/\/github\.com\/([^/]+)\/([^/]+)\/pull\//,
+  )
+  if (
+    urlRepository?.[1]?.toLowerCase() !== context.owner.toLowerCase() ||
+    urlRepository[2]?.toLowerCase() !== context.repo.toLowerCase()
+  )
+    throw new Error(
+      `Pull request ${input.pullUrl} is not in ${context.owner}/${context.repo}`,
+    )
+  const { data } = await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.merge({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: pullNumber,
+    }),
+  )
+  return data.sha
+}
+
 /** Resolve the head branch (ref) of an open pull request from its URL. */
 export async function getPullRequestHeadBranch(
   input: BaseInput & { pullUrl: string },
@@ -653,26 +746,80 @@ export async function getPullRequestHeadBranch(
   return data.head.ref || undefined
 }
 
-/** The open pull requests whose head branch starts with `branchPrefix` (first 100). */
+/**
+ * The open pull requests that ctx| opened on a branch that starts with
+ * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
+ * Give `baseBranch` to keep only the pull requests into that base branch.
+ *
+ * Other people can open a pull request with the same head branch name: from
+ * a fork, from the repository itself, or as another GitHub App on the
+ * repository. This function ignores them. It keeps only a pull request whose
+ * head is in this repository and whose author is the ctx| GitHub App of this
+ * installation (ctx| opens each pull request with the installation token).
+ * Thus, ctx| opens its own pull request when someone else took the branch
+ * name in a fork, and it never shows or relabels the pull request of another
+ * person or App as its own.
+ */
 export async function listOpenPullRequestsByBranchPrefix(
-  input: BaseInput & { branchPrefix: string },
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
 ): Promise<Array<{ pullUrl: string; branch: string; createdAt: string }>> {
+  const pulls = await listOpenRepositoryPullRequestsByBranchPrefix(input)
+  return pulls
+    .filter((pull) => pull.ours)
+    .map(({ pullUrl, branch, createdAt }) => ({ pullUrl, branch, createdAt }))
+}
+
+/**
+ * Like {@link listOpenPullRequestsByBranchPrefix}, but it also lists the pull
+ * requests of other people and Apps whose head is in this repository. `ours`
+ * tells which pull requests ctx| opened. A fork pull request does not use a
+ * branch of this repository, so it is not listed.
+ */
+export async function listOpenRepositoryPullRequestsByBranchPrefix(
+  input: BaseInput & {
+    branchPrefix: string
+    exactBranch?: string
+    baseBranch?: string
+  },
+): Promise<
+  Array<{ pullUrl: string; branch: string; createdAt: string; ours: boolean }>
+> {
   const context = await getInstallationContext(input, { pull_requests: "read" })
-  const { data } = await withTransientGitHubRetry(() =>
-    context.octokit.rest.pulls.list({
+  const repository = `${context.owner}/${context.repo}`.toLowerCase()
+  const pulls = await withTransientGitHubRetry(() =>
+    context.octokit.paginate(context.octokit.rest.pulls.list, {
       owner: context.owner,
       repo: context.repo,
       state: "open",
       per_page: 100,
+      ...(input.exactBranch
+        ? { head: `${context.owner}:${input.exactBranch}` }
+        : {}),
+      ...(input.baseBranch ? { base: input.baseBranch } : {}),
     }),
   )
-  return data
-    .filter((pull) => pull.head.ref.startsWith(input.branchPrefix))
-    .map((pull) => ({
-      pullUrl: pull.html_url,
-      branch: pull.head.ref,
-      createdAt: pull.created_at,
-    }))
+  const candidates = pulls.filter(
+    (pull) =>
+      pull.head.ref.startsWith(input.branchPrefix) &&
+      (input.exactBranch === undefined ||
+        pull.head.ref === input.exactBranch) &&
+      (input.baseBranch === undefined || pull.base.ref === input.baseBranch) &&
+      pull.head.repo?.full_name.toLowerCase() === repository,
+  )
+  // Ask GitHub for the App login only when a pull request can be ours.
+  const login = candidates.some((pull) => pull.user?.type === "Bot")
+    ? (await context.appBotLogin()).toLowerCase()
+    : ""
+  return candidates.map((pull) => ({
+    pullUrl: pull.html_url,
+    branch: pull.head.ref,
+    createdAt: pull.created_at,
+    ours: pull.user?.type === "Bot" && pull.user.login.toLowerCase() === login,
+  }))
 }
 
 /** Whether `compareCommits` lists `path` among added/changed/removed files (push webhook fallback). */
@@ -755,6 +902,24 @@ export async function closePullRequest(
       }),
     )
   }
+}
+
+/** Replace the title and the body of an open pull request. */
+export async function updatePullRequestText(
+  input: BaseInput & { pullNumber: number; title: string; body: string },
+): Promise<void> {
+  const context = await getInstallationContext(input, {
+    pull_requests: "write",
+  })
+  await withTransientGitHubRetry(() =>
+    context.octokit.rest.pulls.update({
+      owner: context.owner,
+      repo: context.repo,
+      pull_number: input.pullNumber,
+      title: input.title,
+      body: input.body,
+    }),
+  )
 }
 
 export type GithubPullRequestState = "open" | "closed" | "merged"
@@ -914,17 +1079,20 @@ export async function createPullRequestFromBranch(
       error.message.toLowerCase().includes("no commits between")
     )
       return refusal("no_changes", error)
-    const { data: existing } = await context.octokit.rest.pulls.list({
-      owner: context.owner,
-      repo: context.repo,
-      head: `${context.owner}:${input.branch}`,
-      state: "open",
+    // GitHub refuses a second pull request for the same head and base. Keep
+    // only a pull request that ctx| opened on this branch into this base. A
+    // pull request of a collaborator or of another App is not ours to show.
+    const [open] = await listOpenPullRequestsByBranchPrefix({
+      ...input,
+      branchPrefix: input.branch,
+      exactBranch: input.branch,
+      baseBranch: input.baseBranch,
     })
-    const open = existing[0]
-    if (!open) return refusal("pr_refused", error)
+    const pullNumber = open && parseGithubPullNumberFromUrl(open.pullUrl)
+    if (!open || pullNumber === undefined) return refusal("pr_refused", error)
     return {
-      pullNumber: open.number,
-      pullUrl: open.html_url,
+      pullNumber,
+      pullUrl: open.pullUrl,
       branch: input.branch,
       prState: "open",
     }

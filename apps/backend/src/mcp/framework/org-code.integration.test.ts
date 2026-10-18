@@ -20,12 +20,12 @@ import {
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import { workspaceSources } from "../../db/schema/workspace_sources.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
+import {
+  insertLinkedRepositoryRows,
+  insertProjectedSourceRows,
+} from "../../test/workspace-links-fixture.js"
 import {
   findSymbolAcrossRepositories,
   resolveCodeScope,
@@ -194,7 +194,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         })),
       )
       // The legacy table links alpha, beta and an unindexed repository to payments.
-      await db.insert(workspaceLinkedRepositories).values(
+      await insertLinkedRepositoryRows(
+        db,
         [
           `https://github.com/${name("alpha")}`,
           `git@github.com:${name("beta")}.git`,
@@ -207,7 +208,7 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
         })),
       )
       // The sources projection links alpha again (another URL form) and gamma to ledger.
-      await db.insert(workspaceSources).values([
+      await insertProjectedSourceRows(db, [
         {
           id: generateObjectId("wsrc"),
           orgId: org.id,
@@ -321,8 +322,8 @@ describe("org-level code search (Postgres + msw codesearch)", () => {
       {
         repository: name("alpha"),
         path: "src/index.ts",
-        line: 3,
-        snippet: "const charge = 1",
+        language: null,
+        matches: [{ line: 3, snippet: "const charge = 1" }],
       },
     ])
   })

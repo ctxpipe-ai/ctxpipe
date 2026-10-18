@@ -1,9 +1,8 @@
-import { RequestError } from "octokit"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getRepoReadCloneToken } from "../../models/github-installation.js"
+import { resolveRepoReadCoverage } from "../../models/github-installation.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import {
   bindUnboundWorkspace,
@@ -20,6 +19,7 @@ import {
   type WorkspaceAddSource,
 } from "./bind-github-connection.js"
 import { ensureOrgRepositoryForGitUrl } from "./ensure-org-repository.js"
+import { workspaceRootPath } from "./root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 import { destroySandboxesForWorkspace } from "./workspace-sandbox-cleanup.js"
 import {
@@ -50,12 +50,16 @@ export async function createWorkspaceLifecycle(input: {
   slug?: string
   githubConnectionId?: string | null
   source?: WorkspaceAddSource
+  rootPath?: string
+  env: Env
   log: WorkspaceLog
-}): Promise<WorkspaceRecord & { autoLinkGitUrls: string[] }> {
+}): Promise<WorkspaceRecord> {
   const githubConnectionId = await resolveWorkspaceGithubConnectionId({
     orgId: input.orgId,
     requested: input.githubConnectionId,
     source: input.source,
+    gitUrl: input.gitUrl,
+    env: input.env,
   })
   const write = writeStatusFromClassification({
     workspaceRepositoryUrl: input.gitUrl,
@@ -66,6 +70,7 @@ export async function createWorkspaceLifecycle(input: {
     displayName: input.displayName,
     slug: input.slug,
     ...(githubConnectionId ? { githubConnectionId } : {}),
+    ...(input.rootPath !== undefined ? { rootPath: input.rootPath } : {}),
     write,
   })
   await attachOrgRepository({
@@ -79,29 +84,9 @@ export async function createWorkspaceLifecycle(input: {
     input.log,
   )
   void enqueueWorkspaceWriteCommit(
-    {
-      orgId: created.orgId,
-      workspaceId: created.id,
-      kind: "migration_export",
-    },
-    input.log,
-  )
-  void enqueueWorkspaceWriteCommit(
     { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
     input.log,
   )
-  for (const gitUrl of created.autoLinkGitUrls) {
-    void enqueueWorkspaceWriteCommit(
-      {
-        orgId: created.orgId,
-        workspaceId: created.id,
-        kind: "link_unlink",
-        linkAction: "link",
-        linkGitUrl: gitUrl,
-      },
-      input.log,
-    )
-  }
   void enqueueWorkspaceTipCheck(created.orgId, input.log)
   return created
 }
@@ -139,6 +124,7 @@ export async function relinkWorkspaceLifecycle(input: {
   nextSlug?: string
   persistConnection: boolean
   bindingSubmitted: boolean
+  rootPath?: string
   log: WorkspaceLog
 }): Promise<{ workspace: WorkspaceRecord | null; changed: boolean }> {
   const githubConnectionId = input.bindingSubmitted
@@ -155,6 +141,8 @@ export async function relinkWorkspaceLifecycle(input: {
     ? normalizeWorkspaceRepositoryUrl(input.workspaceRepositoryUrl)
     : input.current.workspaceRepositoryUrl
   const changed =
+    (input.rootPath !== undefined &&
+      workspaceRootPath(input) !== workspaceRootPath(input.current)) ||
     (Boolean(nextUrl) && nextUrl !== input.current.workspaceRepositoryUrl) ||
     (input.persistConnection &&
       githubConnectionId !== input.current.githubConnectionId)
@@ -171,6 +159,7 @@ export async function relinkWorkspaceLifecycle(input: {
       : {}),
     ...(input.persistConnection ? { githubConnectionId } : {}),
     ...(write ? { write } : {}),
+    ...(input.rootPath !== undefined ? { rootPath: input.rootPath } : {}),
   })
   if (!updated) {
     return { workspace: null, changed: false }
@@ -191,6 +180,8 @@ export async function rebindUnboundWorkspaces(input: {
   connectionId: string
   env: Env
   log: WorkspaceLog
+  /** Check only these `owner/name` repositories (an access change names them). */
+  repoFullNames?: string[]
 }): Promise<void> {
   const logError = (error: unknown) =>
     input.log.error(error instanceof Error ? error : new Error(String(error)))
@@ -205,20 +196,19 @@ export async function rebindUnboundWorkspaces(input: {
           workspace.workspaceRepositoryUrl,
         )
         if (!repoFullName) continue
-        try {
-          await getRepoReadCloneToken(input.orgId, input.env, {
-            githubConnectionId: input.connectionId,
-            repoFullName,
-          })
-        } catch (error) {
-          // GitHub refuses a token for a repository outside the installation.
-          if (
-            !(error instanceof RequestError) ||
-            (error.status !== 404 && error.status !== 422)
+        if (
+          input.repoFullNames &&
+          !input.repoFullNames.some(
+            (name) => name.toLowerCase() === repoFullName.toLowerCase(),
           )
-            logError(error)
+        )
           continue
-        }
+        // `unknown` (a GitHub error) leaves the workspace unbound.
+        const coverage = await resolveRepoReadCoverage(input.orgId, input.env, {
+          githubConnectionId: input.connectionId,
+          repoFullName,
+        })
+        if (coverage !== "covers") continue
         const updated = await bindUnboundWorkspace({
           workspace,
           githubConnectionId: input.connectionId,

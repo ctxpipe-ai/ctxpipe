@@ -9,14 +9,19 @@ on:
         description: Pull request number
         required: true
         type: string
-        default: "280"
       head_sha:
         description: Full git SHA already published to GHCR as pr-<N>-<sha>
         required: true
         type: string
 
+# Only the checkout reads the repository. Railway and Vercel calls use their
+# own secrets, not the GitHub token.
+permissions: {}
+
 jobs:
   roll:
+    permissions:
+      contents: read
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 40
     # The Preview environment's VERCEL_ACCESS_TOKEN reaches only the preview
@@ -29,6 +34,7 @@ jobs:
       WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
       UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
       CODESEARCH_SERVICE_ID: ${{ vars.RAILWAY_CODESEARCH_SERVICE_ID }}
+      PR_NUMBER: ${{ inputs.pr_number }}
       PR_ENV: pr-${{ inputs.pr_number }}
       IMAGE_TAG: pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
       BACKEND_IMAGE: ghcr.io/ctxpipe-ai/backend:pr-${{ inputs.pr_number }}-${{ inputs.head_sha }}
@@ -43,7 +49,14 @@ jobs:
       GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
       GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
       GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+      HEAD_SHA: ${{ inputs.head_sha }}
     steps:
+      - name: Check inputs
+        run: |
+          set -euo pipefail
+          [[ "$PR_NUMBER" =~ ^[0-9]+$ ]] || { echo "pr_number must be a number" >&2; exit 1; }
+          [[ "$HEAD_SHA" =~ ^[0-9a-f]{40}$ ]] || { echo "head_sha must be a full git SHA" >&2; exit 1; }
+
       - uses: actions/checkout@v4
 
       - name: Install Railway CLI
@@ -81,6 +94,8 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
           # shellcheck disable=SC1091
           source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
 
           update_ui() {
             railway_graphql \
@@ -146,7 +161,7 @@ jobs:
           dollar='$'
           railway_graphql \
             'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${{ inputs.pr_number }}.up.railway.app" \
+            "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$UI_SERVICE_ID" --arg auth "http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080" --arg origins "https://backend-pr-${PR_NUMBER}.up.railway.app" \
               '{input:{projectId:$project,environmentId:$env,serviceId:$service,skipDeploys:true,variables:{HOST:"0.0.0.0",NITRO_HOST:"0.0.0.0",AUTH_BASE_URL:$auth,AUTH_ALLOWED_ORIGINS:$origins}}}')" >/dev/null
 
           point_preview_backend_at_private_ui
@@ -154,6 +169,10 @@ jobs:
           sync_preview_otel_variables
           sync_preview_sandbox_variables
           sync_preview_github_app_variables
+          # A preview from before PR Deploy gave it its own secrets still has
+          # the production AUTH_SECRET and the account token. Replace them
+          # before branch code rolls. A marked preview keeps its values.
+          sync_preview_own_secrets
 
           update_img "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
           deploy "$BACKEND_SERVICE_ID"
@@ -176,41 +195,4 @@ jobs:
 
           echo "Rolled preview to $IMAGE_TAG"
 
-          smoke_test_preview_ui() {
-            local backend_url="https://backend-pr-${{ inputs.pr_number }}.up.railway.app"
-            local prod_url="https://app.ctxpipe.ai"
-            local deadline html js_path prod_html prod_js_path js_file
-            deadline=$(( $(date +%s) + 180 ))
-            js_file="$(mktemp)"
-            echo "Smoke-testing preview UI via $backend_url (JS hash vs production; workspace routes in bundle)"
-            while true; do
-              html="$(curl -fsS --compressed --max-time 25 "$backend_url/" || true)"
-              js_path="$(printf '%s' "$html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
-              prod_html="$(curl -fsS --compressed --max-time 25 "$prod_url/" || true)"
-              prod_js_path="$(printf '%s' "$prod_html" | grep -oE '/assets/main-[A-Za-z0-9._-]+\.js' | head -1 || true)"
-              if [[ -n "$js_path" && -n "$prod_js_path" && "$js_path" == "$prod_js_path" ]]; then
-                echo "Preview UI JS hash matches production ($js_path); still serving main" >&2
-              elif [[ -n "$js_path" ]]; then
-                if curl -fsS --compressed --max-time 25 "${backend_url}${js_path}" -o "$js_file"; then
-                  if grep -aFq 'ws/$workspaceSlug' "$js_file" \
-                    || grep -aFq '_orgSlug.ws._workspaceSlug' "$js_file"; then
-                    echo "Preview UI smoke test passed (js=$js_path differs from production ${prod_js_path:-unknown}; workspace routes in bundle)"
-                    rm -f "$js_file"
-                    return 0
-                  fi
-                fi
-                echo "Preview UI bundle $js_path has no workspace routes (production js=${prod_js_path:-none})" >&2
-              else
-                echo "Preview UI HTML had no main JS bundle yet" >&2
-              fi
-              if (( $(date +%s) >= deadline )); then
-                echo "ERROR: preview is still serving production UI at $backend_url" >&2
-                echo "preview js=${js_path:-none} production js=${prod_js_path:-none}" >&2
-                printf '%s\n' "$html" | head -c 500 >&2 || true
-                rm -f "$js_file"
-                return 1
-              fi
-              sleep 8
-            done
-          }
-          smoke_test_preview_ui
+          bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"

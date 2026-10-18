@@ -483,7 +483,7 @@ const ConversationPushResponseSchema = z
   .openapi("ConversationPushResponse")
 
 const publishNotPublishable =
-  "Not publishable: missing_conversation, missing_workspace, read_only, not_github, not_allowed, workspace_required, default_branch (the branch would reach the default), other_branch (the sandbox is on another branch), nothing_committed, no_changes, no_write_access, or a sandbox on an older revision (stale_url, stale_generation, stale_sha, stale_default_branch, stale_connection)"
+  "Not publishable: missing_conversation, missing_workspace, read_only, not_github, not_allowed, workspace_required, default_branch (the branch would reach the default), other_branch (the sandbox is on another branch), nothing_committed, no_changes, outside_root (the commits change files outside the Workspace root folder), format_file (the commits change `.ctxpipe/workspace.yaml`), upgrade_needed (the commits change `sources/` on a Workspace below format 2), legacy_knowledge (the commits write a path of knowledge from before Workspaces, which is read-only), no_write_access, host_only_field (the commits add or change `generated_by` or `sources` front matter), or a sandbox on an older revision (stale_url, stale_generation, stale_sha, stale_default_branch, stale_connection)"
 
 const publishErrorResponses = {
   400: {
@@ -624,6 +624,11 @@ function publishError(
     case "stale_sha":
     case "stale_default_branch":
     case "stale_connection":
+    case "host_only_field":
+    case "outside_root":
+    case "format_file":
+    case "upgrade_needed":
+    case "legacy_knowledge":
       return { status: 400, error: reason }
     case "missing_sandbox":
     case "rebase_in_progress":

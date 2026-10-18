@@ -8,13 +8,13 @@ export const WORKSPACE_WRITE_JOB_KINDS = [
   "semantic_merge",
   "ops_folder_map",
   "bootstrap",
-  "link_unlink",
   "ui_file_edit",
   "import_key_cleanup",
+  "ownership_migration",
+  "unlink_retraction",
 ] as const
 
 export type WorkspaceWriteJobKind = (typeof WORKSPACE_WRITE_JOB_KINDS)[number]
-export type WorkspaceWriteKind = WorkspaceWriteJobKind | "migration_export"
 
 /** Cap retries of one kind against one SHA. Other kinds are unaffected. */
 export const WRITE_JOB_RETRY_CAP_PER_SHA = 3

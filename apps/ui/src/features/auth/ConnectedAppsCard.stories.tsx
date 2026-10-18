@@ -57,6 +57,8 @@ export const SkeletonRowMatchesLoadedRow: Story = {
     },
   },
   play: async ({ canvasElement }) => {
+    // Measure both rows with the same fonts.
+    await document.fonts.ready
     const rect = (element: Element) => {
       const { x, y, width, height } = element.getBoundingClientRect()
       return {
@@ -78,6 +80,7 @@ export const SkeletonRowMatchesLoadedRow: Story = {
 
     await gate.release()
     const loadedRow = (await within(canvasElement).findAllByRole("listitem"))[0]
+    await document.fonts.ready
     const loaded = {
       row: rect(loadedRow),
       actions: within(loadedRow).getAllByRole("button").map(rect),

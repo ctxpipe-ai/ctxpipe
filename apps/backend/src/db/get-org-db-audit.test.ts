@@ -45,14 +45,11 @@ describe("getOrgDb ambient-context audit", () => {
 
   it("getSystemDb does not query tenant tables except the migrate-role allowlist", () => {
     const tenantTables =
-      "connections|repositories|objects|claims|claimEvidence|workspaces|workspaceLinkedRepositories|workspaceWriteJobs|workspaceSandboxInstances|workspaceKnowledgeUnits|workspaceKnowledgeChunks|workspaceRepositoryCommits|workspaceCommitProjections|orgMemberPreferences|conversationMessages|conversations|confluenceSpaces|confluenceSyncTargets|orgOnboarding|repositoryCheckouts"
+      "connections|repositories|objects|claims|claimEvidence|workspaces|workspaceWriteJobs|workspaceSandboxInstances|workspaceKnowledgeUnits|workspaceKnowledgeChunks|workspaceRepositoryCommits|workspaceCommitProjections|orgMemberPreferences|conversationMessages|conversations|confluenceSpaces|confluenceSyncTargets|orgOnboarding|repositoryCheckouts"
     const tenantFrom = new RegExp(
       `(?:\\.from\\(\\s*(?:${tenantTables})\\s*\\)|\\.(?:insert|update|delete)\\(\\s*(?:${tenantTables})\\s*\\)|\\.query\\.(?:${tenantTables}))`,
     )
-    const allowlist = new Set([
-      "db/client.ts",
-      "scripts/backfillGithubConnectionSecrets.ts",
-    ])
+    const allowlist = new Set(["db/client.ts"])
     const files = walk(SRC)
     const violations: string[] = []
     for (const file of files) {

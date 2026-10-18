@@ -25,7 +25,6 @@ const getConfluenceSyncTargetWithRepoByConnectionIdMock = vi.hoisted(() =>
 )
 const loadConfluenceScopeFromRepoMock = vi.hoisted(() => vi.fn())
 const runWorkflowMock = vi.hoisted(() => vi.fn())
-const isConfluenceTargetHandedOverMock = vi.hoisted(() => vi.fn())
 
 vi.mock("../../../models/atlassian-connector.js", () => ({
   getForgeInstallationByForgeInstallationId:
@@ -42,7 +41,6 @@ vi.mock("../../../models/confluence-sync-target.js", () => ({
     getConfluenceSyncTargetByConnectionIdMock,
   getConfluenceSyncTargetWithRepoByConnectionId:
     getConfluenceSyncTargetWithRepoByConnectionIdMock,
-  isConfluenceTargetHandedOver: isConfluenceTargetHandedOverMock,
 }))
 
 vi.mock("../../../services/confluence/config-from-repo.js", () => ({
@@ -213,7 +211,6 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
       spaces: [{ spaceKey: "SP", selectedPageIds: null }],
     })
     runWorkflowMock.mockResolvedValue({ status: "completed" })
-    isConfluenceTargetHandedOverMock.mockResolvedValue(false)
   })
 
   function createApp() {
@@ -477,7 +474,7 @@ describe("POST /api/v1/webhook/atlassian/forge", () => {
   })
 
   it("still enqueues the legacy sync when the handover lookup throws", async () => {
-    isConfluenceTargetHandedOverMock.mockRejectedValue(new Error("no database"))
+    // This test opens no database, so the handover lookup fails.
     const { app } = createApp()
     const res = await app.request("/api/v1/webhook/atlassian/forge", {
       method: "POST",

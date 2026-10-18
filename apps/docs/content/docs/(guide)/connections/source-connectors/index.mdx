@@ -18,7 +18,7 @@ the source instead of assuming every provider is a continuous workspace sync.
 | **Confluence** | Scoped mirror | Selected spaces and pages | Merged `confluence/config.yaml` plus Forge events |
 | **Slack** | Intent capture | One existing thread at a time | A user mentions the bot inside that thread |
 | **PagerDuty** | Scoped mirror | Selected services' incidents and alerts | Merged `pagerduty/config.yaml` plus supported incident events |
-| **Buildkite** | Scoped mirror | The latest 25 finished builds of selected pipelines | Merged `.ctxpipe/sources.yaml` plus `build.finished` webhooks and a daily sync |
+| **Buildkite** | Scoped mirror | The latest 25 finished builds of selected pipelines | A merged source file under `sources/buildkite/` plus `build.finished` webhooks and a daily sync |
 
 The important distinction is **scope**. A scoped mirror keeps an approved subset
 current. Slack does not have a channel scope or history backfill: users promote a

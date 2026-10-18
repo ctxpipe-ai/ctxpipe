@@ -12,9 +12,10 @@ import {
   uniqueIndex,
   vector,
 } from "drizzle-orm/pg-core"
+import type { WorkspaceUpgradePayload } from "../../domain/upgrades/registry.js"
 import type { UnbornBootstrapBinding } from "../../domain/workspaces/bootstrap-input.js"
 import type { ConnectorMirrorSource } from "../../domain/workspaces/connector-mirror.js"
-import type { WorkspaceExtraction } from "../../domain/workspaces/extraction.js"
+import type { IngestPublishSource } from "../../domain/workspaces/extraction-source.js"
 import type { HydratePhaseRecord } from "../../domain/workspaces/hydrate-phases.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import type {
@@ -37,6 +38,8 @@ export const workspaces = pgTable.withRLS(
     slug: text("slug").notNull(),
     displayName: text("display_name").notNull(),
     workspaceRepositoryUrl: text("workspace_repository_url").notNull(),
+    /** Root folder in the repository (CTX-709); `""` is the repository root. */
+    rootPath: text("root_path").notNull().default(""),
     githubConnectionId: text("github_connection_id").references(
       () => connections.id,
       { onDelete: "set null" },
@@ -57,6 +60,13 @@ export const workspaces = pgTable.withRLS(
     }),
     hydratePhases: jsonb("hydrate_phases").$type<HydratePhaseRecord | null>(),
     readOnlyReason: text("read_only_reason"),
+    /**
+     * A cache of `.ctxpipe/workspace.yaml` at the active projection SHA
+     * (`workspace-format.ts`). Git is the source of truth: hydrate writes the
+     * value again for each projection. Null before the first hydrate that
+     * reads the file; `-1` when the file is not valid.
+     */
+    formatVersion: integer("format_version"),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()
       .defaultNow(),
@@ -74,33 +84,6 @@ export const workspaces = pgTable.withRLS(
       t.workspaceRepositoryUrl,
     ),
     index("workspaces_org_id_idx").on(t.orgId),
-    orgIsolationPolicy(t.orgId),
-  ],
-)
-
-export const workspaceLinkedRepositories = pgTable.withRLS(
-  "workspace_linked_repositories",
-  {
-    id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
-    workspaceId: text("workspace_id")
-      .notNull()
-      .references(() => workspaces.id, { onDelete: "cascade" }),
-    gitUrl: text("git_url").notNull(),
-    desiredRef: text("desired_ref"),
-    desiredSha: text("desired_sha"),
-    indexedSha: text("indexed_sha"),
-    createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
-      .notNull()
-      .defaultNow(),
-  },
-  (t) => [
-    unique("workspace_linked_repositories_workspace_id_git_url_uidx").on(
-      t.workspaceId,
-      t.gitUrl,
-    ),
-    index("workspace_linked_repositories_workspace_id_idx").on(t.workspaceId),
-    index("workspace_linked_repositories_org_id_idx").on(t.orgId),
     orgIsolationPolicy(t.orgId),
   ],
 )
@@ -247,13 +230,17 @@ export const workspaceWriteJobs = pgTable.withRLS(
       planning?: WorkspaceWritePlanning
       workflowRunId?: string
       semanticHandoff?: WorkspaceSemanticHandoff
-      exportTipSha?: string
       knowledgePaths?: Record<string, string>
       previousSha?: string
-      extraction?: WorkspaceExtraction
+      extraction?: Record<string, unknown>
+      ingest?: IngestPublishSource
       mirror?: ConnectorMirrorSource
       linkAction?: "link" | "unlink"
       linkGitUrl?: string
+      retractRepositoryUrl?: string
+      retractSourcePath?: string
+      /** Why the job failed, when it failed for a known reason. */
+      failureReason?: string
       displayName?: string
       defaultBranch?: string
       jobWorkspaceUrl?: string
@@ -261,6 +248,8 @@ export const workspaceWriteJobs = pgTable.withRLS(
       remoteTipSha?: string | null
       mergeFiles?: GitFileChange[]
       mergeDeletePaths?: string[]
+      /** Only on rows of kind `upgrade` (ADR-053). */
+      upgrade?: WorkspaceUpgradePayload
     } | null>(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })
       .notNull()

@@ -178,6 +178,24 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     expect(after).toHaveLength(before.length)
   })
 
+  it("refuses an organization slug that is not a slug, and calls no Buildkite API", async () => {
+    const calls: string[] = []
+    server.use(
+      http.all("https://api.buildkite.com/*", ({ request }) => {
+        calls.push(request.url)
+        return new HttpResponse(null, { status: 500 })
+      }),
+    )
+
+    const res = await connect({
+      organizationSlug: "acme/pipelines/x?y=",
+      apiToken: GOOD_TOKEN,
+    })
+
+    expect(res.status).toBe(400)
+    expect(calls).toEqual([])
+  })
+
   it("shows the status and webhook URL, and saves the webhook token", async () => {
     const { connectionId } = (await (
       await connect({ organizationSlug: "acme", apiToken: GOOD_TOKEN })

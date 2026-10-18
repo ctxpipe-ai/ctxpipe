@@ -109,6 +109,41 @@ export function conversationBranchPushTool(input: {
           // the sandbox's read credential to fetch.
           next: `The branch on GitHub has commits you do not have. Fetch them with \`${SANDBOX_READ_GIT} fetch origin "$(git branch --show-current)"\`, then run \`git rebase FETCH_HEAD\` on the session branch, resolve any conflicts, and push again.`,
         }
+      if (outcome.status === "skipped" && outcome.reason === "host_only_field")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Only ctx| adds or changes the generated_by and sources front matter fields, because they give a file to ingestion. A new commit that undoes the change is not sufficient, because each commit is checked. Remove the change from every unpushed commit (for example, `git reset --soft` to the last pushed commit, undo the change, and commit again), then push again.",
+        }
+      if (outcome.status === "skipped" && outcome.reason === "outside_root")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Your commits change files outside the Workspace root folder. Undo those changes in new commits or rebase them out, keep only files below the root folder, and push again.",
+        }
+      if (outcome.status === "skipped" && outcome.reason === "format_file")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Only a ctx| upgrade pull request changes .ctxpipe/workspace.yaml. Undo the change to that file in a new commit, and push again.",
+        }
+      if (outcome.status === "skipped" && outcome.reason === "upgrade_needed")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "This Workspace does not use the files under sources/ yet. Undo the changes under sources/ in a new commit, and push again. A person can run the Workspace upgrade first.",
+        }
+      if (outcome.status === "skipped" && outcome.reason === "legacy_knowledge")
+        return {
+          pushed: false,
+          reason: outcome.reason,
+          uncommitted,
+          next: "Your commits write a path of knowledge from before Workspaces. ctx| serves that knowledge from its database, not from git, so it is read-only until the re-ingestion of its repository replaces it. Undo the change to that path in a new commit, write your change at another path, and push again.",
+        }
       return { pushed: false, reason: outcome.reason, uncommitted }
     },
   }

@@ -55,7 +55,7 @@ type BuildkiteSetupDialogProps = {
 
 /**
  * Connect Buildkite with an API access token, add the webhook, then add
- * Buildkite to Workspaces (ADR-050, ADR-053). The connection holds auth
+ * Buildkite to Workspaces (ADR-050, ADR-054). The connection holds auth
  * only; each Workspace keeps its pipelines in its sources.
  */
 export function BuildkiteSetupDialog({

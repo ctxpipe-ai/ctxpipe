@@ -71,7 +71,7 @@ function withoutUnchanged(
 }
 
 /**
- * The Buildkite adapter of the Workspace sources sync (ADR-053). Each sync
+ * The Buildkite adapter of the Workspace sources sync (ADR-054). Each sync
  * reads each pipeline and its latest finished builds (two requests for each
  * pipeline), and writes them under `buildkite/pipelines/<slug>/`. A build
  * that is no longer among the latest goes away in the same commit.

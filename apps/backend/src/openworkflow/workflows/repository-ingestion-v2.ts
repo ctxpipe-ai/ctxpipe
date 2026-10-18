@@ -26,12 +26,21 @@ import {
   ingestionV2InputSchema,
   ingestionV2Status,
 } from "../../domain/ingestion/ingestion-run.js"
+import { workspacePublishPipeline } from "../../domain/ingestion/ingestion-v2-config.js"
 import {
   resolveIngestionV2Run,
   withIngestionOrg,
 } from "../../domain/ingestion/ingestion-v2-resolve.js"
-import { resolveSemanticConflicts } from "../../domain/workspaces/semantic-merge.js"
-import { pushWorkspaceIngestAssemble } from "../../domain/workspaces/write-broker.js"
+import {
+  resolveIngestConflicts,
+  SemanticResolveError,
+} from "../../domain/workspaces/semantic-merge.js"
+import { readWorkspaceFormatAt } from "../../domain/workspaces/workspace-format-tree.js"
+import {
+  deleteWorkspaceIngestRefs,
+  pushWorkspaceIngestAssemble,
+} from "../../domain/workspaces/write-broker.js"
+import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import {
   createLogger,
   getLogger,
@@ -51,13 +60,15 @@ import {
   workspaceSkillBroker,
 } from "./ingestion-shard.js"
 import { repositoryIndex } from "./repository-index.js"
+import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 
 /*
- * The ingestion v2 parent workflow (ADR-052, T09), in shadow mode only:
+ * The ingestion v2 parent workflow (ADR-052, T09 and T21):
  *
  *   resolve -> index -> discover-roots -> skill:repository:repository
  *   -> shard:<n> (children) -> assemble:<workspaceId>
  *   -> repository-skills (child) -> release
+ *   -> publish:<workspaceId> (child) -> delete-refs:<workspaceId>
  *
  * `discover-roots` runs once, in the sandbox of shard 0, and the host check
  * (`resolveDiscoveredRoots`) plans the roots. Each shard gets its explicit
@@ -67,8 +78,29 @@ import { repositoryIndex } from "./repository-index.js"
  * writes the repository unit on the assembled ref. Its tip is the run base
  * of each Workspace: the shard refs start there, and `assemble` merges the
  * shard tips against it (ADR-052 section 6).
- * Nothing publishes: the refs stay for the comparison (T20). T21 adds publish.
+ * A shadow run (`shadow` in the input) publishes nothing: the refs stay for
+ * the comparison (T20). Another run gives each assembled tip to
+ * `workspace-write-extract-ingest`, which replays the delta from the pinned
+ * revision on the current default tip as one commit. A path that a person
+ * also changed after the pin goes through the semantic merge and the patch
+ * validator; a rejected merge publishes nothing and makes the Workspace
+ * `partial`. A `partial` Workspace publishes its accepted ops, but the
+ * deletes of a failed root stay out: a failed root gets no retraction. A
+ * refused assemble publishes the run base; so does an assemble whose merge
+ * model fails. A publish that fails (the merge model fails, or the default
+ * branch wins each push race) also makes the Workspace `partial`, and the
+ * other Workspaces publish. Then `delete-refs` deletes the run's refs, but
+ * not the refs of a Workspace whose merge model or publish failed. The tip check deletes the refs that stay (the run is then
+ * finished and not a shadow run). A run outside shadow mode publishes only
+ * to a Workspace whose tree at the pinned revision is at format 3 or more
+ * (G5). Upgrade step 3 moved the old extracted files of that tree to
+ * ingestion v2 ownership.
  */
+
+/** The write job of the publish of one Workspace; a replay finds it. */
+export function ingestPublishJobId(runId: string, workspaceId: string): string {
+  return `wjob_${runId}_publish_${workspaceId}`
+}
 
 /** Shards run in parallel, a few at a time. */
 const SHARD_BATCH = 4
@@ -88,6 +120,8 @@ export type IngestionV2Output =
         rejects: number
         partial: number
         refused?: string
+        /** The commit on the default branch; null for no change. */
+        published?: string | null
       }>
     }
 
@@ -168,14 +202,17 @@ export function defineRepositoryIngestionV2Workflow(
       async function ingest(
         attributes: Attributes,
       ): Promise<IngestionV2Output> {
-        if (!input.shadow)
-          // Publish from the ref is T21. Until then a run must not
-          // replace the old pipeline's output.
-          throw new Error("Ingestion v2 runs only in shadow mode")
-
         const resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )
+        if (!resolved.skipped)
+          for (const workspaceId of resolved.needsUpgrade)
+            logIngestEvent("warn", "ingestion-v2.upgrade-needed", {
+              ingestionRunId: run.id,
+              workspaceId,
+              reason:
+                "The Workspace is below format 3, so the run does not publish to it",
+            })
         if (resolved.skipped || resolved.destinations.length === 0)
           return {
             status: "skipped",
@@ -302,6 +339,7 @@ export function defineRepositoryIngestionV2Workflow(
             ops: 0,
             rejects: 0,
             partial: 0,
+            partialRoots: [],
           }),
         )
         for (const skill of plannedIngestSkills(bundle.skills, "first"))
@@ -366,6 +404,12 @@ export function defineRepositoryIngestionV2Workflow(
           shardOutputs.push(...settled)
         }
 
+        /**
+         * The Workspaces whose merge model failed (at assemble or publish),
+         * or whose publish lost each push race: their refs stay for the
+         * tip check.
+         */
+        const keepRefs = new Set<string>()
         const workspaces: Extract<
           IngestionV2Output,
           { workspaces: unknown }
@@ -386,7 +430,7 @@ export function defineRepositoryIngestionV2Workflow(
             },
             async (): Promise<
               | { tip: string; ops: number }
-              | { tip: null; ops: 0; refused: string }
+              | { tip: null; ops: 0; refused: string; keepRefs?: true }
             > => {
               try {
                 const result = await withIngestionOrg(input.orgId, () =>
@@ -416,8 +460,9 @@ export function defineRepositoryIngestionV2Workflow(
                       // Two shards that change one path: the semantic
                       // merge, whose files the patch validator checks.
                       semanticMerge: {
-                        resolve: resolveSemanticConflicts,
+                        resolve: resolveIngestConflicts,
                         source: { url: input.source.url, sha: input.sha },
+                        sourcePath: destination.sourcePath,
                         sourcePathExists: (path) =>
                           ingestSourceTree({
                             orgId: input.orgId,
@@ -441,7 +486,11 @@ export function defineRepositoryIngestionV2Workflow(
                 )
                 return { tip: result.sha, ops: result.ops }
               } catch (error) {
-                if (!(error instanceof IngestRefRefusedError)) throw error
+                // A failed merge model is a refused assemble too, but the
+                // run keeps the refs of the Workspace.
+                const failed = error instanceof SemanticResolveError
+                if (!(error instanceof IngestRefRefusedError) && !failed)
+                  throw error
                 logIngestEvent("warn", "ingestion-v2.partial", {
                   ingestionRunId: run.id,
                   ingestStep: assembleStep,
@@ -452,16 +501,21 @@ export function defineRepositoryIngestionV2Workflow(
                   tip: null,
                   ops: 0,
                   refused: error.message.slice(0, 300),
+                  ...(failed ? { keepRefs: true as const } : {}),
                 }
               }
             },
           )
+          if ("keepRefs" in assembled) keepRefs.add(destination.workspaceId)
           const firstPart = first.find(
             (w) => w.workspaceId === destination.workspaceId,
           )
           workspaces.push({
             workspaceId: destination.workspaceId,
-            assembled: assembled.tip,
+            // A refused assemble drops the shards' ops. The run base (the
+            // repository step's ops) is still accepted, so it publishes.
+            assembled:
+              assembled.tip ?? runBase[destination.workspaceId]?.tip ?? null,
             ops: assembled.ops + (firstPart?.ops ?? 0),
             rejects:
               parts.reduce((sum, p) => sum + p.rejects, 0) +
@@ -507,6 +561,154 @@ export function defineRepositoryIngestionV2Workflow(
         }
 
         await release()
+
+        if (!input.shadow)
+          for (const destination of destinations) {
+            const { workspaceId } = destination
+            const entry = workspaces.find((w) => w.workspaceId === workspaceId)
+            if (entry?.assembled) {
+              const assembled = entry.assembled
+              const target = await step.run(
+                { name: `publish-target:${workspaceId}` },
+                async () => {
+                  const admission = await withIngestionOrg(input.orgId, () =>
+                    getWorkspaceWriteAdmission(workspaceId, input.orgId),
+                  )
+                  // The pinned revision belongs to the binding that
+                  // `resolve` read. A relink publishes nothing.
+                  if (admission?.revision.generation !== destination.generation)
+                    return { skip: "relinked" as const }
+                  const pinned = {
+                    ...admission.revision,
+                    sha: destination.pinnedRevision,
+                  }
+                  // `resolve` read the cached format of the active
+                  // projection. The pinned tree decides (G5): a revert of the
+                  // upgrade before hydrate gives a tree below format 3.
+                  const format = await readWorkspaceFormatAt({
+                    orgId: input.orgId,
+                    env: env(),
+                    revision: pinned,
+                  })
+                  if (workspacePublishPipeline(format) !== "v2")
+                    return { skip: "below_format" as const }
+                  return { revision: pinned }
+                },
+              )
+              const revision = "revision" in target ? target.revision : null
+              if (revision) {
+                const published = await step.runWorkflow(
+                  workspaceExtractIngest.spec,
+                  {
+                    orgId: input.orgId,
+                    workspaceId,
+                    jobId: ingestPublishJobId(run.id, workspaceId),
+                    revision,
+                    ingest: {
+                      runId: run.id,
+                      tip: assembled,
+                      // Only a failed root keeps its files (no retraction).
+                      withheldRoots: [
+                        ...new Set(
+                          shardOutputs.flatMap((output) =>
+                            output.workspaces
+                              .filter((w) => w.workspaceId === workspaceId)
+                              .flatMap((w) => w.partialRoots),
+                          ),
+                        ),
+                      ].sort(),
+                      bundle: scope.bundle,
+                      source: input.source,
+                      sourcePath: destination.sourcePath,
+                      sourceSha: input.sha,
+                      authorTime: input.authorTime,
+                    },
+                  },
+                  { name: `publish:${workspaceId}` },
+                )
+                entry.published = published.committed
+                  ? published.commitSha
+                  : null
+                if (!published.committed && published.reason === "failed")
+                  keepRefs.add(workspaceId)
+                if (
+                  !published.committed &&
+                  (published.reason === "refused" ||
+                    published.reason === "failed")
+                ) {
+                  entry.refused =
+                    published.reason === "refused"
+                      ? published.refused
+                      : published.failed
+                  entry.partial += 1
+                  getLogger().warn("ingestion-v2.partial", {
+                    ingestionRunId: run.id,
+                    step: `publish:${workspaceId}`,
+                    workspaceId,
+                    // A fixed code: the cause text can hold model or customer text.
+                    reason: published.reason,
+                  })
+                }
+              } else if ("skip" in target && target.skip === "below_format") {
+                entry.published = null
+                logIngestEvent("warn", "ingestion-v2.upgrade-needed", {
+                  ingestionRunId: run.id,
+                  workspaceId,
+                  reason:
+                    "The pinned revision is below format 3, so the run does not publish to it",
+                })
+              } else {
+                entry.refused = "The Workspace binding changed before publish"
+                entry.partial += 1
+                getLogger().warn("ingestion-v2.partial", {
+                  ingestionRunId: run.id,
+                  step: `publish:${workspaceId}`,
+                  workspaceId,
+                  reason: entry.refused,
+                })
+              }
+            }
+          }
+        // Each Workspace publishes first, so a failed delete stops no
+        // publish.
+        if (!input.shadow)
+          for (const { workspaceId, generation } of destinations.filter(
+            (d) => !keepRefs.has(d.workspaceId),
+          ))
+            await step.run(
+              {
+                name: `delete-refs:${workspaceId}`,
+                retryPolicy: { maximumAttempts: 3, initialInterval: "10s" },
+              },
+              async () => {
+                try {
+                  const deleted = await withIngestionOrg(input.orgId, () =>
+                    deleteWorkspaceIngestRefs(
+                      {
+                        orgId: input.orgId,
+                        job: {
+                          runId: run.id,
+                          workspaceId,
+                          generation,
+                        },
+                      },
+                      env(),
+                    ),
+                  )
+                  return { deleted: deleted.length }
+                } catch (error) {
+                  // A Workspace that is not writable now, or was relinked:
+                  // the tip check deletes the refs later.
+                  if (!(error instanceof IngestRefRefusedError)) throw error
+                  getLogger().warn("ingestion-v2.delete-refs-refused", {
+                    workspaceId,
+                    reason: error.message,
+                  })
+                  return { deleted: 0 }
+                }
+              },
+            )
+
         getLogger().info("ingestion-v2.finished", {
           shards,
           roots: roots.length,

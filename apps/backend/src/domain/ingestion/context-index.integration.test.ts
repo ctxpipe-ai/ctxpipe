@@ -10,20 +10,21 @@ import {
   CONTEXT_INDEX_MAX_ENTRIES,
 } from "./context-index.js"
 
-const sourceUrl = "https://github.com/acme/app"
-const otherUrl = "https://github.com/acme/other"
+// Source file paths (`sources`, ADR-050 revision 2026-10-16).
+const sourcePath = "sources/github/acme/app.md"
+const otherPath = "sources/github/acme/other.md"
 
 function generated(name: string, sources: string[], body = "Body.\n") {
   return `---\nkind: Service\nname: ${name}\ngenerated_by: ctxpipe-extract\nsources:\n${sources.map((s) => `  - ${s}`).join("\n")}\n---\n${body}`
 }
 
 const files: Record<string, string> = {
-  "knowledge/services/api.md": generated("API service", [sourceUrl]).replace(
+  "knowledge/services/api.md": generated("API service", [sourcePath]).replace(
     "kind: Service\n",
     "kind: Service\nsummary: Serves the public API.\n",
   ),
-  "knowledge/services/shared.md": generated("Shared", [sourceUrl, otherUrl]),
-  "knowledge/services/theirs.md": generated("Theirs", [otherUrl]),
+  "knowledge/services/shared.md": generated("Shared", [sourcePath, otherPath]),
+  "knowledge/services/theirs.md": generated("Theirs", [otherPath]),
   // A human removed the generated_by field, so the file is theirs now.
   "knowledge/services/taken.md":
     "---\nkind: Service\nname: Taken over\nsources:\n  - https://github.com/acme/app\n---\nHuman text.\n",
@@ -81,11 +82,38 @@ describe("buildContextIndex (Postgres, git)", () => {
   })
   afterAll(() => ctx.cleanup())
 
+  it("reads the raw files below the Workspace root folder", async () => {
+    const rooted = Object.fromEntries(
+      Object.entries(files).map(([path, content]) => [
+        `docs/context/${path}`,
+        content,
+      ]),
+    )
+    const rootedSha = await repo.commit(rooted)
+    await project(rootedSha, files)
+    try {
+      const { index } = await build({
+        workspaceId,
+        sha: rootedSha,
+        sourcePath,
+        repoDir: repo.dir,
+        rootPath: "docs/context",
+      })
+      expect(
+        index.entries.find(
+          (entry) => entry.path === "knowledge/services/api.md",
+        ),
+      ).toMatchObject({ summary: "Serves the public API.", owned: true })
+    } finally {
+      await project(sha, files)
+    }
+  })
+
   it("lists each unit with title, sources, and the owned flag", async () => {
     const { index } = await build({
       workspaceId,
       sha,
-      sourceUrl,
+      sourcePath,
       repoDir: repo.dir,
     })
     expect(index).toMatchObject({
@@ -111,7 +139,7 @@ describe("buildContextIndex (Postgres, git)", () => {
         title: "API service",
         summary: "Serves the public API.",
         links: [],
-        sources: [sourceUrl],
+        sources: [sourcePath],
         owned: true,
       },
       {
@@ -120,7 +148,7 @@ describe("buildContextIndex (Postgres, git)", () => {
         title: "Shared",
         summary: "Body.",
         links: [],
-        sources: [sourceUrl, otherUrl],
+        sources: [sourcePath, otherPath],
         owned: true,
       },
       {
@@ -138,7 +166,7 @@ describe("buildContextIndex (Postgres, git)", () => {
         title: "Theirs",
         summary: "Body.",
         links: [],
-        sources: [otherUrl],
+        sources: [otherPath],
         owned: false,
       },
     ])
@@ -148,14 +176,14 @@ describe("buildContextIndex (Postgres, git)", () => {
     const { index } = await build({
       workspaceId,
       sha,
-      sourceUrl: "https://github.com/acme/unrelated",
+      sourcePath: "sources/github/acme/unrelated.md",
       repoDir: repo.dir,
     })
     expect(index.entries.some((e) => e.owned)).toBe(false)
   })
 
   it("gives the same bytes for the same revision", async () => {
-    const input = { workspaceId, sha, sourceUrl, repoDir: repo.dir }
+    const input = { workspaceId, sha, sourcePath, repoDir: repo.dir }
     expect((await build(input)).json).toBe((await build(input)).json)
   })
 
@@ -167,7 +195,7 @@ describe("buildContextIndex (Postgres, git)", () => {
     const { index } = await build({
       workspaceId,
       sha: unprojected,
-      sourceUrl,
+      sourcePath,
       repoDir: repo.dir,
     })
     expect(index.entries).toEqual([])
@@ -179,13 +207,13 @@ describe("buildContextIndex (Postgres, git)", () => {
       const n = String(i).padStart(5, "0")
       many[`knowledge/guides/g${n}.md`] = `# Guide ${n}\n`
     }
-    many["knowledge/services/zz-owned.md"] = generated("Owned", [sourceUrl])
+    many["knowledge/services/zz-owned.md"] = generated("Owned", [sourcePath])
     const bigSha = await repo.commit(many)
     await project(bigSha, many)
     const { index, json } = await build({
       workspaceId,
       sha: bigSha,
-      sourceUrl,
+      sourcePath,
       repoDir: repo.dir,
     })
     expect(index.truncated).toBe(true)

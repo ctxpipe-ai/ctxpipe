@@ -2,7 +2,11 @@ import { useSuspenseQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate } from "@tanstack/react-router"
 import { Suspense } from "react"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
-import { isWithinGuideWindow } from "@/features/home/setup-guide/guide-state"
+import {
+  isGuideRecent,
+  isWithinGuideWindow,
+  oldestCreatedAt,
+} from "@/features/home/setup-guide/guide-state"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -57,14 +61,14 @@ export function IndexRoutePage() {
 
   const user = sessionUser(session)
   if (!user?.onboardingCompletedAt) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+    return <Navigate to="/onboarding" replace />
   }
 
   const orgList = organizations ?? []
   const selected =
     orgList.find((org) => org.slug === selectedOrganizationSlug) ?? orgList[0]
   if (!selected) {
-    return <Navigate to="/onboarding" search={{ orgSlug: undefined }} replace />
+    return <Navigate to="/onboarding" replace />
   }
 
   if (error != null || pendingAccountClaim != null) {
@@ -83,8 +87,15 @@ export function IndexRoutePage() {
     )
   }
 
-  // A new user lands on Home, where the setup guide is (CTX-552).
-  if (isWithinGuideWindow(user.onboardingCompletedAt, Date.now())) {
+  // A new user, or a new organization, lands on Home, where the setup guide
+  // is (CTX-552). An organization with no Workspace gets Home below.
+  if (
+    isGuideRecent({
+      onboardingCompletedAt: user.onboardingCompletedAt,
+      orgCreatedAt: selected.createdAt,
+      now: Date.now(),
+    })
+  ) {
     return (
       <Navigate to="/$orgSlug" params={{ orgSlug: selected.slug }} replace />
     )
@@ -103,6 +114,11 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const workspace = landingWorkspace(data)
   // With no Workspace, Home shows the setup guide (CTX-552).
   if (!workspace) {
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+  }
+  // An organization whose setup started in the last 14 days also gets Home,
+  // so the guide stays after the first Workspace.
+  if (isWithinGuideWindow(oldestCreatedAt(data.items), Date.now())) {
     return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   }
   return (

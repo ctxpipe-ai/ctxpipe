@@ -80,8 +80,8 @@ commit and pull request. The Workspace graph then joins the build to them.
   <Step>
     ### Add Buildkite to Workspaces
 
-    Select the Workspaces, and the pipelines for each. ctx| adds a source to
-    `.ctxpipe/sources.yaml` in each Workspace repository, with a pull request.
+    Select the Workspaces, and the pipelines for each. ctx| adds a source file
+    under `sources/buildkite/` in each Workspace repository, with a pull request.
     Merge the pull request to start the sync.
   </Step>
 </Steps>

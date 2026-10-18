@@ -6,7 +6,7 @@ Read from skill step 1 before picking an anchor. Existing connectors below are *
 
 GitHub is an ingest source **and** today’s rich write adapter (config PRs, `commitFiles`). Installation + encrypted App credentials live on `connections.config`. Repositories are product rows (`repositories.github_connection_id`), not connector scope yaml. Per-connection webhook: `POST /api/v1/webhook/github/:connectionId`.
 
-An optional **pull-request scoped mirror** (ADR-031) binds a context repository on the same GitHub connection (`connections.config.prMirror`) and writes `github/config.yaml` plus `github/pulls/…` Markdown. That is a scoped-mirror job on the GitHub row, not a second connection type. Linear still treats GitHub PRs as references only. Connector warehouse prefixes are never instruction-extracted; each connector's Markdown is parsed by its own deterministic extractor in `graphs/codeIngestionGraph/nodes/connectorExtractors.ts`, and cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts` (ADR-032, ADR-033).
+An optional **pull-request scoped mirror** (ADR-031) binds a context repository on the same GitHub connection (`connections.config.prMirror`) and writes `github/config.yaml` plus `github/pulls/…` Markdown. That is a scoped-mirror job on the GitHub row, not a second connection type. Linear still treats GitHub PRs as references only. Connector warehouse prefixes are never instruction-extracted; hydrate reads each connector's Markdown into knowledge units (`domain/workspaces/mirror-units.ts`), and cross-tool references resolve through `domain/codeIngestion/referenceResolver.ts` (ADR-032, ADR-033).
 
 The doctrine is git. Other hosts are in scope later; do not stub a GitLab PR client in a new connector unless that is the task.
 
@@ -20,7 +20,7 @@ Notion: pages as Markdown; databases as `index.md` + `table.csv` + `rows/<row>/i
 
 PagerDuty (ADR-034): selected services in `pagerduty/config.yaml`; one Markdown file per in-scope incident. v3 webhook HMAC is verified then bound to the one connection whose stored secret matches.
 
-Buildkite (ADR-053) is the first connector that starts on Workspace sources (ADR-050): scope in `.ctxpipe/sources.yaml`, no `<slug>/config.yaml`, no sync repository on the connection. It is the anchor for a new token-auth scoped mirror.
+Buildkite (ADR-054) is the first connector that starts on Workspace sources (ADR-050): scope in a source file `sources/buildkite/<name>.md`, no `<slug>/config.yaml`, no sync repository on the connection. It is the anchor for a new token-auth scoped mirror.
 
 Live updates: signed provider webhook → `*-sync-entity` OpenWorkflow → `commitFiles` to the target branch → ingest. Events during `initial_sync` / non-live are skipped.
 

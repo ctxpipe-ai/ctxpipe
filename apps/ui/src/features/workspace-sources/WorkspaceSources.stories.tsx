@@ -5,6 +5,7 @@ import { expect, userEvent, waitFor, within } from "storybook/test"
 import { linearAvailableScopesHandler } from "@/mocks/linear-handlers"
 import { githubInstallationReposHandler } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceChangeHandlers,
   workspaceSourceFixture,
@@ -33,6 +34,8 @@ const meta = {
       pattern: "orgIndex",
       orgSlug: "acme",
     } satisfies StoryRouteParams,
+    // Only an owner or admin sees the pickers. A member story sets `role`.
+    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
   },
   args: { orgSlug: "acme", workspaceSlug: "docs" },
 } satisfies Meta<typeof WorkspaceSources>
@@ -53,27 +56,37 @@ const connected = orgConnectionsHandler([
 ])
 
 const githubSource = workspaceSourceFixture({
-  sourceKey: "product-repos",
+  path: "sources/github/acme/api.md",
   provider: "github",
   connectionId: "con_gh1",
   connectionName: "acme-gh",
-  scope: { repositories: ["acme/api", "acme/web"] },
-  scopeSummary: "2 repositories",
+  scope: { repository: "acme/api" },
+  scopeSummary: "acme/api",
+  description: "The public API service. Its docs link here.",
+})
+const githubWebSource = workspaceSourceFixture({
+  path: "sources/github/acme/web.md",
+  provider: "github",
+  connectionId: "con_gh1",
+  connectionName: "acme-gh",
+  scope: { repository: "acme/web" },
+  scopeSummary: "acme/web",
 })
 const confluenceSource = workspaceSourceFixture({
-  sourceKey: "eng-docs",
+  path: "sources/confluence/eng-docs.md",
   provider: "confluence",
   connectionId: "con_cf1",
   connectionName: "acme.atlassian.net",
   scopeSummary: "3 spaces",
 })
 const linearSource = workspaceSourceFixture({
-  sourceKey: "eng-issues",
+  path: "sources/linear/eng-issues.md",
   provider: "linear",
   connectionId: "con_li1",
   connectionName: "Acme Linear",
   scope: { teams: ["ENG"] },
   scopeSummary: "1 team",
+  description: "Engineering issues. Ingest them for the weekly review.",
 })
 
 export const Loading: Story = {
@@ -110,7 +123,7 @@ export const Empty: Story = {
       canvas.getByRole("link", { name: "Add connection" }),
     ).toHaveAttribute("href", "/acme/connectors")
     await expect(canvas.queryByText("Add another connection")).toBeNull()
-    await expect(canvas.queryByText(".ctxpipe/sources.yaml")).toBeNull()
+    await expect(canvas.queryByText("sources/")).toBeNull()
   },
 }
 
@@ -147,7 +160,12 @@ export const SeveralProviders: Story = {
         page: [
           workspaceSourcesHandler(
             workspaceSourceList({
-              items: [githubSource, confluenceSource, linearSource],
+              items: [
+                githubSource,
+                githubWebSource,
+                confluenceSource,
+                linearSource,
+              ],
             }),
           ),
           connected,
@@ -158,8 +176,14 @@ export const SeveralProviders: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("acme/api")
-    await expect(canvas.getByText("3 sources from 3 connectors")).toBeVisible()
-    await expect(canvas.getByText(".ctxpipe/sources.yaml")).toBeVisible()
+    await expect(canvas.getByText("4 sources from 3 connectors")).toBeVisible()
+    await expect(canvas.getByText("sources/")).toBeVisible()
+    // The description of a source file shows under its path.
+    await expect(
+      canvas.getByText(
+        "Engineering issues. Ingest them for the weekly review.",
+      ),
+    ).toBeVisible()
     for (const [provider, heading, summary] of [
       ["github", "GitHub", "acme/web"],
       ["confluence", "Confluence", "3 spaces"],
@@ -191,12 +215,12 @@ export const OneProviderSeveralSources: Story = {
                 linearSource,
                 {
                   ...linearSource,
-                  sourceKey: "ops-issues",
+                  path: "sources/linear/ops-issues.md",
                   scopeSummary: "2 teams",
                 },
                 {
                   ...linearSource,
-                  sourceKey: "labs-issues",
+                  path: "sources/linear/labs-issues.md",
                   connectionId: "con_li2",
                   connectionName: "Labs Linear",
                   scopeSummary: "3 teams",
@@ -222,9 +246,91 @@ export const OneProviderSeveralSources: Story = {
     await expect(group.getAllByRole("listitem")).toHaveLength(3)
     await expect(group.getByText("2 teams")).toBeVisible()
     await expect(
-      group.getByRole("button", { name: "Edit labs-issues" }),
+      group.getByRole("button", { name: "Edit sources/linear/labs-issues.md" }),
     ).toBeVisible()
     await expect(canvas.getAllByRole("heading", { level: 3 })).toHaveLength(1)
+  },
+}
+
+const goneLinearSources = ["old-issues", "old-projects"].map((name) =>
+  workspaceSourceFixture({
+    path: `sources/linear/${name}.md`,
+    provider: "linear",
+    connectionId: "con_gone",
+    connectionName: null,
+    status: "connection_missing",
+    statusDetail: "The connection con_gone does not exist",
+    scopeSummary: "1 team",
+  }),
+)
+
+/**
+ * Two sources share one reason. The Linear header shows the reason once,
+ * with the count, and the rows do not repeat it. A wide section shows the
+ * table columns.
+ */
+export const SharedReasonShowsOnce: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [linearSource, ...goneLinearSources],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("3 sources from 1 connector · 2 need attention")
+    const section = canvasElement.querySelector<HTMLElement>("#source-linear")
+    if (!section) throw new Error("Missing Linear group")
+    const group = within(section)
+    await expect(
+      group.getAllByText("The connection con_gone does not exist"),
+    ).toHaveLength(1)
+    await expect(group.getByText("· 2 sources")).toBeVisible()
+    await expect(group.getAllByText("Connection missing")).toHaveLength(2)
+    await expect(canvas.getByText("File", { exact: true })).toBeVisible()
+  },
+}
+
+/**
+ * In a narrow pane the table folds: no column header, and each row shows
+ * its connection and key under the title.
+ */
+export const NarrowPaneFoldsTable: Story = {
+  decorators: [
+    (Story) => (
+      <div className="w-[30rem]">
+        <Story />
+      </div>
+    ),
+  ],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("sources/linear/eng-issues.md")
+    await expect(canvas.getByText("File", { exact: true })).not.toBeVisible()
+    await expect(canvas.getByText("Acme Linear")).toBeVisible()
+    await expect(
+      canvas.getByRole("button", { name: "Edit sources/linear/eng-issues.md" }),
+    ).toBeVisible()
   },
 }
 
@@ -239,7 +345,7 @@ export const NeedsAttention: Story = {
                 githubSource,
                 linearSource,
                 workspaceSourceFixture({
-                  sourceKey: "old-issues",
+                  path: "sources/linear/old-issues.md",
                   provider: "linear",
                   connectionId: "con_gone",
                   connectionName: null,
@@ -278,7 +384,7 @@ export const PendingAdd: Story = {
             workspaceSourceList({
               pendingChanges: [
                 {
-                  sourceKey: "eng-docs",
+                  path: "sources/confluence/eng-docs.md",
                   provider: "confluence",
                   action: "add",
                   pullRequestUrl: "https://github.com/acme/docs/pull/5",
@@ -301,9 +407,17 @@ export const PendingAdd: Story = {
     const group = within(section)
     await expect(group.getByText("1 awaiting merge")).toBeVisible()
     await expect(group.getByText("New source")).toBeVisible()
-    await expect(
-      group.getByRole("link", { name: "Awaiting merge" }),
-    ).toHaveAttribute("href", "https://github.com/acme/docs/pull/5")
+    // "Awaiting merge" reads as a link: it names the pull request on GitHub,
+    // and its icon shows that it leaves the app.
+    const link = group.getByRole("link", {
+      name: "Awaiting merge. Opens the pull request on GitHub in a new tab.",
+    })
+    await expect(link).toHaveAttribute(
+      "href",
+      "https://github.com/acme/docs/pull/5",
+    )
+    await expect(link).toHaveAttribute("target", "_blank")
+    await expect(link.querySelector("svg")).not.toBeNull()
   },
 }
 
@@ -317,14 +431,14 @@ export const EachStatus: Story = {
               items: [
                 confluenceSource,
                 workspaceSourceFixture({
-                  sourceKey: "bad-shape",
+                  path: "sources/linear/bad-shape.md",
                   provider: "linear",
                   status: "invalid",
                   statusDetail: "teams: Expected an array",
                   scopeSummary: "Linear",
                 }),
                 workspaceSourceFixture({
-                  sourceKey: "old-linear",
+                  path: "sources/linear/old-linear.md",
                   provider: "linear",
                   connectionId: "con_gone",
                   connectionName: null,
@@ -333,14 +447,14 @@ export const EachStatus: Story = {
                   scopeSummary: "1 team",
                 }),
                 workspaceSourceFixture({
-                  sourceKey: "eng-channels",
+                  path: "sources/slack/eng-channels.md",
                   provider: "slack",
                   status: "ok",
                   statusDetail: "Channel #old is archived",
                   scopeSummary: "2 Slack channels",
                 }),
                 workspaceSourceFixture({
-                  sourceKey: "secret-space",
+                  path: "sources/confluence/secret-space.md",
                   provider: "confluence",
                   status: "out_of_access",
                   statusDetail: "The connection cannot read the space SEC",
@@ -377,21 +491,21 @@ export const AwaitingMerge: Story = {
               items: [githubSource, linearSource],
               pendingChanges: [
                 {
-                  sourceKey: "product-repos",
+                  path: "sources/github/acme/api.md",
                   provider: "github",
                   action: "edit",
                   pullRequestUrl: "https://github.com/acme/docs/pull/3",
                   createdAt: "2026-10-10T10:00:00.000Z",
                 },
                 {
-                  sourceKey: "eng-issues",
+                  path: "sources/linear/eng-issues.md",
                   provider: "linear",
                   action: "remove",
                   pullRequestUrl: "https://github.com/acme/docs/pull/4",
                   createdAt: "2026-10-10T10:00:00.000Z",
                 },
                 {
-                  sourceKey: "eng-docs",
+                  path: "sources/confluence/eng-docs.md",
                   provider: "confluence",
                   action: "add",
                   pullRequestUrl: "https://github.com/acme/docs/pull/5",
@@ -407,13 +521,15 @@ export const AwaitingMerge: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    const links = await canvas.findAllByRole("link", { name: "Awaiting merge" })
+    const links = await canvas.findAllByRole("link", {
+      name: /^Awaiting merge\./,
+    })
     await expect(links.map((link) => link.getAttribute("href"))).toEqual([
       "https://github.com/acme/docs/pull/3",
       "https://github.com/acme/docs/pull/5",
     ])
     await expect(
-      canvas.getByRole("link", { name: "Removal awaiting merge" }),
+      canvas.getByRole("link", { name: /^Removal awaiting merge\./ }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/4")
     await expect(canvas.getByText("New source")).toBeVisible()
   },
@@ -440,13 +556,19 @@ export const ScrollsToSourceAnchor: Story = {
             workspaceSourceList({
               items: [
                 githubSource,
-                { ...githubSource, sourceKey: "more-repos" },
-                { ...githubSource, sourceKey: "even-more-repos" },
+                { ...githubSource, path: "sources/github/acme/more-repos.md" },
+                {
+                  ...githubSource,
+                  path: "sources/github/acme/even-more-repos.md",
+                },
                 confluenceSource,
-                { ...confluenceSource, sourceKey: "more-docs" },
+                {
+                  ...confluenceSource,
+                  path: "sources/confluence/more-docs.md",
+                },
                 linearSource,
-                { ...linearSource, sourceKey: "more-issues" },
-                { ...linearSource, sourceKey: "even-more-issues" },
+                { ...linearSource, path: "sources/linear/more-issues.md" },
+                { ...linearSource, path: "sources/linear/even-more-issues.md" },
               ],
             }),
           ),
@@ -463,6 +585,7 @@ export const ScrollsToSourceAnchor: Story = {
       canvasElement.querySelector<HTMLElement>("#source-confluence")
     if (!root || !section) throw new Error("Missing scroll root or section")
     await waitFor(() => expect(root.scrollTop).toBeGreaterThan(0))
+    await document.fonts.ready
     const offset =
       section.getBoundingClientRect().top - root.getBoundingClientRect().top
     await expect(Math.abs(offset)).toBeLessThan(40)
@@ -491,28 +614,32 @@ export const EditSendsChange: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Edit eng-issues" }),
+      await canvas.findByRole("button", {
+        name: "Edit sources/linear/eng-issues.md",
+      }),
     )
     const dialog = within(await within(document.body).findByRole("dialog"))
     await dialog.findByRole("heading", { name: "Edit Linear source" })
-    await expect(
-      await dialog.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("checkbox", { name: /Engineering/ }),
+      ).toBeChecked(),
+    )
     await userEvent.click(dialog.getByRole("checkbox", { name: /Operations/ }))
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
     await waitFor(() => expect(editCalls).toHaveLength(1))
-    await expect(editCalls[0]).toEqual({
+    await expect(editCalls[0]).toMatchObject({
       method: "PUT",
-      path: "/acme/api/v1/workspaces/docs/sources/eng-issues",
+      path: "/acme/api/v1/workspaces/docs/sources",
       body: {
+        path: "sources/linear/eng-issues.md",
         source: {
           provider: "linear",
           connectionId: "con_li1",
           scope: { teams: ["ENG", "OPS"] },
         },
-        delivery: "pull_request",
       },
     })
     await within(document.body).findByText(/Pull request opened/)
@@ -542,29 +669,80 @@ export const UnlinkSendsChange: Story = {
       await canvas.findByRole("button", { name: "Unlink acme/api" }),
     )
     await waitFor(() => expect(editCalls).toHaveLength(1))
-    await expect(editCalls[0]).toEqual({
-      method: "PUT",
-      path: "/acme/api/v1/workspaces/docs/sources/product-repos",
-      body: {
-        source: {
-          provider: "github",
-          connectionId: "con_gh1",
-          scope: { repositories: ["acme/web"] },
-        },
-        delivery: "pull_request",
+    // One file holds one repository: an unlink deletes the file.
+    await expect(editCalls[0]).toMatchObject({
+      method: "DELETE",
+      path: "/acme/api/v1/workspaces/docs/sources",
+      query: {
+        path: "sources/github/acme/api.md",
       },
     })
     await within(document.body).findByText(/Pull request opened/)
   },
 }
 
+/**
+ * A repository from a legacy `.ctxpipe/sources.yaml` row has no file that a
+ * delete can name: the row shows a note and no unlink button.
+ */
+export const LegacyYamlRowNotRemovable: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                workspaceSourceFixture({
+                  path: "product-repos",
+                  provider: "github",
+                  connectionId: "con_gh1",
+                  connectionName: "acme-gh",
+                  scope: { repositories: ["acme/api"] },
+                  scopeSummary: "1 linked repository",
+                  removable: false,
+                }),
+                workspaceSourceFixture({
+                  path: "eng-docs",
+                  provider: "confluence",
+                  connectionId: "con_cf1",
+                  scopeSummary: "3 spaces",
+                  removable: false,
+                }),
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("acme/api")
+    await expect(
+      canvas.getByText(/Defined in \.ctxpipe\/sources\.yaml/),
+    ).toBeVisible()
+    await expect(
+      canvas.queryByRole("button", { name: "Unlink acme/api" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByText(/This row is not a source file/),
+    ).toBeVisible()
+    for (const action of ["Remove", "Edit", "Rename"])
+      await expect(
+        canvas.queryByRole("button", { name: `${action} eng-docs` }),
+      ).toBeNull()
+  },
+}
+
 const unlinkCalls: ChangeCall[] = []
 
 /**
- * The last repository of a GitHub source goes: the source goes, and a
- * repositories file that links the same repository goes too.
+ * A linked repository with a source file: the unlink deletes the file. The
+ * unlink command does not run too, because the file change covers it.
  */
-export const UnlinkLastRepositoryRemovesEveryLink: Story = {
+export const UnlinkDeletesTheSourceFile: Story = {
   args: {
     linkedRepositories: [
       {
@@ -587,8 +765,8 @@ export const UnlinkLastRepositoryRemovesEveryLink: Story = {
               items: [
                 {
                   ...githubSource,
-                  scope: { repositories: ["acme/api"] },
-                  scopeSummary: "1 linked repository",
+                  scope: { repository: "acme/api" },
+                  scopeSummary: "acme/api",
                 },
               ],
             }),
@@ -603,14 +781,11 @@ export const UnlinkLastRepositoryRemovesEveryLink: Story = {
                 path: new URL(request.url).pathname,
                 body: null,
               })
-              return HttpResponse.json(
-                {
-                  queued: true,
-                  action: "unlink",
-                  gitUrl: "https://github.com/acme/api",
-                },
-                { status: 202 },
-              )
+              return HttpResponse.json({
+                outcome: "pull_request",
+                path: "sources/github/acme/api.md",
+                pullRequestUrl: "https://github.com/acme/docs/pull/7",
+              })
             },
           ),
         ],
@@ -625,23 +800,20 @@ export const UnlinkLastRepositoryRemovesEveryLink: Story = {
     await userEvent.click(
       await canvas.findByRole("button", { name: "Unlink acme/api" }),
     )
-    await waitFor(() => expect(unlinkCalls).toHaveLength(2))
-    await expect(unlinkCalls).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/linked-repositories/lnk_api",
+    await waitFor(() => expect(unlinkCalls).toHaveLength(1))
+    await expect(unlinkCalls).toEqual([
+      expect.objectContaining({
+        method: "DELETE",
+        path: "/acme/api/v1/workspaces/docs/sources",
+        query: expect.objectContaining({
+          path: "sources/github/acme/api.md",
         }),
-        expect.objectContaining({
-          method: "DELETE",
-          path: "/acme/api/v1/workspaces/docs/sources/product-repos",
-        }),
-      ]),
-    )
+      }),
+    ])
   },
 }
 
-export const LegacyLinkedRepositoryShows: Story = {
+export const LinkedRepositoryWithoutSourceShows: Story = {
   args: {
     linkedRepositories: [
       {
@@ -672,7 +844,7 @@ export const LegacyLinkedRepositoryShows: Story = {
     const list = within(
       await canvas.findByRole("list", { name: "GitHub repositories" }),
     )
-    await expect(list.getAllByRole("listitem")).toHaveLength(3)
+    await expect(list.getAllByRole("listitem")).toHaveLength(2)
     await expect(list.getByText("acme/legacy")).toBeVisible()
     await expect(list.getByText("Indexed")).toBeVisible()
     await expect(list.getByText("Linked by a repositories file")).toBeVisible()
@@ -724,12 +896,75 @@ export const AddSendsChange: Story = {
         source: {
           provider: "github",
           connectionId: "con_gh1",
-          scope: { repositories: ["acme/api"] },
+          scope: { repository: "acme/api" },
         },
+      },
+    })
+    // The toast keeps its action, which opens the pull request. The toast
+    // renders in a portal, so query it from the document body.
+    await within(canvasElement.ownerDocument.body).findByRole("button", {
+      name: "View pull request",
+    })
+  },
+}
+
+/** Several repositories go to the server in one batch, so in one pull request. */
+export const AddSeveralSendsOneBatch: Story = {
+  tags: ["workspace-golden"],
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          githubInstallationReposHandler([
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+            },
+            {
+              name: "web",
+              clone_url: "https://github.com/acme/web.git",
+              full_name: "acme/web",
+            },
+          ]),
+          ...workspaceSourceChangeHandlers(addCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    addCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("checkbox", { name: "acme/api" }),
+    )
+    await userEvent.click(dialog.getByRole("checkbox", { name: "acme/web" }))
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    // Two repositories make one batch request, so one pull request.
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      path: "/acme/api/v1/workspaces/docs/sources/batch",
+      body: {
+        sources: [
+          { source: { scope: { repository: "acme/api" } } },
+          { source: { scope: { repository: "acme/web" } } },
+        ],
       },
     })
   },
 }
+
 export const RemoveSendsChange: Story = {
   parameters: {
     msw: {
@@ -750,19 +985,19 @@ export const RemoveSendsChange: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await userEvent.click(
-      await canvas.findByRole("button", { name: "Remove eng-docs" }),
+      await canvas.findByRole("button", {
+        name: "Remove sources/confluence/eng-docs.md",
+      }),
     )
     const dialog = within(await within(document.body).findByRole("alertdialog"))
-    await expect(
-      dialog.queryByRole("button", { name: "Commit directly" }),
-    ).toBeNull()
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
     await waitFor(() => expect(removeCalls).toHaveLength(1))
     await expect(removeCalls[0]).toMatchObject({
       method: "DELETE",
-      path: "/acme/api/v1/workspaces/docs/sources/eng-docs",
+      path: "/acme/api/v1/workspaces/docs/sources",
+      query: { path: "sources/confluence/eng-docs.md" },
     })
   },
 }
@@ -783,8 +1018,62 @@ export const FileNotValid: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("The sources file is not valid")
+    await canvas.findByText("The legacy sources file is not valid")
     await expect(canvas.getByText("version: Expected 1")).toBeVisible()
+  },
+}
+
+export const RefusedRepositoryFile: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                workspaceSourceFixture({
+                  path: "old-entry",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail: "The provider is not known",
+                  scopeSummary: "Unknown provider",
+                }),
+                workspaceSourceFixture({
+                  path: "repositories/tools.md",
+                  provider: null,
+                  connectionId: null,
+                  connectionName: null,
+                  status: "invalid",
+                  statusDetail:
+                    "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+                  scopeSummary: "Repository file",
+                  removable: false,
+                }),
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The repository file shows its error, but a remove cannot name it.
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/repositories\/tools\.md: ctx\| links only GitHub/),
+      ).toBeVisible(),
+    )
+    await expect(
+      canvas.queryByRole("button", { name: "Remove repositories/tools.md" }),
+    ).toBeNull()
+    await expect(
+      canvas.getByRole("button", { name: "Remove old-entry" }),
+    ).toBeVisible()
   },
 }
 
@@ -800,8 +1089,6 @@ export const LoadFailed: Story = {
     await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
   },
 }
-
-const commitCalls: ChangeCall[] = []
 
 export const ReadOnlyHidesChanges: Story = {
   tags: ["workspace-golden"],
@@ -830,77 +1117,10 @@ export const ReadOnlyHidesChanges: Story = {
       canvas.queryByRole("button", { name: "Unlink acme/api" }),
     ).toBeNull()
     await expect(
-      canvas.queryByRole("button", { name: "Remove eng-issues" }),
+      canvas.queryByRole("button", {
+        name: "Remove sources/linear/eng-issues.md",
+      }),
     ).toBeNull()
-  },
-}
-
-export const DirectCommitQueued: Story = {
-  tags: ["workspace-golden"],
-  parameters: {
-    msw: {
-      handlers: {
-        page: [
-          workspaceSourcesHandler(
-            workspaceSourceList({
-              items: [githubSource, linearSource],
-              directCommitAllowed: true,
-            }),
-          ),
-          connected,
-          githubInstallationReposHandler([
-            {
-              name: "docs",
-              full_name: "acme/docs",
-              clone_url: "https://github.com/acme/docs.git",
-            },
-          ]),
-          ...workspaceSourceChangeHandlers(commitCalls),
-        ],
-      },
-    },
-  },
-  beforeEach: () => {
-    commitCalls.length = 0
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Add repositories" }),
-    )
-    const dialog = within(await within(document.body).findByRole("dialog"))
-    await userEvent.click(
-      await dialog.findByRole("checkbox", { name: "acme/docs" }),
-    )
-    await userEvent.click(
-      dialog.getByRole("button", { name: "Commit directly" }),
-    )
-    await waitFor(() => expect(commitCalls).toHaveLength(1))
-    await expect(commitCalls[0]).toMatchObject({
-      method: "PUT",
-      path: "/acme/api/v1/workspaces/docs/sources/product-repos",
-      body: {
-        source: {
-          scope: { repositories: ["acme/api", "acme/web", "acme/docs"] },
-        },
-        delivery: "commit",
-      },
-    })
-    await within(document.body).findByText(
-      "Change queued. It appears after the next sync.",
-    )
-
-    await userEvent.click(
-      await canvas.findByRole("button", { name: "Remove eng-issues" }),
-    )
-    const confirm = within(
-      await within(document.body).findByRole("alertdialog"),
-    )
-    await userEvent.click(
-      confirm.getByRole("button", { name: "Commit directly" }),
-    )
-    await waitFor(() => expect(commitCalls).toHaveLength(2))
-    await expect(commitCalls[1]?.method).toBe("DELETE")
   },
 }
 
@@ -963,20 +1183,23 @@ export const PickerShowsConnectionNames: Story = {
     await userEvent.click(
       dialog.getByRole("button", { name: "Open a pull request" }),
     )
-    await waitFor(() => expect(pickerCalls).toHaveLength(2))
+    // Both repositories go in one batch request.
+    await waitFor(() => expect(pickerCalls).toHaveLength(1))
     await expect(
-      pickerCalls.map((call) => (call.body as { source: unknown }).source),
+      (
+        pickerCalls[0]?.body as { sources: Array<{ source: unknown }> }
+      ).sources.map((item) => item.source),
     ).toEqual(
       expect.arrayContaining([
         {
           provider: "github",
           connectionId: "con_gh1",
-          scope: { repositories: ["acme/api"] },
+          scope: { repository: "acme/api" },
         },
         {
           provider: "github",
           connectionId: "con_gh2",
-          scope: { repositories: ["labs/tool"] },
+          scope: { repository: "labs/tool" },
         },
       ]),
     )
@@ -1112,16 +1335,20 @@ export const GithubManyRepositories: Story = {
     toggle.focus()
     await expect(toggle).toHaveFocus()
     await userEvent.keyboard("{Enter}")
-    await expect(toggle).toHaveAttribute("aria-expanded", "true")
-    await expect(toggle).toHaveAttribute("aria-controls", listElement.id)
+    await waitFor(() => expect(toggle).toHaveAttribute("aria-expanded", "true"))
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("aria-controls", listElement.id),
+    )
     await expect(list.getAllByRole("listitem")).toHaveLength(312)
     await expect(listElement.scrollHeight).toBeGreaterThan(
       listElement.clientHeight,
     )
     await expect(toggle).toHaveAccessibleName("Show fewer")
-    await expect(toggle).toHaveFocus()
+    await waitFor(() => expect(toggle).toHaveFocus())
     await userEvent.keyboard(" ")
-    await expect(toggle).toHaveAttribute("aria-expanded", "false")
+    await waitFor(() =>
+      expect(toggle).toHaveAttribute("aria-expanded", "false"),
+    )
     await expect(list.getAllByRole("listitem")).toHaveLength(5)
 
     const filter = canvas.getByRole("searchbox", {
@@ -1132,84 +1359,405 @@ export const GithubManyRepositories: Story = {
     await expect(canvas.queryByRole("button", { name: /Show all/ })).toBeNull()
     await userEvent.clear(filter)
     await userEvent.type(filter, "no-such-repository")
-    await expect(
-      await list.findByText("No repositories match that filter."),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        list.getByText("No repositories match that filter."),
+      ).toBeVisible(),
+    )
   },
 }
 
-let filterRepositories: string[] = []
-
-/** The filter stays available after an unlink reduces the count to eight. */
-export const GithubFilterSurvivesUnlink: Story = {
-  beforeEach: () => {
-    filterRepositories = Array.from(
-      { length: 9 },
-      (_, index) => `acme/service-${index + 1}`,
-    )
-  },
+/** A file in a known provider folder that does not parse: the row shows why. */
+export const InvalidFile: Story = {
   parameters: {
     msw: {
       handlers: {
         page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                linearSource,
+                workspaceSourceFixture({
+                  path: "sources/linear/broken.md",
+                  provider: "linear",
+                  connectionId: "con_li1",
+                  connectionName: "Acme Linear",
+                  status: "invalid",
+                  statusDetail:
+                    "sources/linear/broken.md: teams: Expected an array",
+                  scopeSummary: "Linear",
+                }),
+              ],
+            }),
+          ),
           connected,
-          http.get("*/api/v1/workspaces/:slug/sources", () =>
-            HttpResponse.json(
-              workspaceSourceList({
-                directCommitAllowed: true,
-                items: [
-                  {
-                    ...githubSource,
-                    scope: { repositories: filterRepositories },
-                  },
-                ],
-              }),
-            ),
-          ),
-          http.put(
-            "*/api/v1/workspaces/:slug/sources/product-repos",
-            async ({ request }) => {
-              const body = (await request.json()) as {
-                source: { scope: { repositories: string[] } }
-              }
-              filterRepositories = body.source.scope.repositories
-              return HttpResponse.json({
-                outcome: "commit_queued",
-                sourceKey: "product-repos",
-              })
-            },
-          ),
         ],
       },
     },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("9 repositories")
-    const filter = canvas.getByRole("searchbox", {
-      name: "Filter linked repositories",
-    })
-    await userEvent.type(filter, "service-9")
-    await userEvent.click(
-      canvas.getByRole("button", { name: "Unlink acme/service-9" }),
-    )
-    await canvas.findByText("8 repositories")
+    await canvas.findByText("2 sources from 1 connector · 1 needs attention")
+    await expect(canvas.getByText("Not valid")).toBeVisible()
     await expect(
-      canvas.getByRole("searchbox", {
-        name: "Filter linked repositories",
-      }),
-    ).toHaveValue("service-9")
-    await expect(
-      canvas.getByText("No repositories match that filter."),
+      canvas.getByText("sources/linear/broken.md: teams: Expected an array"),
     ).toBeVisible()
-    await userEvent.clear(filter)
-    await userEvent.click(canvas.getByRole("button", { name: "Show all 8" }))
-    const list = within(
-      canvas.getByRole("list", { name: "GitHub repositories" }),
-    )
-    await expect(list.getAllByRole("listitem")).toHaveLength(8)
+    // An invalid file is a real file: the user can still remove it.
     await expect(
-      list.queryByRole("link", { name: "acme/service-9" }),
-    ).toBeNull()
+      canvas.getByRole("button", { name: "Remove sources/linear/broken.md" }),
+    ).toBeVisible()
+  },
+}
+
+/** An open rename pull request shows on the old path. */
+export const PendingRename: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [linearSource],
+              pendingChanges: [
+                {
+                  path: "sources/linear/eng-issues.md",
+                  provider: "linear",
+                  action: "rename",
+                  pullRequestUrl: "https://github.com/acme/docs/pull/8",
+                  createdAt: "2026-10-10T10:00:00.000Z",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("link", { name: /^Rename awaiting merge\./ }),
+      ).toHaveAttribute("href", "https://github.com/acme/docs/pull/8"),
+    )
+    await expect(
+      canvas.getByText("1 change awaiting merge", { exact: false }),
+    ).toBeVisible()
+  },
+}
+
+const renameCalls: ChangeCall[] = []
+
+/** The rename dialog sends the new path and keeps the provider folder. */
+export const RenameSendsChange: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          ...workspaceSourceChangeHandlers(renameCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    renameCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Rename sources/linear/eng-issues.md",
+      }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    const name = dialog.getByRole("textbox", { name: "File name" })
+    await expect(name).toHaveValue("eng-issues")
+    // The same name is no change.
+    await expect(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    ).toBeDisabled()
+    await userEvent.clear(name)
+    await userEvent.type(name, "platform-issues")
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() => expect(renameCalls).toHaveLength(1))
+    await expect(renameCalls[0]).toMatchObject({
+      method: "POST",
+      path: "/acme/api/v1/workspaces/docs/sources/rename",
+      body: {
+        path: "sources/linear/eng-issues.md",
+        newPath: "sources/linear/platform-issues.md",
+      },
+    })
+  },
+}
+
+const describeCalls: ChangeCall[] = []
+
+/** The editor sends the description with the change. */
+export const EditDescriptionSendsChange: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          linearAvailableScopesHandler(),
+          ...workspaceSourceChangeHandlers(describeCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    describeCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Edit sources/linear/eng-issues.md",
+      }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    const description = await dialog.findByRole("textbox", {
+      name: "Description (optional)",
+    })
+    await expect(description).toHaveValue(
+      "Engineering issues. Ingest them for the weekly review.",
+    )
+    await userEvent.clear(description)
+    await userEvent.type(description, "Issues of the platform team.")
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() => expect(describeCalls).toHaveLength(1))
+    await expect(describeCalls[0]).toMatchObject({
+      method: "PUT",
+      body: {
+        path: "sources/linear/eng-issues.md",
+        source: { description: "Issues of the platform team." },
+      },
+    })
+  },
+}
+
+const nameCalls: ChangeCall[] = []
+
+/** An add can name the file; the server names it otherwise. */
+export const AddWithFileName: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          linearAvailableScopesHandler(),
+          ...workspaceSourceChangeHandlers(nameCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    nameCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add Linear source" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(
+      await dialog.findByRole("checkbox", { name: /Engineering/ }),
+    )
+    await userEvent.type(
+      dialog.getByRole("textbox", { name: "File name (optional)" }),
+      "eng-issues",
+    )
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() => expect(nameCalls).toHaveLength(1))
+    await expect(nameCalls[0]).toMatchObject({
+      method: "POST",
+      body: { path: "sources/linear/eng-issues.md" },
+    })
+  },
+}
+
+const linkedRepository = (
+  name: string,
+  sha: { desired: string | null; indexed: string | null },
+) => ({
+  id: `lnk_${name}`,
+  workspaceId: "ws_story1",
+  gitUrl: `https://github.com/acme/${name}.git`,
+  desiredRef: null,
+  desiredSha: sha.desired,
+  indexedSha: sha.indexed,
+  createdAt: "2026-10-01T10:00:00.000Z",
+})
+
+/** Each repository status explains itself on hover and on keyboard focus. */
+export const StatusExplainsItself: Story = {
+  args: {
+    linkedRepositories: [
+      linkedRepository("api", { desired: null, indexed: null }),
+      linkedRepository("web", { desired: "def", indexed: "abc" }),
+      linkedRepository("cli", { desired: "abc", indexed: "abc" }),
+    ],
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({
+              items: [
+                {
+                  ...githubSource,
+                  scope: { repositories: ["acme/api", "acme/web", "acme/cli"] },
+                  scopeSummary: "3 repositories",
+                },
+              ],
+            }),
+          ),
+          connected,
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const list = within(
+      await canvas.findByRole("list", { name: "GitHub repositories" }),
+    )
+    // The tip renders in a portal. It is the only tip open at one time.
+    const tip = () =>
+      document.body.querySelector<HTMLElement>('[data-slot="tooltip-content"]')
+    // A pointer user sees the tip on hover.
+    await userEvent.hover(list.getByText("Indexing"))
+    await waitFor(() => {
+      expect(tip()).toBeVisible()
+      expect(tip()).toHaveTextContent(
+        "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
+      )
+    })
+    await userEvent.unhover(list.getByText("Indexing"))
+    await waitFor(() => expect(tip()).toBeNull())
+    // A keyboard user reaches the status with Tab, and focus shows the tip.
+    for (
+      let step = 0;
+      step < 20 && document.activeElement !== list.getByText("Pending");
+      step++
+    )
+      await userEvent.tab()
+    await waitFor(() => {
+      expect(list.getByText("Pending")).toHaveFocus()
+      expect(tip()).toHaveTextContent(
+        /^ctx\| has not read this repository yet\.$/,
+      )
+    })
+    // A screen reader gets the same text with the status.
+    await expect(
+      list.getByRole("button", {
+        name: "Pending ctx| has not read this repository yet.",
+      }),
+    ).toBeVisible()
+  },
+}
+
+/** The list requests of the picker that a member must not send. */
+const memberPickerReads: string[] = []
+const recordPickerRead = http.get(
+  ({ request }) =>
+    /\/api\/v1\/(connectors\/linear\/available-scopes|github\/installation\/repositories)$/.test(
+      new URL(request.url).pathname,
+    ),
+  ({ request }) => {
+    memberPickerReads.push(new URL(request.url).pathname)
+    return HttpResponse.json({ error: "Forbidden" }, { status: 403 })
+  },
+)
+
+/**
+ * A member can edit a source, but only an owner or admin can list the
+ * Linear teams and projects. The dialog asks for an admin and sends no list
+ * request.
+ */
+export const MemberEditAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Edit sources/linear/eng-issues.md",
+      }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByRole("heading", { name: "Edit Linear source" })
+    await dialog.findByText(/Ask an admin to choose what this source syncs/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: /Engineering/ }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
+  },
+}
+
+/** A member opens Add repositories: a note asks for an admin, and no list request goes out. */
+export const MemberAddRepositoriesAsksAnAdmin: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          recordPickerRead,
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    memberPickerReads.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await dialog.findByText(/Ask an admin to add repositories/)
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("searchbox", { name: "Search GitHub repositories" }),
+      ).not.toBeInTheDocument(),
+    )
+    expect(memberPickerReads).toEqual([])
   },
 }

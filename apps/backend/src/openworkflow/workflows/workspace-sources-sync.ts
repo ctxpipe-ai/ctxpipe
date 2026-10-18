@@ -77,8 +77,8 @@ export const workspaceSourcesSync = defineWorkflow(
         write,
         event: input.event,
         manual: input.manual,
-        readExisting: (workspaceId) =>
-          readWorkspaceBlobs({ orgId: input.orgId, workspaceId, env }),
+        readExisting: (workspaceId, owners) =>
+          readWorkspaceBlobs({ orgId: input.orgId, workspaceId, env, owners }),
       }),
     )
   },

@@ -4,7 +4,7 @@ type SetupStatus = {
 }
 
 /**
- * A connection holds auth only (ADR-050, ADR-053): paste a token, add the
+ * A connection holds auth only (ADR-050, ADR-054): paste a token, add the
  * webhook for live updates, then add Buildkite to Workspaces.
  */
 export const BUILDKITE_SETUP_STEPS = [

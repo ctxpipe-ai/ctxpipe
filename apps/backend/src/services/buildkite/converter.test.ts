@@ -139,6 +139,41 @@ describe("buildkitePipelineFiles", () => {
     expect(buildFile?.content).toContain("- Commit: abc1234def5678")
     expect(buildFile?.content).toContain("- Pull request: #17")
   })
+
+  it("keeps provider text on one line and links only https URLs", () => {
+    const [pipelineFile, buildFile] = buildkitePipelineFiles({
+      organizationSlug: "acme",
+      pipeline: { ...pipeline, name: "Web\n# Injected heading" },
+      builds: [
+        {
+          ...build,
+          url: "javascript:alert(1)",
+          branch: "main\n\n## Injected section",
+          commit: "abc1234)(https://evil.example",
+          creatorName: "Sam\n- injected item",
+          jobs: [
+            {
+              name: "Unit\n```",
+              state: "failed",
+              softFailed: false,
+              url: "https://buildkite.com/acme/web-app/builds/42#job-(1)",
+            },
+          ],
+        },
+      ],
+    })
+    const body = `${pipelineFile?.content}${buildFile?.content}`
+    expect(body).not.toMatch(/^#+ Injected/m)
+    expect(body).not.toMatch(/^- injected/m)
+    expect(body).not.toMatch(/^```/m)
+    expect(buildFile?.content).toContain("# Web # Injected heading build #42")
+    expect(buildFile?.content).toContain("- Buildkite: #42\n")
+    expect(buildFile?.content).toContain("- Branch: main ## Injected section")
+    expect(buildFile?.content).not.toContain("commit_url")
+    expect(buildFile?.content).toContain(
+      "- [Unit ```](https://buildkite.com/acme/web-app/builds/42#job-%281%29)",
+    )
+  })
 })
 
 describe("githubRepositoryUrl", () => {

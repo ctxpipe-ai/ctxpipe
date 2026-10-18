@@ -9,10 +9,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { ensureWorkspaceCheckout } from "../../models/repositories.js"
 import {
@@ -33,6 +30,10 @@ import {
   type NativeIndexFixture,
   withNativeIndexFixture,
 } from "../../test/native-index-fixture.js"
+import {
+  insertLinkedRepositoryRows,
+  setLinkedRepositoryRef,
+} from "../../test/workspace-links-fixture.js"
 import { resolveWorkspaceReadRevision } from "./resolve-revision.js"
 import type { WorkspaceRevision } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
@@ -515,7 +516,7 @@ it(
       const { org, workspaceId, remote, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
@@ -555,7 +556,7 @@ it(
       const { org, workspaceId, remote, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
@@ -579,10 +580,7 @@ it(
             .update(workspaces)
             .set({ activeRevision: revision })
             .where(eq(workspaces.id, workspaceId))
-          await db
-            .update(workspaceLinkedRepositories)
-            .set({ desiredRef: "other" })
-            .where(eq(workspaceLinkedRepositories.id, linkedId))
+          await setLinkedRepositoryRef(db, linkedId, "other")
         })
         expect(await persistLinkedIndexedSha(linkedPublication)).toBe(false)
       })
@@ -741,7 +739,7 @@ it.each(["pending", "failed"])(
             orgId: org.id,
             revision: next,
             displayName: null,
-            remotes: [],
+            formatVersion: 0,
             units: [],
             skipped: [],
             embeddingModel: "fixture-embedding",
@@ -781,6 +779,10 @@ it(
     withNativeIndexFixture(async (f) => {
       const { git, runner, org, workspaceId } = f
       git("branch", "-m", "trunk", "renamed")
+      const hydrates = sql`
+      from openworkflow.workflow_runs
+      where workflow_name = 'workspace-hydrate' and input->>'workspaceId' = ${workspaceId}
+    `
       for (const updated of [1, 0]) {
         const handle = await runner.runWorkflow(workspaceTipCheck.spec, {
           orgId: org.id,
@@ -789,16 +791,16 @@ it(
           updated,
           linkedUpdated: 0,
         })
+        const queued = await getSystemDb().execute<{
+          input: { revision: WorkspaceRevision }
+        }>(sql`select input ${hydrates}`)
+        expect(
+          queued.rows.map((row) => row.input.revision.defaultBranch),
+        ).toEqual(["renamed"])
+        // The queued hydrate is lost. An unfinished one would block a
+        // second hydrate of the same SHA.
+        await getSystemDb().execute(sql`delete ${hydrates}`)
       }
-      const queued = await getSystemDb().execute<{
-        input: { revision: WorkspaceRevision }
-      }>(sql`
-      select input from openworkflow.workflow_runs
-      where workflow_name = 'workspace-hydrate' and input->>'workspaceId' = ${workspaceId}
-    `)
-      expect(
-        queued.rows.map((row) => row.input.revision.defaultBranch),
-      ).toEqual(["renamed", "renamed"])
     }, true),
 )
 

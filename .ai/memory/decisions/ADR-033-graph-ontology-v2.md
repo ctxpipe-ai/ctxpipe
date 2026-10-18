@@ -65,7 +65,7 @@ cross-tool edges require shared identity.
    `dec:${repoId}:${path}`, `fil:${repoId}:${path}`. Bare Linear identifiers
    match only known team keys.
 4. **Connector Markdown is parsed, never LLM-read.**
-   `nodes/connectorExtractors.ts` is the list of deterministic extractors; a
+   A list of deterministic extractors is the only reader of connector Markdown; a
    connector ships its frontmatter contract and its extractor together.
    Source-repo extractors add `Decision` (ADR files) and `Team OWNS`
    (CODEOWNERS). Reference-family claims whose ends do not resolve are dropped

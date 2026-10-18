@@ -11,7 +11,8 @@ import { contextIndexAtStepBase, stepContextIndex } from "./context-index.js"
  * step deleted is not. Real git; the projection is the pinned revision's.
  */
 
-const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file path of the run (`sources`, ADR-050 revision 2026-10-16).
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const made: string[] = []
 afterAll(() => {
   for (const dir of made) rmSync(dir, { recursive: true, force: true })
@@ -59,7 +60,7 @@ describe("contextIndexAtStepBase", () => {
     })
     const base = commit(dir, {
       [OLD]: null,
-      [API]: `---\nkind: API\nname: Orders API\nsummary: The orders API.\nclaims:\n  - to: ../operations/list.md\n    predicate: HAS_OPERATION\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
+      [API]: `---\nkind: API\nname: Orders API\nsummary: The orders API.\nclaims:\n  - to: ../operations/list.md\n    predicate: HAS_OPERATION\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_PATH}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
       [OPERATION]:
         "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
     })
@@ -71,7 +72,7 @@ describe("contextIndexAtStepBase", () => {
       ],
       pinnedRevision: pinned,
       base,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
       repoDir: dir,
     })
     expect(index.revision).toBe(base)
@@ -83,7 +84,7 @@ describe("contextIndexAtStepBase", () => {
       summary: "The orders API.",
       // A claim target is a link, as a Markdown link is.
       links: [OPERATION, SERVICE],
-      sources: [SOURCE_URL],
+      sources: [SOURCE_PATH],
       owned: true,
     })
   })
@@ -100,11 +101,39 @@ describe("contextIndexAtStepBase", () => {
       projection: [{ path: SERVICE, kind: "Service", links: [] }],
       pinnedRevision: pinned,
       base: pinned,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
       repoDir: dir,
     })
     expect(index.entries.map((e) => [e.path, e.owned])).toEqual([
       [SERVICE, false],
+    ])
+  })
+  it("reads the files below the Workspace root folder with root-relative paths", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "context-index-"))
+    made.push(dir)
+    git(dir, "init", "-q", "-b", "main")
+    const pinned = commit(dir, {
+      [`docs/ctx/${SERVICE}`]:
+        "---\nkind: Service\nname: api\nsummary: Inside.\n---\n# API\n",
+      [SERVICE]: "---\nkind: Service\nname: api\nsummary: Outside.\n---\n",
+    })
+    const base = commit(dir, {
+      [`docs/ctx/${OPERATION}`]:
+        "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
+      [OLD]: "---\nkind: Database\nname: old\n---\n# Outside\n",
+    })
+    const { index } = await contextIndexAtStepBase({
+      workspaceId: "ws_index",
+      projection: [{ path: SERVICE, kind: "Service", links: [] }],
+      pinnedRevision: pinned,
+      base,
+      sourcePath: SOURCE_PATH,
+      repoDir: dir,
+      rootPath: "docs/ctx",
+    })
+    expect(index.entries.map((e) => [e.path, e.summary])).toEqual([
+      [OPERATION, null],
+      [SERVICE, "Inside."],
     ])
   })
 })
@@ -120,7 +149,7 @@ describe("stepContextIndex", () => {
       [OLD]: "---\nkind: Database\nname: old\n---\n# Old store\n",
     })
     const first = commit(work, {
-      [API]: `---\nkind: API\nname: Orders API\nsources:\n  - ${SOURCE_URL}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
+      [API]: `---\nkind: API\nname: Orders API\nsources:\n  - ${SOURCE_PATH}\n---\n# Orders API\n\nServed by [api](../services/api.md).\n`,
       [OPERATION]:
         "---\nkind: Operation\nname: GET /orders\n---\n# GET /orders\n",
     })
@@ -135,7 +164,7 @@ describe("stepContextIndex", () => {
     const index = stepContextIndex({
       workspaceId: "ws_index",
       pinnedRevision: pinned,
-      sourceUrl: SOURCE_URL,
+      sourcePath: SOURCE_PATH,
       repoDir: scratch,
       projection: async () => {
         projections++
@@ -158,7 +187,7 @@ describe("stepContextIndex", () => {
           projection,
           pinnedRevision: pinned,
           base: first,
-          sourceUrl: SOURCE_URL,
+          sourcePath: SOURCE_PATH,
           repoDir: work,
         })
       ).json,
@@ -187,7 +216,7 @@ describe("stepContextIndex", () => {
           projection,
           pinnedRevision: pinned,
           base: second,
-          sourceUrl: SOURCE_URL,
+          sourcePath: SOURCE_PATH,
           repoDir: work,
         })
       ).json,

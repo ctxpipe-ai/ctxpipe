@@ -115,6 +115,7 @@ export const docsWorkspace: Workspace = {
   slug: "docs",
   displayName: "Docs",
   workspaceRepositoryUrl: "https://github.com/acme/docs",
+  rootPath: "",
   githubConnectionId: "con_1",
   desiredGeneration: 1,
   desiredSha: "abc123def456",
@@ -126,7 +127,6 @@ export const docsWorkspace: Workspace = {
   hydrateError: null,
   readOnlyReason: null,
   mostRecentConversationId: "conv_1",
-  migrationExportSha: "abc123def456",
   createdAt: "2026-08-16T09:00:00.000Z",
   updatedAt: "2026-08-16T10:00:00.000Z",
 }
@@ -157,7 +157,6 @@ export const hydratingWorkspace: Workspace = {
   hydrateStatus: "running",
   hydrateError: null,
   activeProjectionSha: null,
-  migrationExportSha: null,
   indexedSha: null,
 }
 
@@ -1467,3 +1466,10 @@ export const eligibleGithubRepos = [
     clone_url: "https://github.com/acme/web.git",
   },
 ]
+
+/** A Workspace in the folder docs/context of a larger repository. */
+export const rootFolderWorkspaceDetail: WorkspaceDetail = {
+  ...docsWorkspaceDetail,
+  workspaceRepositoryUrl: "https://github.com/acme/platform",
+  rootPath: "docs/context",
+}

@@ -37,7 +37,7 @@ import {
   workspaceChatPrepareOptions,
   workspaceKeys,
 } from "./queries"
-import { takeFirstMessage } from "./start-workspace-conversation-ui"
+import { scheduleFirstMessage } from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -108,8 +108,10 @@ export function WorkspaceChatSession(props: {
   publish?: ConversationPublish | null
 }) {
   const { orgSlug, workspace, conversationId, title, initialMessages } = props
+  // A new conversation has no server row until its first turn runs.
+  const [started, setStarted] = useState((initialMessages?.length ?? 0) > 0)
   const turnChanges = useQuery(
-    conversationTurnChangesOptions(orgSlug, conversationId),
+    conversationTurnChangesOptions(orgSlug, conversationId, started),
   )
   const queryClient = useQueryClient()
   const [headerTitle, setHeaderTitle] = useState(title)
@@ -216,6 +218,7 @@ export function WorkspaceChatSession(props: {
           setSendError(new Error(message))
         }
         if (chunk.type === "RUN_FINISHED") {
+          setStarted(true)
           void refreshConversationAfterTurn(
             queryClient,
             orgSlug,
@@ -240,7 +243,7 @@ export function WorkspaceChatSession(props: {
   const handleSendMessage = async (params: { text: string }) => {
     setSandboxPhase("starting")
     setSendError(null)
-    HyperDX.addAction("advisor_question_sent")
+    HyperDX.addAction("chat_question_sent")
     try {
       await sendMessage(params.text)
     } catch (error) {
@@ -259,10 +262,13 @@ export function WorkspaceChatSession(props: {
     firstMessageRef.current = text
     void handleSendMessage({ text })
   })
-  useEffect(() => {
-    const text = takeFirstMessage(queryClient, orgSlug, conversationId)
-    if (text) sendFirstMessage(text)
-  }, [queryClient, orgSlug, conversationId])
+  useEffect(
+    () =>
+      scheduleFirstMessage(queryClient, orgSlug, conversationId, (text) =>
+        sendFirstMessage(text),
+      ),
+    [queryClient, orgSlug, conversationId],
+  )
 
   return (
     <WorkspaceChatChrome

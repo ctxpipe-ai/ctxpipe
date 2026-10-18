@@ -5,13 +5,23 @@ import {
   bootstrapWorkspaceFiles,
 } from "../../domain/workspaces/bootstrap.js"
 import { unbornBootstrapBindingSchema } from "../../domain/workspaces/bootstrap-input.js"
-import { getUnbornBootstrapWorkspace } from "../../domain/workspaces/bootstrap-unborn.js"
+import {
+  getUnbornBootstrapWorkspace,
+  revisionHasCtxpipeContent,
+} from "../../domain/workspaces/bootstrap-unborn.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
+import {
+  CTXPIPE_CONTENT_FOLDERS,
+  hasCtxpipeContent,
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatFile,
+} from "../../domain/workspaces/workspace-format.js"
 import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
@@ -36,7 +46,12 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
-import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  listTreeBlobs,
+  packRootTree,
+  readGitFiles,
+  withGitDirectory,
+} from "../../services/git/pack.js"
 import {
   commitUnbornGitTree,
   stageUnbornGitFiles,
@@ -128,21 +143,34 @@ export const workspaceBootstrap = defineWorkflow(
               const workspace = await getUnbornBootstrapWorkspace(
                 queued.bootstrapBinding,
               )
-              return bootstrapWorkspaceFiles({
-                displayName: workspace.displayName,
-                existing: new Map(),
-              })
+              // A new repository gets the format file in its bootstrap
+              // commit (ADR-053).
+              return [
+                ...bootstrapWorkspaceFiles({
+                  displayName: workspace.displayName,
+                  existing: new Map(),
+                }),
+                workspaceFormatFile(),
+              ]
             },
           )
           const staged = await step.run({ name: "stage-unborn" }, () =>
-            stageUnbornGitFiles(files),
+            stageUnbornGitFiles(
+              files,
+              workspaceRootPath(queued.bootstrapBinding),
+            ),
           )
           await step.run({ name: "validate-unborn" }, () =>
             validateUnbornGitTree(
               staged,
               files
-                .filter((file) => isBootstrapAllowedPath(file.path))
+                .filter(
+                  (file) =>
+                    isBootstrapAllowedPath(file.path) ||
+                    file.path === WORKSPACE_FORMAT_PATH,
+                )
                 .map((file) => file.path),
+              workspaceRootPath(queued.bootstrapBinding),
             ),
           )
           const subject = await step.run(
@@ -301,41 +329,45 @@ export const workspaceBootstrap = defineWorkflow(
               persistWriteJobStatus(input.jobId, "running"),
             )
           }
-          const files = await step.run({ name: "transform-bootstrap" }, () =>
-            withGitDirectory(
-              revision.sha,
-              async (directory) => {
-                const paths = (
-                  await nativeGit(directory, [
-                    "ls-tree",
-                    "-r",
-                    "--name-only",
-                    "-z",
-                    revision.sha,
-                  ])
-                )
-                  .toString()
-                  .split("\0")
-                const existing = new Map<string, string>()
-                for (const path of ["AGENTS.md", BOOTSTRAP_SKILL_PATH]) {
-                  if (paths.includes(path))
-                    existing.set(
-                      path,
-                      (
-                        await nativeGit(directory, [
-                          "show",
-                          `${revision.sha}:${path}`,
-                        ])
-                      ).toString(),
-                    )
-                }
-                return bootstrapWorkspaceFiles({
+          const files = await step.run(
+            { name: "transform-bootstrap" },
+            async () => {
+              const existing = new Map(
+                (
+                  await readGitFiles(acquired.pack, (path) =>
+                    ["AGENTS.md", BOOTSTRAP_SKILL_PATH].includes(path),
+                  )
+                ).map((file) => [file.path, file.content]),
+              )
+              // A repository with no ctx| content is new, so the bootstrap
+              // commit writes the format file. A repository with ctx|
+              // content keeps its format (ADR-053).
+              const isNew = !hasCtxpipeContent(
+                (
+                  await withGitDirectory(
+                    acquired.pack.sha,
+                    async (directory) => {
+                      const tree = await packRootTree(directory, acquired.pack)
+                      return tree
+                        ? listTreeBlobs(
+                            directory,
+                            tree,
+                            CTXPIPE_CONTENT_FOLDERS,
+                          )
+                        : []
+                    },
+                    acquired.pack,
+                  )
+                ).map((blob) => blob.path),
+              )
+              return [
+                ...bootstrapWorkspaceFiles({
                   displayName: acquired.displayName,
                   existing,
-                }).filter((file) => existing.get(file.path) !== file.content)
-              },
-              acquired.pack,
-            ),
+                }).filter((file) => existing.get(file.path) !== file.content),
+                ...(isNew ? [workspaceFormatFile()] : []),
+              ]
+            },
           )
           if (!files.length) {
             const refreshed = await step.run({ name: "confirm-no-op" }, () =>
@@ -354,7 +386,13 @@ export const workspaceBootstrap = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () => {
-            if (files.some((file) => !isBootstrapAllowedPath(file.path)))
+            if (
+              files.some(
+                (file) =>
+                  !isBootstrapAllowedPath(file.path) &&
+                  file.path !== WORKSPACE_FORMAT_PATH,
+              )
+            )
               throw new Error("Bootstrap path is outside its allowed files")
             return stageGitFiles(acquired.pack, files)
           })
@@ -397,7 +435,21 @@ export const workspaceBootstrap = defineWorkflow(
           if (!pushed.pushed) {
             const handoff = await step.run(
               { name: "capture-semantic-handoff" },
-              () => captureSemanticHandoff(input, revision, committed, env),
+              () =>
+                captureSemanticHandoff(
+                  input,
+                  revision,
+                  committed,
+                  env,
+                  "host",
+                  // The tip moved after the bind. The format file of a new
+                  // repository must not go onto a tree that now has ctx|
+                  // content: that repository keeps its format (ADR-053).
+                  async (next) =>
+                    (await revisionHasCtxpipeContent(input.orgId, next))
+                      ? [WORKSPACE_FORMAT_PATH]
+                      : [],
+                ),
             )
             const result = await step.runWorkflow(
               workspaceSemanticMerge.spec,

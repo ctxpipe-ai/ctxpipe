@@ -1,6 +1,7 @@
 import type { Client } from "@modelcontextprotocol/sdk/client/index.js"
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js"
 import { eq } from "drizzle-orm"
+import { delay, HttpResponse, http } from "msw"
 import {
   afterAll,
   afterEach,
@@ -16,7 +17,10 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { hasWorkspaceGraph } from "../../domain/workspaces/graph-projection.js"
 import { closeGraphDb } from "../../platform/graph/client.js"
-import { embeddingModelServer } from "../../test/knowledge-search-fixture.js"
+import {
+  embeddingModelServer,
+  embedText,
+} from "../../test/knowledge-search-fixture.js"
 import {
   callTool,
   connectToolClient,
@@ -256,6 +260,7 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     client = await connectToolClient(seed, getRelatedTool)
   }, 60_000)
   afterEach(() => {
+    modelServer.resetHandlers()
     vi.useRealTimers()
   })
   afterAll(async () => {
@@ -285,12 +290,13 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 6,
     })
     expect(result.isError).not.toBe(true)
-    // Services lead by edge confidence; diversity brings a Team in at once.
+    // The Services answer the dependencies intent, so they come first, by
+    // edge confidence. The Teams follow.
     expect(refs(result)).toEqual([
       "knowledge/services/payments-api.md",
       "knowledge/services/gateway.md",
-      "knowledge/teams/payments.md",
       "knowledge/services/search-api.md",
+      "knowledge/teams/payments.md",
       "knowledge/teams/edge.md",
       "knowledge/teams/discovery.md",
     ])
@@ -349,6 +355,34 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(lowerCase)).toContain("knowledge/services/payments-api.md")
   })
 
+  it("never walks an excluded predicate, and never returns an excluded kind", async () => {
+    const all = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+    })
+    expect(refs(all)).toContain("knowledge/docs/overview.md")
+    expect(refs(all)).toContain("knowledge/services/payments-api.md")
+    const noDependents = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+      excludePredicates: ["depends_on"],
+    })
+    expect(refs(noDependents)).not.toContain(
+      "knowledge/services/payments-api.md",
+    )
+    expect(refs(noDependents)).toContain("knowledge/docs/overview.md")
+    const noDocs = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      direction: "in",
+      excludeKinds: ["doc"],
+    })
+    expect(refs(noDocs)).not.toContain("knowledge/docs/overview.md")
+    expect(refs(noDocs)).toContain("knowledge/services/payments-api.md")
+  })
+
   it("adds the results of all edges after a short intent walk, but not for explicit predicates", async () => {
     const gateway = "knowledge/services/gateway.md"
     // The ownership walk finds only the owner. The walk of all edges adds
@@ -391,6 +425,113 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     expect(refs(explicit)).toEqual(["knowledge/teams/edge.md"])
   })
 
+  it("adds the results of all edges when the link edges fill limit with no answer", async () => {
+    // The ownership walk from the library finds only the doc, over a link
+    // edge. The doc fills limit 1 but is no owner, so the walk of all edges
+    // runs, and its owner comes before the doc.
+    const result = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      intent: "ownership",
+      limit: 1,
+    })
+    expect(result.isError).not.toBe(true)
+    expect(refs(result)).toEqual(["knowledge/teams/payments.md"])
+  })
+
+  // A service that links a runbook, a team, a service and a decision. Only
+  // the runbook matches the query.
+  const seedRunbookWorkspace = async (slug: string) => {
+    await seedRelatedWorkspace({
+      seed,
+      slug,
+      sha: sha("d"),
+      chunks: true,
+      units: [
+        {
+          path: "seed.md",
+          kind: "Service",
+          links: ["runbook.md", "team.md", "service.md", "decision.md"],
+        },
+        {
+          path: "runbook.md",
+          kind: "Runbook",
+          title: "Connection saturation runbook",
+          body: "# Connection saturation runbook\n\nResolve connection saturation with this runbook.",
+        },
+        { path: "team.md", kind: "Team", body: "# Team\n\nThe support team." },
+        {
+          path: "service.md",
+          kind: "Service",
+          body: "# Service\n\nThe billing service.",
+        },
+        {
+          path: "decision.md",
+          kind: "Decision",
+          body: "# Decision\n\nUse a queue.",
+        },
+      ],
+    })
+  }
+
+  it("returns the connection saturation runbook first without an intent", async () => {
+    await seedRunbookWorkspace("runbook-query")
+    const result = await related({
+      workspace: "runbook-query",
+      seeds: ["seed.md"],
+      query: "connection saturation runbook",
+    })
+    expect(refs(result)[0]).toBe("runbook.md")
+  })
+
+  it("keeps the connection saturation runbook before the decisions for intent why", async () => {
+    await seedRunbookWorkspace("runbook-why")
+    const result = await related({
+      workspace: "runbook-why",
+      seeds: ["seed.md"],
+      intent: "why",
+      query: "connection saturation runbook",
+    })
+    expect(refs(result)[0]).toBe("runbook.md")
+    expect(refs(result)).toContain("decision.md")
+  })
+
+  it("does not repeat a full intent walk that already has an answer", async () => {
+    const result = await related({
+      workspace: "platform",
+      seeds: [limiter],
+      intent: "dependencies",
+      limit: 2,
+    })
+    expect(result.isError).not.toBe(true)
+    // The intent walk reaches the three services and the linked doc.
+    // A second walk would also reach their teams.
+    expect(result.structuredContent?.explored).toEqual({ nodes: 5, edges: 4 })
+  })
+
+  it("keeps intent-walk answers ahead of owners found only by the fallback", async () => {
+    await seedRelatedWorkspace({
+      seed,
+      slug: "owner-order",
+      sha: sha("d"),
+      units: [
+        { path: "seed.md", kind: "Service", links: ["owner.md"] },
+        { path: "owner.md", kind: "Team" },
+        {
+          path: "other.md",
+          kind: "Team",
+          claims: [{ to: "seed.md", predicate: "MAINTAINS", confidence: 1 }],
+        },
+      ],
+    })
+    const result = await related({
+      workspace: "owner-order",
+      seeds: ["seed.md"],
+      intent: "ownership",
+    })
+    expect(refs(result)).toEqual(["owner.md", "other.md"])
+  })
+
   it("filters the results by kind but walks through the other kinds", async () => {
     const result = await related({
       workspace: "platform",
@@ -418,10 +559,12 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 5,
     })
     expect(result.isError).not.toBe(true)
+    // The incident and the decision answer the why intent, so they come
+    // before the database and the issue.
     expect(refs(result)).toEqual([
-      "knowledge/databases/payments-db.md",
       "pagerduty/incidents/q7.md",
       "knowledge/decisions/adr-012.md",
+      "knowledge/databases/payments-db.md",
       "linear/issues/PAY-311.md",
       "knowledge/runbooks/db-connection-saturation.md",
     ])
@@ -479,9 +622,9 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       limit: 5,
     })
     expect(refs(window)).toEqual([
-      "knowledge/databases/payments-db.md",
       "pagerduty/incidents/q3.md",
       "knowledge/decisions/adr-012.md",
+      "knowledge/databases/payments-db.md",
       "knowledge/runbooks/db-connection-saturation.md",
     ])
     const now = await related({
@@ -538,8 +681,8 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
     const second = await related({ ...args, cursor })
     expect(second.isError).not.toBe(true)
     expect(refs(second)).toEqual([
-      "knowledge/teams/payments.md",
       "knowledge/services/search-api.md",
+      "knowledge/teams/payments.md",
     ])
     const third = await related({
       ...args,
@@ -610,6 +753,72 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       new Date(),
     )
     expect(ranking.results.length).toBeGreaterThan(0)
+  })
+
+  // The ownership walk from the gateway is short, so a walk of all edges
+  // follows it, and both walks search the query.
+  const searchGateway = async (
+    respond: () => Promise<void>,
+    caps?: { totalTimeoutMs: number },
+  ) => {
+    let requests = 0
+    modelServer.use(
+      http.post(
+        "https://search-model.test/v1/embeddings",
+        async ({ request }) => {
+          const body = (await request.json()) as { input: string[] }
+          requests += 1
+          await respond()
+          return HttpResponse.json({
+            data: body.input.map((text, index) => ({
+              index,
+              embedding: embedText(text),
+            })),
+          })
+        },
+      ),
+    )
+    const [row] = await withOrgDbContext(seed.orgId, (db) =>
+      db
+        .select({ id: workspaces.id })
+        .from(workspaces)
+        .where(eq(workspaces.slug, "platform")),
+    )
+    const input = z.object(getRelatedInputShape).parse({
+      workspace: "platform",
+      seeds: ["knowledge/services/gateway.md"],
+      query: "connection saturation runbook",
+      intent: "ownership",
+    })
+    const ranking = await rankWorkspaceRelated(
+      { id: seed.orgId, slug: seed.orgSlug },
+      { id: row?.id as string, slug: "platform" },
+      sha("a"),
+      input,
+      new Date(),
+      { caps },
+    )
+    return { ranking, requests }
+  }
+
+  it("embeds the query once for both walks", async () => {
+    const { ranking, requests } = await searchGateway(async () => {})
+    expect(ranking.partial).toBe(false)
+    expect(ranking.results.length).toBeGreaterThan(0)
+    expect(requests).toBe(1)
+  })
+
+  it("bounds a slow query embedding by the shared total budget", async () => {
+    const start = performance.now()
+    const { ranking, requests } = await searchGateway(() => delay(1500), {
+      totalTimeoutMs: 500,
+    })
+    expect(performance.now() - start).toBeLessThan(1200)
+    expect(requests).toBe(1)
+    expect(ranking).toMatchObject({
+      partial: true,
+      partialReason: "total_timeout",
+    })
   })
 
   it("gives the walk of all edges only the budget that the intent walk left", async () => {
@@ -734,6 +943,9 @@ describe("get_related through the MCP client on live Postgres and FalkorDB", () 
       { queryWeight: 1.5 },
       { diversity: -0.1 },
       { hubPenalty: -1 },
+      { hubPenalty: 1.5 },
+      { maxFanOut: 4 },
+      { maxFanOut: 201 },
       { recencyHalfLifeDays: 0 },
       { maxDepth: 5 },
     ]) {

@@ -82,6 +82,32 @@ function workspaceFilesText(canvas: ReturnType<typeof within>) {
   return `${host.textContent ?? ""}${host.shadowRoot?.textContent ?? ""}`
 }
 
+/**
+ * The tree cuts a long name in the middle, so its text is not the whole name.
+ * Each row is a button whose aria-label is the whole name.
+ */
+function workspaceFileNames(canvas: ReturnType<typeof within>) {
+  const rows =
+    workspaceFilesHost(canvas).shadowRoot?.querySelectorAll(
+      "button[aria-label]",
+    ) ?? []
+  return [...rows].map((row) => row.getAttribute("aria-label"))
+}
+
+async function expectWorkspaceFileNamed(
+  canvas: ReturnType<typeof within>,
+  name: string,
+  timeout?: number,
+) {
+  await canvas.findByLabelText("Workspace files")
+  await waitFor(
+    () => {
+      expect(workspaceFileNames(canvas)).toContain(name)
+    },
+    timeout ? { timeout } : undefined,
+  )
+}
+
 async function expectWorkspaceFiles(
   canvas: ReturnType<typeof within>,
   pattern: RegExp,
@@ -270,6 +296,40 @@ export default meta
 
 type Story = StoryObj<typeof meta>
 
+/** Fade cue: 100 ms, `ease-out`. The global rule in `styles.css` stops it under reduced motion. */
+function expectFadeCue(node: Element | null) {
+  expect(node).not.toBeNull()
+  expect(node).toHaveClass("animate-in", "fade-in", "duration-100", "ease-out")
+  expect(getComputedStyle(node as Element).animationDuration).toBe("0.1s")
+}
+
+/** The global reduced-motion rule must cap every transition and animation. */
+function reducedMotionRuleCapsMotion() {
+  const rules: string[] = []
+  const walk = (list: CSSRuleList, inReduce: boolean) => {
+    for (const rule of Array.from(list)) {
+      if (rule instanceof CSSMediaRule) {
+        walk(
+          rule.cssRules,
+          rule.conditionText.includes("prefers-reduced-motion: reduce"),
+        )
+      } else if (inReduce) {
+        rules.push(rule.cssText)
+      }
+    }
+  }
+  for (const sheet of Array.from(document.styleSheets)) {
+    try {
+      walk(sheet.cssRules, false)
+    } catch {
+      // A cross-origin sheet is not ours.
+    }
+  }
+  const text = rules.join("\n")
+  expect(text).toContain("transition-duration: 0.01ms !important")
+  expect(text).toContain("animation-duration: 0.01ms !important")
+}
+
 /** Collapsed pane: the triggers stand alone in the chat header. */
 export const Triggers: Story = {
   render: (args) => (
@@ -286,8 +346,12 @@ export const Triggers: Story = {
     const canvas = within(canvasElement)
     await userEvent.click(canvas.getByRole("button", { name: "Graph" }))
     expect(args.onPane).toHaveBeenCalledWith({ kind: "graph" })
+    // Hide pane mounts the triggers: the strip fades in.
+    expectFadeCue(canvas.getByRole("button", { name: "Files" }).parentElement)
+    reducedMotionRuleCapsMotion()
+    // The triggers have no visible border.
     expect(canvas.getByRole("button", { name: "Files" })).toHaveClass(
-      "border-white/10",
+      "border-transparent",
     )
   },
 }
@@ -305,20 +369,26 @@ export const HideShowMaximize: Story = {
     const canvas = within(canvasElement)
     await canvas.findByLabelText("Workspace files")
     await userEvent.click(canvas.getByRole("button", { name: "Maximize pane" }))
-    expect(
-      await canvas.findByRole("button", { name: "Show conversation" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Show conversation" }),
+      ).toBeVisible(),
+    )
     await userEvent.click(
       canvas.getByRole("button", { name: "Show conversation" }),
     )
-    expect(
-      await canvas.findByRole("button", { name: "Maximize pane" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Maximize pane" }),
+      ).toBeVisible(),
+    )
     await userEvent.click(canvas.getByRole("button", { name: "Hide pane" }))
     // No exit animation: the pane unmounts in the same commit as the click.
     expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "Files" }))
-    expect(await canvas.findByLabelText("Workspace files")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
+    )
   },
 }
 
@@ -476,6 +546,102 @@ export const ReadOnly: Story = {
   },
 }
 
+const legacyPath = "knowledge/services/tools-cli.md"
+const legacyReason =
+  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+
+/** The editor of the open file takes keys only when it is editable. */
+async function expectFileEditable(
+  canvasElement: HTMLElement,
+  body: string,
+  editable: boolean,
+) {
+  // The file shows first: the check below is on a settled page.
+  await waitFor(() => {
+    expect(textInShadows(canvasElement)).toContain(body)
+  })
+  await waitFor(() => {
+    expect(
+      Boolean(findInShadows(canvasElement, "[contenteditable='true']")),
+    ).toBe(editable)
+  })
+}
+
+/** The sandbox of a writable conversation, which can edit its git files. */
+function legacyConversationHandlers() {
+  return [
+    // Not in the sandbox: the server serves it from Postgres, read-only.
+    http.get(
+      ({ request }) =>
+        /\/api\/v1\/conversations\/[^/]+\/files\/blob$/.test(
+          new URL(request.url).pathname,
+        ) && new URL(request.url).searchParams.get("path") === legacyPath,
+      () =>
+        HttpResponse.json({
+          path: legacyPath,
+          body: "# Tools CLI\n\nThe release tools.\n",
+          binary: false,
+          readOnlyReason: legacyReason,
+        }),
+    ),
+    // The handlers of `ConversationWritable`.
+    conversationPrepareHandler(),
+    conversationGitTreeHandler(),
+    conversationGitBlobHandler(),
+    conversationGitStatusHandler(),
+    conversationGitDiffHandler(),
+    conversationFilePutHandler(),
+    ...gitFilesHandlers,
+  ]
+}
+
+function conversationFileStory(path: string): Story {
+  return {
+    args: {
+      conversationId: "conv_1",
+      pane: { kind: "file", path },
+      fileTabs: [path],
+      previewPath: path,
+    },
+    parameters: {
+      storyRoute: {
+        pattern: "orgWorkspace",
+        orgSlug: "acme",
+        workspaceSlug: "docs",
+        conversationId: "conv_1",
+        pane: serializePane({ kind: "file", path }),
+      } satisfies StoryRouteParams,
+      msw: { handlers: { page: legacyConversationHandlers() } },
+    },
+  }
+}
+
+/**
+ * Knowledge from before Workspaces that hydrate serves from Postgres. It is
+ * not in git, so the conversation shows the reason and no editor.
+ */
+export const LegacyKnowledgeReadOnly: Story = {
+  ...conversationFileStory(legacyPath),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => {
+      expect(canvas.getByText(legacyReason)).toBeVisible()
+    })
+    await expectFileEditable(canvasElement, "The release tools.", false)
+  },
+}
+
+/** In the same conversation, a git file opens in the editor. */
+export const GitFileEditable: Story = {
+  ...conversationFileStory(ledgerPath),
+  play: async ({ canvasElement }) => {
+    await expectFileEditable(canvasElement, "Billing ledger", true)
+    expect(
+      within(canvasElement).queryByText(legacyReason),
+    ).not.toBeInTheDocument()
+  },
+}
+
 const manyFileTabs = [
   ...Array.from(
     { length: 14 },
@@ -509,6 +675,7 @@ export const SelectedTabInView: Story = {
     const canvas = within(canvasElement)
     const tab = await canvas.findByRole("tab", { name: "ledger.md" })
     await expect(tab).toHaveAttribute("aria-selected", "true")
+    await document.fonts.ready
     const strip = tab.closest('[role="tablist"]') as HTMLElement
     await waitFor(() => {
       expect(strip.scrollWidth).toBeGreaterThan(strip.clientWidth)
@@ -539,9 +706,44 @@ export const TextTabsKeepPadding: Story = {
       expect(style.paddingLeft).toBe("12px")
       expect(style.paddingRight).toBe("12px")
     }
+    // A new tab fades in when it mounts.
+    expectFadeCue(active)
+    expectFadeCue(idle)
     const files = await canvas.findByRole("tab", { name: "Files" })
+    await document.fonts.ready
     // The icon tab is square: 7px + 1px border + 16px icon on each side.
     expect(files.getBoundingClientRect().width).toBe(32)
+  },
+}
+
+/** A tab change moves no tab: the selected and idle tabs share one top edge, and x and width stay put. */
+export const TabChangeKeepsPosition: Story = {
+  args: {
+    pane: { kind: "file", path: ledgerPath },
+    fileTabs: [ledgerPath, "knowledge/notes/meeting-notes-1.md"],
+    previewPath: null,
+  },
+  parameters: SelectedTabInView.parameters,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const a = await canvas.findByRole("tab", { name: "ledger.md" })
+    const b = await canvas.findByRole("tab", { name: "meeting-notes-1.md" })
+    await document.fonts.ready
+    const box = (tab: HTMLElement) => {
+      const r = tab.getBoundingClientRect()
+      return { top: r.top, bottom: r.bottom, x: r.x, width: r.width }
+    }
+    await expect(a).toHaveAttribute("aria-selected", "true")
+    // Wait for the mount fade and the fonts, so no late font swap changes a tab width.
+    await waitFor(() => expect(box(a).top).toBe(box(b).top))
+    const before = { a: box(a), b: box(b) }
+    expect(before.a.top).toBe(before.b.top)
+    expect(before.a.bottom).toBe(before.b.bottom)
+    await userEvent.click(b)
+    await waitFor(() => expect(b).toHaveAttribute("aria-selected", "true"))
+    await document.fonts.ready
+    const after = { a: box(a), b: box(b) }
+    expect(after).toEqual(before)
   },
 }
 
@@ -551,6 +753,10 @@ export const TreeCollapsed: Story = {
     fileTabs: [ledgerPath],
     previewPath: ledgerPath,
     treeCollapsed: true,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    expectFadeCue(await canvas.findByRole("button", { name: "Show tree" }))
   },
   parameters: {
     storyRoute: {
@@ -601,7 +807,7 @@ export const GraphLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Loading graph")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Loading graph")).toBeVisible())
     expect(canvas.queryAllByRole("presentation")).toHaveLength(0)
   },
 }
@@ -652,11 +858,13 @@ export const GraphPhasePending: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText(
-        "The graph opens when ctx| finishes reading this Workspace.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "The graph opens when ctx| finishes reading this Workspace.",
+        ),
+      ).toBeVisible(),
+    )
     const tab = canvas.getByRole("tab", { name: "Graph, building" })
     expect(tab.querySelector(".ctx-indexing-dot")).not.toBeNull()
     // A graph query that was turned on would fetch at mount. Give it time.
@@ -681,7 +889,9 @@ export const GraphPhaseFailed: Story = {
   parameters: { storyRoute: graphPaneRoute },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(await canvas.findByText("Could not build graph")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Could not build graph")).toBeVisible(),
+    )
     expect(
       canvas.getByText(
         "Could not build the graph. It builds again automatically.",
@@ -733,11 +943,13 @@ export const GraphLostRebuilds: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText(
-        "The graph opens when ctx| finishes reading this Workspace.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "The graph opens when ctx| finishes reading this Workspace.",
+        ),
+      ).toBeVisible(),
+    )
     expect(canvas.queryByText("Could not load graph")).toBeNull()
     await waitFor(
       () => {
@@ -786,11 +998,10 @@ export const GraphPhaseReadyStoreUnavailable: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("Could not load graph", undefined, {
-        timeout: 15_000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(canvas.getByText("Could not load graph")).toBeVisible(),
+      { timeout: 15_000 },
+    )
     const tab = canvas.getByRole("tab", { name: "Graph" })
     expect(tab.querySelector(".ctx-indexing-dot")).toBeNull()
   },
@@ -879,6 +1090,27 @@ export const Maximized: Story = {
   args: {
     pane: { kind: "files" },
     maximized: true,
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const restore = await canvas.findByRole("button", {
+      name: "Show conversation",
+    })
+    // The restore icon and the maximize icon cross-fade in 100 ms.
+    const icons = Array.from(restore.querySelectorAll("svg"))
+    expect(icons).toHaveLength(2)
+    for (const icon of icons) {
+      expect(icon).toHaveClass(
+        "transition-[opacity,scale]",
+        "duration-100",
+        "ease-out",
+      )
+      expect(getComputedStyle(icon).transitionDuration).toBe("0.1s")
+    }
+    // The conversation title button slides in at the left of the strip.
+    const title = canvasElement.querySelector(".slide-in-from-left-1")
+    expectFadeCue(title)
+    expect(title).toHaveClass("slide-in-from-left-1")
   },
   parameters: {
     msw: {
@@ -1031,9 +1263,7 @@ export const ConversationCleanNoPublish: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "AGENTS.md")
     expect(
       canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
@@ -1043,7 +1273,10 @@ export const ConversationCleanNoPublish: Story = {
   },
 }
 
-/** Maximized, so the pane header shows the conversation's Create PR. */
+/**
+ * Maximized, so the pane header shows the conversation's Create PR. The
+ * commits are on GitHub, so nothing is left to sync and Create PR is the CTA.
+ */
 export const ConversationCommittedCreatePr: Story = {
   args: {
     conversationId: "conv_1",
@@ -1071,8 +1304,8 @@ export const ConversationCommittedCreatePr: Story = {
             branch: "ctxpipe/chat/conv_1/1",
             dirty: false,
             differsFromDefault: true,
-            unpushed: true,
-            published: false,
+            unpushed: false,
+            published: true,
             ahead: 1,
             behind: 0,
             items: [],
@@ -1123,9 +1356,7 @@ export const ConversationReadOnly: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("AGENTS.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "AGENTS.md")
     expect(
       canvas.queryByRole("button", { name: /^Sync/, hidden: true }),
     ).not.toBeInTheDocument()
@@ -1216,7 +1447,7 @@ export const CachedSandboxWhile409: Story = {
               paths: ["e2e-live-note.md"],
               branch: "ctxpipe/chat/conv_1/1",
             },
-            2,
+            1,
           ),
           workspaceGitTreeHandler({
             sha: "workspace-only",
@@ -1228,20 +1459,13 @@ export const CachedSandboxWhile409: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await waitFor(() => {
-      expect(canvas.getByText("cached-note.md")).toBeVisible()
-    })
+    await expectWorkspaceFileNamed(canvas, "cached-note.md")
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
-    await waitFor(
-      () => {
-        expect(canvas.getByText("e2e-live-note.md")).toBeVisible()
-      },
-      { timeout: 8000 },
-    )
-    expect(canvas.queryByText("cached-note.md")).not.toBeInTheDocument()
+    expect(workspaceFileNames(canvas)).not.toContain("repositories")
+    await expectWorkspaceFileNamed(canvas, "e2e-live-note.md", 8000)
+    expect(workspaceFileNames(canvas)).not.toContain("cached-note.md")
     expect(canvas.queryByText("Updating…")).not.toBeInTheDocument()
-    expect(canvas.queryByText("repositories")).not.toBeInTheDocument()
+    expect(workspaceFileNames(canvas)).not.toContain("repositories")
   },
 }
 

@@ -13,15 +13,6 @@ export {
   isValidPredicate,
   validatePredicate,
 } from "./schema/predicateValidation.js"
-export type { ClaimAggregationRow } from "./services/aggregateClaims.js"
-export { aggregateClaimsByPredicate } from "./services/aggregateClaims.js"
-export { mergeCandidates } from "./services/candidateMerge.js"
-export type {
-  AddEvidenceInput,
-  CreateClaimInput,
-  InitialEvidenceInput,
-} from "./services/claimWrite.js"
-export { addEvidence, createClaim } from "./services/claimWrite.js"
 export type {
   CodeSearchResult,
   ParsedCodeCandidate,
@@ -60,10 +51,7 @@ export type {
   IngestionRetractionGraphEffects,
   RetractionStats,
 } from "./services/ingestionRetraction.js"
-export {
-  applyIngestionRetractionGraphEffects,
-  retractIngestionForDiffPg,
-} from "./services/ingestionRetraction.js"
+export { applyIngestionRetractionGraphEffects } from "./services/ingestionRetraction.js"
 export {
   generateEmbedding,
   generateEmbeddings,

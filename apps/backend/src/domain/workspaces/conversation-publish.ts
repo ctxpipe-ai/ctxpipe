@@ -16,14 +16,21 @@ import { getOrganizationSlugByOrgId } from "../../models/organizations.js"
 import {
   getWorkspaceById,
   getWorkspaceWriteAdmission,
+  writesLegacyKnowledge,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import {
   gitRemoteEnvironment,
   resolveGitRemoteTip,
 } from "../../services/git/clone-tree.js"
+import { parseNameStatus } from "../../services/git/name-status.js"
 import { nativeGit, withGitDirectory } from "../../services/git/pack.js"
+import {
+  workspaceRelativePath,
+  workspaceRepositoryPath,
+} from "../../services/git/root-folder.js"
 import { compareBranchChanges } from "../../services/github/installation-write-client.js"
+import { SOURCE_FILES_FOLDER } from "../workspace-sources/source-file.js"
 import {
   type ChatPublishBlock,
   conversationSessionBranch,
@@ -39,6 +46,7 @@ import {
   UNPUSHED_COMMITS_COMMAND,
 } from "./conversation-files.js"
 import { switchToSessionBranch } from "./conversation-session-branch.js"
+import { addedOwnershipField } from "./host-only.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
 import {
   type BranchChanges,
@@ -51,7 +59,17 @@ import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
 } from "./revision.js"
+import {
+  gitChangesOutsideWorkspaceRoot,
+  workspaceRootPath,
+} from "./root-path.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
+import {
+  readWorkspaceFormat,
+  SOURCE_FILES_FORMAT,
+  WORKSPACE_FORMAT_PATH,
+  workspaceFormatAtLeast,
+} from "./workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
 export type ConversationSandboxBinding = {
@@ -115,6 +133,16 @@ export type SessionPublishSkip =
   | "nothing_committed"
   /** The session branch is not on GitHub. */
   | "no_changes"
+  /** The commits add or change `generated_by` or `sources` front matter. */
+  | "host_only_field"
+  /** The commits change a file outside the Workspace root folder. */
+  | "outside_root"
+  /** The commits change `.ctxpipe/workspace.yaml`; only an upgrade pull request does. */
+  | "format_file"
+  /** The commits change `sources/` on a Workspace below format 2. */
+  | "upgrade_needed"
+  /** The commits write a path of main-era knowledge that is not in git. */
+  | "legacy_knowledge"
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
@@ -363,8 +391,16 @@ export async function pushConversationSession(input: {
       dirty,
     }
   } catch (error) {
-    if (error instanceof PublishRefused)
+    if (error instanceof PublishRefused) {
+      // The event holds no path and no file text, because those come from
+      // the agent.
+      log.info({
+        step: "conversation-session-push-refused",
+        reason: error.reason,
+        conversationId: input.conversationId,
+      })
       return { status: "skipped", reason: error.reason, dirty }
+    }
     log.warn({
       step: "conversation-session-push",
       message: error instanceof Error ? error.message : String(error),
@@ -496,6 +532,10 @@ async function brokerPush(input: {
       packBytes <= 0
     )
       throw new Error("Invalid conversation Git pack size")
+    // The sandbox reports the size. The copy below reads that many bytes into
+    // this process, so a larger pack is refused before any copy.
+    if (packBytes > 100 * 1024 * 1024)
+      throw new Error("The conversation Git pack is larger than 100 MB")
     writeToken = await getRepoWriteCloneToken(target.orgId, input.env, {
       githubConnectionId: target.connectionId,
       repoFullName: target.repositoryName,
@@ -538,6 +578,44 @@ async function brokerPush(input: {
         file: localPack,
       })
       await nativeGit(directory, ["cat-file", "-e", `${sha}^{commit}`])
+      // The check reads the broker's own copy of the objects, not the
+      // sandbox, because the agent controls the sandbox. A change to a
+      // host-only path such as `.ctxpipe/` is allowed: the push reaches only
+      // the session branch, so the change reaches the default branch only
+      // through a pull request that a person merges. The format file is the
+      // exception: only an upgrade pull request changes it.
+      if (await addsOwnershipField(directory, packBase, sha))
+        throw new PublishRefused("host_only_field")
+      // The agent may change files only below the Workspace root folder.
+      const rootPath = workspaceRootPath(revision)
+      const changedPaths = await changedWorkspacePaths(
+        directory,
+        packBase,
+        sha,
+        rootPath,
+      )
+      const refusal = await formatRefusal(
+        directory,
+        packBase,
+        rootPath,
+        changedPaths,
+      )
+      if (refusal) throw new PublishRefused(refusal)
+      // Main-era knowledge that hydrate serves from Postgres is read-only.
+      if (await writesLegacyKnowledge(target.workspaceId, changedPaths))
+        throw new PublishRefused("legacy_knowledge")
+      if (
+        rootPath &&
+        (
+          await gitChangesOutsideWorkspaceRoot({
+            directory,
+            base: packBase,
+            head: sha,
+            rootPath,
+          })
+        ).length
+      )
+        throw new PublishRefused("outside_root")
       // The write token only ever reaches this conversation's session branch,
       // never a branch that is (or became) the default.
       const latestDefault = await resolveGitRemoteTip({
@@ -586,6 +664,139 @@ async function brokerPush(input: {
   } finally {
     await run(`rm -f -- ${shellSingleQuote(agentPack)}`)
   }
+}
+
+/**
+ * True when a change from `base` to `sha` gives a file an ownership field
+ * that it did not have (CTX-722). Only the host sets these fields, because
+ * they give a file to ingestion. The check reads the net change from `base`
+ * to `sha`, and each commit between them against its first parent, because
+ * the history keeps a change that a later commit removes. A commit with no
+ * parent is compared with the empty tree. A rename compares the file with its
+ * old version, so an agent can move a generated file. The old version of a
+ * file that is not Markdown has no ownership fields, so a rename to Markdown
+ * cannot bring them in.
+ */
+async function addsOwnershipField(
+  directory: string,
+  base: string,
+  sha: string,
+): Promise<boolean> {
+  const emptyTree = async () =>
+    (await nativeGit(directory, ["hash-object", "-t", "tree", "--stdin"], ""))
+      .toString("utf8")
+      .trim()
+  const pairs: Array<[string, string]> = [[base, sha]]
+  const commits = (
+    await nativeGit(directory, ["rev-list", "--parents", `${base}..${sha}`])
+  )
+    .toString("utf8")
+    .split("\n")
+    .filter(Boolean)
+  for (const line of commits) {
+    const [commit = "", parent] = line.split(" ")
+    pairs.push([parent ?? (await emptyTree()), commit])
+  }
+  const blob = async (commit: string, path: string) =>
+    (
+      await nativeGit(directory, ["cat-file", "blob", `${commit}:${path}`])
+    ).toString("utf8")
+  const isMarkdown = (path: string) => /\.md$/i.test(path)
+  for (const [from, to] of pairs) {
+    const changes = parseNameStatus(
+      await nativeGit(directory, [
+        "diff-tree",
+        "-r",
+        "-z",
+        "-M",
+        "--name-status",
+        from,
+        to,
+      ]),
+    )
+    for (const change of changes) {
+      if (change.status.startsWith("D") || !isMarkdown(change.to)) continue
+      const before =
+        change.status.startsWith("A") || !isMarkdown(change.from)
+          ? null
+          : await blob(from, change.from)
+      if (addedOwnershipField(before, await blob(to, change.to))) return true
+    }
+  }
+  return false
+}
+
+/**
+ * The paths (relative to the Workspace root) that the change from `base` to
+ * `sha` adds, changes or deletes, in the broker's copy.
+ */
+async function changedWorkspacePaths(
+  directory: string,
+  base: string,
+  sha: string,
+  rootPath: string,
+): Promise<string[]> {
+  return (
+    await nativeGit(directory, [
+      "diff-tree",
+      "-r",
+      "-z",
+      "--no-renames",
+      "--name-only",
+      base,
+      sha,
+    ])
+  )
+    .toString("utf8")
+    .split("\0")
+    .flatMap((path) => {
+      const relative = path ? workspaceRelativePath(rootPath, path) : null
+      return relative === null ? [] : [relative]
+    })
+}
+
+/**
+ * The refusal of a change that the Workspace format does not allow, or null.
+ * The commits must not change the format file. Below format 2, they must not
+ * change `sources/`, because the Workspace still reads `.ctxpipe/sources.yaml`.
+ * The format comes from the format file at `base`, in the broker's copy.
+ */
+async function formatRefusal(
+  directory: string,
+  base: string,
+  rootPath: string,
+  changed: readonly string[],
+): Promise<"format_file" | "upgrade_needed" | null> {
+  if (changed.includes(WORKSPACE_FORMAT_PATH)) return "format_file"
+  if (!changed.some((path) => path.startsWith(`${SOURCE_FILES_FOLDER}/`)))
+    return null
+  const formatPath = workspaceRepositoryPath(rootPath, WORKSPACE_FORMAT_PATH)
+  const text = (
+    await nativeGit(directory, [
+      "ls-tree",
+      "--name-only",
+      base,
+      "--",
+      formatPath,
+    ])
+  )
+    .toString("utf8")
+    .trim()
+    ? (
+        await nativeGit(directory, [
+          "cat-file",
+          "blob",
+          `${base}:${formatPath}`,
+        ])
+      ).toString("utf8")
+    : null
+  const format = readWorkspaceFormat(text)
+  return workspaceFormatAtLeast(
+    format.kind === "format" ? format.format : null,
+    SOURCE_FILES_FORMAT,
+  )
+    ? null
+    : "upgrade_needed"
 }
 
 function sanitizeCredentials(

@@ -1,32 +1,267 @@
 import { describe, expect, it } from "vitest"
+import { parse } from "yaml"
 import {
-  completedNoOpExportSha,
   importedObjectMarkdown,
   importKeyForExportedObject,
   importKeyFromDedup,
   isoDate,
-  MIGRATION_EXPORT_KIND,
-  migrationExportFiles,
-  noOpExportUsesResolvedTip,
+  migrationLinkedRepositoryUrls,
+  migrationSourcesFile,
   objectTitleFromPayload,
   planKnowledgeProjection,
   repositoryIdFromDedup,
+  upgradeLinkedRepositories,
   workspaceByRepositoryUrl,
 } from "./migration-export.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
+const urls = (gitUrls: string[]) =>
+  gitUrls.map((gitUrl) => ({ gitUrl, ref: null }))
+
 describe("migration export", () => {
-  it("writes knowledge/<area>/<unit>.md and repositories/*.md", () => {
-    expect(MIGRATION_EXPORT_KIND).toBe("migration_export")
-    const files = migrationExportFiles({
-      imported: [{ slug: "billing", body: "Billing\n", area: "services" }],
-      takenPaths: ["knowledge/services/billing.md"],
-      linkedUrls: ["https://github.com/acme/app.git"],
-    })
-    expect(files.map((file) => file.path)).toEqual([
-      "knowledge/services/billing-2.md",
-      "repositories/app.md",
+  it("links the other org repositories only in the first Workspace", () => {
+    const repositories = [
+      { id: "repo_app", gitUrl: "https://github.com/acme/app.git" },
+      { id: "repo_api", gitUrl: "git@github.com:Acme/API.git" },
+      { id: "repo_docs", gitUrl: "https://github.com/acme/docs" },
+    ]
+    const workspaceByRepositoryId = new Map([
+      ["repo_app", "ws_app"],
+      ["repo_docs", "ws_docs"],
     ])
+    expect(
+      migrationLinkedRepositoryUrls({
+        workspaceId: "ws_app",
+        firstWorkspaceId: "ws_app",
+        repositories,
+        workspaceByRepositoryId,
+      }),
+    ).toEqual(["git@github.com:Acme/API.git"])
+    expect(
+      migrationLinkedRepositoryUrls({
+        workspaceId: "ws_docs",
+        firstWorkspaceId: "ws_app",
+        repositories,
+        workspaceByRepositoryId,
+      }),
+    ).toEqual([])
+  })
+
+  it("writes the linked repositories as one GitHub source of sources.yaml", () => {
+    const text = migrationSourcesFile({
+      sourcesFile: null,
+      connectionId: "con_gh",
+      repositories: urls([
+        "git@github.com:Acme/API.git",
+        "https://github.com/acme/web",
+        "https://gitlab.com/acme/tools",
+      ]),
+    })
+    expect(parse(text ?? "")).toEqual({
+      version: 1,
+      sources: [
+        {
+          id: "linked-repositories",
+          provider: "github",
+          connection: "con_gh",
+          repositories: ["acme/api", "acme/web"],
+        },
+      ],
+    })
+    // A second run changes nothing.
+    expect(
+      migrationSourcesFile({
+        sourcesFile: text,
+        connectionId: "con_gh",
+        repositories: urls([
+          "https://github.com/acme/api",
+          "https://github.com/acme/web",
+        ]),
+      }),
+    ).toBeNull()
+  })
+
+  it("moves the files into sources.yaml and keeps the ref of a link without one", () => {
+    const declaration = (git: string, branch?: string) =>
+      `---\ngit: ${git}\n${branch ? `branch: ${branch}\n` : ""}---\n`
+    const result = upgradeLinkedRepositories({
+      sourcesFile:
+        "version: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [acme/web, {name: acme/jobs, ref: main}]\n",
+      connectionId: "con_gh",
+      files: [
+        // Linked without a ref: the link gets the branch of the file.
+        {
+          path: "repositories/web.md",
+          content: declaration("https://github.com/acme/web", "stable"),
+        },
+        // Linked with another ref: the file stays.
+        {
+          path: "repositories/jobs.md",
+          content: declaration("https://github.com/acme/jobs", "dev"),
+        },
+        {
+          path: "repositories/api.md",
+          content: declaration("https://github.com/acme/api"),
+        },
+        {
+          path: "repositories/tools.md",
+          content: declaration("https://gitlab.com/acme/tools"),
+        },
+        { path: "repositories/bad.md", content: "---\nname: no git\n" },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/acme/ops", connectionId: "con_gh" },
+        { gitUrl: "https://bitbucket.org/acme/legacy", connectionId: "con_gh" },
+      ],
+    })
+    expect(parse(result.sourcesFile ?? "").sources[0].repositories).toEqual([
+      { name: "acme/web", ref: "stable" },
+      { name: "acme/jobs", ref: "main" },
+      "acme/api",
+      "acme/ops",
+    ])
+    expect(result.deletePaths).toEqual([
+      "repositories/web.md",
+      "repositories/api.md",
+    ])
+    expect(result.skipped).toEqual([
+      {
+        item: "repositories/jobs.md",
+        reason: expect.stringContaining("ref main"),
+      },
+      {
+        item: "repositories/tools.md",
+        reason: expect.stringContaining("only GitHub"),
+      },
+      {
+        item: "repositories/bad.md",
+        reason: expect.stringContaining("cannot be read"),
+      },
+      {
+        item: "https://bitbucket.org/acme/legacy",
+        reason: expect.stringContaining("only GitHub"),
+      },
+    ])
+    // Running it again on its own result changes nothing.
+    expect(
+      upgradeLinkedRepositories({
+        sourcesFile: result.sourcesFile,
+        connectionId: "con_gh",
+        files: [],
+        repositories: [
+          { gitUrl: "https://github.com/acme/ops", connectionId: "con_gh" },
+        ],
+      }),
+    ).toEqual({
+      sourcesFile: null,
+      deletePaths: [],
+      skipped: [],
+      invalid: false,
+    })
+  })
+
+  it("links each org repository under its own GitHub connection, and names each item when the sources file is not valid", () => {
+    const result = upgradeLinkedRepositories({
+      sourcesFile: null,
+      connectionId: "con_workspace",
+      files: [
+        {
+          path: "repositories/web.md",
+          content: "---\ngit: https://github.com/acme/web\n---\n",
+        },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/other/api", connectionId: "con_other" },
+        { gitUrl: "https://github.com/acme/lost", connectionId: null },
+      ],
+    })
+    const sources = parse(result.sourcesFile ?? "").sources
+    expect(
+      sources.map((entry: { connection: string; repositories: unknown }) => [
+        entry.connection,
+        entry.repositories,
+      ]),
+    ).toEqual([
+      ["con_workspace", ["acme/web"]],
+      ["con_other", ["other/api"]],
+    ])
+    expect(result.skipped).toEqual([
+      {
+        item: "https://github.com/acme/lost",
+        reason: "The repository has no GitHub connection",
+      },
+    ])
+
+    const invalid = upgradeLinkedRepositories({
+      sourcesFile: "version: 2\n",
+      connectionId: "con_workspace",
+      files: [
+        {
+          path: "repositories/web.md",
+          content: "---\ngit: https://github.com/acme/web\n---\n",
+        },
+      ],
+      repositories: [
+        { gitUrl: "https://github.com/other/api", connectionId: "con_other" },
+      ],
+    })
+    expect(invalid).toMatchObject({
+      invalid: true,
+      sourcesFile: null,
+      deletePaths: [],
+    })
+    expect(invalid.skipped.map(({ item }) => item)).toEqual([
+      "repositories/web.md",
+      "https://github.com/other/api",
+    ])
+    for (const { reason } of invalid.skipped)
+      expect(reason).toContain("not a valid version 1 file")
+  })
+
+  it("adds only the repositories that no GitHub source of the file links", () => {
+    const text = migrationSourcesFile({
+      sourcesFile:
+        "# Owned by the team\nversion: 1\nsources:\n  - id: code\n    provider: github\n    connection: con_gh\n    repositories: [acme/web]\n",
+      connectionId: "con_gh",
+      repositories: urls([
+        "https://github.com/acme/web",
+        "https://github.com/acme/api",
+      ]),
+    })
+    expect(text).toContain("# Owned by the team")
+    // The GitHub source of the same connection gets the new repository.
+    expect(parse(text ?? "").sources).toEqual([
+      {
+        id: "code",
+        provider: "github",
+        connection: "con_gh",
+        repositories: ["acme/web", "acme/api"],
+      },
+    ])
+    const grown = migrationSourcesFile({
+      sourcesFile: text,
+      connectionId: "con_gh",
+      repositories: urls(["https://github.com/acme/jobs"]),
+    })
+    expect(parse(grown ?? "").sources[0].repositories).toEqual([
+      "acme/web",
+      "acme/api",
+      "acme/jobs",
+    ])
+    expect(
+      migrationSourcesFile({
+        sourcesFile: "version: 2\n",
+        connectionId: "con_gh",
+        repositories: urls(["https://github.com/acme/api"]),
+      }),
+    ).toBeNull()
+    expect(
+      migrationSourcesFile({
+        sourcesFile: null,
+        connectionId: "con_gh",
+        repositories: urls(["https://gitlab.com/acme/tools"]),
+      }),
+    ).toBeNull()
   })
 
   it("writes import_key and claim temporality without obj_ jargon", () => {
@@ -59,23 +294,6 @@ describe("migration export", () => {
       "2026-01-01T12:30:00.000Z",
     )
     expect(isoDate("2026-01-01T12:30:00.000Z")).toBe("2026-01-01T12:30:00.000Z")
-  })
-
-  it("treats a no-op export as the current resolved tip", () => {
-    expect(noOpExportUsesResolvedTip(false, "tip")).toEqual({
-      commit: false,
-      exportSha: "tip",
-    })
-    expect(noOpExportUsesResolvedTip(true, "tip")).toEqual({ commit: true })
-    expect(
-      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "tip")),
-    ).toBe("tip")
-    expect(completedNoOpExportSha(noOpExportUsesResolvedTip(true, "tip"))).toBe(
-      null,
-    )
-    expect(
-      completedNoOpExportSha(noOpExportUsesResolvedTip(false, "  ")),
-    ).toBeNull()
   })
 
   it("extracts a repository id from ingest dedup keys", () => {
@@ -149,12 +367,10 @@ describe("migration export", () => {
         },
       ],
       existingKnowledge: [],
-      linkedUrls: ["https://github.com/acme/docs"],
     })
     expect(planned.wouldChange).toBe(true)
     expect(planned.files.map((file) => file.path)).toEqual([
       "knowledge/services/billing.md",
-      "repositories/docs.md",
     ])
     expect(planned.files[0]?.content).toContain("import_key: svc:repo_app:./")
     expect(planned.files[0]?.content).toContain("kind: Service")
@@ -202,7 +418,6 @@ describe("migration export", () => {
         },
       ],
       existingKnowledge: [],
-      linkedUrls: [],
       workspaceRepositoryUrl: "https://github.com/acme/docs",
       repositoryGitUrlById: new Map([
         ["repo_app", "https://github.com/acme/app.git"],
@@ -263,7 +478,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/payments/billing.md", content: thin },
       ],
-      linkedUrls: [],
     })
     expect(thinPlan.files[0]?.path).toBe("knowledge/payments/billing.md")
     expect(thinPlan.wouldChange).toBe(true)
@@ -292,7 +506,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/payments/billing.md", content: existing },
       ],
-      linkedUrls: [],
     })
     expect(planned.files[0]?.path).toBe("knowledge/payments/billing.md")
     expect(planned.wouldChange).toBe(false)
@@ -321,10 +534,37 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/imported/billing.md", content: existing },
       ],
-      linkedUrls: [],
     })
     expect(planned.files[0]?.path).toBe("knowledge/imported/billing.md")
     expect(planned.wouldChange).toBe(false)
+  })
+
+  it("does not route an import_key match into a host-only path", async () => {
+    const existing = importedObjectMarkdown({
+      title: "Billing",
+      body: "Ledger lives here.",
+      importKey: "svc:repo_app:./",
+      kind: "Service",
+    })
+    const planned = await planKnowledgeProjection({
+      workspaceId: "ws_app",
+      firstWorkspaceId: "ws_app",
+      workspaceByRepositoryId: new Map([["repo_app", "ws_app"]]),
+      objects: [
+        {
+          id: "obj_1",
+          kind: "Service",
+          deduplicationKey: "svc:repo_app:./",
+          payload: { name: "Billing", summary: "Ledger lives here." },
+        },
+      ],
+      claims: [],
+      existingKnowledge: [{ path: ".ctxpipe/billing.md", content: existing }],
+    })
+    expect(planned.files.map((file) => file.path)).not.toContain(
+      ".ctxpipe/billing.md",
+    )
+    expect(planned.files[0]?.path).toMatch(/^knowledge\//)
   })
 
   it("appends into an unkeyed occupant instead of replacing it", async () => {
@@ -350,7 +590,6 @@ Ledger lives here.
           content: "# Billing\n\nLedger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "merge",
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")
@@ -379,7 +618,6 @@ Ledger lives here.
           content: "Ledger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "new_name",
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing-2.md")
@@ -417,7 +655,6 @@ Ledger lives here.
           content: "Ledger lives here.",
         },
       ],
-      linkedUrls: [],
       classifyUnkeyed: async () => "merge",
     })
     expect(planned.files.map((file) => file.path).sort()).toEqual([
@@ -450,7 +687,6 @@ Ledger lives here.
           content: "Pay twelve",
         },
       ],
-      linkedUrls: [],
       workspaceRepositoryUrl: "https://github.com/acme/docs.git",
       repositoryGitUrlById: new Map([
         ["repo_ws", "https://github.com/acme/docs"],
@@ -485,7 +721,6 @@ Ledger lives here.
       existingKnowledge: [
         { path: "knowledge/services/billing.md", content: existing },
       ],
-      linkedUrls: [],
       stampImportKey: false,
     })
     expect(planned.files[0]?.path).toBe("knowledge/services/billing.md")

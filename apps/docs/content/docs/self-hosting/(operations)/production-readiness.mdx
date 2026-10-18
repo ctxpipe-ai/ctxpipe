@@ -122,6 +122,7 @@ Before inviting users:
   client id and secret in the connector wizard, or configure
   `PAGERDUTY_CLIENT_ID` and `PAGERDUTY_CLIENT_SECRET` on backend and worker.
   ctx| creates the webhook subscription after authorization.
+- If using Buildkite, confirm backend and worker can reach `api.buildkite.com`.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
 - Confirm the worker can run connector jobs.

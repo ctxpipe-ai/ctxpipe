@@ -1,19 +1,23 @@
-import { lstat, readdir, readFile, rm } from "node:fs/promises"
+import {
+  lstat,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join, posix } from "node:path"
 import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
-import {
-  parseDocument,
-  parse as parseYaml,
-  stringify,
-  type YAMLSeq,
-} from "yaml"
+import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
+import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
+import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
 import { GitOutputTooLargeError, runGit as git } from "./run-git.js"
 import {
   findSuspectedSecret,
@@ -68,6 +72,13 @@ export type PatchStepInput = {
   /** Step output directory: `files/<path>` and `patch.json`. */
   stagedDir: string
   source: { url: string; sha: string }
+  /**
+   * The path of the run's source file in this Workspace, relative to the
+   * Workspace root folder (`sources/github/<owner>/<name>.md`, ADR-050
+   * revision 2026-10-16). Ownership compares it with `sources`, and the host
+   * writes it as `sources` of each file that the step owns.
+   */
+  sourcePath: string
   skill: string
   bundle: string
   /** True when `path` exists in the source repository at `source.sha`. */
@@ -91,6 +102,12 @@ export type PatchStepInput = {
   root?: string
   /** Counts the characters that the text checks read, so a test can check the bound. */
   meter?: WorkMeter
+  /**
+   * Workspace root folder; `""` (the default) is the repository root. All
+   * paths of the step (staged files, ops, results) are relative to it. Only
+   * the git reads and the tree write add the folder.
+   */
+  rootPath?: string
 }
 
 /** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
@@ -113,7 +130,8 @@ const PACKAGE_KINDS: ReadonlySet<string> = new Set([
   "App",
   "Library",
 ])
-const HOST_FIELDS = [
+/** The front matter fields that only the host sets. */
+export const HOST_FIELDS = [
   "generated_by",
   "sources",
   "root",
@@ -125,7 +143,7 @@ const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
 const MAX_PATCH_JSON_BYTES = 1024 * 1024
-const MAX_STEP_OPS = 30
+export const MAX_STEP_OPS = 30
 export const MAX_WORKSPACE_OPS = 300
 const MAX_DELETE_SHARE = 0.2
 /** A source file above this size is not read to check a quote or a pattern. */
@@ -167,12 +185,34 @@ const ClaimSchema = z
 
 type Claim = z.infer<typeof ClaimSchema>
 
+/**
+ * A claim that the ownership migration carried over from the old pipeline
+ * (ADR-052 section 3). It keeps each old key, also `valid_from` and
+ * `valid_to`. Only the host writes it: a step can keep it or leave it out,
+ * but cannot add or change one.
+ */
+const LegacyClaimSchema = z
+  .object({
+    to: z.string().min(1),
+    evidence: z.object({ kind: z.literal("legacy") }).strict(),
+  })
+  .passthrough()
+
+const isLegacyClaim = (claim: unknown) =>
+  LegacyClaimSchema.safeParse(claim).success
+
 const FrontMatterSchema = z
   .object({
     kind: z.string(),
     name: z.string().min(1).max(200),
     summary: z.string().max(1000).optional(),
-    claims: z.array(ClaimSchema).max(200).optional(),
+    claims: z
+      .array(z.union([ClaimSchema, LegacyClaimSchema]))
+      .refine(
+        (claims) => claims.filter((c) => !isLegacyClaim(c)).length <= 200,
+        "A file has at most 200 claims",
+      )
+      .optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -199,21 +239,30 @@ const PatchJsonSchema = z.object({
 /** Ownership of a file at the base commit, from the host-only fields. */
 export type FileOwnership = "sole" | "shared" | "foreign"
 
-/** Shared ownership predicate (concept section 4.3). */
-export function fileOwnership(raw: string, sourceUrl: string): FileOwnership {
-  const front = splitFrontMatter(raw)
-  if (!front) return "foreign"
-  const attributes = parseYamlObject(front.yaml)
-  if (!attributes || attributes.generated_by !== GENERATED_BY) return "foreign"
-  const sources = Array.isArray(attributes.sources)
-    ? attributes.sources.filter((s): s is string => typeof s === "string")
-    : []
-  const normalized = sources.map(normalizeSourceUrl)
-  if (!normalized.includes(normalizeSourceUrl(sourceUrl))) return "foreign"
-  return new Set(normalized).size === 1 ? "sole" : "shared"
+/**
+ * The text of one `sources` value as ownership compares it: a source file
+ * path relative to the Workspace root folder (ADR-050 revision 2026-10-16,
+ * ADR-052 section 3). Only white space at the ends goes.
+ */
+export function sourceIdentity(value: string): string {
+  return value.trim()
 }
 
-/** Normalized source URLs a generated file lists; empty for a file ctxpipe does not generate. */
+/**
+ * Shared ownership predicate (concept section 4.3). `sourcePath` is the path
+ * of the run's source file in this Workspace. A file is owned when it has
+ * `generated_by: ctxpipe-extract` and its `sources` list holds that path.
+ */
+export function fileOwnership(raw: string, sourcePath: string): FileOwnership {
+  const sources = fileSources(raw)
+  if (!sources.includes(sourceIdentity(sourcePath))) return "foreign"
+  return new Set(sources).size === 1 ? "sole" : "shared"
+}
+
+/**
+ * The source paths a generated file lists; empty for a file ctxpipe does not
+ * generate.
+ */
 export function fileSources(raw: string): string[] {
   const front = splitFrontMatter(raw)
   const attributes = front ? parseYamlObject(front.yaml) : null
@@ -221,7 +270,7 @@ export function fileSources(raw: string): string[] {
   return Array.isArray(attributes.sources)
     ? attributes.sources
         .filter((s): s is string => typeof s === "string")
-        .map(normalizeSourceUrl)
+        .map(sourceIdentity)
     : []
 }
 
@@ -232,6 +281,7 @@ export function disallowedPathReason(path: string): string | null {
   const segments = path.split("/")
   if (segments.some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
+  if (isHostOnlyPath(path)) return "Only ctx| writes host-only paths"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))
@@ -328,8 +378,10 @@ export async function validatePatchStep(
     rejections.push({ path, rule, reason })
   }
   const sourceUrl = normalizeSourceUrl(input.source.url)
+  const sourcePath = sourceIdentity(input.sourcePath)
 
-  const baseEntries = await listTree(input.repoDir, input.baseCommit)
+  const rootPath = input.rootPath ?? ""
+  const baseEntries = await listTree(input.repoDir, input.baseCommit, rootPath)
   const patch = await readPatchJson(input.stagedDir, reject)
   const meta = patch.ops
   const rejectedBeforeOps = rejections.length
@@ -343,9 +395,20 @@ export async function validatePatchStep(
 
   const stagedPaths = new Set(staged.map((f) => f.path))
   const ops: StagedOp[] = []
+  const updated = staged.filter((file) => baseEntries.has(file.path))
+  const updatedIds = await hashBlobs(
+    input.repoDir,
+    updated.map((file) => file.content),
+    { write: false },
+  )
+  const unchanged = new Set(
+    updated
+      .filter((file, i) => updatedIds[i] === baseEntries.get(file.path))
+      .map((file) => file.path),
+  )
   for (const file of staged) {
     const base = baseEntries.get(file.path)
-    if (base && (await blobId(input.repoDir, file.content)) === base) continue
+    if (unchanged.has(file.path)) continue
     ops.push({
       op: base ? "update" : "create",
       path: file.path,
@@ -466,7 +529,7 @@ export async function validatePatchStep(
     return text.includes(part)
   }
   const context: CheckContext = {
-    sourceUrl,
+    sourcePath,
     source: input.source,
     skill: input.skill,
     bundle: input.bundle,
@@ -545,7 +608,7 @@ export async function validatePatchStep(
     }
     const before = baseText(op.path)
     if (op.op === "delete") {
-      if (fileOwnership(before ?? "", sourceUrl) !== "sole") {
+      if (fileOwnership(before ?? "", sourcePath) !== "sole") {
         reject(
           op.path,
           "ownership",
@@ -606,7 +669,7 @@ export async function validatePatchStep(
   const ownedCount = [...baseEntries.keys()].filter(
     (path) =>
       disallowedPathReason(path) === null &&
-      fileOwnership(baseText(path) ?? "", sourceUrl) === "sole",
+      fileOwnership(baseText(path) ?? "", sourcePath) === "sole",
   ).length
   const deleteLimit = Math.floor(ownedCount * MAX_DELETE_SHARE)
   let accepted = candidates
@@ -638,9 +701,14 @@ export async function validatePatchStep(
     accepted = accepted.filter((op) => !failed.has(op))
   }
 
-  const tree = await applyOps(input.repoDir, input.baseCommit, accepted)
+  const tree = await applyOps(
+    input.repoDir,
+    input.baseCommit,
+    accepted,
+    rootPath,
+  )
   const acceptedPaths = new Set(accepted.map((op) => op.path))
-  const result = await listTree(input.repoDir, tree)
+  const result = await listTree(input.repoDir, tree, rootPath)
   for (const path of new Set([...result.keys(), ...baseEntries.keys()])) {
     if (result.get(path) !== baseEntries.get(path) && !acceptedPaths.has(path))
       throw new Error(
@@ -663,7 +731,8 @@ export async function validatePatchStep(
 }
 
 type CheckContext = {
-  sourceUrl: string
+  /** The path of the run's source file in this Workspace (`sources`). */
+  sourcePath: string
   source: { url: string; sha: string }
   skill: string
   bundle: string
@@ -696,7 +765,9 @@ async function checkWrite(
     return { rule: "content", reason: "The file is not valid UTF-8" }
   }
   const ownership =
-    op.op === "create" ? "sole" : fileOwnership(before ?? "", context.sourceUrl)
+    op.op === "create"
+      ? "sole"
+      : fileOwnership(before ?? "", context.sourcePath)
   // A generated area file is shared: its own rules (area-file.ts) apply to
   // each source, also to one that the file does not list yet.
   if (op.path.startsWith("knowledge/instructions/") && !AREA_PATH.test(op.path))
@@ -739,7 +810,8 @@ type WriteOutput = {
   added?: string
 }
 
-const AREA_PATH = /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
+export const AREA_PATH =
+  /^knowledge\/instructions\/[a-z0-9]+(?:-[a-z0-9]+)*\.md$/
 
 function generatedByHost(raw: string): boolean {
   const front = splitFrontMatter(raw)
@@ -820,7 +892,7 @@ async function checkAreaWrite(
   if (injection) return injection
 
   const beforeSources = fileSources(before ?? "")
-  const others = beforeSources.filter((s) => s !== context.sourceUrl)
+  const others = beforeSources.filter((s) => s !== context.sourcePath)
   if (others.length > 0 && attributes.name !== baseAttributes.name)
     return shared("Only the source that owns the file alone can rename it")
   if (others.length > 0 && attributes.summary !== baseAttributes.summary)
@@ -829,17 +901,17 @@ async function checkAreaWrite(
     )
 
   const withoutHuman = (body: string) => body.replace(HUMAN_BLOCK, "")
-  const after = parseAreaBody(withoutHuman(front.body), normalizeSourceUrl)
+  const after = parseAreaBody(withoutHuman(front.body))
   if ("error" in after) return shared(after.error)
   let beforeArea: AreaFile | null = null
   if (before && baseFront) {
-    const read = parseAreaBody(withoutHuman(baseFront.body), normalizeSourceUrl)
+    const read = parseAreaBody(withoutHuman(baseFront.body))
     beforeArea = "error" in read ? null : read
   }
   const change = checkAreaChange({
     before: beforeArea,
     after,
-    source: context.sourceUrl,
+    source: context.sourcePath,
     beforeSources,
   })
   if ("error" in change) return shared(change.error)
@@ -937,15 +1009,44 @@ async function checkFullWrite(
   if (quote) return quote
 
   const claims = attributes.claims ?? []
-  const baseClaims = Array.isArray(baseAttributes.claims)
-    ? baseAttributes.claims.map(withoutConfidence)
+  const baseClaims: unknown[] = Array.isArray(baseAttributes.claims)
+    ? baseAttributes.claims
     : []
-  const fresh = claims.filter(
-    (claim) =>
-      !baseClaims.some((b) => isDeepStrictEqual(b, withoutConfidence(claim))),
+  // A claim that is in the base stays as the base has it, with its
+  // confidence. A closed legacy claim is history: it stays also when the
+  // step leaves it out.
+  const kept = (claim: unknown) =>
+    baseClaims.find((b) =>
+      isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+    )
+  // A step cannot replace, rewrite, or re-label a legacy claim: a new claim
+  // with the target and predicate of a base legacy claim is refused.
+  const legacyKeys = new Set(
+    baseClaims.filter(isLegacyClaim).map((b) => claimKey(b)),
   )
+  const fresh: Claim[] = []
+  for (const claim of claims) {
+    if (kept(claim)) continue
+    if (isLegacyClaim(claim) || legacyKeys.has(claimKey(claim)))
+      return {
+        rule: "front_matter",
+        reason: "Only the host sets or changes a legacy claim",
+      }
+    fresh.push(claim as Claim)
+  }
   const evidence = await evidenceProblem(fresh, context)
   if (evidence) return evidence
+  const outClaims = [
+    ...claims.map((claim) => kept(claim) ?? stampClaim(claim as Claim)),
+    ...baseClaims.filter(
+      (b) =>
+        isLegacyClaim(b) &&
+        (b as { valid_to?: unknown }).valid_to != null &&
+        !claims.some((claim) =>
+          isDeepStrictEqual(withoutConfidence(b), withoutConfidence(claim)),
+        ),
+    ),
+  ]
 
   const baseRoot =
     typeof baseAttributes.root === "string" ? baseAttributes.root : undefined
@@ -962,9 +1063,9 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
-    ...(claims.length ? { claims: claims.map(stampClaim) } : {}),
+    ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
-    sources: [context.sourceUrl],
+    sources: [context.sourcePath],
     ...(root === undefined ? {} : { root }),
     source_sha: context.source.sha,
     skill: context.skill,
@@ -973,7 +1074,8 @@ async function checkFullWrite(
   return {
     output: `---\n${stringify(stamped, { lineWidth: 0 })}---\n${front.body}`,
     links: markdownLinks(front.body),
-    claimTargets: claims.map((c) => c.to),
+    // A legacy claim can name a file that is gone: it records history.
+    claimTargets: claims.filter((c) => !isLegacyClaim(c)).map((c) => c.to),
   }
 }
 
@@ -1084,6 +1186,12 @@ function stampClaim(claim: Claim) {
   }
 }
 
+/** The target and predicate of a claim. */
+function claimKey(claim: unknown): string {
+  const { to, predicate } = (claim ?? {}) as Record<string, unknown>
+  return JSON.stringify([to, predicate])
+}
+
 function withoutConfidence(claim: unknown): unknown {
   if (!claim || typeof claim !== "object") return claim
   const { confidence: _confidence, ...rest } = claim as Record<string, unknown>
@@ -1163,7 +1271,17 @@ function humanSectionProblem(
   return null
 }
 
-function humanBlocks(text: string): string[] {
+/**
+ * True when `after` has front matter and keeps each human section of
+ * `before` byte for byte in its body (the check of a staged write). A host
+ * edit outside a patch step uses it.
+ */
+export function humanSectionsKept(before: string, after: string): boolean {
+  const front = splitFrontMatter(after)
+  return front !== null && humanSectionProblem(front, before) === null
+}
+
+export function humanBlocks(text: string): string[] {
   return [...text.matchAll(HUMAN_BLOCK)].map((m) => m[0])
 }
 
@@ -1704,26 +1822,7 @@ function resolveRelative(from: string, target: string): string | null {
   return joined.replace(/\/$/, "")
 }
 
-export function splitFrontMatter(
-  text: string,
-): { yaml: string; body: string } | null {
-  const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
-  if (!match) return null
-  return { yaml: match[1] ?? "", body: text.slice(match[0].length) }
-}
-
-export function parseYamlObject(yaml: string): Record<string, unknown> | null {
-  try {
-    const value = parseYaml(yaml) ?? {}
-    return typeof value === "object" && !Array.isArray(value)
-      ? (value as Record<string, unknown>)
-      : null
-  } catch {
-    return null
-  }
-}
-
-function normalizeSourceUrl(url: string): string {
+export function normalizeSourceUrl(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).replace(/\.git$/i, "")
 }
 
@@ -1815,26 +1914,75 @@ async function readStagedFiles(
   return files
 }
 
+/**
+ * The blobs of `commit` below `rootPath`, keyed by the path relative to it.
+ * Paths outside the root folder are not in the map.
+ */
 async function listTree(
   repoDir: string,
   commit: string,
+  rootPath: string,
 ): Promise<Map<string, string>> {
-  const out = await git(repoDir, ["ls-tree", "-r", "-z", "--full-tree", commit])
+  const out = await git(repoDir, [
+    "ls-tree",
+    "-r",
+    "-z",
+    "--full-tree",
+    commit,
+    ...(rootPath ? ["--", `${rootPath}/`] : []),
+  ])
   const entries = new Map<string, string>()
   for (const record of out.toString("utf8").split("\0")) {
     if (!record) continue
     const tab = record.indexOf("\t")
     const [mode, type, sha] = record.slice(0, tab).split(" ")
     if (type === "blob" && mode !== "120000" && sha)
-      entries.set(record.slice(tab + 1), sha)
+      entries.set(
+        record.slice(tab + 1 + (rootPath ? rootPath.length + 1 : 0)),
+        sha,
+      )
   }
   return entries
 }
 
-async function blobId(repoDir: string, content: Buffer): Promise<string> {
-  return (await git(repoDir, ["hash-object", "--stdin"], { input: content }))
-    .toString()
-    .trim()
+/**
+ * The blob ids of `contents`, in order, from one git process. A git process
+ * for each file made a step of 30 ops start more than 30 processes, which
+ * is slow when the host is busy.
+ */
+async function hashBlobs(
+  repoDir: string,
+  contents: ReadonlyArray<Buffer | string>,
+  options: { write: boolean },
+): Promise<string[]> {
+  if (contents.length === 0) return []
+  const dir = await mkdtemp(join(tmpdir(), "ctxpipe-patch-blobs-"))
+  try {
+    const paths = await Promise.all(
+      contents.map(async (content, i) => {
+        const path = join(dir, String(i))
+        await writeFile(path, content)
+        return path
+      }),
+    )
+    // `--no-filters` hashes the bytes as is, like `--stdin` does.
+    const out = await git(
+      repoDir,
+      [
+        "hash-object",
+        ...(options.write ? ["-w"] : []),
+        "--no-filters",
+        "--stdin-paths",
+      ],
+      { input: `${paths.join("\n")}\n` },
+    )
+    const ids = out.toString().trim().split("\n")
+    if (ids.length !== contents.length)
+      throw new Error("git hash-object returned the wrong number of ids")
+    return ids
+  } finally {
+    await rm(dir, { recursive: true, force: true })
+  }
 }
 
 async function readBlobs(
@@ -1862,7 +2010,9 @@ async function applyOps(
   repoDir: string,
   baseCommit: string,
   ops: readonly Candidate[],
+  rootPath: string,
 ): Promise<string> {
+  const prefix = rootPath ? `${rootPath}/` : ""
   const env = {
     GIT_INDEX_FILE: join(
       tmpdir(),
@@ -1871,21 +2021,18 @@ async function applyOps(
   }
   try {
     await git(repoDir, ["read-tree", baseCommit], { env })
-    const lines: string[] = []
-    for (const op of ops) {
-      if (op.op === "delete") {
-        lines.push(`0 ${"0".repeat(40)}\t${op.path}`)
-        continue
-      }
-      const sha = (
-        await git(repoDir, ["hash-object", "-w", "--stdin"], {
-          input: op.output ?? "",
-        })
-      )
-        .toString()
-        .trim()
-      lines.push(`100644 ${sha}\t${op.path}`)
-    }
+    const written = ops.filter((op) => op.op !== "delete")
+    const ids = await hashBlobs(
+      repoDir,
+      written.map((op) => op.output ?? ""),
+      { write: true },
+    )
+    const idOf = new Map(written.map((op, i) => [op, ids[i]]))
+    const lines = ops.map((op) =>
+      op.op === "delete"
+        ? `0 ${"0".repeat(40)}\t${prefix}${op.path}`
+        : `100644 ${idOf.get(op)}\t${prefix}${op.path}`,
+    )
     if (lines.length)
       await git(repoDir, ["update-index", "--index-info"], {
         env,

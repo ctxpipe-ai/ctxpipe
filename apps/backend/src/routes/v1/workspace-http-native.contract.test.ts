@@ -1,20 +1,24 @@
 import { eq, sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
+import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { WRITE_STATUS_REASONS } from "../../domain/workspaces/write-status.js"
+import {
+  insertWorkspaceUpgradeRow,
+  transitionWorkspaceUpgradeRow,
+} from "../../models/workspace-upgrades.js"
 import {
   getWorkspaceById,
   persistSandboxInstance,
 } from "../../models/workspaces.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { workspaceTipCheck } from "../../openworkflow/workflows/workspace-tip-check.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { workspaceRoutes } from "./workspaces.js"
 
 async function workflowNames(orgId: string, workspaceId: string) {
@@ -52,12 +56,16 @@ it(
           }),
         ]),
       )
+      // The upgrades API owns the upgrade state (ADR-053). The Workspace
+      // shape has no second, different answer.
+      for (const item of listedBody.items)
+        expect(item).not.toHaveProperty("upgradeNeeded")
 
       const missing = await app.request("/workspaces/missing")
       expect(missing.status).toBe(404)
 
       await withOrgDbContext(f.org.id, (db) =>
-        db.insert(workspaceLinkedRepositories).values({
+        insertLinkedRepositoryRows(db, {
           id: `wlr_${f.id}`,
           orgId: f.org.id,
           workspaceId: f.workspaceId,
@@ -217,7 +225,7 @@ it(
 )
 
 it(
-  "re-checks write access on each Workspace detail read with a read_only write status",
+  "queues one idempotent re-check per minute on Workspace detail reads with a read_only write status",
   { timeout: 45_000 },
   async () => {
     await withNativeHydrationFixture({ github: true }, async (f) => {
@@ -230,17 +238,157 @@ it(
           .where(eq(workspaces.id, f.workspaceId)),
       )
       const before = await tipCheckKeys(f.org.id)
-
-      for (let i = 0; i < 2; i++) {
-        const detail = await app.request("/workspaces/knowledge")
-        expect(detail.status).toBe(200)
+      // Pin the clock so both reads share one minute.
+      const now = vi.spyOn(Date, "now").mockReturnValue(Date.now())
+      const minute = Math.floor(Date.now() / 60_000)
+      try {
+        for (let i = 0; i < 2; i++) {
+          const detail = await app.request("/workspaces/knowledge")
+          expect(detail.status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
       }
 
       await expect
         .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
           timeout: 5_000,
         })
-        .toEqual([null, null])
+        .toEqual([`tip-check-on-demand:${f.org.id}:${minute}`])
+    })
+  },
+)
+
+it(
+  "queues a new re-check with a new key when a read_only Workspace is read in the next minute",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "read_only" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const before = await tipCheckKeys(f.org.id)
+      const start = Math.floor(Date.now() / 60_000) * 60_000
+      const now = vi.spyOn(Date, "now")
+      try {
+        for (const at of [start, start + 60_000]) {
+          now.mockReturnValue(at)
+          expect((await app.request("/workspaces/knowledge")).status).toBe(200)
+        }
+      } finally {
+        now.mockRestore()
+      }
+
+      const minute = start / 60_000
+      await expect
+        .poll(async () => (await tipCheckKeys(f.org.id)).slice(before.length), {
+          timeout: 5_000,
+        })
+        .toEqual([
+          `tip-check-on-demand:${f.org.id}:${minute}`,
+          `tip-check-on-demand:${f.org.id}:${minute + 1}`,
+        ])
+    })
+  },
+)
+
+it(
+  "queues the on-demand re-check when Workspace detail is read with a pr_open upgrade row, and not with an awaiting_operator row",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      await withOrgDbContext(f.org.id, (db) =>
+        db
+          .update(workspaces)
+          .set({ writeStatus: "writable" })
+          .where(eq(workspaces.id, f.workspaceId)),
+      )
+      const upgrade = { key: "format-3", fromFormat: 2, targetFormat: 3 }
+      await withOrgIdContext(f.org, () =>
+        insertWorkspaceUpgradeRow({
+          workspaceId: f.workspaceId,
+          generation: 3,
+          status: "awaiting_operator",
+          upgrade,
+        }),
+      )
+      const backend = await BackendPostgres.connect(f.databaseUrl, {
+        namespaceId: openWorkflowNamespaceId(),
+        runMigrations: false,
+      })
+      const tipChecks = async () =>
+        (await backend.listWorkflowRuns({ limit: 100 })).data
+          .filter(
+            (run) =>
+              run.workflowName === "workspace-tip-check" &&
+              (run.input as { orgId?: string })?.orgId === f.org.id,
+          )
+          .map((run) => run.idempotencyKey)
+      // Pin the date, so that the key does not depend on the wall clock.
+      const minute = 30_000_000
+      vi.useFakeTimers({ toFake: ["Date"] })
+      try {
+        // A writable Workspace with an upgrade that waits for an operator
+        // needs no probe.
+        vi.setSystemTime(minute * 60_000)
+        expect((await app.request("/workspaces/knowledge")).status).toBe(200)
+
+        // The merge may have happened without a webhook. A visit probes.
+        await withOrgIdContext(f.org, () =>
+          transitionWorkspaceUpgradeRow({
+            workspaceId: f.workspaceId,
+            key: upgrade.key,
+            from: ["awaiting_operator"],
+            to: "pr_open",
+          }),
+        )
+        vi.setSystemTime((minute + 1) * 60_000)
+        expect((await app.request("/workspaces/knowledge")).status).toBe(200)
+      } finally {
+        vi.useRealTimers()
+      }
+
+      try {
+        await expect
+          .poll(async () => (await tipChecks()).length, { timeout: 5_000 })
+          .toBeGreaterThan(0)
+        expect(await tipChecks()).toEqual([
+          `tip-check-on-demand:${f.org.id}:${minute + 1}`,
+        ])
+      } finally {
+        await backend.stop()
+      }
+    })
+  },
+)
+
+it(
+  "refuses the check-again route for a caller that is not an org admin, and queues no tip check",
+  { timeout: 45_000 },
+  async () => {
+    await withNativeHydrationFixture({ github: true }, async (f) => {
+      await f.handle.cancel()
+      const app = workspaceHttpApp(f.org, workspaceRoutes)
+      const before = (await workflowNames(f.org.id, f.workspaceId)).filter(
+        (name) => name === "workspace-tip-check",
+      ).length
+      // The test session has no org member role, so the admin gate refuses it.
+      const res = await app.request("/workspaces/knowledge/upgrades/check", {
+        method: "POST",
+      })
+      expect(res.status).toBe(403)
+      expect(
+        (await workflowNames(f.org.id, f.workspaceId)).filter(
+          (name) => name === "workspace-tip-check",
+        ).length,
+      ).toBe(before)
     })
   },
 )

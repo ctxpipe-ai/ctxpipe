@@ -17,7 +17,9 @@ export const repositoryCheckouts = pgTable.withRLS(
   "repository_checkouts",
   {
     id: text("id").primaryKey(),
-    orgId: text("org_id").notNull(),
+    // Nullable in this minor release, so that the previous image can write after a
+    // rollback. RLS hides a row with no org. The next major release sets NOT NULL.
+    orgId: text("org_id"),
     repositoryId: text("repository_id")
       .notNull()
       .references(() => repositories.id, { onDelete: "cascade" }),

@@ -30,8 +30,14 @@ const connectRoute = createRoute({
       content: {
         "application/json": {
           schema: z.object({
-            organizationSlug: z.string().trim().min(1),
-            apiToken: z.string().trim().min(1),
+            organizationSlug: z
+              .string()
+              .trim()
+              .regex(
+                /^[a-z0-9][a-z0-9-]{0,99}$/,
+                "Use the Buildkite organization slug, for example acme-inc",
+              ),
+            apiToken: z.string().trim().min(1).max(500),
             /** Set to replace the token of this connection (a reconnect). */
             connectionId: z.string().min(1).optional(),
           }),
@@ -88,7 +94,7 @@ const webhookTokenRoute = createRoute({
         "application/json": {
           schema: z.object({
             connectionId: z.string().min(1),
-            webhookToken: z.string().trim().min(1),
+            webhookToken: z.string().trim().min(1).max(500),
           }),
         },
       },
@@ -136,7 +142,7 @@ const deleteRoute = createRoute({
 })
 
 /**
- * Org-admin routes of the Buildkite connector (ADR-053). The connection
+ * Org-admin routes of the Buildkite connector (ADR-054). The connection
  * holds auth only; each Workspace selects its pipelines in its sources.
  */
 export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()

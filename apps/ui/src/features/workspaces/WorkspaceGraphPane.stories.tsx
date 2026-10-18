@@ -1,5 +1,5 @@
 import type { Decorator, Meta, StoryObj } from "@storybook/react-vite"
-import { expect, within } from "storybook/test"
+import { expect, waitFor, within } from "storybook/test"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceGraphPane } from "./WorkspaceGraphPane"
@@ -60,7 +60,7 @@ export const Loading: Story = {
 export const Populated: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.queryByText(/but no edges yet/)).toBeNull()
+    await expect(canvas.queryByText(/but no edges yet/)).toBeNull() // play-timing: ok the pane draws this note from props, with no request
   },
   args: {
     pending: false,
@@ -100,8 +100,8 @@ export const NodesWithoutRelationships: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText(/has 28 nodes but no edges yet/),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText(/has 28 nodes but no edges yet/)).toBeVisible(),
+    )
   },
 }

@@ -158,6 +158,27 @@ describe("sandbox host", () => {
     );
   });
 
+  it("creates no host and gives the services no host settings when enabled is false", () => {
+    const t = template("disabled", { sandboxHost: { enabled: false } });
+    t.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 0);
+    t.resourceCountIs("AWS::EC2::LaunchTemplate", 0);
+    t.resourceCountIs("AWS::CloudWatch::Alarm", 0);
+    expect(Object.keys(t.findOutputs("SandboxHostAutoScalingGroupName"))).toHaveLength(0);
+    for (const name of ["backend", "worker"]) {
+      const env = environment(t, name);
+      for (const key of ["SANDBOX_PROVIDER", "DOCKER_HOST", "AGENT_VAULT_ADDR"]) {
+        expect(env).not.toHaveProperty(key);
+      }
+      expect(taskContainers(t, name).map((c) => c.Name)).not.toContain("docker-tls");
+    }
+  });
+
+  it("keeps the host when enabled is true or unset", () => {
+    const t = template("enabled", { sandboxHost: { enabled: true } });
+    t.resourceCountIs("AWS::AutoScaling::AutoScalingGroup", 1);
+    expect(environment(t, "backend")).toHaveProperty("SANDBOX_PROVIDER", "docker");
+  });
+
   it("rejects non-Graviton instance types and Docker volumes too small for sandboxes", () => {
     expect(() =>
       synth({

@@ -1,6 +1,7 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getForgeInstallationByConnectionId,
@@ -55,6 +56,28 @@ export const confluenceSyncContent = defineWorkflow(
         failures: [],
       }
     const env = parseEnv(process.env)
+    // ADR-050: once Workspace sources own the repository, only they write it.
+    if (
+      await step.run({ name: "check-workspace-sources-handover" }, async () => {
+        const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        return target
+          ? legacyBindingHandedOver("confluence", {
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              repositoryGitUrl: target.repositoryGitUrl,
+            })
+          : false
+      })
+    )
+      return {
+        status: "superseded" as const,
+        written: 0,
+        deleted: 0,
+        failures: [],
+      }
     const context = await step.run(
       { name: "capture-confluence-target" },
       async () => {

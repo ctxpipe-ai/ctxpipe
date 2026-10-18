@@ -1,6 +1,14 @@
 import { execFileSync } from "node:child_process"
 import { generateKeyPairSync } from "node:crypto"
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import {
+  chmodSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
 import { eq, sql } from "drizzle-orm"
@@ -18,6 +26,7 @@ import { connectionDirectory, connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 import { orgFirstWorkspaces, workspaces } from "../db/schema/workspaces.js"
 import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
+import { workspaceFormatFile } from "../domain/workspaces/workspace-format.js"
 import type { GithubRepoPermissionBits } from "../domain/workspaces/write-status.js"
 import { invalidateGithubAppCacheForConnection } from "../models/github-installation.js"
 import {
@@ -59,6 +68,8 @@ export type NativeHydrationOptions = {
         }) => { text: string } | { tool: string; args: Record<string, unknown> }
       }
   count?: number
+  /** The Workspace root folder (CTX-709); the repository root when absent. */
+  rootPath?: string
   traceGitCommands?: boolean
   github?: boolean
   githubWriteView?: "writable" | "missing"
@@ -104,6 +115,23 @@ export type NativeHydrationOptions = {
   embeddings?: "ready" | "failed" | "empty"
   missingTip?: boolean
   writeStatus?: "read_only" | "writable"
+  /**
+   * Commit `.ctxpipe/workspace.yaml` at this format. Hydrate plans a direct
+   * write to the default branch only at format 3 or more (ADR-053 section 7).
+   */
+  format?: number
+  /**
+   * Use an org, a GitHub connection and a Workspace that are already in the
+   * database (for example rows that a migration made from older data). The
+   * fixture inserts and deletes no row of them, and the Workspace URL maps
+   * to the fixture remote.
+   */
+  adopt?: {
+    org: { id: string; slug: string; name: string }
+    workspaceId: string
+    connectionId: string
+    workspaceUrl: string
+  }
 }
 
 async function createNativeHydrationFixture(
@@ -118,13 +146,19 @@ async function createNativeHydrationFixture(
     throw new Error("DATABASE_URL is required for hydration proof")
   const directory = mkdtempSync(join(tmpdir(), "ctxpipe-hydration-contract-"))
   const id = `hydrate_${Date.now()}_${Math.random().toString(36).slice(2)}`
-  const org = { id: `org_${id}`, slug: id, name: "Hydration contract" }
-  const workspaceId = `ws_${id}`
-  const connectionId = `con_${id}`
+  const adopt = options.adopt
+  const org = adopt?.org ?? {
+    id: `org_${id}`,
+    slug: id,
+    name: "Hydration contract",
+  }
+  const workspaceId = adopt?.workspaceId ?? `ws_${id}`
+  const connectionId = adopt?.connectionId ?? `con_${id}`
   const git = (...args: string[]) =>
     execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
   const savedEnv = {
     GIT_TRACE2_EVENT: process.env.GIT_TRACE2_EVENT,
+    PATH: process.env.PATH,
     GIT_CONFIG_GLOBAL: process.env.GIT_CONFIG_GLOBAL,
     GITHUB_APP_ID: process.env.GITHUB_APP_ID,
     GITHUB_PRIVATE_KEY: process.env.GITHUB_PRIVATE_KEY,
@@ -393,6 +427,10 @@ async function createNativeHydrationFixture(
           : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
       },
     ),
+    // The fixture GitHub App: it authors the pull requests that ctx| opens.
+    http.get("https://api.github.com/app", () =>
+      HttpResponse.json({ id: 12345, slug: "ctxpipe-fixture" }),
+    ),
     http.get(
       "https://api.github.com/app/installations/123456789",
       ({ request }) => {
@@ -649,6 +687,8 @@ async function createNativeHydrationFixture(
   runner.implementWorkflow(repositoryIndex.spec, repositoryIndex.fn)
   const worker = runner.newWorker({ concurrency: 2 })
   const gitTrace = join(tmpdir(), `ctxpipe-hydration-trace-${id}.jsonl`)
+  // Outside the fixture worktree, so that a later commit cannot add it.
+  const gitShim = mkdtempSync(join(tmpdir(), "ctxpipe-hydration-git-shim-"))
 
   let cleanupPromise: Promise<void> | undefined
   const cleanup = () =>
@@ -656,6 +696,7 @@ async function createNativeHydrationFixture(
       await worker.stop()
       await backend.stop()
       try {
+        if (adopt) return
         await getSystemDb().execute(
           sql`delete from openworkflow.workflow_runs where namespace_id = ${id} or input->>'orgId' = ${org.id}`,
         )
@@ -694,6 +735,7 @@ async function createNativeHydrationFixture(
           else process.env[key] = value
         }
         rmSync(gitTrace, { force: true })
+        rmSync(gitShim, { recursive: true, force: true })
         rmSync(directory, { recursive: true, force: true })
       }
     })())
@@ -709,7 +751,16 @@ async function createNativeHydrationFixture(
       }))
     for (const file of expected) {
       mkdirSync(dirname(join(directory, file.path)), { recursive: true })
-      writeFileSync(join(directory, file.path), file.body)
+      // `{{connectionId}}` stands for the fixture's GitHub connection id.
+      writeFileSync(
+        join(directory, file.path),
+        file.body.replaceAll("{{connectionId}}", connectionId),
+      )
+    }
+    if (options.format !== undefined) {
+      const formatFile = workspaceFormatFile(options.format)
+      mkdirSync(dirname(join(directory, formatFile.path)), { recursive: true })
+      writeFileSync(join(directory, formatFile.path), formatFile.content)
     }
     git("add", ".")
     for (const file of options.files ?? []) {
@@ -748,9 +799,11 @@ async function createNativeHydrationFixture(
     const remote = join(directory, "remote.git")
     // A pack transfer, not a per-object copy, so background gc cannot race it.
     git("clone", "--bare", "--no-local", directory, remote)
-    const workspaceUrl = github
-      ? "https://github.com/fixture/hydration-contract.git"
-      : remote
+    const workspaceUrl = adopt
+      ? adopt.workspaceUrl
+      : github
+        ? "https://github.com/fixture/hydration-contract.git"
+        : remote
     if (github) {
       const gitConfig = join(directory, "fixture-git-config")
       git(
@@ -770,10 +823,11 @@ async function createNativeHydrationFixture(
     }
     for (const file of expected)
       writeFileSync(join(directory, file.path), "Uncommitted replacement\n")
-    await getSystemDb()
-      .insert(organizations)
-      .values({ ...org, createdAt: new Date() })
-    if (github) {
+    if (!adopt)
+      await getSystemDb()
+        .insert(organizations)
+        .values({ ...org, createdAt: new Date() })
+    if (github && !adopt) {
       await withOrgDbContext(org.id, (db) =>
         db.insert(connections).values({
           id: connectionId,
@@ -787,21 +841,23 @@ async function createNativeHydrationFixture(
         }),
       )
     }
-    await withOrgDbContext(org.id, (db) =>
-      db.insert(workspaces).values({
-        id: workspaceId,
-        orgId: org.id,
-        slug: "knowledge",
-        displayName: org.name,
-        workspaceRepositoryUrl: workspaceUrl,
-        githubConnectionId: github ? connectionId : null,
-        desiredSha: missingTip ? null : sha,
-        desiredGeneration: 1,
-        desiredDefaultBranch: "main",
-        indexedSha: sha,
-        writeStatus: writeStatus ?? "unknown",
-      }),
-    )
+    if (!adopt)
+      await withOrgDbContext(org.id, (db) =>
+        db.insert(workspaces).values({
+          id: workspaceId,
+          orgId: org.id,
+          slug: "knowledge",
+          displayName: org.name,
+          workspaceRepositoryUrl: workspaceUrl,
+          githubConnectionId: github ? connectionId : null,
+          desiredSha: missingTip ? null : sha,
+          desiredGeneration: 1,
+          desiredDefaultBranch: "main",
+          indexedSha: sha,
+          writeStatus: writeStatus ?? "unknown",
+          rootPath: options.rootPath ?? "",
+        }),
+      )
     const resolveRevision = async (refresh = false) => {
       const resolved = await withOrgIdContext(org, () =>
         resolveWorkspaceReadRevision({
@@ -820,8 +876,30 @@ async function createNativeHydrationFixture(
       workspaceId,
       revision,
     })
-    if (options.traceGitCommands) process.env.GIT_TRACE2_EVENT = gitTrace
-    else delete process.env.GIT_TRACE2_EVENT
+    // A trace2 event without a parent session is any Git process that Git
+    // itself did not start. A runner's Git wrapper or a detached helper adds
+    // such events. The shim records only the commands that this process
+    // starts, which are the commands the backend owns.
+    const gitSpawns = join(gitShim, "spawns.log")
+    if (options.traceGitCommands) {
+      const shim = join(gitShim, "bin")
+      mkdirSync(shim)
+      const realGit = execFileSync("sh", ["-c", "command -v git"], {
+        encoding: "utf8",
+      }).trim()
+      writeFileSync(
+        join(shim, "git"),
+        [
+          "#!/bin/sh",
+          `if [ "$PPID" = "${process.pid}" ]; then printf '%s\\n' "$*" >> '${gitSpawns}'; fi`,
+          `exec '${realGit}' "$@"`,
+          "",
+        ].join("\n"),
+      )
+      chmodSync(join(shim, "git"), 0o755)
+      process.env.PATH = `${shim}:${process.env.PATH}`
+      process.env.GIT_TRACE2_EVENT = gitTrace
+    } else delete process.env.GIT_TRACE2_EVENT
     return {
       resolveRevision,
       revision,
@@ -846,6 +924,11 @@ async function createNativeHydrationFixture(
       workspaceUrl,
       handle,
       gitTrace,
+      /** The Git commands that this process started, one argument line each. */
+      gitCommands: () =>
+        existsSync(gitSpawns)
+          ? readFileSync(gitSpawns, "utf8").trim().split("\n")
+          : [],
       count,
       cleanup,
       onWriteProbe: (callback: () => Promise<void>) => {
@@ -859,6 +942,17 @@ async function createNativeHydrationFixture(
         invalidateGithubAppCacheForConnection(connectionId)
         failGithubTokens = status
       },
+      /**
+       * Cache a Workspace format for the fixture binding, as hydrate does
+       * after it reads `.ctxpipe/workspace.yaml` (ADR-053).
+       */
+      cacheFormat: (format: number) =>
+        withOrgDbContext(org.id, (db) =>
+          db
+            .update(workspaces)
+            .set({ activeRevision: revision, formatVersion: format })
+            .where(eq(workspaces.id, workspaceId)),
+        ),
       repairWriteAccess: () => {
         githubWriteView = "writable"
       },

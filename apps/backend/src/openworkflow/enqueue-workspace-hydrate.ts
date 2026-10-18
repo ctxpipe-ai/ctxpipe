@@ -12,6 +12,11 @@ export async function enqueueWorkspaceHydrate(
     workspaceId: string
   },
   log: { error: (err: Error) => void },
+  options?: {
+    idempotencyKey: (revision: WorkspaceRevision) => string
+    /** Project the revision again, also when it is the active one. */
+    reproject?: true
+  },
 ): Promise<void> {
   assertNotInOrgDbContext()
   let revision: WorkspaceRevision | undefined
@@ -23,11 +28,16 @@ export async function enqueueWorkspaceHydrate(
     })
     if (!resolved) return
     revision = resolved.revision
-    await runWorkflowWithWorkerWake(workspaceHydrate.spec, {
-      orgId: input.orgId,
-      workspaceId: revision.workspaceId,
-      revision,
-    })
+    await runWorkflowWithWorkerWake(
+      workspaceHydrate.spec,
+      {
+        orgId: input.orgId,
+        workspaceId: revision.workspaceId,
+        revision,
+        ...(options?.reproject ? { reproject: true as const } : {}),
+      },
+      options && { idempotencyKey: options.idempotencyKey(revision) },
+    )
   } catch (err: unknown) {
     const error = err instanceof Error ? err : new Error(String(err))
     log.error(error)

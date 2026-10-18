@@ -1,13 +1,17 @@
-import { IconExternalLink } from "@tabler/icons-react"
-import { useQuery } from "@tanstack/react-query"
-import { useMemo, useState } from "react"
+import { IconBrandGithub, IconExternalLink } from "@tabler/icons-react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useNavigate } from "@tanstack/react-router"
+import { type ReactNode, useMemo, useState } from "react"
 import { TextField as AriaTextField, Link } from "react-aria-components"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { FieldGroup, Input, Label } from "@/components/ui/Field"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
 import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
+import { githubInstallationOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import {
   GithubRepoPickerList,
   GithubRepoPickerSkeleton,
@@ -21,13 +25,19 @@ import {
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
 import { focusVisibleClassName } from "@/lib/focus-styles"
+import { githubGrantAccessUrls } from "@/lib/github-app-url"
+import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { eligibleInstallationRepos } from "./gitUrl"
 import { fetchWorkspaces, workspaceKeys } from "./queries"
+import { normalizeRootFolder, rootFolderError } from "./rootFolder"
+import { WorkspaceRootFolderField } from "./WorkspaceRootFolderField"
 
 export type WorkspaceRepositoryChoice = {
   gitUrl: string
   githubConnectionId?: string
   source: "select" | "paste"
+  /** Normalized root folder; "" is the whole repository. */
+  rootPath: string
 }
 
 type Mode = "select" | "create" | "paste"
@@ -35,6 +45,7 @@ type Mode = "select" | "create" | "paste"
 export function WorkspaceRepositoryPicker(props: {
   orgSlug: string
   currentUrl?: string
+  currentRootPath?: string
   submitLabel: string
   pending?: boolean
   error?: string | null
@@ -46,6 +57,9 @@ export function WorkspaceRepositoryPicker(props: {
   const [searchQuery, setSearchQuery] = useState("")
   const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedId, setSelectedId] = useState<number | null>(null)
+  const [rootFolder, setRootFolder] = useState(props.currentRootPath ?? "")
+  const rootFolderValid = rootFolderError(rootFolder) === null
+  const rootPath = normalizeRootFolder(rootFolder)
 
   const existing = useQuery({
     queryKey: workspaceKeys.list(orgSlug),
@@ -59,10 +73,27 @@ export function WorkspaceRepositoryPicker(props: {
   const githubConnectionIds = (connectionsQuery.data ?? [])
     .filter((connection) => connection.type === "github")
     .map((connection) => connection.id)
+  const noGithubConnection =
+    connectionsQuery.isSuccess && githubConnectionIds.length === 0
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const reposQuery = useQuery({
     ...githubInstallationReposOptions(orgSlug, githubConnectionIds),
-    enabled: connectionsQuery.isSuccess,
+    enabled:
+      connectionsQuery.isSuccess &&
+      githubConnectionIds.length > 0 &&
+      isAdmin === true,
     refetchOnWindowFocus: "always",
+    // The user makes the repository on GitHub while this tab is open. A
+    // failed read (for example a 403) stops the poll.
+    refetchInterval: (query) =>
+      mode === "create" && query.state.status !== "error" ? 4000 : false,
+  })
+  // The owner to prefill on GitHub, and the app to give access. With more
+  // than one connection, the first one is a good default.
+  const installationQuery = useQuery({
+    ...githubInstallationOptions(orgSlug, githubConnectionIds[0]),
+    enabled: githubConnectionIds.length > 0,
   })
 
   const eligibleRepos = useMemo(
@@ -104,6 +135,13 @@ export function WorkspaceRepositoryPicker(props: {
           </InlineAlert>
         </div>
       ) : null}
+      <div className="mb-4">
+        <WorkspaceRootFolderField
+          value={rootFolder}
+          onChange={setRootFolder}
+          isDisabled={pending}
+        />
+      </div>
       <Tabs
         selectedKey={mode}
         onSelectionChange={(key) => {
@@ -113,17 +151,14 @@ export function WorkspaceRepositoryPicker(props: {
         }}
         className="gap-3"
       >
-        <TabList
-          aria-label="How to choose the repository"
-          className="m-0 rounded-md bg-zinc-800 p-1"
-        >
-          <Tab id="select">Select GitHub</Tab>
-          <Tab id="create">Create on GitHub</Tab>
-          <Tab id="paste">Paste URL</Tab>
-        </TabList>
+        <ModeTabList />
         <div className="relative overflow-hidden">
           <TabPanel id="select" className="p-0">
             <SelectGitHubPanel
+              orgSlug={orgSlug}
+              isAdmin={isAdmin}
+              noGithubConnection={noGithubConnection}
+              onPasteInstead={() => setMode("paste")}
               pending={pending}
               submitLabel={submitLabel}
               searchQuery={searchQuery}
@@ -140,8 +175,13 @@ export function WorkspaceRepositoryPicker(props: {
                 setSelectedId(selected ? id : null)
               }}
               onSubmit={(gitUrl, githubConnectionId) => {
-                if (!githubConnectionId) return
-                onSubmit({ gitUrl, githubConnectionId, source: "select" })
+                if (!githubConnectionId || !rootFolderValid) return
+                onSubmit({
+                  gitUrl,
+                  githubConnectionId,
+                  source: "select",
+                  rootPath,
+                })
               }}
               githubConnectionId={selectedRepo?.githubConnectionId}
               accessReady={accessReady}
@@ -151,33 +191,30 @@ export function WorkspaceRepositoryPicker(props: {
             />
           </TabPanel>
           <TabPanel id="create" className="p-0">
-            <div className="space-y-4">
-              <p className="text-sm text-muted-foreground">
-                Open GitHub to create the repository, then come back and select
-                it. We do not create GitHub repositories for you.
-              </p>
-              <Button
-                variant="secondary"
-                onPress={() => {
-                  window.open(
-                    "https://github.com/new",
-                    "_blank",
-                    "noopener,noreferrer",
-                  )
-                  setMode("select")
-                }}
-              >
-                Open GitHub
-              </Button>
-            </div>
+            <CreateOnGithubSteps
+              orgSlug={orgSlug}
+              noGithubConnection={noGithubConnection}
+              accountSlug={installationQuery.data?.accountSlug ?? null}
+              repositorySelection={repositorySelection}
+              grantAccessUrl={
+                githubGrantAccessUrls({
+                  appSlug: installationQuery.data?.appSlug,
+                  manageUrl,
+                })[0] ?? null
+              }
+              onSelect={() => {
+                setMode("select")
+                void reposQuery.refetch()
+              }}
+            />
           </TabPanel>
           <TabPanel id="paste" className="p-0">
             <form
               className="flex items-end gap-2"
               onSubmit={(event) => {
                 event.preventDefault()
-                if (gitUrl.trim()) {
-                  onSubmit({ gitUrl: gitUrl.trim(), source: "paste" })
+                if (gitUrl.trim() && rootFolderValid) {
+                  onSubmit({ gitUrl: gitUrl.trim(), source: "paste", rootPath })
                 }
               }}
             >
@@ -196,7 +233,7 @@ export function WorkspaceRepositoryPicker(props: {
                 type="submit"
                 variant="primary"
                 className="shrink-0"
-                isDisabled={pending || !gitUrl.trim()}
+                isDisabled={pending || !gitUrl.trim() || !rootFolderValid}
               >
                 {submitLabel}
               </Button>
@@ -208,7 +245,48 @@ export function WorkspaceRepositoryPicker(props: {
   )
 }
 
+function ModeTabList() {
+  return (
+    <TabList
+      aria-label="How to choose the repository"
+      className="m-0 rounded-md bg-zinc-800 p-1"
+    >
+      <Tab id="select">Select GitHub</Tab>
+      <Tab id="create">Create on GitHub</Tab>
+      <Tab id="paste">Paste URL</Tab>
+    </TabList>
+  )
+}
+
+/**
+ * The picker while the page cannot load it yet: the same root folder field and
+ * tab strip, with the repository skeleton in the Select GitHub tab.
+ */
+export function WorkspaceRepositoryPickerSkeleton() {
+  return (
+    <div>
+      <div className="mb-4">
+        <WorkspaceRootFolderField value="" onChange={() => {}} isDisabled />
+      </div>
+      <Tabs selectedKey="select" className="gap-3">
+        <ModeTabList />
+        <div className="relative overflow-hidden">
+          <TabPanel id="select" className="p-0">
+            <GithubRepoPickerSkeleton />
+          </TabPanel>
+        </div>
+      </Tabs>
+    </div>
+  )
+}
+
 function SelectGitHubPanel(props: {
+  orgSlug: string
+  /** `null` while the role loads: the list skeleton shows. */
+  isAdmin: boolean | null
+  /** The org has no GitHub connection yet. */
+  noGithubConnection: boolean
+  onPasteInstead: () => void
   pending?: boolean
   submitLabel: string
   searchQuery: string
@@ -238,6 +316,29 @@ function SelectGitHubPanel(props: {
     />
   )
 
+  if (props.isAdmin === false) {
+    return (
+      <div className="space-y-3">
+        <p className="text-sm text-muted-foreground">
+          Ask an admin to pick a GitHub repository, or paste a git URL. Only an
+          owner or admin can list the repositories of the GitHub App.
+        </p>
+        <Button variant="quiet" onPress={props.onPasteInstead}>
+          Paste a git URL
+        </Button>
+      </div>
+    )
+  }
+
+  if (props.noGithubConnection) {
+    return (
+      <ConnectGithubEmpty
+        orgSlug={props.orgSlug}
+        onPasteInstead={props.onPasteInstead}
+      />
+    )
+  }
+
   if (props.reposPending) {
     return <GithubRepoPickerSkeleton />
   }
@@ -254,8 +355,8 @@ function SelectGitHubPanel(props: {
     return (
       <div className="space-y-3">
         <p className="text-sm text-muted-foreground">
-          No installation repositories available. Connect GitHub under
-          Connectors, or paste a git URL.
+          No repository is free to use. Give the GitHub App access to one more
+          repository, or paste a git URL.
         </p>
         {accessLine}
       </div>
@@ -306,6 +407,195 @@ function SelectGitHubPanel(props: {
         ) : null}
       </div>
     </div>
+  )
+}
+
+/**
+ * The Select GitHub tab when the org has no GitHub connection. "Connect
+ * GitHub" starts the same flow as the Connectors catalog. The hosted app
+ * installs in a popup, so the dialog stays open and the list loads after.
+ */
+function ConnectGithubEmpty(props: {
+  orgSlug: string
+  onPasteInstead: () => void
+}) {
+  const connect = useConnectGithubInPlace(props.orgSlug)
+
+  return (
+    <div className="flex items-start gap-4 rounded-md border border-border bg-zinc-900/40 p-4">
+      <span className="ctx-node size-10 shrink-0 rounded-md" aria-hidden>
+        <IconBrandGithub className="size-5 text-foreground" />
+      </span>
+      <div className="min-w-0">
+        <h3 className="text-sm font-medium text-foreground">Connect GitHub</h3>
+        <p className="mt-1 text-sm text-muted-foreground">
+          Connect the GitHub App to pick a repository here. You stay in this
+          dialog.
+        </p>
+        <div className="mt-4 flex flex-wrap items-center gap-2">
+          <Button
+            variant="primary"
+            isPending={connect.busy}
+            onPress={connect.start}
+          >
+            Connect GitHub
+          </Button>
+          <Button variant="quiet" onPress={props.onPasteInstead}>
+            Paste a git URL
+          </Button>
+        </div>
+      </div>
+      {connect.SelfHostedWizardModal}
+    </div>
+  )
+}
+
+/**
+ * Start the GitHub connect flow of the Connectors catalog from this dialog.
+ * When it ends, the connections reload, so the repository list follows.
+ */
+function useConnectGithubInPlace(orgSlug: string) {
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const { start, isPending, isSyncing, SelfHostedWizardModal } =
+    useGithubConnectFlow({
+      orgSlug,
+      onRegistered: () => {
+        void queryClient.invalidateQueries({
+          queryKey: orgConnectionsOptions(orgSlug).queryKey,
+        })
+      },
+      onAlreadyInstalled: () => {
+        void navigate({
+          to: "/$orgSlug/github/setup",
+          params: { orgSlug },
+          search: { returnTo: "connectors" },
+        })
+      },
+      onRegistrationFailed: (message) => toast.error(message),
+    })
+  return {
+    start: () => start("connect"),
+    busy: isPending || isSyncing,
+    SelfHostedWizardModal,
+  }
+}
+
+/**
+ * The Create on GitHub tab. ctxpipe does not create the repository, so the
+ * steps take the user through GitHub and back. A new repository shows in
+ * the list only when the GitHub App can see it, so step 2 gives access (or
+ * connects GitHub). The list reloads while this tab is open.
+ */
+function CreateOnGithubSteps(props: {
+  orgSlug: string
+  noGithubConnection: boolean
+  accountSlug: string | null
+  repositorySelection: string | undefined
+  grantAccessUrl: string | null
+  onSelect: () => void
+}) {
+  const connect = useConnectGithubInPlace(props.orgSlug)
+  const params = new URLSearchParams({
+    name: "ctxpipe-context",
+    description: "ctxpipe Workspace knowledge",
+  })
+  if (props.accountSlug) params.set("owner", props.accountSlug)
+  const linkClassName = `${focusVisibleClassName} inline-flex items-center gap-1 rounded-sm text-teal-400 hover:text-teal-300`
+  const steps: { id: string; body: ReactNode }[] = [
+    {
+      id: "create",
+      body: (
+        <p>
+          <Link
+            href={`https://github.com/new?${params.toString()}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClassName}
+          >
+            Create the repository on GitHub
+            <IconExternalLink className="size-3.5" aria-hidden />
+          </Link>
+          {props.accountSlug ? (
+            <>
+              {" "}
+              under{" "}
+              <code className="font-mono text-xs text-foreground">
+                {props.accountSlug}
+              </code>
+            </>
+          ) : null}
+          . An empty repository is fine.
+        </p>
+      ),
+    },
+  ]
+  if (props.noGithubConnection) {
+    steps.push({
+      id: "connect",
+      body: (
+        <div>
+          <p>
+            Connect GitHub. When GitHub asks which repositories ctxpipe can see,
+            include the new one.
+          </p>
+          <Button
+            variant="secondary"
+            className="mt-2"
+            isPending={connect.busy}
+            onPress={connect.start}
+          >
+            Connect GitHub
+          </Button>
+          {connect.SelfHostedWizardModal}
+        </div>
+      ),
+    })
+  } else if (props.repositorySelection === "selected" && props.grantAccessUrl) {
+    steps.push({
+      id: "access",
+      body: (
+        <p>
+          <Link
+            href={props.grantAccessUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className={linkClassName}
+          >
+            Give the ctxpipe GitHub App access
+            <IconExternalLink className="size-3.5" aria-hidden />
+          </Link>{" "}
+          to the new repository. The app sees only the repositories you pick.
+        </p>
+      ),
+    })
+  }
+  steps.push({
+    id: "select",
+    body: (
+      <div>
+        <p>Come back here and select the new repository.</p>
+        <Button variant="secondary" className="mt-2" onPress={props.onSelect}>
+          Select the repository
+        </Button>
+      </div>
+    ),
+  })
+
+  return (
+    <ol className="flex flex-col gap-4 text-sm text-muted-foreground">
+      {steps.map((step, index) => (
+        <li key={step.id} className="flex gap-3">
+          <span
+            className="flex size-6 shrink-0 items-center justify-center rounded-md border border-border font-mono text-xs text-foreground tabular-nums"
+            aria-hidden
+          >
+            {index + 1}
+          </span>
+          <div className="min-w-0 pt-0.5">{step.body}</div>
+        </li>
+      ))}
+    </ol>
   )
 }
 

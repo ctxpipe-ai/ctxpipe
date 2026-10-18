@@ -15,13 +15,11 @@ import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
-import {
-  workspaceLinkedRepositories,
-  workspaces,
-} from "../../db/schema/workspaces.js"
+import { workspaces } from "../../db/schema/workspaces.js"
 import { generateObjectId } from "../../lib/id.js"
 import { registerMcpRoutes } from "../../routes/mcp.js"
 import { withTestRequestLogger } from "../../test/hono-test-logger.js"
+import { insertLinkedRepositoryRows } from "../../test/workspace-links-fixture.js"
 import { loadOrgRepositoryHandles } from "../framework/call-workspace.js"
 import { parseRef } from "../framework/refs.js"
 import { registerMcpReadTools } from "../framework/tool-registry.js"
@@ -108,7 +106,8 @@ beforeAll(async () => {
       workspaceRepositoryUrl: `/tmp/code-tools-${workspaceId}`,
       desiredDefaultBranch: "main",
     })
-    await db.insert(workspaceLinkedRepositories).values(
+    await insertLinkedRepositoryRows(
+      db,
       ["alpha", "unindexed"].map((name) => ({
         id: generateObjectId("wlr"),
         orgId: seed.orgId,
@@ -162,12 +161,11 @@ it("searches literal text and returns a file ref, served revision, and skipped r
             {
               FileName: "src/index.ts",
               RepositoryID: zoektRepoId,
-              LineMatches: [
-                {
-                  LineNumber: 3,
-                  Line: Buffer.from("charge(1)").toString("base64"),
-                },
-              ],
+              Language: "TypeScript",
+              LineMatches: [3, 5, 8, 13].map((line) => ({
+                LineNumber: line,
+                Line: Buffer.from(`charge(${line})`).toString("base64"),
+              })),
             },
           ],
         },
@@ -184,13 +182,19 @@ it("searches literal text and returns a file ref, served revision, and skipped r
     },
   })
   expect(result.isError).not.toBe(true)
+  // One entry for each file: the match count, the language, and the first
+  // three matches.
   expect(result.structuredContent).toMatchObject({
-    results: [
+    files: [
       {
         ref: "example/alpha:src/index.ts",
-        startLine: 3,
-        endLine: 3,
-        snippet: "charge(1)",
+        language: "TypeScript",
+        matchCount: 4,
+        matches: [
+          { startLine: 3, endLine: 3, snippet: "charge(3)" },
+          { startLine: 5, endLine: 5, snippet: "charge(5)" },
+          { startLine: 8, endLine: 8, snippet: "charge(8)" },
+        ],
         served: { branch: "main", sha: "a".repeat(40) },
       },
     ],
@@ -239,6 +243,83 @@ it("sends regex syntax unchanged and reports rejected syntax without a literal r
   expect(requests.map((body) => body.Q)).toEqual(["charge\\(.*\\)", "charge(("])
 })
 
+it("narrows a search to a path glob and sets the case rule", async () => {
+  requests = []
+  server.use(
+    http.post("http://codesearch.test/search", async ({ request }) => {
+      requests.push((await request.json()) as Record<string, unknown>)
+      return HttpResponse.json({ Result: { Files: [] } })
+    }),
+    http.post(
+      "http://codesearch.test/:repository/structural-search",
+      async ({ request }) => {
+        requests.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({ matches: [] })
+      },
+    ),
+  )
+  const call = (args: Record<string, unknown>) =>
+    callTool({
+      name: "search_code",
+      arguments: { org: seed.orgSlug, excludeRepositories: [], ...args },
+    })
+  for (const args of [
+    {
+      query: "Charge",
+      mode: "literal",
+      pathGlob: "src/**/*.{ts,tsx}",
+      caseSensitive: true,
+    },
+    { query: "a|b", mode: "regex", caseSensitive: false },
+    {
+      query: "charge($A)",
+      mode: "structural",
+      language: "typescript",
+      pathGlob: "src/*.ts",
+    },
+  ])
+    expect((await call(args)).isError).not.toBe(true)
+  expect(requests.map((body) => body.Q ?? body)).toEqual([
+    '"Charge" file:"^src/(?:.*/)?[^/]*\\\\.(?:ts|tsx)$" case:yes',
+    "(a|b) case:no",
+    {
+      pattern: "charge($A)",
+      lang: "typescript",
+      globs: ["src/*.ts"],
+      limit: 11,
+    },
+  ])
+  const open = await call({ query: "x", mode: "literal", pathGlob: "src/{a" })
+  expect(open._meta?.["ai.ctxpipe/error"]).toMatchObject({
+    code: "invalid_argument",
+  })
+  expect(requests).toHaveLength(3)
+
+  // One meaning in every mode: a glob with no / matches at any depth.
+  expect(
+    (await call({ query: "x", mode: "literal", pathGlob: "*.ts" })).isError,
+  ).not.toBe(true)
+  expect(requests.at(-1)?.Q).toBe('"x" file:"^(?:.*/)?[^/]*\\\\.ts$"')
+  // No ! negation in any mode, and a regex cannot close the (...) group early.
+  for (const args of [
+    { query: "x", mode: "literal", pathGlob: "!*.ts" },
+    {
+      query: "x",
+      mode: "structural",
+      language: "typescript",
+      pathGlob: "!*.ts",
+    },
+    { query: "a) file:x (b", mode: "regex", caseSensitive: true },
+    { query: "a\\", mode: "regex", pathGlob: "*.ts" },
+  ]) {
+    const refused = await call(args)
+    expect(refused._meta?.["ai.ctxpipe/error"]).toMatchObject({
+      code: "invalid_argument",
+    })
+  }
+  expect(requests).toHaveLength(4)
+})
+
 it("requires a language for structural search and converts ast-grep matches to file refs", async () => {
   requests = []
   server.use(
@@ -277,18 +358,18 @@ it("requires a language for structural search and converts ast-grep matches to f
   })
   expect(result.isError).not.toBe(true)
   expect(result.structuredContent).toMatchObject({
-    results: [
+    files: [
       {
         ref: "example/alpha:src/index.ts",
-        startLine: 3,
-        endLine: 3,
-        snippet: "charge(1)",
+        language: "TypeScript",
+        matchCount: 1,
+        matches: [{ startLine: 3, endLine: 3, snippet: "charge(1)" }],
         served: { branch: "main", sha: "a".repeat(40) },
       },
     ],
   })
   expect(requests).toEqual([
-    { pattern: "charge($A)", lang: "typescript", limit: 21 },
+    { pattern: "charge($A)", lang: "typescript", limit: 11 },
   ])
   expect(JSON.stringify(result)).not.toContain(repositoryId)
 })
@@ -434,16 +515,14 @@ it("bounds large search results and marks truncation instead of returning respon
     http.post("http://codesearch.test/search", () =>
       HttpResponse.json({
         Result: {
-          Files: [
-            {
-              FileName: "src/index.ts",
-              RepositoryID: zoektRepoId,
-              LineMatches: Array.from({ length: 40 }, (_, i) => ({
-                LineNumber: i + 1,
-                Line: Buffer.from("charge".repeat(10000)).toString("base64"),
-              })),
-            },
-          ],
+          Files: Array.from({ length: 40 }, (_, file) => ({
+            FileName: `src/file-${file}.ts`,
+            RepositoryID: zoektRepoId,
+            LineMatches: Array.from({ length: 3 }, (_, i) => ({
+              LineNumber: i + 1,
+              Line: Buffer.from("charge".repeat(10000)).toString("base64"),
+            })),
+          })),
         },
       }),
     ),
@@ -455,16 +534,18 @@ it("bounds large search results and marks truncation instead of returning respon
       query: "charge",
       mode: "literal",
       excludeRepositories: [],
-      limit: 100,
+      limit: 30,
     },
   })
   expect(result.isError).not.toBe(true)
-  // Each snippet is cut to 4,000 characters, so two lines fit in the budget.
+  // Each snippet is cut to 1,000 characters, so three files of three
+  // matches fit in the budget.
   expect(result.structuredContent).toMatchObject({
     truncated: true,
-    results: [
-      { ref: "example/alpha:src/index.ts", startLine: 1 },
-      { ref: "example/alpha:src/index.ts", startLine: 2 },
+    files: [
+      { ref: "example/alpha:src/file-0.ts", matchCount: 3 },
+      { ref: "example/alpha:src/file-1.ts", matchCount: 3 },
+      { ref: "example/alpha:src/file-2.ts", matchCount: 3 },
     ],
   })
   expect(
@@ -532,7 +613,7 @@ it("preserves the fan-out limit, excluded repositories, skips, and narrowing hin
       ids.push(id)
       const name = `example/wide-${String(index).padStart(2, "0")}`
       const gitUrl = `https://github.com/${name}.git`
-      await db.insert(workspaceLinkedRepositories).values({
+      await insertLinkedRepositoryRows(db, {
         id: generateObjectId("wlr"),
         orgId: seed.orgId,
         workspaceId: wideWorkspaceId,
@@ -670,7 +751,7 @@ it("never requests an excluded repository in any mode or relation", async () => 
       })
       expect(result.isError).not.toBe(true)
       expect(result.structuredContent).toMatchObject({
-        results: [],
+        files: [],
         excluded: ["example/alpha"],
         skipped: [{ repository: "example/unindexed", reason: "not_indexed" }],
       })
@@ -766,7 +847,7 @@ it("resolves search refs with the shared file resolver and refuses unknown scope
   }
   const result = await callTool({ name: "search_code", arguments: args })
   expect(result.isError).not.toBe(true)
-  const items = result.structuredContent?.results as Array<{ ref: string }>
+  const items = result.structuredContent?.files as Array<{ ref: string }>
   const handles = await loadOrgRepositoryHandles({
     id: seed.orgId,
     slug: seed.orgSlug,
@@ -873,8 +954,11 @@ it("reads the checkout key of any revision out of a code path", async () => {
     },
   })
   expect(structural.isError).not.toBe(true)
-  expect(structural.structuredContent?.results).toMatchObject([
-    { ref: "example/alpha:src/index.ts", startLine: 1, endLine: 2 },
+  expect(structural.structuredContent?.files).toMatchObject([
+    {
+      ref: "example/alpha:src/index.ts",
+      matches: [{ startLine: 1, endLine: 2 }],
+    },
   ])
   const symbol = await callTool({
     name: "find_symbol",
@@ -934,8 +1018,8 @@ it("drops one bad item into skipped instead of failing the call", async () => {
     },
   })
   expect(structural.isError).not.toBe(true)
-  expect(structural.structuredContent?.results).toMatchObject([
-    { ref: "example/alpha:src/index.ts", snippet: "good" },
+  expect(structural.structuredContent?.files).toMatchObject([
+    { ref: "example/alpha:src/index.ts", matches: [{ snippet: "good" }] },
   ])
   expect(structural.structuredContent?.skipped).toContainEqual({
     repository: "example/alpha",
@@ -963,16 +1047,16 @@ it("pages search_code and find_symbol with a cursor", async () => {
     http.post("http://codesearch.test/search", () =>
       HttpResponse.json({
         Result: {
-          Files: [
-            {
-              FileName: "src/index.ts",
-              RepositoryID: zoektRepoId,
-              LineMatches: Array.from({ length: 5 }, (_, index) => ({
-                LineNumber: index + 1,
+          Files: Array.from({ length: 5 }, (_, index) => ({
+            FileName: `src/file-${index}.ts`,
+            RepositoryID: zoektRepoId,
+            LineMatches: [
+              {
+                LineNumber: 1,
                 Line: Buffer.from(`charge(${index})`).toString("base64"),
-              })),
-            },
-          ],
+              },
+            ],
+          })),
         },
       }),
     ),
@@ -1012,9 +1096,8 @@ it("pages search_code and find_symbol with a cursor", async () => {
         },
       })
       expect(result.isError).not.toBe(true)
-      const rows = result.structuredContent?.results as Array<
-        Record<string, unknown>
-      >
+      const rows = (result.structuredContent?.results ??
+        result.structuredContent?.files) as Array<Record<string, unknown>>
       seen.push(...rows.map((row) => row[key]))
       cursor = result.structuredContent?.cursor
       if (!cursor) break
@@ -1022,8 +1105,10 @@ it("pages search_code and find_symbol with a cursor", async () => {
     return seen
   }
   expect(
-    await walk("search_code", { query: "charge", mode: "literal" }, "snippet"),
-  ).toEqual(["charge(0)", "charge(1)", "charge(2)", "charge(3)", "charge(4)"])
+    await walk("search_code", { query: "charge", mode: "literal" }, "ref"),
+  ).toEqual(
+    [0, 1, 2, 3, 4].map((index) => `example/alpha:src/file-${index}.ts`),
+  )
   expect(
     await walk(
       "find_symbol",
@@ -1055,6 +1140,68 @@ it("pages search_code and find_symbol with a cursor", async () => {
   })
   expect(other._meta?.["ai.ctxpipe/error"]).toMatchObject({
     code: "invalid_cursor",
+  })
+})
+
+it("keeps only the symbols of the language that find_symbol names", async () => {
+  requests = []
+  server.use(
+    http.post(
+      "http://codesearch.test/:repository/graph",
+      async ({ request }) => {
+        requests.push((await request.json()) as Record<string, unknown>)
+        return HttpResponse.json({
+          ok: true,
+          results: [
+            {
+              symbol: "scip-typescript npm example 1 charge().",
+              symbol_name: "charge",
+              kind: "function",
+              file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/src/charge.ts`,
+            },
+            {
+              symbol: "scip-python python example 1 charge().",
+              symbol_name: "charge",
+              kind: "function",
+              file_path: `/cache/${seed.orgId}/${repositoryId}/checkouts/default/tools/charge.py`,
+            },
+            {
+              symbol: "scip-python python example 1 refund().",
+              symbol_name: "refund",
+              kind: "function",
+            },
+          ],
+        })
+      },
+    ),
+  )
+  const call = (language?: string) =>
+    callTool({
+      name: "find_symbol",
+      arguments: {
+        org: seed.orgSlug,
+        symbol: "charge",
+        relation: "definition",
+        excludeRepositories: [],
+        ...(language ? { language } : {}),
+      },
+    })
+  const names = async (language?: string) =>
+    (
+      (await call(language)).structuredContent?.results as Array<{
+        ref?: string
+        name: string
+      }>
+    ).map((row) => row.ref ?? row.name)
+  expect(await names("python")).toEqual([
+    "example/alpha:tools/charge.py",
+    "refund",
+  ])
+  expect(await names("TS")).toEqual(["example/alpha:src/charge.ts"])
+  expect(await names()).toHaveLength(3)
+  expect(requests.map((body) => body.limit)).toEqual([200, 200, 21])
+  expect((await call("cobol"))._meta?.["ai.ctxpipe/error"]).toMatchObject({
+    code: "invalid_argument",
   })
 })
 

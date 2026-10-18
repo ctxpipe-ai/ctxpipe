@@ -11,8 +11,9 @@ import { createRequire } from "node:module"
 import { extname, join, relative, resolve } from "node:path"
 import { fileURLToPath } from "node:url"
 import {
-  requiredStories,
   selectGoldenStories,
+  selectPlayStories,
+  shardStories,
 } from "./storybook-golden-select.mjs"
 
 const root = fileURLToPath(new URL("../../", import.meta.url))
@@ -88,9 +89,25 @@ const waitFor = async (url) => {
   fail(`Storybook did not become ready at ${url}`)
 }
 
-const goldenStories = (index) => {
+// STORYBOOK_PLAYS=all runs every story that has a play function. The default
+// runs the required golden set. STORYBOOK_SHARD=i/n keeps every n-th story.
+// STORYBOOK_ONLY=a,b keeps stories whose id or file path contains a, or b.
+const mode = process.env.STORYBOOK_PLAYS === "all" ? "all" : "golden"
+
+const chosenStories = (index) => {
   try {
-    return selectGoldenStories(index)
+    const stories =
+      mode === "all" ? selectPlayStories(index) : selectGoldenStories(index)
+    const only = (process.env.STORYBOOK_ONLY ?? "").split(",").filter(Boolean)
+    const filtered = only.length
+      ? stories.filter((story) =>
+          only.some(
+            (part) =>
+              story.id.includes(part) || story.importPath.includes(part),
+          ),
+        )
+      : stories
+    return shardStories(filtered, process.env.STORYBOOK_SHARD)
   } catch (error) {
     fail(error.message)
   }
@@ -98,6 +115,28 @@ const goldenStories = (index) => {
 
 const playInitScript = () => {
   window.__CTXPIPE_GOLDEN__ = { result: null, waiters: [] }
+  // The headless browser keeps a real cursor over the page. After a layout
+  // change it sends real pointer-move events, which end a hover that a play set
+  // with synthetic events. Plays use synthetic events only, so drop real ones.
+  for (const type of [
+    "pointerover",
+    "pointerout",
+    "pointerenter",
+    "pointerleave",
+    "pointermove",
+    "mouseover",
+    "mouseout",
+    "mouseenter",
+    "mouseleave",
+    "mousemove",
+  ])
+    window.addEventListener(
+      type,
+      (event) => {
+        if (event.isTrusted) event.stopImmediatePropagation()
+      },
+      true,
+    )
   const record = (result) => {
     if (window.__CTXPIPE_GOLDEN__.result) return
     window.__CTXPIPE_GOLDEN__.result = result
@@ -116,6 +155,11 @@ const playInitScript = () => {
     channel.on("playFunctionThrewException", (error) => {
       record({ ok: false, error: serialize(error) })
     })
+    // A render error never reaches the play phase, so it must fail here.
+    for (const name of ["storyThrewException", "storyErrored"])
+      channel.on(name, (error) => {
+        record({ ok: false, error: serialize(error) })
+      })
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
       if (phase === "played") record({ ok: true, phase })
@@ -137,7 +181,7 @@ try {
   const output = resolve(
     root,
     process.env.CI_TEST_RESULTS_DIR ?? ".ci-results",
-    "storybook-golden",
+    mode === "all" ? "storybook-plays" : "storybook-golden",
   )
   mkdirSync(output, { recursive: true })
   const report = join(output, "results.json")
@@ -155,7 +199,7 @@ try {
   const storybookUrl =
     url ?? `http://127.0.0.1:${process.env.STORYBOOK_PORT ?? 6007}`
   await waitFor(`${storybookUrl}/index.json`)
-  const stories = goldenStories(
+  const stories = chosenStories(
     await (await fetch(`${storybookUrl}/index.json`)).json(),
   )
   const { chromium } = createRequire(join(ui, "package.json"))("playwright")
@@ -224,7 +268,7 @@ try {
     server.close(resolveClose)
   })
   const results = {
-    numTotalTests: requiredStories.length,
+    numTotalTests: stories.length,
     numPassedTests: passed,
     numFailedTests: failed,
     numPendingTests: 0,
@@ -256,5 +300,7 @@ try {
   )
 } catch (error) {
   process.stderr.write(`${error.message}\n`)
-  process.exitCode = 1
+  // The static server and the browser keep the event loop alive, so a plain
+  // exit code would hang the job until its timeout.
+  process.exit(1)
 }

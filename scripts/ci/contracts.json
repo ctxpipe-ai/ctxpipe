@@ -4,12 +4,12 @@
   "OpenWorkflow native write jobs": [
     "src/domain/workspaces/write-workflow-native.contract.test.ts",
     "src/domain/workspaces/write-maintenance-native.contract.test.ts",
-    "src/domain/workspaces/write-link-native.contract.test.ts",
+    "src/domain/workspaces/write-ownership-migration-native.contract.test.ts",
+    "src/domain/workspaces/write-unlink-retraction-native.contract.test.ts",
     "src/domain/workspaces/write-ops-native.contract.test.ts",
     "src/domain/workspaces/commit-subject.contract.test.ts",
-    "src/domain/workspaces/write-export-native.contract.test.ts",
     "src/domain/workspaces/write-rename-native.contract.test.ts",
-    "src/domain/workspaces/write-extract-native.contract.test.ts",
+    "src/domain/workspaces/write-extract-retired-native.contract.test.ts",
     "src/domain/workspaces/write-mirror-native.contract.test.ts",
     "src/domain/workspaces/github-pr-mirror-native.contract.test.ts",
     "src/domain/workspaces/write-merge-native.contract.test.ts",
@@ -66,11 +66,8 @@
     "src/openworkflow/workflows/repository-ingestion-owner-native.contract.test.ts",
     "src/openworkflow/workflows/repository-follow-up-default-native.contract.test.ts",
     "src/openworkflow/workflows/repository-index-source-native.contract.test.ts",
-    "src/openworkflow/workflows/repository-extraction-native.contract.test.ts",
-    "src/openworkflow/workflows/repository-readonly-reindex-native.contract.test.ts",
     "src/routes/v1/repository-admission-native.contract.test.ts",
-    "src/openworkflow/repository-admission-ack-native.contract.test.ts",
-    "src/openworkflow/workflows/repository-producer-native.contract.test.ts"
+    "src/openworkflow/repository-admission-ack-native.contract.test.ts"
   ],
   "ingest sandbox skills": [
     "src/domain/ingestion/ingest-sandbox-skills.contract.test.ts"
@@ -91,7 +88,8 @@
     "src/domain/workspaces/native-https-git-github-auth.contract.test.ts"
   ],
   "hosted sandbox (Vercel)": [
-    "src/domain/workspaces/vercel-sandbox.contract.test.ts"
+    "src/domain/workspaces/vercel-sandbox.contract.test.ts",
+    "src/domain/ingestion/ingest-vercel-sandbox.contract.test.ts"
   ],
   "knowledge search at scale": [
     "src/domain/workspaces/knowledge-search.contract.test.ts"

@@ -214,9 +214,11 @@ export const ChooseWorkspaces: Story = {
       },
     })
     // The add opened a pull request: the dialog stays open on the merge step.
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
     ).toHaveAttribute("href", "https://github.com/acme/docs/pull/7")
@@ -248,7 +250,7 @@ export const MergeStepShowsTheMerge: Story = {
           http.post(`/${orgSlug}/api/v1/workspaces/docs/sources`, () =>
             HttpResponse.json({
               outcome: "pull_request",
-              sourceKey: "linear",
+              path: "sources/linear/linear.md",
               pullRequestUrl,
             }),
           ),
@@ -258,7 +260,7 @@ export const MergeStepShowsTheMerge: Story = {
                 ? workspaceSourceList({
                     items: [
                       workspaceSourceFixture({
-                        sourceKey: "linear",
+                        path: "sources/linear/linear.md",
                         provider: "linear",
                         connectionId,
                         scope: { teams: ["ENG"] },
@@ -268,7 +270,7 @@ export const MergeStepShowsTheMerge: Story = {
                 : workspaceSourceList({
                     pendingChanges: [
                       {
-                        sourceKey: "linear",
+                        path: "sources/linear/linear.md",
                         provider: "linear",
                         action: "add",
                         pullRequestUrl,
@@ -296,18 +298,20 @@ export const MergeStepShowsTheMerge: Story = {
     await userEvent.click(
       body.getByRole("button", { name: "Add to Workspaces" }),
     )
-    await expect(
-      await body.findByRole("heading", { name: "Merge the pull request" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        body.getByRole("heading", { name: "Merge the pull request" }),
+      ).toBeVisible(),
+    )
 
     merged = true
-    await expect(
-      await body.findByRole(
-        "heading",
-        { name: "Pull request merged" },
-        { timeout: 10_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          body.getByRole("heading", { name: "Pull request merged" }),
+        ).toBeVisible(),
+      { timeout: 10_000 },
+    )
     await expect(body.getByText("Merged")).toBeVisible()
     await expect(
       body.getByRole("link", { name: "acme/docs#7" }),
@@ -339,7 +343,7 @@ export const ManageKeepsTheCurrentScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -351,7 +355,7 @@ export const ManageKeepsTheCurrentScope: Story = {
             workspaceSourceList({
               items: [
                 workspaceSourceFixture({
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   connectionId,
                   scope: { teams: ["ENG"] },
@@ -369,12 +373,14 @@ export const ManageKeepsTheCurrentScope: Story = {
   },
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
-    await expect(
-      await body.findByRole("checkbox", { name: docsWorkspace.displayName }),
-    ).toBeChecked()
-    await expect(
-      await body.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /Engineering/ })).toBeChecked(),
+    )
     const save = body.getByRole("button", { name: "Save changes" })
     await expect(save).toBeDisabled()
     await userEvent.click(body.getByRole("checkbox", { name: /Operations/ }))
@@ -382,8 +388,9 @@ export const ManageKeepsTheCurrentScope: Story = {
     await waitFor(() => expect(manageCalls).toHaveLength(1))
     await expect(manageCalls[0]).toMatchObject({
       method: "PUT",
-      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources/linear-3`,
+      path: `/${orgSlug}/api/v1/workspaces/${docsWorkspace.slug}/sources`,
       body: {
+        path: "sources/linear/linear-3.md",
         source: {
           provider: "linear",
           connectionId,
@@ -418,6 +425,10 @@ function ManageButton(props: ComponentProps<typeof LinearSetupWizard>) {
  * from the new scope, not from the scope of the first open.
  */
 export const ManageAgainShowsTheNewScope: Story = {
+  // The close fade and the open fade of the dialog overlap on a slow runner,
+  // and the step then keeps the scope of the first open. Reduced motion
+  // removes the fades, so the dialog unmounts at once.
+  tags: ["reduced-motion"],
   render: (args) => <ManageButton {...args} />,
   parameters: {
     msw: {
@@ -436,7 +447,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceName: docsWorkspace.displayName,
               sources: [
                 {
-                  sourceKey: "linear-3",
+                  path: "sources/linear/linear-3.md",
                   provider: "linear",
                   status: "ok",
                   scopeSummary: "1 Linear team",
@@ -449,7 +460,7 @@ export const ManageAgainShowsTheNewScope: Story = {
               workspaceSourceList({
                 items: [
                   workspaceSourceFixture({
-                    sourceKey: "linear-3",
+                    path: "sources/linear/linear-3.md",
                     provider: "linear",
                     connectionId,
                     scope: { teams: currentTeams },
@@ -468,9 +479,9 @@ export const ManageAgainShowsTheNewScope: Story = {
   play: async ({ canvasElement }) => {
     const body = within(canvasElement.ownerDocument.body)
     await userEvent.click(await body.findByRole("button", { name: "Manage" }))
-    await expect(
-      await body.findByRole("checkbox", { name: /Engineering/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /Engineering/ })).toBeChecked(),
+    )
     await userEvent.click(body.getByRole("button", { name: "Close" }))
     await waitFor(() =>
       expect(
@@ -479,15 +490,20 @@ export const ManageAgainShowsTheNewScope: Story = {
     )
 
     currentTeams = ["OPS"]
-    await userEvent.click(body.getByRole("button", { name: "Manage" }))
-    await expect(
-      await body.findByRole("checkbox", { name: /Operations/ }),
-    ).toBeChecked()
-    await expect(
-      body.getByRole("checkbox", { name: /Engineering/ }),
-    ).not.toBeChecked()
-    await expect(
-      body.getByRole("button", { name: "Save changes" }),
-    ).toBeDisabled()
+    // The open dialog hides the page from the accessibility tree, so this
+    // finds Manage only after the dialog has unmounted. A new dialog then
+    // starts from a new read.
+    await userEvent.click(await body.findByRole("button", { name: "Manage" }))
+    await waitFor(() =>
+      expect(body.getByRole("checkbox", { name: /Operations/ })).toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(
+        body.getByRole("checkbox", { name: /Engineering/ }),
+      ).not.toBeChecked(),
+    )
+    await waitFor(() =>
+      expect(body.getByRole("button", { name: "Save changes" })).toBeDisabled(),
+    )
   },
 }

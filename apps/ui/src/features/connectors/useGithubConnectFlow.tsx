@@ -37,8 +37,6 @@ export type UseGithubConnectFlowOptions = {
   /** Called when a flow begins: managed popup about to open, or inline wizard about to open. */
   onFlowStarted?: () => void
   onDraftCreated?: (args: { connectionId: string }) => void
-  /** After `registered`, wait this many ms before calling `onRegistered` (onboarding polish). */
-  minFinalizeAfterRegistrationMs?: number
 }
 
 export function useGithubConnectFlow({
@@ -50,7 +48,6 @@ export function useGithubConnectFlow({
   delegateSelfHostedWizard,
   onFlowStarted,
   onDraftCreated,
-  minFinalizeAfterRegistrationMs = 0,
 }: UseGithubConnectFlowOptions) {
   const queryClient = useQueryClient()
   const watchPopupClose = useWatchPopupClose()
@@ -101,17 +98,6 @@ export function useGithubConnectFlow({
     [onRegistered, onRegistrationFailed],
   )
 
-  const applyFinalizeDelay = useCallback(
-    async (status: GithubSetupRegistrationStatus) => {
-      if (minFinalizeAfterRegistrationMs > 0 && status === "registered") {
-        await new Promise<void>((r) =>
-          window.setTimeout(r, minFinalizeAfterRegistrationMs),
-        )
-      }
-    },
-    [minFinalizeAfterRegistrationMs],
-  )
-
   const openManagedInstallPopup = useCallback(
     (url: string) => {
       onFlowStarted?.()
@@ -147,7 +133,6 @@ export function useGithubConnectFlow({
               orgSlug,
               queryClient,
             )
-            await applyFinalizeDelay(status)
             setIsSyncing(false)
             handleInstallSettled(status)
           })()
@@ -163,7 +148,6 @@ export function useGithubConnectFlow({
       orgSlug,
       watchPopupClose,
       queryClient,
-      applyFinalizeDelay,
       handleInstallSettled,
     ],
   )
@@ -245,12 +229,7 @@ export function useGithubConnectFlow({
         onInstallFlowStarted={onFlowStarted}
         onDraftCreated={onDraftCreated}
         onHandoffClose={onHandoffClose}
-        onInstallPopupSettled={({ status }) => {
-          void (async () => {
-            await applyFinalizeDelay(status)
-            handleInstallSettled(status)
-          })()
-        }}
+        onInstallPopupSettled={({ status }) => handleInstallSettled(status)}
       />
     ) : null,
   }

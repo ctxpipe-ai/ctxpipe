@@ -14,6 +14,10 @@
  * 4. MMR diversity selects the results, and the path with the highest weight
  *    product (Dijkstra on −ln w) explains each result. The path weight has no
  *    predicate weight, so the path does not depend on the intent.
+ * 5. The units of an answer kind of the intent come first (`isAnswerKind`),
+ *    together with the strong query hits (`STRONG_QUERY_MATCH`).
+ *    The kind of a unit, not the predicate of its edge, tells what it
+ *    answers, because Workspace claims have free-form predicates.
  *
  * The signal model comes from PR #350 `retrievalScore.ts` (ADR-040): a
  * weighted product of signals, each with a floor, so that one weak signal
@@ -32,6 +36,7 @@ export const RELEVANCE_INTENTS = [
   "change",
   "dependencies",
   "structure",
+  "provenance",
 ] as const
 
 export type RelevanceIntent = (typeof RELEVANCE_INTENTS)[number]
@@ -91,6 +96,8 @@ export type RelevanceOptions = {
    * unset: all kinds.
    */
   kinds?: readonly string[]
+  /** Kinds that are never a result. The walk still uses their nodes. */
+  excludeKinds?: readonly string[]
   includeSeeds?: boolean
   /** Number of results. Default 100. */
   limit?: number
@@ -122,6 +129,8 @@ export type RelatedResult = {
   queryMatch: number
   /** The highest-weight path from a seed; empty for a seed or a lone hit. */
   path: RelevancePathStep[]
+  /** True for a unit of an answer kind of the intent or a strong query hit. */
+  answer: boolean
 }
 
 type IntentPreset = {
@@ -135,6 +144,11 @@ type IntentPreset = {
   hubPenalty: number
   /** λ of MMR. Default 0.3. */
   diversity?: number
+  /**
+   * The kinds of the units that answer the question (`kindKey` form). They
+   * come before the other results. No list: every kind answers.
+   */
+  answers?: readonly string[]
 }
 
 /** No signal goes below this value, so no unit is removed by one signal. */
@@ -183,6 +197,28 @@ const STRUCTURAL_PREDICATES = [
  */
 const LINK_PREDICATES = ["LINKS_TO", "REFERENCES", "MENTIONS"]
 
+/**
+ * The predicate of the edge from a unit to the `Source` unit that it came
+ * from (ADR-050). A `Source` unit has one such edge from each of its units,
+ * so it is a hub. The walk of all edges (also the fallback walk) does not
+ * follow these edges (`expandWorkspaceGraph`). Only the `provenance` intent,
+ * or `predicates` that name them, walk them.
+ */
+export const FROM_SOURCE_PREDICATE = "FROM_SOURCE"
+
+const OWNER_KINDS = ["team", "person", "group"]
+const DECISION_KINDS = ["decision", "incident"]
+const CHANGE_KINDS = ["pullrequest", "commit", "change"]
+const DEPENDENCY_KINDS = [
+  "library",
+  "database",
+  "service",
+  "api",
+  "package",
+  "queue",
+  "stream",
+]
+
 function weightAll(predicates: readonly string[], weight: number) {
   return Object.fromEntries(predicates.map((predicate) => [predicate, weight]))
 }
@@ -191,8 +227,9 @@ function weightAll(predicates: readonly string[], weight: number) {
  * The turns of PR #350 become predicate weights. Each intent except `general`
  * first walks only its own edges and the link edges: on an unscoped walk, a
  * unit with many edges of one predicate (pull requests, notes) hides its
- * owner and its decisions. When that walk finds too few results,
- * `get_related` adds the results of a walk over all edges after them.
+ * owner and its decisions. When that walk finds fewer results than the
+ * limit, or no unit of an answer kind of the intent, `get_related` adds the
+ * results of a walk over all edges after them.
  */
 export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
   // The question is not known, so the results spread over kinds: else the
@@ -202,6 +239,14 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
     diversity: 0.5,
+    // The rules and the notes of a hub come after the units that answer
+    // one of the questions.
+    answers: [
+      ...OWNER_KINDS,
+      ...DECISION_KINDS,
+      ...CHANGE_KINDS,
+      ...DEPENDENCY_KINDS,
+    ],
   },
   // A team that owns many services and issues is still the owner.
   ownership: {
@@ -209,6 +254,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: { OWNS: 3 },
     signals: BASE_SIGNALS,
     hubPenalty: 0,
+    answers: OWNER_KINDS,
   },
   // The decisions come before the files that declare them.
   // The walk also reaches the incidents, the rules, and the dependencies
@@ -226,6 +272,7 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     predicates: { INFLUENCES: 3, SUPERSEDES: 2 },
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+    answers: DECISION_KINDS,
   },
   // The hub penalty keeps a shared file that many changes touch from
   // pulling unrelated changes into the results.
@@ -238,18 +285,27 @@ export const INTENT_PRESETS: Readonly<Record<RelevanceIntent, IntentPreset>> = {
     },
     signals: { ...BASE_SIGNALS, recency: 1 },
     hubPenalty: BASE_HUB_PENALTY,
+    answers: CHANGE_KINDS,
   },
   dependencies: {
     walk: [...DEPENDENCY_PREDICATES, ...LINK_PREDICATES],
     predicates: weightAll(DEPENDENCY_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+    answers: DEPENDENCY_KINDS,
   },
   structure: {
     walk: [...STRUCTURAL_PREDICATES, ...LINK_PREDICATES],
     predicates: weightAll(STRUCTURAL_PREDICATES, 3),
     signals: BASE_SIGNALS,
     hubPenalty: BASE_HUB_PENALTY,
+  },
+  // A source with many units is still the source of each of them.
+  provenance: {
+    walk: [FROM_SOURCE_PREDICATE, ...LINK_PREDICATES],
+    predicates: { [FROM_SOURCE_PREDICATE]: 3 },
+    signals: BASE_SIGNALS,
+    hubPenalty: 0,
   },
 }
 
@@ -262,6 +318,12 @@ const UNDATED_RECENCY = 0.5
 /** A unit that the query did not find still has this query factor. */
 const QUERY_MATCH_BASE = 0.1
 
+/**
+ * A query hit with at least this share of the top query score ranks with the
+ * answers of the intent. A weaker hit can be a loose semantic match.
+ */
+const STRONG_QUERY_MATCH = 0.5
+
 const DAY_MS = 86_400_000
 const PPR_TOLERANCE = 1e-12
 const PPR_MAX_ITERATIONS = 500
@@ -269,6 +331,15 @@ const PPR_MAX_ITERATIONS = 500
 /** `PullRequest`, `pull-request` and `pull_request` are one kind. */
 function kindKey(kind: string | null | undefined): string {
   return (kind ?? "").toLowerCase().replace(/[^a-z]/g, "")
+}
+
+/** True when a unit of `kind` answers the question of `intent`. */
+export function isAnswerKind(
+  intent: RelevanceIntent,
+  kind: string | null | undefined,
+): boolean {
+  const answers = INTENT_PRESETS[intent].answers
+  return !answers || answers.includes(kindKey(kind))
 }
 
 /**
@@ -673,6 +744,7 @@ export function rankRelated(input: {
   const keptKinds = options.kinds?.length
     ? new Set(options.kinds.map(kindKey))
     : null
+  const droppedKinds = new Set((options.excludeKinds ?? []).map(kindKey))
   const candidates = nodes
     .map((node, index) => {
       const nodePpr = ppr[index] ?? 0
@@ -682,23 +754,75 @@ export function rankRelated(input: {
           ? nodePpr
           : nodePpr ** (1 - effectiveQueryWeight) *
             (QUERY_MATCH_BASE + queryMatch) ** effectiveQueryWeight
-      return { node, index, ppr: nodePpr, queryMatch, score }
+      return {
+        node,
+        index,
+        ppr: nodePpr,
+        queryMatch,
+        score,
+      }
     })
     .filter(
       (candidate) =>
         candidate.ppr > 0 &&
         (options.includeSeeds || !seedSet.has(candidate.index)) &&
-        (!keptKinds || keptKinds.has(kindKey(candidate.node.kind))),
+        (!keptKinds || keptKinds.has(kindKey(candidate.node.kind))) &&
+        !droppedKinds.has(kindKey(candidate.node.kind)),
     )
     .sort((a, b) => b.score - a.score || compare(a.node.id, b.node.id))
 
-  const selected = selectDiverse(candidates, {
+  // For provenance, the sources of a seed (and the units of a Source seed)
+  // come first. The other units of those sources come last, below the other
+  // answers, so that they do not fill the results.
+  const tierOf = (index: number) => {
+    if (options.intent !== "provenance" || seedSet.has(index)) return 0
+    const path = paths[index] ?? []
+    const fromSource = path.every(
+      (step) => step.edge.predicate === FROM_SOURCE_PREDICATE,
+    )
+    if (fromSource && path.length === 1) return 0
+    return fromSource && path.length > 1 ? 2 : 1
+  }
+  const limit = options.limit ?? 100
+  const intent = options.intent ?? "general"
+  // One count per group: the answers and the other units each get maxPerKind.
+  const selection = (perKind: Map<string, number>) => ({
     diversity,
     maxPerKind: options.maxPerKind,
-    limit: options.limit ?? 100,
+    perKind,
     neighbors,
   })
-  return selected.map((candidate) => ({
+  const answerSelection = selection(new Map())
+  const otherSelection = selection(new Map())
+  // The answers first, each group with its own MMR. A strong query hit also
+  // counts as an answer: a query names a unit that the kinds of the intent
+  // do not list, such as a runbook. In the answer group, the query factor of
+  // the score puts a strong hit before an answer kind that the query missed.
+  const isAnswer = (candidate: (typeof candidates)[number]) =>
+    isAnswerKind(intent, candidate.node.kind) ||
+    candidate.queryMatch >= STRONG_QUERY_MATCH
+  const selected: Array<{
+    candidate: (typeof candidates)[number]
+    answer: boolean
+  }> = []
+  for (const tier of [0, 1, 2]) {
+    if (selected.length >= limit) break
+    const pool = candidates.filter(
+      (candidate) => tierOf(candidate.index) === tier,
+    )
+    const answers = selectDiverse(pool.filter(isAnswer), {
+      ...answerSelection,
+      limit: limit - selected.length,
+    })
+    selected.push(...answers.map((candidate) => ({ candidate, answer: true })))
+    selected.push(
+      ...selectDiverse(
+        pool.filter((candidate) => !isAnswer(candidate)),
+        { ...otherSelection, limit: limit - selected.length },
+      ).map((candidate) => ({ candidate, answer: false })),
+    )
+  }
+  return selected.map(({ candidate, answer }) => ({
     id: candidate.node.id,
     kind: candidate.node.kind,
     score: candidate.score,
@@ -710,6 +834,7 @@ export function rankRelated(input: {
       predicate: step.edge.predicate,
       weight: step.pathWeight,
     })),
+    answer,
   }))
 }
 
@@ -721,12 +846,13 @@ function selectDiverse<
   options: {
     diversity: number
     maxPerKind: number | undefined
+    /** The count of selected units of each kind; the call adds to it. */
+    perKind: Map<string, number>
     limit: number
     neighbors: ReadonlyArray<ReadonlySet<number>>
   },
 ): T[] {
-  const { diversity, maxPerKind, limit } = options
-  const perKind = new Map<string, number>()
+  const { diversity, maxPerKind, limit, perKind } = options
   const kindFull = (candidate: T) =>
     maxPerKind !== undefined &&
     (perKind.get(kindKey(candidate.node.kind)) ?? 0) >= maxPerKind

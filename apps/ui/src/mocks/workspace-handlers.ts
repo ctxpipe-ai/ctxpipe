@@ -28,6 +28,7 @@ import {
   docsWorkspaceGitTree,
   docsWorkspaceGraph,
   eligibleGithubRepos,
+  emptyWorkspaceActivity,
   readOnlyWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 
@@ -162,7 +163,10 @@ export function workspaceFileJobHandler(
     async ({ request }) => {
       const body = (await request.json()) as WorkspaceFileJobRequest
       onJob?.(body)
-      return HttpResponse.json({ queued: true }, { status: 202 })
+      return HttpResponse.json(
+        { queued: true, jobId: "wjob_story" },
+        { status: 202 },
+      )
     },
   )
 }
@@ -204,6 +208,16 @@ export function workspaceActivityHandler(
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/activity$/.test(pathnameOf(request)),
+    () => HttpResponse.json(activity),
+  )
+}
+
+/** `GET /{orgSlug}/api/v1/activity`: the activity of every Workspace. */
+export function orgActivityHandler(
+  activity: WorkspaceActivityResponse = emptyWorkspaceActivity,
+) {
+  return http.get(
+    ({ request }) => /\/api\/v1\/activity$/.test(pathnameOf(request)),
     () => HttpResponse.json(activity),
   )
 }
@@ -311,6 +325,10 @@ export function conversationGitTreeLivePollHandler(input: {
   )
 }
 
+/**
+ * A busy conversation: the tree answers 409 turn_running `missingHits` times,
+ * then the tree. The Files pane asks again only on turn_running.
+ */
 export function conversationGitTreeEventuallyHandler(
   tree: WorkspaceGitTreeResponse & { branch?: string },
   missingHits = 2,
@@ -323,7 +341,7 @@ export function conversationGitTreeEventuallyHandler(
       hits += 1
       if (hits <= missingHits) {
         await delay(1500)
-        return HttpResponse.json({ error: "missing_sandbox" }, { status: 409 })
+        return HttpResponse.json({ error: "turn_running" }, { status: 409 })
       }
       return HttpResponse.json(tree)
     },

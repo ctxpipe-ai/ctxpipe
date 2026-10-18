@@ -2,12 +2,16 @@ import { createHash } from "node:crypto"
 import { base32nopad } from "@scure/base"
 import { connectorMirrorRoot } from "../codeIngestion/connectorMirrorPaths.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
-import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
+import type {
+  PreviousSourceRow,
+  SourceFileBlob,
+} from "../workspace-sources/projection-plan.js"
+import { SOURCES_FOLDER_PREFIX } from "../workspace-sources/source-tree.js"
+import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import { effectiveValidFrom } from "./hydrate-phases.js"
 import { markdownLines } from "./knowledge-chunks.js"
 import {
   isLinkedRepositoryDeclaration,
-  parseLinkedRepositoryMarkdown,
   parseSimpleFrontMatter,
 } from "./layout.js"
 import {
@@ -38,6 +42,12 @@ export type HydrateClaim = {
   validTo: string | null
   source: string | null
 }
+
+/**
+ * The `source` of a unit that hydrate makes from the main-era knowledge in
+ * Postgres, not from git. Such a unit is read-only.
+ */
+export const LEGACY_UNIT_SOURCE = "legacy"
 
 export type HydrateUnit = {
   path: string
@@ -73,18 +83,19 @@ export type HydrateSkip = {
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
-/** One linked repository that a Workspace revision declares. */
+/** One linked repository that the GitHub sources of a revision declare. */
 export type HydrateLinkedRepository = {
   path: string
   git: string
+  /** The branch or tag of the entry; null is the default branch. */
   branch: string | null
-  /** The GitHub connection of a source entry. A repository file has none. */
-  connectionId?: string
+  /** The GitHub connection of the source entry. */
+  connectionId: string
 }
 
 export function hydrateKnowledgeTree(input: {
   workspaceId: string
-  /** The Workspace repository. A linked-repository file that names it is skipped. */
+  /** The Workspace repository. A GitHub source that names it links nothing. */
   workspaceUrl?: string
   files: ReadonlyArray<{
     path: string
@@ -92,12 +103,20 @@ export function hydrateKnowledgeTree(input: {
     lastCommitTimestamp?: string
   }>
   /**
-   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources link
-   * their repositories after the `repositories/*.md` files (ADR-050).
+   * The text of `.ctxpipe/sources.yaml`, or null. Its GitHub sources and the
+   * GitHub source files in `sourceFiles` are the only links of
+   * the Workspace (ADR-050).
    */
   sourcesFile?: string | null
+  /** Every blob under `sources/` (`splitSourcesTree`). Its GitHub sources link. */
+  sourceFiles?: ReadonlyArray<SourceFileBlob>
   /** The org's GitHub connection ids. A source with another id links nothing. */
   githubConnectionIds?: ReadonlySet<string>
+  /**
+   * The source rows of the previous projected revision. They decide which
+   * source links a repository that two sources name, as in the projection.
+   */
+  previousSourceRows?: ReadonlyArray<PreviousSourceRow>
   /**
    * Hosts of the org's Confluence connections. A Confluence URL on another
    * host makes no edge.
@@ -120,25 +139,9 @@ export function hydrateKnowledgeTree(input: {
 
   for (const file of input.files) {
     const path = file.path.replace(/^\/+/, "")
-    if (isLinkedRepositoryDeclaration(path)) {
-      const parsed = parseLinkedRepositoryMarkdown(file.content)
-      if (parsed.malformed) {
-        skipped.push({ path, reason: "malformed" })
-        continue
-      }
-      const git = normalizeWorkspaceRepositoryUrl(parsed.git)
-      if (!git) {
-        skipped.push({ path, reason: "malformed" })
-        continue
-      }
-      if (seenLinked.has(git)) {
-        skipped.push({ path, reason: "duplicate_repository" })
-        continue
-      }
-      seenLinked.add(git)
-      linked.push({ path, git, branch: parsed.branch })
-      continue
-    }
+    // A `repositories/*.md` file links nothing since ADR-050 (the upgrade
+    // moves it into the sources file), and it is not a knowledge unit.
+    if (isLinkedRepositoryDeclaration(path)) continue
     if (!path.endsWith(".md")) continue
     if (path === "AGENTS.md" || path.startsWith(".agents/")) continue
 
@@ -152,9 +155,11 @@ export function hydrateKnowledgeTree(input: {
     units.push({
       path,
       servingId: servingIdForKnowledgePath(input.workspaceId, path),
-      kind:
-        typeof parsed.attributes.kind === "string" &&
-        parsed.attributes.kind.trim()
+      // A source file has no `kind` key (ADR-050); its folder sets the kind.
+      kind: path.startsWith(SOURCES_FOLDER_PREFIX)
+        ? "Source"
+        : typeof parsed.attributes.kind === "string" &&
+            parsed.attributes.kind.trim()
           ? parsed.attributes.kind.trim()
           : mirrorUnitKind(path),
       body: parsed.body,
@@ -183,26 +188,53 @@ export function hydrateKnowledgeTree(input: {
     const extra = references.get(unit.path)
     if (extra) unit.links.push(...extra)
   }
+  // Each GitHub repository of the Workspace, from every connection. The
+  // CHANGED lookup uses all of them; `linked` keeps the connected ones.
+  const repositories = githubSourceRepositories(
+    input.sourcesFile ?? null,
+    null,
+    input.sourceFiles ??
+      input.files
+        .filter((file) => file.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((file) => ({ path: file.path, text: file.content })),
+    {
+      previousRows: input.previousSourceRows,
+      workspaceUrl: input.workspaceUrl,
+    },
+  )
   const changes = pullRequestChangedClaims(
     units.map((unit) => ({
       ...unit,
       attributes: attributes.get(unit.path) ?? {},
     })),
+    new Map(
+      repositories
+        .filter((source) => source.path.startsWith(SOURCES_FOLDER_PREFIX))
+        .map((source) => [source.path, source.gitUrl]),
+    ),
   )
   for (const unit of units) unit.claims.push(...(changes.get(unit.path) ?? []))
+  const sourcePaths = new Set(
+    units
+      .filter((unit) => unit.path.startsWith(SOURCES_FOLDER_PREFIX))
+      .map((unit) => unit.path),
+  )
+  for (const unit of units) {
+    unit.claims.push(
+      ...fromSourceClaims(attributes.get(unit.path) ?? {}, sourcePaths),
+    )
+  }
 
-  // A repository that a file or the Workspace already names is not a skip:
-  // during the migration, both places can name it.
-  for (const source of githubSourceRepositories(
-    input.sourcesFile ?? null,
-    input.githubConnectionIds ?? new Set(),
-  )) {
+  // A repository that an earlier entry or the Workspace names is not a skip.
+  const connectionIds = input.githubConnectionIds ?? new Set()
+  for (const source of repositories) {
+    if (!connectionIds.has(source.connectionId)) continue
     if (seenLinked.has(source.gitUrl)) continue
     seenLinked.add(source.gitUrl)
     linked.push({
-      path: SOURCES_FILE_PATH,
+      path: source.path,
       git: source.gitUrl,
-      branch: null,
+      branch: source.ref,
       connectionId: source.connectionId,
     })
   }
@@ -210,16 +242,48 @@ export function hydrateKnowledgeTree(input: {
   return { units, skipped, linked }
 }
 
+/**
+ * The source file path that one `sources` entry names (ADR-050), from the
+ * Workspace root. A URL, another path or a value that is not text gives null.
+ */
+export function sourcePathOf(entry: unknown): string | null {
+  if (typeof entry !== "string") return null
+  const path = resolveHydrateLink("", entry.trim())
+  return path.startsWith(SOURCES_FOLDER_PREFIX) ? path : null
+}
+
+/** The source file paths in the `sources` front matter of a unit. */
+export function sourcePathsOf(attributes: Record<string, unknown>): string[] {
+  const raw = attributes.sources
+  if (!Array.isArray(raw)) return []
+  return raw.flatMap((entry) => sourcePathOf(entry) ?? [])
+}
+
+/**
+ * One `FROM_SOURCE` claim for each path in the `sources` front matter that
+ * names a source file (ADR-050). A URL or another path makes no claim.
+ */
+function fromSourceClaims(
+  attributes: Record<string, unknown>,
+  sourcePaths: ReadonlySet<string>,
+): HydrateClaim[] {
+  const targets = new Set(
+    sourcePathsOf(attributes).filter((path) => sourcePaths.has(path)),
+  )
+  return [...targets].map((path) => ({
+    to: `${WORKSPACE_LINK_SCHEME}${path}`,
+    predicate: FROM_SOURCE_PREDICATE,
+    confidence: 1,
+    validFrom: null,
+    validTo: null,
+    source: "git",
+  }))
+}
+
 function unitTitle(frontMatterTitle: unknown, body: string): string | null {
   if (typeof frontMatterTitle === "string" && frontMatterTitle.trim())
     return frontMatterTitle.trim()
   return markdownLines(body).find((line) => line.heading)?.heading ?? null
-}
-
-export function shouldHydrateBeforeMigrationExport(
-  migrationExportSha: string | null | undefined,
-): boolean {
-  return !migrationExportSha
 }
 
 export function applyEffectiveValidFromToUnits(

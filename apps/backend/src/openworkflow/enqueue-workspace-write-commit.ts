@@ -1,10 +1,28 @@
 import { parseEnv } from "../config/env.js"
 import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
-import { captureUnbornBootstrapBinding } from "../domain/workspaces/bootstrap-unborn.js"
+import { workspacePublishPipeline } from "../domain/ingestion/ingestion-v2-config.js"
+import {
+  captureUnbornBootstrapBinding,
+  revisionHasCtxpipeContent,
+} from "../domain/workspaces/bootstrap-unborn.js"
 import { connectorMirrorContentSchema } from "../domain/workspaces/connector-mirror-input.js"
-import { linkedRepositoryUrlSchema } from "../domain/workspaces/linked-repository-url.js"
-import { resolveWorkspaceReadRevision } from "../domain/workspaces/resolve-revision.js"
-import { sameWorkspaceRevision } from "../domain/workspaces/revision.js"
+import {
+  resolveRepositoryReadCredential,
+  resolveWorkspaceReadRevision,
+} from "../domain/workspaces/resolve-revision.js"
+import {
+  sameWorkspaceRevision,
+  type WorkspaceRevision,
+} from "../domain/workspaces/revision.js"
+import { workspaceRootPath } from "../domain/workspaces/root-path.js"
+import {
+  INGESTION_V2_PUBLISH_FORMAT,
+  readWorkspaceFormat,
+  WORKSPACE_FORMAT_PATH,
+  withFormatWriteGate,
+  workspaceFormatAtLeast,
+  workspaceFormatCacheValue,
+} from "../domain/workspaces/workspace-format.js"
 import type { EnqueueWriteJobInput } from "../domain/workspaces/write-job-intent.js"
 import {
   githubRepoFullNameFromWorkspaceUrl,
@@ -15,6 +33,7 @@ import { generateObjectId } from "../lib/id.js"
 import {
   persistBoundWriteJob,
   persistUnbornBootstrapJob,
+  persistWriteJobStatus,
   reconcileWorkspaceWriteJob,
   reconcileWriteJobAdmission,
 } from "../models/workspace-write-jobs.js"
@@ -23,6 +42,7 @@ import {
   persistWriteStatus,
   type WorkspaceWriteProbeBinding,
 } from "../models/workspaces.js"
+import { listMarkdownFilesAtGitSha } from "../services/git/clone-tree.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { workspaceBootstrap } from "./workflows/workspace-bootstrap.js"
@@ -32,20 +52,12 @@ import {
   workspaceConnectorMirrorInputSchema,
 } from "./workflows/workspace-connector-mirror.js"
 import {
-  workspaceExtractIngest,
-  workspaceExtractIngestInputSchema,
-} from "./workflows/workspace-extract-ingest.js"
-import {
   workspaceFileEdit,
   workspaceFileEditInputSchema,
 } from "./workflows/workspace-file-edit.js"
 import { workspaceImportKeyCleanup } from "./workflows/workspace-import-key-cleanup.js"
-import {
-  workspaceLinkUnlink,
-  workspaceLinkUnlinkInputSchema,
-} from "./workflows/workspace-link-unlink.js"
-import { workspaceMigrationExport } from "./workflows/workspace-migration-export.js"
 import { workspaceOpsFolderList } from "./workflows/workspace-ops-folder-list.js"
+import { workspaceOwnershipMigration } from "./workflows/workspace-ownership-migration.js"
 import {
   workspaceRenameRewrite,
   workspaceRenameRewriteInputSchema,
@@ -55,10 +67,15 @@ import {
   workspaceSemanticMerge,
   workspaceSemanticMergeInputSchema,
 } from "./workflows/workspace-semantic-merge.js"
+import {
+  workspaceUnlinkRetraction,
+  workspaceUnlinkRetractionInputSchema,
+} from "./workflows/workspace-unlink-retraction.js"
 import { workspaceValidFromPersist } from "./workflows/workspace-valid-from-persist.js"
 
 type WorkspaceWriteSnapshot = WorkspaceWriteProbeBinding & {
   writeStatus: string
+  formatVersion: number | null
 }
 
 /**
@@ -99,9 +116,13 @@ async function storeProbedWriteStatus(input: {
       const stored = await withOrgDbContext(input.orgId, () =>
         persistWriteStatus(workspace, write, input.orgId),
       )
+      // The format gate is on top of the stored probe result.
       if (stored)
         return {
-          writeStatus: write.writeStatus,
+          writeStatus: withFormatWriteGate({
+            ...write,
+            formatVersion: workspace.formatVersion,
+          }).writeStatus,
           desiredSha: workspace.desiredSha,
         }
       if (!input.retry) return null
@@ -126,21 +147,38 @@ async function storeProbedWriteStatus(input: {
 
 export type EnqueueWorkspaceWriteCommitInput = EnqueueWriteJobInput
 
+/** The format in the tree of `revision` (0 with no format file). */
+async function tipWorkspaceFormat(
+  orgId: string,
+  revision: WorkspaceRevision,
+): Promise<number> {
+  const [file] = await listMarkdownFilesAtGitSha({
+    url: revision.remote.url,
+    sha: revision.sha,
+    token: await resolveRepositoryReadCredential({
+      orgId,
+      env: parseEnv(process.env),
+      remote: revision.remote,
+    }),
+    root: workspaceRootPath(revision),
+    // Fetch only the blobs of `.ctxpipe/`.
+    prefix: ".ctxpipe/",
+    extraPaths: [WORKSPACE_FORMAT_PATH],
+  }).then((files) => files.filter((f) => f.path === WORKSPACE_FORMAT_PATH))
+  return workspaceFormatCacheValue(readWorkspaceFormat(file?.content ?? null))
+}
+
 export async function enqueueWriteJob(
   input: EnqueueWriteJobInput,
   log: { error: (err: Error) => void },
 ): Promise<{ started: boolean }> {
   assertNotInOrgDbContext()
-  if (input.kind === "link_unlink")
-    input = {
-      ...input,
-      linkGitUrl: linkedRepositoryUrlSchema.parse(input.linkGitUrl),
-    }
   const jobId = input.jobId ?? generateObjectId("wjob")
   let jobGeneration = input.jobGeneration
   let jobWorkspaceUrl = input.jobWorkspaceUrl
   let jobDesiredSha = input.jobDesiredSha
   let writeStatus: string | null = null
+  let formatVersion: number | null = null
   // A new bootstrap binds the current tip, so a moved tip does not refuse it.
   const rebindsTip =
     input.kind === "bootstrap" && input.jobDesiredSha === undefined
@@ -184,6 +222,7 @@ export async function enqueueWriteJob(
         retry: rebindsTip,
       })
       writeStatus = stored?.writeStatus ?? null
+      formatVersion = workspace.formatVersion
       if (jobDesiredSha === undefined)
         jobDesiredSha = stored ? stored.desiredSha : workspace.desiredSha
     }
@@ -195,26 +234,58 @@ export async function enqueueWriteJob(
     log.error(new Error("Workspace write binding is unavailable"))
     return { started: false }
   }
+  // The old pipeline is gone. Ingestion v2 publishes through its
+  // own run, not through admission, so admission refuses each extract ingest.
+  // A paused job of the old pipeline ends here, so no resume admits it again.
+  if (input.kind === "extract_ingest") {
+    const reason =
+      "The old ingestion pipeline is retired. Admission refuses its extract_ingest write; ingestion v2 publishes to a Workspace at format 3 or more."
+    log.error(new Error(reason))
+    if (input.jobId)
+      await withOrgDbContext(input.orgId, () =>
+        persistWriteJobStatus(jobId, "completed", reason),
+      )
+    return { started: false }
+  }
+  // The Workspace format selects the ingestion (ADR-052 phase 4, G5). An
+  // unlink retraction and an ownership migration are ingestion v2. Admission
+  // reads the cached format; the job reads it again from the tree that it
+  // pushes on.
+  const pipeline = workspacePublishPipeline(formatVersion)
+  if (
+    (input.kind === "unlink_retraction" ||
+      input.kind === "ownership_migration") &&
+    pipeline !== "v2"
+  ) {
+    log.error(
+      new Error(
+        `The Workspace format selects no ingestion (${pipeline}). It refuses the ${input.kind} write.`,
+      ),
+    )
+    return { started: false }
+  }
   // Admission selects an explicit native workflow; it does not execute a job lifecycle.
   const snapshotWriteWorkflows: Partial<
-    Record<EnqueueWriteJobInput["kind"], typeof workspaceClaimsUpgrade>
+    Record<
+      EnqueueWriteJobInput["kind"],
+      typeof workspaceClaimsUpgrade | typeof workspaceOwnershipMigration
+    >
   > = {
-    migration_export: workspaceMigrationExport,
     claims_upgrade: workspaceClaimsUpgrade,
     valid_from_persist: workspaceValidFromPersist,
     import_key_cleanup: workspaceImportKeyCleanup,
+    ownership_migration: workspaceOwnershipMigration,
     ops_folder_map: workspaceOpsFolderList,
   }
   const snapshotWorkflow = snapshotWriteWorkflows[input.kind]
   if (
     input.kind === "bootstrap" ||
     snapshotWorkflow ||
-    input.kind === "extract_ingest" ||
     input.kind === "ui_file_edit" ||
-    input.kind === "link_unlink" ||
     input.kind === "rename_rewrite" ||
     input.kind === "connector_mirror" ||
-    input.kind === "semantic_merge"
+    input.kind === "semantic_merge" ||
+    input.kind === "unlink_retraction"
   ) {
     let bound = false
     try {
@@ -318,26 +389,27 @@ export async function enqueueWriteJob(
         admissionStatus =
           stored.writeStatus === "writable" ? "queued" : "paused"
       }
-      if (input.kind === "extract_ingest") {
-        const command = workspaceExtractIngestInputSchema.parse({
+      // A bind or rebind writes the bootstrap files directly only at format
+      // 3 or more, or on a repository with no ctx| content: that bootstrap
+      // commit also writes the format file. Below 3 the upgrade pull request
+      // carries them (ADR-053 section 7), so the scan offers the upgrade
+      // instead. An empty repository took the root commit path above.
+      if (
+        rebindsTip &&
+        !workspaceFormatAtLeast(
+          await tipWorkspaceFormat(input.orgId, revision),
+          INGESTION_V2_PUBLISH_FORMAT,
+        ) &&
+        (await revisionHasCtxpipeContent(input.orgId, revision))
+      ) {
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workflows/workspace-upgrade-scan.js"
+        )
+        await enqueueWorkspaceUpgradeScan({
           orgId: input.orgId,
-          workspaceId: input.workspaceId,
-          jobId,
-          revision,
-          extraction: input.extraction,
+          trigger: `bind:${input.workspaceId}:${revision.sha}`,
         })
-        await persistBoundWriteJob({
-          admissionStatus,
-          id: jobId,
-          kind: input.kind,
-          revision,
-          extraction: command.extraction,
-        })
-        bound = true
-        await runWorkflowWithWorkerWake(workspaceExtractIngest.spec, command, {
-          idempotencyKey: jobId,
-        })
-        return { started: true }
+        return { started: false }
       }
       if (input.kind === "semantic_merge") {
         const command = workspaceSemanticMergeInputSchema.parse({
@@ -345,6 +417,9 @@ export async function enqueueWriteJob(
           workspaceId: input.workspaceId,
           jobId,
           revision,
+          // A direct semantic merge carries no trusted origin, so it gets
+          // every check (CTX-722).
+          origin: "agent",
           previousSha: input.previousSha,
           files: input.mergeFiles ?? [],
           deletePaths: input.mergeDeletePaths ?? [],
@@ -412,27 +487,29 @@ export async function enqueueWriteJob(
         })
         return { started: true }
       }
-      if (input.kind === "link_unlink") {
-        const command = workspaceLinkUnlinkInputSchema.parse({
+      if (input.kind === "unlink_retraction") {
+        const command = workspaceUnlinkRetractionInputSchema.parse({
           orgId: input.orgId,
           workspaceId: input.workspaceId,
           jobId,
           revision,
-          linkAction: input.linkAction,
-          linkGitUrl: input.linkGitUrl,
+          retractRepositoryUrl: input.retractRepositoryUrl,
+          retractSourcePath: input.retractSourcePath,
         })
         await persistBoundWriteJob({
           admissionStatus,
           id: jobId,
           kind: input.kind,
           revision,
-          linkAction: command.linkAction,
-          linkGitUrl: command.linkGitUrl,
+          retractRepositoryUrl: command.retractRepositoryUrl,
+          retractSourcePath: command.retractSourcePath,
         })
         bound = true
-        await runWorkflowWithWorkerWake(workspaceLinkUnlink.spec, command, {
-          idempotencyKey: jobId,
-        })
+        await runWorkflowWithWorkerWake(
+          workspaceUnlinkRetraction.spec,
+          command,
+          { idempotencyKey: jobId },
+        )
         return { started: true }
       }
       if (input.kind === "ui_file_edit") {

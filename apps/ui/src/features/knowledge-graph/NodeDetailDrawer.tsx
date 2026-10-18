@@ -150,7 +150,7 @@ export function NodeDetailDrawer({
   open,
   onClose,
   onFocus,
-  onNeighbourSelect,
+  onNeighborSelect,
   onOpenSource,
 }: {
   node: KnowledgeGraphNode
@@ -162,7 +162,7 @@ export function NodeDetailDrawer({
   open: boolean
   onClose: () => void
   onFocus: () => void
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
   onOpenSource?: (path: string) => void
 }) {
   return (
@@ -186,7 +186,7 @@ export function NodeDetailDrawer({
         peerDegrees={peerDegrees}
         onClose={onClose}
         onFocus={onFocus}
-        onNeighbourSelect={onNeighbourSelect}
+        onNeighborSelect={onNeighborSelect}
         onOpenSource={onOpenSource}
       />
     </aside>
@@ -202,7 +202,7 @@ function NodeDetailDrawerBody({
   peerDegrees,
   onClose,
   onFocus,
-  onNeighbourSelect,
+  onNeighborSelect,
   onOpenSource,
 }: {
   node: KnowledgeGraphNode
@@ -213,7 +213,7 @@ function NodeDetailDrawerBody({
   peerDegrees: number[]
   onClose: () => void
   onFocus: () => void
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
   onOpenSource?: (path: string) => void
 }) {
   const kind = node.kind || "Unknown"
@@ -221,7 +221,7 @@ function NodeDetailDrawerBody({
   const predicates = Array.from(facts.predicateCounts.entries())
     .sort((a, b) => b[1] - a[1])
     .slice(0, 8)
-  const neighbourKinds = Array.from(facts.neighbourKindCounts.entries()).sort(
+  const neighborKinds = Array.from(facts.neighborKindCounts.entries()).sort(
     (a, b) => b[1] - a[1],
   )
   const totalDegree = facts.inDegree + facts.outDegree
@@ -232,13 +232,13 @@ function NodeDetailDrawerBody({
   )
   const isIsolated = totalDegree <= 2
 
-  /** Top 5 neighbours by claim count. Clicking pivots selection to that node. */
+  /** Top 5 neighbors by claim count. Clicking pivots selection to that node. */
   const strongestConnections = useMemo(() => {
-    const byNeighbour = new Map<string, number>()
+    const byNeighbor = new Map<string, number>()
     for (const c of facts.claims) {
-      byNeighbour.set(c.neighbourId, (byNeighbour.get(c.neighbourId) ?? 0) + 1)
+      byNeighbor.set(c.neighborId, (byNeighbor.get(c.neighborId) ?? 0) + 1)
     }
-    return Array.from(byNeighbour.entries())
+    return Array.from(byNeighbor.entries())
       .sort((a, b) => b[1] - a[1])
       .slice(0, 5)
   }, [facts.claims])
@@ -433,7 +433,7 @@ function NodeDetailDrawerBody({
                   <li key={nid}>
                     <Button
                       variant="ghost"
-                      onPress={() => onNeighbourSelect(nid)}
+                      onPress={() => onNeighborSelect(nid)}
                       className="h-auto w-full justify-start gap-2 px-2 py-1.5"
                     >
                       <span
@@ -503,15 +503,15 @@ function NodeDetailDrawerBody({
               claims={filteredClaims}
               nodeById={nodeById}
               kindColors={kindColors}
-              onNeighbourSelect={onNeighbourSelect}
+              onNeighborSelect={onNeighborSelect}
             />
           </Section>
         ) : null}
 
-        {neighbourKinds.length > 0 ? (
-          <Section label="Neighbour kinds">
+        {neighborKinds.length > 0 ? (
+          <Section label="Neighbor kinds">
             <ul className="flex flex-col gap-1.5">
-              {neighbourKinds.map(([k, c]) => {
+              {neighborKinds.map(([k, c]) => {
                 const color = kindColors.get(k) ?? KIND_FALLBACK_COLOR
                 return (
                   <li
@@ -573,12 +573,12 @@ function ClaimList({
   claims,
   nodeById,
   kindColors,
-  onNeighbourSelect,
+  onNeighborSelect,
 }: {
   claims: NodeClaim[]
   nodeById: Map<string, KnowledgeGraphNode>
   kindColors: Map<string, string>
-  onNeighbourSelect: (id: string) => void
+  onNeighborSelect: (id: string) => void
 }) {
   // Most recent first; unknown timestamps sink to the bottom.
   const sorted = [...claims].sort((a, b) => {
@@ -590,19 +590,19 @@ function ClaimList({
   return (
     <ul className="-mx-2 flex max-h-64 flex-col gap-2 overflow-y-auto">
       {sorted.map((c, i) => {
-        const neighbour = nodeById.get(c.neighbourId)
-        const neighbourKind = neighbour?.kind || "Unknown"
-        const neighbourName = neighbour?.name?.trim() || c.neighbourId
-        const kindColor = kindColors.get(neighbourKind) ?? KIND_FALLBACK_COLOR
+        const neighbor = nodeById.get(c.neighborId)
+        const neighborKind = neighbor?.kind || "Unknown"
+        const neighborName = neighbor?.name?.trim() || c.neighborId
+        const kindColor = kindColors.get(neighborKind) ?? KIND_FALLBACK_COLOR
         const tone = confidenceTone(c.confidence)
         const when =
           c.observedAt != null ? formatShortDate(c.observedAt) : "unknown"
-        const key = `${c.direction}-${c.predicate}-${c.neighbourId}-${i}`
+        const key = `${c.direction}-${c.predicate}-${c.neighborId}-${i}`
         return (
           <li key={key}>
             <Button
               variant="ghost"
-              onPress={() => onNeighbourSelect(c.neighbourId)}
+              onPress={() => onNeighborSelect(c.neighborId)}
               className="h-auto w-full flex-col items-stretch gap-0.5 rounded-md px-2 py-1.5"
             >
               <div className="flex items-center gap-1.5">
@@ -622,7 +622,7 @@ function ClaimList({
                     style={{ backgroundColor: kindColor }}
                     aria-hidden
                   />
-                  {neighbourKind}
+                  {neighborKind}
                 </Tag>
                 <span className="ml-auto shrink-0 text-xs">
                   <span className="text-muted-foreground">confidence: </span>
@@ -633,7 +633,7 @@ function ClaimList({
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="min-w-0 truncate text-sm text-foreground">
-                  {neighbourName}
+                  {neighborName}
                 </span>
                 <span className="ml-auto shrink-0 text-xs tabular-nums text-muted-foreground">
                   {when}

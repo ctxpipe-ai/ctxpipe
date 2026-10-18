@@ -5,8 +5,7 @@ import { isConnectorMirrorPath } from "./connectorMirrorPaths.js"
  * identifiers and repo paths into graph deduplication keys. Every extractor
  * uses these builders so images of the same real-world thing coincide.
  *
- * Pure functions only. Repository-name → repository-id lookups live in
- * `graphs/codeIngestionGraph/nodes/repositoryResolution.ts`.
+ * Pure functions only.
  */
 
 export type GithubPullRequestRef = {

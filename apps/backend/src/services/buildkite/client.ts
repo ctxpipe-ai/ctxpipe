@@ -6,7 +6,7 @@ import type {
 
 const BUILDKITE_API = "https://api.buildkite.com/v2"
 
-/** The REST scopes that the API access token must have (ADR-053). */
+/** The REST scopes that the API access token must have (ADR-054). */
 export const BUILDKITE_REQUIRED_SCOPES = [
   "read_pipelines",
   "read_builds",
@@ -39,11 +39,14 @@ async function buildkiteGet(input: {
   for (const [name, value] of Object.entries(input.search ?? {}))
     url.searchParams.set(name, value)
   for (let attempt = 0; ; attempt += 1) {
+    // No redirect: the token and the reads stay on the Buildkite API host.
     const response = await fetch(url, {
       headers: {
         accept: "application/json",
         authorization: `Bearer ${input.apiToken}`,
       },
+      redirect: "error",
+      signal: AbortSignal.timeout(15_000),
     })
     if (response.status === 401) throw new BuildkiteUnauthorizedError()
     if (response.status !== 429 || attempt >= 4) return response
@@ -225,7 +228,12 @@ export async function getBuildkitePipeline(input: {
   })
   if (response.status === 404) return "not_found"
   if (response.status === 403) return "forbidden"
-  return toPipeline(await readJson(response, pipelineSchema, "pipeline"))
+  // The slug is a path segment of the mirror, so it is the one of the scope,
+  // never the one in the answer.
+  return {
+    ...toPipeline(await readJson(response, pipelineSchema, "pipeline")),
+    slug: input.pipelineSlug,
+  }
 }
 
 /**

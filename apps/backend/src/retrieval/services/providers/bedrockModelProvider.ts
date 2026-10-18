@@ -93,9 +93,9 @@ export function bedrockModelProvider(
       }
     }),
     fetch: bedrockFetchNotSupported(),
-    embed: async (text: string) => {
+    embed: async (text: string, signal?: AbortSignal) => {
       const modelId = opts.models[0] ?? ""
-      return invokeBedrockEmbedding(text, modelId, opts.env)
+      return invokeBedrockEmbedding(text, modelId, opts.env, signal)
     },
   }
 }
