@@ -75,6 +75,8 @@ async function run(
   signal?: AbortSignal,
 ): Promise<string> {
   const result = await handle.process.exec(command, signal ? { signal } : {})
+  // The Docker provider resolves an aborted exec with exit code 0.
+  signal?.throwIfAborted()
   if (result.exitCode !== 0)
     throw new Error(
       `Ingest shard command failed (${result.exitCode}): ${result.stderr.slice(-500)}`,

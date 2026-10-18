@@ -372,7 +372,7 @@ export async function ingestEgressProxy(input: {
       }
       const responseHeaders = new Headers(upstream.headers)
       for (const name of DROPPED_RESPONSE_HEADERS) responseHeaders.delete(name)
-      let answer = upstream.body
+      let answer: ReadableStream<Uint8Array> | null = upstream.body
       if (plainGitAddresses && answer) {
         const limit = input.plainGitMaxBytes ?? PLAIN_GIT_MAX_RESPONSE_BYTES
         const tooLarge = () => {
