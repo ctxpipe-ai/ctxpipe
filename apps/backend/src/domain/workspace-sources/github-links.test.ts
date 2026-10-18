@@ -174,6 +174,38 @@ describe("linkGithubRepositories", () => {
     ).not.toBeNull()
   })
 
+  it("moves the overflow of a stored entry above the cap into a new entry when a branch edit changes it", () => {
+    const stored = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const text = linkGithubRepositories({
+      sourcesFile: file([
+        {
+          id: "linked-repositories",
+          provider: "github",
+          connection: "con_gh1",
+          repositories: stored,
+        },
+      ]),
+      connectionId: "con_gh1",
+      repositories: [{ name: "acme/repo-3", ref: "release" }],
+    })
+    const sources = (
+      parseSourcesYaml(text ?? "") as {
+        sources: Array<{ id: string; repositories: unknown[] }>
+      }
+    ).sources
+    expect(
+      sources.map((entry) => [entry.id, entry.repositories.length]),
+    ).toEqual([
+      ["linked-repositories", 100],
+      ["linked-repositories-2", 1],
+    ])
+    expect(sources[0]?.repositories[3]).toEqual({
+      name: "acme/repo-3",
+      ref: "release",
+    })
+    expect(sources[1]?.repositories).toEqual(["acme/repo-100"])
+  })
+
   it("refuses a file that is not version 1", () => {
     expect(() =>
       linkGithubRepositories({

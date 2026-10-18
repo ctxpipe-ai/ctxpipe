@@ -104,6 +104,11 @@ export function linkGithubRepositories(input: {
       current.owner.changed = true
     }
   }
+  // A stored entry above the cap cannot be written back. Its overflow goes
+  // into new entries.
+  for (const target of github)
+    if (target.changed)
+      missing.unshift(...target.items.splice(GITHUB_SOURCE_MAX_REPOSITORIES))
   const own = github.filter(
     ({ entry }) => entry.connectionId === input.connectionId,
   )

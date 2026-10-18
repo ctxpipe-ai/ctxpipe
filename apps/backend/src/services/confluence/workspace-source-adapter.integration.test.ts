@@ -153,6 +153,39 @@ describe("Confluence source adapter (Postgres + msw)", () => {
     )
   })
 
+  it("writes the pages of two entries that share a space together, and deletes none of them", async () => {
+    const forge = await seed.addConnection("forge", installed)
+    const workspace = await seed.addWorkspace("conf-split")
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId: workspace,
+      revision: "c".repeat(40),
+      rows: [
+        confluenceRow("eng-a", forge, ["2"]),
+        confluenceRow("eng-b", forge, ["3"]),
+      ],
+    })
+
+    const writes: WorkspaceSliceWrite[] = []
+    await syncConnectionSources({
+      orgId: seed.orgId,
+      connectionId: forge,
+      env: parseEnv(process.env),
+      adapter: confluenceSourceAdapter,
+      write: async (write) => {
+        writes.push(write)
+      },
+    })
+
+    expect(writes).toHaveLength(1)
+    const paths = (writes[0]?.files ?? []).map((file) => file.path)
+    expect(paths).toHaveLength(2)
+    expect(new Set(paths).size).toBe(2)
+    expect(paths.some((path) => path.endsWith("--2.md"))).toBe(true)
+    expect(paths.some((path) => path.endsWith("--3.md"))).toBe(true)
+    expect(writes[0]?.ownedPrefixes).toEqual(["confluence/ENG/"])
+  })
+
   it("does not leak a Workspace scope into the legacy migration", async () => {
     const forge = await seed.addConnection("forge", installed)
     const hr = await seed.addWorkspace("conf-hr-page")

@@ -9,7 +9,7 @@ import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
 import { splitLegacyScope } from "./legacy-scope.js"
 import {
-  parseSourceEntry,
+  parseLegacySourceEntry,
   SOURCE_SCOPES,
   type SourceProvider,
   sourcesFileSchema,
@@ -118,7 +118,7 @@ function existingPairs(text: string | null): Set<string> {
     if (!file.success) return new Set()
     return new Set(
       file.data.sources.flatMap((raw) => {
-        const parsed = parseSourceEntry(raw)
+        const parsed = parseLegacySourceEntry(raw)
         return parsed.ok
           ? [`${parsed.entry.provider}:${parsed.entry.connectionId}`]
           : []

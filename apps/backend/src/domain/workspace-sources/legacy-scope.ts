@@ -59,6 +59,8 @@ export function splitLegacyScope(schema: z.ZodType, scope: Scope): Scope[] {
       ...rest.map((part) => ({ ...scalars, [key]: part })),
     ]
   }
+  // A shape that cannot be split ends here.
+  if (scopes.length === 1) return scopes
   // The first scope can still have another long list.
   return scopes.flatMap((part) => splitLegacyScope(schema, part))
 }

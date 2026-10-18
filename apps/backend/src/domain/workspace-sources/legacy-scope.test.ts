@@ -1,10 +1,21 @@
 import { describe, expect, it } from "vitest"
+import { z } from "zod"
 import { parseLegacyScope, splitLegacyScope } from "./legacy-scope.js"
 import { confluenceSourceScopeSchema } from "./providers/confluence.js"
 import { linearScopeSchema } from "./providers/linear.js"
 
 const ids = <T>(count: number, make: (i: number) => T) =>
   Array.from({ length: count }, (_, i) => make(i))
+
+describe("splitLegacyScope: a shape that cannot be split", () => {
+  it("returns a nested unnamed list above its cap as it is and does not recurse", () => {
+    const schema = z.object({
+      groups: z.array(z.array(z.string()).max(2)).max(5),
+    })
+    const scope = { groups: [["a", "b", "c"]] }
+    expect(splitLegacyScope(schema, scope)).toEqual([scope])
+  })
+})
 
 describe("splitLegacyScope", () => {
   it("gives a scope in the caps back as it is", () => {
