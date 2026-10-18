@@ -1,13 +1,27 @@
-import { describe, expect, it } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { gitSourcePath } from "../source-file.js"
 import { parseSourceFile } from "../source-file-text.js"
 import {
   checkPlainGitUrl,
   gitSourceScopeUrl,
+  plainGitDeployment,
   plainGitUrlPolicy,
   sourceRepositoryName,
   sourceRepositoryUrls,
 } from "./git.js"
+
+// Each test starts with no SANDBOX_PROVIDER: the strict rule.
+beforeEach(() => {
+  vi.stubEnv("SANDBOX_PROVIDER", undefined)
+})
+afterEach(() => {
+  vi.unstubAllEnvs()
+})
+
+const HTTPS_ONLY =
+  "Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported."
+const HTTP_OR_HTTPS =
+  "Plain git sources must use an http:// or https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported."
 
 describe("checkPlainGitUrl", () => {
   it("accepts a public HTTPS git URL and gives its checked form", () => {
@@ -69,19 +83,137 @@ describe("checkPlainGitUrl", () => {
     const checked = checkPlainGitUrl(url)
     expect(checked.ok).toBe(false)
     if (checked.ok) return
-    expect(checked.reason).toContain(
-      "Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
-    )
+    expect(checked.reason).toContain(HTTPS_ONLY)
+  })
+})
+
+describe("the plain git URL policy of each deployment mode", () => {
+  it("is self-host only when SANDBOX_PROVIDER is docker, with the spaces trimmed as the sandbox provider does", () => {
+    for (const value of ["docker", " docker", "docker\n"])
+      expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
+        "self-host",
+      )
+    for (const value of [undefined, "", " ", "vercel", "unsandboxed", "Docker"])
+      expect(plainGitDeployment({ SANDBOX_PROVIDER: value }), value).toBe(
+        "hosted",
+      )
+    expect(plainGitUrlPolicy("hosted")).toEqual({
+      http: false,
+      otherPorts: false,
+      privateHosts: false,
+    })
+    expect(plainGitUrlPolicy("self-host")).toEqual({
+      http: true,
+      otherPorts: true,
+      privateHosts: true,
+    })
   })
 
-  it("has the same strict policy in each deployment mode until a product decision changes it", () => {
-    for (const mode of ["hosted", "self-host"] as const)
-      expect(plainGitUrlPolicy(mode), mode).toEqual({
-        http: false,
-        otherPorts: false,
-        privateHosts: false,
+  describe("docker (self-host)", () => {
+    beforeEach(() => {
+      vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    })
+
+    it("accepts a private host, an IP host, http, and another port", () => {
+      expect(checkPlainGitUrl("https://gitea/team/app.git")).toEqual({
+        ok: true,
+        url: "https://gitea/team/app.git",
+        host: "gitea",
+        port: 443,
+        path: "/team/app.git",
       })
+      expect(
+        checkPlainGitUrl("https://git.corp.internal/team/app.git"),
+      ).toEqual(
+        expect.objectContaining({ ok: true, host: "git.corp.internal" }),
+      )
+      expect(checkPlainGitUrl("http://git.internal/team/app.git")).toEqual({
+        ok: true,
+        url: "http://git.internal/team/app.git",
+        host: "git.internal",
+        port: 80,
+        path: "/team/app.git",
+      })
+      expect(checkPlainGitUrl("http://10.0.0.5:3000/team/app.git")).toEqual({
+        ok: true,
+        url: "http://10.0.0.5:3000/team/app.git",
+        host: "10.0.0.5",
+        port: 3000,
+        path: "/team/app.git",
+      })
+      expect(checkPlainGitUrl("https://[fd00::1]:8443/team/app.git")).toEqual(
+        expect.objectContaining({ ok: true, host: "[fd00::1]", port: 8443 }),
+      )
+    })
+
+    it.each([
+      "ssh://git@git.internal/team/app.git",
+      "git@git.internal:team/app.git",
+      "git://git.internal/team/app.git",
+      "file:///srv/team/app.git",
+    ])("refuses %s with the http and https message", (url) => {
+      const checked = checkPlainGitUrl(url)
+      expect(checked).toEqual(expect.objectContaining({ ok: false }))
+      if (checked.ok) return
+      expect(checked.reason).toContain(HTTP_OR_HTTPS)
+    })
+
+    it("still refuses a user name, a query, and a bad path", () => {
+      for (const [rule, url] of [
+        ["userinfo", "http://token@git.internal/team/app.git"],
+        ["query", "http://git.internal/team/app.git?ref=main"],
+        ["path", "http://git.internal/team/%2e%2e/app.git"],
+        ["private_host", "http://git_server/team/app.git"],
+      ] as const)
+        expect(checkPlainGitUrl(url), url).toEqual(
+          expect.objectContaining({ ok: false, rule }),
+        )
+    })
+
+    it("lets a source file use an http URL on an internal host", () => {
+      expect(
+        parseSourceFile(
+          "sources/git/git.internal/team-app.md",
+          "---\nprovider: git\nurl: http://git.internal:3000/team/app.git\n---\n",
+        ),
+      ).toMatchObject({
+        ok: true,
+        source: { scope: { url: "http://git.internal:3000/team/app.git" } },
+      })
+      expect(
+        gitSourceScopeUrl({ url: "http://Git.Internal:3000/team/app.git" }),
+      ).toBe("http://git.internal:3000/team/app.git")
+      expect(gitSourcePath("http://git.internal:3000/team/app.git")).toBe(
+        "sources/git/git.internal/team-app.md",
+      )
+    })
   })
+
+  for (const [mode, value] of [
+    ["vercel (hosted)", "vercel"],
+    ["no SANDBOX_PROVIDER", undefined],
+  ] as const)
+    describe(mode, () => {
+      beforeEach(() => {
+        vi.stubEnv("SANDBOX_PROVIDER", value)
+      })
+
+      it("refuses a private host, an IP host, http, and another port", () => {
+        for (const [rule, url] of [
+          ["private_host", "https://gitea/team/app.git"],
+          ["private_host", "https://git.corp.internal/team/app.git"],
+          ["ip_address", "https://10.0.0.5/team/app.git"],
+          ["not_https", "http://git.example.org/team/app.git"],
+          ["port", "https://git.example.org:8443/team/app.git"],
+        ] as const)
+          expect(checkPlainGitUrl(url), url).toEqual(
+            expect.objectContaining({ ok: false, rule }),
+          )
+        const ssh = checkPlainGitUrl("ssh://git@git.example.org/team/app.git")
+        expect(ssh.ok).toBe(false)
+        if (!ssh.ok) expect(ssh.reason).toBe(HTTPS_ONLY)
+      })
+    })
 })
 
 describe("a plain git source file", () => {

@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto"
+import { syncBuiltinESMExports } from "node:module"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -10,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+
 import { parseEnv } from "../../config/env.js"
 import {
   syncConnectionSources,
@@ -49,6 +51,10 @@ const notion = {
   /** Notion refuses the access token (a revoked install). */
   unauthorized: false,
   reads: [] as string[],
+  /** The id of the row that the database query returns. */
+  rowId: ROW,
+  /** The id of an image block on the Handbook page, or null for no image. */
+  mediaBlockId: null as string | null,
 }
 
 const page = (pageId: string) => ({
@@ -78,7 +84,15 @@ const failure = (key: string) => {
 }
 
 const api = "https://api.notion.com/v1"
+// A public IP address: the asset download resolves it with no DNS server.
+const assetUrl = "https://[2600::1]/diagram.png"
 const server = setupServer(
+  // A RegExp: the path pattern of msw cannot hold an IPv6 host.
+  http.get(/^https:\/\/\[2600::1\]\/diagram\.png$/, () =>
+    HttpResponse.arrayBuffer(new Uint8Array([137, 80, 78, 71]).buffer, {
+      headers: { "content-type": "image/png" },
+    }),
+  ),
   http.get(`${api}/pages/:pageId`, ({ params }) => {
     const pageId = String(params.pageId)
     notion.reads.push(`page:${pageId}`)
@@ -104,6 +118,21 @@ const server = setupServer(
             ],
           },
         },
+        ...(blockId === HANDBOOK && notion.mediaBlockId
+          ? [
+              {
+                object: "block",
+                id: notion.mediaBlockId,
+                type: "image",
+                has_children: false,
+                image: {
+                  type: "external",
+                  external: { url: assetUrl },
+                  caption: [],
+                },
+              },
+            ]
+          : []),
         ...(notion.children.get(blockId) ?? []).map((child) => ({
           object: "block",
           id: child,
@@ -124,7 +153,7 @@ const server = setupServer(
     notion.reads.push(`database:${dataSourceId}`)
     return (
       failure(dataSourceId) ??
-      HttpResponse.json({ results: [page(ROW)], has_more: false })
+      HttpResponse.json({ results: [page(notion.rowId)], has_more: false })
     )
   }),
 )
@@ -202,6 +231,8 @@ const blobSha = (content: string) =>
 describe("Notion source adapter (Postgres + msw)", () => {
   beforeAll(async () => {
     server.listen({ onUnhandledRequest: "error" })
+    // The asset download imports https.request by name: give it the msw copy.
+    syncBuiltinESMExports()
     seed = await seedSourcesOrg("wsrc_notion")
     env = parseEnv(process.env)
   })
@@ -210,10 +241,13 @@ describe("Notion source adapter (Postgres + msw)", () => {
     notion.unauthorized = false
     notion.reads.length = 0
     notion.failing.clear()
+    notion.rowId = ROW
+    notion.mediaBlockId = null
     notion.titles.set(HANDBOOK, "Handbook")
   })
   afterAll(async () => {
     server.close()
+    syncBuiltinESMExports()
     await seed.cleanup()
   })
 
@@ -387,6 +421,50 @@ describe("Notion source adapter (Postgres + msw)", () => {
       (await loadNotionStoredConfig(seed.orgId, connection))?.sourceSync
         ?.failures,
     ).toEqual({})
+  })
+
+  it("keeps a hostile database row id from Notion under the database folder", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const docs = await addSource(connection, "notion-hostile-row", {
+      databases: [{ id: TASKS, title: "Tasks" }],
+    })
+    const hostile = "../../../../.ctxpipe/workspace"
+    notion.rowId = hostile
+    notion.titles.set(hostile, "../Evil/../Row")
+
+    const writes = await sync(connection)
+
+    const written = paths(writes.get(docs))
+    const row = `notion/databases/tasks--${TASKS}/rows/evil-row---.-..-..-..-.ctxpipe-workspace/index.md`
+    expect(written).toContain(row)
+    for (const path of written) {
+      expect(path.startsWith(`notion/databases/tasks--${TASKS}/`)).toBe(true)
+      expect(
+        path.split("/").some((part) => ["", ".", ".."].includes(part)),
+      ).toBe(false)
+    }
+  })
+
+  it("keeps the asset of a hostile media block id under its own page", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const docs = await addSource(connection, "notion-hostile-media", {
+      pages: [{ id: HANDBOOK, title: "Handbook" }],
+    })
+    // Another Workspace of the same connection selects the database.
+    const tasks = await addSource(connection, "notion-hostile-media-tasks", {
+      databases: [{ id: TASKS, title: "Tasks" }],
+    })
+    notion.mediaBlockId = `../../../databases/tasks--${TASKS}/rows/evil`
+
+    const writes = await sync(connection)
+
+    // The Handbook page cannot write into the database folder of the other Workspace.
+    expect(paths(writes.get(tasks))).not.toContain(
+      `notion/databases/tasks--${TASKS}/rows/evil--diagram.png`,
+    )
+    expect(paths(writes.get(docs))).toContain(
+      `notion/pages/handbook--${HANDBOOK}/assets/-.-..-..-databases-tasks--${TASKS}-rows-evil--diagram.png`,
+    )
   })
 
   it("marks the connection revoked when Notion refuses its token", async () => {

@@ -219,4 +219,30 @@ describe("ingestCredentialRules", () => {
       ),
     ).toBe(false)
   })
+
+  it("matches the port of a self-host plain git source: 80 for http, or its own port", () => {
+    const rulesOf = (port: number) =>
+      ingestCredentialRules(
+        {
+          repositories: [
+            { kind: "git", host: "git.internal", path: "/team/app.git", port },
+          ],
+          modelProxyUrl: `https://${backendHost}/acme/api/v1/workspace-chat/openai/v1`,
+          capability: "ingest-capability",
+          bridge: { url: `https://${backendHost}/bridge`, token: "t" },
+        },
+        [],
+        { fetchSource: true },
+      )
+        .filter((rule) => rule.host.startsWith("git.internal"))
+        .map(({ host, path, authorization }) => [host, path, authorization])
+    expect(rulesOf(80)).toEqual([
+      ["git.internal:80", "/team/app.git/info/refs", null],
+      ["git.internal:80", "/team/app.git/git-upload-pack", null],
+    ])
+    expect(rulesOf(3000).map(([host]) => host)).toEqual([
+      "git.internal:3000",
+      "git.internal:3000",
+    ])
+  })
 })

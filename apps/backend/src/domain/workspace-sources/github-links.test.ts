@@ -6,6 +6,7 @@ import {
   unlinkGithubRepository,
   unlinkGithubSourceFile,
 } from "./github-links.js"
+import { parseSourceEntry } from "./sources-file.js"
 import { parseSourcesYaml } from "./sources-yaml.js"
 
 const file = (sources: unknown[]) =>
@@ -102,6 +103,107 @@ describe("linkGithubRepositories", () => {
         },
       ],
     })
+  })
+
+  it("links the 101st repository in a new linked-repositories-2 entry when the entry is full", () => {
+    const names = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const full = linkGithubRepositories({
+      sourcesFile: null,
+      connectionId: "con_gh1",
+      repositories: names
+        .slice(0, 100)
+        .map((name) => ({ name, ref: null as string | null })),
+    })
+    const text = linkGithubRepositories({
+      sourcesFile: full,
+      connectionId: "con_gh1",
+      repositories: [{ name: names[100] ?? "", ref: null }],
+    })
+    const parsed = parseSourcesYaml(text ?? "") as {
+      sources: Array<{ id: string; repositories: string[] }>
+    }
+    expect(parsed.sources.map((entry) => entry.id)).toEqual([
+      "linked-repositories",
+      "linked-repositories-2",
+    ])
+    expect(parsed.sources[0]?.repositories).toHaveLength(100)
+    expect(parsed.sources[1]?.repositories).toEqual([names[100]])
+    expect(parsed.sources.every((raw) => parseSourceEntry(raw).ok)).toBe(true)
+  })
+
+  it("splits more repositories than the cap into entries of at most the cap", () => {
+    const text = linkGithubRepositories({
+      sourcesFile: null,
+      connectionId: "con_gh1",
+      repositories: Array.from({ length: 201 }, (_, i) => ({
+        name: `acme/repo-${i}`,
+        ref: null,
+      })),
+    })
+    const parsed = parseSourcesYaml(text ?? "") as {
+      sources: Array<{ id: string; repositories: string[] }>
+    }
+    expect(
+      parsed.sources.map((entry) => [entry.id, entry.repositories.length]),
+    ).toEqual([
+      ["linked-repositories", 100],
+      ["linked-repositories-2", 100],
+      ["linked-repositories-3", 1],
+    ])
+  })
+
+  it("counts the repositories of a stored entry above the cap as linked", () => {
+    const stored = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const sourcesFile = file([
+      {
+        id: "linked-repositories",
+        provider: "github",
+        connection: "con_gh1",
+        repositories: stored,
+      },
+    ])
+    expect(
+      linkGithubRepositories({
+        sourcesFile,
+        connectionId: "con_gh1",
+        repositories: [{ name: "acme/repo-100", ref: null }],
+      }),
+    ).toBeNull()
+    expect(
+      unlinkGithubRepository({ sourcesFile, name: "acme/repo-0" }),
+    ).not.toBeNull()
+  })
+
+  it("moves the overflow of a stored entry above the cap into a new entry when a branch edit changes it", () => {
+    const stored = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const text = linkGithubRepositories({
+      sourcesFile: file([
+        {
+          id: "linked-repositories",
+          provider: "github",
+          connection: "con_gh1",
+          repositories: stored,
+        },
+      ]),
+      connectionId: "con_gh1",
+      repositories: [{ name: "acme/repo-3", ref: "release" }],
+    })
+    const sources = (
+      parseSourcesYaml(text ?? "") as {
+        sources: Array<{ id: string; repositories: unknown[] }>
+      }
+    ).sources
+    expect(
+      sources.map((entry) => [entry.id, entry.repositories.length]),
+    ).toEqual([
+      ["linked-repositories", 100],
+      ["linked-repositories-2", 1],
+    ])
+    expect(sources[0]?.repositories[3]).toEqual({
+      name: "acme/repo-3",
+      ref: "release",
+    })
+    expect(sources[1]?.repositories).toEqual(["acme/repo-100"])
   })
 
   it("refuses a file that is not version 1", () => {

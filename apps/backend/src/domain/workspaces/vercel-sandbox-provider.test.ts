@@ -1,7 +1,16 @@
 import { type NetworkPolicy, Sandbox } from "@vercel/sandbox"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
+import {
+  afterAll,
+  afterEach,
+  beforeAll,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  vi,
+} from "vitest"
 import { openIngestEgressScope } from "./ingest-egress-proxy.js"
 import { ingestNetworkPolicy } from "./ingest-sandbox-egress.js"
 import {
@@ -533,6 +542,175 @@ describe("conversationFirewall", () => {
     await expect(firewall.openTurn("sbx-unknown", turn)).rejects.toThrow(
       /not attached/,
     )
+  })
+})
+
+describe("vercelConversationProvider CA bundle after a start", () => {
+  // The sandbox rewrites its CA bundle a little after a start from a snapshot
+  // (create) or from saved state (resume of a stopped sandbox). The old file,
+  // from before the start, passes a check of the bundle's content.
+  const session = {
+    id: "ses_ca",
+    memory: 2048,
+    vcpus: 1,
+    region: "iad1",
+    runtime: "node24",
+    timeout: 60_000,
+    status: "running",
+    requestedAt: 1,
+    createdAt: 1,
+    cwd: "/vercel/sandbox",
+    updatedAt: 1,
+  }
+  const sandbox = {
+    name: "sbx-ca",
+    persistent: true,
+    createdAt: 1,
+    updatedAt: 1,
+    currentSessionId: "ses_ca",
+    status: "running",
+  }
+  /**
+   * A fake Vercel API with a sandbox whose CA bundle link was changed long
+   * ago and is rewritten after the third check. The fake reads the threshold
+   * of the "link newer than" check from the command text (`-ge <seconds>`),
+   * so it follows the provider's check, whatever the shell text around it.
+   */
+  const withSandboxApi = (resumed: boolean, stopping = false) => {
+    const vm = { checks: 0, rewritten: false }
+    // A stopping session: the first command gets "gone", and the SDK then
+    // resumes the sandbox (a lazy start, after `Sandbox.get` returned).
+    let lazyStartPending = stopping
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json({ sandbox, session, routes: [] }),
+      ),
+      http.get("https://vercel.com/api/v2/sandboxes/:name", ({ request }) => {
+        const resuming = new URL(request.url).searchParams.get("resume")
+        const starts = stopping && resuming === "true"
+        return HttpResponse.json({
+          sandbox,
+          session:
+            stopping && !starts ? { ...session, status: "stopping" } : session,
+          routes: [],
+          resumed: stopping ? starts : resumed,
+        })
+      }),
+      http.patch("https://vercel.com/api/v2/sandboxes/:name", () =>
+        HttpResponse.json({ sandbox }),
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/network-policy",
+        () => HttpResponse.json({ session }),
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+        async ({ request }) => {
+          if (lazyStartPending) {
+            lazyStartPending = false
+            return HttpResponse.json(
+              { error: { code: "sandbox_stopped", message: "stopped" } },
+              { status: 410 },
+            )
+          }
+          const command = await request.text()
+          vm.checks += 1
+          if (vm.checks > 2) vm.rewritten = true
+          const linkChangedAt = vm.rewritten ? Math.floor(Date.now() / 1000) : 1
+          const newerThan = /-ge (\d+)/.exec(command)?.[1]
+          const passes = newerThan === undefined || linkChangedAt >= +newerThan
+          const line = (exitCode: number | null) =>
+            `${JSON.stringify({
+              command: {
+                id: "cmd_ca",
+                name: "sh",
+                args: [],
+                cwd: "/vercel/sandbox",
+                sessionId: "ses_ca",
+                startedAt: 1,
+                exitCode,
+              },
+            })}\n`
+          return new HttpResponse(line(null) + line(passes ? 0 : 1), {
+            headers: { "content-type": "application/x-ndjson" },
+          })
+        },
+      ),
+    )
+    return vm
+  }
+  const provider = () =>
+    vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        firewall: conversationFirewall("app.example.test"),
+        mintGitToken: async () => "git-1",
+        revokeGitToken: async () => undefined,
+        tokens: {
+          get: async () => ({ token: "git-1", mintedAt: new Date() }),
+          put: async () => undefined,
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+  /** Run a call whose waits use timers; the fake clock moves them on. */
+  const settle = async <T>(call: Promise<T>) => {
+    let done = false
+    call.then(
+      () => {
+        done = true
+      },
+      () => {
+        done = true
+      },
+    )
+    while (!done) await vi.advanceTimersByTimeAsync(250)
+    return call
+  }
+
+  beforeEach(() => {
+    vi.useFakeTimers({ toFake: ["setTimeout", "clearTimeout", "Date"] })
+  })
+  afterEach(() => {
+    vi.useRealTimers()
+  })
+
+  it("returns from create only after the sandbox has rewritten the bundle it inherited from its snapshot", async () => {
+    const vm = withSandboxApi(false)
+    await settle(
+      provider().create({
+        workspace: { source: { type: "none" } },
+      } as Parameters<ReturnType<typeof provider>["create"]>[0]),
+    )
+    // A git command now reads the finished file.
+    expect(vm.rewritten).toBe(true)
+  })
+
+  it("returns from resume of a stopped sandbox only after it has rewritten the bundle", async () => {
+    const vm = withSandboxApi(true)
+    const handle = await settle(provider().resume({ id: "sbx-ca" }))
+    expect(handle).not.toBeNull()
+    expect(vm.rewritten).toBe(true)
+  })
+
+  it("waits for the rewrite when resume finds a stopping sandbox that the first command then starts", async () => {
+    // `Sandbox.get` reports resumed=false; the lazy start fires `onResume`
+    // only after the provider read its start time.
+    const vm = withSandboxApi(false, true)
+    const handle = await settle(provider().resume({ id: "sbx-ca" }))
+    expect(handle).not.toBeNull()
+    expect(vm.rewritten).toBe(true)
+  })
+
+  it("does not wait for a rewrite when resume finds the sandbox running", async () => {
+    // A running sandbox started earlier; its bundle is old and stays so.
+    const vm = withSandboxApi(false)
+    await settle(provider().resume({ id: "sbx-ca" }))
+    expect(vm.rewritten).toBe(false)
   })
 })
 

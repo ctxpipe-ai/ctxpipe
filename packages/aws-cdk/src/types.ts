@@ -142,6 +142,15 @@ export interface CtxPipeSandboxHostProps {
    * stopped sandboxes (kept up to 30 days). Defaults by `size`: 30, 50, 100.
    */
   readonly dockerVolumeSizeGiB?: number;
+  /**
+   * More private addresses or CIDRs that Agent Vault on the host may dial,
+   * added after the private subnets of the backend. Add the address of a
+   * private git server here, so that ingestion can fetch a plain git source
+   * from it. The host must also have a route to that network (for example
+   * VPC peering or a transit gateway). Defaults to none. An IPv4 or IPv6
+   * address or CIDR only. A cloud metadata or link-local address is refused.
+   */
+  readonly agentVaultNetworkAllowlist?: readonly string[];
 }
 
 export interface CtxPipeProps {

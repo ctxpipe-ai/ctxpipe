@@ -20,6 +20,7 @@ import { repositoryIndex } from "../openworkflow/workflows/repository-index.js"
 import { workspaceIndex } from "../openworkflow/workflows/workspace-index.js"
 import { workspaceTipCheck } from "../openworkflow/workflows/workspace-tip-check.js"
 import { codeSearch } from "../retrieval/services/codeSearch.js"
+import { startGitHttpServer } from "./git-http-server.js"
 
 async function availablePort() {
   const server = createServer()
@@ -60,6 +61,8 @@ export async function createNativeIndexFixture(
   const workspaceId = generateObjectId("ws")
   const repositoryId = generateObjectId("repo")
   const savedUrl = process.env.CODESEARCH_URL
+  const savedSandboxProvider = process.env.SANDBOX_PROVIDER
+  let gitServer: Awaited<ReturnType<typeof startGitHttpServer>> | undefined
   let codesearch: ChildProcess | undefined
   let zoekt: ChildProcess | undefined
   let backend: BackendPostgres | undefined
@@ -72,6 +75,7 @@ export async function createNativeIndexFixture(
       await backend?.stop()
       await stop(codesearch)
       await stop(zoekt)
+      await gitServer?.stop()
       try {
         await getSystemDb().execute(
           sql`delete from openworkflow.workflow_runs where namespace_id = ${namespace} or input->>'orgId' = ${org.id}`,
@@ -91,6 +95,9 @@ export async function createNativeIndexFixture(
         await rm(directory, { recursive: true, force: true })
         if (savedUrl === undefined) delete process.env.CODESEARCH_URL
         else process.env.CODESEARCH_URL = savedUrl
+        if (savedSandboxProvider === undefined)
+          delete process.env.SANDBOX_PROVIDER
+        else process.env.SANDBOX_PROVIDER = savedSandboxProvider
       }
     })()
     return cleanupPromise
@@ -126,10 +133,16 @@ export async function createNativeIndexFixture(
       "Published search",
     )
     const sha = git("rev-parse", "HEAD")
+    // The repository has no GitHub connection, so codesearch reads it as a
+    // plain git remote (CTX-815): over Git smart HTTP, never as a local
+    // path. Self-host mode allows the loopback address and plain http.
+    gitServer = await startGitHttpServer(directory)
+    process.env.SANDBOX_PROVIDER = "docker"
+    const remoteUrl = `http://127.0.0.1:${gitServer.port}/remote`
     const revision: WorkspaceRevision = {
       workspaceId,
       generation: 1,
-      remote: { url: remote, connectionId: null },
+      remote: { url: remoteUrl, connectionId: null },
       defaultBranch: "trunk",
       sha,
       access: "read",
@@ -143,12 +156,12 @@ export async function createNativeIndexFixture(
         orgId: org.id,
         slug: "knowledge",
         displayName: org.name,
-        workspaceRepositoryUrl: remote,
+        workspaceRepositoryUrl: remoteUrl,
         desiredGeneration: 1,
         desiredSha: sha,
         desiredDefaultBranch: "trunk",
         activeRevision: revision,
-        activeProjectionUrl: remote,
+        activeProjectionUrl: remoteUrl,
         activeProjectionSha: sha,
         hydrateStatus: "ready",
       })
@@ -156,7 +169,7 @@ export async function createNativeIndexFixture(
         id: repositoryId,
         orgId: org.id,
         name: "Native index",
-        gitUrl: remote,
+        gitUrl: remoteUrl,
       })
     })
     const cold = join(directory, "zoekt-index")
@@ -249,7 +262,10 @@ export async function createNativeIndexFixture(
       org,
       workspaceId,
       repositoryId,
+      /** The work tree of the remote. */
       remote,
+      /** The Git smart HTTP URL of the remote. */
+      remoteUrl,
       git,
       sha,
       revision,

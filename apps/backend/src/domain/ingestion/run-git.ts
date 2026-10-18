@@ -8,7 +8,9 @@ export class GitOutputTooLargeError extends Error {}
  * and fails the call, so that a large repository cannot fill the memory.
  * `maxFileBytes` caps the size of each file that git writes (a download into
  * the object store); git then dies of signal 25 (SIGXFSZ). A shell that counts
- * `ulimit -f` in 1024-byte blocks allows up to twice that size.
+ * `ulimit -f` in 1024-byte blocks allows up to twice that size. `env` adds to
+ * the environment of the process; `cleanEnv` is the whole environment (a
+ * plain git read, CTX-815). After `timeoutMs`, the call kills git and fails.
  */
 export function runGit(
   cwd: string,
@@ -16,16 +18,21 @@ export function runGit(
   options: {
     input?: Buffer | string
     env?: NodeJS.ProcessEnv
+    cleanEnv?: NodeJS.ProcessEnv
     maxOutputBytes?: number
     maxFileBytes?: number
+    timeoutMs?: number
   } = {},
 ): Promise<Buffer> {
   const limit = options.maxOutputBytes ?? 256 * 1024 * 1024
   return new Promise((resolve, reject) => {
     const spawnOptions = {
       cwd,
-      env: { ...process.env, ...options.env },
+      env: options.cleanEnv ?? { ...process.env, ...options.env },
       stdio: ["pipe", "pipe", "pipe"] as ["pipe", "pipe", "pipe"],
+      // With a time limit, git and its helpers (`git-remote-http`,
+      // `index-pack`) get their own process group, so the kill stops each.
+      detached: options.timeoutMs !== undefined,
     }
     // POSIX `ulimit -f` counts 512-byte blocks; `exec` leaves one process.
     const child =
@@ -45,6 +52,18 @@ export function runGit(
     const err: Buffer[] = []
     let size = 0
     let tooLarge = false
+    let timedOut = false
+    const timer =
+      options.timeoutMs === undefined
+        ? undefined
+        : setTimeout(() => {
+            timedOut = true
+            try {
+              if (child.pid !== undefined) process.kill(-child.pid, "SIGKILL")
+            } catch {
+              child.kill("SIGKILL")
+            }
+          }, options.timeoutMs)
     child.stdout.on("data", (chunk: Buffer) => {
       if (tooLarge) return
       size += chunk.length
@@ -62,10 +81,20 @@ export function runGit(
     child.stderr.on("data", (chunk: Buffer) => {
       if (err.length < 64) err.push(chunk)
     })
-    child.on("error", reject)
+    child.on("error", (error) => {
+      clearTimeout(timer)
+      reject(error)
+    })
     child.on("close", (code) => {
+      clearTimeout(timer)
       if (tooLarge) return
-      if (code === 0) resolve(Buffer.concat(out))
+      if (timedOut)
+        reject(
+          new Error(
+            `git ${args[0]} did not finish in ${options.timeoutMs} ms, so it was stopped`,
+          ),
+        )
+      else if (code === 0) resolve(Buffer.concat(out))
       else
         reject(
           new Error(

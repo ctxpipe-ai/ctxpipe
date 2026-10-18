@@ -464,7 +464,7 @@ it(
             "Linked https://git.example.org/team-d/plain as a plain git source in `sources/git/git.example.org/team-d-plain.md`.",
           )
           expect(body).toContain(
-            "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. ctx| keeps its knowledge and exports it.",
+            "Not linked: https://gitlab.com:8443/team-c/tools. ctx| does not read it as a plain git source: A plain git URL must use the default HTTPS port. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported. ctx| keeps its knowledge and exports it.",
           )
 
           // A second plan of each step, on the commit that it made, changes

@@ -80,6 +80,16 @@ export function linearScopeFromSelection(input: {
   selection: readonly string[]
   includeCustomerRequests: boolean
 }): Record<string, unknown> | null {
+  const scope = linearSelectionScope(input)
+  return linearScopeSchema.safeParse(scope).success ? scope : null
+}
+
+/** The scope for a selection, before the schema checks it. */
+export function linearSelectionScope(input: {
+  base: Record<string, unknown>
+  selection: readonly string[]
+  includeCustomerRequests: boolean
+}): Record<string, unknown> {
   const {
     teams: _teams,
     projects: _projects,
@@ -92,7 +102,7 @@ export function linearScopeFromSelection(input: {
   const projects = input.selection.flatMap((value) =>
     value.startsWith("project:") ? [value.slice("project:".length)] : [],
   )
-  const scope = {
+  return {
     ...rest,
     ...(teams.length ? { teams } : {}),
     ...(projects.length ? { projects } : {}),
@@ -100,5 +110,4 @@ export function linearScopeFromSelection(input: {
       ? {}
       : { customerRequests: "exclude" as const }),
   }
-  return linearScopeSchema.safeParse(scope).success ? scope : null
 }

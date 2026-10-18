@@ -3,6 +3,7 @@ import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { enqueueWorkspaceWriteCommit } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import {
   packRootTree,
   readGitPackFromRemote,
@@ -11,6 +12,7 @@ import {
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import { listExistingBlobs } from "./existing-blobs.js"
+import { refusedSliceFile, refuseMirrorPath } from "./mirror-path.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
 import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
@@ -26,6 +28,27 @@ export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
   env: Env,
 ): Promise<{ queued: boolean }> {
+  // Each changed path must be safe and under a path that this write owns:
+  // another source of the Workspace owns the other paths of the provider.
+  // A delete names an existing path, so it needs only a valid repository
+  // path and the owned prefix: a `.gitkeep` or an older non-NFC name must
+  // be deletable. A write also needs a safe mirror path.
+  const owns = (path: string) =>
+    write.ownedPrefixes.some((prefix) => path.startsWith(prefix))
+  for (const path of write.files.map((file) => file.path)) {
+    const unsafe = refusedSliceFile(path, write.ownedPrefixes)
+    if (unsafe)
+      refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
+  }
+  for (const path of write.deletePaths ?? []) {
+    const unsafe = !repositoryFilePathSchema.safeParse(path).success
+      ? "is not a repository file path"
+      : owns(path)
+        ? null
+        : "is not under a path that the write owns"
+    if (unsafe)
+      refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
+  }
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: write.orgId } },
   })
@@ -67,7 +90,11 @@ export async function writeWorkspaceSlice(
             ? { removedTargets: write.removed }
             : { sourcesBlobSha: captured.sourcesBlobSha }),
         },
-        mergeFiles: change.files,
+        // A regular file, also where the head has a symlink at the path.
+        mergeFiles: change.files.map((file) => ({
+          ...file,
+          mode: "100644" as const,
+        })),
         mergeDeletePaths: change.deletePaths,
       },
       // The sources sync workflow has no request logger.
