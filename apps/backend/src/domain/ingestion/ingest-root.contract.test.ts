@@ -61,6 +61,55 @@ describe("dockerRootExec with a step limit", () => {
   )
 
   it(
+    "an abort stops an agent process that left the step's process group before the exec rejects",
+    { timeout: 180_000 },
+    async () => {
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-abort-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        await runAsRoot(
+          root,
+          `useradd --system --user-group --no-create-home --shell /bin/sh ${INGEST_AGENT_USER} && mkdir -m 777 /tmp/abort-probe`,
+        )
+        const count = async () =>
+          Number(
+            (
+              await root(
+                `ps -u ${INGEST_AGENT_USER} -o args= | grep -c '^sleep 86[4]02' || true`,
+              )
+            ).stdout.trim(),
+          )
+        const controller = new AbortController()
+        // The step starts a child in a new session (out of the step's
+        // process group), then the child writes the ready file.
+        const running = root(
+          `runuser -u ${INGEST_AGENT_USER} -- sh -c 'setsid sh -c "touch /tmp/abort-probe/ready; exec sleep 86402" </dev/null >/dev/null 2>&1 & wait'`,
+          { signal: controller.signal },
+        )
+        const outcome = running.then(
+          () => "finished",
+          (error: Error) => error.message,
+        )
+        // Wait for the readiness signal: the ready file and the process.
+        while (
+          (await root("test -f /tmp/abort-probe/ready")).exitCode !== 0 ||
+          (await count()) < 1
+        ) {}
+        controller.abort(new Error("step aborted"))
+        expect(await outcome).toBe("step aborted")
+        expect(await count()).toBe(0)
+        const left = await root(`pgrep -u ${INGEST_AGENT_USER} || true`)
+        expect(left.stdout.trim()).toBe("")
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
     "stops a detached agent process of the last step before the next step starts",
     { timeout: 180_000 },
     async () => {
@@ -96,6 +145,45 @@ describe("dockerRootExec with a step limit", () => {
         expect(await count()).toBe(0)
         const left = await root(`pgrep -u ${INGEST_AGENT_USER} || true`)
         expect(left.stdout.trim()).toBe("")
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
+    "does not count a zombie of the agent user whose parent never reaps it",
+    { timeout: 180_000 },
+    async () => {
+      const provider = dockerSandbox({ image: workspaceChatDockerImage() })
+      const handle = await provider.create({
+        id: `ingest-zombie-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const root = dockerRootExec(handle.id)
+        await runAsRoot(
+          root,
+          `useradd --system --user-group --no-create-home --shell /bin/sh ${INGEST_AGENT_USER}`,
+        )
+        // A root process that never reaps starts a child of the agent user.
+        // The child exits at once and stays a zombie, as an orphan does when
+        // PID 1 does not reap it. The stop cannot kill a zombie.
+        const start = await root(
+          `(sh -c 'setpriv --reuid=${INGEST_AGENT_USER} --regid=${INGEST_AGENT_USER} --clear-groups true & exec sleep 86404' </dev/null >/dev/null 2>&1 &)`,
+        )
+        expect(start.exitCode, start.stderr).toBe(0)
+        const zombies = async () =>
+          Number(
+            (
+              await root(
+                `ps -u ${INGEST_AGENT_USER} -o stat= | grep -c '^Z' || true`,
+              )
+            ).stdout.trim(),
+          )
+        while ((await zombies()) < 1) {}
+        // It fails with "Agent processes are left" if it counts the zombie.
+        await stopIngestAgentProcesses(root)
+        expect(await zombies()).toBe(1)
       } finally {
         await provider.destroy({ id: handle.id })
       }

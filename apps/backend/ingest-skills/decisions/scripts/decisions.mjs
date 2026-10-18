@@ -8,7 +8,7 @@
 // context file. No script writes a file.
 //
 // node decisions.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
-//   --source-url <url> --roots <root-to-file map> [--check]
+//   --source-url <url> --source-path <path> --roots <root-to-file map> [--check]
 //
 // Paging (ADR-052 section 6): a page is the first 20 decision files, in the
 // run order, whose context file this run has not written yet at the step

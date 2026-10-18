@@ -1,8 +1,7 @@
 /**
- * Paid extractor output of one package root, stored by reference (ADR-047).
- * The ingestion workflow and the write job carry only the key; the publish
- * step reads these rows. A new run for the same key reuses them and makes no
- * model calls for the stored roots.
+ * Retired: the extractor output of the old ingestion pipeline. No
+ * code reads or writes this table any more. A minor release only adds
+ * (ADR-053), so the table stays until the next major release drops it.
  */
 import {
   index,
@@ -13,10 +12,6 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
-import type {
-  ExtractedClaim,
-  ExtractedObject,
-} from "../../graphs/codeIngestionGraph/schemas.js"
 import { orgIsolationPolicy } from "./org-rls.js"
 import { repositories } from "./repositories.js"
 
@@ -33,8 +28,8 @@ export const repositoryExtractionCaptures = pgTable.withRLS(
     scope: text("scope").notNull(),
     extractorVersion: integer("extractor_version").notNull(),
     root: text("root").notNull(),
-    objects: jsonb("objects").$type<ExtractedObject[]>().notNull(),
-    claims: jsonb("claims").$type<ExtractedClaim[]>().notNull(),
+    objects: jsonb("objects").$type<unknown[]>().notNull(),
+    claims: jsonb("claims").$type<unknown[]>().notNull(),
     /** Files the extractors skipped after a model error. Only a root with zero is reused. */
     skippedFiles: integer("skipped_files").notNull(),
     createdAt: timestamp("created_at", { withTimezone: true, mode: "date" })

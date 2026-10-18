@@ -19,6 +19,7 @@ defaults:
 
 jobs:
   terraform-plan:
+    timeout-minutes: 30
     name: Terraform Plan (PR)
     runs-on: blacksmith-4vcpu-ubuntu-2404
 

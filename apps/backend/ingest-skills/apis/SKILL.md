@@ -5,7 +5,7 @@ description: Find the HTTP APIs of one code root (OpenAPI files and routes), gro
 
 # apis
 
-The host runs this skill once for each code root, as a root step. Scripts find the operations. You group them into APIs. A script writes the files. The step prompt gives the arguments: `--source`, `--source-url`, `--roots` (the root-to-file map), and `--path` (the root). Give each script the same arguments.
+The host runs this skill once for each code root, as a root step. Scripts find the operations. You group them into APIs. A script writes the files. The step prompt gives the arguments: `--source`, `--source-url`, `--source-path`, `--roots` (the root-to-file map), and `--path` (the root). Give each script the same arguments.
 
 1. Run `node /ctxpipe/skills/apis/scripts/find-apis.mjs <arguments>`. The source checkout is read-only. The script leaves out the files of the nested roots of the map.
 2. The script writes JSON that matches `find.schema.json`. `specs` lists each OpenAPI or Swagger file with its operations. `routes` lists each route registration that an ast-grep rule found (Express style, Hono `createRoute`, FastAPI and Flask, Spring, Go, axum, Laravel) and each file-based route (Next.js, SvelteKit). A route with the method `ANY` names no method. `skipped` says what the script did not read.

@@ -19,6 +19,10 @@ import {
   workspaceSourceList,
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
+import {
+  upgradesFixture,
+  workspaceUpgradesHandler,
+} from "@/mocks/workspace-upgrades-handlers"
 import { orgPageDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
 import { WorkspaceSurface } from "./WorkspaceSurface"
@@ -79,13 +83,13 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByText("Loading workspace")).toBeInTheDocument()
   },
 }
@@ -316,9 +320,11 @@ export const ConversationLoading: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByRole("navigation", { name: "Main navigation" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("navigation", { name: "Main navigation" }),
+      ).toBeVisible(),
+    )
     // The whole-surface skeleton shows while the Workspace loads. It hands
     // over to the conversation's own skeleton, which stays: the conversation
     // never loads in this story.
@@ -331,9 +337,9 @@ export const ConversationLoading: Story = {
     ).not.toBeInTheDocument()
     expect(canvas.queryByLabelText("Workspace files")).toBeNull()
     // The sibling nav stays populated while the conversation loads.
-    expect(
-      await canvas.findByRole("link", { name: "Repo layout" }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Repo layout" })).toBeVisible(),
+    )
   },
 }
 
@@ -389,7 +395,10 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     await canvas.findByPlaceholderText(
       "What should ctxpipe do in this Workspace?",
     )
-    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
+    // The files pane mounts after the composer shows.
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
+    )
     // The conversation list loads after the composer shows.
     await userEvent.click(
       await canvas.findByRole("link", { name: "Repo layout" }),
@@ -397,7 +406,9 @@ export const ConversationKeepsExplicitPaneSearch: Story = {
     await waitFor(() => {
       expect(canvas.getByText("How is billing structured?")).toBeInTheDocument()
     })
-    expect(canvas.getByLabelText("Workspace files")).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByLabelText("Workspace files")).toBeVisible(),
+    )
   },
 }
 
@@ -855,6 +866,7 @@ export const CreatePrMatchesPaneTriggers: Story = {
     )
     expect(createPr.closest("[data-workspace-surface]")).not.toBeNull()
     // The CTA button is smaller than a trigger, and both centers align.
+    await document.fonts.ready
     const cta = createPr.getBoundingClientRect()
     const trigger = files.getBoundingClientRect()
     expect(cta.height).toBeLessThan(trigger.height)
@@ -899,9 +911,16 @@ export const DiffTriggerPaneClosed: Story = {
     expect(diff.className).toBe(files.className)
     expect(diff.querySelector("svg.tabler-icon-file-diff")).not.toBeNull()
     await userEvent.click(diff)
-    const tab = await page.findByRole("tab", { name: "Diff", selected: true })
-    // The tab fades in for 100 ms when the pane mounts.
-    await waitFor(() => expect(tab).toBeVisible())
+    // The click changes the route. The story router loads the pane after an
+    // async load, the same slow step as the 15 s wait above. The tab then
+    // fades in for 100 ms.
+    await waitFor(
+      () =>
+        expect(
+          page.getByRole("tab", { name: "Diff", selected: true }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
   },
 }
 
@@ -954,6 +973,7 @@ export const PaneTabsStayInPlace: Story = {
     const names = ["Files", "Diff", "Graph", "Settings"]
     for (const name of names)
       await page.findByRole("tab", { name }, { timeout: 15_000 })
+    await document.fonts.ready
     const boxes = () =>
       Object.fromEntries(
         names.map((name) => {
@@ -1187,9 +1207,11 @@ export const StableRequestBudget: Story = {
     idleBudget.chat = 0
     idleBudget.diff = 0
     const page = within(canvasElement.ownerDocument.body)
-    expect(
-      await page.findByPlaceholderText(/continue the conversation/i),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        page.getByPlaceholderText(/continue the conversation/i),
+      ).toBeVisible(),
+    )
     await waitFor(
       () => {
         expect(
@@ -1523,6 +1545,7 @@ function deleteFlowHandlers(remaining: (typeof docsWorkspace)[]) {
       },
     ),
     workspaceSourcesHandler(workspaceSourceList()),
+    workspaceUpgradesHandler(upgradesFixture([])),
     orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
     githubInstallationReposHandler(),
     ...workspaceShellHandlers({ workspaces: [docsWorkspace, ...remaining] }),
@@ -1560,7 +1583,7 @@ async function deleteOpenWorkspace(canvasElement: HTMLElement) {
   scan()
   observer.disconnect()
   await expect(seen).toEqual([])
-  await expect(await body.findByText("Workspace deleted")).toBeVisible()
+  await waitFor(() => expect(body.getByText("Workspace deleted")).toBeVisible())
   await expect(within(canvasElement).getByText("Home page")).toBeVisible()
 }
 

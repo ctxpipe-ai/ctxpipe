@@ -64,17 +64,7 @@ it(
         const runner = new OpenWorkflow({ backend })
         let worker: ReturnType<typeof runner.newWorker> | undefined
         const jobId = `wjob_${f.id}_cleanup`
-        await withOrgIdContext(f.org, async () => {
-          const { persistBoundWriteJob, persistMigrationExportNoOp } =
-            await import("../../models/workspace-write-jobs.js")
-          const id = `${jobId}_export`
-          await persistBoundWriteJob({
-            id,
-            kind: "migration_export",
-            revision: { ...f.revision, access: "write-default" },
-          })
-          await persistMigrationExportNoOp(id, f.sha)
-        })
+        await f.cacheFormat(1)
         try {
           expect(
             await withOrgIdContext(f.org, () =>
@@ -756,7 +746,7 @@ it(
 )
 
 it(
-  "keeps import identity until migration cutover is durably completed",
+  "keeps import identity below Workspace format 1",
   { timeout: 30_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -792,7 +782,7 @@ it(
           )
           await worker.start()
           await expect(handle.result({ timeoutMs: 15_000 })).rejects.toThrow(
-            /migration export/i,
+            /Workspace format 1/,
           )
           expect(f.git("--git-dir", f.remote, "rev-parse", "main")).toBe(f.sha)
           expect(

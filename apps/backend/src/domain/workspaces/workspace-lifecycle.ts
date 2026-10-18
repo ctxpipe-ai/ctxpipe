@@ -83,16 +83,6 @@ export async function createWorkspaceLifecycle(input: {
     { orgId: created.orgId, workspaceId: created.id },
     input.log,
   )
-  // The export links the org repositories of the first Workspace in one
-  // commit of `.ctxpipe/sources.yaml` (ADR-050).
-  void enqueueWorkspaceWriteCommit(
-    {
-      orgId: created.orgId,
-      workspaceId: created.id,
-      kind: "migration_export",
-    },
-    input.log,
-  )
   void enqueueWorkspaceWriteCommit(
     { orgId: created.orgId, workspaceId: created.id, kind: "bootstrap" },
     input.log,

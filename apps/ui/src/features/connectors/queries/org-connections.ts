@@ -1,21 +1,10 @@
 import { queryOptions } from "@tanstack/react-query"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import { client } from "@/lib/api"
+import { readApiJson } from "@/lib/api-result"
 
-export type OrgConnectionListItem = {
-  id: string
-  type:
-    | "github"
-    | "forge"
-    | "slack"
-    | "linear"
-    | "notion"
-    | "pagerduty"
-    | "plain"
-  /** The account, site, or workspace name that the provider gives. */
-  displayName: string | null
-  createdAt: string
-  updatedAt: string
-}
+export type OrgConnectionListItem = Awaited<
+  ReturnType<typeof fetchOrgConnections>
+>[number]
 
 export const orgConnectionsKeys = {
   list: (orgSlug: string) => ["org-connections", orgSlug] as const,
@@ -49,13 +38,11 @@ export function orgConnectionsOptions(orgSlug: string) {
   })
 }
 
-export async function fetchOrgConnections(
-  orgSlug: string,
-): Promise<OrgConnectionListItem[]> {
-  const res = await apiFetch(`/${orgSlug}/api/v1/connectors`, {
-    credentials: "include",
+export async function fetchOrgConnections(orgSlug: string) {
+  const res = await client[":orgSlug"].api.v1.connectors.$get({
+    param: { orgSlug },
   })
-  const json = await readApiJson<{ items: OrgConnectionListItem[] }>(res, {
+  const json = await readApiJson(res, {
     message: "Failed to load connections",
   })
   return json.items

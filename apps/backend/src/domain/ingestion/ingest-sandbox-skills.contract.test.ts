@@ -53,6 +53,8 @@ import {
  */
 
 const SOURCE_URL = "https://github.com/example-org/checkout-api"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/checkout-api.md"
 const WORKSPACE_ID = "ws_contract"
 const CONTEXT_DIR = `${INGEST_CONTEXT_ROOT}/${WORKSPACE_ID}`
 const STUB_PORT = 47811
@@ -96,7 +98,7 @@ const HOSTILE: Record<string, string> = {
 }
 
 const OWNED = (name: string, body = "Owned prose.") =>
-  `---\nkind: Service\nname: ${name}\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_URL}\n---\n# ${name}\n\n${body}\n`
+  `---\nkind: Service\nname: ${name}\ngenerated_by: ctxpipe-extract\nsources:\n  - ${SOURCE_PATH}\n---\n# ${name}\n\n${body}\n`
 
 /*
  * An OpenAI-compatible stub. It logs each request. When STUB_READ names a
@@ -174,9 +176,9 @@ async function withBox(
     // `sudo` option does. Docker: an exec as uid 0.
     const root = options.vercelLike
       ? vercelRootExec({
-          runCommand: async ({ args, sudo }) => {
+          runCommand: async ({ cmd, args, sudo }) => {
             const r = await handle.process.exec(
-              `${sudo ? "sudo -n " : ""}sh -c ${quote(args[1] ?? "")}`,
+              `${sudo ? "sudo -n " : ""}${[cmd, ...args].map(quote).join(" ")}`,
             )
             return {
               exitCode: r.exitCode,
@@ -732,6 +734,7 @@ describe("stage helpers in the sandbox", () => {
         baseCommit,
         stagedDir: join(host, "step"),
         source: { url: SOURCE_URL, sha: "a".repeat(40) },
+        sourcePath: SOURCE_PATH,
         skill: "apis",
         bundle: (await readIngestSkillBundle()).name,
         sourcePathExists: async () => true,
@@ -768,7 +771,7 @@ describe("script-only skills in the sandbox", () => {
       const source = `${INGEST_SOURCE_ROOT}/shop`
       await sealed(box, "context", WORKSPACE_ID, {
         "README.md": "# Context\n",
-        "knowledge/services/api.md": `---\nkind: Service\nname: API\nsources:\n  - ${SOURCE_URL}\nclaims:\n  - to: ../../README.md\n    predicate: PART_OF\n    evidence:\n      path: apps/api/package.json\n      kind: script\n---\n# API\n`,
+        "knowledge/services/api.md": `---\nkind: Service\nname: API\nsources:\n  - ${SOURCE_PATH}\nclaims:\n  - to: ../../README.md\n    predicate: PART_OF\n    evidence:\n      path: apps/api/package.json\n      kind: script\n---\n# API\n`,
       })
       const baseCommit = await headOf(box, CONTEXT_DIR)
       const run = async (command: string) => {
@@ -806,7 +809,7 @@ describe("script-only skills in the sandbox", () => {
         await box.agentWrite(`${INGEST_HOME}/roots.json`, JSON.stringify(map))
         const out = JSON.parse(
           await run(
-            `node ${INGEST_SKILLS_ROOT}/${skill}/scripts/${skill}.mjs --source ${source} --source-url ${SOURCE_URL} --roots ${INGEST_HOME}/roots.json`,
+            `node ${INGEST_SKILLS_ROOT}/${skill}/scripts/${skill}.mjs --source ${source} --source-url ${SOURCE_URL} --source-path ${SOURCE_PATH} --roots ${INGEST_HOME}/roots.json`,
           ),
         )
         const output = await collectIngestStep(box.handle, box.root)
@@ -841,6 +844,7 @@ describe("script-only skills in the sandbox", () => {
           baseCommit,
           stagedDir: join(dir, "step"),
           source: { url: SOURCE_URL, sha: "a".repeat(40) },
+          sourcePath: SOURCE_PATH,
           skill,
           bundle: (await readIngestSkillBundle()).name,
           sourcePathExists: async () => true,

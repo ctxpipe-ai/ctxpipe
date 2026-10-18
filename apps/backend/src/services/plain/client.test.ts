@@ -182,6 +182,30 @@ describe("listPlainHelpCenterArticles", () => {
       }),
     ).toBe("not_found")
   })
+  it("refuses an article id that is not a Plain id, because the id is a path segment", async () => {
+    plain({
+      PlainHelpCenterArticles: () => ({
+        helpCenter: {
+          isDeleted: false,
+          articles: page([
+            {
+              id: "../../../knowledge/owner",
+              title: "Title",
+              slug: "slug",
+              contentHtml: "<p>text</p>",
+              status: "PUBLISHED",
+              createdAt: iso("2026-01-01T00:00:00.000Z"),
+              updatedAt: iso("2026-02-01T00:00:00.000Z"),
+              articleGroup: null,
+            },
+          ]),
+        },
+      }),
+    })
+    await expect(
+      listPlainHelpCenterArticles({ apiKey: "key", helpCenterId: "hc_1" }),
+    ).rejects.toThrow()
+  })
 })
 
 describe("listPlainLabelThreads", () => {
@@ -280,6 +304,18 @@ describe("listPlainLabelThreads", () => {
         moreMessages: true,
       },
     ])
+  })
+
+  it("refuses a thread id that is not a Plain id, because the id is a path segment", async () => {
+    plain({
+      PlainLabelThreads: () => ({
+        labelType: { isArchived: false },
+        threads: page([thread("th_1/../../../knowledge/owner", [])]),
+      }),
+    })
+    await expect(
+      listPlainLabelThreads({ apiKey: "key", labelTypeId: "lt_1" }),
+    ).rejects.toThrow()
   })
 
   it("stops at 100 threads", async () => {

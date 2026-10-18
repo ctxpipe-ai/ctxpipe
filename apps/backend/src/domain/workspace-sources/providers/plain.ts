@@ -18,7 +18,7 @@ export const PLAIN_REQUIRED_PERMISSIONS = [
 ]
 
 /** A Plain id, for example `lt_01HXYZ`. It is also a path segment. */
-const plainIdSchema = z
+export const plainIdSchema = z
   .string()
   .regex(/^[A-Za-z0-9_]{1,64}$/, "Use a Plain id, for example lt_01HXYZ")
 

@@ -182,14 +182,9 @@ async function runSearch(
       ))`)
   }
   const where = sql.join(filters, sql` AND `)
-  const scope = sql`workspace_knowledge_chunks AS c
-    JOIN workspace_knowledge_units AS u
-      ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
-    JOIN workspaces AS w ON w.id = c.workspace_id`
   // Every ordering ends with the chunk key, so ties give the same rows and
   // ranks on each run, and the candidate cut falls the same way.
   const tieBreak = sql`c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence`
-  const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
 
   const rows = await withOrgDbContext(input.orgId, async (db) => {
     signal?.throwIfAborted()
@@ -246,20 +241,7 @@ async function runSearch(
           await db.execute(
             sql`SELECT set_config('hnsw.iterative_scan', 'relaxed_order', true)`,
           )
-        // `relaxed_order` can return rows a little out of order. The outer
-        // `row_number()` sorts them again by distance and then by the key.
-        // Only a bare `ORDER BY distance` lets the planner use the HNSW
-        // index, so the key breaks ties in the rank window, not here.
-        semantic = sql`SELECT ${tieBreakOuter},
-            row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
-          FROM (
-            SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
-              c.embedding <=> ${vector} AS distance
-            FROM ${scope}
-            WHERE ${where} AND c.embedding IS NOT NULL
-            ORDER BY distance
-            LIMIT ${CANDIDATES}
-          ) AS nearest`
+        semantic = hnswCandidates(vector, where)
       }
     }
     await setTimeBudget()
@@ -336,6 +318,30 @@ async function runSearch(
     claims: row.claims.map(({ predicate, to }) => ({ predicate, to })),
     score: Number(row.score),
   }))
+}
+
+const scope = sql`workspace_knowledge_chunks AS c
+    JOIN workspace_knowledge_units AS u
+      ON u.workspace_id = c.workspace_id AND u.serving_id = c.unit_id
+    JOIN workspaces AS w ON w.id = c.workspace_id`
+const tieBreakOuter = sql`workspace_id, unit_id, chunk_hash, occurrence`
+
+/** The nearest chunks of a large scope, read through the HNSW index. */
+export function hnswCandidates(vector: SQL, where: SQL): SQL {
+  // `relaxed_order` can return rows a little out of order. The outer
+  // `row_number()` sorts them again by distance and then by the key.
+  // Only a bare `ORDER BY distance` lets the planner use the HNSW
+  // index, so the key breaks ties in the rank window, not here.
+  return sql`SELECT ${tieBreakOuter},
+      row_number() OVER (ORDER BY distance, ${tieBreakOuter}) AS rank
+    FROM (
+      SELECT c.workspace_id, c.unit_id, c.chunk_hash, c.occurrence,
+        c.embedding <=> ${vector} AS distance
+      FROM ${scope}
+      WHERE ${where} AND c.embedding IS NOT NULL
+      ORDER BY distance
+      LIMIT ${CANDIDATES}
+    ) AS nearest`
 }
 
 function textArray(values: readonly string[]): SQL {

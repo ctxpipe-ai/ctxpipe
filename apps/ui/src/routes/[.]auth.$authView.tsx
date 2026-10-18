@@ -93,9 +93,10 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         `/.auth/api/v1/public/invitations/${encodeURIComponent(invitationId)}`,
         { credentials: "include" },
       )
-      const json = await readApiJson<InvitationDetails>(res, {
+      // TODO: the public invitation route is outside the Hono client, so the body is unknown.
+      const json = (await readApiJson(res, {
         message: "Invitation not found or expired",
-      })
+      })) as InvitationDetails
       return {
         email: json.email,
         organizationName: json.organizationName,

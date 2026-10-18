@@ -24,6 +24,7 @@ import {
   IngestRefRefusedError,
   type IngestRemote,
   listStepFiles,
+  mergeIngestPublish,
   type PushIngestStepInput,
   parseIngestRef,
   pushIngestAssemble,
@@ -36,8 +37,6 @@ import {
   assertConnectorMirrorScope,
   type ConnectorMirrorSource,
 } from "./connector-mirror.js"
-import type { WorkspaceExtraction } from "./extraction.js"
-import { assertExtractionSource } from "./extraction-source.js"
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
@@ -66,7 +65,7 @@ class WorkspaceWriteAccessUnavailableError extends Error {
 }
 
 /** Only a recognized remote access/protection denial pauses a native push. */
-function writeAccessDenialReason(error: unknown): string | null {
+export function writeAccessDenialReason(error: unknown): string | null {
   if (!error || typeof error !== "object") return null
   const detail = error as { status?: number; stderr?: Buffer | string }
   const stderr = detail.stderr?.toString() ?? ""
@@ -94,7 +93,6 @@ export async function pushWorkspaceCommit(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -132,13 +130,6 @@ export async function pushWorkspaceCommit(
       sha: revision.sha,
     })
   }
-  if (input.extraction)
-    await assertExtractionSource(
-      input.orgId,
-      input.extraction,
-      revision,
-      committed,
-    )
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
     repoFullName: repositoryName,
@@ -190,13 +181,6 @@ export async function pushWorkspaceCommit(
         )
       if (input.mirror)
         await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-      if (input.extraction)
-        await assertExtractionSource(
-          input.orgId,
-          input.extraction,
-          revision,
-          committed,
-        )
       await nativeGit(
         directory,
         [
@@ -271,7 +255,6 @@ export async function publishWorkspaceWriteRevision(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
@@ -308,7 +291,6 @@ export async function refreshWorkspaceWriteRevision(
     orgId: string
     workspaceId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   env: Env,
@@ -344,18 +326,6 @@ export async function refreshWorkspaceWriteRevision(
       }),
     )
   }
-  if (input.extraction)
-    await assertExtractionSource(
-      input.orgId,
-      input.extraction,
-      resolved.revision,
-      await readGitPackFromRemote({
-        url: resolved.revision.remote.url,
-        sha: resolved.revision.sha,
-        token: resolved.token,
-        root: workspaceRootPath(resolved.revision),
-      }),
-    )
   return { ...resolved.revision, access: "write-default" }
 }
 
@@ -400,18 +370,24 @@ export async function captureSemanticHandoff(
     workspaceId: string
     jobId: string
     mirror?: ConnectorMirrorSource
-    extraction?: WorkspaceExtraction
   },
   revision: WorkspaceRevision,
   committed: GitPack,
   env: Env,
   origin: WriteOrigin,
+  /** Paths of the delta that must not go onto the new tip. */
+  dropPaths?: (nextRevision: WorkspaceRevision) => Promise<string[]>,
 ) {
   const { readGitCommitChanges } = await import(
     "../../services/git/write-tree.js"
   )
-  const changes = await readGitCommitChanges(committed, revision.sha)
+  const delta = await readGitCommitChanges(committed, revision.sha)
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
+  const dropped = new Set(dropPaths ? await dropPaths(nextRevision) : [])
+  const changes = {
+    files: delta.files.filter((file) => !dropped.has(file.path)),
+    deletePaths: delta.deletePaths.filter((path) => !dropped.has(path)),
+  }
   const handoff = await persistSemanticHandoff({
     jobId: input.jobId,
     revision,
@@ -419,7 +395,6 @@ export async function captureSemanticHandoff(
     candidateSha: committed.sha,
     ...changes,
     mirror: input.mirror,
-    extraction: input.extraction,
   })
   return {
     orgId: input.orgId,
@@ -435,7 +410,6 @@ export async function captureSemanticHandoff(
     files: handoff.files,
     deletePaths: handoff.deletePaths,
     ...(input.mirror ? { mirror: input.mirror } : {}),
-    ...(input.extraction ? { extraction: input.extraction } : {}),
   }
 }
 
@@ -702,6 +676,24 @@ export async function pushWorkspaceIngestStep(
     patch: { ...input.patch, rootPath: admitted.rootPath },
     remote,
   })
+}
+
+/**
+ * The publish job kind (T21): the files of a run's publish on the current
+ * default tip, read only. The Workspace must be writable and bound in the org.
+ * A replay can come after the run finished, so the run need not be
+ * unfinished: the `Ctxpipe-Run` trailer of the tip binds the tip to the run.
+ */
+export async function mergeWorkspaceIngestPublish(
+  input: Omit<Parameters<typeof mergeIngestPublish>[0], "remote"> & {
+    orgId: string
+    workspaceId: string
+  },
+  env: Env,
+) {
+  const admitted = await admitIngestJob(input.orgId, input.workspaceId)
+  const remote = await ingestReadRemote(input.orgId, admitted, env)
+  return mergeIngestPublish({ ...input, remote })
 }
 
 /** The assemble job kind: merge the shard tips into the assembled ref. */

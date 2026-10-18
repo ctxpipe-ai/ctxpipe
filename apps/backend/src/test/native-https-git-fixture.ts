@@ -389,25 +389,45 @@ async function waitForListener(
   host: string,
   port: number,
 ): Promise<void> {
-  const deadline = Date.now() + 10_000
+  // The nested daemon can take longer than 10s to start the server under load:
+  // CI run 39007680133 showed the address listening only after a 10s window.
+  const startedAt = Date.now()
+  const deadline = startedAt + 60_000
+  let lastProbeError = "<none>"
   while (true) {
     try {
       await runExec(container, [
         "node",
         "-e",
-        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(250);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",()=>process.exit(1));socket.once("timeout",()=>process.exit(1))`,
+        `const socket=require("node:net").connect({host:${JSON.stringify(host)},port:${port}});socket.setTimeout(1000);socket.once("connect",()=>{socket.destroy();process.exit(0)});socket.once("error",(e)=>{console.error(e.code??e.message);process.exit(1)});socket.once("timeout",()=>{console.error("connect timeout");process.exit(1)})`,
       ])
+      console.log(
+        `Native HTTPS Git fixture listen time: ${Date.now() - startedAt}ms`,
+      )
       return
-    } catch {
-      // Inspect below distinguishes startup delay from a failed server.
+    } catch (error) {
+      lastProbeError = String(error)
     }
     const info = await container.inspect()
+    const logs = (await container.logs({ stdout: true, stderr: true }))
+      .toString()
+      .replaceAll(/[^\x20-\x7e\n]/g, "")
+      .trim()
     if (!info.State.Running)
       throw new Error(
-        `Native HTTPS Git fixture exited before readiness: ${(await container.logs({ stdout: true, stderr: true })).toString().trim()}`,
+        `Native HTTPS Git fixture exited (code ${info.State.ExitCode}) before it listened on ${host}:${port}; server logs: ${logs || "<empty>"}`,
       )
-    if (Date.now() >= deadline)
-      throw new Error("Native HTTPS Git fixture did not become ready")
+    if (Date.now() >= deadline) {
+      // Listening sockets in the host network namespace, as hex address:port.
+      const listeners = await runExecOutput(container, [
+        "sh",
+        "-c",
+        "awk '$4==\"0A\"{print $2}' /proc/net/tcp /proc/net/tcp6 | tr '\\n' ' '",
+      ]).catch((error) => `<unreadable: ${String(error)}>`)
+      throw new Error(
+        `Native HTTPS Git fixture did not listen on ${host}:${port} within ${Date.now() - startedAt}ms; last probe: ${lastProbeError}; server logs: ${logs || "<empty>"}; listening sockets: ${listeners}`,
+      )
+    }
     await new Promise((resolve) => setTimeout(resolve, 100))
   }
 }

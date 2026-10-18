@@ -4,6 +4,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { githubRepositoriesWithoutAccess } from "../../domain/workspace-sources/github-access.js"
+import { shouldSkipCommitProjection } from "../../domain/workspaces/commit-activity.js"
 import {
   collectInactiveWorkspaceGraphKeys,
   loadWorkspaceGraphKeysInUse,
@@ -23,6 +24,7 @@ import {
   servedSha,
   shouldEnqueueCronHydrate,
 } from "../../domain/workspaces/tip-resolve.js"
+import { withFormatWriteGate } from "../../domain/workspaces/workspace-format.js"
 import {
   destroySandboxesForWorkspace,
   jobSandboxesDueForDestroy,
@@ -34,17 +36,18 @@ import {
   probeWorkspaceWriteAccess,
 } from "../../domain/workspaces/write-status.js"
 import { orgHasRecentIngestionRun } from "../../models/ingestion-runs.js"
+import { getWorkspaceCommitProjection } from "../../models/workspace-commits.js"
 import { listUnfinishedHydrateShas } from "../../models/workspace-hydrate-runs.js"
+import { failStoppedUpgradeRun } from "../../models/workspace-upgrades.js"
 import {
   claimPausedWriteJob,
   ensureOrgFirstWorkspace,
   getWorkspaceProjection,
-  listMigrationExportJobWorkspaceIds,
-  listMigrationExportShas,
   listOrgLinkedRepositories,
   listOrgWorkspaces,
   listPausedWriteJobs,
   persistWriteStatus,
+  reconcileStaleWriteJobs,
 } from "../../models/workspaces.js"
 import { log } from "../../observability/logger.js"
 import { getGithubRepoWriteView } from "../../routes/webhooks/github/github-workspace-tip.js"
@@ -86,8 +89,21 @@ function remoteHost(url: string): string {
   return URL.canParse(url) ? new URL(url).host : "local"
 }
 
+function tipJobKey(revision: WorkspaceRevision, hour: string): string {
+  return `${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${revision.sha}:${hour}`
+}
+
 const workspaceTipCheckInputSchema = z.object({
   orgId: z.string().min(1),
+  /**
+   * The UTC hour (`YYYY-MM-DDTHH`) that the retry keys hold. The cron does not
+   * give it, so the check uses the current hour. A test gives it, so that its
+   * keys do not depend on the clock.
+   */
+  hour: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}T\d{2}$/)
+    .optional(),
 })
 
 export const workspaceTipCheck = defineWorkflow(
@@ -108,6 +124,8 @@ export const workspaceTipCheck = defineWorkflow(
       const quietLog = { error: () => undefined }
       const writeStatusById = new Map<string, string>()
       const writeCommitsToEnqueue: EnqueueWorkspaceWriteCommitInput[] = []
+      /** The Workspaces whose stored write access changed, as `id:status`. */
+      const writeAccessChanges: string[] = []
       for (const workspace of workspaces) {
         const probe = await probeWorkspaceWriteAccess({
           workspaceRepositoryUrl: workspace.workspaceRepositoryUrl,
@@ -124,11 +142,31 @@ export const workspaceTipCheck = defineWorkflow(
           probe,
         })
         const claimed = await withOrgDbContext(input.orgId, async () => {
+          // An upgrade run that stopped without its result shows as
+          // `failed`. The upgrades read writes nothing, so this check does it.
+          await failStoppedUpgradeRun(workspace.id)
           if (!(await persistWriteStatus(workspace, write, input.orgId)))
             return []
-          writeStatusById.set(workspace.id, write.writeStatus)
-          if (write.writeStatus !== "writable") return []
+          // The scan reads the stored status to block or open the upgrades,
+          // so a change in write access must queue the scan again.
+          if (write.writeStatus !== workspace.writeStatus)
+            writeAccessChanges.push(`${workspace.id}:${write.writeStatus}`)
+          // The format gate is on top of the stored probe result.
+          const gated = withFormatWriteGate({
+            ...write,
+            formatVersion: workspace.formatVersion,
+          })
+          writeStatusById.set(workspace.id, gated.writeStatus)
+          if (gated.writeStatus !== "writable") return []
           const pending: EnqueueWorkspaceWriteCommitInput[] = []
+          // A job that stays `queued` or `running` for an hour lost its run,
+          // or its run ended and nothing recorded that. Record a failed run
+          // on the job, and pause a job that has no run, so that the resume
+          // step below queues it again with its own id.
+          await reconcileStaleWriteJobs(
+            workspace,
+            new Date(Date.now() - 60 * 60 * 1000),
+          )
           await resumePausedWriteJobs({
             orgId: input.orgId,
             workspaceId: workspace.id,
@@ -149,6 +187,20 @@ export const workspaceTipCheck = defineWorkflow(
       }
       for (const args of writeCommitsToEnqueue) {
         await enqueueWorkspaceWriteCommit(args, quietLog)
+      }
+      if (writeAccessChanges.length) {
+        // Import at the admission boundary: the scan module queues this
+        // workflow.
+        const { enqueueWorkspaceUpgradeScan } = await import(
+          "./workspace-upgrade-scan.js"
+        )
+        // The hour and the changes make the key: the same change in the
+        // same hour queues no second scan, so the tip check of that scan
+        // cannot loop.
+        await enqueueWorkspaceUpgradeScan({
+          orgId: input.orgId,
+          trigger: `write-access:${input.hour ?? new Date().toISOString().slice(0, 13)}:${writeAccessChanges.join(",")}`,
+        })
       }
       const updated: Array<{
         workspaceId: string
@@ -200,33 +252,13 @@ export const workspaceTipCheck = defineWorkflow(
             revision: resolved.revision,
           })
       }
-      const [exportShas, exportJobWorkspaceIds] = await withOrgDbContext(
-        input.orgId,
-        () =>
-          Promise.all([
-            listMigrationExportShas(),
-            listMigrationExportJobWorkspaceIds(),
-          ]),
-      )
       const unfinishedHydrates = await listUnfinishedHydrateShas(input.orgId)
-      const hour = startedAt.toISOString().slice(0, 13)
+      const hour = input.hour ?? startedAt.toISOString().slice(0, 13)
+      // The knowledge export of main-era data is upgrade step 1. It goes
+      // only through the upgrade pull request that an owner or admin opens
+      // (ADR-053), so the tip check never writes it to the default branch.
       for (const workspace of workspaces) {
         if (noAccess.has(workspace.id)) continue
-        const writeStatus = writeStatusById.get(workspace.id)
-        if (
-          writeStatus === "writable" &&
-          !exportShas.has(workspace.id) &&
-          !exportJobWorkspaceIds.has(workspace.id)
-        ) {
-          await enqueueWorkspaceWriteCommit(
-            {
-              orgId: input.orgId,
-              workspaceId: workspace.id,
-              kind: "migration_export",
-            },
-            quietLog,
-          )
-        }
         const projection = await getWorkspaceProjection(workspace.id)
         const desired = desiredProjectionRevision(projection)
         // An earlier run can store the tip in `desired_sha` and then fail
@@ -239,12 +271,24 @@ export const workspaceTipCheck = defineWorkflow(
           desired &&
           !unfinishedHydrates.has(`${workspace.id}:${desired.sha}`) &&
           (servedSha(projection, desired) !== desired.sha ||
-            shouldEnqueueCronHydrate({
-              migrationExportSha: exportShas.get(workspace.id) ?? null,
-              projection,
-              writeStatus: writeStatusById.get(workspace.id),
-            }))
+            shouldEnqueueCronHydrate({ projection }))
         ) {
+          // A run can also fail after it stores the tip and before it queues
+          // the index job below. Queue it again with the same rule and hour
+          // as the hydrate. When the hydrate publishes, it queues the index
+          // itself.
+          if (
+            servedSha(projection, desired) !== desired.sha &&
+            !updated.some((item) => item.workspaceId === workspace.id)
+          ) {
+            await enqueueWorkspaceIndex(
+              { orgId: input.orgId, revision: { ...desired, access: "read" } },
+              quietLog,
+              {
+                idempotencyKey: `workspace-tip-index:${tipJobKey(desired, hour)}`,
+              },
+            )
+          }
           await enqueueWorkspaceHydrate(
             { orgId: input.orgId, workspaceId: workspace.id },
             { error: () => undefined },
@@ -253,6 +297,31 @@ export const workspaceTipCheck = defineWorkflow(
                 `workspace-tip-hydrate:${revision.workspaceId}:${revision.generation}:${revision.defaultBranch}:${servedSha(projection, revision) ?? "none"}:${revision.sha}:${hour}`,
             },
           )
+        }
+        // A run can also fail after it stores the tip and before it queues
+        // the commit projection job below. A hydrate that it queued can then
+        // publish the tip, so the check above does not apply. Thus compare
+        // the commit projection with `desired_sha`, and queue it again at
+        // most once an hour.
+        if (
+          desired &&
+          !updated.some((item) => item.workspaceId === workspace.id)
+        ) {
+          const commits = await getWorkspaceCommitProjection(workspace.id)
+          if (
+            !shouldSkipCommitProjection({
+              headSha: commits?.headSha ?? null,
+              desiredSha: desired.sha,
+              status: commits?.backfillStatus ?? "pending",
+            })
+          )
+            await enqueueWorkspaceCommitProjection(
+              { orgId: input.orgId, workspaceId: workspace.id },
+              quietLog,
+              {
+                idempotencyKey: `workspace-tip-commits:${tipJobKey(desired, hour)}`,
+              },
+            )
         }
       }
       for (const item of updated) {

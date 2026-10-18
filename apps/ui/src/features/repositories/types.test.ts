@@ -76,12 +76,10 @@ describe("formatShortCommitHash", () => {
 
 describe("getBadgeWord", () => {
   it("maps known base keys", () => {
-    expect(getBadgeWord("embedding")).toBe("embedding")
+    expect(getBadgeWord("finalizing")).toBe("finalizing")
     expect(getBadgeWord("cloning")).toBe("cloning")
     expect(getBadgeWord("queued")).toBe("queued")
     expect(getBadgeWord("index_queue")).toBe("indexing")
-    expect(getBadgeWord("syncing_graph")).toBe("syncing")
-    expect(getBadgeWord("identify_apis")).toBe("analyzing")
   })
 
   it("maps scip:<lang> keys to indexing", () => {
@@ -100,9 +98,9 @@ describe("formatIndexingStepLabel", () => {
       formatIndexingStepLabel({
         indexingStep: 7,
         indexingStepTotal: 22,
-        indexingStepKey: "embedding",
+        indexingStepKey: "finalizing",
       }),
-    ).toBe("embedding 7/22")
+    ).toBe("finalizing 7/22")
   })
 
   it("uses badge word for the key", () => {
@@ -110,9 +108,9 @@ describe("formatIndexingStepLabel", () => {
       formatIndexingStepLabel({
         indexingStep: 3,
         indexingStepTotal: 22,
-        indexingStepKey: "syncing_graph",
+        indexingStepKey: "cloning",
       }),
-    ).toBe("syncing 3/22")
+    ).toBe("cloning 3/22")
   })
 
   it("returns null when any field is null", () => {
@@ -120,7 +118,7 @@ describe("formatIndexingStepLabel", () => {
       formatIndexingStepLabel({
         indexingStep: null,
         indexingStepTotal: 22,
-        indexingStepKey: "embedding",
+        indexingStepKey: "finalizing",
       }),
     ).toBeNull()
 
@@ -128,7 +126,7 @@ describe("formatIndexingStepLabel", () => {
       formatIndexingStepLabel({
         indexingStep: 7,
         indexingStepTotal: null,
-        indexingStepKey: "embedding",
+        indexingStepKey: "finalizing",
       }),
     ).toBeNull()
 

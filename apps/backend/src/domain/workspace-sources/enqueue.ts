@@ -1,21 +1,29 @@
 import { createHash } from "node:crypto"
-import { assertNotInOrgDbContext } from "../../db/client.js"
+import { isDeepStrictEqual } from "node:util"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
 import {
   lastGoodTarget,
   type SourceTarget,
+  sourceRowsNameRepository,
 } from "../../models/workspace-source-state.js"
 import {
   listConnectionSourceRows,
   listConnectionsWithOkSources,
+  listWorkspaceSourceRows,
   sameSource,
   type WorkspaceSourceRow,
 } from "../../models/workspace-sources.js"
 import { log } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
 import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
+import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
 import { SOURCE_ADAPTERS } from "./adapter.js"
 import { handOverLegacyBindings } from "./legacy-handover.js"
 import type { PlannedSourceRow } from "./projection-plan.js"
+import { githubRepositoryUrls } from "./providers/github.js"
+import { checkSourcePath } from "./source-file.js"
 import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
 
 /**
@@ -161,6 +169,11 @@ export async function enqueueSourceProjectionFollowUps(input: {
     changed: Array<{ before: WorkspaceSourceRow; after: PlannedSourceRow }>
     removed: WorkspaceSourceRow[]
   }
+  /**
+   * The format in the tree of the projected revision. Only ingestion v2
+   * (format 3 or more) retracts a repository that left the sources (CTX-720).
+   */
+  format: number
 }): Promise<void> {
   assertNotInOrgDbContext()
   // Clean up only what left the file: the last good target of a removed
@@ -168,18 +181,48 @@ export async function enqueueSourceProjectionFollowUps(input: {
   // target. A status change (a removed connection), an entry that became
   // invalid, and a file that cannot be read keep the committed files, as the
   // remove-connector dialog says.
-  const removed = [
-    ...input.projected.removed.map(lastGoodTarget),
+  const candidates = [
+    ...input.projected.removed.map((row) => ({
+      sourceKey: row.sourceKey,
+      target: lastGoodTarget(row),
+    })),
     ...input.projected.changed.map(({ before, after }) => {
       const target = lastGoodTarget(before)
-      return after.status !== "invalid" && target && !sameSource(target, after)
-        ? target
-        : null
+      return {
+        sourceKey: before.sourceKey,
+        target:
+          after.status !== "invalid" && target && !sameSource(target, after)
+            ? target
+            : null,
+      }
     }),
   ].filter(
-    (target): target is SourceTarget =>
-      target !== null && hasAdapter(target.provider),
+    (source): source is { sourceKey: string; target: SourceTarget } =>
+      source.target !== null,
   )
+  // A target that a row still holds did not leave: the conversion of
+  // `.ctxpipe/sources.yaml` moves each entry to a file with the same target.
+  const held = candidates.length
+    ? (
+        await listWorkspaceSourceRows({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        })
+      ).flatMap((row) => lastGoodTarget(row) ?? [])
+    : []
+  const leftSources = candidates.filter(
+    ({ target }) => !held.some((other) => isDeepStrictEqual(other, target)),
+  )
+  const removed = leftSources
+    .map((source) => source.target)
+    .filter((target) => hasAdapter(target.provider))
+  await enqueueRepositoryRetractions({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    revision: input.revision,
+    format: input.format,
+    left: leftSources,
+  })
   if (removed.length)
     await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
       kind: "cleanup",
@@ -224,6 +267,84 @@ export async function enqueueSourceProjectionFollowUps(input: {
         connectionId,
         message: error instanceof Error ? error.message : String(error),
       })
+    }
+  }
+}
+
+/**
+ * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
+ * ingestion v2 extracted from it. One host write job for each repository and
+ * the source file that declared it, only when the projected tree is at
+ * format 3 or more, where ingestion v2 publishes. The files of the
+ * repository list that source path in `sources` (ADR-050 revision
+ * 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
+ * path, and ingestion v2 owns no file of it, so it gets no job. A stored
+ * source row that still names the repository in any form keeps it
+ * (`sourceRowsNameRepository`): also an entry that became invalid, as it
+ * keeps its files (the CTX-710 rule above).
+ * The job checks the sources at the tip again. The job id is fixed for the
+ * revision, so a retry queues no second job. A job that does not start makes
+ * this call fail, so the step that runs it retries; the retraction is not
+ * lost.
+ */
+async function enqueueRepositoryRetractions(input: {
+  orgId: string
+  workspaceId: string
+  revision: string
+  format: number
+  left: ReadonlyArray<{ sourceKey: string; target: SourceTarget }>
+}): Promise<void> {
+  const pairs = new Map<string, { url: string; sourcePath: string }>()
+  for (const { sourceKey, target } of input.left) {
+    if (!checkSourcePath(sourceKey).ok) continue
+    for (const url of githubRepositoryUrls(target))
+      pairs.set(`${url}\0${sourceKey}`, { url, sourcePath: sourceKey })
+  }
+  if (!pairs.size || workspacePublishPipeline(input.format) !== "v2") return
+  const rows = await listWorkspaceSourceRows({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+  })
+  const repositories = [...pairs.values()].filter(
+    ({ url }) => !sourceRowsNameRepository(rows, url),
+  )
+  if (!repositories.length) return
+  const org = await getSystemDb().query.organizations.findFirst({
+    where: { id: { eq: input.orgId } },
+  })
+  if (!org) throw new Error("Organization not found")
+  for (const { url, sourcePath } of repositories) {
+    const jobId = `wjob_retract_${createHash("sha256")
+      .update(`${input.workspaceId}\0${input.revision}\0${url}\0${sourcePath}`)
+      .digest("hex")
+      .slice(0, 32)}`
+    const logError = (error: Error) =>
+      log.error({
+        step: "workspace_sources.enqueue_retraction",
+        workspaceId: input.workspaceId,
+        jobId,
+        message: error.message,
+      })
+    // Admission reads the Workspace in the org context.
+    const { started } = await withOrgIdContext(org, () =>
+      enqueueWriteJob(
+        {
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          kind: "unlink_retraction",
+          jobId,
+          retractRepositoryUrl: url,
+          retractSourcePath: sourcePath,
+        },
+        { error: logError },
+      ),
+    )
+    if (!started) {
+      const error = new Error(
+        "The unlink retraction did not start; the follow-ups retry it",
+      )
+      logError(error)
+      throw error
     }
   }
 }

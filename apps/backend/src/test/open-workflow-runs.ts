@@ -1,4 +1,3 @@
-import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import postgres from "postgres"
 
@@ -30,10 +29,28 @@ export async function cancelOpenWorkflowRuns(
     namespaceId,
   })
   try {
-    const ow = new OpenWorkflow({ backend })
-    for (const id of ids) await ow.cancelWorkflowRun(id)
+    for (const id of ids) await cancelWorkflowRunIfOpen(backend, id)
     return ids
   } finally {
     await backend.stop()
+  }
+}
+
+/**
+ * Cancels one run, and wakes its parent run. A worker can end the run after
+ * the caller read its status and before the cancel. OpenWorkflow then throws
+ * "Cannot cancel workflow run … with status completed". A run that has ended
+ * needs no cancel, so this function ignores that error. Other errors stay.
+ */
+export async function cancelWorkflowRunIfOpen(
+  backend: Pick<BackendPostgres, "cancelWorkflowRun" | "getWorkflowRun">,
+  workflowRunId: string,
+): Promise<void> {
+  try {
+    await backend.cancelWorkflowRun({ workflowRunId })
+  } catch (error) {
+    const run = await backend.getWorkflowRun({ workflowRunId })
+    if (run && ["completed", "failed", "canceled"].includes(run.status)) return
+    throw error
   }
 }

@@ -60,7 +60,7 @@ const REPOSITORY_ID_SCHEMA: z.core.JSONSchema.JSONSchema = {
   description: "Repository id with prefix repo_",
 }
 
-/** Plain JSON Schema for TanStack. Do not pass LangChain Zod v3 `.schema`. */
+/** Plain JSON Schema for TanStack. Do not pass the Zod v3 `.schema` of a tool. */
 export const EXPLORER_INPUT_SCHEMAS: Record<
   string,
   z.core.JSONSchema.JSONSchema & { type: "object" }

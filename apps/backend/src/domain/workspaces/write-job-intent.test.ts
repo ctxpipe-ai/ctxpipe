@@ -124,6 +124,26 @@ describe("enqueueInputFromPausedJob", () => {
       jobWorkspaceUrl: "https://github.com/acme/docs",
     })
   })
+
+  it("resumes a publish job without the retired pipeline field", () => {
+    // The Workspace format selects the pipeline now; an old payload that
+    // still holds the field does not carry it to the new run.
+    const resumed = enqueueInputFromPausedJob({
+      orgId: "org_1",
+      workspaceId: "ws_1",
+      job: {
+        id: "wjob_1",
+        kind: "ownership_migration",
+        generation: 1,
+        desiredSha: null,
+        payload: {
+          jobWorkspaceUrl: "https://github.com/acme/docs",
+          publishPipeline: "v2",
+        } as Parameters<typeof enqueueInputFromPausedJob>[0]["job"]["payload"],
+      },
+    })
+    expect(resumed).not.toHaveProperty("publishPipeline")
+  })
 })
 
 describe("countsTowardWriteJobAttempts", () => {

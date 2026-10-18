@@ -60,9 +60,14 @@ it(
         "workspace-write-connector-mirror",
         "workspace-write-semantic-merge",
         "github-sync-pull-request",
+        "workspace-upgrade-scan",
+        "workspace-upgrade",
+        "workspace-upgrade-reingest",
+        "workspace-upgrade-reingest-repository",
         // Retired names stay registered so queued runs complete.
         "github-ensure-pr-mirror",
         "github-sync-content",
+        "sync-github-repositories",
       ]),
     )
   },

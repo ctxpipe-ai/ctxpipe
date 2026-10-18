@@ -153,7 +153,7 @@ cdk synth
 cdk deploy
 ```
 
-`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app` and rewrites the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
+`cdk deploy` runs Postgres migrations, then rolls the ECS services. You do not set image tags in `CtxPipe` props, and you should not retag tasks to `:latest` yourself. The migrate task provisions `ctxpipe_app`, and then the stack writes the runtime `DATABASE_URL` secret; CDK operators do not set either URL by hand and do not run `psql`.
 
 This is how codesearch memory bumps (4 / 8 / 12 GiB) and ingest behavior land together. Updating only container images, or only task memory, leaves the stack split across releases.
 
@@ -281,9 +281,12 @@ through backend routing.
 ## Chat sandbox host
 
 Workspace chat runs each conversation's agent (OpenCode) in its own Docker
-container. `CtxPipe` always creates one EC2 host for those containers. There is
-no opt-out: the sandbox keeps the agent's commands away from the backend and
-your data stores.
+container. `CtxPipe` creates one EC2 host for those containers by default. The
+sandbox keeps the agent's commands away from the backend and your data stores.
+
+To create no host, set `sandboxHost: { enabled: false }`. Without the host,
+Workspace chat is off: the product answers chat requests with a "sandbox
+unavailable" error (503). The rest of the product keeps working.
 
 ### Sizes and cost
 
@@ -353,12 +356,10 @@ for (const alarm of ctxPipe.sandboxHostAlarms) {
 }
 ```
 
-<Callout type="warn" title="Unsandboxed chat is a last resort">
-  The backend can run chat without a sandbox (`SANDBOX_PROVIDER=unsandboxed`),
-  where the agent runs as a process inside the backend container with the
-  backend's network access. `CtxPipe` never configures this. Use it only where no
-  Docker host can run at all, and treat every Workspace user as trusted with
-  the backend.
+<Callout type="warn" title="Chat needs a sandbox">
+  The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`: an
+  agent without a sandbox would run with the backend's credentials. `CtxPipe`
+  configures a Docker host for chat sandboxes.
 </Callout>
 
 ## What this gives you by default

@@ -14,6 +14,7 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { writeCheckInFlight } from "./projection"
@@ -25,6 +26,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
+import { StatusTag } from "./StatusTag"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
@@ -35,18 +37,17 @@ import { workspaceDeleteNameMatches } from "./workspaceDeleteNameMatches"
 import { useWriteCheckStall } from "./writeCheckStall"
 import { writeStatusLabel } from "./writeStatusLabel"
 
-function writeTag(
-  status: string,
-  readOnlyReason: string | null,
-): { label: string; className: string } {
-  const tagged = writeStatusLabel(status, readOnlyReason)
+function writeTag(tagged: ReturnType<typeof writeStatusLabel>): {
+  label: string
+  className: string
+} {
   if (tagged.tone === "writable") {
     return {
       label: "Can save changes",
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
     }
   }
-  if (tagged.tone === "pending") {
+  if (tagged.tone === "pending" || tagged.tone === "pull_request") {
     return {
       label: tagged.label,
       className: "border-border bg-zinc-800 text-muted-foreground",
@@ -87,35 +88,6 @@ function hydrateTag(status: string): {
     className: "border-border bg-zinc-800 text-muted-foreground",
     pulse: true,
   }
-}
-
-function StatusTag({
-  label,
-  className,
-  pulse,
-}: {
-  label: string
-  className: string
-  pulse?: boolean
-}) {
-  return (
-    <span
-      className={cn(
-        "inline-flex items-center gap-1.5 rounded-md border px-2 py-0.5 text-xs",
-        className,
-      )}
-    >
-      <span
-        className={
-          pulse
-            ? "size-1.5 shrink-0 animate-pulse rounded-full bg-current"
-            : "size-1.5 shrink-0 rounded-full bg-current"
-        }
-        aria-hidden
-      />
-      {label}
-    </span>
-  )
 }
 
 /** One settings group: a hairline, a mono eyebrow, then the content. */
@@ -313,7 +285,12 @@ export function WorkspaceSettingsPane(props: {
       : null
 
   const stall = useWriteCheckStall()
-  const write = writeTag(workspace.writeStatus, workspace.readOnlyReason)
+  const writeLabel = writeStatusLabel(
+    workspace.writeStatus,
+    workspace.readOnlyReason,
+    workspace.conversationWritable,
+  )
+  const write = writeTag(writeLabel)
   const hydrate = hydrateTag(workspace.hydrateStatus)
   const repoTitle =
     githubRepoFullNameFromGitUrl(workspace.workspaceRepositoryUrl) ??
@@ -352,7 +329,11 @@ export function WorkspaceSettingsPane(props: {
             onOpenFile={props.onOpenFile}
           />
         ) : null}
-        {workspace.readOnlyReason ? (
+        {writeLabel.tone === "pull_request" ? (
+          <p className="mt-4 max-w-lg text-sm text-muted-foreground">
+            {writeLabel.description}
+          </p>
+        ) : workspace.readOnlyReason ? (
           <div className="mt-4 max-w-lg">
             <InlineAlert
               variant="warning"
@@ -453,7 +434,7 @@ export function WorkspaceSettingsPane(props: {
           <SettingsGroup eyebrow="Repositories">
             <section>
               <h2 className="text-sm font-medium text-foreground">
-                Main repository
+                Context repository
               </h2>
               <p className="mt-1 text-xs text-muted-foreground">
                 The GitHub repository where this Workspace keeps its files.
@@ -488,7 +469,7 @@ export function WorkspaceSettingsPane(props: {
                   <Button
                     variant="quiet"
                     size="icon-sm"
-                    aria-label="Edit main repository"
+                    aria-label="Edit context repository"
                     onPress={() => {
                       setRelinkError(null)
                       setRelinkOpen(true)
@@ -539,6 +520,13 @@ export function WorkspaceSettingsPane(props: {
             />
           </SettingsGroup>
 
+          <SettingsGroup eyebrow="Upgrades">
+            <WorkspaceUpgrades
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
+            />
+          </SettingsGroup>
+
           <SettingsGroup eyebrow="Danger zone">
             <section className="flex flex-wrap items-center justify-between gap-4 rounded-md border border-white/[0.06] px-4 py-3">
               <div>
@@ -580,7 +568,7 @@ export function WorkspaceSettingsPane(props: {
             slot="title"
             className="my-0 text-lg font-medium leading-6 text-foreground"
           >
-            Main repository
+            Context repository
           </Heading>
           <p className="mt-1 text-sm text-muted-foreground">
             You keep this Workspace and its conversations. Files in the old

@@ -50,13 +50,13 @@ export const Loading: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     // The story router renders its first route after an async load.
-    expect(
-      await canvas.findByRole(
-        "navigation",
-        { name: "Main navigation" },
-        { timeout: 15_000 },
-      ),
-    ).toBeVisible()
+    await waitFor(
+      () =>
+        expect(
+          canvas.getByRole("navigation", { name: "Main navigation" }),
+        ).toBeVisible(),
+      { timeout: 15_000 },
+    )
     expect(canvas.getByText("Loading connectors")).toBeInTheDocument()
   },
   parameters: {
@@ -374,7 +374,11 @@ export const Full: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByRole("button", { name: "Expand Notion" })
-    const expanders = canvas.getAllByRole("button", { name: /^Expand / })
+    // The main navigation has an "Expand navigation" button when an earlier
+    // story left it collapsed. Count the connector cards only.
+    const expanders = canvas.getAllByRole("button", {
+      name: /^Expand (?!navigation)/,
+    })
     for (const expander of expanders) await userEvent.click(expander)
     // A connection has no scope of its own: each Workspace has one, and
     // "Used in" lists it (ADR-050). The card shows the account only.
@@ -492,10 +496,13 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
   render: () => <ConnectorsPageContent orgSlug={orgSlug} />,
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    const heading = await page.findByRole("heading", {
-      name: "Set up Confluence connector",
-    })
-    await waitFor(() => expect(heading).toBeVisible())
+    // The dialog can mount again while the status loads, which detaches the
+    // first heading. Query again on each try, so the check reads the live one.
+    await waitFor(() =>
+      expect(
+        page.getByRole("heading", { name: "Set up Confluence connector" }),
+      ).toBeVisible(),
+    )
   },
   parameters: {
     storyRoute: {

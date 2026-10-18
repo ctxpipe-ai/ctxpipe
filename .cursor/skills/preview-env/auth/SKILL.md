@@ -9,7 +9,7 @@ disable-model-invocation: true
 Account and membership surface. Runs after [onboarding](../onboarding/SKILL.md), so account A and the org exist. [Harness](../harness.md) is `PASS`. Flow format: [run-setup](../run-setup.md#flow-format). Accounts B and C use their own browser contexts.
 
 ### AUTH-1 Session persists
-**Requires** ONB-4 (A has an org).
+**Requires** ONB-2 (A has an org).
 **Steps**
 1. As A, reload the current app URL.
 
@@ -19,7 +19,7 @@ Account and membership surface. Runs after [onboarding](../onboarding/SKILL.md),
 **Evidence** `AUTH-1-1.png`; trace of the `get-session` request.
 
 ### AUTH-2 Sign out and sign in
-**Requires** AUTH-1; Workspace 1 exists (ONB-5) for the landing check.
+**Requires** AUTH-1; Workspace 1 exists (ONB-4) for the landing check.
 **Steps**
 1. Open sign-out (`/.auth/sign-out` or the account control).
 2. Sign in at `/.auth/sign-in` with A's email and password.

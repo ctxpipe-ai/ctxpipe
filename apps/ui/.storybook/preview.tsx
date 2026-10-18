@@ -49,6 +49,14 @@ function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {
 }
 
 const preview: Preview = {
+  // One browser runs every story, so stored UI state would leak to the next
+  // story. The user preferences hold the SideNav width and collapse, the
+  // setup-guide dismissal and the seen hints. Session storage holds drafts.
+  // The Query client is built per story, and a story has no theme state.
+  beforeEach: () => {
+    window.localStorage.clear()
+    window.sessionStorage.clear()
+  },
   loaders: [mswLoader, storyRouteLoader],
   decorators: [
     (Story, { id }): ReactElement => (

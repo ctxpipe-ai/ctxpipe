@@ -23,15 +23,22 @@ export class SecretsConstruct extends Construct {
       },
     });
 
+    // The main-era secret keeps the owner URL. Task definitions from before
+    // the app role read it, so an ECS circuit breaker or a CloudFormation
+    // rollback starts them on a URL that sees every row.
     const databaseUrlSecret = new secretsmanager.Secret(this, "DatabaseUrlSecret", {
-      description:
-        "PostgreSQL connection URL for ctxpipe runtime services (ctxpipe_app, populated after migrate)",
-    });
-
-    const ownerDatabaseUrlSecret = new secretsmanager.Secret(this, "OwnerDatabaseUrlSecret", {
       description:
         "PostgreSQL connection URL for ctxpipe migrate (Aurora owner ctxpipe, populated at deploy time)",
     });
+
+    const runtimeDatabaseUrlSecret = new secretsmanager.Secret(
+      this,
+      "RuntimeDatabaseUrlSecret",
+      {
+        description:
+          "PostgreSQL connection URL for ctxpipe runtime services (ctxpipe_app, populated after migrate)",
+      },
+    );
 
     const appDatabaseCredentialsSecret = new secretsmanager.Secret(
       this,
@@ -113,8 +120,8 @@ export class SecretsConstruct extends Construct {
 
     props.dataPlane.dbCredentialsSecret.grantRead(databaseUrlWriterFunction);
     appDatabaseCredentialsSecret.grantRead(databaseUrlWriterFunction);
-    ownerDatabaseUrlSecret.grantWrite(databaseUrlWriterFunction);
     databaseUrlSecret.grantWrite(databaseUrlWriterFunction);
+    runtimeDatabaseUrlSecret.grantWrite(databaseUrlWriterFunction);
 
     const databaseUrlWriterProvider = new cr.Provider(this, "DatabaseUrlWriterProvider", {
       onEventHandler: databaseUrlWriterFunction,
@@ -129,7 +136,7 @@ export class SecretsConstruct extends Construct {
         WriterPhysicalId: "database-url-writer",
         Username: "ctxpipe",
         DbCredentialsSecretArn: props.dataPlane.dbCredentialsSecret.secretArn,
-        DatabaseUrlSecretArn: ownerDatabaseUrlSecret.secretArn,
+        DatabaseUrlSecretArn: databaseUrlSecret.secretArn,
         DbHost: dbHost,
         DbPort: dbPort,
         DatabaseName: props.databaseName,
@@ -137,7 +144,7 @@ export class SecretsConstruct extends Construct {
     });
     databaseUrlWriter.node.addDependency(props.dataPlane.dbCredentialsSecret);
     databaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
-    databaseUrlWriter.node.addDependency(ownerDatabaseUrlSecret);
+    databaseUrlWriter.node.addDependency(databaseUrlSecret);
 
     const runtimeDatabaseUrlWriter = new cdk.CustomResource(
       this,
@@ -148,7 +155,7 @@ export class SecretsConstruct extends Construct {
           WriterPhysicalId: "runtime-database-url-writer",
           Username: "ctxpipe_app",
           DbCredentialsSecretArn: appDatabaseCredentialsSecret.secretArn,
-          DatabaseUrlSecretArn: databaseUrlSecret.secretArn,
+          DatabaseUrlSecretArn: runtimeDatabaseUrlSecret.secretArn,
           DbHost: dbHost,
           DbPort: dbPort,
           DatabaseName: props.databaseName,
@@ -157,7 +164,7 @@ export class SecretsConstruct extends Construct {
     );
     runtimeDatabaseUrlWriter.node.addDependency(appDatabaseCredentialsSecret);
     runtimeDatabaseUrlWriter.node.addDependency(props.dataPlane.dbCluster);
-    runtimeDatabaseUrlWriter.node.addDependency(databaseUrlSecret);
+    runtimeDatabaseUrlWriter.node.addDependency(runtimeDatabaseUrlSecret);
 
     const modelProviderSecret = props.modelProviderApiKey
       ? new secretsmanager.Secret(this, "ModelProviderSecret", {
@@ -463,7 +470,7 @@ export class SecretsConstruct extends Construct {
     this.resources = {
       authSecret,
       databaseUrlSecret,
-      ownerDatabaseUrlSecret,
+      runtimeDatabaseUrlSecret,
       appDatabaseCredentialsSecret,
       databaseUrlWriter,
       runtimeDatabaseUrlWriter,

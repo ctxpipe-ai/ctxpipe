@@ -103,6 +103,7 @@ export const PendingSetupNarrow: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const name = await canvas.findByText("Atlassian Confluence")
+    await document.fonts.ready
     expect(name.scrollWidth).toBeLessThanOrEqual(name.clientWidth)
     const remove = canvas.getByRole("button", {
       name: "Remove Atlassian Confluence setup",

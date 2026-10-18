@@ -54,22 +54,6 @@ const BADGE_BY_KEY: Record<string, string> = {
   indexing_search: "indexing",
   detecting_languages: "indexing",
   merging_intelligence: "indexing",
-  retracting: "updating",
-  finding_roots: "finding packages",
-  classifying_packages: "classifying",
-  identify_api_clients: "analyzing",
-  identify_apis: "analyzing",
-  identify_databases: "analyzing",
-  identify_infrastructure: "analyzing",
-  identify_streams: "analyzing",
-  identify_service_dependencies: "analyzing",
-  identify_libraries: "analyzing",
-  identify_patterns: "analyzing",
-  extract_instruction_units: "analyzing",
-  deduplicating: "deduplicating",
-  projecting: "projecting",
-  embedding: "embedding",
-  syncing_graph: "syncing",
   finalizing: "finalizing",
 }
 
@@ -80,7 +64,7 @@ export function getBadgeWord(key: string): string {
 }
 
 /**
- * Returns a compact step label like `"embedding 7/22"` when all three step
+ * Returns a compact step label like `"finalizing 7/22"` when all three step
  * fields are present, or `null` when step data is unavailable.
  */
 export function formatIndexingStepLabel(repo: {

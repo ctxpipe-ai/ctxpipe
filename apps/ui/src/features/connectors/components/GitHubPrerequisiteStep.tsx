@@ -31,8 +31,8 @@ export function GitHubPrerequisiteStep({
             Connect GitHub
           </h3>
           <p className="mt-2 max-w-xl text-sm leading-relaxed text-muted-foreground">
-            {sourceName} content is written into a GitHub context repository, so
-            a GitHub connection is required before you can continue.
+            {sourceName} content is written into a Workspace on GitHub, so a
+            GitHub connection is required before you can continue.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

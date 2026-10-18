@@ -12,6 +12,7 @@ import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { SandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
 import { log } from "../../observability/logger.js"
 import {
+  VERCEL_INGEST_TOOLS,
   WORKSPACE_CHAT_OPENCODE_PORT,
   WORKSPACE_CHAT_VERCEL_AGENT_INSTALL,
 } from "./chat-runtime.js"
@@ -70,13 +71,17 @@ export function agentSnapshotTags(environment: string): Record<string, string> {
 
 /**
  * The `opencode` tag value of this deployment's agent snapshot builders: the
- * runtime and the OpenCode version, so a change of either builds a new one.
+ * runtime, the OpenCode version and the ingest tool versions, so a change of
+ * any of them builds a new one.
  */
-const AGENT_VERSION =
-  `${VERCEL_SANDBOX.runtime}-${WORKSPACE_CHAT_OPENCODE_CLI}`.replace(
-    /[^\w.-]/g,
-    "-",
-  )
+const AGENT_VERSION = [
+  VERCEL_SANDBOX.runtime,
+  WORKSPACE_CHAT_OPENCODE_CLI,
+  `sg${VERCEL_INGEST_TOOLS.astGrep.split("@").at(-1)}`,
+  `rg${VERCEL_INGEST_TOOLS.ripgrep.split("@").at(-1)}`,
+]
+  .join("-")
+  .replace(/[^\w.-]/g, "-")
 
 export type VercelCredentials = {
   token: string
@@ -87,16 +92,12 @@ export type VercelCredentials = {
 let resolvedScope: Promise<VercelCredentials> | undefined
 
 /**
- * The OIDC issuer of our team's sandbox tokens, `https://oidc.vercel.com/<team
- * slug>`. Only a slug in `VERCEL_TEAM_ID` gives it: a team-scoped token
- * cannot read the team to find the slug of an id.
+ * The OIDC issuer of our team's sandbox tokens: `https://oidc.vercel.com/`
+ * and the team id (`team_…`), as a real sandbox's token shows. The deploy
+ * may name the team by slug; `vercelCredentials` gives the id.
  */
-export function vercelOidcIssuer(
-  env: NodeJS.ProcessEnv = process.env,
-): string | undefined {
-  const team = env.VERCEL_TEAM_ID?.trim()
-  if (!team || team.startsWith("team_")) return undefined
-  return `https://oidc.vercel.com/${team}`
+export function vercelOidcIssuer(teamId: string): string {
+  return `https://oidc.vercel.com/${teamId}`
 }
 
 /** True when the backend can start Vercel sandboxes. */
@@ -448,6 +449,34 @@ async function refreshGitAccess(
   )
 }
 
+/**
+ * Wait until the system CA bundle is whole. The firewall adds its CA to
+ * `/etc/ssl/certs/ca-certificates.crt` after the sandbox starts, and a git
+ * command that reads the file during the write fails with "error adding trust
+ * anchors". A whole bundle is not empty, ends with a complete certificate, and has as
+ * many END lines as BEGIN lines. The wait is bounded (about 15 seconds). On a
+ * timeout the call logs a warning and goes on, so an image without a bundle
+ * never blocks a start.
+ */
+async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
+  const bundle = "/etc/ssl/certs/ca-certificates.crt"
+  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
+  for (let attempt = 0; attempt < 20; attempt++) {
+    const result = await handle.process.exec(check).catch(() => undefined)
+    if (result?.exitCode === 0) {
+      // The same file, read again, shows a finished write.
+      await new Promise((resolve) => setTimeout(resolve, 250))
+      const again = await handle.process.exec(check).catch(() => undefined)
+      if (again?.exitCode === 0) return
+    }
+    await new Promise((resolve) => setTimeout(resolve, 500))
+  }
+  log.warn({
+    step: "workspace-ca-bundle-wait",
+    message: `The CA bundle was not whole after the wait; git may fail to load it`,
+  })
+}
+
 /** The stock handle, with the agent port behind the OpenCode password and kill enabled. */
 function conversationHandle(
   sandbox: Sandbox,
@@ -501,6 +530,10 @@ export function vercelConversationProvider(input: {
   agentSnapshot: () => Promise<string>
   /** Added to this provider's log entries. */
   logContext?: { orgId: string; workspaceId: string }
+  /** Public ports; defaults to the OpenCode port. An ingest sandbox has none. */
+  ports?: number[]
+  /** The sandbox's time limit; defaults to the conversation backstop. */
+  timeoutMs?: number
 }): SandboxProvider {
   const { credentials, access } = input
   return {
@@ -514,9 +547,9 @@ export function vercelConversationProvider(input: {
           ...credentials,
           source: { type: "snapshot", snapshotId },
           resources: VERCEL_SANDBOX.resources,
-          ports: [WORKSPACE_CHAT_OPENCODE_PORT],
+          ports: input.ports ?? [WORKSPACE_CHAT_OPENCODE_PORT],
           persistent: true,
-          timeout: SESSION_TIMEOUT_MS,
+          timeout: input.timeoutMs ?? SESSION_TIMEOUT_MS,
           snapshotExpiration: STATE_RETENTION_MS,
           keepLastSnapshots: { count: 1, expiration: STATE_RETENTION_MS },
           networkPolicy: access.firewall.policy(gitToken),
@@ -562,7 +595,9 @@ export function vercelConversationProvider(input: {
         throw error
       }
       await access.tokens.put(sandbox.name, gitToken)
-      return conversationHandle(sandbox, input.agentPassword)
+      const handle = conversationHandle(sandbox, input.agentPassword)
+      await waitForCaBundle(handle)
+      return handle
     },
     async resume({ id }) {
       let sandbox: Sandbox
@@ -573,7 +608,9 @@ export function vercelConversationProvider(input: {
         return null
       }
       await refreshGitAccess(sandbox, access)
-      return conversationHandle(sandbox, input.agentPassword)
+      const handle = conversationHandle(sandbox, input.agentPassword)
+      await waitForCaBundle(handle)
+      return handle
     },
     async destroy({ id }) {
       await deleteVercelSandbox({
@@ -804,9 +841,11 @@ export async function startVercelWorkspaceBase(input: {
     await finish()
     throw error
   }
+  const handle = new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
+  await waitForCaBundle(handle)
   return {
     builderId: sandbox.name,
-    handle: new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] }),
+    handle,
     capture: async () =>
       (await sandbox.snapshot({ expiration: input.expiration })).snapshotId,
     finish,

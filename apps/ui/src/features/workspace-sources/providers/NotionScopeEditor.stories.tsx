@@ -62,7 +62,7 @@ type Story = StoryObj<typeof meta>
 export const SelectAPageAndADatabase: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(await canvas.findByText("Not ready")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("Not ready")).toBeVisible())
     await expect(
       canvas.getByText("Select at least one page or database."),
     ).toBeVisible()
@@ -90,9 +90,11 @@ export const SearchKeepsTheSelection: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement.ownerDocument.body)
-    await expect(
-      await canvas.findByRole("checkbox", { name: /Engineering handbook/ }),
-    ).toBeChecked()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: /Engineering handbook/ }),
+      ).toBeChecked(),
+    )
     await userEvent.type(
       canvas.getByRole("searchbox", { name: "Search Notion for Docs" }),
       "onboard",

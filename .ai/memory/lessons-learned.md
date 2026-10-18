@@ -218,7 +218,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** migrated from patterns.md (two entries)
 
 ### Durable repository indexing and admission
-- **Rule:** Durability belongs in OpenWorkflow step boundaries, and memory admission at process boundaries; do not add DIY codesearch or Postgres phase checkpoints or cross-step HTTP, Postgres or Redis leases. `repository-ingestion` runs the child workflow `repository-index` (clone-checkout, Zoekt (not fatal), detect-languages, `scip:${lang}` in parallel, merge-scip). A Zoekt failure returns `searchIndexOk: false`, and the parent marks `complete_with_issues` so extraction still runs. Codesearch phase APIs have no begin/end protocol: the in-process pipeline map stays across phases and is dropped on `merge-scip` or a fatal clone or detect response (an idle TTL reclaims abandoned holds). Overflow sleeps 30 s until a slot opens; do not escalate backoff or thread Retry-After, because this is a queue. Same-process index work may overlap, while purge takes a same-repository exclusive operation. Step badge writes are monotonic. Do not bump `repositories.updatedAt` as a heartbeat. After OpenWorkflow retries a crashed step, mark the run `failed`; do not reclaim `queued` or `running` by age. Extraction is OpenWorkflow plus ReAct (per root `extract-kind`, then `identify`); LangGraph is only for extraction agents, not the durable orchestrator.
+- **Rule:** Durability belongs in OpenWorkflow step boundaries, and memory admission at process boundaries; do not add DIY codesearch or Postgres phase checkpoints or cross-step HTTP, Postgres or Redis leases. `repository-ingestion` runs the child workflow `repository-index` (clone-checkout, Zoekt (not fatal), detect-languages, `scip:${lang}` in parallel, merge-scip). A Zoekt failure returns `searchIndexOk: false`, and the parent marks `complete_with_issues` so ingestion v2 still runs. Codesearch phase APIs have no begin/end protocol: the in-process pipeline map stays across phases and is dropped on `merge-scip` or a fatal clone or detect response (an idle TTL reclaims abandoned holds). Overflow sleeps 30 s until a slot opens; do not escalate backoff or thread Retry-After, because this is a queue. Same-process index work may overlap, while purge takes a same-repository exclusive operation. Step badge writes are monotonic. Do not bump `repositories.updatedAt` as a heartbeat. After OpenWorkflow retries a crashed step, mark the run `failed`; do not reclaim `queued` or `running` by age.
 - **Category:** convention
 - **Date:** 2026-08-11
 - **Source:** migrated from patterns.md (two entries)
@@ -589,3 +589,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** tooling
 - **Date:** 2026-10-15
 - **Source:** PR 280 parallel agent work: a stash pop applied the work of one agent to the branch of another agent
+
+### Linear has five statuses; "Waiting for human" needs a named action
+- **Rule:** Team CTX uses five statuses. `Backlog` holds ideas that are not ready and need more exploration by humans and agents. `Todo` is ready for an agent. `In Progress` means an agent works on it now, review agents included. `Waiting for human` means blocked until a human answers a question or does an action. `Done` is complete. This replaces the old `In Review` status. An agent moves a ticket to `Waiting for human` only with a comment that names the human action and who does it (the CTO, or the teammate who retests). A ticket that no agent works on and that waits for an event goes to `Todo`, with a comment that says when to pick it up.
+- **Category:** workflow
+- **Date:** 2026-10-18
+- **Source:** CTO decision that changed the Linear workflow

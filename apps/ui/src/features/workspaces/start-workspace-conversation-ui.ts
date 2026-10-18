@@ -63,6 +63,7 @@ export function seedWorkspaceConversation(input: {
       source: "ui",
       lastMessageAt: now,
       orgId: "",
+      userId: null,
       workspaceId: input.workspaceId,
       createdAt: now,
       updatedAt: now,

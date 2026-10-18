@@ -4,12 +4,9 @@ import { gitFileChangeSchema } from "../../services/git/file-change.js"
 import type { UnbornBootstrapBinding } from "./bootstrap-input.js"
 import type { ConnectorMirrorSource } from "./connector-mirror-input.js"
 import { connectorMirrorSourceSchema } from "./connector-mirror-input.js"
-import {
-  type WorkspaceExtraction,
-  workspaceExtractionSchema,
-} from "./extraction.js"
+import type { IngestPublishSource } from "./extraction-source.js"
 import type { WorkspaceRevision } from "./revision.js"
-import type { WorkspaceWriteKind } from "./write-jobs.js"
+import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 import { shouldEnqueueWorkspaceWriteJob } from "./write-jobs.js"
 
 export const WRITE_JOB_STATUSES = {
@@ -39,16 +36,21 @@ export type WorkspaceWritePlanning = {
 
 export type WorkspaceWriteJobPayload = {
   bootstrapBinding?: UnbornBootstrapBinding
-  extraction?: WorkspaceExtraction
+  extraction?: Record<string, unknown>
+  /** An ingestion v2 publish (T21): the run and its assembled tip. */
+  ingest?: IngestPublishSource
   revision?: WorkspaceRevision
   planning?: WorkspaceWritePlanning
   workflowRunId?: string
   semanticHandoff?: WorkspaceSemanticHandoff
-  exportTipSha?: string
   knowledgePaths?: Record<string, string>
   previousSha?: string
   mirror?: ConnectorMirrorSource
   displayName?: string
+  /** The source repository that an `unlink_retraction` job retracts. */
+  retractRepositoryUrl?: string
+  /** The removed source file of that repository (ADR-050, 2026-10-16). */
+  retractSourcePath?: string
   /** Why the job failed, when it failed for a known reason. */
   failureReason?: string
   defaultBranch?: string
@@ -70,7 +72,6 @@ const writeJobBaseSchema = z.object({
 })
 
 const writeJobKindSchema = z.enum([
-  "migration_export",
   "extract_ingest",
   "connector_mirror",
   "claims_upgrade",
@@ -81,18 +82,23 @@ const writeJobKindSchema = z.enum([
   "bootstrap",
   "ui_file_edit",
   "import_key_cleanup",
+  "ownership_migration",
+  "unlink_retraction",
 ])
 
 /** Shared enqueue + workflow input. Kind-specific fields stay on the payload. */
 export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
   kind: writeJobKindSchema,
-  extraction: workspaceExtractionSchema.optional(),
+  /** Retired: the capture of the old pipeline. An old payload still parses. */
+  extraction: z.record(z.string(), z.unknown()).optional(),
   mirror: connectorMirrorSourceSchema.optional(),
   previousSha: z
     .string()
     .regex(/^(?:[0-9a-f]{40}|[0-9a-f]{64})$/)
     .optional(),
   displayName: z.string().trim().min(1).optional(),
+  retractRepositoryUrl: z.string().min(1).optional(),
+  retractSourcePath: z.string().min(1).optional(),
   conflictParentSha: z.string().nullable().optional(),
   remoteTipSha: z.string().nullable().optional(),
   mergeFiles: z.array(gitFileChangeSchema).optional(),
@@ -109,6 +115,8 @@ export type WriteJobEnqueueFields = Pick<
   | "mirror"
   | "displayName"
   | "defaultBranch"
+  | "retractRepositoryUrl"
+  | "retractSourcePath"
   | "jobWorkspaceUrl"
   | "conflictParentSha"
   | "remoteTipSha"
@@ -124,6 +132,10 @@ export function writeJobIntentPayload(
   if (input.mirror) payload.mirror = input.mirror
   if (input.previousSha) payload.previousSha = input.previousSha
   if (input.displayName !== undefined) payload.displayName = input.displayName
+  if (input.retractRepositoryUrl)
+    payload.retractRepositoryUrl = input.retractRepositoryUrl
+  if (input.retractSourcePath)
+    payload.retractSourcePath = input.retractSourcePath
   if (input.defaultBranch) payload.defaultBranch = input.defaultBranch
   if (input.jobWorkspaceUrl) payload.jobWorkspaceUrl = input.jobWorkspaceUrl
   if (input.conflictParentSha !== undefined) {
@@ -177,7 +189,7 @@ export function enqueueInputFromPausedJob(input: {
   workspaceId: string
   job: {
     id: string
-    kind: WorkspaceWriteKind
+    kind: WorkspaceWriteJobKind
     generation: number
     desiredSha: string | null
     payload: WorkspaceWriteJobPayload | null
@@ -201,6 +213,12 @@ export function enqueueInputFromPausedJob(input: {
     ...(payload.extraction ? { extraction: payload.extraction } : {}),
     ...(payload.mirror ? { mirror: payload.mirror } : {}),
     ...(payload.previousSha ? { previousSha: payload.previousSha } : {}),
+    ...(payload.retractRepositoryUrl
+      ? { retractRepositoryUrl: payload.retractRepositoryUrl }
+      : {}),
+    ...(payload.retractSourcePath
+      ? { retractSourcePath: payload.retractSourcePath }
+      : {}),
     ...(payload.conflictParentSha !== undefined
       ? { conflictParentSha: payload.conflictParentSha }
       : {}),

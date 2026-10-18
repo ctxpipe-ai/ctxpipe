@@ -165,22 +165,27 @@ with `200` and never fetched.
 ## Upgrade from `pagerduty/config.yaml`
 
 Earlier versions kept the service scope in `pagerduty/config.yaml` in one sync
-repository. To move a connection to Workspace sources, run:
+repository. Upgrade step 1 of each Workspace moves the connection to Workspace
+sources. An org owner or admin starts it with **Start** in the
+Upgrades section of the Workspace settings. You can also start it from the
+command line:
 
 ```bash
 pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <orgId>
 pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <orgId> --apply
 ```
 
-The first command only prints the plan. With `--apply`, each Workspace that
-links the old sync repository gets a pull request that adds the merged
-services as a source, and the old per-connection sync stops. When the
-Workspace repository is the old sync repository, the same pull request moves
-each file in `pagerduty/incidents/` to
+The first command only prints the plan. With `--apply`, the command starts
+the Workspace upgrade, as the button does. The upgrade opens one pull request
+for each Workspace and never pushes to the default branch. When the Workspace
+links the old sync repository, the pull request adds the merged services as a
+source. The old per-connection sync stops after the merge, when the new source
+syncs. When the Workspace repository is the old sync repository, the same pull
+request moves each file in `pagerduty/incidents/` to
 `pagerduty/services/<serviceId>/incidents/`, with its assets. The service id
 comes from the `service_id` front matter of the file. Git keeps the history of
-each moved file, and no file is copied. A file without a readable `service_id`
-stays in `pagerduty/incidents/`.
+each moved file. A file without a readable `service_id` stays in
+`pagerduty/incidents/`.
 
 ## US and EU accounts
 

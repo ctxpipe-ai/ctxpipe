@@ -96,6 +96,8 @@ it(
         githubWriteView: "writable",
         writeStatus: "writable",
         traceGitCommands: true,
+        // Format 3: hydrate plans the claim writes only there.
+        format: 3,
         files: [
           { path: "knowledge/a.md", body: "# A\n[B](b.md)\n" },
           {

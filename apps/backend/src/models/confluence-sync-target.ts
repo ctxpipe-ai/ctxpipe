@@ -3,9 +3,6 @@ import { type Db, getOrgDb, withOrgDbContext } from "../db/client.js"
 import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { connections } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
-import { workspaceSources } from "../db/schema/workspace_sources.js"
-import { workspaces } from "../db/schema/workspaces.js"
-import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { getConnectionDirectoryByConnectionId } from "./connection-directory.js"
 import { reconcileConnectorContentSync } from "./connector-content-sync.js"
 import {
@@ -316,32 +313,6 @@ export async function finalizeConfluenceSyncTargetAfterContentWorkflow(input: {
     },
   )
   if (!updated) return
-}
-
-/**
- * True when a Workspace on this repository has an `ok` Confluence source
- * (ADR-050). Then only the Workspace sources sync writes `confluence/<KEY>/`,
- * and the legacy target of the repository must not write.
- */
-export async function isConfluenceTargetHandedOver(input: {
-  orgId: string
-  repositoryGitUrl: string
-}): Promise<boolean> {
-  const target = normalizeWorkspaceRepositoryUrl(input.repositoryGitUrl)
-  const rows = await withOrgDbContext(input.orgId, (db) =>
-    db
-      .selectDistinct({ url: workspaces.workspaceRepositoryUrl })
-      .from(workspaceSources)
-      .innerJoin(workspaces, eq(workspaces.id, workspaceSources.workspaceId))
-      .where(
-        and(
-          eq(workspaceSources.orgId, input.orgId),
-          eq(workspaceSources.provider, "confluence"),
-          eq(workspaceSources.status, "ok"),
-        ),
-      ),
-  )
-  return rows.some((row) => normalizeWorkspaceRepositoryUrl(row.url) === target)
 }
 
 /** Turn off the legacy sync target of a connection (migration `--apply`). */

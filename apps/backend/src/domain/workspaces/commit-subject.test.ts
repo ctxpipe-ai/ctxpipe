@@ -21,7 +21,7 @@ describe("commit subject", () => {
     await expect(
       generateCommitSubject({
         repoName: "docs",
-        trigger: "migration_export",
+        trigger: "extract_ingest",
         fileNames: ["knowledge/a.md"],
         generate: async () => "ctxpipe - Knowledge update of docs from export",
       }),

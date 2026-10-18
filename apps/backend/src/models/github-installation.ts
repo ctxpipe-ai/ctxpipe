@@ -815,7 +815,32 @@ export async function getInstallationOctokitForOrg(
       .repositoryNames,
     permissions: scope.permissions,
   })) as { token: string }
-  return { installation, octokit: new Octokit({ auth: token }) }
+  return {
+    installation,
+    octokit: new Octokit({ auth: token }),
+    appBotLogin: () => appBotLogin(app),
+  }
+}
+
+const appBotLogins = new WeakMap<App, Promise<string>>()
+
+/**
+ * The GitHub login of the App (`<slug>[bot]`): the author of each pull
+ * request that the App opens. GitHub gives the slug of each App on
+ * `GET /app`, also when the connection did not store it. One call for each
+ * App credential.
+ */
+function appBotLogin(app: App): Promise<string> {
+  const known = appBotLogins.get(app)
+  if (known) return known
+  const login = app.octokit.request("GET /app").then(({ data }) => {
+    if (!data?.slug) throw new Error("GitHub did not give the App slug")
+    return `${data.slug}[bot]`
+  })
+  // Do not keep a failure: the next call asks GitHub again.
+  login.catch(() => appBotLogins.delete(app))
+  appBotLogins.set(app, login)
+  return login
 }
 
 export async function userCanAccessInstallation(
@@ -901,7 +926,24 @@ export async function getRepoReadOctokit(
   input: { githubConnectionId?: string; repoFullName: string },
 ) {
   const token = await getRepoReadCloneToken(orgId, env, input)
-  return token ? new Octokit({ auth: token }) : undefined
+  if (!token) return undefined
+  return new Octokit({
+    auth: token,
+    // The retry plugin retries a 429 with its own 1, 4 and 9 s backoff, and it
+    // ignores `retry-after`. Only the throttle plugin handles a 429: it waits
+    // for `retry-after`, once, and only when that wait is short.
+    retry: { doNotRetry: [400, 401, 403, 404, 410, 422, 429, 451] },
+    throttle: {
+      onRateLimit: (
+        retryAfter: number,
+        options: { request: { retryCount: number } },
+      ) => options.request.retryCount === 0 && retryAfter <= 10,
+      onSecondaryRateLimit: (
+        retryAfter: number,
+        options: { request: { retryCount: number } },
+      ) => options.request.retryCount === 0 && retryAfter <= 10,
+    },
+  })
 }
 
 /** App-authenticated permission inspection issues no installation write credential. */

@@ -64,6 +64,25 @@ describe("hydrate write remainders", () => {
     expect(validFromPersistRemainder([unit({ claims: [] })])).toBe(0)
   })
 
+  it("does not count the FROM_SOURCE claim of the sources front matter, which has no valid_from to write", () => {
+    expect(
+      validFromPersistRemainder([
+        unit({
+          claims: [
+            {
+              to: "workspace:sources/github/acme/api.md",
+              predicate: "FROM_SOURCE",
+              confidence: 1,
+              validFrom: null,
+              validTo: null,
+              source: "git",
+            },
+          ],
+        }),
+      ]),
+    ).toBe(0)
+  })
+
   it("enqueues remaining kinds when writable or paused, not after relink", () => {
     expect(
       hydrateWriteJobsToEnqueue({

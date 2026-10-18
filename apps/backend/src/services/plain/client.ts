@@ -1,6 +1,9 @@
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
-import { PLAIN_REQUIRED_PERMISSIONS } from "../../domain/workspace-sources/providers/plain.js"
+import {
+  PLAIN_REQUIRED_PERMISSIONS,
+  plainIdSchema,
+} from "../../domain/workspace-sources/providers/plain.js"
 import type {
   PlainArticleForMirror,
   PlainThreadForMirror,
@@ -243,7 +246,8 @@ export async function listPlainLabelTypes(
 }
 
 const articleNode = z.object({
-  id: z.string(),
+  // The id is a path segment of the file (ADR-055).
+  id: plainIdSchema,
   title: z.string(),
   slug: z.string(),
   contentHtml: z.string(),
@@ -318,7 +322,8 @@ const actorSchema = z
   )
 
 const threadNode = z.object({
-  id: z.string(),
+  // The id is a path segment of the file (ADR-055).
+  id: plainIdSchema,
   ref: z.string(),
   title: z.string(),
   status: z.string(),

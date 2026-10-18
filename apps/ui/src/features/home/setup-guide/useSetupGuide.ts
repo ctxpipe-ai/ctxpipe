@@ -2,7 +2,10 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
-import { workspaceHydrateInFlight } from "@/features/workspaces/projection"
+import {
+  workspaceHydrateInFlight,
+  workspaceHydrateView,
+} from "@/features/workspaces/projection"
 import {
   landingWorkspace,
   workspaceDetailOptions,
@@ -11,6 +14,7 @@ import {
 import type { Workspace } from "@/features/workspaces/types"
 import { pollWhileOk } from "@/lib/api-result"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import { useOrgMemberRole } from "@/lib/org-member-role"
 import { isAdminRole, sessionUser } from "@/lib/session-user"
 import { useOrgGuide } from "@/lib/useOrgGuide"
 import {
@@ -19,7 +23,8 @@ import {
   type GuideView,
   guideRows,
   guideView,
-  isWithinGuideWindow,
+  isGuideRecent,
+  oldestCreatedAt,
 } from "./guide-state"
 
 /** When this app load started. The complete line shows on one load only. */
@@ -52,17 +57,11 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
   const { data: session, isPending: sessionPending } = useSession()
   const user = sessionUser(session)
   const { data: organizations } = useListOrganizations()
-  const organizationId =
-    organizations?.find((org) => org.slug === orgSlug)?.id ?? ""
+  const organization = organizations?.find((org) => org.slug === orgSlug)
+  const organizationId = organization?.id ?? ""
   const [guidePrefs, updateGuide, prefsLoaded] = useOrgGuide(orgSlug)
 
-  const roleQuery = useQuery({
-    queryKey: ["organization-member-role", orgSlug],
-    queryFn: () =>
-      authClient.organization.getActiveMemberRole({
-        query: { organizationSlug: orgSlug },
-        fetchOptions: { throw: true },
-      }),
+  const roleQuery = useOrgMemberRole(orgSlug, {
     enabled: user !== null,
     refetchOnMount: "always",
   })
@@ -119,6 +118,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
   })
 
   const workspaces = listQuery.data?.items ?? []
+  const firstWorkspaceCreatedAt = oldestCreatedAt(workspaces)
   const asked = workspaces.some((item) => item.mostRecentConversationId)
   const pending =
     sessionPending ||
@@ -136,7 +136,7 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
     role,
     githubLinked: githubQuery.data === "linked",
     workspaceCount: workspaces.length,
-    landingBuilding: landing !== null && workspaceHydrateInFlight(landing),
+    landingBuild: landing ? workspaceHydrateView(landing) : null,
     linkedRepositories: (detailQuery.data?.linkedRepositories.length ?? 0) > 0,
     asked,
     toolConnected: (connectionsQuery.data ?? []).some(
@@ -156,6 +156,10 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
           rows,
           prefs: guidePrefs,
           onboardingCompletedAt: user.onboardingCompletedAt,
+          orgCreatedAt: organization?.createdAt,
+          firstWorkspaceCreatedAt,
+          // A failed list read is not "no Workspace": it must not open the guide.
+          workspaceCount: listQuery.data ? workspaces.length : null,
           now: Date.now(),
           appBootAt: APP_BOOT_AT,
         })
@@ -177,7 +181,13 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
       mayShow:
         prefsLoaded &&
         !guidePrefs.dismissedAt &&
-        isWithinGuideWindow(user?.onboardingCompletedAt, Date.now()),
+        (listQuery.data?.items.length === 0 ||
+          isGuideRecent({
+            onboardingCompletedAt: user?.onboardingCompletedAt,
+            orgCreatedAt: organization?.createdAt,
+            firstWorkspaceCreatedAt,
+            now: Date.now(),
+          })),
       collapsed: guidePrefs.collapsed ?? asked,
     }
   }

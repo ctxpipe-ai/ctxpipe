@@ -759,6 +759,7 @@ it(
             orgId: org.id,
             revision: rejectedRevision,
             displayName: null,
+            formatVersion: 0,
             units: [duplicate, duplicate],
             skipped: [],
             embeddingModel: "fixture-embedding",

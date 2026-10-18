@@ -1,7 +1,9 @@
 import { and, eq } from "drizzle-orm"
 import { getAuth } from "../../auth/config.js"
 import { withUserIdContext } from "../../auth/context.js"
+import { isAllowedRequestOrigin } from "../../auth/request-origin.js"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import type { Env } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { members, organizations } from "../../db/schema/auth.js"
 import {
@@ -66,9 +68,16 @@ type ChatSocket = {
   close: (code?: number, reason?: string) => void
 }
 
+/**
+ * Upgrade a chat WebSocket. A browser sends the session cookie on a
+ * WebSocket from any page, so the upgrade needs an `Origin` of this app,
+ * by the same rule as `/mcp`. A chat turn changes the conversation, so an
+ * API key, which is read-only, cannot open the socket.
+ */
 export async function handleConversationWebSocket(
   request: Request,
   server: UpgradeServer,
+  env: Pick<Env, "AUTH_BASE_URL" | "AUTH_ALLOWED_ORIGINS">,
 ): Promise<Response | undefined> {
   if (!isWorkspaceChatWebSocketRequest(request)) return undefined
   const parsedUrl = parseConversationWebSocketUpgradeUrl(request.url)
@@ -76,6 +85,13 @@ export async function handleConversationWebSocket(
   const conversationId = parsedUrl?.conversationId
   if (!orgSlug || !conversationId) {
     return new Response("Not found", { status: 404 })
+  }
+  const origin = request.headers.get("origin")
+  if (!origin || !isAllowedRequestOrigin(env, origin)) {
+    return new Response("Forbidden", { status: 403 })
+  }
+  if (request.headers.has("x-api-key")) {
+    return new Response("Forbidden", { status: 403 })
   }
 
   const auth = getAuth()

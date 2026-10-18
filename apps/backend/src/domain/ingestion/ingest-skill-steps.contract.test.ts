@@ -34,6 +34,7 @@ import {
 import type {
   IngestDestination,
   IngestShardRuntime,
+  IngestStepUsage,
 } from "./ingest-shard-runtime.js"
 import { type IngestSkillPlan, plannedIngestSkills } from "./ingestion-plan.js"
 import { gitSource } from "./patch-validator.js"
@@ -59,6 +60,8 @@ import { readIngestSkillBundle } from "./skill-bundle.js"
  */
 
 const SOURCE_URL = "https://github.com/example-org/shop"
+// The source file of SOURCE_URL in the Workspace: the value of `sources`.
+const SOURCE_PATH = "sources/github/example-org/shop.md"
 const WORKSPACE_ID = "ws_steps"
 const STUB_PORT = 47813
 const STUB_CALLS = "/tmp/stub-calls.json"
@@ -165,7 +168,8 @@ http.createServer((req, res) => {
       res.end(chunk({ role: "assistant", tool_calls: [{ index: 0, id: "call_" + done, type: "function", function: { name: "bash", arguments: JSON.stringify({ command: next, description: "Run a step command" }) } }] }, null) + chunk({}, "tool_calls") + "data: [DONE]\\n\\n")
       return
     }
-    res.end(chunk({ role: "assistant", content: "done" }, null) + chunk({}, "stop") + "data: [DONE]\\n\\n")
+    const usage = "data: " + JSON.stringify({ id: "c", object: "chat.completion.chunk", created: 1, model: "stub", choices: [], usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 } }) + "\\n\\n"
+    res.end(chunk({ role: "assistant", content: "done" }, null) + chunk({}, "stop") + usage + "data: [DONE]\\n\\n")
   })
 }).listen(${STUB_PORT}, "127.0.0.1")
 `
@@ -215,6 +219,8 @@ let destination: IngestDestination
 let skills: IngestSkillPlan[]
 /** The step names in the order the host ran them. */
 const ran: string[] = []
+/** The usage that `runIngestShardStep` read from each model step. */
+const modelUsage: Array<IngestStepUsage | undefined> = []
 
 const ASSEMBLED = ingestRefName({ runId: RUN_ID, workspaceId: WORKSPACE_ID })
 const SHARD = ingestRefName({
@@ -228,6 +234,7 @@ const fresh = (): IngestionShardWorkspace => ({
   ops: 0,
   rejects: 0,
   partial: 0,
+  partialRoots: [],
 })
 /** The assembled ref: the repository step, then assemble and the repository-wide steps. */
 const assembled = fresh()
@@ -324,7 +331,11 @@ async function hostSkill(input: {
   )
   if (!plan)
     throw new Error(`The plan has no ${input.scope} step of ${input.skill}`)
-  const args = ingestSkillArguments({ root: input.root, sourceUrl: SOURCE_URL })
+  const args = ingestSkillArguments({
+    root: input.root,
+    sourceUrl: SOURCE_URL,
+    sourcePath: SOURCE_PATH,
+  })
   await handle.fs.write(
     STUB_CALLS,
     JSON.stringify(input.calls ? input.calls(args) : []),
@@ -424,6 +435,7 @@ beforeAll(async () => {
     generation: 1,
     pinnedRevision: pinned,
     repositoryId: null,
+    sourcePath: SOURCE_PATH,
   }
   const job = { runId: RUN_ID, workspaceId: WORKSPACE_ID }
   broker = {
@@ -451,7 +463,7 @@ beforeAll(async () => {
   const index = stepContextIndex({
     workspaceId: WORKSPACE_ID,
     pinnedRevision: pinned,
-    sourceUrl: SOURCE_URL,
+    sourcePath: SOURCE_PATH,
     repoDir: indexDir,
     projection: async () => projection,
     fetch: async (what, into) => {
@@ -466,13 +478,15 @@ beforeAll(async () => {
     ensure: async () => undefined,
     discoverRoots: async () => null,
     runStep: async (step) => {
-      await runIngestShardStep(root, {
+      const { usage } = await runIngestShardStep(root, {
         step,
         agentEnv,
         remote: "/tmp/remotes/context.git",
         sourceUrl: SOURCE_URL,
+        sourcePath: SOURCE_PATH,
         index: (await index.at(step.baseCommit, step.fetchRef)).json,
       })
+      if (step.run === "model") modelUsage.push(usage)
       return { tar: await collectIngestStep(handle, root) }
     },
   }
@@ -810,6 +824,15 @@ describe("one ingestion run of each skill through the host path (Docker)", () =>
       `skill:repository:decisions:${WORKSPACE_ID}`,
       `skill:repository:instruction-areas:${WORKSPACE_ID}`,
     ])
+    // Each model step reads its usage from the JSON events of the real
+    // `opencode run`. The stub model has no price, so no cost is known.
+    expect(modelUsage.length).toBeGreaterThan(0)
+    for (const usage of modelUsage) {
+      expect(usage).toBeDefined()
+      expect(usage?.inputTokens).toBeGreaterThanOrEqual(100)
+      expect(usage?.outputTokens).toBeGreaterThanOrEqual(10)
+      expect(usage).not.toHaveProperty("costUsd")
+    }
     // Resume: the last step's commit is the ref tip, so the host returns
     // it and the sandbox does no work.
     const tip = assembled.tip

@@ -1,6 +1,9 @@
 import { isDeepStrictEqual } from "node:util"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
-import { githubSourceScopeRepositories } from "./providers/github.js"
+import {
+  githubRepositoryUrls,
+  githubSourceScopeRepositories,
+} from "./providers/github.js"
 import {
   checkSourcePath,
   SOURCE_FILE_MAX_BYTES,
@@ -99,6 +102,8 @@ export type PreviousSourceRow = {
   connectionId: string | null
   scope: unknown
   status: string
+  /** The stored state: an `invalid` row keeps its `lastGoodTarget` there. */
+  state?: unknown
 }
 
 /**
@@ -434,6 +439,53 @@ function holdsOverlap(a: Holds, b: Holds): boolean {
 }
 
 /**
+ * A GitHub source file keeps the repository that it linked: a file that now
+ * names another repository is invalid. Its row keeps the last good target,
+ * so the knowledge of that repository stays and no retraction starts until
+ * the file names it again or goes away. The repository of the previous row
+ * is its own scope, or the last good target when it is invalid.
+ */
+function refuseRepositoryChanges(
+  rows: PlannedSourceRow[],
+  entries: ReadonlyMap<string, SourceEntry>,
+  yamlKeys: ReadonlySet<string>,
+  previous: ReadonlyArray<PreviousSourceRow>,
+): void {
+  for (const row of rows) {
+    const entry = entries.get(row.sourceKey)
+    const before = previous.find((other) => other.sourceKey === row.sourceKey)
+    if (
+      !entry ||
+      !before ||
+      entry.provider !== "github" ||
+      yamlKeys.has(row.sourceKey) ||
+      !HOLDING_STATUSES.has(row.status)
+    )
+      continue
+    const target =
+      before.status === "invalid"
+        ? (before.state as { lastGoodTarget?: unknown } | null)?.lastGoodTarget
+        : HOLDING_STATUSES.has(before.status)
+          ? before
+          : null
+    const linked =
+      target && (target as { provider?: unknown }).provider === "github"
+        ? githubRepositoryKeys(target as { scope: unknown })
+        : []
+    const named = githubRepositoryKeys(entry)
+    if (
+      linked.length &&
+      (linked.length !== named.length ||
+        linked.some((repository) => !named.includes(repository)))
+    ) {
+      row.status = "invalid"
+      row.statusDetail =
+        "The file names another repository than the one it links. To link another repository, add a new source file; remove this one to unlink."
+    }
+  }
+}
+
+/**
  * Make each holding row that conflicts with a stronger holding row invalid.
  * A row that held at the previous revision is the strongest. A new key that
  * holds what a removed holding row held (a rename) is next. Of two rows of
@@ -461,6 +513,7 @@ function applyCrossSourceRules(
     paths: input.managedPaths?.(entry) ?? [],
   })
   const previous = input.previousRows ?? []
+  refuseRepositoryChanges(rows, entries, yamlKeys, previous)
   const currentKeys = new Set(rows.map((row) => row.sourceKey))
   const previousKeys = new Set(previous.map((row) => row.sourceKey))
   const heldBefore = previous.filter((row) => HOLDING_STATUSES.has(row.status))
@@ -571,6 +624,35 @@ export async function sourcesHaveNone(
     scope: unknown
   }>,
 ): Promise<boolean> {
+  return sourcesHoldNo(sources, (row) =>
+    targets.some(
+      (target) =>
+        target.provider === row.provider &&
+        target.connectionId === row.connectionId &&
+        isDeepStrictEqual(target.scope, row.scope),
+    ),
+  )
+}
+
+/**
+ * Tell if no GitHub source names the repository `gitUrl`, with any
+ * connection or status. An invalid entry still names the repository that it
+ * names. As in {@link sourcesHaveNone}, a file that cannot be read gives false.
+ */
+export async function sourcesHaveNoRepository(
+  sources: { text: string | null; sourceFiles?: ReadonlyArray<SourceFileBlob> },
+  gitUrl: string,
+): Promise<boolean> {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  return sourcesHoldNo(sources, (row) =>
+    githubRepositoryUrls(row).includes(target),
+  )
+}
+
+async function sourcesHoldNo(
+  sources: { text: string | null; sourceFiles?: ReadonlyArray<SourceFileBlob> },
+  holds: (row: PlannedSourceRow) => boolean,
+): Promise<boolean> {
   const rows = await planSourceRows({
     text: sources.text,
     files: sources.sourceFiles,
@@ -585,13 +667,6 @@ export async function sourcesHaveNone(
         row.sourceKey.startsWith("sources/") &&
         Object.keys(row.scope).length === 0,
     ) &&
-    !rows.some((row) =>
-      targets.some(
-        (target) =>
-          target.provider === row.provider &&
-          target.connectionId === row.connectionId &&
-          isDeepStrictEqual(target.scope, row.scope),
-      ),
-    )
+    !rows.some(holds)
   )
 }
