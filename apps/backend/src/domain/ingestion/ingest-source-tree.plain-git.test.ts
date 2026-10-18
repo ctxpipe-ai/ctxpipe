@@ -24,9 +24,7 @@ import { MAX_SOURCE_READ_BYTES } from "./patch-validator.js"
 
 /*
  * The host copy of a plain git source (CTX-815), with real git and a real
- * local Git HTTP server. The host name `plain-git.invalid` has no DNS
- * record and the read has no `url.insteadOf`: git reaches the server only
- * through the address that the check pinned (`http.curloptResolve`).
+ * local Git HTTP server at an IP host (self-host).
  */
 
 const RUN_ID = `run_plain_source_tree_${Date.now()}`
@@ -38,11 +36,8 @@ let root: string
 let sha: string
 let largeSha: string
 let server: Awaited<ReturnType<typeof startGitHttpServer>>
-/** The DNS of the test: only `plain-git.invalid`, at the loopback address. */
-const pinned = {
-  lookup: async (host: string) =>
-    host === "plain-git.invalid" ? [{ address: "127.0.0.1" }] : [],
-}
+/** The DNS of the test: no host name has an address. */
+const network = { lookup: async () => [] }
 
 function git(cwd: string, args: string[]): string {
   return execFileSync("git", args, { cwd, encoding: "utf8" }).trim()
@@ -104,7 +99,7 @@ beforeAll(async () => {
 beforeEach(() => {
   // Self-host: plain http, a private address, and another port.
   vi.stubEnv("SANDBOX_PROVIDER", "docker")
-  usePlainGitNetwork(pinned)
+  usePlainGitNetwork(network)
 })
 
 afterEach(() => {
@@ -112,18 +107,23 @@ afterEach(() => {
 })
 
 afterAll(async () => {
-  usePlainGitNetwork(pinned)()
+  usePlainGitNetwork(network)()
   await server?.stop()
   rmSync(root, { recursive: true, force: true })
 })
 
-function treeFor(holder: string, name = "app", commit = sha) {
+function treeFor(
+  holder: string,
+  name = "app",
+  commit = sha,
+  host = "127.0.0.1",
+) {
   return ingestSourceTree({
     orgId: "org_fixture",
     runId: RUN_ID,
     source: {
       kind: "git",
-      url: `http://plain-git.invalid:${server.port}/team/${name}.git`,
+      url: `http://${host}:${server.port}/team/${name}.git`,
     },
     sha: commit,
     env,
@@ -132,7 +132,7 @@ function treeFor(holder: string, name = "app", commit = sha) {
 }
 
 describe("ingestSourceTree of a plain git source", () => {
-  it("gets each file in the first fetch through the pinned address, so a read never connects to the host", async () => {
+  it("gets each file in the first fetch, so a read never connects to the host", async () => {
     const tree = treeFor("reads")
     try {
       expect(await tree.paths()).toEqual(["README.md", "large.bin", "src.ts"])
@@ -151,7 +151,7 @@ describe("ingestSourceTree of a plain git source", () => {
   })
 
   it("stops a host that does not send the pack in time", async () => {
-    usePlainGitNetwork({ ...pinned, limits: { timeoutMs: 2_000 } })
+    usePlainGitNetwork({ ...network, limits: { timeoutMs: 2_000 } })
     const started = Date.now()
     await expect(treeFor("slow", "slow").paths()).rejects.toThrow(
       /did not finish in 2000 ms/,
@@ -160,14 +160,16 @@ describe("ingestSourceTree of a plain git source", () => {
   }, 30_000)
 
   it("stops a pack that is larger than the size limit", async () => {
-    usePlainGitNetwork({ ...pinned, limits: { maxFileBytes: 64 * 1024 } })
+    usePlainGitNetwork({ ...network, limits: { maxFileBytes: 64 * 1024 } })
     await expect(treeFor("large", "pack", largeSha).paths()).rejects.toThrow()
   }, 30_000)
 
   it("refuses a host that resolves to a cloud metadata address on self-host", async () => {
     usePlainGitNetwork({ lookup: async () => [{ address: "169.254.169.254" }] })
     const before = server.requests.length
-    await expect(treeFor("metadata").paths()).rejects.toMatchObject({
+    await expect(
+      treeFor("metadata", "app", sha, "plain-git.invalid").paths(),
+    ).rejects.toMatchObject({
       rule: "metadata_address",
     })
     expect(server.requests.length).toBe(before)

@@ -13,7 +13,7 @@ import {
   it,
   vi,
 } from "vitest"
-import type { PinnedPlainGitRemote } from "../../../../../shared/plain-git.js"
+import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import type { Db } from "../../db/client.js"
 import {
   bareRepository,
@@ -27,9 +27,7 @@ import { phaseCloneCheckout } from "./phases.js"
 /*
  * Codesearch reads a repository with no GitHub token only through the plain
  * git remote that the backend checked (CTX-815), with real git against a
- * real local Git HTTP server. The host name `plain-git.invalid` has no DNS
- * record: git reaches the server only through the checked address that the
- * remote pins (`http.curloptResolve`).
+ * real local Git HTTP server.
  */
 
 let root: string
@@ -92,20 +90,20 @@ afterAll(async () => {
   await rm(root, { recursive: true, force: true })
 })
 
-function pinned(path: string, overrides: Partial<PinnedPlainGitRemote> = {}) {
+function checked(
+  path: string,
+  overrides: Partial<CheckedPlainGitRemote> = {},
+): CheckedPlainGitRemote {
   return {
-    url: `http://plain-git.invalid:${server.port}${path}`,
-    host: "plain-git.invalid",
-    port: server.port,
-    addresses: ["127.0.0.1"],
-    policy: { http: true, privateHosts: true },
+    url: `http://127.0.0.1:${server.port}${path}`,
+    http: true,
     ...overrides,
   }
 }
 
 function context(
   name: string,
-  input: { repoGitUrl: string; plainGit?: PinnedPlainGitRemote },
+  input: { repoGitUrl: string; plainGit?: CheckedPlainGitRemote },
 ) {
   return {
     // Step writes are best-effort; an unusable database only drops them.
@@ -128,20 +126,18 @@ function since(before: number): GitHttpRequest[] {
 }
 
 describe("phaseCloneCheckout of a plain git repository", () => {
-  it("clones the checked URL through the pinned address, not the stored URL, with no proxy and no global config", async () => {
-    // A proxy and a global git config of the codesearch process: a plain
-    // git read uses neither.
-    vi.stubEnv("http_proxy", "http://127.0.0.1:1")
-    vi.stubEnv("HTTP_PROXY", "http://127.0.0.1:1")
+  it("clones the checked URL, not the stored URL, with no global config", async () => {
+    // A global git config of the codesearch process with a proxy: a plain
+    // git read does not use it.
     const config = join(root, "gitconfig")
     await writeFile(config, "[http]\n\tproxy = http://127.0.0.1:1\n")
     vi.stubEnv("GIT_CONFIG_GLOBAL", config)
     const before = server.requests.length
     const result = await phaseCloneCheckout(
-      context("pinned", {
+      context("checked", {
         // The stored row: another scheme and host than the checked URL.
         repoGitUrl: "ssh://git@plain-git.invalid/team/app.git",
-        plainGit: pinned("/team/app.git"),
+        plainGit: checked("/team/app.git"),
       }),
       {},
     )
@@ -149,9 +145,9 @@ describe("phaseCloneCheckout of a plain git repository", () => {
     expect(
       await git(
         ["remote", "get-url", "origin"],
-        join(root, "clones", "pinned"),
+        join(root, "clones", "checked"),
       ),
-    ).toBe(`http://plain-git.invalid:${server.port}/team/app.git`)
+    ).toBe(`http://127.0.0.1:${server.port}/team/app.git`)
     expect(since(before).every((r) => r.url.startsWith("/team/app.git/"))).toBe(
       true,
     )
@@ -163,7 +159,7 @@ describe("phaseCloneCheckout of a plain git repository", () => {
       phaseCloneCheckout(
         context("moved", {
           repoGitUrl: `http://127.0.0.1:${server.port}/team/moved.git`,
-          plainGit: pinned("/team/moved.git"),
+          plainGit: checked("/team/moved.git"),
         }),
         {},
       ),
@@ -196,7 +192,7 @@ describe("phaseCloneCheckout of a plain git repository", () => {
       phaseCloneCheckout(
         context("scheme", {
           repoGitUrl: url(root),
-          plainGit: pinned("/x", { url: url(root) }),
+          plainGit: checked("/x", { url: url(root) }),
         }),
         {},
       ),
@@ -208,53 +204,11 @@ describe("phaseCloneCheckout of a plain git repository", () => {
       phaseCloneCheckout(
         context("hosted-http", {
           repoGitUrl: "http://plain-git.invalid/team/app.git",
-          plainGit: pinned("/team/app.git", {
-            policy: { http: false, privateHosts: false },
-            addresses: ["93.184.215.14"],
-          }),
+          plainGit: checked("/team/app.git", { http: false }),
         }),
         {},
       ),
     ).rejects.toThrow(/https:\/\/ URL/)
-  })
-
-  it.each([
-    "169.254.169.254",
-    "169.254.170.2",
-    "::ffff:169.254.169.254",
-    "::169.254.169.254",
-    "64:ff9b::a9fe:a9fe",
-    "fd00:ec2::254",
-    "fe80::1",
-  ])("refuses a self-host remote that resolves to the metadata address %s", async (address) => {
-    const before = server.requests.length
-    await expect(
-      phaseCloneCheckout(
-        context("metadata", {
-          repoGitUrl: "http://plain-git.invalid/team/app.git",
-          plainGit: pinned("/team/app.git", { addresses: [address] }),
-        }),
-        {},
-      ),
-    ).rejects.toThrow(/cloud metadata or link-local/)
-    expect(since(before)).toEqual([])
-  })
-
-  it("refuses a hosted remote with a private address", async () => {
-    await expect(
-      phaseCloneCheckout(
-        context("hosted-private", {
-          repoGitUrl: "https://plain-git.invalid/team/app.git",
-          plainGit: pinned("/team/app.git", {
-            url: "https://plain-git.invalid/team/app.git",
-            port: 443,
-            addresses: ["10.0.0.5"],
-            policy: { http: false, privateHosts: false },
-          }),
-        }),
-        {},
-      ),
-    ).rejects.toThrow(/private, loopback, or link-local/)
   })
 
   it("stops a host that does not send the pack in time", async () => {
@@ -265,7 +219,7 @@ describe("phaseCloneCheckout of a plain git repository", () => {
         phaseCloneCheckout(
           context("slow", {
             repoGitUrl: "http://plain-git.invalid/team/slow.git",
-            plainGit: pinned("/team/slow.git"),
+            plainGit: checked("/team/slow.git"),
           }),
           {},
         ),
@@ -283,7 +237,7 @@ describe("phaseCloneCheckout of a plain git repository", () => {
         phaseCloneCheckout(
           context("large", {
             repoGitUrl: "http://plain-git.invalid/team/large.git",
-            plainGit: pinned("/team/large.git"),
+            plainGit: checked("/team/large.git"),
           }),
           {},
         ),
@@ -295,7 +249,7 @@ describe("phaseCloneCheckout of a plain git repository", () => {
     const result = await phaseCloneCheckout(
       context("large-ok", {
         repoGitUrl: "http://plain-git.invalid/team/large.git",
-        plainGit: pinned("/team/large.git"),
+        plainGit: checked("/team/large.git"),
       }),
       {},
     )

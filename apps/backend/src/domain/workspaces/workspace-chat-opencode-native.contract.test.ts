@@ -29,6 +29,7 @@ import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
 import { createWorkspaceChatPermissionHandler } from "./chat-sandbox-policy.js"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
+import { withOpencodeServeRetry } from "./sandbox-process-guards.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 import { turnAgentPassword } from "./vercel-sandbox-provider.js"
 import { workspaceChatOpenCodeConfig } from "./workspace-chat-opencode-contract.js"
@@ -46,6 +47,45 @@ function deferred<T>(): {
   })
   return { promise, resolve, reject }
 }
+
+it(
+  "starts the real OpenCode again on a fresh port when its port is taken",
+  { timeout: 30_000 },
+  async () => {
+    const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-port-"))
+    // The chat picks a port with bind(0) and closes it. Another socket can
+    // take that port before serve binds it.
+    const holder = createServer()
+    await new Promise<void>((resolve, reject) => {
+      holder.once("error", reject)
+      holder.listen(0, "127.0.0.1", () => resolve())
+    })
+    const address = holder.address()
+    if (!address || typeof address === "string")
+      throw new Error("Could not hold a local port")
+    const sandbox = await withOpencodeServeRetry(
+      localProcessSandbox({ dir: directory, removeOnDestroy: true }),
+    ).create({ id: directory, workspace: { source: { type: "none" } } })
+    let server: SandboxOpencodeServer | undefined
+    try {
+      await sandbox.env.set(
+        syntheticOpencodeEnv(directory, "http://127.0.0.1:9"),
+      )
+      server = await startOpencodeServerInSandbox(sandbox, {
+        port: address.port,
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      expect(server.baseUrl).not.toBe(`http://127.0.0.1:${address.port}`)
+      expect((await fetch(`${server.baseUrl}/global/health`)).status).toBe(200)
+    } finally {
+      await server?.dispose()
+      await sandbox.destroy()
+      await new Promise<void>((resolve) => holder.close(() => resolve()))
+      await rm(directory, { recursive: true, force: true })
+    }
+  },
+)
 
 it(
   "escalates a TERM-resistant OpenCode wrapper during server disposal",

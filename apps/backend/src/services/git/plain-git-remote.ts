@@ -1,12 +1,9 @@
 import { lookup as dnsLookup } from "node:dns/promises"
-import https from "node:https"
-import { isIP } from "node:net"
-import { Readable } from "node:stream"
 import {
+  type CheckedPlainGitRemote,
   ipLiteral,
   isMetadataAddress,
   isPublicAddress,
-  type PinnedPlainGitRemote,
   plainGitRemoteEnvironment as sharedPlainGitRemoteEnvironment,
 } from "../../../../../shared/plain-git.js"
 import {
@@ -27,11 +24,9 @@ export { isMetadataAddress, isPublicAddress }
  * repository with no credential. Before each read, the host must obey the
  * URL policy of the deployment mode (`plainGitUrlPolicy`). Hosted: the
  * host name must resolve only to public addresses. Self-host: the host
- * must not resolve to a cloud metadata or link-local address. Each git
- * read of the backend and of codesearch connects only to the addresses
- * that this check saw (`http.curloptResolve`), so a DNS answer that changes
- * after the check cannot send git to another address. Git follows no
- * redirect. The Docker sandbox is different: it fetches through Agent
+ * must not resolve to a cloud metadata or link-local address. Git then
+ * does its own DNS lookup, through the proxy of the operator if there is
+ * one (self-host). Git follows no redirect. The Docker sandbox is different: it fetches through Agent
  * Vault, which does its own DNS lookup (see `ingest-sandbox-egress.ts`).
  */
 
@@ -129,7 +124,7 @@ export function plainGitFetchLimits(): PlainGitFetchLimits {
  * then the DNS rule. Unless the policy allows private hosts, each address
  * of the host must be public. In each mode, no address can be a cloud
  * metadata or link-local address ({@link isMetadataAddress}). Returns the
- * URL and the addresses that git must use. A caller that must keep the
+ * URL and the addresses that the check saw. A caller that must keep the
  * strict rule in each mode (the hosted egress proxy) gives the hosted
  * policy.
  */
@@ -172,57 +167,37 @@ export async function resolvePlainGitRemote(
 
 /**
  * {@link resolvePlainGitRemote} in the form that codesearch takes in an
- * index request: the checked URL, its host, port, and addresses, and the
- * policy of the check. Codesearch reads a repository that has no GitHub
- * token only through it.
+ * index request: the checked URL, and whether the deployment mode allows
+ * `http://`. Codesearch reads a repository that has no GitHub token only
+ * through it.
  */
-export async function pinnedPlainGitRemote(
+export async function checkedPlainGitRemote(
   raw: string,
-): Promise<PinnedPlainGitRemote> {
+): Promise<CheckedPlainGitRemote> {
   const policy = plainGitUrlPolicy(plainGitDeployment())
   const remote = await resolvePlainGitRemote(raw, network.lookup, policy)
-  return {
-    url: remote.url,
-    host: remote.host,
-    port: remote.port,
-    addresses: remote.addresses,
-    policy: { http: policy.http, privateHosts: policy.privateHosts },
-  }
+  return { url: remote.url, http: policy.http }
 }
 
 /**
- * The full git environment of one read of a checked plain git remote (the
- * shared `plainGitRemoteEnvironment`): no credential and no prompt, HTTPS
- * only (also `http` for an `http://` URL when the policy of the deployment
- * mode allows it: self-host only), no redirect, a host name pinned to the
- * checked addresses, no system or global git config, a low-speed limit, and
- * only a short list of the variables of the backend process (no proxy, no
- * `GIT_SSL_NO_VERIFY`, no `GIT_CONFIG_*`). It is the whole environment: do
- * not merge it over `process.env`. `extra` is the test config of
- * {@link PlainGitNetwork}.
+ * The full git environment of one read of the checked plain git URL `url`
+ * (the shared `plainGitRemoteEnvironment`): no credential and no prompt,
+ * HTTPS only (also `http` for an `http://` URL when the policy of the
+ * deployment mode allows it: self-host only), no redirect, no system or
+ * global git config, a low-speed limit, and only a short list of the
+ * variables of the backend process (the proxy, but no `GIT_SSL_NO_VERIFY`
+ * and no `GIT_CONFIG_*`). It is the whole environment: do not merge it over
+ * `process.env`. `extra` is the test config of {@link PlainGitNetwork}.
  */
 export function plainGitRemoteEnvironment(
-  remote: {
-    url?: string
-    host: string
-    port?: number
-    addresses: readonly string[]
-  },
+  url: string,
   extra: ReadonlyArray<readonly [string, string]> = [],
 ): Record<string, string> {
-  return sharedPlainGitRemoteEnvironment(
-    {
-      host: remote.host,
-      port: remote.port ?? 443,
-      addresses: remote.addresses,
-    },
-    {
-      allowHttp:
-        remote.url?.startsWith("http://") === true &&
-        plainGitUrlPolicy(plainGitDeployment()).http,
-      extra,
-    },
-  )
+  return sharedPlainGitRemoteEnvironment({
+    allowHttp:
+      url.startsWith("http://") && plainGitUrlPolicy(plainGitDeployment()).http,
+    extra,
+  })
 }
 
 /** {@link resolvePlainGitRemote}, then its git environment. */
@@ -231,7 +206,10 @@ export async function plainGitRemote(
 ): Promise<{ url: string; env: Record<string, string> }> {
   const { gitConfig } = network
   const remote = await resolvePlainGitRemote(raw)
-  return { url: remote.url, env: plainGitRemoteEnvironment(remote, gitConfig) }
+  return {
+    url: remote.url,
+    env: plainGitRemoteEnvironment(remote.url, gitConfig),
+  }
 }
 
 /** The default-branch tip of a plain git repository, or null. */
@@ -240,83 +218,4 @@ export async function resolvePlainGitTip(
 ): Promise<{ sha: string; branch: string } | null> {
   const remote = await plainGitRemote(raw)
   return resolveGitRemoteTip({ url: remote.url, env: remote.env })
-}
-
-/**
- * One HTTPS request to a checked plain git host that connects only to
- * `addresses` (the addresses of the check), never to a new DNS answer. Git
- * smart HTTP reads only: the hosted egress proxy sends each one here. It
- * uses `node:https` with a pinned `lookup` and no pooled socket, because
- * Bun's `fetch` does not take an undici dispatcher; Bun calls this `lookup`
- * (see `verifyConnectorAssetRuntime.ts`). It follows no redirect: the
- * caller gets the 3xx answer. `ca` and `port` are for a test server only.
- */
-export function plainGitPinnedRequest(input: {
-  url: URL
-  method: string
-  headers: Headers
-  body: ReadableStream<Uint8Array> | null
-  addresses: readonly string[]
-  ca?: string
-  port?: number
-}): Promise<Response> {
-  const pinned = input.addresses.map((address) => ({
-    address,
-    family: (isIP(address) === 6 ? 6 : 4) as 4 | 6,
-  }))
-  const first = pinned[0]
-  if (!first) return Promise.reject(new Error("No checked address to connect"))
-  return new Promise((resolve, reject) => {
-    const req = https.request(
-      {
-        protocol: "https:",
-        hostname: input.url.hostname,
-        port: input.port ?? 443,
-        path: `${input.url.pathname}${input.url.search}`,
-        method: input.method,
-        headers: Object.fromEntries(input.headers),
-        // A pooled keep-alive socket never calls `lookup`, so it would skip
-        // the pin.
-        agent: false,
-        servername: input.url.hostname,
-        rejectUnauthorized: true,
-        ...(input.ca ? { ca: input.ca } : {}),
-        lookup: (_hostname, options, callback) => {
-          if (typeof options === "object" && options.all)
-            (callback as (e: null, all: typeof pinned) => void)(null, pinned)
-          else callback(null, first.address, first.family)
-        },
-      },
-      (response) => {
-        const headers = new Headers()
-        for (const [name, value] of Object.entries(response.headers))
-          for (const one of Array.isArray(value) ? value : [value])
-            if (one !== undefined) headers.append(name, one)
-        const status = response.statusCode ?? 0
-        if (status < 200 || status > 599) {
-          response.destroy()
-          reject(new Error(`The plain git host answered ${status}`))
-          return
-        }
-        const empty = [204, 205, 304].includes(status)
-        if (empty) response.resume()
-        resolve(
-          new Response(
-            empty
-              ? null
-              : (Readable.toWeb(
-                  response,
-                ) as unknown as ReadableStream<Uint8Array>),
-            { status, statusText: response.statusMessage ?? "", headers },
-          ),
-        )
-      },
-    )
-    req.setTimeout(60_000, () =>
-      req.destroy(new Error("The plain git host did not answer in time")),
-    )
-    req.on("error", reject)
-    if (input.body) Readable.fromWeb(input.body as never).pipe(req)
-    else req.end()
-  })
 }
