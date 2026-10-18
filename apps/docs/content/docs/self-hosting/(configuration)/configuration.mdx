@@ -132,7 +132,7 @@ codesearch read the repository through the proxy of their environment
 
 | Variable | Description |
 |---|---|
-| `AGENT_VAULT_NETWORK_ALLOWLIST` | Docker Compose only (`.env`). Optional. The private addresses and CIDRs that Agent Vault may connect to, separated by commas. Compose always allows `172.30.99.10`, the backend, and adds your entries after it. To ingest a plain git repository on a private git server, add only your git server address or network, for example `10.20.0.15`. Without it, the ingestion sandbox cannot fetch the repository. Never add a range that covers `172.30.99.0/24`, and never add a link-local (`169.254.0.0/16`), loopback, or cloud metadata range. On AWS CDK, use `sandboxHost.agentVaultNetworkAllowlist` (see [AWS](/docs/self-hosting/deployment/aws#chat-sandbox-host)). |
+| `AGENT_VAULT_NETWORK_ALLOWLIST` | Docker Compose only (`.env`). Optional. The private addresses and CIDRs that Agent Vault may connect to, separated by commas. Compose always allows `172.30.99.10`, the backend, and adds your entries after it. To ingest a plain git repository on a private git server, add only the single host address of your git server, for example `10.20.0.15`. Without it, the ingestion sandbox cannot fetch the repository. Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet. Never add a range that covers `172.30.99.0/24`, and never add a link-local (`169.254.0.0/16`), loopback, or cloud metadata range. On AWS CDK, use `sandboxHost.agentVaultNetworkAllowlist` (see [AWS](/docs/self-hosting/deployment/aws#chat-sandbox-host)). |
 
 ## GitHub App connector
 
