@@ -536,6 +536,96 @@ describe("conversationFirewall", () => {
   })
 })
 
+describe("vercelConversationProvider create", () => {
+  it("returns only after the sandbox has rewritten the CA bundle it inherited from its snapshot", async () => {
+    // The sandbox starts with the whole bundle of the snapshot (old link),
+    // and rewrites it a little after the create call returns. A check of the
+    // bundle's state passes on the old file; a check that also needs a link
+    // newer than the start passes after the rewrite only.
+    const vm = { checks: 0, rewritten: false }
+    const rewriteAfterChecks = 2
+    const session = {
+      id: "ses_ca",
+      memory: 2048,
+      vcpus: 1,
+      region: "iad1",
+      runtime: "node24",
+      timeout: 60_000,
+      status: "running",
+      requestedAt: 1,
+      createdAt: 1,
+      cwd: "/vercel/sandbox",
+      updatedAt: 1,
+    }
+    server.use(
+      http.post("https://vercel.com/api/v2/sandboxes", () =>
+        HttpResponse.json({
+          sandbox: {
+            name: "sbx-create-ca",
+            persistent: true,
+            createdAt: 1,
+            updatedAt: 1,
+            currentSessionId: "ses_ca",
+            status: "running",
+          },
+          session,
+          routes: [],
+        }),
+      ),
+      http.post(
+        "https://vercel.com/api/v2/sandboxes/sessions/:id/cmd",
+        async ({ request }) => {
+          const command = await request.text()
+          vm.checks += 1
+          if (vm.checks > rewriteAfterChecks) vm.rewritten = true
+          // The change time of the bundle link: from the snapshot's sandbox
+          // (long ago), then the rewrite.
+          const linkChangedAt = vm.rewritten ? Math.floor(Date.now() / 1000) : 1
+          const newerThan = /-ge (\d+)/.exec(command)?.[1]
+          const passes = newerThan === undefined || linkChangedAt >= +newerThan
+          const line = (exitCode: number | null) =>
+            `${JSON.stringify({
+              command: {
+                id: "cmd_ca",
+                name: "sh",
+                args: [],
+                cwd: "/vercel/sandbox",
+                sessionId: "ses_ca",
+                startedAt: 1,
+                exitCode,
+              },
+            })}\n`
+          return new HttpResponse(line(null) + line(passes ? 0 : 1), {
+            headers: { "content-type": "application/x-ndjson" },
+          })
+        },
+      ),
+    )
+    const provider = vercelConversationProvider({
+      credentials,
+      agentPassword: "password",
+      access: {
+        firewall: conversationFirewall("app.example.test"),
+        mintGitToken: async () => "git-1",
+        revokeGitToken: async () => undefined,
+        tokens: {
+          get: async () => null,
+          put: async () => undefined,
+          take: async () => null,
+        },
+      },
+      tags: {},
+      base: async () => ({ failed: async () => undefined }),
+      agentSnapshot: async () => "snap_agent",
+    })
+    await provider.create({
+      workspace: { source: { type: "none" } },
+    } as Parameters<typeof provider.create>[0])
+    // A git command now reads the finished file.
+    expect(vm.rewritten).toBe(true)
+  })
+})
+
 describe("turnAgentPassword", () => {
   it("gives each turn its own OpenCode password", () => {
     const first = turnAgentPassword()

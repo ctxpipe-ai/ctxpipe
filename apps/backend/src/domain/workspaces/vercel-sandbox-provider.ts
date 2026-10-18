@@ -462,10 +462,24 @@ async function refreshGitAccess(
  * many END lines as BEGIN lines. The wait is bounded (about 15 seconds). On a
  * timeout the call logs a warning and goes on, so an image without a bundle
  * never blocks a start.
+ *
+ * A sandbox that starts from a snapshot has the whole bundle of the sandbox
+ * that made the snapshot, and the platform rewrites the file about one second
+ * after the create call returns. A check of the old file passes, and git then
+ * reads the file during the rewrite. `startedAt` (seconds, taken before the
+ * start) makes the check wait for that rewrite: the bundle link must be newer
+ * than the start, and no `update-ca-trust` or `trust` process may run.
  */
-async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
+async function waitForCaBundle(
+  handle: SandboxHandle,
+  startedAt?: number,
+): Promise<void> {
   const bundle = "/etc/ssl/certs/ca-certificates.crt"
-  const check = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
+  const whole = `test -s ${bundle} && tail -n 1 ${bundle} | grep -q -- '-----END CERTIFICATE-----' && [ "$(grep -c -- '-----BEGIN CERTIFICATE-----' ${bundle})" = "$(grep -c -- '-----END CERTIFICATE-----' ${bundle})" ]`
+  const check =
+    startedAt === undefined
+      ? whole
+      : `${whole} && [ "$(stat -c %Z ${bundle})" -ge ${startedAt} ] && ! pgrep -x update-ca-trust >/dev/null && ! pgrep -x trust >/dev/null`
   for (let attempt = 0; attempt < 20; attempt++) {
     const result = await handle.process.exec(check).catch(() => undefined)
     if (result?.exitCode === 0) {
@@ -480,6 +494,11 @@ async function waitForCaBundle(handle: SandboxHandle): Promise<void> {
     step: "workspace-ca-bundle-wait",
     message: `The CA bundle was not whole after the wait; git may fail to load it`,
   })
+}
+
+/** The second before a start, one second early for a clock that runs behind. */
+function beforeStart(): number {
+  return Math.floor(Date.now() / 1000) - 1
 }
 
 /** The stock handle, with the agent port behind the OpenCode password and kill enabled. */
@@ -547,8 +566,10 @@ export function vercelConversationProvider(input: {
     async create() {
       // Secrets reach the session through `env.set`, not the create request.
       const gitToken = await access.mintGitToken()
-      const start = (snapshotId: string) =>
-        Sandbox.create({
+      let startedAt = 0
+      const start = (snapshotId: string) => {
+        startedAt = beforeStart()
+        return Sandbox.create({
           ...credentials,
           source: { type: "snapshot", snapshotId },
           resources: VERCEL_SANDBOX.resources,
@@ -560,6 +581,7 @@ export function vercelConversationProvider(input: {
           networkPolicy: access.firewall.policy(gitToken),
           tags: input.tags,
         })
+      }
       const fromAgent = async () => {
         const snapshotId = await input.agentSnapshot()
         return start(snapshotId).catch((error: unknown) => {
@@ -601,7 +623,7 @@ export function vercelConversationProvider(input: {
       }
       await access.tokens.put(sandbox.name, gitToken)
       const handle = conversationHandle(sandbox, input.agentPassword)
-      await waitForCaBundle(handle)
+      await waitForCaBundle(handle, startedAt)
       return handle
     },
     async resume({ id }) {
@@ -833,6 +855,7 @@ export async function startVercelWorkspaceBase(input: {
         }),
     )
   let sandbox: Sandbox
+  const startedAt = beforeStart()
   try {
     sandbox = await Sandbox.create({
       ...input.credentials,
@@ -847,7 +870,7 @@ export async function startVercelWorkspaceBase(input: {
     throw error
   }
   const handle = new VercelHandle({ sandbox, workdir: WORKDIR, ports: [] })
-  await waitForCaBundle(handle)
+  await waitForCaBundle(handle, startedAt)
   return {
     builderId: sandbox.name,
     handle,

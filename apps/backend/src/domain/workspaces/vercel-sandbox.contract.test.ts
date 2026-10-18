@@ -402,69 +402,6 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
 })
 
 describe("hosted conversation provider", { timeout: 600_000 }, () => {
-  it("PROBE (temporary): CA bundle rewrites after create and after a policy update", async () => {
-    const githubToken = process.env.GITHUB_TOKEN?.trim() ?? ""
-    const store = new Map<string, { token: string; mintedAt: Date }>()
-    const access = {
-      firewall: conversationFirewall("ctxpipe-contract.invalid"),
-      tokens: {
-        get: async (id: string) => store.get(id) ?? null,
-        put: async (id: string, token: string) => {
-          store.set(id, { token, mintedAt: new Date() })
-        },
-        take: async (id: string) => store.get(id)?.token ?? null,
-      },
-      mintGitToken: async () => githubToken,
-      revokeGitToken: async () => undefined,
-    }
-    const provider = vercelConversationProvider({
-      credentials,
-      agentPassword: "contract-agent-password",
-      access,
-      tags,
-      base: async () => ({ failed: async () => undefined }),
-      agentSnapshot,
-    })
-    const beforeCreate = Date.now()
-    const handle = await provider.create({
-      workspace: { source: { type: "none" } },
-    } as Parameters<typeof provider.create>[0])
-    created.push(handle.id)
-    const createdAt = Date.now()
-    const watch = (label: string, seconds: number) =>
-      handle.process
-        .exec(
-          `echo "${label} start ms=$(date +%s%3N)"; last=""; for i in $(seq 1 ${seconds * 5}); do b=/etc/ssl/certs/ca-certificates.crt; cur="mtime=$(stat -L -c '%y' $b 2>&1) birth=$(stat -c '%w' $b 2>&1) procs=$(pgrep -x update-ca-trust | wc -l)/$(pgrep -x trust | wc -l) count=$(grep -c BEGIN $b 2>&1) last=$(awk '/BEGIN CERT/{c=""} {c=c $0 "\\n"} END{printf "%b", c}' $b 2>/dev/null | openssl x509 -noout -subject 2>&1 | head -c 100)"; if [ "$cur" != "$last" ]; then echo "ms=$(date +%s%3N) $cur"; last="$cur"; fi; sleep 0.2; done`,
-        )
-        .then((r) => `${r.stdout}${r.stderr}`)
-    const during = watch("watch", 40)
-    await new Promise((resolve) => setTimeout(resolve, 8_000))
-    const sandbox = await Sandbox.get({ ...credentials, name: handle.id })
-    await access.firewall.attach(sandbox, githubToken)
-    const steps: string[] = []
-    const mark = (label: string) => steps.push(`${label} ms=${Date.now()}`)
-    mark("rotate-start")
-    await access.firewall.rotateGitToken(sandbox, `${githubToken}-probe`)
-    mark("rotate-end")
-    await new Promise((resolve) => setTimeout(resolve, 6_000))
-    mark("openTurn-start")
-    await access.firewall.openTurn(sandbox.name, {
-      modelProxyPath: "/probe/api/v1/workspace-chat/openai/v1",
-      modelCapability: "probe-capability",
-      bridgePath: "/api/v1/workspace-chat/tool-bridge/probe",
-      bridgeToken: "probe-bridge",
-    })
-    mark("openTurn-end")
-    await new Promise((resolve) => setTimeout(resolve, 6_000))
-    mark("closeTurn-start")
-    await access.firewall.closeTurn(sandbox.name)
-    mark("closeTurn-end")
-    console.error(
-      `[probe] beforeCreateMs=${beforeCreate} createReturnedMs=${createdAt}\n${steps.join("\n")}\n${await during}`,
-    )
-    await closeDb().catch(() => undefined)
-  })
-
   it("authenticates GitHub only through the firewall and rotates the token", async () => {
     // The Actions token stands in for a minted Workspace read token; revoking
     // it would end the job, so revocations are recorded instead.
