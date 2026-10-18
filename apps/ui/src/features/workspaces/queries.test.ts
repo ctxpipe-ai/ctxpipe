@@ -434,6 +434,38 @@ describe("workspace query HTTP helpers", () => {
     expect(workspaceId).toBe("ws_1")
   })
 
+  it("waits for a chat prepare that takes longer than the default timeout", async () => {
+    server.use(
+      http.post(
+        "http://localhost:3000/:orgSlug/api/v1/conversations/:conversationId/prepare",
+        () => new HttpResponse(null, { status: 204 }),
+      ),
+    )
+    // A new hosted sandbox needs about 40 seconds. Each timeout of a minute
+    // or less has already passed when the answer comes.
+    const timeout = vi
+      .spyOn(AbortSignal, "timeout")
+      .mockImplementation((ms) =>
+        ms <= 60_000
+          ? AbortSignal.abort(
+              new DOMException("signal timed out", "TimeoutError"),
+            )
+          : new AbortController().signal,
+      )
+    try {
+      const queryClient = new QueryClient({
+        defaultOptions: { queries: { retry: false } },
+      })
+      await expect(
+        queryClient.fetchQuery(
+          workspaceChatPrepareOptions("acme", "conv_1", "ws_1"),
+        ),
+      ).resolves.toBeNull()
+    } finally {
+      timeout.mockRestore()
+    }
+  })
+
   it("carries the server's at-capacity message from a 429 chat prepare", async () => {
     const message =
       "Workspace chat is at capacity: your organization already has 50 chats running."
