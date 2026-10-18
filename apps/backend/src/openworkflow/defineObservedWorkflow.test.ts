@@ -1,4 +1,5 @@
 import { SpanStatusCode } from "@opentelemetry/api"
+import { initLogger } from "evlog"
 import { OpenWorkflow } from "openworkflow"
 import { BackendSqlite } from "openworkflow/sqlite"
 import { describe, expect, it, vi } from "vitest"
@@ -478,11 +479,23 @@ describe("defineObservedWorkflow", () => {
     )
   }, 20_000)
 
-  it("gives a workflow body a logger when the worker runs it", async () => {
+  it("gives a workflow body a logger with the spec log fields when the worker runs it", async () => {
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        events.push(ctx.event)
+      },
+    })
     const workflow = defineWorkflow(
-      { name: "logger-once", schema: z.object({ orgId: z.string() }) },
-      async ({ input }) => {
-        getLogger().set({ step: "logger-once.body", orgId: input.orgId })
+      {
+        name: "logger-once",
+        schema: z.object({ orgId: z.string() }),
+        logFields: (input, run) => ({ orgId: input.orgId, runId: run.id }),
+      },
+      async () => {
+        getLogger().set({ step: "logger-once.body" })
         return "logged"
       },
     )
@@ -493,6 +506,16 @@ describe("defineObservedWorkflow", () => {
     try {
       const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
       await expect(handle.result({ timeoutMs: 15_000 })).resolves.toBe("logged")
+      await vi.waitFor(() =>
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            workflow: "logger-once",
+            step: "logger-once.body",
+            orgId: "org_1",
+            runId: handle.workflowRun.id,
+          }),
+        ),
+      )
     } finally {
       await worker.stop()
     }
