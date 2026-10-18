@@ -120,14 +120,15 @@ The sandbox fetches the repository through Agent Vault. Agent Vault connects
 to a private address only when that address is in its network allowlist. Add
 the address or CIDR of your git server to it:
 
-- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Keep
-  `172.30.99.10` (the backend) in the list, for example
-  `AGENT_VAULT_NETWORK_ALLOWLIST=172.30.99.10,10.20.0.15`.
+- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Add only
+  your git server address or network, for example
+  `AGENT_VAULT_NETWORK_ALLOWLIST=10.20.0.15`. Compose always keeps
+  `172.30.99.10` (the backend) in the list.
 - AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
   `["10.20.0.0/24"]`. ctx| adds it after the backend subnets. The sandbox host
   must also have a route to that network.
 
-Do not add a cloud metadata or link-local address.
+Do not add a cloud metadata, link-local, or loopback address.
 
 ctx| does not follow a redirect. Use the exact clone URL of the repository.
 Repositories that need a credential on other git hosts are not supported.
