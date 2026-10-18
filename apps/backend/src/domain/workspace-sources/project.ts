@@ -58,7 +58,7 @@ export async function projectWorkspaceSources(input: {
     const check =
       SOURCE_ACCESS_CHECKS[entry.provider] ??
       adapters[entry.provider]?.checkAccess
-    if (!check) return null
+    if (!check || !entry.connectionId) return null
     return check({
       orgId: input.orgId,
       connectionId: entry.connectionId,

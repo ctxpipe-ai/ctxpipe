@@ -23,6 +23,7 @@ import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+
 import {
   closeDb,
   getSystemDb,
@@ -34,9 +35,13 @@ import { connections } from "../../db/schema/connections.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { heldIngestSourceTrees } from "../../domain/ingestion/ingest-source-tree.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
-import { githubSourcePath } from "../../domain/workspace-sources/source-file.js"
+import {
+  githubSourcePath,
+  gitSourcePath,
+} from "../../domain/workspace-sources/source-file.js"
 import { generateObjectId } from "../../lib/id.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
@@ -73,6 +78,14 @@ const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
 const stallName = `acme/stall-api-${suffix}`
 /** A source with 21 roots: two shards. */
 const wideName = `acme/wide-monorepo-${suffix}`
+/**
+ * A public plain git source with no connection (CTX-815). The DNS of the
+ * test gives its host a public address, and the git config of each plain
+ * git read sends it to a local folder (`usePlainGitNetwork`): a plain git
+ * read reads no global git config.
+ */
+const plainUrl = `https://github.com/acme/plain-${suffix}.git`
+const plainSourcePath = gitSourcePath(plainUrl) ?? ""
 /** The source file of a repository `owner/name` in each Workspace. */
 const sourcePathOf = (repository: string) => {
   const [owner = "", name = ""] = repository.split("/")
@@ -161,6 +174,8 @@ let parent: ReturnType<typeof defineRepositoryIngestionV2Workflow>
 let sourceSha: string
 let wideSha: string
 let stallSha: string
+let plainSha: string
+let restorePlainGit = () => {}
 const pinned: string[] = []
 
 function git(cwd: string, ...args: string[]): string {
@@ -222,6 +237,13 @@ beforeAll(async () => {
     `[url "${remotes}/"]\n\tinsteadOf = https://github.com/\n[protocol "file"]\n\tallow = always\n`,
   )
   vi.stubEnv("GIT_CONFIG_GLOBAL", gitConfig)
+  restorePlainGit = usePlainGitNetwork({
+    lookup: async () => [{ address: "93.184.215.14" }],
+    gitConfig: [
+      [`url.${remotes}/.insteadOf`, "https://github.com/"],
+      ["protocol.file.allow", "always"],
+    ],
+  })
 
   // The workspace manifest names both roots, so no model chooses a root.
   sourceSha = remote(sourceName, {
@@ -235,6 +257,10 @@ beforeAll(async () => {
     pinned.push(remote(name, { "README.md": "# Context\n" }))
   stallSha = remote(stallName, {
     "package.json": '{ "name": "stall-api" }\n',
+  })
+  plainSha = remote(`acme/plain-${suffix}.git`, {
+    "package.json": '{ "name": "plain-tools" }\n',
+    "README.md": "# Plain tools\n",
   })
   wideSha = remote(wideName, {
     "pnpm-workspace.yaml": 'packages:\n  - "packages/*"\n',
@@ -300,14 +326,25 @@ beforeAll(async () => {
       revision: pinned[i] ?? "",
       // One GitHub source file for each repository (ADR-050 revision
       // 2026-10-16). Its path is the `sources` value of the run's files.
-      rows: [sourceName, wideName, stallName].map((repository) => ({
-        sourceKey: sourcePathOf(repository),
-        provider: "github" as const,
-        connectionId,
-        scope: { repository },
-        status: "ok" as const,
-        statusDetail: null,
-      })),
+      rows: [
+        ...[sourceName, wideName, stallName].map((repository) => ({
+          sourceKey: sourcePathOf(repository),
+          provider: "github" as const,
+          connectionId,
+          scope: { repository },
+          status: "ok" as const,
+          statusDetail: null,
+        })),
+        // A plain git source file has a URL and no connection.
+        {
+          sourceKey: plainSourcePath,
+          provider: "git" as const,
+          connectionId: null,
+          scope: { url: plainUrl },
+          status: "ok" as const,
+          statusDetail: null,
+        },
+      ],
     })
   }
 
@@ -352,6 +389,7 @@ beforeAll(async () => {
 }, 120_000)
 
 afterAll(async () => {
+  restorePlainGit()
   await worker?.stop()
   await backend?.stop()
   await tracerProvider.shutdown()
@@ -375,6 +413,7 @@ describe("ingestion v2 in shadow mode", () => {
         orgId,
         shadow: true,
         source: {
+          kind: "github" as const,
           url: `https://github.com/${sourceName}`,
           githubConnectionId: connectionId,
         },
@@ -547,6 +586,60 @@ describe("ingestion v2 in shadow mode", () => {
   )
 })
 
+describe("ingestion v2 of a plain git source (CTX-815)", () => {
+  it(
+    "reads a public HTTPS repository with no connection, writes refs in each Workspace whose plain git source file names it, and stamps that path",
+    { timeout: 420_000 },
+    async () => {
+      const before = modelCalls.length
+      const minted = githubLog.minted.length
+      const handle = await runner.runWorkflow(parent.spec, {
+        orgId,
+        shadow: true,
+        source: { kind: "git", url: plainUrl },
+        sha: plainSha,
+        authorTime: "2026-10-01T00:00:00.000Z",
+      })
+      const result = await handle.result({ timeoutMs: 400_000 })
+      const runId = handle.workflowRun.id
+      expect(result).toMatchObject({ status: "done", shards: 1 })
+      if (result.status !== "done") throw new Error("The run did not finish")
+      const calls = modelCalls.slice(before)
+      // One model step at the root for each destination Workspace.
+      expect(new Set(calls.map((call) => call.workspaceId))).toEqual(
+        new Set(workspaceIds),
+      )
+      for (const call of calls) {
+        expect(call.args).toEqual(
+          expect.arrayContaining([plainUrl, plainSourcePath]),
+        )
+      }
+      for (const [i, name] of contexts.entries()) {
+        const workspaceId = workspaceIds[i] ?? ""
+        const prefix = `refs/ctxpipe/ingest/${runId}/${workspaceId}`
+        const assembled = refsOf(name)[`${prefix}/assembled`] ?? ""
+        expect(assembled).toMatch(/^[0-9a-f]{40}$/)
+        const service = git(
+          join(remotes, name),
+          "show",
+          `${assembled}:knowledge/services/checkout-api.md`,
+        )
+        expect(service).toContain("generated_by: ctxpipe-extract")
+        expect(service).toContain(plainSourcePath)
+        expect(service).toContain(`source_sha: ${plainSha}`)
+      }
+      // GitHub tokens are only for the destination Workspace repositories:
+      // the plain git source has no credential.
+      expect(
+        githubLog.minted
+          .slice(minted)
+          .flatMap((entry) => entry.repositories)
+          .filter((name) => !contexts.some((c) => c.endsWith(`/${name}`))),
+      ).toEqual([])
+    },
+  )
+})
+
 describe("ingestion v2 paging", () => {
   it(
     "stops a skill whose page says more but has no accepted op, and marks it partial",
@@ -557,6 +650,7 @@ describe("ingestion v2 paging", () => {
         orgId,
         shadow: true,
         source: {
+          kind: "github" as const,
           url: `https://github.com/${stallName}`,
           githubConnectionId: connectionId,
         },
@@ -589,6 +683,7 @@ describe("ingestion v2 with a failed shard", () => {
         orgId,
         shadow: true,
         source: {
+          kind: "github" as const,
           url: `https://github.com/${wideName}`,
           githubConnectionId: connectionId,
         },
@@ -769,6 +864,7 @@ process.exit(result.status ?? 1);
           orgId,
           shadow: true,
           source: {
+            kind: "github" as const,
             url: `https://github.com/${sourceName}`,
             githubConnectionId: connectionId,
           },

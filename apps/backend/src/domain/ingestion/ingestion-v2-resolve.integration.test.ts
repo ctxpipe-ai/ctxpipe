@@ -6,7 +6,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import { listWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
-import { githubSourcePathsByRepository } from "../workspace-sources/github-sources.js"
+import { repositorySourcePathsAtRevision } from "../workspace-sources/github-sources.js"
 import { projectWorkspaceSources } from "../workspace-sources/project.js"
 import { resolveIngestionV2Run } from "./ingestion-v2-resolve.js"
 
@@ -60,7 +60,7 @@ describe("the source path of a repository (Postgres + git)", () => {
     // `a.md` comes first in byte order, but `b.md` linked the repository.
     const sourceFiles = await project({ "sources/github/acme/a.md": text })
 
-    const migration = githubSourcePathsByRepository(
+    const migration = repositorySourcePathsAtRevision(
       sourceFiles,
       await listWorkspaceSourceRows({ orgId: seed.orgId, workspaceId }),
     )
@@ -71,6 +71,7 @@ describe("the source path of a repository (Postgres + git)", () => {
       orgId: seed.orgId,
       shadow: false,
       source: {
+        kind: "github" as const,
         url: `https://github.com/${repository}`,
         githubConnectionId: github,
       },

@@ -8,6 +8,7 @@ import {
 import { hostedIngestEgressEnabled } from "../domain/workspaces/ingest-sandbox-egress.js"
 import { vercelCredentials } from "../domain/workspaces/vercel-sandbox-provider.js"
 import { log } from "../observability/logger.js"
+import type { PlainGitLookup } from "../services/git/plain-git-remote.js"
 
 const forbidden = () => new Response("Forbidden", { status: 403 })
 
@@ -51,7 +52,15 @@ export function sandboxEgressGuard(
  * gets the public origin (`AUTH_BASE_URL`) here: behind the platform's TLS
  * proxy, the server sees plain HTTP. Each error gets a fixed 403 body.
  */
-export function registerSandboxEgressRoute(app: OpenAPIHono<AppEnv>) {
+export function registerSandboxEgressRoute(
+  app: OpenAPIHono<AppEnv>,
+  options: {
+    /** The DNS lookup of a plain git host; a test gives its own answers. */
+    lookup?: PlainGitLookup
+    /** The size limit of one plain git answer; a test sets a small one. */
+    plainGitMaxBytes?: number
+  } = {},
+) {
   const handle = async (c: Context<AppEnv>) => {
     try {
       const request = c.req.raw
@@ -68,6 +77,10 @@ export function registerSandboxEgressRoute(app: OpenAPIHono<AppEnv>) {
         sealed: c.req.param("sealed") ?? "",
         secret: c.var.env.AUTH_SECRET,
         vercel: () => vercelCredentials(),
+        ...(options.lookup ? { lookup: options.lookup } : {}),
+        ...(options.plainGitMaxBytes
+          ? { plainGitMaxBytes: options.plainGitMaxBytes }
+          : {}),
       })
     } catch (error) {
       log.error({

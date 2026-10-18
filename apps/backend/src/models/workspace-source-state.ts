@@ -5,10 +5,8 @@ import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
-import {
-  githubRepositoryUrls,
-  githubSourceScopeRepositories,
-} from "../domain/workspace-sources/providers/github.js"
+import { sourceRepositoryUrls } from "../domain/workspace-sources/providers/git.js"
+import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
 import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
@@ -46,7 +44,8 @@ export type GithubSourceState = Extract<SourceState, { provider: "github" }>
 
 export const sourceTargetSchema = z.object({
   provider: z.string().min(1),
-  connectionId: z.string().min(1),
+  /** Null only for a plain git source, which has no connection (CTX-815). */
+  connectionId: z.string().min(1).nullable(),
   scope: z.record(z.string(), z.unknown()),
 })
 
@@ -128,7 +127,11 @@ type SourceTargetRow = {
 export function lastGoodTarget(row: SourceTargetRow): SourceTarget | null {
   if (row.status === "invalid")
     return sourceTargetSchema.safeParse(storedTarget(row.state)).data ?? null
-  if (row.provider === null || row.connectionId === null) return null
+  if (
+    row.provider === null ||
+    (row.connectionId === null && row.provider !== "git")
+  )
+    return null
   return {
     provider: row.provider,
     connectionId: row.connectionId,
@@ -162,8 +165,8 @@ export function sourceRowsNameRepository(
     const good = lastGoodTarget(row)
     if (holdsTarget(row) && !good) return true
     return (
-      githubRepositoryUrls(row).includes(target) ||
-      (good !== null && githubRepositoryUrls(good).includes(target)) ||
+      sourceRepositoryUrls(row).includes(target) ||
+      (good !== null && sourceRepositoryUrls(good).includes(target)) ||
       githubPins(row).some(
         (pin) => normalizeWorkspaceRepositoryUrl(pin.gitUrl) === target,
       )

@@ -60,6 +60,7 @@ describe("resolveIngestionV2Run: the publish gate (format 3)", () => {
         orgId: seed.orgId,
         shadow,
         source: {
+          kind: "github" as const,
           url: `https://github.com/${repository}`,
           githubConnectionId: "con_unused",
         },
