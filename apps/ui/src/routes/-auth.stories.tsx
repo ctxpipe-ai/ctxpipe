@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
+  authConfigHandler,
   organizationListEmptyHandler,
   sessionSignedOutHandler,
 } from "@/mocks/handlers"
@@ -80,9 +81,13 @@ export const InviteAcceptAccountExists: Story = {
     } satisfies StoryRouteParams,
     msw: {
       handlers: {
-        page: [
+        // Replaces the preview's signed-in session: the invitee is new here.
+        defaults: [
+          authConfigHandler,
           sessionSignedOutHandler,
           organizationListEmptyHandler,
+        ],
+        page: [
           http.get("*/.auth/api/v1/public/invitations/:id", () =>
             HttpResponse.json({
               email: "member@example.com",
