@@ -81,9 +81,11 @@ check_credentials() {
     out=$(docker compose exec -T dind docker --host unix:///var/run/docker.sock exec -i \
       -u ctxpipe-agent -e "FORBIDDEN_SHA256=$forbidden_hashes" "$cid" sh -s \
       <"$credential_check" 2>&1) || true
-    checked_ids="$checked_ids$cid "
-    # Names and counts only: the check prints no value.
+    # Names and counts only: the check prints no value. The start of each
+    # step stops every process of the agent user, also this check, so a
+    # check with no summary runs again at the next poll.
     if printf '%s\n' "$out" | grep -q '^SUMMARY '; then
+      checked_ids="$checked_ids$cid "
       credential_checked=$((credential_checked + 1))
       echo "Credential check, sandbox ${cid:0:12}: $(printf '%s\n' "$out" | grep '^SUMMARY ')"
       if printf '%s\n' "$out" | grep -q '^FINDING '; then
@@ -106,6 +108,7 @@ check_credentials() {
 
 total_spend=0
 failed=0
+step_tables=""
 over_cap() { awk -v a="$1" -v b="$SPEND_CAP_USD" 'BEGIN { exit !(a >= b) }'; }
 # The status of a run, with the spend guard of the whole proof.
 run_state() { proof STATUS status --run-id "$1" --spent-before "$total_spend" --cap "$SPEND_CAP_USD" || true; }
@@ -182,7 +185,18 @@ for ((i = 0; i < count; i++)); do
   # Where each failed step attempt failed (the log has no error text).
   docker compose logs --no-color worker 2>/dev/null |
     grep -aF '"ingestion-v2.step-attempt-failed"' | grep -aF "$run_id" |
-    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode}' || true
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode, errorClass, errorCode, errorKind}' || true
+  # The ops, rejects and model spend of each finished step. A failed attempt
+  # reports no spend.
+  steps=$(proof STEPS steps --run-id "$run_id" || true)
+  if [ -n "$steps" ]; then
+    step_table=$(jq -r '"| Shard | Step | Ops | Rejects | Partial | Input tokens | Output tokens | Cost (USD) |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      (.[] | "| \(.shard) | \(.step) | \(.ops) | \(.rejects) | \(.partial) | \(.inputTokens) | \(.outputTokens) | \(.costUsd // (if .inputTokens + .outputTokens == 0 then "-" else "unknown" end)) |")' <<<"$steps")
+    echo "Steps of $name:"
+    echo "$step_table"
+    step_tables="$step_tables"$'\n'"#### Steps of $name"$'\n\n'"$step_table"$'\n'
+  fi
 
   status=$(jq -r .status <<<"$state")
   spend=$(jq -r .spendUsd <<<"$state")
@@ -236,6 +250,7 @@ done
   echo
   echo "$estimate_line"
   echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend is the cost of the finished steps; a step with no reported cost counts at the token price."
+  printf '%s\n' "$step_tables"
 } >>"$summary"
 # The job summary is not in the API: print it in the log too.
 [ "$summary" = /dev/stdout ] || cat "$summary"
