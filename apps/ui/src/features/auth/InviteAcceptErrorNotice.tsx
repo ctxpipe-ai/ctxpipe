@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { InviteWrongAccountNotice } from "./InviteWrongAccountNotice"
 import { inviteSignInHref, inviteSignOutHref } from "./invite-accept-decision"
 import type { InviteAcceptError } from "./invite-accept-error"
 
@@ -8,11 +9,13 @@ export function InviteAcceptErrorNotice({
   error,
   invitationId,
   invitationEmail,
+  sessionEmail,
   onRetry,
 }: {
   error: InviteAcceptError
   invitationId: string
   invitationEmail?: string | null
+  sessionEmail?: string | null
   onRetry: () => void
 }) {
   if (error.kind === "account-exists") {
@@ -53,21 +56,33 @@ export function InviteAcceptErrorNotice({
       </div>
     )
   }
-  if (error.kind === "wrong-recipient") {
+  // The page checks the signed-in email first, so this is a safety net.
+  if (error.kind === "wrong-recipient" && sessionEmail && invitationEmail) {
+    return (
+      <InviteWrongAccountNotice
+        sessionEmail={sessionEmail}
+        invitationEmail={invitationEmail}
+        signOutHref={inviteSignOutHref(invitationId, invitationEmail)}
+      />
+    )
+  }
+  if (error.kind !== "failed") {
     return (
       <div className="grid gap-4">
         <InlineAlert
           variant="warning"
-          title="This invitation is for a different email"
+          title="We could not accept this invitation"
         >
-          <p>Sign out, then sign in with the email that got the invitation.</p>
+          <p>
+            Ask an admin of the organization for help, or for a new invitation.
+          </p>
         </InlineAlert>
         <Button
-          variant="primary"
+          variant="secondary"
           className="w-full rounded-md"
-          href={inviteSignOutHref(invitationId, invitationEmail)}
+          href="/.auth/sign-in"
         >
-          Sign out to continue
+          Go to sign in
         </Button>
       </div>
     )

@@ -1,8 +1,11 @@
-import { inArray } from "drizzle-orm"
+import { eq, inArray } from "drizzle-orm"
+import { Hono } from "hono"
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../test/db.js"
+import type { AppEnv } from "../app/env.js"
 import { getSystemDb } from "../db/client.js"
-import { users } from "../db/schema/auth.js"
+import { invitations, users } from "../db/schema/auth.js"
+import { registerAuthRoutes } from "../routes/auth.js"
 import { getAuth, resetBetterAuthForTests } from "./config.js"
 
 /**
@@ -62,6 +65,16 @@ function accept(invitationId: string, cookie: string) {
   return post("/organization/accept-invitation", { invitationId }, cookie)
 }
 
+/** The public route the page reads first; it needs no session. */
+async function publicInvitationStatus(invitationId: string): Promise<number> {
+  const app = new Hono<AppEnv>()
+  registerAuthRoutes(app)
+  const res = await app.request(
+    `${base}/.auth/api/v1/public/invitations/${invitationId}`,
+  )
+  return res.status
+}
+
 describe("invitation accept on a PR preview (Postgres)", () => {
   beforeAll(async () => {
     if (!process.env.DATABASE_URL) {
@@ -80,6 +93,7 @@ describe("invitation accept on a PR preview (Postgres)", () => {
     }
     if (owner) await cleanupSeededOrg(owner)
     vi.unstubAllEnvs()
+    resetBetterAuthForTests()
   })
 
   it("refuses a sign-up for an existing account with the code the page maps, then accepts after sign-in", async () => {
@@ -126,6 +140,39 @@ describe("invitation accept on a PR preview (Postgres)", () => {
     expect(accepted.status).toBe(200)
     expect(await accepted.json()).toMatchObject({
       member: { organizationId: owner.orgId },
+    })
+  })
+
+  it.each([
+    [
+      "expired",
+      (id: string) =>
+        getSystemDb()
+          .update(invitations)
+          .set({ expiresAt: new Date(Date.now() - 60_000) })
+          .where(eq(invitations.id, id)),
+    ],
+    [
+      "canceled",
+      (id: string) =>
+        getAuth().api.cancelInvitation({
+          body: { invitationId: id },
+          headers: new Headers({ origin: base, cookie: owner.cookie }),
+        }),
+    ],
+  ])("refuses an %s invitation with the code the page maps", async (name, end) => {
+    const email = newEmail(name)
+    const invitationId = await invite(email)
+    const signedUp = await signUp(email)
+    expect(await publicInvitationStatus(invitationId)).toBe(200)
+
+    await end(invitationId)
+
+    expect(await publicInvitationStatus(invitationId)).toBe(404)
+    const refused = await accept(invitationId, cookieOf(signedUp))
+    expect(refused.status).toBe(400)
+    expect(await refused.json()).toMatchObject({
+      code: "INVITATION_NOT_FOUND",
     })
   })
 })

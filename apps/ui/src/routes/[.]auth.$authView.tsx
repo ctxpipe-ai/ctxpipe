@@ -53,7 +53,7 @@ function AuthStatusMessage({ message }: { message: string }) {
   )
 }
 
-function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
+export function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const { data: session, isPending: sessionPending } = useSession()
   const params = useMemo(
     () =>
@@ -84,14 +84,6 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const [error, setError] = useState<string | null>(null)
   // A failed sign-up or accept, shown in place of the form with a next step.
   const [failure, setFailure] = useState<InviteAcceptError | null>(null)
-  const showFailure = (err: unknown) => {
-    const next = inviteAcceptError(err)
-    if (next.kind === "invalid-password") {
-      setError("Use a password of 8 to 128 characters.")
-      return
-    }
-    setFailure(next)
-  }
   // Set when sign-up needs the address verified first: there is no session
   // until they click the emailed link, which returns here to finish joining.
   const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
@@ -149,7 +141,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         () => window.location.assign(redirectTo),
       )
     },
-    onError: showFailure,
+    onError: (err) => setFailure(inviteAcceptError(err)),
   })
 
   const sessionEmail =
@@ -209,6 +201,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         error={failureShown}
         invitationId={invitationId}
         invitationEmail={invitationEmail}
+        sessionEmail={sessionEmail}
         onRetry={() => window.location.reload()}
       />
     )
@@ -252,11 +245,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     )
   }
 
-  if (invitationEmailQuery.isPending) {
-    return <PageBodySkeleton label="Loading invitation" />
-  }
-
-  if (!invitationEmailQuery.data) {
+  if (invitationEmailQuery.isPending || !invitationEmailQuery.data) {
     return <PageBodySkeleton label="Loading invitation" />
   }
 
@@ -267,8 +256,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       setError("Enter your name.")
       return
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.")
+    // Better Auth's default length limits: 8 to 128 characters.
+    if (password.length < 8 || password.length > 128) {
+      setError("Use a password of 8 to 128 characters.")
       return
     }
     if (password !== confirmPassword) {

@@ -3,9 +3,11 @@ import { ApiError } from "@/lib/api-result"
 /** Why accepting an invitation failed, as the page tells the invitee. */
 export type InviteAcceptError =
   | { kind: "account-exists" }
-  | { kind: "invalid-password" }
   | { kind: "invitation-unavailable" }
   | { kind: "wrong-recipient" }
+  /** Another refusal (4xx): a retry cannot fix it. */
+  | { kind: "refused" }
+  /** A server error or a lost connection: a retry can fix it. */
   | { kind: "failed" }
 
 /**
@@ -22,6 +24,13 @@ function errorCode(error: unknown): string | null {
   return typeof code === "string" ? code : null
 }
 
+/** A 4xx answer. `ApiError` and the Better Auth client error both have `status`. */
+function isClientError(error: unknown): boolean {
+  if (typeof error !== "object" || error == null) return false
+  const status = (error as { status?: unknown }).status
+  return typeof status === "number" && status >= 400 && status < 500
+}
+
 export function inviteAcceptError(error: unknown): InviteAcceptError {
   // The public invitation route answers 404 for an expired, used, or
   // canceled invitation.
@@ -32,15 +41,11 @@ export function inviteAcceptError(error: unknown): InviteAcceptError {
     case "USER_ALREADY_EXISTS":
     case "USER_ALREADY_EXISTS_USE_ANOTHER_EMAIL":
       return { kind: "account-exists" }
-    case "INVALID_PASSWORD":
-    case "PASSWORD_TOO_SHORT":
-    case "PASSWORD_TOO_LONG":
-      return { kind: "invalid-password" }
     case "INVITATION_NOT_FOUND":
       return { kind: "invitation-unavailable" }
     case "YOU_ARE_NOT_THE_RECIPIENT_OF_THE_INVITATION":
       return { kind: "wrong-recipient" }
     default:
-      return { kind: "failed" }
+      return isClientError(error) ? { kind: "refused" } : { kind: "failed" }
   }
 }

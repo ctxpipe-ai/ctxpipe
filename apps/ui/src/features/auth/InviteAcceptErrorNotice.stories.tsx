@@ -64,18 +64,36 @@ export const InvitationUnavailable: Story = {
 }
 
 export const WrongRecipient: Story = {
-  args: { error: { kind: "wrong-recipient" } },
+  args: {
+    error: { kind: "wrong-recipient" },
+    sessionEmail: "other@example.com",
+  },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await expect(
-      canvas.getByText("This invitation is for a different email"),
+      canvas.getByText("Signed in with a different account"),
+    ).toBeInTheDocument()
+    await expect(canvas.getByText("other@example.com")).toBeInTheDocument()
+    await expect(
+      canvas.getByRole("button", { name: "Sign out to continue" }),
+    ).toBeInTheDocument()
+  },
+}
+
+export const Refused: Story = {
+  args: { error: { kind: "refused" } },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      canvas.getByText("We could not accept this invitation"),
     ).toBeInTheDocument()
     await expect(
-      canvas.getByRole("link", { name: "Sign out to continue" }),
-    ).toHaveAttribute(
-      "href",
-      `/.auth/sign-out?redirectTo=${encodeURIComponent(acceptPath)}`,
-    )
+      canvas.getByText(/Ask an admin of the organization/),
+    ).toBeInTheDocument()
+    await expect(
+      canvas.getByRole("link", { name: "Go to sign in" }),
+    ).toHaveAttribute("href", "/.auth/sign-in")
+    await expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull()
   },
 }
 

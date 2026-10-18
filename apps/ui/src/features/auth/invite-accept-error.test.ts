@@ -76,8 +76,17 @@ describe("inviteAcceptError (CTX-867)", () => {
     })
   })
 
-  it("asks for a valid password when Better Auth refuses the password", async () => {
+  it("does not offer a retry for another refusal, such as a full organization", async () => {
     server.use(
+      http.post(`${authBase}/organization/accept-invitation`, () =>
+        HttpResponse.json(
+          {
+            code: "ORGANIZATION_MEMBERSHIP_LIMIT_REACHED",
+            message: "Organization membership limit reached",
+          },
+          { status: 403 },
+        ),
+      ),
       http.post(`${authBase}/sign-up/email`, () =>
         HttpResponse.json(
           { code: "PASSWORD_TOO_LONG", message: "Password too long" },
@@ -86,8 +95,11 @@ describe("inviteAcceptError (CTX-867)", () => {
       ),
     )
 
+    expect(inviteAcceptError(await failureOf(acceptInvitation))).toEqual({
+      kind: "refused",
+    })
     expect(inviteAcceptError(await failureOf(signUp))).toEqual({
-      kind: "invalid-password",
+      kind: "refused",
     })
   })
 
