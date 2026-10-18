@@ -193,8 +193,9 @@ async function buildkiteGraphqlAccess(input: {
   } catch {
     return "unknown"
   }
-  // The body is not necessary. Do not read it.
-  await response.body?.cancel().catch(() => undefined)
+  // The body is not necessary. Do not read it. Do not await the cancel: a
+  // stream can wait for its source to stop (see bounded-json.ts).
+  response.body?.cancel().catch(() => {})
   if (response.status === 401 || response.status === 403) return "disabled"
   return response.ok ? "enabled" : "unknown"
 }
