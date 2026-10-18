@@ -87,7 +87,7 @@ function api(): OpenAPIHono<AppEnv> {
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_URL,
     MODEL_PROVIDER_API_KEY: "sk-upstream",
-    MODEL_FAST_NAME: "openai/gpt-5.6-terra",
+    MODEL_FAST_NAME: "test/model-fast",
   })
   const routes = new OpenAPIHono<AppEnv>().basePath(
     "/:orgSlug/api/v1/workspace-chat/openai",

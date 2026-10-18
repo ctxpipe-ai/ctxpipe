@@ -409,7 +409,7 @@ beforeAll(async () => {
   vi.stubEnv("MODEL_PROVIDER", "openai-like")
   vi.stubEnv("MODEL_PROVIDER_URL", MODEL_PROVIDER_URL)
   vi.stubEnv("MODEL_PROVIDER_API_KEY", UPSTREAM_KEY)
-  vi.stubEnv("MODEL_FAST_NAME", "openai/gpt-5.6-terra")
+  vi.stubEnv("MODEL_FAST_NAME", "test/model-fast")
   await getSystemDb().insert(organizations).values({
     id: orgId,
     slug: orgSlug,

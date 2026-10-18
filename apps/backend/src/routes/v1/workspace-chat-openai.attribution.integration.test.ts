@@ -87,7 +87,7 @@ function appWithRoutes(): OpenAPIHono<AppEnv> {
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_URL,
     MODEL_PROVIDER_API_KEY: "sk-upstream",
-    MODEL_FAST_NAME: "openai/gpt-5.6-terra",
+    MODEL_FAST_NAME: "test/model-fast",
   })
 
   const app = new OpenAPIHono<AppEnv>().basePath(
@@ -194,7 +194,7 @@ describeWithDatabase("workspace-chat capability attribution", () => {
     let upstreamBody: Record<string, unknown> = {}
     const sse = [
       {
-        model: "openai/gpt-5.6-terra-20260901",
+        model: "test/model-fast-20260901",
         choices: [{ delta: { content: "Hel" } }],
       },
       { choices: [{ delta: { content: "lo" }, finish_reason: "stop" }] },
@@ -252,8 +252,8 @@ describeWithDatabase("workspace-chat capability attribution", () => {
       .getFinishedSpans()
       .find((item) => item.name === "generation #0")
     expect(generation?.attributes).toMatchObject({
-      "gen_ai.request.model": "openai/gpt-5.6-terra",
-      "gen_ai.response.model": "openai/gpt-5.6-terra-20260901",
+      "gen_ai.request.model": "test/model-fast",
+      "gen_ai.response.model": "test/model-fast-20260901",
       "gen_ai.usage.input_tokens": 7200,
       "gen_ai.usage.output_tokens": 40,
       "gen_ai.usage.cache_read.input_tokens": 6800,
@@ -302,7 +302,7 @@ describeWithDatabase("workspace-chat capability attribution", () => {
           "x-request-id": "req_ws_cap",
         },
         body: JSON.stringify({
-          model: "openai/gpt-5.6-terra",
+          model: "test/model-fast",
           messages: [{ role: "user", content: "secret-prompt-token" }],
         }),
       },
