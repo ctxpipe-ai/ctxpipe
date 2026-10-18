@@ -45,6 +45,7 @@ import {
   formatChangeNeedsScan,
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
+  workspaceFormatCache,
   workspaceFormatCacheValue,
 } from "../../domain/workspaces/workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
@@ -558,9 +559,11 @@ export function defineWorkspaceHydrateWorkflow() {
                     })
                   },
                 )
-                const formatVersion = workspaceFormatCacheValue(
-                  readWorkspaceFormat(formatFile),
-                )
+                const formatVersion = workspaceFormatCache({
+                  text: formatFile,
+                  paths: treePaths,
+                  writeStatus: workspace.writeStatus,
+                })
                 activated = await orgSql(() =>
                   commitHydrateProjection({
                     orgId: input.orgId,
