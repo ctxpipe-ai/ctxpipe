@@ -30,10 +30,12 @@ import {
 import {
   type BunWebSocketLike,
   bunSocketToWebSocketLike,
+  conversationWebSocketHasResumeOffset,
   isWorkspaceChatWebSocketRequest,
   parseConversationWebSocketUpgradeUrl,
   startConversationChatSocket,
 } from "./conversation-websocket-stream.js"
+import { getReadableConversation } from "./conversations.js"
 
 export {
   type BunWebSocketLike,
@@ -116,6 +118,20 @@ export async function handleConversationWebSocket(
     .limit(1)
   const org = orgRows[0]
   if (!org) return new Response("Not found", { status: 404 })
+  // A resume replays a stored run, so the user must be able to read the
+  // conversation. A turn checks the conversation when it starts.
+  if (conversationWebSocketHasResumeOffset(request.url)) {
+    const userId = authSession.user.id
+    const readable = await withOrgIdContext({ id: org.id, slug: orgSlug }, () =>
+      withUserIdContext(userId, () =>
+        getReadableConversation(conversationId, {
+          orgId: org.id,
+          headers: request.headers,
+        }),
+      ),
+    )
+    if (!readable) return new Response("Not found", { status: 404 })
+  }
 
   const socket = bunSocketToWebSocketLike({
     send: () => {
@@ -151,18 +167,22 @@ export const conversationWebSocketHandlers = {
     like.close = (code, reason) => {
       ws.close(code, reason)
     }
-    startConversationChatSocket(like, ws.data.request, (ctx) =>
-      streamWorkspaceChatSocketTurn({
-        conversationId: ws.data.conversationId,
-        orgId: ws.data.orgId,
-        orgSlug: ws.data.orgSlug,
-        userId: ws.data.userId,
-        messages: ctx.messages,
-        threadId: ctx.threadId,
-        runId: ctx.runId,
-        forwardedProps: ctx.forwardedProps,
-        signal: ctx.signal,
-      }),
+    startConversationChatSocket(
+      like,
+      ws.data.request,
+      { orgId: ws.data.orgId, conversationId: ws.data.conversationId },
+      (ctx) =>
+        streamWorkspaceChatSocketTurn({
+          conversationId: ws.data.conversationId,
+          orgId: ws.data.orgId,
+          orgSlug: ws.data.orgSlug,
+          userId: ws.data.userId,
+          messages: ctx.messages,
+          threadId: ctx.threadId,
+          runId: ctx.runId,
+          forwardedProps: ctx.forwardedProps,
+          signal: ctx.signal,
+        }),
     )
   },
 

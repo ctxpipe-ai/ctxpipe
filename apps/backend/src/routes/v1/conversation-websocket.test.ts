@@ -77,6 +77,7 @@ describe("workspace chat websocket resume", () => {
         new Request(
           "http://localhost:3000/acme/api/v1/conversations/conv_1?runId=run_1&offset=-1",
         ),
+        { orgId: "org_1", conversationId: "conv_1" },
         onRun,
         { resume, stream },
       ),
@@ -98,6 +99,7 @@ describe("workspace chat websocket resume", () => {
       startConversationChatSocket(
         socket,
         new Request("http://localhost:3000/acme/api/v1/conversations/conv_1"),
+        { orgId: "org_1", conversationId: "conv_1" },
         onRun,
         { resume, stream },
       ),
