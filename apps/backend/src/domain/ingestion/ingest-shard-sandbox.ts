@@ -9,7 +9,6 @@ import {
 import { type Env, parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { listWorkspaceUnitsAtRevision } from "../../models/workspaces.js"
-import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
 import { resolvePlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { ingestSandboxThreadId } from "../workspaces/chat-lifecycle.js"
@@ -57,7 +56,6 @@ import { dockerRootExec, type RootExec } from "./ingest-root.js"
 import {
   discoverIngestRoots,
   ingestAgentEnv,
-  ingestShardPrepared,
   prepareIngestShard,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
@@ -68,6 +66,7 @@ import {
   type IngestShardSpec,
   ingestCallbackOrigin,
 } from "./ingest-shard-runtime.js"
+import { withShardStep } from "./ingest-shard-step.js"
 import { INGEST_TOOL_BRIDGE_PATH } from "./ingest-tools.js"
 import { ingestionOrg } from "./ingestion-v2-resolve.js"
 import { runGit } from "./run-git.js"
@@ -299,36 +298,6 @@ function withShardLock<T>(
   )
 }
 
-/**
- * Run `fn` with the step's credentials in the hosted sandbox firewall (no
- * firewall: Docker, just `fn`). `closeTurn` always runs, also when
- * `openTurn` throws: Vercel can apply an update and still answer with an
- * error, so the step's credentials can be in the policy then. A failed
- * `closeTurn` is logged: the capability ends with the lock owner, and the
- * scope expires.
- */
-export async function withStepFirewall<T>(
-  firewall: ConversationFirewall | undefined,
-  sandboxName: string,
-  credentials: HostedTurnCredentials,
-  logContext: { orgId: string; runId: string },
-  fn: () => Promise<T>,
-): Promise<T> {
-  if (!firewall) return fn()
-  try {
-    await firewall.openTurn(sandboxName, credentials)
-    return await fn()
-  } finally {
-    await firewall.closeTurn(sandboxName).catch((error: unknown) =>
-      log.error({
-        step: "ingest-shard-close-turn",
-        message: `Removing the step's credentials from the sandbox firewall failed: ${String(error)}`,
-        ...logContext,
-      }),
-    )
-  }
-}
-
 /** The deployment's ingest provider: Docker (the default) or Vercel. */
 function ingestIsolation(): "docker" | "vercel" {
   const isolation = lockedSandboxProvider(process.env) ?? "docker"
@@ -509,85 +478,56 @@ function shardRuntime(
         const existingRoot = existing ? await box.root(existing.id) : null
         // A process of an earlier step must not get this step's credentials.
         if (existingRoot) await stopIngestAgentProcesses(existingRoot)
-        // A new sandbox, or one whose prepare did not finish, fetches the
-        // source first. Only then may it reach a plain git host: a step's
-        // agent never can (see `ingestCredentialRules`).
-        const prepare =
-          !existingRoot || !(await ingestShardPrepared(existingRoot))
-        const fetchSource = prepare && spec.source.kind === "git"
-        const refresh = (withSource: boolean) =>
-          refreshIngestSandboxEgress({
-            orgId: spec.orgId,
-            runId: spec.runId,
-            shard: spec.shard,
-            egress,
-            fetchSource: withSource,
-          })
-        // Docker: a new sandbox gets the source fetch rules at create; an
-        // existing one gets this step's rules now. Vercel: the firewall gets
-        // them below.
-        if (existing && !box.firewall) await refresh(fetchSource)
-        const handle = existing ?? (await box.sandbox.ensure())
-        const root = existingRoot ?? (await box.root(handle.id))
-        const credentials = hostedStepCredentials(egress)
-        return withStepFirewall(
-          box.firewall,
-          handle.id,
-          fetchSource ? { ...credentials, fetchSource: true } : credentials,
-          { orgId: spec.orgId, runId: spec.runId },
-          async () => {
-            try {
-              const agentEnv = await ingestAgentEnv(root, {
-                modelProxyUrl: egress.modelProxyUrl,
-                ...(box.agentPath ? { path: box.agentPath } : {}),
-              })
-              if (prepare) {
-                const models = ingestModels()
-                try {
-                  await prepareIngestShard(handle, root, {
-                    bundle: spec.bundle,
-                    opencodeConfig: ingestOpenCodeConfig({
-                      modelBase: models.medium,
-                      models: [models.fast],
-                      skills: spec.bundle.skills,
-                      proxyAddsCredentials: true,
-                      toolBridgeUrl: egress.bridge.url,
-                    }),
-                    agentEnv,
-                    source: {
-                      url: spec.source.url,
-                      sha: spec.source.sha,
-                      // No later fetch can get a missing blob of a plain
-                      // git source: clone each blob of the window now.
-                      blobless: spec.source.kind !== "git",
-                    },
-                    contexts: spec.destinations,
-                    now: new Date(),
-                  })
-                } finally {
-                  // The source fetch ends with the prepare, before an agent
-                  // runs, also when the prepare fails.
-                  if (fetchSource && box.firewall)
-                    await box.firewall.openTurn(handle.id, credentials)
-                  else if (fetchSource) await refresh(false)
-                }
-              }
-              return await fn({ handle, root, agentEnv, signal: lockSignal })
-            } catch (error) {
-              // A failed or aborted step skips `collectIngestStep`: stop each
-              // agent process here, before the shard lock is released.
-              await stopIngestAgentProcesses(root).catch((stopError: unknown) =>
-                log.error({
-                  step: "ingest-shard-stop-agent",
-                  message: `Stopping the agent processes of a failed step failed: ${String(stopError)}`,
-                  orgId: spec.orgId,
-                  runId: spec.runId,
-                }),
-              )
-              throw error
-            }
+        return withShardStep({
+          existingRoot,
+          plainGitSource: spec.source.kind === "git",
+          firewall: box.firewall,
+          credentials: hostedStepCredentials(egress),
+          refresh: (fetchSource) =>
+            refreshIngestSandboxEgress({
+              orgId: spec.orgId,
+              runId: spec.runId,
+              shard: spec.shard,
+              egress,
+              fetchSource,
+            }),
+          attach: async () => {
+            const handle = existing ?? (await box.sandbox.ensure())
+            const root = existingRoot ?? (await box.root(handle.id))
+            const agentEnv = await ingestAgentEnv(root, {
+              modelProxyUrl: egress.modelProxyUrl,
+              ...(box.agentPath ? { path: box.agentPath } : {}),
+            })
+            return { handle, root, agentEnv }
           },
-        )
+          prepare: ({ handle, root, agentEnv }) => {
+            const models = ingestModels()
+            return prepareIngestShard(handle, root, {
+              bundle: spec.bundle,
+              opencodeConfig: ingestOpenCodeConfig({
+                modelBase: models.medium,
+                models: [models.fast],
+                skills: spec.bundle.skills,
+                proxyAddsCredentials: true,
+                toolBridgeUrl: egress.bridge.url,
+              }),
+              agentEnv,
+              source: {
+                url: spec.source.url,
+                sha: spec.source.sha,
+                // No later fetch can get a missing blob of a plain git
+                // source: clone each blob of the window now.
+                blobless: spec.source.kind !== "git",
+              },
+              contexts: spec.destinations,
+              now: new Date(),
+              signal: lockSignal,
+            })
+          },
+          run: (box) => fn({ ...box, signal: lockSignal }),
+          stopAgents: stopIngestAgentProcesses,
+          logContext: { orgId: spec.orgId, runId: spec.runId },
+        })
       },
       signal,
     )

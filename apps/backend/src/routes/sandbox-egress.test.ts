@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { Sandbox } from "@vercel/sandbox"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -14,12 +15,17 @@ import {
 } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
+import type { RootExec } from "../domain/ingestion/ingest-root.js"
+import { withShardStep } from "../domain/ingestion/ingest-shard-step.js"
 import {
   type IngestEgressScope,
   ingestEgressProxy,
   sealIngestEgressScope,
 } from "../domain/workspaces/ingest-egress-proxy.js"
-import { ingestNetworkPolicy } from "../domain/workspaces/ingest-sandbox-egress.js"
+import {
+  ingestNetworkPolicy,
+  vercelIngestSandboxProvider,
+} from "../domain/workspaces/ingest-sandbox-egress.js"
 import {
   registerSandboxEgressRoute,
   sandboxEgressGuard,
@@ -844,5 +850,221 @@ describe("the ingest egress proxy route for a plain git source (CTX-815)", () =>
     expect(
       outbound.filter((url) => url.includes("private.example.org")),
     ).toEqual([])
+  })
+})
+
+describe("the plain git source fetch of a shard step (CTX-815)", () => {
+  const name = "sbx-ingest"
+  const vercel = { token: "t", teamId: team, projectId: project }
+  const session = {
+    id: "sess_shard_step",
+    memory: 2048,
+    vcpus: 1,
+    region: "iad1",
+    runtime: "node22",
+    timeout: 60_000,
+    status: "running",
+    requestedAt: 1,
+    createdAt: 1,
+    cwd: "/vercel/sandbox",
+    updatedAt: 1,
+  }
+  const sandbox = {
+    name,
+    persistent: true,
+    createdAt: 1,
+    updatedAt: 1,
+    currentSessionId: session.id,
+    status: "running",
+  }
+  type Policy = { allow: Record<string, Array<{ forwardURL?: string }>> }
+  /** Each network policy that Vercel applied, in order. */
+  let applied: Policy[] = []
+  /** The sandbox's prepared marker, as `ingestShardPrepared` reads it. */
+  let prepared = false
+  const root: RootExec = async (script) => ({
+    exitCode: script.startsWith("test -f ") && !prepared ? 1 : 0,
+    stdout: "",
+    stderr: "",
+  })
+  const sealedOf = (policy: Policy | undefined) =>
+    new URL(
+      policy?.allow["github.com"]?.[0]?.forwardURL ?? "",
+    ).pathname.replace("/api/v1/sandbox-egress/", "")
+  /** A Git fetch of the source through the policy that Vercel applied last. */
+  const fetchNow = () => {
+    const sealed = sealedOf(applied.at(-1))
+    return Promise.all([
+      forwarded(
+        "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        { sealed },
+      ),
+      forwarded("https://git.example.org/team/app.git/git-upload-pack", {
+        sealed,
+        method: "POST",
+        body: "0032want abc\nWorkspace content\n0000",
+      }),
+    ]).then((responses) => responses.map((response) => response.status))
+  }
+
+  async function hostedFirewall() {
+    vi.stubEnv("AUTH_SECRET", secret)
+    vi.stubEnv("DATABASE_URL", "postgres://unused@localhost:5432/unused")
+    vi.stubEnv("AUTH_BASE_URL", `https://${backendHost}`)
+    server.use(
+      http.get(`https://vercel.com/api/v2/sandboxes/${name}`, () =>
+        HttpResponse.json({ sandbox, session, routes: [] }),
+      ),
+      http.patch(
+        `https://vercel.com/api/v2/sandboxes/${name}`,
+        async ({ request }) => {
+          const body = (await request.json()) as { networkPolicy: Policy }
+          applied.push(body.networkPolicy)
+          return HttpResponse.json({ sandbox })
+        },
+      ),
+      http.post(
+        `https://vercel.com/api/v2/sandboxes/sessions/${session.id}/network-policy`,
+        () => HttpResponse.json({ session }),
+      ),
+    )
+    const { firewall } = vercelIngestSandboxProvider({
+      orgId: "org_shard_step",
+      runId: "run_shard_step",
+      shard: 0,
+      repositories: [
+        { kind: "git", host: "git.example.org", path: "/team/app.git" },
+      ],
+      backendHost,
+      credentials: vercel,
+      agentPassword: "password",
+      tags: {},
+      agentSnapshot: async () => "snap_test",
+    })
+    // The provider attaches the sandbox at each step's create or resume.
+    const attach = async () =>
+      firewall.attach(
+        await Sandbox.get({ ...vercel, name, resume: false }),
+        "git-1",
+      )
+    return { firewall, attach }
+  }
+
+  /** One step as `withShard` runs it; `prepare` and `stopAgents` fetch too. */
+  function stepOf(
+    hosted: Awaited<ReturnType<typeof hostedFirewall>> | undefined,
+    input: {
+      existing: boolean
+      refresh?: (fetchSource: boolean) => Promise<void>
+      prepare?: () => Promise<void>
+      stopAgents?: () => Promise<void>
+    },
+  ) {
+    return withShardStep({
+      existingRoot: input.existing ? root : null,
+      plainGitSource: true,
+      firewall: hosted?.firewall,
+      credentials: step,
+      refresh:
+        input.refresh ??
+        (() => Promise.reject(new Error("A hosted step refreshes no vault"))),
+      attach: async () => {
+        await hosted?.attach()
+        return { handle: { id: name }, root }
+      },
+      prepare: async () => {
+        await input.prepare?.()
+        prepared = true
+      },
+      run: fetchNow,
+      stopAgents: async () => {
+        await input.stopAgents?.()
+      },
+      logContext: { orgId: "org_shard_step", runId: "run_shard_step" },
+    })
+  }
+
+  it("reaches the plain git host only while it prepares a new or an unprepared sandbox; the step after it gets 403", async () => {
+    const hosted = await hostedFirewall()
+    const duringPrepare: number[][] = []
+    const fetchInPrepare = async () => {
+      duringPrepare.push(await fetchNow())
+    }
+
+    // A new sandbox: prepare, then the step.
+    prepared = false
+    expect(
+      await stepOf(hosted, { existing: false, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toEqual([[200, 200]])
+
+    // An existing, prepared sandbox does not prepare, and never gets the
+    // plain git host.
+    applied = []
+    expect(
+      await stepOf(hosted, { existing: true, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toHaveLength(1)
+    expect(applied.some((policy) => "git.example.org" in policy.allow)).toBe(
+      false,
+    )
+
+    // An existing sandbox whose prepare did not finish prepares again.
+    prepared = false
+    expect(
+      await stepOf(hosted, { existing: true, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toEqual([
+      [200, 200],
+      [200, 200],
+    ])
+  })
+
+  it("removes the plain git host when the prepare fails, before the step's agents are stopped", async () => {
+    const hosted = await hostedFirewall()
+    prepared = false
+    let duringPrepare: number[] = []
+    let afterFailure: number[] = []
+    await expect(
+      stepOf(hosted, {
+        existing: false,
+        prepare: async () => {
+          duringPrepare = await fetchNow()
+          throw new Error("The clone failed")
+        },
+        stopAgents: async () => {
+          afterFailure = await fetchNow()
+        },
+      }),
+    ).rejects.toThrow("The clone failed")
+    expect(duringPrepare).toEqual([200, 200])
+    expect(afterFailure).toEqual([403, 403])
+    expect(prepared).toBe(false)
+  })
+
+  it("Docker: sets the vault rules with the source fetch only for the prepare, also when it fails", async () => {
+    const refreshes: boolean[] = []
+    const refresh = async (fetchSource: boolean) => {
+      refreshes.push(fetchSource)
+    }
+    // An existing, prepared sandbox: this step's rules, with no source fetch.
+    prepared = true
+    await stepOf(undefined, { existing: true, refresh })
+    expect(refreshes).toEqual([false])
+    // An existing, unprepared sandbox: the source fetch, then no fetch.
+    prepared = false
+    await stepOf(undefined, { existing: true, refresh })
+    expect(refreshes).toEqual([false, true, false])
+    // A new sandbox got the source fetch rules at create; a failed prepare
+    // removes them.
+    prepared = false
+    await expect(
+      stepOf(undefined, {
+        existing: false,
+        refresh,
+        prepare: () => Promise.reject(new Error("The clone failed")),
+      }),
+    ).rejects.toThrow("The clone failed")
+    expect(refreshes).toEqual([false, true, false, false])
   })
 })
