@@ -80,6 +80,20 @@ export function workspaceChatOpenCodeModel(modelBase: string): string {
 }
 
 /**
+ * OpenCode settings that make its first model call of a turn come sooner.
+ * Each turn starts a new OpenCode server, so its start work is on the path
+ * of every answer. The chat reads the repository with tools and needs no
+ * live index of it: no file watcher and no file search index (the glob and
+ * grep tools work without them). Measured with OpenCode 1.18.34 (CTX-848),
+ * these two and `snapshot: false` cut the time from the prompt to the first
+ * model call by about half.
+ */
+export const WORKSPACE_CHAT_OPENCODE_START_ENV = {
+  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "1",
+  OPENCODE_DISABLE_FFF: "1",
+} as const
+
+/**
  * The backend variables that an unsandboxed agent process keeps. The agent
  * runs as the backend's OS user, so every other variable, also one added
  * later, could hold a secret.
@@ -112,6 +126,7 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
   "XDG_STATE_HOME",
   "XDG_CACHE_HOME",
   "OPENCODE_CONFIG",
+  ...Object.keys(WORKSPACE_CHAT_OPENCODE_START_ENV),
 ])
 
 /**
@@ -204,6 +219,7 @@ export function workspaceChatOpenCodeHomeEnv(
     XDG_STATE_HOME: join(home, "state"),
     XDG_CACHE_HOME: join(home, "cache"),
     OPENCODE_CONFIG: workspaceChatOpenCodeConfigPath(conversationId),
+    ...WORKSPACE_CHAT_OPENCODE_START_ENV,
     PATH: unixLoginPath(),
   }
 }
@@ -237,6 +253,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         XDG_STATE_HOME: `${home}/state`,
         XDG_CACHE_HOME: `${home}/cache`,
         OPENCODE_CONFIG: `${home}/opencode.json`,
+        ...WORKSPACE_CHAT_OPENCODE_START_ENV,
         PATH:
           input.isolation === "vercel"
             ? // The runtime image keeps Node and npm under /vercel/runtimes.
@@ -335,6 +352,7 @@ export function workspaceChatOpenCodeConfig(input: {
     }
   }
   model: string
+  snapshot: false
   permission: {
     task: "deny"
     webfetch: "allow" | "deny"
@@ -360,6 +378,9 @@ export function workspaceChatOpenCodeConfig(input: {
   return {
     $schema: "https://opencode.ai/config.json",
     ...workspaceChatOpenCodeProvider(input),
+    // OpenCode's undo copy of the repository. The chat never uses it; each
+    // turn records its changes with Git (`snapshotConversationTurn`).
+    snapshot: false,
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
     // not ours, so it stays off. A hosted or Docker agent may read web
     // pages: its network is open and holds no credential. An unsandboxed

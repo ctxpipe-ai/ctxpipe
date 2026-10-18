@@ -23,7 +23,7 @@ patchedDependencies:
     hash: e9d1cc8a2cdc198215919e404891152978de735b3505fe90947a13311aac6b73
     path: patches/@hono__zod-openapi@1.2.2.patch
   '@tanstack/ai-opencode@0.4.14':
-    hash: badbb8911213df4ec2f4d3d9e33c25a7f9df5d46f3f2a807cd277222336dbfb8
+    hash: 77113c9b3cf3fdb12a9627a1172d6bfc2cfba2543ce34b0d121519527c2603a8
     path: patches/@tanstack__ai-opencode@0.4.14.patch
 
 importers:
@@ -155,7 +155,7 @@ importers:
         version: 0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6)
       '@tanstack/ai-opencode':
         specifier: ^0.4.14
-        version: 0.4.14(patch_hash=badbb8911213df4ec2f4d3d9e33c25a7f9df5d46f3f2a807cd277222336dbfb8)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))
+        version: 0.4.14(patch_hash=77113c9b3cf3fdb12a9627a1172d6bfc2cfba2543ce34b0d121519527c2603a8)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))
       '@tanstack/ai-persistence':
         specifier: ^0.7.1
         version: 0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
@@ -22778,7 +22778,7 @@ snapshots:
     dependencies:
       '@tanstack/devtools-event-client': 0.4.4
 
-  '@tanstack/ai-opencode@0.4.14(patch_hash=badbb8911213df4ec2f4d3d9e33c25a7f9df5d46f3f2a807cd277222336dbfb8)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))':
+  '@tanstack/ai-opencode@0.4.14(patch_hash=77113c9b3cf3fdb12a9627a1172d6bfc2cfba2543ce34b0d121519527c2603a8)(@tanstack/ai-sandbox@0.5.17(@cfworker/json-schema@4.1.1)(@tanstack/ai-persistence@0.7.1(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(zod@4.3.6))(@tanstack/ai@0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6))':
     dependencies:
       '@opencode-ai/sdk': 1.18.34
       '@tanstack/ai': 0.63.0(@opentelemetry/api@1.9.1)(zod@4.3.6)
