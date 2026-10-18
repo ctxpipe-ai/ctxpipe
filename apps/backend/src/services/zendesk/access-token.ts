@@ -1,3 +1,4 @@
+import { DrizzleQueryError } from "drizzle-orm"
 import type { Env } from "../../config/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
@@ -11,6 +12,16 @@ import {
   refreshZendeskToken,
   ZendeskAuthorizationRevokedError,
 } from "./oauth.js"
+
+/**
+ * An error for a log line. A failed query has its parameters (here the
+ * encrypted tokens) in its message, so only the database cause is logged.
+ */
+export function loggableZendeskError(error: unknown): string {
+  return error instanceof DrizzleQueryError
+    ? `${error.name}: ${formatUnknownError(error.cause ?? "no cause")}`
+    : formatUnknownError(error)
+}
 
 /**
  * The access token of a caller that lost the refresh race: another caller
@@ -97,7 +108,7 @@ export async function freshZendeskAccessToken(input: {
         log.error({
           step: "zendesk.tokens.save_failed",
           connectionId: connection.id,
-          message: formatUnknownError(error),
+          message: loggableZendeskError(error),
         })
         break
       }

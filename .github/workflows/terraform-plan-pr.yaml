@@ -46,6 +46,11 @@ jobs:
       # value: a non-empty placeholder passes the module validation, and the
       # plan shows a masked VERCEL_TOKEN change that the deploy does not apply.
       TF_VAR_vercel_access_token: pr-plan-placeholder
+      # The Zendesk OAuth client follows the same rule. Its two secrets are in
+      # the Production environment only, so a pull request plan cannot show
+      # them. The placeholders keep the plan shape the same as production.
+      TF_VAR_zendesk_client_id: pr-plan-placeholder
+      TF_VAR_zendesk_client_secret: pr-plan-placeholder
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
@@ -85,8 +90,6 @@ jobs:
           TF_VAR_notion_webhook_secret: ${{ secrets.NOTION_WEBHOOK_SECRET }}
           TF_VAR_pagerduty_client_id: ${{ secrets.PAGERDUTY_CLIENT_ID }}
           TF_VAR_pagerduty_client_secret: ${{ secrets.PAGERDUTY_CLIENT_SECRET }}
-          TF_VAR_zendesk_client_id: ${{ secrets.ZENDESK_CLIENT_ID }}
-          TF_VAR_zendesk_client_secret: ${{ secrets.ZENDESK_CLIENT_SECRET }}
           TF_VAR_falkordb_password: ${{ secrets.FALKORDB_PASSWORD }}
           TF_VAR_otel_otlp_headers: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
           R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}

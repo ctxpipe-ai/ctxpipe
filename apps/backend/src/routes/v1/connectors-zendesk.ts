@@ -12,12 +12,16 @@ import {
   type ZendeskConnection,
 } from "../../models/zendesk-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { freshZendeskAccessToken } from "../../services/zendesk/access-token.js"
+import {
+  freshZendeskAccessToken,
+  loggableZendeskError,
+} from "../../services/zendesk/access-token.js"
 import {
   createZendeskArticleWebhook,
   deleteZendeskWebhook,
   listZendeskCategories,
   listZendeskViews,
+  revokeZendeskAccessToken,
 } from "../../services/zendesk/client.js"
 import {
   createZendeskOAuthState,
@@ -350,27 +354,41 @@ export const zendeskConnectorRoutes = new OpenAPIHono<AppEnv>()
       c.var.env,
     )
     if (!connection) return c.json({ error: UNKNOWN_CONNECTION }, 404)
-    // Delete the webhook while the token works; a failure does not block the
-    // removal, and the docs tell the admin to check the Zendesk webhooks.
-    if (connection.webhookId && connection.status === "installed") {
-      try {
-        const accessToken = await accessTokenOrNull(
-          orgId,
-          connection,
-          c.var.env,
-        )
-        if (accessToken)
-          await deleteZendeskWebhook({
-            subdomain: connection.subdomain,
-            accessToken,
-            webhookId: connection.webhookId,
-          })
-      } catch (caught) {
-        getLogger().warn("zendesk_webhook_delete_failed", {
+    // Delete the webhook, then revoke the token, while the token works. A
+    // failure does not block the removal: the docs tell the admin to check
+    // the Zendesk webhooks, and the log names the step that failed.
+    if (connection.status === "installed") {
+      const accessToken = await accessTokenOrNull(
+        orgId,
+        connection,
+        c.var.env,
+      ).catch((caught: unknown) => {
+        getLogger().warn("zendesk_token_read_failed", {
           connectionId,
-          error: formatUnknownError(caught),
+          error: loggableZendeskError(caught),
         })
-      }
+        return null
+      })
+      const auth = accessToken
+        ? { subdomain: connection.subdomain, accessToken }
+        : null
+      if (auth && connection.webhookId)
+        await deleteZendeskWebhook({
+          ...auth,
+          webhookId: connection.webhookId,
+        }).catch((caught: unknown) =>
+          getLogger().warn("zendesk_webhook_delete_failed", {
+            connectionId,
+            error: formatUnknownError(caught),
+          }),
+        )
+      if (auth)
+        await revokeZendeskAccessToken(auth).catch((caught: unknown) =>
+          getLogger().warn("zendesk_token_revoke_failed", {
+            connectionId,
+            error: formatUnknownError(caught),
+          }),
+        )
     }
     return (await deleteZendeskConnection(orgId, connectionId))
       ? c.body(null, 204)

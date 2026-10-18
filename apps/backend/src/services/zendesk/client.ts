@@ -1,9 +1,10 @@
 import { z } from "zod"
 import { assertNotInOrgDbContext } from "../../db/client.js"
 import { readBoundedJson } from "../connectors/bounded-json.js"
-import type {
-  ZendeskArticleForMirror,
-  ZendeskTicketForMirror,
+import {
+  isZendeskId,
+  type ZendeskArticleForMirror,
+  type ZendeskTicketForMirror,
 } from "./converter.js"
 import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
@@ -262,6 +263,8 @@ export async function listZendeskViewTickets(
     .parse(await readJson(response))
   const result: ZendeskTicketForMirror[] = []
   for (const ticket of tickets) {
+    // The id goes into the request path, so only a numeric id is read.
+    if (!isZendeskId(ticket.id)) continue
     const pages = await readPages(
       input,
       apiUrl(input, `/tickets/${ticket.id}/comments`, {
@@ -339,6 +342,10 @@ export async function createZendeskArticleWebhook(
   const { webhook } = z
     .object({ webhook: z.object({ id }) })
     .parse(await readJson(created))
+  // The id goes into the request path. Zendesk webhook ids are letters and
+  // digits (not numbers like the other ids).
+  if (!/^[A-Za-z0-9]{1,64}$/.test(webhook.id))
+    throw new Error("Zendesk gave a webhook id that is not valid")
   const secret = await zendeskRequest(
     input,
     apiUrl(input, `/webhooks/${webhook.id}/signing_secret`),
@@ -362,4 +369,29 @@ export async function deleteZendeskWebhook(
   )
   if (!response.ok && response.status !== 404)
     throw new Error(`Zendesk webhook delete failed (${response.status})`)
+}
+
+/**
+ * Revoke the access token at Zendesk, so that a copy of it stops working
+ * after the connection is removed. A token that is already invalid is a
+ * success.
+ */
+export async function revokeZendeskAccessToken(
+  auth: ZendeskAuth,
+): Promise<void> {
+  let response: Response
+  try {
+    response = await zendeskRequest(
+      auth,
+      apiUrl(auth, "/oauth/tokens/current"),
+      {
+        method: "DELETE",
+      },
+    )
+  } catch (caught) {
+    if (caught instanceof ZendeskAuthorizationRevokedError) return
+    throw caught
+  }
+  if (!response.ok && response.status !== 404)
+    throw new Error(`Zendesk token revoke failed (${response.status})`)
 }

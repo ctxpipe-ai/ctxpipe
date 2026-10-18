@@ -122,6 +122,8 @@ source. Remove it from the source, or share the view with the Zendesk user.
 
 ### Removing the connector
 
-Removing the connector deletes the webhook in Zendesk while the authorization
-works, then the saved tokens. The Workspace sources that use it stop syncing.
-Files in GitHub stay.
+Removing the connector deletes the webhook in Zendesk and revokes the access
+token while the authorization works. Then it deletes the saved tokens. If
+Zendesk is not available, the removal still completes. In that case, make sure
+that the webhook and the authorization are gone in Zendesk Admin Center. The
+Workspace sources that use the connector stop syncing. Files in GitHub stay.

@@ -465,6 +465,72 @@ describe("provider links in article files", () => {
   })
 })
 
+describe("provider fields and typed markers in one-line text", () => {
+  const content = zendeskTicketFile({
+    viewId: "1",
+    ticket: {
+      ...ticket,
+      subject: "[link removed](https://evil.example.com) for jo@example.com",
+      status: "open\n# Fake status",
+      priority: "high [x](https://evil.example.com)",
+      comments: [
+        {
+          authorName: "Alex Kim",
+          createdAt: "2026-10-10T09:00:00Z\n# Fake comment",
+          public: true,
+          body: "Hi",
+          attachments: [],
+        },
+      ],
+    },
+  }).content
+  const lines = content.split("\n")
+
+  it("escapes a redaction marker that the customer typed as a link", () => {
+    expect(lines).toContain(
+      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for [email removed]",
+    )
+  })
+
+  it("keeps status, priority, and comment time on one escaped line", () => {
+    expect(lines).toContain("- Status: open \\# Fake status")
+    expect(lines).toContain(
+      "- Priority: high \\[x\\](https://evil.example.com)",
+    )
+    expect(lines.filter((line) => /^#{1,6}\s/.test(line))).toEqual([
+      "# Ticket #4501: \\[link removed\\](https://evil.example.com) for [email removed]",
+      "## Comments",
+      "### Alex Kim, 2026-10-10T09:00:00Z \\# Fake comment",
+    ])
+  })
+})
+
+describe("format characters in customer text", () => {
+  it("removes them before the redaction, so they cannot hide an email address", () => {
+    const content = zendeskTicketFile({
+      viewId: "1",
+      ticket: {
+        ...ticket,
+        subject: "Mail jo\u200b@example.com \u202eabc",
+        comments: [
+          {
+            authorName: "Alex Kim",
+            createdAt: "2026-10-10T09:00:00Z",
+            public: true,
+            body: "Mail jo\u200b@example.com or \u2066sam@example.org\u2069",
+            attachments: [],
+          },
+        ],
+      },
+    }).content
+
+    expect(content).not.toMatch(/[\u200b\u202e\u2066\u2069]/)
+    expect(content).not.toContain("@example")
+    expect(content).toContain("# Ticket #4501: Mail [email removed] abc")
+    expect(content).toContain("> Mail [email removed] or [email removed]")
+  })
+})
+
 describe("line breaks and control characters in customer text", () => {
   const ticketWith = (body: string, authorName = "Alex Kim") =>
     zendeskTicketFile({

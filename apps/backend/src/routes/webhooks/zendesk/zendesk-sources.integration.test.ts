@@ -28,7 +28,12 @@ function app() {
   return hono
 }
 
-async function post(input: { type: string; secret?: string; path?: string }) {
+async function post(input: {
+  type: string
+  secret?: string
+  path?: string
+  timestamp?: string
+}) {
   // Loaded after DATABASE_URL is checked: the OpenWorkflow client connects on import.
   const { registerZendeskWebhookRoute } = await import("./zendesk.js")
   const hono = app()
@@ -38,7 +43,7 @@ async function post(input: { type: string; secret?: string; path?: string }) {
     account_id: 1,
     detail: { id: "1" },
   })
-  const timestamp = new Date().toISOString()
+  const timestamp = input.timestamp ?? new Date().toISOString()
   const signature = createHmac("sha256", input.secret ?? signingSecret)
     .update(`${timestamp}${body}`)
     .digest("base64")
@@ -117,6 +122,18 @@ describe("Zendesk webhook routes to Workspace sources (Postgres)", () => {
         await post({
           type: "zen:event-type:article.published",
           secret: "not-the-secret",
+        })
+      ).status,
+    ).toBe(401)
+    expect(await sourceRuns()).toEqual([])
+  })
+
+  it("refuses a correctly signed delivery with a stale timestamp", async () => {
+    expect(
+      (
+        await post({
+          type: "zen:event-type:article.published",
+          timestamp: new Date(Date.now() - 6 * 60 * 1000).toISOString(),
         })
       ).status,
     ).toBe(401)

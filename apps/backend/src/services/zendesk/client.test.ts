@@ -13,6 +13,7 @@ import {
   createZendeskArticleWebhook,
   listZendeskCategoryArticles,
   listZendeskViewTickets,
+  revokeZendeskAccessToken,
 } from "./client.js"
 import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
@@ -322,6 +323,32 @@ describe("listZendeskViewTickets", () => {
     expect(JSON.stringify(tickets)).not.toContain("not-mirrored")
     expect(JSON.stringify(tickets)).not.toContain("secret")
   })
+
+  it("skips a ticket whose id is not a number, and sends no request for it", async () => {
+    server.use(
+      http.get(`${API}/views/90/tickets`, ({ request }) => {
+        record(request)
+        return HttpResponse.json({
+          tickets: [
+            { id: "1/../../users", status: "open" },
+            { id: 13, status: "open" },
+          ],
+        })
+      }),
+      http.get(`${API}/tickets/:id/comments`, ({ request }) => {
+        record(request)
+        return HttpResponse.json({ comments: [], meta: { has_more: false } })
+      }),
+    )
+
+    const tickets = await listZendeskViewTickets({ ...ctx, viewId: "90" })
+
+    expect(requests.map((path) => path.split("?")[0])).toEqual([
+      "/api/v2/views/90/tickets",
+      "/api/v2/tickets/13/comments",
+    ])
+    expect(tickets).toMatchObject([{ id: "13" }])
+  })
 })
 
 describe("createZendeskArticleWebhook", () => {
@@ -360,5 +387,64 @@ describe("createZendeskArticleWebhook", () => {
         },
       },
     ])
+  })
+
+  it("refuses a webhook id that is not letters and digits, and sends no request with it", async () => {
+    server.use(
+      http.post(`${API}/webhooks`, ({ request }) => {
+        record(request)
+        return HttpResponse.json(
+          { webhook: { id: "1/../../users" } },
+          { status: 201 },
+        )
+      }),
+    )
+
+    await expect(
+      createZendeskArticleWebhook({
+        ...ctx,
+        endpoint: "https://app.example.com/api/v1/webhook/zendesk/con_1",
+      }),
+    ).rejects.toThrow("webhook id that is not valid")
+    expect(requests).toEqual(["/api/v2/webhooks"])
+  })
+})
+
+describe("revokeZendeskAccessToken", () => {
+  it("revokes the token that sends the request", async () => {
+    server.use(
+      http.delete(`${API}/oauth/tokens/current`, ({ request }) => {
+        record(request)
+        return new HttpResponse(null, { status: 204 })
+      }),
+    )
+
+    await revokeZendeskAccessToken(ctx)
+
+    expect(requests).toEqual(["/api/v2/oauth/tokens/current"])
+  })
+
+  it("is a success when the token is already invalid", async () => {
+    server.use(
+      http.delete(
+        `${API}/oauth/tokens/current`,
+        () => new HttpResponse(null, { status: 401 }),
+      ),
+    )
+
+    await expect(revokeZendeskAccessToken(ctx)).resolves.toBeUndefined()
+  })
+
+  it("throws when Zendesk fails", async () => {
+    server.use(
+      http.delete(
+        `${API}/oauth/tokens/current`,
+        () => new HttpResponse(null, { status: 500 }),
+      ),
+    )
+
+    await expect(revokeZendeskAccessToken(ctx)).rejects.toThrow(
+      "Zendesk token revoke failed (500)",
+    )
   })
 })

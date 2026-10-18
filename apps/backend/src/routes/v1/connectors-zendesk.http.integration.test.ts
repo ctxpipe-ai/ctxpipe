@@ -38,6 +38,8 @@ const zendesk = {
   webhookStatus: 201,
   deleted: [] as string[],
   tokenRequests: 0,
+  /** The bearer token of each revoke request. */
+  revoked: [] as string[],
 }
 const server = setupServer(
   http.post(`${ZD}/oauth/tokens`, () => {
@@ -58,6 +60,10 @@ const server = setupServer(
   ),
   http.delete(`${ZD}/api/v2/webhooks/:id`, ({ params }) => {
     zendesk.deleted.push(String(params.id))
+    return new HttpResponse(null, { status: 204 })
+  }),
+  http.delete(`${ZD}/api/v2/oauth/tokens/current`, ({ request }) => {
+    zendesk.revoked.push(request.headers.get("authorization") ?? "")
     return new HttpResponse(null, { status: 204 })
   }),
   http.get(`${ZD}/api/v2/help_center/categories`, () =>
@@ -213,6 +219,7 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     zendesk.webhookStatus = 201
     zendesk.deleted.length = 0
     zendesk.tokenRequests = 0
+    zendesk.revoked.length = 0
   })
   afterAll(async () => {
     server.close()
@@ -448,7 +455,59 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
 
     expect(res.status).toBe(204)
     expect(zendesk.deleted).toEqual(["01WH"])
+    expect(zendesk.revoked).toEqual(["Bearer access-token-fixture"])
     expect(await storedConfig(connectionId)).toBeUndefined()
+  })
+
+  it("removes the connection when Zendesk cannot delete the webhook or revoke the token", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    await connect(connectionId)
+    server.use(
+      http.delete(`${ZD}/api/v2/webhooks/:id`, () => HttpResponse.error()),
+      http.delete(`${ZD}/api/v2/oauth/tokens/current`, () =>
+        HttpResponse.error(),
+      ),
+    )
+
+    const res = await org(`?connectionId=${connectionId}`, { method: "DELETE" })
+
+    expect(res.status).toBe(204)
+    expect(await storedConfig(connectionId)).toBeUndefined()
+  })
+
+  it("gives 404 to an admin of another org for each route of a connection", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    await connect(connectionId)
+    const asOther = (path: string, init: RequestInit = {}) =>
+      createApp().request(
+        `http://backend.test/${other.orgSlug}/api/v1/connectors/zendesk${path}`,
+        {
+          ...init,
+          headers: { cookie: other.cookie, "content-type": "application/json" },
+        },
+      )
+
+    const results = await Promise.all([
+      asOther(`/status?connectionId=${connectionId}`),
+      asOther(`/catalog?connectionId=${connectionId}`),
+      asOther(`/oauth/start?connectionId=${connectionId}`),
+      asOther("/oauth-client", {
+        method: "PUT",
+        body: JSON.stringify({
+          connectionId,
+          clientId: "other-client",
+          clientSecret: "other-client-secret",
+        }),
+      }),
+      asOther(`?connectionId=${connectionId}`, { method: "DELETE" }),
+    ])
+
+    expect(results.map((res) => res.status)).toEqual([404, 404, 404, 404, 404])
+    expect(zendesk.deleted).toEqual([])
+    expect(zendesk.revoked).toEqual([])
+    expect(await status(connectionId)).toMatchObject({ status: "installed" })
   })
 
   // A personal key gets a session with the role of its user, so only the

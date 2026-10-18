@@ -75,9 +75,15 @@ export function isZendeskId(value: string): boolean {
  */
 const lineBreak = /\r\n|[\r\n\u2028\u2029]/
 
-/** Text without the control characters, except tab, line feed, and carriage return. */
+/**
+ * Text without control and format characters, except tab, line feed, and
+ * carriage return. A format character (such as a bidi override or a
+ * zero-width mark) can change how a reader or an agent sees the text. The
+ * strip runs before the redaction, so that such a character cannot hide an
+ * email address or a phone number from it.
+ */
 function withoutControlCharacters(text: string): string {
-  return text.replace(/(?![\t\n\r])\p{Cc}/gu, "")
+  return text.replace(/(?![\t\n\r])[\p{Cc}\p{Cf}]/gu, "")
 }
 
 /** The lines of customer text, split at every line end. */
@@ -117,10 +123,15 @@ function startOf(text: string, max: number): { text: string; cut: boolean } {
   return { text: head.slice(0, end), cut: true }
 }
 
-/** One line of text for a heading, a list item, or a link label. */
+/**
+ * One line of text for a heading, a list item, or a link label. A
+ * redaction marker stays as it is, except when a `(`, `[` or `:` follows
+ * it: then it is escaped too, so that a marker the customer typed cannot
+ * become a link.
+ */
 function escapeLine(text: string): string {
   return text
-    .split(/(\[(?:email|phone|link) removed\])/)
+    .split(/(\[(?:email|phone|link) removed\](?![([:]))/)
     .map((part, index) =>
       index % 2 === 1
         ? part
@@ -431,10 +442,11 @@ export function zendeskTicketFile(input: {
     `# Ticket #${ticket.id}: ${inlineTicketText(ticket.subject)}`,
     "",
     `- Zendesk: [#${ticket.id}](${ticket.url})`,
-    `- Status: ${ticket.status}`,
+    `- Status: ${escapeLine(oneLine(ticket.status))}`,
   ]
-  if (ticket.priority) lines.push(`- Priority: ${ticket.priority}`)
-  if (ticket.type) lines.push(`- Type: ${ticket.type}`)
+  if (ticket.priority)
+    lines.push(`- Priority: ${escapeLine(oneLine(ticket.priority))}`)
+  if (ticket.type) lines.push(`- Type: ${escapeLine(oneLine(ticket.type))}`)
   if (ticket.tags.length)
     lines.push(`- Tags: ${inlineTicketText(ticket.tags.join(", "))}`)
   if (ticket.requesterName)
@@ -446,7 +458,7 @@ export function zendeskTicketFile(input: {
   for (const comment of ticket.comments) {
     const heading = [
       comment.authorName ? inlineTicketText(comment.authorName) : "Unknown",
-      comment.createdAt,
+      comment.createdAt ? escapeLine(oneLine(comment.createdAt)) : null,
     ]
       .filter(Boolean)
       .join(", ")
