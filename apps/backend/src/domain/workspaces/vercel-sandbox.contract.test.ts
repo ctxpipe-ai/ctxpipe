@@ -425,6 +425,7 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
       base: async () => ({ failed: async () => undefined }),
       agentSnapshot,
     })
+    const beforeCreate = Date.now()
     const handle = await provider.create({
       workspace: { source: { type: "none" } },
     } as Parameters<typeof provider.create>[0])
@@ -433,22 +434,33 @@ describe("hosted conversation provider", { timeout: 600_000 }, () => {
     const watch = (label: string, seconds: number) =>
       handle.process
         .exec(
-          `echo "${label} start ms=$(date +%s%3N) uptime=$(cut -d' ' -f1 /proc/uptime)"; last=""; for i in $(seq 1 ${seconds * 10}); do cur="mtime=$(stat -L -c '%Y.%y' /etc/ssl/certs/ca-certificates.crt 2>&1) birth=$(stat -c '%w' /etc/ssl/certs/ca-certificates.crt 2>&1) procs=$(pgrep -x update-ca-trust | wc -l)/$(pgrep -x trust | wc -l)"; if [ "$cur" != "$last" ]; then echo "ms=$(date +%s%3N) $cur"; last="$cur"; fi; sleep 0.1; done`,
+          `echo "${label} start ms=$(date +%s%3N)"; last=""; for i in $(seq 1 ${seconds * 5}); do b=/etc/ssl/certs/ca-certificates.crt; cur="mtime=$(stat -L -c '%y' $b 2>&1) birth=$(stat -c '%w' $b 2>&1) procs=$(pgrep -x update-ca-trust | wc -l)/$(pgrep -x trust | wc -l) count=$(grep -c BEGIN $b 2>&1) last=$(awk '/BEGIN CERT/{c=""} {c=c $0 "\\n"} END{printf "%b", c}' $b 2>/dev/null | openssl x509 -noout -subject 2>&1 | head -c 100)"; if [ "$cur" != "$last" ]; then echo "ms=$(date +%s%3N) $cur"; last="$cur"; fi; sleep 0.2; done`,
         )
         .then((r) => `${r.stdout}${r.stderr}`)
-    // After create returned: does the bundle change again with no policy update?
-    console.error(
-      `[probe] create returned; watching. createdAtMs=${createdAt}\n${await watch("after-create", 20)}`,
-    )
-    // A policy update (token rotation) while the watch runs.
+    const during = watch("watch", 40)
+    await new Promise((resolve) => setTimeout(resolve, 8_000))
     const sandbox = await Sandbox.get({ ...credentials, name: handle.id })
     await access.firewall.attach(sandbox, githubToken)
-    const during = watch("during-update", 20)
-    await new Promise((resolve) => setTimeout(resolve, 3_000))
-    const updateStart = Date.now()
-    await access.firewall.rotateGitToken(sandbox, githubToken)
+    const steps: string[] = []
+    const mark = (label: string) => steps.push(`${label} ms=${Date.now()}`)
+    mark("rotate-start")
+    await access.firewall.rotateGitToken(sandbox, `${githubToken}-probe`)
+    mark("rotate-end")
+    await new Promise((resolve) => setTimeout(resolve, 6_000))
+    mark("openTurn-start")
+    await access.firewall.openTurn(sandbox.name, {
+      modelProxyPath: "/probe/api/v1/workspace-chat/openai/v1",
+      modelCapability: "probe-capability",
+      bridgePath: "/api/v1/workspace-chat/tool-bridge/probe",
+      bridgeToken: "probe-bridge",
+    })
+    mark("openTurn-end")
+    await new Promise((resolve) => setTimeout(resolve, 6_000))
+    mark("closeTurn-start")
+    await access.firewall.closeTurn(sandbox.name)
+    mark("closeTurn-end")
     console.error(
-      `[probe] policy update started ms=${updateStart} returned ms=${Date.now()}\n${await during}`,
+      `[probe] beforeCreateMs=${beforeCreate} createReturnedMs=${createdAt}\n${steps.join("\n")}\n${await during}`,
     )
     await closeDb().catch(() => undefined)
   })
