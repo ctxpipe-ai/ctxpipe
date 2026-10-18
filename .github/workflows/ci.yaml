@@ -381,7 +381,8 @@ jobs:
   # - All branches share one tag. Thus only main writes it: a push to main
   #   (merged, reviewed code) or a dispatch on main. Other branches only read.
   # - This job runs no repository code on the runner: the checkout has no
-  #   credentials, and each action is pinned. BuildKit runs the Dockerfile
+  #   credentials, and each action is pinned to a commit. The BuildKit image
+  #   that setup-buildx pulls is not pinned. BuildKit runs the Dockerfile
   #   steps in containers that do not see the registry login.
   # - The cache is best effort: an export error or a failed job is a miss on
   #   the next run, not a failure.
@@ -407,7 +408,7 @@ jobs:
             dockerfile: apps/codesearch/Dockerfile
             cache: ghcr.io/ctxpipe-ai/ci-cache:production-codesearch
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           persist-credentials: false
       - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3

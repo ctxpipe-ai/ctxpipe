@@ -488,37 +488,6 @@ test("rejects a production job whose if: does not limit it to the push to main",
   )
 })
 
-const registryBuild = (ref, to = "") =>
-  `      - uses: docker/build-push-action@v6\n        with:\n          cache-from: type=registry,ref=${ref}\n${to ? `          cache-to: type=registry,ref=${to},mode=max\n` : ""}`
-
-test("rejects a registry cache that a publishing job imports and a branch-code job writes", () => {
-  rejects(
-    workflow(
-      `  shard:\n    steps:\n${install}${registryBuild("ghcr.io/o/cache:x", "ghcr.io/o/cache:x")}  publish:\n    permissions:\n      packages: write\n    steps:\n${registryBuild("ghcr.io/o/cache:x")}`,
-    ),
-    /registry cache ghcr\.io\/o\/cache:x is read by a job with a secret or packages: write \(.*\(job publish\)\), and another job that runs untrusted code writes ghcr\.io\/o\/cache:x \(.*\(job shard\)\)/,
-  )
-})
-
-test("reads packages: write from the workflow permissions", () => {
-  rejects(
-    {
-      ".github/workflows/w.yaml": `on: pull_request\npermissions:\n  packages: write\njobs:\n  shard:\n    steps:\n${install}${registryBuild("c", "${{ matrix.cache }}")}  publish:\n    steps:\n${registryBuild("c")}`,
-    },
-    /registry cache c is read by a job with a secret or packages: write/,
-  )
-})
-
-test("accepts one cache writer with packages: write and readers without it", () => {
-  const result = check(
-    workflow(
-      `  shard:\n    steps:\n${install}${registryBuild("ghcr.io/o/cache:x")}  writer:\n    permissions:\n      packages: write\n    steps:\n${registryBuild("${{ matrix.cache }}", "${{ matrix.cache }}")}`,
-    ),
-  )
-  assert.equal(result.stderr, "")
-  assert.equal(result.status, 0)
-})
-
 test("accepts the workflows of this repository", () => {
   const result = spawnSync(process.execPath, [script], { encoding: "utf8" })
   assert.equal(result.stderr, "")

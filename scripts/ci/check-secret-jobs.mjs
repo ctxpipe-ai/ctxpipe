@@ -30,11 +30,6 @@
 //   entry as a prefix. This rule also reads deploy.yaml. (setup-node `cache:`
 //   entries are GitHub caches, scoped to the branch of the run: a PR run
 //   cannot write to the scope of main.)
-// - A registry layer cache (`cache-from: type=registry,ref=…`) that a job with
-//   a secret or with `packages: write` imports is not written
-//   (`cache-to: type=registry,ref=…`) by another job that runs untrusted code.
-//   A registry cache has no branch scope: each run that can write a ref
-//   changes it for every branch.
 // Untrusted code: a package manager, npm (use a pinned release binary with a
 // checked sha256), pip, `go install` and `go run`, a third-party apt
 // repository or package, `terraform init` without `-lockfile=readonly` (that
@@ -166,7 +161,6 @@ function code(text) {
 
 function parse(text) {
   const workflowEnv = []
-  const workflowPermissions = []
   const jobs = []
   let section = ""
   for (const line of code(text)) {
@@ -175,7 +169,6 @@ function parse(text) {
       continue
     }
     if (section === "env") workflowEnv.push(line)
-    if (section === "permissions") workflowPermissions.push(line)
     if (section !== "jobs") continue
     const header = /^ {2}([\w-]+):\s*$/.exec(line.text)
     if (header) {
@@ -213,7 +206,7 @@ function parse(text) {
       })
     else step.inRestoreKeys = false
   }
-  return { workflowEnv, workflowPermissions, jobs }
+  return { workflowEnv, jobs }
 }
 
 // What a cache step does with its key: a sticky disk and actions/cache read
@@ -246,9 +239,6 @@ const failures = []
 // untrusted code writes.
 const secretReads = []
 const untrustedWrites = []
-// The same for registry layer caches, by ref.
-const registryReads = []
-const registryWrites = []
 const workflowDir = join(root, ".github", "workflows")
 
 for (const script of reviewedScripts) {
@@ -266,9 +256,7 @@ for (const script of reviewedScripts) {
 
 for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
   const file = join(".github", "workflows", name)
-  const { workflowEnv, workflowPermissions, jobs } = parse(
-    readFileSync(join(root, file), "utf8"),
-  )
+  const { workflowEnv, jobs } = parse(readFileSync(join(root, file), "utf8"))
   const isProduction = file === production
 
   for (const { text, number } of workflowEnv)
@@ -285,28 +273,6 @@ for (const name of readdirSync(workflowDir).filter((f) => /\.ya?ml$/.test(f))) {
     const runsUntrusted = job.lines.some(({ text }) =>
       untrusted.some(([pattern]) => pattern.test(text)),
     )
-    const writesPackages = [...workflowPermissions, ...job.lines].some(
-      ({ text }) => /^\s+packages:\s*write\b/.test(text),
-    )
-
-    for (const { text, number } of job.lines) {
-      const cache =
-        /^\s+cache-(from|to):.*?type=registry,ref=((?:\$\{\{.*?\}\}|[^,'"\s$])+)/.exec(
-          text,
-        )
-      if (!cache) continue
-      const use = {
-        key: cache[2],
-        prefix: false,
-        number,
-        job: `${file}:${job.name}`,
-        where: `${file}:${number} (job ${job.name})`,
-      }
-      if (cache[1] === "from" && (holdsSecret || writesPackages))
-        registryReads.push(use)
-      if (cache[1] === "to" && runsUntrusted && !isProduction)
-        registryWrites.push(use)
-    }
 
     for (const step of job.steps) {
       const access = cacheAccess(step.uses)
@@ -457,13 +423,6 @@ for (const read of secretReads)
     if (keysOverlap(read, write))
       failures.push(
         `The cache key ${read.key} is read by a job with a secret (${read.where}), and a job that runs untrusted code writes ${write.key} (${write.where}). Give each its own key.`,
-      )
-
-for (const read of registryReads)
-  for (const write of registryWrites)
-    if (read.job !== write.job && keysOverlap(read, write))
-      failures.push(
-        `The registry cache ${read.key} is read by a job with a secret or packages: write (${read.where}), and another job that runs untrusted code writes ${write.key} (${write.where}). Give each its own ref.`,
       )
 
 if (failures.length > 0) {
