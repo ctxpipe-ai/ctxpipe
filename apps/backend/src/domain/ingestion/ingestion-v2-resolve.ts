@@ -55,8 +55,13 @@ export async function resolveIngestionV2Run(
   // plain git source file: a GitHub source file gives a connection that a
   // plain git run never uses.
   const provider = input.source.kind === "git" ? "git" : "github"
-  // A plain git host must resolve only to public addresses before any read
-  // of the run: the codesearch index, the host source tree, or the sandbox.
+  // A plain git source URL must obey the plain git rules of the deployment
+  // mode, so a refused URL stops the run early. This check does not cover a
+  // later read: each read checks again. The codesearch index checks the
+  // stored URL of the repository row (the row can differ from the source
+  // URL: it only has the same normalized form), and gets only the checked
+  // remote (`repository-index`). The host source tree and the sandbox check
+  // the source URL.
   if (input.source.kind === "git") {
     const refused = await resolvePlainGitRemote(input.source.url).then(
       () => false,

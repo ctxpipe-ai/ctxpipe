@@ -106,7 +106,7 @@ worker.
 
 | Variable | Description |
 |---|---|
-| `SANDBOX_PROVIDER` | Optional. `docker` (default if you do not set it) or `vercel`. If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
+| `SANDBOX_PROVIDER` | `docker` or `vercel`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Chat can use Docker when you do not set it, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
 | `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
 | `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
 | `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
@@ -115,6 +115,22 @@ worker.
 | `AGENT_VAULT_ADDR` | Required for Docker sandboxes. The Agent Vault API, for example `http://agent-vault:14321`. Without it, or when Agent Vault does not answer, Docker chat returns 503. Compose and AWS CDK set it. |
 | `AGENT_VAULT_OWNER_PASSWORD`, `AGENT_VAULT_OWNER_PASSWORD_FILE` | The Agent Vault owner password, as a value or as a file. Compose and AWS CDK generate it; do not set it there. On other platforms, generate one and keep it: the backend registers it on its first login, and an Agent Vault with an owner refuses another password. |
 | `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctx\| uses this provider. |
+
+### Plain git repositories
+
+A plain git repository is a repository that ctx| reads with no credential
+(see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
+With `SANDBOX_PROVIDER=docker`, its URL can use `https://` or `http://`,
+another port, an IP address, or an internal host name. ssh (`git@…` or
+`ssh://`), `git://`, and `file://` URLs are not supported. ctx| never reads a
+host that resolves to a cloud metadata or link-local address
+(`169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254`). With each other value
+of `SANDBOX_PROVIDER`, or with no value, the URL must use `https://` on the
+default port, and each address of its host must be public.
+
+| Variable | Description |
+|---|---|
+| `AGENT_VAULT_NETWORK_ALLOWLIST` | Docker Compose only (`.env`). Optional. The private addresses and CIDRs that Agent Vault may connect to, separated by commas. Compose always allows `172.30.99.10`, the backend, and adds your entries after it. To ingest a plain git repository on a private git server, add only the single host address of your git server, for example `10.20.0.15`. Without it, the ingestion sandbox cannot fetch the repository. Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet. Never add a range that covers `172.30.99.0/24`, and never add a link-local (`169.254.0.0/16`), loopback, or cloud metadata range. On AWS CDK, use `sandboxHost.agentVaultNetworkAllowlist` (see [AWS](/docs/self-hosting/deployment/aws#chat-sandbox-host)). |
 
 ## GitHub App connector
 

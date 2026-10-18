@@ -432,6 +432,34 @@ describe("PagerDuty source adapter (Postgres + msw)", () => {
     }
   })
 
+  it("keeps a hostile incident id from the provider under the service folder", async () => {
+    const connection = await seed.addConnection("pagerduty", installed())
+    const shop = await addSource(connection, "pd-hostile", [BILLING])
+    const hostile = "../../../../.ctxpipe/workspace"
+    pd.incidents.set(hostile, {
+      number: 21,
+      serviceId: BILLING,
+      title: "Hostile id",
+    })
+    try {
+      const writes = await sync(connection)
+
+      const written = paths(writes.get(shop))
+      const folder = `pagerduty/services/${BILLING}/incidents/`
+      expect(written).toContain(
+        `${folder}21---.-..-..-..-.ctxpipe-workspace.md`,
+      )
+      for (const path of written) {
+        expect(path.startsWith(folder)).toBe(true)
+        expect(
+          path.split("/").some((part) => ["", ".", ".."].includes(part)),
+        ).toBe(false)
+      }
+    } finally {
+      pd.incidents.delete(hostile)
+    }
+  })
+
   it("does not fetch an incident that no source has or selects", async () => {
     const connection = await seed.addConnection("pagerduty", installed())
     await addSource(connection, "pd-event-other", [CHECKOUT])

@@ -1,5 +1,6 @@
 import slugify from "@sindresorhus/slugify"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 export const PAGERDUTY_MANAGED_ROOT = "pagerduty"
 export const PAGERDUTY_CONFIG_PATH = `${PAGERDUTY_MANAGED_ROOT}/config.yaml`
@@ -94,7 +95,7 @@ export function pagerdutyIncidentImageStub(
 
 function stableSlug(title: string, id: string): string {
   const readable = slugify(title).slice(0, 80) || "incident"
-  return `${readable}--${id}`
+  return `${readable}--${connectorPathSegment(id)}`
 }
 
 export function pagerdutyIncidentMarkdownPath(
@@ -102,7 +103,7 @@ export function pagerdutyIncidentMarkdownPath(
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${root}${number}--${id}.md`
+  return `${root}${number}--${connectorPathSegment(id)}.md`
 }
 
 export function pagerdutyIncidentAssetPrefix(
@@ -110,7 +111,7 @@ export function pagerdutyIncidentAssetPrefix(
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
-  return `${root}${number}--${id}/`
+  return `${root}${number}--${connectorPathSegment(id)}/`
 }
 
 export function pagerdutyIncidentAssetDir(
@@ -119,6 +120,19 @@ export function pagerdutyIncidentAssetDir(
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string {
   return `${pagerdutyIncidentAssetPrefix(number, id, root)}assets/`
+}
+
+/**
+ * The link from an incident Markdown file to one of its mirrored assets. It
+ * uses the same cleaned id as the paths above, so the link and the path
+ * always match.
+ */
+export function pagerdutyIncidentAssetLink(
+  number: number,
+  id: string,
+  assetPath: string,
+): string {
+  return `./${number}--${connectorPathSegment(id)}/assets/${assetPath.slice(assetPath.lastIndexOf("/") + 1)}`
 }
 
 function yamlScalar(value: string): string {
@@ -164,7 +178,7 @@ export function pagerdutyAlertAssetCandidates(
       candidates.push({
         sourceUrl: context.src,
         sourceKey: `${alert.id}-image-${index}`,
-        filename: `${alert.id}-image-${index}.png`,
+        filename: `${connectorPathSegment(alert.id)}-image-${index}.png`,
         label: context.text ?? "alert image",
       })
     }
@@ -337,8 +351,8 @@ export function pagerdutyManagedPathsForIncidentId(
   incidentId: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
 ): string[] {
-  const fileSuffix = `--${incidentId}.md`
-  const dirNeedle = `--${incidentId}/`
+  const fileSuffix = `--${connectorPathSegment(incidentId)}.md`
+  const dirNeedle = `--${connectorPathSegment(incidentId)}/`
   return paths.filter(
     (path) =>
       path.startsWith(root) &&

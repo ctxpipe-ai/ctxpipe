@@ -1,8 +1,9 @@
 import { execFileSync } from "node:child_process"
 import { cp, mkdir, readdir, readFile } from "node:fs/promises"
-import { join } from "node:path"
+import { basename, dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { z } from "zod"
+import type { PinnedPlainGitRemote } from "../../../../shared/plain-git.js"
 import { getAuth } from "../../src/auth/config.js"
 import { withUserIdContext } from "../../src/auth/context.js"
 import { setOrganizations } from "../../src/auth/oauth-grants.js"
@@ -50,6 +51,8 @@ import {
   listMarkdownFilesAtGitSha,
   resolveGitRemoteTip,
 } from "../../src/services/git/clone-tree.js"
+import { pinnedPlainGitRemote } from "../../src/services/git/plain-git-remote.js"
+import { startGitHttpServer } from "../../src/test/git-http-server.js"
 import manifestJson from "./fixtures/manifest.json"
 
 // TypeScript infers each `updatedAt` object of the JSON as its own literal
@@ -173,14 +176,49 @@ export async function prepareMcpEvalRepositories(
   return remotes
 }
 
+const fixtureGitServers = new Map<
+  string,
+  Promise<Awaited<ReturnType<typeof startGitHttpServer>>>
+>()
+
+/**
+ * The plain git remote that codesearch reads for a fixture repository: the
+ * fixtures have no GitHub connection (CTX-815). Codesearch does not read a
+ * `file://` URL, so a local fixture goes through a Git smart HTTP server on
+ * the loopback address of this host, as a self-host plain git source. A
+ * public upstream URL gets the check of the deployment mode.
+ */
+async function fixturePlainGitRemote(
+  url: string,
+): Promise<PinnedPlainGitRemote> {
+  if (!url.startsWith("file:")) return pinnedPlainGitRemote(url)
+  const path = fileURLToPath(url)
+  const root = dirname(path)
+  let server = fixtureGitServers.get(root)
+  if (!server) {
+    server = startGitHttpServer(root, undefined, { unref: true })
+    fixtureGitServers.set(root, server)
+  }
+  const { port } = await server
+  return {
+    url: `http://127.0.0.1:${port}/${basename(path)}`,
+    host: "127.0.0.1",
+    port,
+    addresses: ["127.0.0.1"],
+    policy: { http: true, privateHosts: true },
+  }
+}
+
 async function indexRepository(
   auth: CodesearchIndexAuth,
   sha: string,
   checkoutKey: string,
+  url: string,
 ) {
   const checkout = await codesearchIndexCloneCheckout(auth, {
     targetHash: sha,
     checkoutKey,
+    plainGit: await fixturePlainGitRemote(url),
   })
   if (checkout.targetHash !== sha)
     throw new Error("Codesearch returned a different fixture revision")
@@ -269,6 +307,7 @@ async function publishWorkspaceRevision(input: {
     },
     revision.sha,
     workspaceCheckoutKey(workspace.id, revision.sha),
+    workspace.workspaceRepositoryUrl,
   )
   if (
     !(await persistWorkspaceIndexResult({
@@ -484,6 +523,7 @@ export async function seedMcpEval(input: {
             },
             upstream.sha,
             `rev:${upstream.sha}`,
+            upstream.url,
           )
           await markRepositoryIndexingReady({
             repositoryId: repository.id,

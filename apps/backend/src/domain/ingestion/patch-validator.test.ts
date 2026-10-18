@@ -300,6 +300,9 @@ const SIXTY_KIB = "a".repeat(60 * 1024)
 // Secret-shaped values are built at run time, so no literal token is in the repository.
 const FAKE = {
   github: `ghp_${"A1b2C3d4E5".repeat(4)}`,
+  // The GitHub App installation token form: a numeric id, a second
+  // underscore, and a value with "_", "." and "-" (CTX-845).
+  githubApp: `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}.${"c4De-F7gH_i0Jk"}`,
   githubPat: `github_pat_${"11AbCdEfGh".repeat(5)}`,
   aws: `AKIA${"Q7RZ2M4KX9PLW3TN"}`,
   slack: `xoxb-${"1234567890"}-${"abcDEF123456"}`,
@@ -1879,6 +1882,22 @@ describe("validatePatchStep secret forms", () => {
     )
     expect(result.accepted).toEqual([])
     expect(rulesOf(result)).toEqual(["suspected_secret", "suspected_secret"])
+  })
+
+  it("rejects a GitHub App installation token in the current form (CTX-845)", async () => {
+    const result = await run(
+      stage({
+        files: {
+          "knowledge/services/app-token.md": service(
+            "AppToken",
+            `# AppToken\n\nThe clone uses ${FAKE.githubApp} for git.\n`,
+          ),
+        },
+      }),
+    )
+    expect(result.accepted).toEqual([])
+    expect(rulesOf(result)).toEqual(["suspected_secret"])
+    expect(result.rejections[0]?.reason).toContain("GitHub token")
   })
 
   it("rejects a token in a path and does not show the path", async () => {

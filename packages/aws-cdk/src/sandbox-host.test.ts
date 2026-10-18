@@ -192,6 +192,37 @@ describe("sandbox host", () => {
     );
   });
 
+  it("adds the operator's private networks to the Agent Vault allowlist, after the backend subnets", () => {
+    const script = userData(
+      template("allowlist", {
+        sandboxHost: { agentVaultNetworkAllowlist: ["192.168.40.0/24", "172.31.5.9"] },
+      }),
+    );
+    expect(script).toMatch(
+      /AGENT_VAULT_NETWORK_ALLOWLIST='10\.0\.\d+\.0\/\d+(,10\.0\.\d+\.0\/\d+)*,192\.168\.40\.0\/24,172\.31\.5\.9'/,
+    );
+  });
+
+  it.each([
+    ["a cloud metadata address", "169.254.169.254"],
+    ["a range with the metadata address", "169.254.0.0/16"],
+    ["every address", "0.0.0.0/0"],
+    ["a loopback address", "127.0.0.1"],
+    ["the loopback range", "127.0.0.0/8"],
+    ["a range with the loopback range", "126.0.0.0/7"],
+    ["the IPv6 loopback address", "::1"],
+    ["the IPv4 unspecified address", "0.0.0.0"],
+    ["the IPv6 unspecified address", "::"],
+    ["every IPv6 address", "::/0"],
+    ["the IPv6 metadata address", "fd00:ec2::254"],
+    ["a host name", "git.internal"],
+    ["a shell quote", "10.0.0.1' && curl x '"],
+  ])("rejects %s in the Agent Vault allowlist", (_kind, entry) => {
+    expect(() => synth({ sandboxHost: { agentVaultNetworkAllowlist: [entry] } })).toThrow(
+      /agentVaultNetworkAllowlist/,
+    );
+  });
+
   it("leaves the TLS secrets' values to the host: CloudFormation never sets them", () => {
     const t = template("small");
     const secrets = t.findResources("AWS::SecretsManager::Secret", {

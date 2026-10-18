@@ -2,6 +2,19 @@ import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /**
+ * The most teams in one Linear source. Each team syncs all its issues, and
+ * the Linear API limits the requests of one key in each hour. A Linear
+ * workspace almost never has more teams than this.
+ */
+export const LINEAR_SOURCE_MAX_TEAMS = 50
+
+/**
+ * The most projects in one Linear source. Each project syncs its page and
+ * its issues, with the same API limit as the teams.
+ */
+export const LINEAR_SOURCE_MAX_PROJECTS = 100
+
+/**
  * A Linear team key or project id. The sync uses it as one path segment, so
  * it may hold only letters, digits, `_`, and `-`.
  */
@@ -29,12 +42,24 @@ export const linearScopeSchema = z
      * Team keys, for example `ENG`. Each team syncs its issues, projects,
      * cycles, and labels under `linear/teams/<key>/`.
      */
-    teams: z.array(linearPathSegment).optional(),
+    teams: z
+      .array(linearPathSegment)
+      .max(
+        LINEAR_SOURCE_MAX_TEAMS,
+        `Select at most ${LINEAR_SOURCE_MAX_TEAMS} Linear teams`,
+      )
+      .optional(),
     /**
      * Linear project ids. Each project syncs its page and its issues, also
      * from other teams, under `linear/projects/<id>/`.
      */
-    projects: z.array(linearPathSegment).optional(),
+    projects: z
+      .array(linearPathSegment)
+      .max(
+        LINEAR_SOURCE_MAX_PROJECTS,
+        `Select at most ${LINEAR_SOURCE_MAX_PROJECTS} Linear projects`,
+      )
+      .optional(),
     /**
      * "exclude" leaves out Linear customer requests. The default, "limited",
      * mirrors them as in ADR-022.

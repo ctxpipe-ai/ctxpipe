@@ -10,6 +10,7 @@ import type { CommitFile } from "../github/installation-write-client.js"
 import {
   type PagerdutyIncidentForMirror,
   pagerdutyAlertAssetCandidates,
+  pagerdutyIncidentAssetLink,
   pagerdutyIncidentImageStub,
   pagerdutyIncidentMirrorFiles,
   rewritePagerdutyIncidentImageSrcs,
@@ -57,7 +58,11 @@ export async function capturePagerdutyIncidentAssets(input: {
         markdown.content = rewritePagerdutyIncidentImageSrcs(markdown.content, [
           {
             sourceUrl: candidate.sourceUrl,
-            relativePath: `./${input.incident.number}--${input.incident.id}/assets/${basename(candidate.filename)}`,
+            relativePath: pagerdutyIncidentAssetLink(
+              input.incident.number,
+              input.incident.id,
+              candidate.filename,
+            ),
           },
         ])
       }

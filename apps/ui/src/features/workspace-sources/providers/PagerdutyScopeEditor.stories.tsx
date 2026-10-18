@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { PAGERDUTY_SOURCE_MAX_SERVICES } from "backend/domain/workspace-sources/providers/pagerduty"
 import { HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -146,6 +147,39 @@ export const ServiceListFails: Story = {
       expect(
         canvas.getByText("Could not load PagerDuty services. Try again."),
       ).toBeVisible(),
+    )
+  },
+}
+
+export const OverTheServiceLimit: Story = {
+  args: {
+    // A full selection: one more service goes above the cap.
+    initialScope: {
+      services: Array.from(
+        { length: PAGERDUTY_SOURCE_MAX_SERVICES },
+        (_, i) => `PX${String(i).padStart(3, "0")}`,
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    const limit = `Select at most ${PAGERDUTY_SOURCE_MAX_SERVICES} PagerDuty services.`
+    const checkout = await canvas.findByRole("checkbox", {
+      name: "checkout-api",
+    })
+    await expect(canvas.queryByText(limit)).not.toBeInTheDocument()
+    await userEvent.click(checkout)
+    await waitFor(() => expect(canvas.getByText(limit)).toBeVisible())
+    await expect(canvas.getByText("Not ready")).toBeVisible()
+    // One service less is in the cap again, and the scope is ready.
+    await userEvent.click(
+      canvas.getByRole("checkbox", { name: "checkout-api" }),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/^\{"services":\["PX000",/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.queryByText(limit)).not.toBeInTheDocument(),
     )
   },
 }

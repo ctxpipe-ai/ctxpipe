@@ -13,6 +13,7 @@ import {
   downloadConnectorAsset,
   gitBlobSha,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import type { NotionAssetMap, NotionCapturedAsset } from "./converter.js"
@@ -190,7 +191,7 @@ function collectBlockMedia(
       const source = notionMediaSource(block[block.type])
       refs.push({
         key: block.id,
-        pathKey: block.id,
+        pathKey: connectorPathSegment(block.id),
         kind: block.type === "image" ? "image" : "file",
         url: source.url,
         name:
@@ -209,7 +210,7 @@ function collectBlockMedia(
       if (source.url) {
         refs.push({
           key: `${block.id}:icon`,
-          pathKey: `${block.id}-icon`,
+          pathKey: `${connectorPathSegment(block.id)}-icon`,
           kind: "image",
           url: source.url,
           name:
@@ -348,6 +349,9 @@ export async function captureNotionEntityAssets(input: {
   const preservePathPrefixes: string[] = []
   let remainingDeclaredAssets = CONNECTOR_ENTITY_MAX_ASSETS
   const entityDir = posix.dirname(input.markdownPath)
+  // A string join, not posix.join: a bad segment must reach the path guard
+  // of the sync as it is. A normalization could move it to another folder.
+  const assetPath = (leaf: string) => `${entityDir}/assets/${leaf}`
   const permalink = input.page.url ?? null
   const preservePrefixFor = (ref: NotionMediaRef) => {
     if (ref.propertyIdentity && ref.propertyStem) {
@@ -361,9 +365,9 @@ export async function captureNotionEntityAssets(input: {
       const separator = identityPathKey.lastIndexOf("--")
       const stem =
         separator === -1 ? identityPathKey : identityPathKey.slice(0, separator)
-      return posix.join(entityDir, "assets", `${stem}--`)
+      return assetPath(`${stem}--`)
     }
-    return posix.join(entityDir, "assets", ref.assetLeaf ?? `${ref.pathKey}--`)
+    return assetPath(ref.assetLeaf ?? `${ref.pathKey}--`)
   }
 
   for (const ref of refs) {
@@ -410,7 +414,7 @@ export async function captureNotionEntityAssets(input: {
     const leaf = ref.contentIdentity
       ? filesPropertyContentLeaf(ref.pathKey, result.bytes)
       : (ref.assetLeaf ?? `${ref.pathKey}--${result.filename}`)
-    const path = posix.join(entityDir, "assets", leaf)
+    const path = assetPath(leaf)
     const alreadyCaptured = files.some((file) => file.path === path)
     const unchangedExisting =
       !alreadyCaptured &&

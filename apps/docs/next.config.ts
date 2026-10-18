@@ -9,12 +9,22 @@ const config = withMDX({
     return [
       {
         source: "/docs/connections/connecting-docs",
-        destination: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
         permanent: false,
       },
       {
         source: "/docs/connections/connecting-tools",
-        destination: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/connected-sources",
+        destination: "/docs/connections",
+        permanent: false,
+      },
+      {
+        source: "/docs/connections/source-connectors",
+        destination: "/docs/connections",
         permanent: false,
       },
       {
@@ -25,11 +35,6 @@ const config = withMDX({
       {
         source: "/docs/mcp/troubleshooting",
         destination: "/docs/mcp/mcp-docs#troubleshooting",
-        permanent: false,
-      },
-      {
-        source: "/docs/mcp/claude-plugin",
-        destination: "/docs/mcp/mcp-docs",
         permanent: false,
       },
       {
