@@ -38,6 +38,30 @@
   },
   "overrides": [
     {
+      "includes": [
+        "apps/backend/src/**",
+        "!apps/backend/src/openworkflow/defineObservedWorkflow.ts",
+        "!**/*.test.ts"
+      ],
+      "linter": {
+        "rules": {
+          "style": {
+            "noRestrictedImports": {
+              "level": "error",
+              "options": {
+                "paths": {
+                  "openworkflow": {
+                    "importNames": ["defineWorkflow"],
+                    "message": "Import defineWorkflow from openworkflow/defineObservedWorkflow.js. It sets the workflow logger."
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    {
       "includes": ["apps/backend/src/services/linear/documents.generated.ts"],
       "formatter": { "enabled": false },
       "linter": { "enabled": false }

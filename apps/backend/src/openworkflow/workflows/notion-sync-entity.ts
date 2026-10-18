@@ -4,7 +4,6 @@ import { withOrgDbContext } from "../../db/client.js"
 import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
 import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import { getNotionBindingWithRepoByConnectionId } from "../../models/notion-connector.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
 import { parseNotionConfigYamlContent } from "../../services/notion/config-yaml.js"
 import { loadNotionConnection } from "../../services/notion/connection-load.js"
 import { captureNotionIncrementalContent } from "../../services/notion/sync.js"
@@ -21,132 +20,131 @@ const inputSchema = z.object({
 })
 
 export const notionSyncEntity = defineWorkflow(
-  { name: "notion-sync-entity", schema: inputSchema },
-  async ({ input, step, run }) =>
-    withLogger(
-      createLogger({
-        workflow: "notion-sync-entity",
-        orgId: input.orgId,
-        connectionId: input.connectionId,
-      }),
+  {
+    logFields: (input) => ({
+      orgId: input.orgId,
+      connectionId: input.connectionId,
+    }),
+    name: "notion-sync-entity",
+    schema: inputSchema,
+  },
+  async ({ input, step, run }) => {
+    const env = parseEnv(process.env)
+    const context = await step.run(
+      { name: "capture-notion-target" },
       async () => {
-        const env = parseEnv(process.env)
-        const context = await step.run(
-          { name: "capture-notion-target" },
-          async () => {
-            const binding = await getNotionBindingWithRepoByConnectionId(
-              input.orgId,
-              input.connectionId,
-            )
-            const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(input.orgId, input.connectionId, env),
-            )
-            if (!connection?.accessToken)
-              throw new Error("Notion connection is not ready for sync")
-            if (!binding?.githubConnectionId)
-              throw new Error("Notion binding is not configured")
-            if (
-              connection.status !== "installed" ||
-              !binding.enabled ||
-              binding.setupPhase !== "live"
-            ) {
-              return null
-            }
-            // ADR-050: once Workspace sources own the repository, only they write it.
-            if (
-              await legacyBindingHandedOver("notion", {
-                orgId: input.orgId,
-                connectionId: input.connectionId,
-                repositoryGitUrl: binding.repositoryGitUrl,
-              })
-            )
-              return null
-            const captured = await captureConnectorMirrorTarget({
-              orgId: input.orgId,
-              env,
-              repositoryGitUrl: binding.repositoryGitUrl,
-              mirror: {
-                provider: "notion",
-                connectionId: input.connectionId,
-                repositoryId: binding.repositoryId,
-              },
-            })
-            const config = parseNotionConfigYamlContent(captured.config)
-            if (!config)
-              throw new Error(
-                "Notion scope configuration is missing from the repository; expected notion/config.yaml",
-              )
-            return {
-              binding,
-              captured,
-              config,
-              providerWorkspaceId: connection.workspaceId,
-            }
-          },
+        const binding = await getNotionBindingWithRepoByConnectionId(
+          input.orgId,
+          input.connectionId,
         )
-        if (!context) return { written: 0, deleted: 0, errors: [] }
-        const captured = await step.run(
-          {
-            name: "capture-notion-content",
-            retryPolicy: {
-              maximumAttempts: 5,
-              initialInterval: "1m",
-              backoffCoefficient: 3,
-              maximumInterval: "4h",
-            },
-          },
-          async () => {
-            const connection = await withOrgDbContext(input.orgId, () =>
-              loadNotionConnection(input.orgId, input.connectionId, env),
-            )
-            if (
-              !connection?.accessToken ||
-              connection.status !== "installed" ||
-              connection.workspaceId !== context.providerWorkspaceId
-            )
-              throw new Error("Notion authorization changed")
-            const captured = await captureNotionIncrementalContent({
-              orgId: input.orgId,
-              env,
-              notionConnection: connection,
-              config: context.config,
-              existingPaths: context.captured.paths,
-              existingBlobs: context.captured.blobs,
-              entity: {
-                entityType: input.entityType,
-                externalId: input.externalId,
-                action: input.action,
-              },
-            })
-            if (captured.status === "failed")
-              throw new Error(
-                `Notion entity sync failed: ${captured.errors.map((error) => `${error.externalId}: ${error.message}`).join("; ")}`,
-              )
-            return captured
-          },
+        const connection = await withOrgDbContext(input.orgId, () =>
+          loadNotionConnection(input.orgId, input.connectionId, env),
         )
-        const result =
-          captured.status !== "failed" &&
-          (captured.files.length || captured.deletePaths.length)
-            ? await step.runWorkflow(
-                workspaceConnectorMirror.spec,
-                {
-                  orgId: input.orgId,
-                  workspaceId: context.captured.workspaceId,
-                  revision: context.captured.revision,
-                  mirror: context.captured.mirror,
-                  jobId: `wjob_${run.id}_mirror`,
-                  files: captured.files,
-                  deletePaths: captured.deletePaths,
-                },
-                { name: "commit-notion-mirror" },
-              )
-            : null
+        if (!connection?.accessToken)
+          throw new Error("Notion connection is not ready for sync")
+        if (!binding?.githubConnectionId)
+          throw new Error("Notion binding is not configured")
+        if (
+          connection.status !== "installed" ||
+          !binding.enabled ||
+          binding.setupPhase !== "live"
+        ) {
+          return null
+        }
+        // ADR-050: once Workspace sources own the repository, only they write it.
+        if (
+          await legacyBindingHandedOver("notion", {
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            repositoryGitUrl: binding.repositoryGitUrl,
+          })
+        )
+          return null
+        const captured = await captureConnectorMirrorTarget({
+          orgId: input.orgId,
+          env,
+          repositoryGitUrl: binding.repositoryGitUrl,
+          mirror: {
+            provider: "notion",
+            connectionId: input.connectionId,
+            repositoryId: binding.repositoryId,
+          },
+        })
+        const config = parseNotionConfigYamlContent(captured.config)
+        if (!config)
+          throw new Error(
+            "Notion scope configuration is missing from the repository; expected notion/config.yaml",
+          )
         return {
-          written: result?.committed ? captured.written : 0,
-          deleted: result?.committed ? captured.deleted : 0,
-          errors: captured.errors,
+          binding,
+          captured,
+          config,
+          providerWorkspaceId: connection.workspaceId,
         }
       },
-    ),
+    )
+    if (!context) return { written: 0, deleted: 0, errors: [] }
+    const captured = await step.run(
+      {
+        name: "capture-notion-content",
+        retryPolicy: {
+          maximumAttempts: 5,
+          initialInterval: "1m",
+          backoffCoefficient: 3,
+          maximumInterval: "4h",
+        },
+      },
+      async () => {
+        const connection = await withOrgDbContext(input.orgId, () =>
+          loadNotionConnection(input.orgId, input.connectionId, env),
+        )
+        if (
+          !connection?.accessToken ||
+          connection.status !== "installed" ||
+          connection.workspaceId !== context.providerWorkspaceId
+        )
+          throw new Error("Notion authorization changed")
+        const captured = await captureNotionIncrementalContent({
+          orgId: input.orgId,
+          env,
+          notionConnection: connection,
+          config: context.config,
+          existingPaths: context.captured.paths,
+          existingBlobs: context.captured.blobs,
+          entity: {
+            entityType: input.entityType,
+            externalId: input.externalId,
+            action: input.action,
+          },
+        })
+        if (captured.status === "failed")
+          throw new Error(
+            `Notion entity sync failed: ${captured.errors.map((error) => `${error.externalId}: ${error.message}`).join("; ")}`,
+          )
+        return captured
+      },
+    )
+    const result =
+      captured.status !== "failed" &&
+      (captured.files.length || captured.deletePaths.length)
+        ? await step.runWorkflow(
+            workspaceConnectorMirror.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: context.captured.workspaceId,
+              revision: context.captured.revision,
+              mirror: context.captured.mirror,
+              jobId: `wjob_${run.id}_mirror`,
+              files: captured.files,
+              deletePaths: captured.deletePaths,
+            },
+            { name: "commit-notion-mirror" },
+          )
+        : null
+    return {
+      written: result?.committed ? captured.written : 0,
+      deleted: result?.committed ? captured.deleted : 0,
+      errors: captured.errors,
+    }
+  },
 )

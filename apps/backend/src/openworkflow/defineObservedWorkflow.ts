@@ -9,6 +9,7 @@ import {
   jobTelemetrySchema,
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
+import { createLogger, withLogger } from "../observability/logger.js"
 
 type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
@@ -21,6 +22,11 @@ type ObservedSpec<S extends z.ZodType> = Pick<
   "name" | "version" | "retryPolicy"
 > & {
   schema: S
+  /** Per-input fields for the workflow log. Each key keeps its name. */
+  logFields?: (
+    input: z.output<S>,
+    run: { id: string },
+  ) => Record<string, unknown>
 }
 
 function attachChildTelemetry(step: Step): void {
@@ -80,8 +86,16 @@ export function defineWorkflow<S extends z.ZodType, Output>(
       // Telemetry is enqueue-only: bodies re-parse `input` with their own
       // strict schema, which has no `telemetry` key.
       const { telemetry: _telemetry, ...input } = ctx.input
+      // This wrapper gives each workflow body a logger. Thus `getLogger()`
+      // does not throw in a body.
       return restoreJobTelemetry(ctx.input, () =>
-        fn({ ...ctx, input: input as z.output<S> }),
+        withLogger(
+          createLogger({
+            workflow: spec.name,
+            ...spec.logFields?.(input as z.output<S>, ctx.run),
+          }),
+          () => fn({ ...ctx, input: input as z.output<S> }),
+        ),
       )
     },
   )
