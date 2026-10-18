@@ -1,5 +1,10 @@
 import { useQueryClient } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
+import {
+  createFileRoute,
+  Navigate,
+  useLocation,
+  useRouter,
+} from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { completeOnboarding } from "@/components/onboarding/complete-onboarding"
@@ -26,6 +31,7 @@ const FINISH_ERROR = "Could not finish onboarding. Try again."
 export function OnboardingPageContent() {
   const { data: session, isPending } = useSession()
   const router = useRouter()
+  const { state: historyState } = useLocation()
   const queryClient = useQueryClient()
   const { data: organizations, isPending: orgsPending } = useListOrganizations()
   const [step, setStep] = useState<"how-it-works" | "create-org">(
@@ -75,9 +81,21 @@ export function OnboardingPageContent() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = sessionUser(session)
-  // Onboarding is complete already, for example when the user comes back
-  // through the browser history. While `finish` runs, it opens Home itself.
+  // Onboarding is complete already. While `finish` runs, it opens Home
+  // itself. The page can mount again while the session changes: then
+  // `finishingOrg` opens Home of that organization, also with the fade.
+  // Otherwise (for example, back through the browser history) open `/`.
   if (user?.onboardingCompletedAt && !completing && organizations?.length) {
+    const finishingOrg = historyState.finishingOrg
+    if (finishingOrg)
+      return (
+        <Navigate
+          to="/$orgSlug"
+          params={{ orgSlug: finishingOrg }}
+          state={{ fromOnboarding: true }}
+          replace
+        />
+      )
     return (
       <Navigate
         to="/"
@@ -98,6 +116,13 @@ export function OnboardingPageContent() {
   const finish = async (slug: string) => {
     if (completing) return
     setCompleting(true)
+    // Before onboarding completes, so that a page that mounts again opens
+    // Home of this organization.
+    await router.navigate({
+      to: "/onboarding",
+      replace: true,
+      state: { finishingOrg: slug },
+    })
     const organization = organizations?.find((org) => org.slug === slug)
     try {
       // The request that creates an organization also makes it active.

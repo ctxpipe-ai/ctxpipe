@@ -38,5 +38,7 @@ declare module "@tanstack/react-router" {
   interface HistoryState {
     /** Set when onboarding opens Home, so Home fades in once (CTX-868). */
     fromOnboarding?: boolean
+    /** Onboarding finishes for this organization slug, then opens its Home. */
+    finishingOrg?: string
   }
 }
