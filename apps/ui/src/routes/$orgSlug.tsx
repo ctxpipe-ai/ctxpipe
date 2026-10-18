@@ -26,7 +26,8 @@ export const Route = createFileRoute("/$orgSlug")({
   component: OrgScopedLayout,
 })
 
-async function resolveOrgGate(
+/** Exported for tests: the route loader's gate and list warm-up. */
+export async function resolveOrgGate(
   queryClient: QueryClient,
   orgSlug: string,
   options?: { awaitWorkspaceList?: boolean },
@@ -52,7 +53,12 @@ async function resolveOrgGate(
     return gate
   }
 
-  await queryClient.ensureQueryData(workspaceListOptions(orgSlug))
+  // Wait for the list, but do not throw if the read fails. The side nav
+  // shows that error, and the page continues to operate. Cached data, even
+  // stale data, still skips the wait (prefetchQuery would refetch it).
+  await queryClient
+    .ensureQueryData(workspaceListOptions(orgSlug))
+    .catch(() => undefined)
   return gate
 }
 
