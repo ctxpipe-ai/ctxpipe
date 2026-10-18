@@ -1,8 +1,14 @@
-import { useQuery } from "@tanstack/react-query"
-import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
+import { useIsFetching, useQuery } from "@tanstack/react-query"
+import {
+  createFileRoute,
+  Navigate,
+  useNavigate,
+  useRouterState,
+} from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
@@ -26,6 +32,7 @@ import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal
 import { useSession } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/$orgSlug/")({
   validateSearch: activitySearch,
@@ -37,11 +44,39 @@ export const Route = createFileRoute("/$orgSlug/")({
 
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
-  return <OrgHomePageContent orgSlug={orgSlug} />
+  const fromOnboarding = useRouterState({
+    select: (state) => state.location.state.fromOnboarding === true,
+  })
+  return (
+    <OrgHomePageContent orgSlug={orgSlug} fromOnboarding={fromOnboarding} />
+  )
+}
+
+/**
+ * After onboarding, Home stays hidden until its first data is ready, then
+ * fades in once, so nothing pops in. A slow read does not keep Home hidden:
+ * after `SKELETON_DELAY_MS` Home shows, when its skeletons show too.
+ */
+function useFirstDataReveal(hold: boolean, ready: boolean) {
+  const [revealed, setRevealed] = useState(!hold)
+  if (!revealed && ready) setRevealed(true)
+  useEffect(() => {
+    if (revealed) return
+    const timer = setTimeout(() => setRevealed(true), SKELETON_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [revealed])
+  return revealed
 }
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
-export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
+export function OrgHomePageContent({
+  orgSlug,
+  fromOnboarding = false,
+}: {
+  orgSlug: string
+  /** Onboarding opened Home: hold it until its first data is ready. */
+  fromOnboarding?: boolean
+}) {
   const navigate = useNavigate()
   const [preferences, updatePreferences] = useUserPreferences()
   const { data: session, isPending: sessionPending } = useSession()
@@ -60,6 +95,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // the first Workspace moves the guide below the composer, and that
   // remounts the guide.
   const [createOpen, setCreateOpen] = useState(false)
+  // The first data: the session, the Workspace list, the guide signals, and
+  // each read that started with them (the activity).
+  const fetching = useIsFetching()
+  const revealed = useFirstDataReveal(
+    fromOnboarding,
+    !sessionPending &&
+      !listQuery.isPending &&
+      guide.status === "ready" &&
+      fetching === 0,
+  )
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -149,7 +194,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
-      <div className="mx-auto box-border w-full max-w-2xl p-8">
+      <div
+        aria-busy={!revealed || undefined}
+        className={cn(
+          "mx-auto box-border w-full max-w-2xl p-8",
+          fromOnboarding &&
+            (revealed
+              ? "animate-in fade-in duration-150 ease-out"
+              : "opacity-0"),
+        )}
+      >
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}

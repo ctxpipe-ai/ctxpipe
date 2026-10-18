@@ -94,6 +94,7 @@ Motion must not make the UI feel slow. Obey these rules in new and changed code:
 - **Animate only `opacity`, `transform` (`scale`, `translate`, `rotate`), and colors.** Do not animate `width`, `height`, `flex-grow`, or layout. Do not use `transition-all`. Name the properties, for example `transition-[opacity,scale]`.
 - **Loading indicators can loop.** A spinner, a skeleton shimmer, and a pulse dot tell the user to wait. They do not move content. Their animation can be longer than 150 ms. Give a loader the `ctx-loading-motion` class (`animate-spin` is also a loader class).
 - **Exception: graph camera moves.** A knowledge graph camera move (`fitView`, zoom) helps the user follow a node, so it can animate for 250 ms at most (`CAMERA_MOVE_MS`).
+- **Exception: the hand-off from onboarding.** When onboarding opens Home, Home stays hidden until its first data is ready. Then it fades in one time (150 ms). The welcome slide rows fade in one after another, with a delay of 150 ms at most. These are the only page-level fades.
 - **Do not add a motion library.** Use Tailwind and CSS.
 - **Reduced motion:** a global `prefers-reduced-motion: reduce` rule in [`styles.css`](src/styles.css) stops all transitions and animations. It does not stop a loader with `animate-spin` or `ctx-loading-motion`, because a loader must continue to show progress. Do not override the rule.
 

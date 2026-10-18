@@ -648,6 +648,62 @@ export const GuideSkeletonMatchesCollapsed: Story = {
   },
 }
 
+const handOffGate = responseGate()
+/**
+ * Onboarding opened Home (CTX-868). While a guide signal loads, Home stays
+ * hidden: no skeleton shows and nothing pops in. When the first data is
+ * ready, Home fades in one time, and the guide keeps its box.
+ */
+export const FadesInAfterOnboarding: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" fromOnboarding />,
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(0),
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            async () => {
+              await handOffGate.wait()
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await document.fonts.ready
+    const skeleton = await canvas.findByText("Loading the setup guide")
+    const section = skeleton.closest("section")
+    if (!section) throw new Error("The skeleton has no section")
+    const { width, height } = section.getBoundingClientRect()
+    // The page is hidden while the signal loads.
+    await waitFor(() =>
+      expect(canvas.getByText("Loading the setup guide")).not.toBeVisible(),
+    )
+    await handOffGate.release()
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
+    const loaded = canvas.getByRole("region", { name: "Get started" })
+    expect(Math.round(loaded.getBoundingClientRect().height)).toBe(
+      Math.round(height),
+    )
+    expect(Math.round(loaded.getBoundingClientRect().width)).toBe(
+      Math.round(width),
+    )
+    const body = loaded.closest(".max-w-2xl")
+    if (!body) throw new Error("Home has no body")
+    expect(getComputedStyle(body).animationName).toBe("enter")
+    expect(body).not.toHaveAttribute("aria-busy")
+  },
+}
+
 async function expectGuideSkeletonMatches(
   canvasElement: HTMLElement,
   gate: ReturnType<typeof responseGate>,
