@@ -34,6 +34,9 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.mcp.turn.source",
   "ctxpipe.mcp.correlation.source",
   "ctxpipe.mcp.error.code",
+  "ctxpipe.api_key.event",
+  "ctxpipe.api_key.outcome",
+  "ctxpipe.auth.refusal_reason",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]

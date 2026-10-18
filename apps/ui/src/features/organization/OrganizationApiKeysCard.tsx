@@ -708,9 +708,10 @@ function CreatedSecretDialog(props: {
           variant="outline"
           className="rounded-md"
           onPress={() => {
-            void navigator.clipboard.writeText(secret)
-            setCopied(true)
-            onCopied()
+            void navigator.clipboard.writeText(secret).then(() => {
+              setCopied(true)
+              onCopied()
+            })
           }}
         >
           <IconCopy className="size-4" aria-hidden />

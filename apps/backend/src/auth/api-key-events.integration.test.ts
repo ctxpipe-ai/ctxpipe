@@ -138,7 +138,9 @@ describe("API key lifecycle events (Postgres)", () => {
   }
 
   function eventFor(step: string): WideEvent {
-    const found = events.filter((event) => event.step === step)
+    const found = events.filter(
+      (event) => event["ctxpipe.api_key.event"] === step,
+    )
     if (found.length !== 1) {
       throw new Error(`expected one ${step} event, got ${found.length}`)
     }
@@ -168,18 +170,18 @@ describe("API key lifecycle events (Postgres)", () => {
 
     const event = eventFor("api_key.create")
     expect(event).toMatchObject({
-      outcome: "success",
+      "ctxpipe.api_key.outcome": "success",
       "enduser.id": u().userId,
-      api_key: {
-        id: created.id,
-        owner: "personal",
-        read_only: true,
-        organization_count: 2,
-      },
+      "api_key.id": created.id,
+      "api_key.owner": "personal",
+      "api_key.read_only": true,
+      "api_key.organization_count": 2,
     })
     expect(spans.serverSpan()?.attributes).toMatchObject({
       "enduser.id": u().userId,
       "ctxpipe.actor.type": "user",
+      "ctxpipe.api_key.event": "api_key.create",
+      "ctxpipe.api_key.outcome": "success",
     })
     noSecretAnywhere(created.key)
     // The key prefix that the API returns to the client is not logged either.
@@ -201,12 +203,14 @@ describe("API key lifecycle events (Postgres)", () => {
 
     const event = eventFor("api_key.create")
     expect(event).toMatchObject({
-      outcome: "failure",
+      "ctxpipe.api_key.outcome": "failure",
       "enduser.id": u().userId,
     })
-    expect((event.api_key as Record<string, unknown> | undefined)?.id).toBe(
-      undefined,
-    )
+    expect(event["api_key.id"]).toBeUndefined()
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.api_key.event": "api_key.create",
+      "ctxpipe.api_key.outcome": "failure",
+    })
   })
 
   it("emits api_key.update and api_key.delete with the key id and the actor", async () => {
@@ -219,17 +223,17 @@ describe("API key lifecycle events (Postgres)", () => {
     })
     expect(update.status).toBe(200)
     expect(eventFor("api_key.update")).toMatchObject({
-      outcome: "success",
+      "ctxpipe.api_key.outcome": "success",
       "enduser.id": u().userId,
-      api_key: { id: created.id },
+      "api_key.id": created.id,
     })
 
     const removed = await authPost("/api-key/delete", { keyId: created.id })
     expect(removed.status).toBe(200)
     expect(eventFor("api_key.delete")).toMatchObject({
-      outcome: "success",
+      "ctxpipe.api_key.outcome": "success",
       "enduser.id": u().userId,
-      api_key: { id: created.id },
+      "api_key.id": created.id,
     })
     noSecretAnywhere(created.key)
   })
@@ -239,7 +243,9 @@ describe("API key lifecycle events (Postgres)", () => {
       keyId: generateObjectId("key"),
     })
     expect(response.status).toBeGreaterThanOrEqual(400)
-    expect(eventFor("api_key.delete")).toMatchObject({ outcome: "failure" })
+    expect(eventFor("api_key.delete")).toMatchObject({
+      "ctxpipe.api_key.outcome": "failure",
+    })
   })
 
   it("emits api_key.organizations.list and api_key.organizations.set on the org set routes", async () => {
@@ -251,9 +257,9 @@ describe("API key lifecycle events (Postgres)", () => {
     })
     expect(list.status).toBe(200)
     expect(eventFor("api_key.organizations.list")).toMatchObject({
-      outcome: "success",
+      "ctxpipe.api_key.outcome": "success",
       "enduser.id": u().userId,
-      api_key: { count: expect.any(Number) },
+      "api_key.count": expect.any(Number),
     })
 
     const set = await createApp().request(
@@ -266,9 +272,11 @@ describe("API key lifecycle events (Postgres)", () => {
     )
     expect(set.status).toBe(204)
     expect(eventFor("api_key.organizations.set")).toMatchObject({
-      outcome: "success",
+      "ctxpipe.api_key.outcome": "success",
       "enduser.id": u().userId,
-      api_key: { id: created.id, read_only: true, organization_count: 2 },
+      "api_key.id": created.id,
+      "api_key.read_only": true,
+      "api_key.organization_count": 2,
     })
 
     events.length = 0
@@ -282,8 +290,8 @@ describe("API key lifecycle events (Postgres)", () => {
     )
     expect(refused.status).toBe(400)
     expect(eventFor("api_key.organizations.set")).toMatchObject({
-      outcome: "not_member",
-      api_key: { id: created.id },
+      "ctxpipe.api_key.outcome": "not_member",
+      "api_key.id": created.id,
     })
     noSecretAnywhere(created.key)
   })

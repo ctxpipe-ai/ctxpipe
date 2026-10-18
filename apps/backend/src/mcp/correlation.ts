@@ -361,6 +361,7 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
       _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
     }
     // The size of what the client gets, and why a tool call failed.
+    // In a batch, the wide event holds the value of the last call.
     const bytes = Buffer.byteLength(JSON.stringify(final))
     trace.getActiveSpan()?.setAttribute("ctxpipe.mcp.result.bytes", bytes)
     getLogger().set({ "ctxpipe.mcp.result.bytes": bytes })

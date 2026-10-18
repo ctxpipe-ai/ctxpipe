@@ -82,7 +82,7 @@ async function createApiKey(input: {
     owner: input.owner.kind,
     key_id: created.id,
     ...(input.organizationIds
-      ? { organization_count: input.organizationIds.length }
+      ? { organization_count: new Set(input.organizationIds).size }
       : {}),
   })
   return created

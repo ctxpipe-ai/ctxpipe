@@ -22,6 +22,7 @@ import {
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
+import { recordApiKeyEvent } from "./api-key-events.js"
 import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
 import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
@@ -363,7 +364,7 @@ type BearerApiKeyAuthResult =
       kind: "org"
       orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
     }
-  | { kind: "invalid" }
+  | { kind: "invalid"; refusal: OrgApiKeyRefusal }
 
 type OrgApiKeyRefusal = {
   /** `invalid`, `expired`, `disabled`, `rate_limited`, or `not_org_key`. */
@@ -403,6 +404,17 @@ async function refusedKeyId(apiKey: string): Promise<string | undefined> {
   } catch {
     return undefined
   }
+}
+
+/** One wide event for a refused API key: the reason, and the key id when known. */
+function recordApiKeyRefusal(refusal: OrgApiKeyRefusal) {
+  applyAttribution({ "ctxpipe.api_key.id": refusal.keyId })
+  recordApiKeyEvent({
+    step: "api_key.refused",
+    outcome: "refused",
+    reason: refusal.reason,
+    apiKey: {},
+  })
 }
 
 async function verifyOrgApiKey(
@@ -446,13 +458,6 @@ async function verifyOrgApiKey(
   }
 }
 
-async function resolveOrgApiKey(
-  apiKey: string,
-): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
-  const result = await verifyOrgApiKey(apiKey)
-  return "orgApiKey" in result ? result.orgApiKey : null
-}
-
 /**
  * Personal or org API key presented as `Authorization: Bearer <key>` (MCP
  * hosts that cannot set `x-api-key`, e.g. CodeRabbit). Tries user session first
@@ -478,8 +483,10 @@ async function resolveBearerApiKeyAuth(
     // Org keys cannot mock a user session; fall through to verifyApiKey.
   }
 
-  const orgApiKey = await resolveOrgApiKey(apiKey)
-  return orgApiKey ? { kind: "org", orgApiKey } : { kind: "invalid" }
+  const resolved = await verifyOrgApiKey(apiKey)
+  return "orgApiKey" in resolved
+    ? { kind: "org", orgApiKey: resolved.orgApiKey }
+    : { kind: "invalid", refusal: resolved.refusal }
 }
 
 /**
@@ -495,12 +502,7 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
 
   const resolved = await verifyOrgApiKey(apiKey)
   if ("refusal" in resolved) {
-    applyAttribution({ "ctxpipe.api_key.id": resolved.refusal.keyId })
-    getLogger().warn("Unauthorized because of invalid API key", {
-      step: "api_key.refused",
-      outcome: "refused",
-      reason: resolved.refusal.reason,
-    })
+    recordApiKeyRefusal(resolved.refusal)
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -580,6 +582,7 @@ async function authenticateBearer(
         applyPrincipalAttribution(c)
         return next()
       }
+      recordApiKeyRefusal(apiKeyAuth.refusal)
     }
 
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
@@ -791,11 +794,11 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     !isMcpRequestPath(c.req.path) &&
     !["GET", "HEAD", "OPTIONS"].includes(c.req.method)
   ) {
-    getLogger().warn("Refused a write with a read-only API key", {
+    recordApiKeyEvent({
       step: "api_key.read_only",
       outcome: "refused",
       reason: "read_only",
-      route: `${c.req.method} ${c.req.path}`,
+      apiKey: {},
     })
     return c.json(
       {

@@ -15,6 +15,7 @@ import { getAuth } from "./config.js"
 import {
   requireAuth,
   withCookieAuth,
+  withMcpBearerAuth,
   withNetworkOrgContext,
   withOrgApiKeyAuth,
 } from "./withAuth.js"
@@ -89,6 +90,13 @@ describe("API key refusal events (Postgres)", () => {
       withNetworkOrgContext,
     )
     app.post("/mcp", (c) => c.json({ ok: true }))
+    app.use(
+      "/mcp/bearer",
+      withMcpBearerAuth,
+      requireAuth,
+      withNetworkOrgContext,
+    )
+    app.post("/mcp/bearer", (c) => c.json({ ok: true }))
     app.use("/api/v1/*", withCookieAuth, requireAuth)
     app.get("/api/v1/things", (c) => c.json({ ok: true }))
     app.post("/api/v1/things", (c) => c.json({ ok: true }))
@@ -102,8 +110,17 @@ describe("API key refusal events (Postgres)", () => {
     })
   }
 
+  function mcpBearer(key: string) {
+    return createApp().request("http://backend.test/mcp/bearer", {
+      method: "POST",
+      headers: { authorization: `Bearer ${key}` },
+    })
+  }
+
   function refusalEvent(): WideEvent {
-    const found = events.filter((event) => event.step === "api_key.refused")
+    const found = events.filter(
+      (event) => event["ctxpipe.api_key.event"] === "api_key.refused",
+    )
     if (found.length !== 1) {
       throw new Error(`expected one refusal event, got ${found.length}`)
     }
@@ -140,7 +157,15 @@ describe("API key refusal events (Postgres)", () => {
 
     expect(response.status).toBe(401)
     const event = refusalEvent()
-    expect(event).toMatchObject({ outcome: "refused", reason: "invalid" })
+    expect(event).toMatchObject({
+      "ctxpipe.api_key.outcome": "refused",
+      "ctxpipe.auth.refusal_reason": "invalid",
+    })
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.api_key.event": "api_key.refused",
+      "ctxpipe.api_key.outcome": "refused",
+      "ctxpipe.auth.refusal_reason": "invalid",
+    })
     expect(event["ctxpipe.api_key.id"]).toBeUndefined()
     noSecretAnywhere(key)
   })
@@ -156,7 +181,7 @@ describe("API key refusal events (Postgres)", () => {
 
     expect(response.status).toBe(401)
     expect(refusalEvent()).toMatchObject({
-      reason: "disabled",
+      "ctxpipe.auth.refusal_reason": "disabled",
       "ctxpipe.api_key.id": created.id,
     })
     noSecretAnywhere(created.key)
@@ -172,7 +197,9 @@ describe("API key refusal events (Postgres)", () => {
     const response = await mcp(created.key)
 
     expect(response.status).toBe(401)
-    expect(refusalEvent()).toMatchObject({ reason: "expired" })
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "expired",
+    })
     noSecretAnywhere(created.key)
   })
 
@@ -187,20 +214,81 @@ describe("API key refusal events (Postgres)", () => {
 
     expect(response.status).toBe(401)
     expect(refusalEvent()).toMatchObject({
-      reason: "rate_limited",
+      "ctxpipe.auth.refusal_reason": "rate_limited",
       "ctxpipe.api_key.id": created.id,
     })
     noSecretAnywhere(created.key)
   })
 
-  it("logs no refusal for a valid key", async () => {
-    expect((await mcp(s().orgApiKey)).status).toBe(200)
-    expect(events.filter((event) => event.step === "api_key.refused")).toEqual(
-      [],
-    )
+  it("logs the reason for a refused Bearer key, with the key id when known, and not the key", async () => {
+    const unknown = "ctx_not_a_real_bearer_key_0123456789abcdefghijklmnop"
+    expect((await mcpBearer(unknown)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.api_key.outcome": "refused",
+      "ctxpipe.auth.refusal_reason": "invalid",
+    })
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.api_key.event": "api_key.refused",
+      "ctxpipe.auth.refusal_reason": "invalid",
+    })
+    noSecretAnywhere(unknown)
+
+    const disabled = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ enabled: false })
+      .where(eq(apikeys.id, disabled.id))
+    events.length = 0
+    expect((await mcpBearer(disabled.key)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "disabled",
+      "ctxpipe.api_key.id": disabled.id,
+    })
+    noSecretAnywhere(disabled.key)
+
+    const expired = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(apikeys.id, expired.id))
+    events.length = 0
+    expect((await mcpBearer(expired.key)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "expired",
+    })
+    noSecretAnywhere(expired.key)
+
+    const limited = await newOrgKey()
+    await getSystemDb()
+      .update(apikeys)
+      .set({ requestCount: 1_000_000, lastRequest: new Date() })
+      .where(eq(apikeys.id, limited.id))
+    events.length = 0
+    expect((await mcpBearer(limited.key)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "rate_limited",
+      "ctxpipe.api_key.id": limited.id,
+    })
+    noSecretAnywhere(limited.key)
   })
 
-  it("logs a warning with the key id and the route when a personal key writes", async () => {
+  it("logs no refusal for a valid Bearer key", async () => {
+    expect((await mcpBearer(s().orgApiKey)).status).toBe(200)
+    expect(
+      events.filter((e) => e["ctxpipe.api_key.event"] === "api_key.refused"),
+    ).toEqual([])
+  })
+
+  it("logs no refusal for a valid key", async () => {
+    expect((await mcp(s().orgApiKey)).status).toBe(200)
+    expect(
+      events.filter(
+        (event) => event["ctxpipe.api_key.event"] === "api_key.refused",
+      ),
+    ).toEqual([])
+  })
+
+  it("logs a warning with the key id when a personal key writes", async () => {
     const response = await createApp().request(
       "http://backend.test/api/v1/things",
       { method: "POST", headers: { "x-api-key": s().personalApiKey } },
@@ -210,13 +298,19 @@ describe("API key refusal events (Postgres)", () => {
     expect(await response.json()).toMatchObject({
       code: "write_grant_required",
     })
-    const event = events.find((item) => item.step === "api_key.read_only")
+    const event = events.find(
+      (item) => item["ctxpipe.api_key.event"] === "api_key.read_only",
+    )
     expect(event).toMatchObject({
       level: "warn",
-      outcome: "refused",
-      reason: "read_only",
-      route: "POST /api/v1/things",
+      "ctxpipe.api_key.outcome": "refused",
+      "ctxpipe.auth.refusal_reason": "read_only",
       "ctxpipe.api_key.id": expect.any(String),
+    })
+    expect(event?.route).toBeUndefined()
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.api_key.event": "api_key.read_only",
+      "ctxpipe.auth.refusal_reason": "read_only",
     })
     noSecretAnywhere(s().personalApiKey)
   })
@@ -229,7 +323,9 @@ describe("API key refusal events (Postgres)", () => {
 
     expect(response.status).toBe(200)
     expect(
-      events.filter((event) => event.step === "api_key.read_only"),
+      events.filter(
+        (event) => event["ctxpipe.api_key.event"] === "api_key.read_only",
+      ),
     ).toEqual([])
   })
 })

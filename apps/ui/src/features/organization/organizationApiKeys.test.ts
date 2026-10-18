@@ -131,6 +131,23 @@ describe("API-key client", () => {
   })
 
   describe("HyperDX actions", () => {
+    it("counts each organization of the set once", async () => {
+      const { createPersonalApiKey } = await import("./organizationApiKeys")
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: "key_personal", key: "SECRET_PERSONAL" }),
+      )
+
+      await createPersonalApiKey({
+        name: "my-agent",
+        expiresIn: 2_592_000,
+        organizationIds: ["org_a", "org_a", "org_b"],
+      })
+
+      expect(addAction.mock.calls[0]?.[1]).toMatchObject({
+        organization_count: 2,
+      })
+    })
+
     it("records api_key_create with the key id, the owner and the org set size, and never the secret", async () => {
       const { createOrganizationApiKey, createPersonalApiKey } = await import(
         "./organizationApiKeys"
