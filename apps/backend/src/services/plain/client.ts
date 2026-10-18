@@ -4,6 +4,7 @@ import {
   PLAIN_REQUIRED_PERMISSIONS,
   plainIdSchema,
 } from "../../domain/workspace-sources/providers/plain.js"
+import { getLogger } from "../../observability/logger.js"
 import { readBoundedJson } from "../connectors/bounded-json.js"
 import type {
   PlainArticleForMirror,
@@ -142,16 +143,25 @@ const LAST_PAGE = {
 
 /**
  * The nodes of a connection, page by page from a null cursor, up to
- * `limit`. A cursor that comes back again is an error, not a loop.
+ * `limit` nodes or 50 pages. A cursor that comes back again is an error,
+ * not a loop. At the page cap, the read logs and fails: a partial list
+ * must not look like a complete one (a missing item is a delete).
  */
 async function readPages<T>(
   readPage: (after: string | null) => Promise<Page<T>>,
   limit = Number.POSITIVE_INFINITY,
 ): Promise<T[]> {
+  const maxPages = 50
   const nodes: T[] = []
   const seen = new Set<string>()
   let after: string | null = null
+  let pages = 0
   do {
+    if (pages === maxPages) {
+      getLogger().warn("Plain read hit the page cap", { maxPages })
+      throw new Error(`Plain has more than ${maxPages} pages in one read`)
+    }
+    pages += 1
     const page: Page<T> = await readPage(after)
     nodes.push(...page.nodes)
     after = page.pageInfo.hasNextPage ? page.pageInfo.endCursor : null

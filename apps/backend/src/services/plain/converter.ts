@@ -127,12 +127,14 @@ const withoutPrivateLinks = (text: string) =>
  * credential at the end of a long URL cannot pass.
  */
 function withHttpsUrlsOnly(text: string): string {
-  return text.replace(/https?:\/\/[^\s<>"']+/g, (match) => {
+  return text.replace(/(?:https?:\/\/|\bwww\.)[^\s<>"']+/g, (match) => {
     // Punctuation after a URL is not part of the URL.
     let end = match.length
     while (end > 0 && ".,;:!?)]}\\".includes(match.charAt(end - 1))) end -= 1
     const url = match.slice(0, end)
-    return url.length <= 2_048 && isKeptUrl(url)
+    // A link that starts with `www.` is a link in GFM viewers: same filter.
+    const target = url.startsWith("www.") ? `https://${url}` : url
+    return url.length <= 2_048 && isKeptUrl(target)
       ? match
       : `[link removed]${match.slice(end)}`
   })
@@ -144,8 +146,10 @@ function withHttpsUrlsOnly(text: string): string {
  * addresses and phone numbers. Other personal data can remain.
  */
 function redactThreadText(text: string): string {
+  // The strip comes first: a format character inside an address or a
+  // parameter name must not hide it from the patterns.
   return (
-    withHttpsUrlsOnly(withoutPrivateLinks(text))
+    withHttpsUrlsOnly(withoutPrivateLinks(withoutControls(text)))
       .replace(
         /[A-Za-z0-9._%+-]{1,64}@[A-Za-z0-9.-]{1,253}\.[A-Za-z]{2,24}/g,
         "[email removed]",
