@@ -153,9 +153,8 @@ export function ingestFailureHint(output: string): IngestFailureHint {
 export function parseOpenCodeLogMessages(log: string): string[] {
   const found = new Set<string>()
   for (const line of log.split("\n")) {
-    const match = /\blevel=(?:ERROR|WARN)\b.*?\bmessage=(?:"([^"]*)"|(\S+))/.exec(
-      line,
-    )
+    const match =
+      /\blevel=(?:ERROR|WARN)\b.*?\bmessage=(?:"([^"]*)"|(\S+))/.exec(line)
     const message = match?.[1] ?? match?.[2]
     if (message && /^[A-Za-z][A-Za-z0-9 .,:_-]{0,79}$/.test(message))
       found.add(message)

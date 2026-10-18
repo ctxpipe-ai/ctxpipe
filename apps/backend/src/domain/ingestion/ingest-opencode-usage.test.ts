@@ -230,7 +230,7 @@ describe("ingestFailureHint", () => {
 describe("parseOpenCodeLogMessages", () => {
   it("keeps the distinct short ERROR and WARN messages and drops paths and INFO lines", () => {
     const log = [
-      'timestamp=2026-10-18T12:54:33.185Z level=INFO run=a message=init',
+      "timestamp=2026-10-18T12:54:33.185Z level=INFO run=a message=init",
       'timestamp=2026-10-18T12:54:33.190Z level=ERROR run=a message="Failed to fetch models.dev" cause="Cause([Fail(HttpClientError: 403)])"',
       'timestamp=2026-10-18T12:54:33.221Z level=WARN run=a message="background dependency install failed" dir=/ctxpipe/home/config/opencode',
       'timestamp=2026-10-18T12:54:33.300Z level=WARN run=a message="server unavailable" key=tanstack type=remote status=failed',
