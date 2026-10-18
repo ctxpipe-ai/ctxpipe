@@ -305,7 +305,7 @@ function tipErrorText(error: unknown): string {
       .filter(Boolean)
       .at(-1) ??
     (error instanceof Error ? error.message.split("\n")[0] : String(error))
-  return line.slice(0, 300)
+  return (line ?? "").slice(0, 300)
 }
 
 /**

@@ -284,7 +284,9 @@ export function plainGitPinnedRequest(input: {
           new Response(
             empty
               ? null
-              : (Readable.toWeb(response) as ReadableStream<Uint8Array>),
+              : (Readable.toWeb(
+                  response,
+                ) as unknown as ReadableStream<Uint8Array>),
             { status, statusText: response.statusMessage ?? "", headers },
           ),
         )
