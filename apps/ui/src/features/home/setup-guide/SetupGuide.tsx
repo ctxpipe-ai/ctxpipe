@@ -26,7 +26,6 @@ import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
-import { ssrApiBaseUrl } from "@/lib/ssr-api-base"
 import { cn } from "@/lib/utils"
 import { editorSetupCommand, mcpServerUrl } from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
@@ -344,11 +343,13 @@ const noSubscribe = () => () => {}
  * deployment or a preview.
  */
 function EditorSetupStep() {
-  // The server has no `window`; the browser value replaces it after hydration.
+  // The server holds no public origin (its config names the private backend
+  // URL), so the server and hydration value is `null`. The fields stay empty
+  // and Copy stays off until the browser origin replaces it.
   const origin = useSyncExternalStore(
     noSubscribe,
     () => window.location.origin,
-    ssrApiBaseUrl,
+    () => null,
   )
   return (
     <div className="mt-1 flex items-start gap-3 px-2 py-3">
@@ -367,7 +368,7 @@ function EditorSetupStep() {
         </p>
         <div className="mt-3 space-y-2">
           <CopyableBlock
-            value={editorSetupCommand(origin)}
+            value={origin ? editorSetupCommand(origin) : ""}
             copyAriaLabel="Copy setup command"
             copiedAriaLabel="Setup command copied"
             copyErrorMessage="Could not copy. Copy the command manually."
@@ -384,7 +385,7 @@ function EditorSetupStep() {
             </TextLink>
           </p>
           <CopyableBlock
-            value={mcpServerUrl(origin)}
+            value={origin ? mcpServerUrl(origin) : ""}
             copyAriaLabel="Copy MCP server URL"
             copiedAriaLabel="MCP server URL copied"
             copyErrorMessage="Could not copy. Copy the URL manually."
@@ -509,44 +510,49 @@ function SetupGuidePanel(props: {
  */
 export function SetupGuideSkeleton(props: { collapsed: boolean }) {
   return (
-    <section
-      aria-busy
-      className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800"
-    >
-      <span className="sr-only">Loading the setup guide</span>
-      <div
-        className={cn(
-          "flex items-center gap-x-3 px-2 pt-1",
-          props.collapsed ? "pb-1" : "pb-2",
-        )}
-      >
-        <Skeleton className="h-7 w-48" />
-      </div>
-      {props.collapsed ? null : (
-        // The disclosure panel of the card has `pt-0.5`.
-        <div className="pt-0.5">
-          <ul className="space-y-1">
-            <li className="flex items-start gap-3 rounded-md px-2 py-3">
-              <Skeleton className="size-7 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="pt-1">
-                  <SkeletonText className="text-sm" boneClassName="w-40" />
-                </div>
-                <SkeletonText className="mt-0.5 text-sm" boneClassName="w-72" />
-                <Skeleton className="mt-3 block h-9 w-32" />
-              </div>
-            </li>
-            {[0, 1, 2, 3, 4].map((row) => (
-              <li key={row} className="flex items-center gap-3 px-2 py-2">
-                <Skeleton className="size-7 shrink-0" />
-                <SkeletonText className="flex-1 text-sm" boneClassName="w-48" />
-              </li>
-            ))}
-          </ul>
-          {/* The editor step reads no data, so it shows at once. */}
-          <EditorSetupStep />
+    <section className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800">
+      {/* The editor step has live Copy buttons, so it stays outside the busy region. */}
+      <div aria-busy>
+        <span className="sr-only">Loading the setup guide</span>
+        <div
+          className={cn(
+            "flex items-center gap-x-3 px-2 pt-1",
+            props.collapsed ? "pb-1" : "pb-2",
+          )}
+        >
+          <Skeleton className="h-7 w-48" />
         </div>
-      )}
+        {props.collapsed ? null : (
+          // The disclosure panel of the card has `pt-0.5`.
+          <div className="pt-0.5">
+            <ul className="space-y-1">
+              <li className="flex items-start gap-3 rounded-md px-2 py-3">
+                <Skeleton className="size-7 shrink-0" />
+                <div className="min-w-0 flex-1">
+                  <div className="pt-1">
+                    <SkeletonText className="text-sm" boneClassName="w-40" />
+                  </div>
+                  <SkeletonText
+                    className="mt-0.5 text-sm"
+                    boneClassName="w-72"
+                  />
+                  <Skeleton className="mt-3 block h-9 w-32" />
+                </div>
+              </li>
+              {[0, 1, 2, 3, 4].map((row) => (
+                <li key={row} className="flex items-center gap-3 px-2 py-2">
+                  <Skeleton className="size-7 shrink-0" />
+                  <SkeletonText
+                    className="flex-1 text-sm"
+                    boneClassName="w-48"
+                  />
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+      {props.collapsed ? null : <EditorSetupStep />}
     </section>
   )
 }
