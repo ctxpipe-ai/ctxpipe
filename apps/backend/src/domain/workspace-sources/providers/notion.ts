@@ -31,6 +31,7 @@ const rootList = (label: string) =>
   z
     .array(notionRootSchema)
     .min(1)
+    .max(100, `Select at most 100 ${label}s for one source`)
     .refine(
       (roots) => new Set(roots.map((root) => root.id)).size === roots.length,
       `List each ${label} one time`,

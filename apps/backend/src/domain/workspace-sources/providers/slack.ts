@@ -20,6 +20,7 @@ export const slackScopeSchema = z.object({
   channels: z
     .array(slackChannelId)
     .min(1, "Select at least one channel")
+    .max(100, "Select at most 100 channels for one source")
     .refine((ids) => new Set(ids).size === ids.length, {
       message: "Each channel must occur one time",
     }),

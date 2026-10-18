@@ -20,12 +20,16 @@ export const confluenceSourceScopeSchema = z
             /** `all`, or only these pages (and the path to them). */
             pages: z.union([
               z.literal("all"),
-              z.array(confluencePageIdSchema).min(1),
+              z
+                .array(confluencePageIdSchema)
+                .min(1)
+                .max(1000, "Select at most 1000 pages in one space"),
             ]),
           })
           .strict(),
       )
       .min(1)
+      .max(50, "Select at most 50 Confluence spaces for one source")
       .refine(
         (spaces) =>
           new Set(spaces.map((space) => space.key)).size === spaces.length,

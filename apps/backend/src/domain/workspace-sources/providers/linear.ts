@@ -29,12 +29,18 @@ export const linearScopeSchema = z
      * Team keys, for example `ENG`. Each team syncs its issues, projects,
      * cycles, and labels under `linear/teams/<key>/`.
      */
-    teams: z.array(linearPathSegment).optional(),
+    teams: z
+      .array(linearPathSegment)
+      .max(50, "Select at most 50 teams for one source")
+      .optional(),
     /**
      * Linear project ids. Each project syncs its page and its issues, also
      * from other teams, under `linear/projects/<id>/`.
      */
-    projects: z.array(linearPathSegment).optional(),
+    projects: z
+      .array(linearPathSegment)
+      .max(100, "Select at most 100 projects for one source")
+      .optional(),
     /**
      * "exclude" leaves out Linear customer requests. The default, "limited",
      * mirrors them as in ADR-022.
