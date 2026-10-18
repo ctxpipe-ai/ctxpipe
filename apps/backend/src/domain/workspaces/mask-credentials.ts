@@ -19,7 +19,13 @@ const RULES: Array<[RegExp, string]> = [
     `$1${MASK}@`,
   ],
   [/\bx-access-token:[^\s/@"'\\]{1,256}@/gi, `${MASK}@`],
-  [/\bgh[pousr]_[A-Za-z0-9]{20,255}/g, MASK],
+  // A GitHub token. The installation token form has a numeric id, a second
+  // underscore, and a value that can hold "_", "." and "-" (CTX-845). It
+  // comes first, so the older form does not mask only a part of it.
+  [
+    /\bgh[pousr]_(?:[0-9]{1,20}_[A-Za-z0-9_-]{16,4096}(?:\.[A-Za-z0-9_-]{1,4096}){0,4}|[A-Za-z0-9]{20,255})/g,
+    MASK,
+  ],
   [/\bgithub_pat_[A-Za-z0-9_]{20,255}/g, MASK],
   [/\bsk-[A-Za-z0-9_-]{16,255}/g, MASK],
   // A signed capability: base64url JSON, a dot, and a SHA-256 signature.
