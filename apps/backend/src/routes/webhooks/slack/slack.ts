@@ -15,6 +15,7 @@ import {
 } from "../../../services/slack/mention-status.js"
 import { verifySlackRequestSignature } from "../../../services/slack/verify-signature.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
+import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 
 const SlackEventEnvelopeSchema = z.object({
   type: z.string(),
@@ -37,6 +38,10 @@ const SlackEventEnvelopeSchema = z.object({
 })
 
 export function registerSlackWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.use(
+    "/api/v1/webhook/slack",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.slack),
+  )
   app.post("/api/v1/webhook/slack", async (c) => {
     const env = c.var.env
     const signingSecret = env.SLACK_SIGNING_SECRET

@@ -20,6 +20,7 @@ import { findRepositoryByGithubInstallation } from "../../../models/repositories
 import { enqueueRepositoryIngestionWorkflow } from "../../../openworkflow/enqueue-repository-ingestion.js"
 import { enqueueWorkspaceTipCheck } from "../../../openworkflow/enqueue-workspace-tip-check.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
+import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 import { maybeEnqueueConfluenceSyncOnConfigPush } from "./github-confluence-push.js"
 import { maybeActivateLinearSyncOnConfigPush } from "./github-linear-push.js"
 import { maybeEnqueueNotionSyncOnConfigPush } from "./github-notion-push.js"
@@ -442,6 +443,10 @@ export async function processGithubWebhookPayload(
 }
 
 export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.use(
+    "/api/v1/webhook/github/:connectionId",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.github),
+  )
   app.post("/api/v1/webhook/github/:connectionId", async (c) => {
     const env = c.get("env")
     const log = c.get("log")
@@ -489,6 +494,10 @@ export function registerGithubWebhookRoute(app: OpenAPIHono<AppEnv>) {
     return c.body(null, 200)
   })
 
+  app.use(
+    "/api/v1/webhook/github",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.github),
+  )
   app.post("/api/v1/webhook/github", async (c) => {
     const env = c.get("env")
     const log = c.get("log")

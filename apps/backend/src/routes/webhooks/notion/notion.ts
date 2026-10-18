@@ -23,6 +23,7 @@ import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-en
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
 import type { NotionSourceEvent } from "../../../services/notion/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
+import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 
 const notionWebhookPayloadSchema = z.object({
   id: z.string().optional(),
@@ -289,5 +290,9 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
 }
 
 export function registerNotionWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.use(
+    "/api/v1/webhook/notion",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.notion),
+  )
   app.post("/api/v1/webhook/notion", (c) => handleNotionWebhook(c))
 }

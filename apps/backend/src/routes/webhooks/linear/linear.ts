@@ -17,6 +17,7 @@ import { linearSyncEntity } from "../../../openworkflow/workflows/linear-sync-en
 import { linearLegacyRetiredBy } from "../../../services/linear/legacy-retired.js"
 import { linearSourceEventFromPayload } from "../../../services/linear/source-event.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
+import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 
 type EntityTarget = {
   entityType:
@@ -307,6 +308,10 @@ async function processVerifiedLinearWebhook(input: {
 }
 
 export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.use(
+    "/api/v1/webhook/linear",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.linear),
+  )
   app.post("/api/v1/webhook/linear", async (c) => {
     const env = c.get("env")
     const signature = c.req.header("linear-signature")

@@ -17,6 +17,7 @@ import {
 } from "../../../services/pagerduty/signature.js"
 import type { PagerdutySourceEvent } from "../../../services/pagerduty/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
+import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 
 export function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {
@@ -191,5 +192,9 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
 }
 
 export function registerPagerdutyWebhookRoute(app: OpenAPIHono<AppEnv>) {
+  app.use(
+    "/api/v1/webhook/pagerduty",
+    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.pagerduty),
+  )
   app.post("/api/v1/webhook/pagerduty", (c) => handlePagerdutyWebhook(c))
 }
