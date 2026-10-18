@@ -243,6 +243,13 @@ export function revokeIngestGitTokens(input: {
  * the path, not the scheme. An `https://` source gets port 443 (or its own
  * port), and an `http://` source (self-host only) gets port 80 (or its own
  * port), so the rule follows the scheme of the source.
+ *
+ * The rule names the host, not the checked addresses: Agent Vault resolves
+ * the host name again when it connects, so this fetch is not pinned. The
+ * backend checks the host before it makes the rule (`shardRepositories`):
+ * on self-host too, it refuses a host that resolves to a cloud metadata or
+ * link-local address. A DNS answer that changes after that check is not
+ * covered here.
  */
 export function ingestCredentialRules(
   egress: IngestEgress,

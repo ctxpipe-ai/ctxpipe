@@ -64,7 +64,10 @@ export type PlainGitDeployment = "hosted" | "self-host"
  * The deployment mode of the plain git URL policy. Only
  * `SANDBOX_PROVIDER=docker`, exactly, is self-host. Each other value
  * (`vercel`, `unsandboxed`, or no value) gets the strict rule of hosted.
- * The UI has no `process`, so it gets the strict rule too.
+ * The UI has no `process`, so this function gives the strict rule there.
+ * The UI does not use it to judge a plain git URL: the UI has no editor
+ * for a plain git source, and the backend is the only judge. The UI shows
+ * the status and the error that the backend gives for each source.
  */
 export function plainGitDeployment(
   env: Record<string, string | undefined> = globalThis.process?.env ?? {},
@@ -91,12 +94,16 @@ export type PlainGitUrlPolicy = {
  *   be public.
  * - Self-host (Docker): the customer runs ctx| inside its own network, as
  *   on main. A URL may use `http://`, another port, an IP address, a
- *   private name, and a host with private addresses.
+ *   private name, and a host with private addresses. The host must not
+ *   resolve to a cloud metadata or link-local address (169.254.0.0/16,
+ *   fe80::/10, fd00:ec2::254): the DNS check of the backend refuses it.
  *
  * In each mode, the read stays a Git smart HTTP read (`info/refs` and
- * `git-upload-pack`) with no credential and no redirect, git connects only
- * to the checked addresses, and git never uses `ssh`, `git://`, or
- * `file://`: the sandbox reaches the outside only through an HTTP proxy.
+ * `git-upload-pack`) with no credential and no redirect, and git never
+ * uses `ssh`, `git://`, or `file://`: the sandbox reaches the outside only
+ * through an HTTP proxy. A git read of the backend or of codesearch
+ * connects only to the checked addresses. The Docker sandbox fetch is not
+ * pinned: Agent Vault resolves the host name again when it connects.
  */
 export function plainGitUrlPolicy(
   deployment: PlainGitDeployment,

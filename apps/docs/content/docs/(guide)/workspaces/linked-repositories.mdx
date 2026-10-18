@@ -108,6 +108,9 @@ A self-hosted deployment with Docker sandboxes (`SANDBOX_PROVIDER=docker`,
 which Docker Compose and AWS CDK set) can also read a git server inside your
 network. Its URL can use `http://`, another port, an IP address, or an
 internal host name, for example `http://git.internal:3000/team/tools.git`.
+ctx| never reads a host that resolves to a cloud metadata or link-local
+address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
+`fd00:ec2::254`), also on a self-hosted deployment.
 Agent Vault connects to a private address only when that address is in its
 `AGENT_VAULT_NETWORK_ALLOWLIST`, so add the address of your git server
 there.
@@ -123,6 +126,8 @@ The source file links the repository to the Workspace. As before Workspaces,
 ctx| indexes a plain git repository when you add it with the repositories
 API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
 when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
+Both calls check the URL with the rules above and answer `400` with the
+rule when ctx| does not read it.
 Each index of the repository also updates the knowledge of each Workspace
 whose source file names it.
 
