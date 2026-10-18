@@ -1,3 +1,4 @@
+import { BlockList, isIP } from "node:net"
 import * as cdk from "aws-cdk-lib"
 import * as acm from "aws-cdk-lib/aws-certificatemanager"
 import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
@@ -311,7 +312,15 @@ export class CtxPipe extends Construct {
         `sandboxHost.instanceType must be a Graviton (arm64) type such as t4g.xlarge or m7g.large; got ${instanceType}`,
       )
     }
-    return { instanceType, dockerVolumeSizeGiB }
+    const agentVaultNetworkAllowlist = [
+      ...(props.sandboxHost?.agentVaultNetworkAllowlist ?? []),
+    ]
+    for (const entry of agentVaultNetworkAllowlist)
+      if (!agentVaultAllowlistEntryOk(entry))
+        throw new Error(
+          `sandboxHost.agentVaultNetworkAllowlist must hold IPv4 or IPv6 addresses or CIDRs with no cloud metadata or link-local address; got ${JSON.stringify(entry)}`,
+        )
+    return { instanceType, dockerVolumeSizeGiB, agentVaultNetworkAllowlist }
   }
 
   private resolveCustomDomain(
@@ -430,4 +439,34 @@ export class CtxPipe extends Construct {
       ? hostedZoneId
       : `/hostedzone/${hostedZoneId}`
   }
+}
+
+/**
+ * True when `entry` is an IPv4 or IPv6 address or CIDR that holds no cloud
+ * metadata or link-local address. The entry goes into the host boot script,
+ * so only these characters can get through.
+ */
+function agentVaultAllowlistEntryOk(entry: string): boolean {
+  const [address = "", prefix, ...rest] = entry.split("/")
+  const family = isIP(address)
+  if (!family || rest.length) return false
+  const type = family === 4 ? "ipv4" : "ipv6"
+  const bits = prefix === undefined ? (family === 4 ? 32 : 128) : Number(prefix)
+  if (
+    (prefix !== undefined && !/^\d{1,3}$/.test(prefix)) ||
+    bits > (family === 4 ? 32 : 128)
+  )
+    return false
+  const range = new BlockList()
+  range.addSubnet(address, bits, type)
+  const linkLocal = new BlockList()
+  linkLocal.addSubnet("169.254.0.0", 16, "ipv4")
+  linkLocal.addSubnet("fe80::", 10, "ipv6")
+  linkLocal.addAddress("fd00:ec2::254", "ipv6")
+  return (
+    !linkLocal.check(address, type) &&
+    !range.check("169.254.169.254", "ipv4") &&
+    !range.check("169.254.170.2", "ipv4") &&
+    !range.check("fd00:ec2::254", "ipv6")
+  )
 }

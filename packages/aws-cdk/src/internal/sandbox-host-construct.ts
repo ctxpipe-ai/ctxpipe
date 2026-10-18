@@ -249,6 +249,7 @@ export class SandboxHostConstruct extends Construct {
         backendSubnetCidrs: vpc
           .selectSubnets({ subnetType: ec2.SubnetType.PRIVATE_WITH_EGRESS })
           .subnets.map((subnet) => subnet.ipv4CidrBlock),
+        operatorAllowlist: props.agentVaultNetworkAllowlist ?? [],
       }),
     );
 
@@ -391,6 +392,11 @@ interface HostBootstrapInput {
   readonly agentVaultMasterSecretArn: string;
   /** Agent Vault may dial these private addresses: the backend tasks. */
   readonly backendSubnetCidrs: string[];
+  /**
+   * And these, from `sandboxHost.agentVaultNetworkAllowlist` (for example a
+   * private git server). `CtxPipe` checks each entry.
+   */
+  readonly operatorAllowlist: readonly string[];
 }
 
 /**
@@ -515,7 +521,7 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "docker network inspect ctxpipe-av >/dev/null 2>&1 || docker network create -o com.docker.network.bridge.name=ctxpipe-av ctxpipe-av",
     `AGENT_VAULT_MASTER_PASSWORD="$(aws secretsmanager get-secret-value --region "$REGION" --secret-id '${input.agentVaultMasterSecretArn}' --query SecretString --output text)"`,
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
-    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${input.backendSubnetCidrs.join(",")}' infisical/agent-vault:latest`,
+    `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
     `curl -sf --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 

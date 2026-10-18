@@ -167,7 +167,10 @@ services:
   # Adds each credential to sandbox requests (ADR-049). Sandboxes reach only
   # its proxy port (scripts/sandbox-dind/entrypoint.sh), and the proxy may
   # dial private addresses only at the backend's fixed `sandbox` address.
-  # Other HTTP(S) hosts are forwarded, so the internet stays open.
+  # Other HTTP(S) hosts are forwarded, so the internet stays open. To let
+  # ingestion fetch a plain git source on a private network, set
+  # AGENT_VAULT_NETWORK_ALLOWLIST in `.env`: keep 172.30.99.10 and add the
+  # address or CIDR of the git server. Never add a cloud metadata address.
   agent-vault:
     profiles: [deploy]
     image: *agent-vault-image
@@ -180,8 +183,8 @@ services:
         exec agent-vault server --host 0.0.0.0 --port 14321
     environment:
       <<: *agent-vault-limits
-      # Only the backend: not Agent Vault's own address (its API), not `dind`.
-      AGENT_VAULT_NETWORK_ALLOWLIST: 172.30.99.10
+      # The backend only: not Agent Vault's own address (its API), not `dind`.
+      AGENT_VAULT_NETWORK_ALLOWLIST: ${AGENT_VAULT_NETWORK_ALLOWLIST:-172.30.99.10}
     volumes:
       - agent_vault_data:/data
       - agent_vault_master:/run/agent-vault-master:ro

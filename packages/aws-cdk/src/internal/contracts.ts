@@ -75,6 +75,8 @@ export interface CtxPipeSizeProfile {
 export interface CtxPipeSandboxHostProfile {
   readonly instanceType: ec2.InstanceType;
   readonly dockerVolumeSizeGiB: number;
+  /** Checked entries that Agent Vault may dial, after the backend subnets. */
+  readonly agentVaultNetworkAllowlist?: readonly string[];
 }
 
 export interface NetworkingResources {
