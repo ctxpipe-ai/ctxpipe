@@ -20,12 +20,20 @@ export function GithubRepoPickerList({
   repos: readonly GithubRepoItem[]
   selectedIds: ReadonlySet<number>
   onToggle: (id: number, selected: boolean) => void
-  /** Rows that show but cannot be selected, with the reason (multiple mode). */
-  disabledLabels?: ReadonlyMap<number, string>
-  /** `single` renders radios in one group; `multiple` renders checkboxes. */
-  selectionMode?: "single" | "multiple"
   className?: string
-}) {
+} & (
+  | {
+      /** `multiple` renders checkboxes. */
+      selectionMode?: "multiple"
+      /** Rows that show but cannot be selected, with the reason. */
+      disabledLabels?: ReadonlyMap<number, string>
+    }
+  | {
+      /** `single` renders radios in one group. */
+      selectionMode: "single"
+      disabledLabels?: never
+    }
+)) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: repos.length,

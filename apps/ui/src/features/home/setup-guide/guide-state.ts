@@ -24,7 +24,7 @@ export type GuideSignals = {
   /** The landing Workspace has at least one linked code repository. */
   linkedRepositories: boolean
   /** An open pull request that adds a GitHub source to the landing Workspace. */
-  repositoriesPending?: PendingSourceChange | null
+  repositoriesPending?: PendingSourceChange
   /** The user sent a message in a Workspace of this organization. */
   asked: boolean
   /** A connection other than GitHub exists. */
@@ -68,7 +68,7 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
       done: signals.linkedRepositories,
       pending: signals.linkedRepositories
         ? undefined
-        : (signals.repositoriesPending ?? undefined),
+        : signals.repositoriesPending,
     },
     ask,
     { id: "tool", done: signals.toolConnected },

@@ -1,11 +1,13 @@
 import HyperDX from "@hyperdx/browser"
 import { IconExternalLink, IconPlus, IconUnlink } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useId, useMemo, useState } from "react"
+import { useNavigate } from "@tanstack/react-router"
+import { useId, useState } from "react"
 import { Heading } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { Dialog } from "@/components/ui/Dialog"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
@@ -26,14 +28,13 @@ import {
 import {
   type GithubRepoItem,
   type GithubRepoSort,
+  githubCloneUrlKey,
   githubInstallationReposOptions,
   sortGithubRepos,
 } from "@/features/repositories/githubRepoSelection"
 import { gitSourceMatchesQuery } from "@/features/repositories/gitSourcesFilter"
-import {
-  eligibleInstallationRepos,
-  sameGitUrl,
-} from "@/features/workspaces/gitUrl"
+import { workspaceUpgradesOptions } from "@/features/workspace-upgrades/queries"
+import { eligibleInstallationRepos } from "@/features/workspaces/gitUrl"
 import {
   unlinkWorkspaceRepository,
   workspaceDetailOptions,
@@ -43,6 +44,7 @@ import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { cn } from "@/lib/utils"
+import { addRepositoriesGate } from "./add-repositories-gate"
 import {
   createWorkspaceSource,
   createWorkspaceSourcesBatch,
@@ -52,7 +54,6 @@ import {
   workspaceSourceKeys,
   workspaceSourcesOptions,
 } from "./queries"
-import type { SourceConnectionOption } from "./SourceEditorDialog"
 import {
   sourceRowActionsClassName,
   sourceRowClassName,
@@ -214,15 +215,12 @@ export function repositoryRows(
 export function GithubSourceRepositories(props: {
   orgSlug: string
   workspaceSlug: string
-  workspaceRepositoryUrl: string | null
   rows: RepositoryRow[]
-  sources: WorkspaceSource[]
-  connections: SourceConnectionOption[]
   canEdit: boolean
   /** No repository and no pending add: the body shows the primary add button. */
   showEmptyAction: boolean
-  addOpen: boolean
-  onAddOpenChange: (open: boolean) => void
+  /** Opens the Add repositories dialog, which the caller renders. */
+  onAdd: () => void
 }) {
   const { orgSlug, workspaceSlug, rows, canEdit } = props
   const queryClient = useQueryClient()
@@ -278,10 +276,7 @@ export function GithubSourceRepositories(props: {
               Add the code repositories of this Workspace. ctxpipe reads them to
               answer questions.
             </p>
-            <Button
-              variant="primary"
-              onPress={() => props.onAddOpenChange(true)}
-            >
+            <Button variant="primary" onPress={props.onAdd}>
               <IconPlus className="size-4" aria-hidden />
               Add repositories
             </Button>
@@ -452,23 +447,27 @@ export function GithubSourceRepositories(props: {
           ) : null}
         </>
       )}
-      <AddGithubRepositoriesModal
-        orgSlug={orgSlug}
-        workspaceSlug={workspaceSlug}
-        connections={props.connections}
-        workspaceRepositoryUrl={props.workspaceRepositoryUrl}
-        takenUrls={rows.map((row) => row.gitUrl)}
-        isOpen={props.addOpen}
-        onOpenChange={props.onAddOpenChange}
-      />
     </>
   )
 }
 
 /**
- * "Add repositories" for a page that does not show the sources, for example
- * the Get started guide on Home. It reads the same queries as the Sources
- * section, so both show the same list.
+ * The repository that a row names, for the selection: the connection that
+ * lists it and its clone URL. A list that loads again can move a repository
+ * to another place, so the selection never uses the place.
+ */
+function pickKey(repo: GithubRepoItem): string {
+  return `${repo.githubConnectionId ?? ""} ${githubCloneUrlKey(repo.clone_url)}`
+}
+
+/**
+ * "Add repositories": pick repositories of the GitHub connections. Each pick
+ * adds one GitHub source file. The Workspace repository shows, but the user
+ * cannot pick it: a Workspace cannot link its own repository. The dialog
+ * reads the same queries as the Sources section, so the Sources section and
+ * the Get started guide on Home both render it and show the same list. A
+ * Workspace that is read-only or below format 2 gets the reason and the next
+ * step in place of the list.
  */
 export function WorkspaceAddRepositoriesDialog(props: {
   orgSlug: string
@@ -476,7 +475,15 @@ export function WorkspaceAddRepositoriesDialog(props: {
   isOpen: boolean
   onOpenChange: (open: boolean) => void
 }) {
-  const { orgSlug, workspaceSlug, isOpen } = props
+  const { orgSlug, workspaceSlug, isOpen, onOpenChange } = props
+  const queryClient = useQueryClient()
+  const navigate = useNavigate()
+  const [searchQuery, setSearchQuery] = useState("")
+  const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
+  const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+
+  // Only an owner or admin can list the installation repositories.
+  const isAdmin = useIsOrgAdmin(orgSlug)
   const detailQuery = useQuery({
     ...workspaceDetailOptions(orgSlug, workspaceSlug),
     enabled: isOpen,
@@ -489,115 +496,100 @@ export function WorkspaceAddRepositoriesDialog(props: {
     ...orgConnectionsOptions(orgSlug),
     enabled: isOpen,
   })
+  const upgradesQuery = useQuery({
+    ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
+    enabled: isOpen && isAdmin === true,
+  })
+  const connections = (connectionsQuery.data ?? [])
+    .filter((connection) => connection.type === "github")
+    .map(({ id, displayName }) => ({ id, displayName }))
+  const connectionIds = connections.map((connection) => connection.id)
+  const reposQuery = useQuery({
+    ...githubInstallationReposOptions(orgSlug, connectionIds),
+    enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
+    // The user can give access on GitHub in another tab. The list then
+    // loads again when the user comes back to this tab, at most every 10 s.
+    staleTime: 10_000,
+    refetchOnWindowFocus: true,
+  })
+
+  const pending =
+    detailQuery.isPending ||
+    sourcesQuery.isPending ||
+    connectionsQuery.isPending ||
+    upgradesQuery.isPending
+  const failed = detailQuery.isError
+    ? detailQuery
+    : sourcesQuery.isError
+      ? sourcesQuery
+      : upgradesQuery.isError
+        ? upgradesQuery
+        : null
+  const gate =
+    detailQuery.data && sourcesQuery.data && upgradesQuery.data
+      ? addRepositoriesGate({
+          canEdit: sourcesQuery.data.canEdit,
+          readOnlyReason: detailQuery.data.readOnlyReason,
+          formatVersion: upgradesQuery.data.formatVersion,
+          codeFormat: upgradesQuery.data.codeFormat,
+        })
+      : null
+  const showPicker = isAdmin === true && !pending && !failed && !gate
+
+  const workspaceRepositoryUrl = detailQuery.data?.workspaceRepositoryUrl
   const rows = repositoryRows(
     detailQuery.data?.linkedRepositories ?? [],
     (sourcesQuery.data?.items ?? []).filter(
       (item) => item.provider === "github",
     ),
   )
-  return (
-    <AddGithubRepositoriesModal
-      {...props}
-      connections={(connectionsQuery.data ?? [])
-        .filter((connection) => connection.type === "github")
-        .map(({ id, displayName }) => ({ id, displayName }))}
-      connectionsPending={
-        detailQuery.isPending ||
-        sourcesQuery.isPending ||
-        connectionsQuery.isPending
-      }
-      workspaceRepositoryUrl={detailQuery.data?.workspaceRepositoryUrl ?? null}
-      takenUrls={rows.map((row) => row.gitUrl)}
-    />
-  )
-}
-
-/**
- * "Add repositories": pick repositories of the GitHub connections. Each pick
- * adds one GitHub source file. The Workspace repository shows, but the user
- * cannot pick it: a Workspace cannot link its own repository.
- */
-function AddGithubRepositoriesModal(props: {
-  orgSlug: string
-  workspaceSlug: string
-  connections: SourceConnectionOption[]
-  /** True while the caller still loads the connections or the taken URLs. */
-  connectionsPending?: boolean
-  workspaceRepositoryUrl: string | null
-  /** The repositories that the Workspace already links. */
-  takenUrls: string[]
-  isOpen: boolean
-  onOpenChange: (open: boolean) => void
-}) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    connections,
-    connectionsPending = false,
-    workspaceRepositoryUrl,
-    takenUrls,
-    isOpen,
-    onOpenChange,
-  } = props
-  const queryClient = useQueryClient()
-  const [searchQuery, setSearchQuery] = useState("")
-  const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
-  const [selectedIds, setSelectedIds] = useState<Set<number>>(new Set())
-
-  const connectionIds = connections.map((connection) => connection.id)
-  // Only an owner or admin can list the installation repositories.
-  const isAdmin = useIsOrgAdmin(orgSlug)
-  const reposQuery = useQuery({
-    ...githubInstallationReposOptions(orgSlug, connectionIds),
-    enabled: isOpen && connectionIds.length > 0 && isAdmin === true,
-    // The user can give access on GitHub in another tab. The list then
-    // loads again when the user comes back to this tab.
-    refetchOnWindowFocus: "always",
+  const eligibleRepos = eligibleInstallationRepos({
+    // Two connections can list the same repository: give each row its own
+    // id for the list.
+    repositories: (reposQuery.data?.repositories ?? []).map((repo, index) => ({
+      ...repo,
+      id: index + 1,
+    })),
+    takenUrls: rows.map((row) => row.gitUrl),
   })
-
-  const eligibleRepos = useMemo(
-    () =>
-      eligibleInstallationRepos({
-        // Two connections can list the same repository: give each row its
-        // own id for the selection.
-        repositories: (reposQuery.data?.repositories ?? []).map(
-          (repo, index) => ({ ...repo, id: index + 1 }),
-        ),
-        takenUrls,
-      }),
-    [reposQuery.data?.repositories, takenUrls],
+  const disabledLabels = new Map<number, string>(
+    workspaceRepositoryUrl
+      ? eligibleRepos
+          .filter(
+            (repo) =>
+              githubCloneUrlKey(repo.clone_url) ===
+              githubCloneUrlKey(workspaceRepositoryUrl),
+          )
+          .map((repo): [number, string] => [
+            repo.id,
+            "This Workspace's repository",
+          ])
+      : [],
   )
-  const disabledLabels = useMemo(
-    () =>
-      new Map<number, string>(
-        workspaceRepositoryUrl
-          ? eligibleRepos
-              .filter((repo) =>
-                sameGitUrl(repo.clone_url, workspaceRepositoryUrl),
-              )
-              .map((repo): [number, string] => [
-                repo.id,
-                "This Workspace's repository",
-              ])
-          : [],
-      ),
-    [eligibleRepos, workspaceRepositoryUrl],
+  const query = searchQuery.trim().toLowerCase()
+  const filteredRepos = sortGithubRepos(
+    query
+      ? eligibleRepos.filter((repo) =>
+          repo.full_name.toLowerCase().includes(query),
+        )
+      : eligibleRepos,
+    sort,
   )
-  const filteredRepos = useMemo(() => {
-    const q = searchQuery.trim().toLowerCase()
-    const matching = q
-      ? eligibleRepos.filter((repo) => repo.full_name.toLowerCase().includes(q))
-      : eligibleRepos
-    return sortGithubRepos(matching, sort)
-  }, [eligibleRepos, searchQuery, sort])
-  const selected = eligibleRepos.filter(
-    (repo) => selectedIds.has(repo.id) && !disabledLabels.has(repo.id),
+  const selected = eligibleRepos.filter((repo) =>
+    selectedKeys.has(pickKey(repo)),
   )
-  const manageUrl = reposQuery.data?.manageUrl ?? null
+  const accessLinks = (reposQuery.data?.manageUrls ?? []).map(
+    ({ connectionId, url }) => ({
+      url,
+      name:
+        connections.find((connection) => connection.id === connectionId)
+          ?.displayName ?? "GitHub",
+    }),
+  )
 
   const close = () => {
     setSearchQuery("")
-    setSelectedIds(new Set())
+    setSelectedKeys(new Set())
     onOpenChange(false)
   }
 
@@ -658,8 +650,6 @@ function AddGithubRepositoriesModal(props: {
     onError: (error: Error) => toast.error(error.message),
   })
 
-  const add = () => addMutation.mutate(selected)
-
   return (
     <Modal
       isOpen={isOpen}
@@ -686,8 +676,9 @@ function AddGithubRepositoriesModal(props: {
               Open a pull request
             </strong>{" "}
             adds one file for each repository under{" "}
-            <code className="font-mono text-xs">sources/github/</code> in this
-            Workspace. The repositories become active when you merge it.
+            <code className="font-mono text-xs">sources/github/</code> in the
+            Workspace repository. Each repository becomes active when you merge
+            the pull request that adds it.
           </p>
         </div>
 
@@ -697,78 +688,159 @@ function AddGithubRepositoriesModal(props: {
               Ask an admin to add repositories. Only an owner or admin can list
               the GitHub repositories.
             </p>
-          ) : (
-            <div className="flex flex-col gap-3 sm:flex-row">
-              <SearchField
-                value={searchQuery}
-                onChange={setSearchQuery}
-                placeholder="Search repositories"
-                aria-label="Search GitHub repositories"
-                className="min-w-0 flex-1"
-              />
-              <GithubRepoSortSelect value={sort} onChange={setSort} />
-            </div>
-          )}
-          {isAdmin === false ? null : connectionsPending ? (
+          ) : pending ? (
             <InlineLoader label="Loading repositories" />
+          ) : failed ? (
+            <InlineAlert
+              variant="error"
+              title="Could not load the Workspace"
+              actions={
+                <Button
+                  variant="secondary"
+                  onPress={() => void failed.refetch()}
+                >
+                  Retry
+                </Button>
+              }
+            >
+              Try again, or open the Workspace and add repositories in Settings.
+            </InlineAlert>
+          ) : gate ? (
+            <InlineAlert
+              variant="warning"
+              title={gate.title}
+              actions={
+                <Button
+                  variant="secondary"
+                  onPress={() => {
+                    close()
+                    void navigate({
+                      to: "/$orgSlug/ws/$workspaceSlug",
+                      params: { orgSlug, workspaceSlug },
+                      search: { pane: "settings" },
+                    })
+                  }}
+                >
+                  {gate.action}
+                </Button>
+              }
+            >
+              {gate.body}
+            </InlineAlert>
           ) : connectionIds.length === 0 ? (
             <p className="text-sm text-muted-foreground">
-              Connect GitHub on the Connectors page first.
-            </p>
-          ) : reposQuery.isPending ? (
-            <InlineLoader label="Loading repositories" />
-          ) : reposQuery.isError ? (
-            <p className="text-sm text-muted-foreground">
-              Could not load the GitHub repositories.
-            </p>
-          ) : eligibleRepos.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No installation repositories left to link.
-            </p>
-          ) : filteredRepos.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              No repositories match that search.
+              <Link href={`/${orgSlug}/connectors`}>
+                Connect GitHub on the Connectors page first.
+              </Link>
             </p>
           ) : (
-            <GithubRepoPickerList
-              repos={filteredRepos}
-              disabledLabels={disabledLabels}
-              selectedIds={selectedIds}
-              onToggle={(id, isSelected) => {
-                setSelectedIds((previous) => {
-                  const next = new Set(previous)
-                  if (isSelected) next.add(id)
-                  else next.delete(id)
-                  return next
-                })
-              }}
-              className="rounded-md border-border bg-zinc-900/40"
-            />
+            <>
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <SearchField
+                  value={searchQuery}
+                  onChange={setSearchQuery}
+                  placeholder="Search repositories"
+                  aria-label="Search GitHub repositories"
+                  className="min-w-0 flex-1"
+                />
+                <GithubRepoSortSelect value={sort} onChange={setSort} />
+              </div>
+              {reposQuery.isPending ? (
+                <InlineLoader label="Loading repositories" />
+              ) : reposQuery.isError ? (
+                <p className="text-sm text-muted-foreground">
+                  Could not load the GitHub repositories.
+                </p>
+              ) : eligibleRepos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No installation repositories left to link.
+                </p>
+              ) : filteredRepos.length === 0 ? (
+                <p className="text-sm text-muted-foreground">
+                  No repositories match that search.
+                </p>
+              ) : (
+                <GithubRepoPickerList
+                  repos={filteredRepos}
+                  disabledLabels={disabledLabels}
+                  selectedIds={new Set(selected.map((repo) => repo.id))}
+                  onToggle={(id, isSelected) => {
+                    const repo = eligibleRepos.find((item) => item.id === id)
+                    if (!repo) return
+                    setSelectedKeys((previous) => {
+                      const next = new Set(previous)
+                      if (isSelected) next.add(pickKey(repo))
+                      else next.delete(pickKey(repo))
+                      return next
+                    })
+                  }}
+                  className="rounded-md border-border bg-zinc-900/40"
+                />
+              )}
+              {reposQuery.isPending ? null : (
+                <div className="space-y-1 text-sm text-muted-foreground">
+                  {accessLinks.length === 0 ? (
+                    <p>
+                      Don't see a repository?{" "}
+                      <Link href={`/${orgSlug}/connectors`}>
+                        Check the GitHub connection on the Connectors page
+                      </Link>
+                      .
+                    </p>
+                  ) : accessLinks.length === 1 ? (
+                    <p>
+                      Don't see a repository?{" "}
+                      <Link
+                        href={accessLinks[0]?.url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1"
+                      >
+                        Give ctxpipe access on GitHub
+                        <IconExternalLink className="size-3.5" aria-hidden />
+                      </Link>
+                      .
+                    </p>
+                  ) : (
+                    <>
+                      <p>
+                        Don't see a repository? Give ctxpipe access on GitHub.
+                      </p>
+                      <ul className="m-0 list-none space-y-0.5 p-0">
+                        {accessLinks.map((link) => (
+                          <li key={link.url}>
+                            <Link
+                              href={link.url}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="inline-flex items-center gap-1"
+                            >
+                              Give ctxpipe access for {link.name}
+                              <IconExternalLink
+                                className="size-3.5"
+                                aria-hidden
+                              />
+                            </Link>
+                          </li>
+                        ))}
+                      </ul>
+                    </>
+                  )}
+                  <p>
+                    Only an owner of the GitHub organization can give access. If
+                    you are not an owner, ask one to do it.
+                  </p>
+                </div>
+              )}
+              {selected.length > 0 ? (
+                <p className="text-xs tabular-nums text-muted-foreground">
+                  {selected.length}{" "}
+                  {selected.length === 1 ? "repository" : "repositories"}{" "}
+                  selected
+                </p>
+              ) : null}
+            </>
           )}
-          {isAdmin !== false &&
-          !connectionsPending &&
-          reposQuery.isSuccess &&
-          manageUrl ? (
-            <p className="text-sm text-muted-foreground">
-              Don't see a repository?{" "}
-              <Link
-                href={manageUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="inline-flex items-center gap-1 text-teal-400 hover:text-teal-300"
-              >
-                Give ctxpipe access on GitHub
-                <IconExternalLink className="size-3.5" aria-hidden />
-              </Link>
-              .
-            </p>
-          ) : null}
-          {selected.length > 0 ? (
-            <p className="text-xs tabular-nums text-muted-foreground">
-              {selected.length}{" "}
-              {selected.length === 1 ? "repository" : "repositories"} selected
-            </p>
-          ) : null}
         </div>
 
         <div className="mt-6 flex justify-end gap-2">
@@ -779,14 +851,16 @@ function AddGithubRepositoriesModal(props: {
           >
             Cancel
           </Button>
-          <Button
-            variant="primary"
-            isDisabled={selected.length === 0}
-            isPending={addMutation.isPending}
-            onPress={() => add()}
-          >
-            Open a pull request
-          </Button>
+          {showPicker ? (
+            <Button
+              variant="primary"
+              isDisabled={selected.length === 0}
+              isPending={addMutation.isPending}
+              onPress={() => addMutation.mutate(selected)}
+            >
+              Open a pull request
+            </Button>
+          ) : null}
         </div>
       </Dialog>
     </Modal>

@@ -34,6 +34,7 @@ import {
   GithubSourceRepositories,
   repositoryNeedsAttention,
   repositoryRows,
+  WorkspaceAddRepositoriesDialog,
 } from "./GithubSourceRepositories"
 import {
   deleteWorkspaceSource,
@@ -128,6 +129,43 @@ function connectorsSummary(
   ]
     .filter(Boolean)
     .join(" · ")
+}
+
+/**
+ * True when the GitHub group has no repository and no pending add, and the
+ * user can add: the group then shows one primary "Add repositories" button.
+ * `enabled: false` reads only what a parent has loaded.
+ */
+export function useGithubEmptyAction(props: {
+  orgSlug: string
+  workspaceSlug: string
+  linkedRepositories: WorkspaceLinkedRepository[] | undefined
+  enabled?: boolean
+}): boolean {
+  const { orgSlug, workspaceSlug, linkedRepositories, enabled = true } = props
+  const { data } = useQuery({
+    ...workspaceSourcesOptions(orgSlug, workspaceSlug),
+    enabled,
+  })
+  const connectionsQuery = useQuery({
+    ...orgConnectionsOptions(orgSlug),
+    enabled,
+  })
+  if (!data) return false
+  const sources = data.items.filter((item) => item.provider === "github")
+  return (
+    data.canEdit &&
+    (connectionsQuery.data ?? []).some(
+      (connection) => connection.type === SOURCE_SCOPES.github.connectionType,
+    ) &&
+    repositoryRows(linkedRepositories ?? [], sources).length === 0 &&
+    !data.pendingChanges.some(
+      (change) =>
+        change.provider === "github" &&
+        change.action === "add" &&
+        !sources.some((item) => item.path === change.path),
+    )
+  )
 }
 
 export function AwaitingMergeLink(props: { change: PendingSourceChange }) {
@@ -411,14 +449,8 @@ export function WorkspaceSources(props: {
   workspaceSlug: string
   /** The repositories linked to the Workspace, for the GitHub section. */
   linkedRepositories?: WorkspaceLinkedRepository[]
-  workspaceRepositoryUrl?: string | null
 }) {
-  const {
-    orgSlug,
-    workspaceSlug,
-    linkedRepositories,
-    workspaceRepositoryUrl = null,
-  } = props
+  const { orgSlug, workspaceSlug, linkedRepositories } = props
   const queryClient = useQueryClient()
   const sourcesQuery = useQuery(workspaceSourcesOptions(orgSlug, workspaceSlug))
   const loading = useSkeletonHold(sourcesQuery.isPending)
@@ -448,6 +480,13 @@ export function WorkspaceSources(props: {
       )
       .map(({ id, displayName }) => ({ id, displayName }))
 
+  // A GitHub group with nothing in it gets one primary add button in its
+  // body, in place of the quiet one in the header.
+  const githubEmptyAction = useGithubEmptyAction({
+    orgSlug,
+    workspaceSlug,
+    linkedRepositories,
+  })
   const data = sourcesQuery.data
   const canEdit = data?.canEdit ?? false
   const items = data?.items ?? []
@@ -617,14 +656,6 @@ export function WorkspaceSources(props: {
                   ? repositories.filter(repositoryNeedsAttention).length
                   : sources.filter((item) => item.status !== "ok").length
                 const connected = connectionsOf(provider).length > 0
-                // A GitHub group with nothing in it gets one primary add
-                // button in its body, in place of the quiet one in the header.
-                const githubEmptyAction =
-                  repositories != null &&
-                  repositories.length === 0 &&
-                  pendingAdds.length === 0 &&
-                  connected &&
-                  canEdit
                 const meta =
                   [
                     repositories
@@ -682,14 +713,10 @@ export function WorkspaceSources(props: {
                         <GithubSourceRepositories
                           orgSlug={orgSlug}
                           workspaceSlug={workspaceSlug}
-                          workspaceRepositoryUrl={workspaceRepositoryUrl}
                           rows={githubRepositories}
-                          sources={sources}
-                          connections={connectionsOf(provider)}
                           canEdit={canEdit}
                           showEmptyAction={githubEmptyAction}
-                          addOpen={githubAddOpen}
-                          onAddOpenChange={setGithubAddOpen}
+                          onAdd={() => setGithubAddOpen(true)}
                         />
                         <GithubSourceNotes
                           sources={sources}
@@ -748,6 +775,12 @@ export function WorkspaceSources(props: {
         </>
       )}
 
+      <WorkspaceAddRepositoriesDialog
+        orgSlug={orgSlug}
+        workspaceSlug={workspaceSlug}
+        isOpen={githubAddOpen}
+        onOpenChange={setGithubAddOpen}
+      />
       {editor ? (
         <SourceEditorDialog
           orgSlug={orgSlug}

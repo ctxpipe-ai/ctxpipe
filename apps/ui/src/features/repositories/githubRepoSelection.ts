@@ -62,10 +62,15 @@ export function sortGithubRepos(
   })
 }
 
-/** Compare GitHub clone URLs without a trailing `.git` or case differences. */
+/**
+ * Compare GitHub clone URLs without a trailing slash, a trailing `.git`, or
+ * case differences. GitHub names are not case-sensitive, and the stored URL
+ * of a Workspace can be in lowercase.
+ */
 export function githubCloneUrlKey(url: string): string {
   return url
     .trim()
+    .replace(/\/+$/, "")
     .replace(/\.git$/i, "")
     .toLowerCase()
 }
@@ -273,6 +278,12 @@ export function githubInstallationReposOptions(
         ),
         repositorySelection: pages[0]?.repositorySelection ?? "selected",
         manageUrl: pages[0]?.manageUrl ?? null,
+        // One access page for each connection: two installations have two.
+        manageUrls: pages.flatMap((page) =>
+          page.manageUrl
+            ? [{ connectionId: page.connectionId, url: page.manageUrl }]
+            : [],
+        ),
         totalCount: pages.reduce((sum, page) => sum + page.totalCount, 0),
       }
     },

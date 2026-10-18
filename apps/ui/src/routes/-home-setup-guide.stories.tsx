@@ -12,6 +12,7 @@ import {
   emptyLinkedWorkspaceDetail,
   failedHydrateWorkspace,
   hydratingWorkspace,
+  readOnlyWorkspaceDetail,
   waitingForTipWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
 import {
@@ -480,6 +481,7 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
               full_name: "acme/api",
             },
           ]),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
           orgActivityHandler(),
           ...workspaceShellHandlers({
             workspaces: [quietWorkspace],
@@ -522,6 +524,157 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
       ).toHaveAttribute("href", "https://github.com/acme/docs/pull/9"),
     )
     await expect(after.getByText("2 of 6 done")).toBeVisible()
+  },
+}
+
+/**
+ * The handlers of a Home guide whose Workspace cannot take repositories. The
+ * list of GitHub repositories answers too, so a missing gate would show it.
+ */
+function repositoriesGateHandlers(input: {
+  detail: WorkspaceDetail
+  canEdit: boolean
+  formatVersion: number
+  /** False: the org has no GitHub connection. */
+  connected?: boolean
+}) {
+  return [
+    ...adminGuide({
+      github: githubInstallationLinkedHandler,
+      connectors: orgConnectionsHandler(
+        input.connected === false
+          ? []
+          : [{ id: "con_gh", type: "github", displayName: "acme" }],
+      ),
+      detail: input.detail,
+    }),
+    http.get(sourcesPath, () =>
+      HttpResponse.json(workspaceSourceList({ canEdit: input.canEdit })),
+    ),
+    workspaceUpgradesHandler(
+      upgradesFixture([], { formatVersion: input.formatVersion }),
+    ),
+    githubInstallationReposHandler([
+      {
+        name: "api",
+        clone_url: "https://github.com/acme/api.git",
+        full_name: "acme/api",
+      },
+    ]),
+    orgActivityHandler(),
+    ...workspaceShellHandlers({
+      workspaces: [quietWorkspace],
+      detail: input.detail,
+    }),
+  ]
+}
+
+async function openLinkRepositories(canvasElement: HTMLElement) {
+  const guide = await findGuide(canvasElement)
+  await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+  await userEvent.click(
+    guide.getByRole("button", { name: "Link repositories" }),
+  )
+  return within(
+    await within(canvasElement.ownerDocument.body).findByRole("dialog", {
+      name: "Add repositories",
+    }),
+  )
+}
+
+/**
+ * A read-only Workspace: the dialog gives the reason and the next step, and
+ * it offers no list and no pull request (CTX-865).
+ */
+export const GuideRepositoriesReadOnlyShowsReason: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: readOnlyWorkspaceDetail,
+          canEdit: false,
+          formatVersion: 3,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText("The GitHub App cannot write to this repository.")
+    await dialog.findByRole("button", { name: "Open Workspace settings" })
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: "acme/api" }),
+      ).not.toBeInTheDocument(),
+    )
+    await expect(
+      dialog.queryByRole("button", { name: "Open a pull request" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * A Workspace below format 2: the dialog says to upgrade first and offers the
+ * way to the upgrades, as Add Workspace step 2 does (CTX-865).
+ */
+export const GuideRepositoriesNeedUpgradeFirst: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: emptyLinkedWorkspaceDetail,
+          canEdit: true,
+          formatVersion: 1,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText(
+      "Upgrade this Workspace before you add repositories",
+    )
+    await dialog.findByRole("button", { name: "Review upgrades" })
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: "acme/api" }),
+      ).not.toBeInTheDocument(),
+    )
+    await expect(
+      dialog.queryByRole("button", { name: "Open a pull request" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+/** No GitHub connection yet: the dialog links to the Connectors page. */
+export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: emptyLinkedWorkspaceDetail,
+          canEdit: true,
+          formatVersion: 3,
+          connected: false,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByRole("link", {
+      name: "Connect GitHub on the Connectors page first.",
+    })
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("link", {
+          name: "Connect GitHub on the Connectors page first.",
+        }),
+      ).toHaveAttribute("href", "/acme/connectors"),
+    )
   },
 }
 

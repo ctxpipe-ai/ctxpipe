@@ -8,7 +8,10 @@ import { InlineAlert } from "@/components/ui/InlineAlert"
 import { InlineLoader } from "@/components/ui/InlineLoader"
 import { SkeletonChain } from "@/components/ui/Skeleton"
 import { ConnectorSetupStepper } from "@/features/connectors/components/ConnectorSetupStepper"
-import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import {
+  useGithubEmptyAction,
+  WorkspaceSources,
+} from "@/features/workspace-sources/WorkspaceSources"
 import {
   upgradesRefetchInterval,
   workspaceUpgradesOptions,
@@ -265,6 +268,14 @@ function AddSourcesStep(props: {
         : upgradesRefetchInterval(query),
   })
   const upgrades = upgradesQuery.data
+  // With nothing chosen yet, "Add repositories" in Sources is the one primary
+  // action, and "Done" waits. The hook only reads what Sources loads.
+  const addRepositoriesIsPrimary = useGithubEmptyAction({
+    orgSlug,
+    workspaceSlug,
+    linkedRepositories: workspace?.linkedRepositories,
+    enabled: false,
+  })
 
   const content = () => {
     const failed = detailQuery.isError
@@ -386,7 +397,6 @@ function AddSourcesStep(props: {
         orgSlug={orgSlug}
         workspaceSlug={workspaceSlug}
         linkedRepositories={workspace.linkedRepositories}
-        workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
       />
     )
   }
@@ -397,7 +407,7 @@ function AddSourcesStep(props: {
       <div className="mt-4">{content()}</div>
       <div className="mt-6 flex justify-end">
         <Button
-          variant="primary"
+          variant={addRepositoriesIsPrimary ? "secondary" : "primary"}
           onPress={() => {
             if (onDone) {
               onDone()
