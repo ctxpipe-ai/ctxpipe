@@ -98,6 +98,9 @@ jobs:
     # The runner's own limit (scripts/ci/test-suite.mjs) is 30 min for backend
     # and 45 min for contracts. The job limit adds 15 min for setup, so the
     # named runner timeout fires before the job is cancelled.
+    permissions:
+      contents: read
+      packages: write
     timeout-minutes: ${{ matrix.lane == 'contracts' && 60 || 45 }}
     # One shard runs its files in series in its own database, so a worker in
     # one shard cannot claim a run that a file in another shard opened.
@@ -209,15 +212,26 @@ jobs:
         run: |
           pnpm exec tsx src/db/migrate.ts
       - uses: ./.github/actions/setup-buildx
+      # The layer cache lives in GHCR, not in the GHA cache. The GHA cache
+      # evicts layer blobs while its manifest stays, and BuildKit then fails
+      # the build with "BlobNotFound" when it reads the missing blob. GHCR
+      # keeps the blobs. A failed login only turns the cache into a miss.
+      - name: Log in to GHCR for the layer cache
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - name: Required chat sandbox image
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r3
           load: true
-          cache-from: type=gha,scope=chat-sandbox
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
           # One writer avoids nine jobs racing to save the same layers.
-          cache-to: ${{ matrix.lane == 'backend' && matrix.shard == 1 && 'type=gha,mode=max,scope=chat-sandbox' || '' }}
+          cache-to: ${{ matrix.lane == 'backend' && matrix.shard == 1 && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox,mode=max,ignore-error=true,oci-mediatypes=true,image-manifest=true' || '' }}
       - name: Required ${{ matrix.lane }} tests
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
@@ -324,6 +338,9 @@ jobs:
           if-no-files-found: error
 
   production-builds:
+    permissions:
+      contents: read
+      packages: write
     timeout-minutes: 45
     name: Production build (${{ matrix.name }})
     if: |
@@ -359,18 +376,27 @@ jobs:
           platforms: arm64
       - uses: ./.github/actions/setup-buildx
       # Only codesearch keeps a layer cache: its toolchain stages are the slow
-      # part, and the repository GHA cache cannot hold all five images. The
-      # cache is best effort: the GHA cache evicts layer blobs, and the export
-      # then fails with "error writing layer blob: not_found" after the image
-      # built. ignore-error keeps that cache failure from failing the build.
+      # part. The cache lives in GHCR, not in the GHA cache. The GHA cache
+      # evicts layer blobs while its manifest stays. BuildKit then fails the
+      # build with "BlobNotFound" when it reads a missing blob, and
+      # ignore-error covers only the export. GHCR keeps the blobs. A failed
+      # login or export only turns the cache into a miss.
+      - name: Log in to GHCR for the layer cache
+        if: matrix.name == 'codesearch'
+        continue-on-error: true
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
           push: false
-          cache-from: ${{ matrix.name == 'codesearch' && 'type=gha,scope=production-codesearch' || '' }}
-          cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,ignore-error=true,scope=production-codesearch' || '' }}
+          cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
+          cache-to: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch,mode=max,ignore-error=true,oci-mediatypes=true,image-manifest=true' || '' }}
 
   packages:
     timeout-minutes: 20
