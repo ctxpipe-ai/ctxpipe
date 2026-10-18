@@ -9,6 +9,7 @@ import {
   jobTelemetrySchema,
   restoreJobTelemetry,
 } from "../observability/jobTelemetry.js"
+import { createLogger, withLogger } from "../observability/logger.js"
 
 type JobInput<S extends z.ZodType> = z.output<S> & { telemetry?: JobTelemetry }
 type JobRaw<S extends z.ZodType> = z.input<S> & { telemetry?: JobTelemetry }
@@ -80,8 +81,12 @@ export function defineWorkflow<S extends z.ZodType, Output>(
       // Telemetry is enqueue-only: bodies re-parse `input` with their own
       // strict schema, which has no `telemetry` key.
       const { telemetry: _telemetry, ...input } = ctx.input
+      // The one place a workflow gets its logger, so no body can reach
+      // `getLogger()` without one.
       return restoreJobTelemetry(ctx.input, () =>
-        fn({ ...ctx, input: input as z.output<S> }),
+        withLogger(createLogger({ workflow: spec.name }), () =>
+          fn({ ...ctx, input: input as z.output<S> }),
+        ),
       )
     },
   )

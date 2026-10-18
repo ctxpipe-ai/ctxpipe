@@ -5,6 +5,7 @@ import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import { readAttribution } from "../observability/attribution.js"
+import { getLogger } from "../observability/logger.js"
 import { defineWorkflow } from "./defineObservedWorkflow.js"
 
 const spans = recordSpans()
@@ -476,4 +477,24 @@ describe("defineObservedWorkflow", () => {
         ?.spanContext().spanId,
     )
   }, 20_000)
+
+  it("gives a workflow body a logger when the worker runs it", async () => {
+    const workflow = defineWorkflow(
+      { name: "logger-once", schema: z.object({ orgId: z.string() }) },
+      async ({ input }) => {
+        getLogger().set({ step: "logger-once.body", orgId: input.orgId })
+        return "logged"
+      },
+    )
+    const ow = new OpenWorkflow({ backend: BackendSqlite.connect(":memory:") })
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    const worker = ow.newWorker({ concurrency: 1 })
+    await worker.start()
+    try {
+      const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
+      await expect(handle.result({ timeoutMs: 15_000 })).resolves.toBe("logged")
+    } finally {
+      await worker.stop()
+    }
+  })
 })
