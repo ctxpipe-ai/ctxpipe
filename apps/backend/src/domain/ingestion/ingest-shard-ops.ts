@@ -7,6 +7,9 @@ import {
 } from "./ingest-opencode.js"
 import {
   ingestModelRunCommand,
+  type OpenCodeError,
+  openCodeModelCalls,
+  parseOpenCodeErrors,
   parseOpenCodeUsage,
 } from "./ingest-opencode-usage.js"
 import {
@@ -175,6 +178,26 @@ export async function prepareIngestShard(
 }
 
 /**
+ * The HTTP status of the model proxy's model list, asked as the agent with
+ * its environment, so through the egress proxy and its credential rules.
+ * `000`: no answer in 20 seconds; `none`: no status (for example no curl).
+ * It shows a broken model path before a model step waits for it.
+ */
+export async function probeIngestModelProxy(
+  root: RootExec,
+  agentEnv: Record<string, string>,
+): Promise<string> {
+  const result = await root(
+    ingestAgentCommand({
+      env: agentEnv,
+      command: `curl -s -o /dev/null -m 20 -w '%{http_code}' "$CTXPIPE_MODEL_PROXY_URL/models"`,
+    }),
+  )
+  const status = result.stdout.trim()
+  return /^\d{3}$/.test(status) ? status : "none"
+}
+
+/**
  * Run the bundle's `discover-roots` script as the agent; return its parsed
  * JSON. The host checks it (`resolveDiscoveredRoots`) before it plans roots.
  */
@@ -299,6 +322,12 @@ export async function runIngestShardStep(
         part === command ? "skill" : "finish",
         result.exitCode,
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
+        part === command && step.run === "model"
+          ? {
+              calls: openCodeModelCalls(result.stdout),
+              errors: parseOpenCodeErrors(result.stdout),
+            }
+          : undefined,
       )
     if (part === command && step.run === "model")
       usage = parseOpenCodeUsage(result.stdout)
@@ -309,14 +338,17 @@ export async function runIngestShardStep(
 /**
  * A failed command of an ingest step: the skill command (`opencode run` or
  * the skill script) or `ctxpipe-finish`. The message holds the command's
- * stderr, which can hold source text. `part` and `exitCode` hold no source
- * text, so a log can show them.
+ * stderr, which can hold source text. `part`, `exitCode`, and `model` hold no
+ * source text, so a log can show them. `model` (a model command only) holds
+ * the count of finished model calls, and the name and HTTP status of each
+ * OpenCode `error` event.
  */
 export class IngestStepCommandError extends Error {
   constructor(
     readonly part: "skill" | "finish",
     readonly exitCode: number,
     message: string,
+    readonly model?: { calls: number; errors: OpenCodeError[] },
   ) {
     super(message)
     this.name = "IngestStepCommandError"

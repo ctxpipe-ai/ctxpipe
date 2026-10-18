@@ -710,6 +710,12 @@ async function attemptSkillStep(
         attempt,
         stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
         ...(command ? { exitCode: command.exitCode } : {}),
+        ...(command?.model
+          ? {
+              modelCalls: command.model.calls,
+              modelErrors: command.model.errors,
+            }
+          : {}),
         ...ingestErrorFields(error),
       })
       span.setAttribute(

@@ -324,6 +324,33 @@ describe("ingestion step telemetry with the local git broker", () => {
     },
   )
   it(
+    "logs the model calls and the error names and HTTP statuses of a failed model command, with no message",
+    { timeout: 25000 },
+    async () => {
+      const runtime = {
+        ensure: async () => {},
+        discoverRoots: async () => ({}),
+        runStep: async () => {
+          throw new IngestStepCommandError("skill", 1, "private sentinel", {
+            calls: 0,
+            errors: [{ name: "APIError", status: 502 }],
+          })
+        },
+      }
+      expect((await runStep({}, { runtime })).partial).toBe(1)
+      expect(
+        events
+          .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
+          .map((e) => [e.stage, e.exitCode, e.modelCalls, e.modelErrors]),
+      ).toEqual(
+        Array(3).fill(["skill", 1, 0, [{ name: "APIError", status: 502 }]]),
+      )
+      expect(JSON.stringify([events, spans()])).not.toContain(
+        "private sentinel",
+      )
+    },
+  )
+  it(
     "keeps tar error text out of logs and spans",
     { timeout: 25000 },
     async () => {

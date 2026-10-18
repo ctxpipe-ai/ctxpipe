@@ -54,7 +54,10 @@ import {
 } from "../ingestion/ingest-opencode-usage.js"
 import { prepareIngestSandbox } from "../ingestion/ingest-prepare.js"
 import { dockerRootExec } from "../ingestion/ingest-root.js"
-import { ingestAgentEnv } from "../ingestion/ingest-shard-ops.js"
+import {
+  ingestAgentEnv,
+  probeIngestModelProxy,
+} from "../ingestion/ingest-shard-ops.js"
 import {
   INGEST_TOOL_BRIDGE_PATH,
   ingestToolBridgeRoutes,
@@ -556,6 +559,8 @@ echo`,
                   toolBridgeUrl: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
                 }),
               })
+              // The probe that prepare logs before the first model step.
+              const probe = await probeIngestModelProxy(root, agentEnv)
               // The model command of a step, as the agent, with the step's
               // environment (`runIngestShardStep`). A model path that does
               // not answer ends here, not at the 10-minute step limit.
@@ -578,13 +583,14 @@ echo`,
                   ? ""
                   : (
                       await root(
-                        `echo "exit ${result.exitCode}: ${result.stderr.slice(-400).replace(/["$`\\]/g, "")}"
+                        `echo "probe ${probe}; exit ${result.exitCode}: ${result.stderr.slice(-400).replace(/["$`\\]/g, "")}"
 echo "== curl models as the agent"
 ${ingestAgentCommand({ env: agentEnv, command: `curl -sS -m 20 -w " %{http_code}" "$CTXPIPE_MODEL_PROXY_URL/models" 2>&1` })}
 echo "== opencode log"
 tail -c 6000 /ctxpipe/home/data/opencode/log/*.log 2>&1`,
                       )
                     ).stdout
+              expect(probe, diagnosis).toBe("200")
               expect(result.exitCode, diagnosis).toBe(0)
               expect(parseOpenCodeUsage(result.stdout), diagnosis).toEqual({
                 inputTokens: 100,

@@ -178,8 +178,11 @@ jobs:
             full=${url#https://github.com/}
             full=${full%.git}
             full=${full%/}
+            # The sandbox and Agent Vault write the lower-case form too.
             for value in "$url" "https://github.com/$full" "$full" "${full#*/}"; do
               echo "::add-mask::$value"
+              lower=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+              [ "$lower" = "$value" ] || echo "::add-mask::$lower"
             done
           done
           {
@@ -199,7 +202,7 @@ jobs:
         continue-on-error: true
         run: |
           docker compose ps -a
-          docker compose logs --no-color --tail 300 worker backend
+          docker compose logs --no-color --tail 300 worker backend agent-vault
       - name: Stop the stack
         if: always()
         continue-on-error: true

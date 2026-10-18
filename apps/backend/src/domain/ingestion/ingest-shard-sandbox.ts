@@ -58,6 +58,7 @@ import {
   discoverIngestRoots,
   ingestAgentEnv,
   prepareIngestShard,
+  probeIngestModelProxy,
   runIngestShardStep,
 } from "./ingest-shard-ops.js"
 import {
@@ -68,6 +69,7 @@ import {
   ingestCallbackOrigin,
 } from "./ingest-shard-runtime.js"
 import { withShardStep } from "./ingest-shard-step.js"
+import { logIngestEvent } from "./ingest-telemetry.js"
 import { INGEST_TOOL_BRIDGE_PATH } from "./ingest-tools.js"
 import { ingestionOrg } from "./ingestion-v2-resolve.js"
 import { runGit } from "./run-git.js"
@@ -501,9 +503,9 @@ function shardRuntime(
             })
             return { handle, root, agentEnv }
           },
-          prepare: ({ handle, root, agentEnv }) => {
+          prepare: async ({ handle, root, agentEnv }) => {
             const models = ingestModels()
-            return prepareIngestShard(handle, root, {
+            await prepareIngestShard(handle, root, {
               bundle: spec.bundle,
               opencodeConfig: ingestOpenCodeConfig({
                 modelBase: models.medium,
@@ -526,6 +528,12 @@ function shardRuntime(
               })),
               now: new Date(),
               signal: lockSignal,
+            })
+            // Before the first model step of the sandbox: only the status.
+            logIngestEvent("info", "ingestion-v2.model-proxy-probe", {
+              ingestionRunId: spec.runId,
+              shard: spec.shard,
+              status: await probeIngestModelProxy(root, agentEnv),
             })
           },
           run: (box) => fn({ ...box, signal: lockSignal }),
