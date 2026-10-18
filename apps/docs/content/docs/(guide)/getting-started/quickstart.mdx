@@ -136,9 +136,11 @@ and manual configuration.
 
 From **Connectors**, add the tools whose content should live in the Workspace:
 
-- **Linear, Notion, Confluence, and PagerDuty** propose their scope as a
-  configuration pull request, then mirror the selected content into the
-  Workspace.
+- **Linear, Notion, Confluence, and PagerDuty** need a connection and a source.
+  After you connect the tool, open its Workspaces step (**Add to Workspaces**,
+  or **Choose Workspaces** for Linear). ctx| opens a pull
+  request that adds the source file. After you merge it, ctx| mirrors the
+  selected content into the Workspace.
 - **Slack** captures an existing thread when someone mentions the ctx| bot in
   it.
 
@@ -153,6 +155,6 @@ See [Connections](/docs/connections).
 <Cards>
   <Card title="How ctx| works" href="/docs/getting-started/how-it-works" description="The full source-to-answer flow." />
   <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="Write knowledge ctx| can use." />
-  <Card title="Source connectors" href="/docs/connections/source-connectors" description="Bring in docs, issues, and conversations." />
+  <Card title="Connections" href="/docs/connections" description="Bring in docs, issues, and conversations." />
   <Card title="Data and privacy" href="/docs/resources/data-processing" description="Hosted processing, providers, and control boundaries." />
 </Cards>

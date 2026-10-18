@@ -300,6 +300,52 @@ describe("Linear source adapter on the sync frame (Postgres, msw)", () => {
     ).toBe(false)
   })
 
+  it("keeps a hostile issue id from the provider under the team folder", async () => {
+    const hostileId = "../../../../.ctxpipe/workspace"
+    server.use(
+      http.post("https://api.linear.app/graphql", async ({ request }) => {
+        const body = (await request.clone().json()) as {
+          query?: string
+          variables?: Record<string, unknown>
+        }
+        const name = linearOperationName(body.query ?? "")
+        if (!name.startsWith("TeamIssues") || body.variables?.id !== "team-eng")
+          return undefined
+        return HttpResponse.json(
+          {
+            data: {
+              team: {
+                issues: emptyLinearPage([
+                  linearIssueData({
+                    id: hostileId,
+                    identifier: "ENG-1",
+                    teamId: "team-eng",
+                  }),
+                ]),
+              },
+            },
+          },
+          { headers: linearBudgetHeaders() },
+        )
+      }),
+    )
+    await project({ teams: ["OPS"], customerRequests: "exclude" })
+    const { result, paths } = await sync()
+    expect(result.workspaces).toContain(engWorkspace)
+    const written = paths(engWorkspace)
+    expect(written).toContain(
+      "linear/teams/eng/issues/eng-1---.-..-..-..-.ctxpipe-workspace.md",
+    )
+    for (const path of written) {
+      expect(path.startsWith("linear/teams/eng/")).toBe(true)
+      expect(
+        path
+          .split("/")
+          .some((part) => part === "" || part === "." || part === ".."),
+      ).toBe(false)
+    }
+  })
+
   it("syncs only the sources that a webhook event touches", async () => {
     await project({ teams: ["OPS"] })
     const { writes } = await sync({

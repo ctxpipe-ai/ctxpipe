@@ -5,7 +5,7 @@ import { config } from "dotenv"
 import { eq } from "drizzle-orm"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
-import { afterAll, beforeAll, expect, it } from "vitest"
+import { afterAll, afterEach, beforeAll, expect, it, vi } from "vitest"
 import { describeWithDatabase } from "../../../test/db.js"
 import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
@@ -22,6 +22,7 @@ import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
 import { generateObjectId } from "../../lib/id.js"
 import { DEFAULT_CHECKOUT_KEY } from "../../models/repositories.js"
 import { backendOtelMiddleware } from "../../observability/http.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { contextStorage } from "../../test/hono-test-logger.js"
 import type { repositoryRoutes as RepositoryRoutes } from "./repositories.js"
 
@@ -45,6 +46,17 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
   let repositoryRoutes: typeof RepositoryRoutes
 
   beforeAll(async () => {
+    // The DNS of the test: each repository URL is a plain git URL (CTX-815).
+    const answers: Record<string, string> = {
+      "github.com": "140.82.112.3",
+      "metadata.example.org": "169.254.169.254",
+      "metadata.internal": "169.254.170.2",
+      "private.example.org": "10.1.2.3",
+    }
+    usePlainGitNetwork({
+      lookup: async (host) =>
+        answers[host] ? [{ address: answers[host] }] : [],
+    })
     if (!connectionString) return
     ;({ repositoryRoutes } = await import("./repositories.js"))
     initLogger({
@@ -90,6 +102,10 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
       env: { service: "ctxpipe-backend-test" },
     })
     await closeDb()
+  })
+
+  afterEach(() => {
+    vi.unstubAllEnvs()
   })
 
   function createApp() {
@@ -215,5 +231,101 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
     })
     expect(serialized).not.toContain("repo_SPOOFED")
     expect(serialized).not.toContain(secret)
+  })
+
+  /** The repository rows of the org that have this git URL. */
+  async function rowsWithUrl(gitUrl: string) {
+    return withOrgDbContext(orgId, (db) =>
+      db
+        .select({ id: repositories.id })
+        .from(repositories)
+        .where(eq(repositories.gitUrl, gitUrl)),
+    )
+  }
+
+  async function create(gitUrl: string) {
+    return createApp().request(
+      `http://backend.test/${orgSlug}/api/v1/repositories`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ name: `refused-${suffix}`, gitUrl }),
+      },
+    )
+  }
+
+  it.each([
+    ["file://", "file:///etc/passwd"],
+    ["ssh", "ssh://git@git.example.org/team/app.git"],
+    ["git://", "git://git.example.org/team/app.git"],
+    ["http", "http://github.com/acme/app.git"],
+    ["an IP host", "https://10.0.0.5/team/app.git"],
+    ["a metadata address", "https://metadata.example.org/team/app.git"],
+  ])("hosted: refuses a %s URL with the protocol rule and stores no row", async (_kind, gitUrl) => {
+    const res = await create(gitUrl)
+    const text = await res.text()
+    expect(res.status, text).toBe(400)
+    expect(JSON.parse(text).error).toContain(
+      "ssh (git@… or ssh://), git:// and file:// are not supported",
+    )
+    expect(await rowsWithUrl(gitUrl)).toEqual([])
+  })
+
+  it("hosted: gives one message for a host with no address and a host with a private address", async () => {
+    const refusal = async (host: string) => {
+      const gitUrl = `https://${host}/team/app.git`
+      const res = await create(gitUrl)
+      const text = await res.text()
+      expect(res.status, text).toBe(400)
+      expect(await rowsWithUrl(gitUrl)).toEqual([])
+      return (JSON.parse(text).error as string).replaceAll(host, "<host>")
+    }
+    const none = await refusal("nothing.example.org")
+    expect(none).toContain("are not supported")
+    expect(await refusal("private.example.org")).toBe(none)
+  })
+
+  it.each([
+    "http://169.254.169.254/latest/meta-data.git",
+    "http://169.254.170.2/v2/credentials.git",
+    "http://[::ffff:169.254.169.254]/latest/meta-data.git",
+    "http://[fd00:ec2::254]/latest/meta-data.git",
+    "http://[fe80::1]/team/app.git",
+    "http://metadata.internal/team/app.git",
+    "file:///etc/passwd",
+    "ssh://git@git.internal/team/app.git",
+  ])("self-host: refuses %s and stores no row", async (gitUrl) => {
+    vi.stubEnv("SANDBOX_PROVIDER", "docker")
+    const res = await create(gitUrl)
+    const text = await res.text()
+    expect(res.status, text).toBe(400)
+    expect(JSON.parse(text).error).toContain("are not supported")
+    expect(await rowsWithUrl(gitUrl)).toEqual([])
+  })
+
+  it("refuses to reindex a stored repository whose URL ctx| does not read", async () => {
+    const storedId = generateObjectId("repo")
+    await withOrgDbContext(orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: storedId,
+        orgId,
+        name: `stored-file-${suffix}`,
+        gitUrl: `file:///srv/git/stored-${suffix}.git`,
+      })
+      await db.insert(repositoryCheckouts).values({
+        id: generateObjectId("co"),
+        orgId,
+        repositoryId: storedId,
+        ref: "main",
+        checkoutKey: DEFAULT_CHECKOUT_KEY,
+      })
+    })
+    const res = await createApp().request(
+      `http://backend.test/${orgSlug}/api/v1/repositories/${storedId}/reindex`,
+      { method: "POST" },
+    )
+    const text = await res.text()
+    expect(res.status, text).toBe(400)
+    expect(JSON.parse(text).error).toContain("file:// are not supported")
   })
 })

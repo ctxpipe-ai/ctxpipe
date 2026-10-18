@@ -13,12 +13,13 @@ The **Slack connector** promotes **durable engineering context** — decisions,
 incidents, and design debates — from Slack into a [Workspace](/docs/workspaces).
 It does **not** mirror whole channels, index the workspace, or sync banter in
 the background. Captures are **auditable** (git history records who captured,
-when, and which Slack thread), not a reviewed pull-request gate.
+when, and which Slack thread), not a reviewed pull-request gate. The channel
+list of a Workspace is the reviewed part: a pull request adds it.
 
-Connect Slack to ctx|, choose a Workspace, then **@mention** the bot in
-Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
+Connect Slack to ctx|, add it to a Workspace with the channels to capture, then
+**@mention** the bot in Slack. Mentioning the bot starts a small in-thread agent. Ask it to **capture
 this**, or mention it with no extra text, to snapshot the thread as Markdown
-under `slack/channels/`. Later mentions on the same thread **update the same
+under `slack/channels/<channelId>/` in each Workspace that has the channel. Later mentions on the same thread **update the same
 file**. Other intents get a short capability reply; v1 does not answer product
 questions in Slack.
 
@@ -40,7 +41,11 @@ git-native, ingested context that the connector does.
 ## Prerequisites
 
 - An active GitHub connection in ctx|.
-- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write to.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write
+  to. The repository must use format 2 or higher. If it does not, the Workspace
+  shows **Upgrade this Workspace first**. See
+  [Upgrades](/docs/workspaces/settings#upgrades).
+- Permission to merge the pull request that adds the source.
 - Permission to install the ctx| Slack app in the workspace.
 - Ability to `/invite` the bot into any channel where you will capture threads.
 
@@ -56,17 +61,29 @@ git-native, ingested context that the connector does.
   <Step>
     ### Authorize the workspace
 
-    Complete the Slack OAuth popup. ctx| stores an encrypted bot token for that
-    workspace connection. One Slack workspace maps to one ctx| org.
+    Complete the Slack OAuth popup (**Authorize Slack workspace**, then
+    **Connect Slack**). ctx| stores an encrypted bot token for that workspace
+    connection. One Slack workspace maps to one ctx| org. The connection holds
+    authorization only. If GitHub is not connected, the wizard shows **Connect
+    GitHub** next.
   </Step>
 
   <Step>
-    ### Select a workspace
+    ### Choose Workspaces
 
-    Choose the Workspace that should receive captured threads. ctx| commits
-    snapshots to its repository's default branch. Prefer a separate Workspace
-    with a private repository when captures may include sensitive
-    private-channel content.
+    The next step is **Choose Workspaces**. Select the Workspaces that get
+    captured threads. Then select the channels for each Workspace. When you
+    select more than one Workspace, choose **Same scope for each Workspace** or
+    **A different scope for each Workspace**. Prefer a separate Workspace with a
+    private repository when captures can include private-channel content.
+
+    Choose **Add to Workspaces**. ctx| opens one pull request for each
+    Workspace. Each pull request adds `sources/slack/<name>.md` with the channel
+    ids. The dialog shows **Merge the pull request** (or **Merge the pull
+    requests**). After each merge, it shows **Pull request merged**.
+
+    A capture starts only after the merge. Until then, a mention in a new
+    channel replies that no Workspace has the channel.
   </Step>
 
   <Step>
@@ -92,8 +109,11 @@ git-native, ingested context that the connector does.
 
 ## What is captured
 
+ctx| saves a thread to each Workspace whose Slack source, with the status
+**OK**, has the channel of the thread. It writes one commit for each Workspace.
+
 - Thread-first Markdown at
-  `slack/channels/<slug>--<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md`
+  `slack/channels/<channelId>/threads/<yyyy>/<mm>/<threadTs>/thread.md`
 - Frontmatter identity: `captured_at`, Slack permalink, channel and thread ids,
   and `captured_by` handle + name (never a Slack user id)
 - Readable names for message authors and inline user mentions
@@ -114,19 +134,31 @@ git-native, ingested context that the connector does.
 - Slack Q&A / retrieval in-thread (future tool on the same agent)
 - Deleting git history when you uninstall Slack. Uninstall marks the connection
   revoked; captured files stay in the repository.
+- Deleting captured threads when you remove a channel from a source. Captured
+  threads stay, because ctx| cannot fetch a thread again.
 
 ## Troubleshooting
 
 ### Capture does nothing
 
-Confirm the connector status is **Connected** (repository bound), the bot is
-invited to the channel, and you used Slack autocomplete to **@mention** the bot.
+Confirm the connector status is **Connected**, a source with the status **OK**
+lists the channel, the bot is invited to the channel, and you used Slack
+autocomplete to **@mention** the bot. If no Workspace has the channel, the bot
+replies "Nothing captured: no Workspace has this channel." Add the channel to a
+Slack source in the Workspace **Settings**, merge the pull request, then mention
+the bot again.
 Bare mention or “capture this” snapshots the thread. Self-hosted operators
 should confirm Event Subscriptions include **`app_mention`** and that
 `MODEL_PROVIDER*` is set so the mention agent can interpret extra text — see
 [Self-host Slack](/docs/self-hosting/slack). If the Slack app's bot scopes were
 changed after installation, re-authorize the workspace; existing bot tokens do
 not gain new permissions automatically.
+
+### The source shows a status other than OK
+
+Read the status and the reason of the row in **Settings**. See
+[Source status](/docs/workspaces/settings#source-status). A source stays **OK** when the bot is not in a channel yet. The reason
+tells you to invite the bot.
 
 ### Private channel
 
@@ -136,6 +168,7 @@ supported in v1.
 ## Related pages
 
 - [Workspaces](/docs/workspaces)
+- [Workspace settings](/docs/workspaces/settings#sources)
 - [Self-host Slack](/docs/self-hosting/slack)
 - [Indexing](/docs/connections/ingestion)
 - [Slack MCP server (external)](https://docs.slack.dev/ai/slack-mcp-server)

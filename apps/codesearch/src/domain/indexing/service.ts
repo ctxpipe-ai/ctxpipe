@@ -37,6 +37,8 @@ type IndexInput = {
   clonePath: string
   scipIndexPath: string
   githubToken?: string
+  /** The checked plain git remote of a repository with no token (CTX-815). */
+  plainGit?: IndexPhaseRepoContext["plainGit"]
   zoektRepoId: number
   repoName: string
   repoUrl: string
@@ -94,6 +96,7 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     repoName: input.repoName,
     repoUrl: input.repoUrl,
     githubToken: input.githubToken,
+    plainGit: input.plainGit,
   }
 }
 

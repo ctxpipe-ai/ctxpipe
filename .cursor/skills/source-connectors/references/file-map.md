@@ -84,7 +84,7 @@ US English in copy (`organization`). GitHub prerequisite step before choosing a 
 | Surface | Where |
 |---------|--------|
 | Product guide | `apps/docs/content/docs/(guide)/connections/source-connectors/<slug>.mdx` + `meta.json` |
-| Context repo + connected sources | update `context-repository.mdx`, `connected-sources.mdx` |
+| Connections overview and source format | update the connector table in `connections/index.mdx`; add a provider row to the table in `workspaces/settings.mdx#source-file-format` |
 | Self-host | `apps/docs/content/docs/self-hosting/<slug>.mdx` + `meta.json`; mention in configuration / production-readiness if secrets are required |
 | ADR | `.ai/memory/decisions/ADR-NNN-<slug>-connector-….md` + `decisions/index.md` |
 

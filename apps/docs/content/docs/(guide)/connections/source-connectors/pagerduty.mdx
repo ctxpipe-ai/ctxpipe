@@ -1,12 +1,12 @@
 ---
 title: PagerDuty connector
-description: Connect a PagerDuty account, review its Git-backed service scope, and keep selected incident context available to ctx|.
+description: Connect a PagerDuty account, add it to a Workspace, and keep incidents of selected services available to ctx|.
 ---
 
-The **PagerDuty connector** mirrors selected incident context into a
-[Workspace's](/docs/workspaces) GitHub repository, where it is indexed like
-any other knowledge file. The generated `pagerduty/config.yaml` pull request makes the service
-scope reviewable before content sync begins.
+The **PagerDuty connector** mirrors incidents of selected services into the
+repository of a [Workspace](/docs/workspaces). ctx| indexes the files like any
+other knowledge file. A source file in the Workspace holds the service scope. A
+pull request adds it, so a person reviews the scope before content syncs.
 
 ctx| requests read-only PagerDuty access plus webhook subscription
 permissions. It does not acknowledge, resolve, or otherwise write back to
@@ -16,15 +16,16 @@ PagerDuty incidents, and it does not expose live on-call state.
   The hosted ctx| service supplies the PagerDuty OAuth application. After you
   authorize an account, ctx| creates one signed v3 webhook subscription for
   that connection. Self-hosted deployments that do not set a deployment OAuth
-  app start with **Register PagerDuty OAuth app** in the wizard; paste the
-  client id and secret there instead of restarting the deployment. See
+  app start with **Register PagerDuty OAuth app** in the wizard. Paste the
+  client id and secret there, and do not restart the deployment. See
   [Self-host PagerDuty](/docs/self-hosting/pagerduty).
 </Callout>
 
 ## What is mirrored
 
-You can select PagerDuty services that the authorized account can already see.
-For each in-scope incident, ctx| writes one Markdown file that can include:
+You select PagerDuty services that the authorized account can already see.
+ctx| syncs the incidents of each selected service from the last 90 days. For
+each in-scope incident, ctx| writes one Markdown file that can include:
 
 - Incident title, status, urgency, service, assignees, and timestamps.
 - The triggering alert body, including structured details such as a hostname.
@@ -36,39 +37,49 @@ For each in-scope incident, ctx| writes one Markdown file that can include:
   URL.
 
 PagerDuty v3 webhooks are incident events. Alert create or update arrives as
-`incident.triggered` or a later incident event. ctx| refetches the incident,
-alerts, and notes on each in-scope event rather than trusting the webhook
-envelope as the file contents.
+`incident.triggered` or a later incident event. ctx| fetches the incident,
+alerts, and notes again on each in-scope event. It does not use the webhook
+envelope as the file content.
 
-Routing keys and other secret-bearing alert fields are stripped before Git
-write. Out-of-scope services produce no fetch and no file. If a live incident
-moves to an unscoped service, or PagerDuty returns 404, ctx| deletes that
-incident file.
+ctx| strips routing keys and other secret-bearing alert fields before it
+writes to Git. Out-of-scope services produce no fetch and no file. If a live
+incident moves to an unselected service, or PagerDuty returns 404, ctx| deletes
+that incident file.
 
-<Callout title="Account webhooks, Git scope">
+<Callout title="Account webhooks, source scope">
   The webhook subscription is account-level, so PagerDuty can deliver events
-  for every service. ctx| only fetches and writes incidents whose service is
-  listed in the live `pagerduty/config.yaml`.
+  for every service. ctx| fetches and writes only incidents whose service is in
+  the scope of a source with the status **OK**.
 </Callout>
 
 ## Prerequisites
 
 - Permission to authorize an application in the PagerDuty account.
-- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write to.
-- Permission to merge the generated configuration pull request.
+- A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can write
+  to. The repository must use format 2 or higher. If it does not, the Workspace
+  shows **Upgrade this Workspace first**. See
+  [Upgrades](/docs/workspaces/settings#upgrades).
+- Permission to merge the pull request that adds the source.
 
-## Configuration source of truth
+## Where the scope lives
 
-PagerDuty scope exists only in `pagerduty/config.yaml`:
+The connection holds authorization only. The scope is in a source file in each
+Workspace, at `sources/pagerduty/<name>.md`. The front matter holds the service
+ids. The body is an optional description of what the source is for.
 
-- **Draft scope** is the YAML on the generated configuration pull request's
-  branch.
-- **Live scope** is the YAML on the selected target branch after that pull
-  request is merged.
+```markdown
+---
+provider: pagerduty
+connection: con_example
+services: [PSVC001, PSVC002]
+---
+```
 
-ctx| does not keep a second draft or live scope outside Git. The connection
-tracks where content belongs and whether setup is complete; the merged YAML
-remains the source of truth for which services are approved.
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
+
+Each Workspace has its own
+scope.
 
 ## Setup flow
 
@@ -77,10 +88,10 @@ remains the source of truth for which services are approved.
     ### Register the OAuth app (self-hosted only)
 
     On a self-hosted deployment without a deployment OAuth app, choosing
-    **PagerDuty** creates a draft connection and opens **Register PagerDuty
-    OAuth app**. Follow the [self-hosted PagerDuty guide](/docs/self-hosting/pagerduty)
-    to register the deployment app and save its credentials in ctx|. Hosted
-    ctx| supplies its managed OAuth app and skips this step.
+    **PagerDuty** opens **Register PagerDuty OAuth app**. Follow the
+    [self-hosted PagerDuty guide](/docs/self-hosting/pagerduty) to register the
+    deployment app and save its credentials in ctx|. Hosted ctx| supplies its
+    managed OAuth app and skips this step.
   </Step>
 
   <Step>
@@ -91,143 +102,139 @@ remains the source of truth for which services are approved.
   </Step>
 
   <Step>
-    ### Confirm GitHub
+    ### Add to Workspaces
 
-    PagerDuty content is stored in git before indexing. If GitHub is not
-    connected for this ctx| organization, complete the GitHub App installation
-    first.
+    The next step is **Add to Workspaces**. Select the Workspaces that sync from
+    PagerDuty. Then search the services of the account and select at least one.
+    If the list is empty, create a service in PagerDuty first. ctx| only reads
+    existing services. It does not add PagerDuty integrations. When you select
+    more than one Workspace, choose **Same scope for each Workspace** or **A
+    different scope for each Workspace**.
+
+    Choose **Add to Workspaces**. You can add the connection to a Workspace
+    later. Expand the connector on **Connectors**. When no Workspace uses the
+    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
   </Step>
 
   <Step>
-    ### Select a workspace
+    ### Merge the pull requests
 
-    Choose the [Workspace](/docs/workspaces) that should receive PagerDuty
-    content. ctx| writes it under `pagerduty/` in that Workspace's repository.
+    ctx| opens one pull request for each Workspace. Each pull request adds
+    `sources/pagerduty/<name>.md`. The dialog shows **Merge the pull request**
+    (or **Merge the pull requests**) with a link to each one. Review the
+    selected services and the repository audience, then merge.
+
+    After each merge, the dialog shows **Pull request merged**. The source does
+    not sync before the merge.
   </Step>
 
   <Step>
-    ### Select services
+    ### Wait for the first sync
 
-    Search and page through the account's services, then select at least one.
-    If the list is empty, create a service in PagerDuty first and refresh.
-    ctx| only reads existing services; it does not add PagerDuty integrations.
-    Only incidents from the selected services are mirrored after the
-    configuration pull request is merged.
-  </Step>
-
-  <Step>
-    ### Merge the configuration pull request
-
-    ctx| opens a pull request containing `pagerduty/config.yaml`. Review the
-    selected services and repository audience, then merge it.
-
-    The pull request branch YAML is the draft. The target branch YAML becomes
-    live only after merge; the setup dialog submits scope to that Git workflow
-    rather than storing another copy.
-  </Step>
-
-  <Step>
-    ### Wait for initial sync and indexing
-
-    After GitHub reports the merge, ctx| performs the first PagerDuty mirror
-    and starts indexing. The connector reaches **Connected** when
-    the mirror succeeds. Repository indexing may continue afterwards; see
-    [Indexing](/docs/connections/ingestion) for the indexing lifecycle.
+    After GitHub reports the merge, ctx| reads the source file and makes the
+    first PagerDuty mirror. The Workspace indexes the new files after that. See
+    [Indexing](/docs/connections/ingestion) for the lifecycle.
   </Step>
 </Steps>
 
+## Change what syncs
+
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources). When you remove a service from the scope, ctx| deletes the incident files of that
+service in a sync commit.
+
 ## Files in the repository
 
-Mirrored files live under `pagerduty/`:
+Mirrored files live under `pagerduty/` in each Workspace repository. Each
+selected service has its own folder:
 
 ```text
-pagerduty/config.yaml
-pagerduty/incidents/<number>--<id>.md
-pagerduty/incidents/<number>--<id>/assets/…
+pagerduty/services/<serviceId>/incidents/<number>--<id>.md
+pagerduty/services/<serviceId>/incidents/<number>--<id>/assets/…
 ```
 
-Do not hand-edit generated content. Change scope through **Manage scope** and
-review the replacement configuration pull request. Shrinking the live YAML
-prunes files for services that are no longer selected.
+The source owns these folders. Do not edit the files by hand: the next sync
+overwrites them.
 
 ## Keeping content current
 
 PagerDuty sends signed webhook events to ctx| when incidents are created or
-updated. While the connector is live, ctx| verifies the HMAC against the raw
-body, skips the event unless the payload names a service that is in the live
-YAML, updates the affected file, and starts indexing again.
+updated. For a source with the status **OK**, ctx| verifies the HMAC against the
+raw body, skips the event unless the payload names a service in the scope,
+updates the affected file, and starts indexing again.
 
-Events that arrive before the connector is live, including during initial sync,
-are skipped rather than queued for later. Events for unscoped services are
-acknowledged and ignored. Stale deliveries are rejected. Missed webhook events
-are not automatically backfilled: repair webhook delivery, then update the
-affected incident in PagerDuty again so a fresh event is delivered, or use
-**Retry content sync** after a failed initial mirror.
+Events that arrive before the source is live, including during the first sync,
+are skipped and not queued. ctx| acknowledges and ignores events for unselected
+services. ctx| rejects stale deliveries. ctx| does not backfill missed webhook
+events. Repair the webhook delivery, then choose **Sync now** in the menu of
+the connector card. An owner or admin can do this.
 
 ## Verify the complete flow
 
-1. Complete PagerDuty OAuth and confirm the expected account appears.
-2. Select a Workspace and at least one service.
-3. Open and merge the generated `pagerduty/config.yaml` pull request.
-4. Confirm the connector reaches **Connected** and the repository contains
-   generated files under `pagerduty/incidents/`.
-5. Trigger or update an in-scope incident in PagerDuty and confirm the matching
-   Git file changes, including triggering-alert details and notes.
-6. Confirm the Workspace index is ready in its **Settings**.
+1. Complete PagerDuty OAuth and confirm that the expected account appears on
+   **Connectors**.
+2. Choose **Add to Workspaces**, select a Workspace, and select at least one
+   service.
+3. Merge the pull request that adds `sources/pagerduty/<name>.md`.
+4. Confirm that the Workspace repository has files under
+   `pagerduty/services/`.
+5. Trigger or update an in-scope incident in PagerDuty. Confirm that the
+   matching Git file changes, including the triggering alert details and notes.
+6. Confirm that the Workspace index is ready in its **Settings**.
 
-Steps 3 and 4 test the GitHub push webhook and initial mirror. Step 5 separately
-tests PagerDuty webhook delivery.
+Steps 3 and 4 test the GitHub push webhook and the first mirror. Step 5 tests
+the PagerDuty webhook delivery.
 
 ## Troubleshooting
 
 ### Authorization fails
 
 Allow popups and retry. On fully managed ctx|, report persistent OAuth errors to
-support. On a self-hosted deployment, finish **Register PagerDuty OAuth app**
-in the wizard, or ask the operator to verify that a deployment OAuth app is
-configured, and that the callback URI matches exactly.
+support. On a self-hosted deployment, finish **Register PagerDuty OAuth app** in
+the wizard, or ask the operator to verify that a deployment OAuth app exists.
+Confirm that the callback URI matches exactly.
+
+### Add to a Workspace shows an error
+
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
 
 ### No pull request appears
 
-Confirm that at least one service is selected and that the GitHub App has write
-access to the destination repository. Empty repositories are supported; ctx|
-initializes the default branch before opening the pull request. If setup
-reports that pull request creation failed, open the connector and choose
-**Retry configuration pull request**.
+Confirm that the GitHub App has write access to the Workspace repository. If
+the dialog reports an error, close it and try again.
 
-### The connector stays on “Approve configuration”
+### The source shows a status other than OK
 
-The configuration pull request must be merged, not merely approved. Confirm
-that `pagerduty/config.yaml` reached the default branch and that GitHub
-webhooks for the ctx| GitHub App are healthy.
+Read the status and the reason of the row in **Settings**. See
+[Source status](/docs/workspaces/settings#source-status).
 
 ### Content sync failed
 
-Open the connector and choose **Retry content sync**. This retries the mirror
-without opening another configuration pull request. If it fails again, ask the
+Choose **Sync now** in the menu of the connector card. If it fails again, ask the
 operator to check worker logs, PagerDuty token refresh, GitHub write access,
-and outbound access to `identity.pagerduty.com` plus
-`api.pagerduty.com` or `api.eu.pagerduty.com`.
+and outbound access to `identity.pagerduty.com` plus `api.pagerduty.com` or
+`api.eu.pagerduty.com`.
 
 ### Changes in PagerDuty do not arrive
 
-Initial sync can still succeed when later webhook delivery fails. Confirm the
-incident belongs to a live-scoped service. Out-of-scope events are ignored on
+The first sync can succeed when later webhook delivery fails. Confirm that the
+incident belongs to a service in the scope. ctx| ignores out-of-scope events on
 purpose. Ask the operator to verify that the connection still has a webhook
 subscription and that `POST /api/v1/webhook/pagerduty` is reachable.
 
 ### PagerDuty authorization was revoked
 
-Open the existing connector and complete **Connect PagerDuty** again, or add
-PagerDuty once more for the same account. Incremental updates stop while the
-account authorization is revoked. Re-authorization keeps the existing
-subscription when its signing secret is still stored, and otherwise replaces
-it rather than stacking another one.
+The source shows the reason "PagerDuty does not accept the ctx| access any more.
+Reconnect PagerDuty on the Connectors page." The connector card shows **Reconnect
+PagerDuty**. Choose it and authorize again. Incremental updates stop while the
+authorization is revoked. Authorizing again keeps the existing subscription when
+its signing secret is still stored. Otherwise, ctx| replaces the subscription
+and does not add a second one.
 
 ### Removing the connector
 
-Removing the connector deletes the PagerDuty webhook subscription while the
-access token is still available, then deletes the ctx| authorization and
-repository binding. It does not delete `pagerduty/config.yaml`, generated
-files, or Git history from the destination repository; remove those in GitHub
-if they are no longer required.
+Choose **Remove connector** in the menu of the connector card. See
+[Connection menu](/docs/connections#connection-menu) for what stays in Git.
+ctx| also deletes the PagerDuty webhook subscription while the access token is
+still available.

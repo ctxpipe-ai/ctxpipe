@@ -39,7 +39,16 @@ import type { WorkspaceRevision } from "./revision.js"
 import { workspaceChatTools } from "./workspace-chat-tools.js"
 
 async function prepareUnpublishedIndex(f: NativeIndexFixture) {
-  const { remote, git, org, repositoryId, workspaceId, runner, revision } = f
+  const {
+    remote,
+    remoteUrl,
+    git,
+    org,
+    repositoryId,
+    workspaceId,
+    runner,
+    revision,
+  } = f
   await writeFile(
     join(remote, "AGENTS.md"),
     "# Next revision\nUse cobaltmeadow instructions.\n",
@@ -68,7 +77,7 @@ async function prepareUnpublishedIndex(f: NativeIndexFixture) {
     workspaceId,
     targetHash: nextSha,
     jobGeneration: 1,
-    jobWorkspaceUrl: remote,
+    jobWorkspaceUrl: remoteUrl,
     revision: { ...revision, sha: nextSha },
   })
   expect(await unpublishedIndex.result({ timeoutMs: 30_000 })).toMatchObject({
@@ -108,8 +117,15 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { runner, repositoryId, org, workspaceId, sha, remote, revision } =
-        f
+      const {
+        runner,
+        repositoryId,
+        org,
+        workspaceId,
+        sha,
+        remoteUrl,
+        revision,
+      } = f
       await expect(
         runner.runWorkflow(repositoryIndex.spec, {
           repositoryId,
@@ -117,7 +133,7 @@ it(
           workspaceId,
           targetHash: sha,
           jobGeneration: 2,
-          jobWorkspaceUrl: remote,
+          jobWorkspaceUrl: remoteUrl,
           revision,
         }),
       ).rejects.toThrow(
@@ -234,7 +250,7 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { org, workspaceId, repositoryId, sha, revision, remote } = f
+      const { org, workspaceId, repositoryId, sha, revision, remoteUrl } = f
       await withOrgIdContext(org, async () => {
         const chatTools = await workspaceChatTools({
           orgId: org.id,
@@ -260,7 +276,7 @@ it(
               activeRevision: movedRevision,
               desiredDefaultBranch: "renamed",
               hydratePhases: {
-                url: remote,
+                url: remoteUrl,
                 sha,
                 embeddings: false,
                 index: { revision: movedRevision, result: { kind: "ready" } },
@@ -513,14 +529,14 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { org, workspaceId, remote, sha, revision, repositoryId } = f
+      const { org, workspaceId, remoteUrl, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
         insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
-          gitUrl: remote,
+          gitUrl: remoteUrl,
           desiredRef: "trunk",
           desiredSha: sha,
         }),
@@ -553,14 +569,14 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { org, workspaceId, remote, sha, revision, repositoryId } = f
+      const { org, workspaceId, remoteUrl, sha, revision, repositoryId } = f
       const linkedId = generateObjectId("wlr")
       await withOrgDbContext(org.id, (db) =>
         insertLinkedRepositoryRows(db, {
           id: linkedId,
           orgId: org.id,
           workspaceId,
-          gitUrl: remote,
+          gitUrl: remoteUrl,
           desiredRef: "trunk",
           desiredSha: sha,
         }),
@@ -644,14 +660,14 @@ it(
   { timeout: 60_000 },
   async () =>
     withNativeIndexFixture(async (f) => {
-      const { org, remote, runner, workspaceId, sha, revision } = f
+      const { org, remoteUrl, runner, workspaceId, sha, revision } = f
       const otherRepositoryId = generateObjectId("repo")
       await withOrgDbContext(org.id, (db) =>
         db.insert(repositories).values({
           id: otherRepositoryId,
           orgId: org.id,
           name: "Other remote",
-          gitUrl: `${remote}-other`,
+          gitUrl: `${remoteUrl}-other`,
         }),
       )
       const mismatched = await runner.runWorkflow(repositoryIndex.spec, {
@@ -660,7 +676,7 @@ it(
         workspaceId,
         targetHash: sha,
         jobGeneration: 1,
-        jobWorkspaceUrl: remote,
+        jobWorkspaceUrl: remoteUrl,
         revision,
       })
       await expect(mismatched.result({ timeoutMs: 10_000 })).rejects.toThrow(

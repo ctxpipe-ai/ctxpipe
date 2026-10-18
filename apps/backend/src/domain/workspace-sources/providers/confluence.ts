@@ -1,6 +1,18 @@
 import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
+/**
+ * The most spaces in one Confluence source. Each space with `all` syncs its
+ * full page tree.
+ */
+export const CONFLUENCE_SOURCE_MAX_SPACES = 100
+
+/**
+ * The most selected pages in one space. The sync gets each selected page
+ * and the path to it one by one. For more pages, select `all`.
+ */
+export const CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE = 500
+
 /** A Confluence space key. It is one path segment under `confluence/`. */
 export const confluenceSpaceKeySchema = z
   .string()
@@ -20,12 +32,22 @@ export const confluenceSourceScopeSchema = z
             /** `all`, or only these pages (and the path to them). */
             pages: z.union([
               z.literal("all"),
-              z.array(confluencePageIdSchema).min(1),
+              z
+                .array(confluencePageIdSchema)
+                .min(1)
+                .max(
+                  CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
+                  `Select at most ${CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE} pages in one Confluence space`,
+                ),
             ]),
           })
           .strict(),
       )
       .min(1)
+      .max(
+        CONFLUENCE_SOURCE_MAX_SPACES,
+        `Select at most ${CONFLUENCE_SOURCE_MAX_SPACES} Confluence spaces`,
+      )
       .refine(
         (spaces) =>
           new Set(spaces.map((space) => space.key)).size === spaces.length,

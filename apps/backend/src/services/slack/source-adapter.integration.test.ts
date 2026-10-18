@@ -24,6 +24,7 @@ import {
   replaceWorkspaceSourceRows,
 } from "../../models/workspace-sources.js"
 import { seedSourcesOrg } from "../../test/workspace-sources-fixture.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import { gitFileBytes } from "../git/file-change.js"
 import { getSlackThreadPath } from "./converter.js"
 import { slackCaptureWorkspaceLinks } from "./mention-agent.js"
@@ -243,6 +244,41 @@ describe("Slack mention capture through Workspace sources (Postgres, msw, git)",
       expect((await blobs(dir)).map((blob) => blob.path)).toContain(
         "slack/channels/C0ENG0001/index.md",
       )
+    }
+  })
+
+  it("keeps a hostile thread ts from the provider under the channel folder", async () => {
+    const hostile = "../../../../.ctxpipe/workspace"
+    replies = [
+      { ts: THREAD, user: "U0PERSON1", text: "Root of the thread" },
+      { ts: "1790000600.000100", user: "U0PERSON2", text: "First reply" },
+    ]
+    const result = await captureSlackThreadToSources({
+      orgId: seed.orgId,
+      env: env(),
+      connection,
+      channelId: ENG,
+      threadTs: hostile,
+      capturedAt: "2026-10-01T00:00:00.000Z",
+      write,
+      readExisting,
+    })
+    expect(result).toMatchObject({
+      kind: "captured",
+      capture: { status: "completed" },
+    })
+    const expected = `slack/channels/C0ENG0001/threads/NaN/NaN/${connectorPathSegment(hostile)}/thread.md`
+    expect(expected).toContain("/-.-..-..-..-.ctxpipe-workspace/")
+    for (const workspaceId of [engWorkspace, bothWorkspace]) {
+      const paths = (await blobs(repos.get(workspaceId) ?? "")).map(
+        (blob) => blob.path,
+      )
+      expect(paths).toContain(expected)
+      for (const path of paths.filter((p) => p !== "README.md")) {
+        expect(path.startsWith("slack/channels/C0ENG0001/")).toBe(true)
+        for (const segment of path.split("/"))
+          expect([".", "..", ""]).not.toContain(segment)
+      }
     }
   })
 
