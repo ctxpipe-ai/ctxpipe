@@ -366,8 +366,6 @@ export const AdminFinishFailureContinues: Story = {
     )
     const body = within(canvasElement.ownerDocument.body)
     await body.findByText("Could not finish onboarding. Try again.")
-    // Home must not fade in after a failed finish.
-    expect(onboardingHandOffFlag.isSet()).toBe(false)
     const proceed = await canvas.findByRole("button", { name: "Continue" })
     await waitFor(() => expect(proceed).toBeEnabled())
     await waitFor(() =>

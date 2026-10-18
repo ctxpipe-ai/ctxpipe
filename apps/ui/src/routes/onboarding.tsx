@@ -102,7 +102,9 @@ export function OnboardingPageContent() {
     if (completing) return
     setCompleting(true)
     // Before onboarding completes: Home reads the flag when it mounts, also
-    // after this page mounts again and opens `/`.
+    // after this page mounts again and opens `/`. A failed call keeps the
+    // flag, because the page that mounts again can still open Home. Home
+    // clears the flag.
     onboardingHandOffFlag.set()
     const organization = organizations?.find((org) => org.slug === slug)
     try {
@@ -115,7 +117,6 @@ export function OnboardingPageContent() {
       }
       await completeOnboarding(slug, queryClient)
     } catch {
-      onboardingHandOffFlag.clear()
       setCompleting(false)
       toast.error(FINISH_ERROR)
       return
