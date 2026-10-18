@@ -560,7 +560,7 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Source:** repository owner, after PR 280 CI took 45 minutes (ticket 18)
 
 ### Vercel sandbox tokens live only in GitHub environments
-- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. Previews and CI use the separate Vercel project `ctxpipe-previews`, and its token is a secret of the `Preview` environment. There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs the token declares `environment: Preview` (or `production` on `main`), and a pull request job never gets the production token.
+- **Rule:** The production Vercel token is a secret of the GitHub `Production` environment, which only protected branches can use. Previews and CI use the separate Vercel project `ctxpipe-previews`, and its tokens are secrets of the `Preview` environment (deploy jobs) and the `workbench` environment (live contracts). There is no repository-level `VERCEL_ACCESS_TOKEN`. A workflow job that needs a token declares `environment: Preview` or `environment: workbench` (or `production` on `main`), and a pull request job never gets the production token.
 - **Category:** convention
 - **Date:** 2026-10-07
 - **Source:** repository owner, after a security audit found one Vercel token shared by production, previews and CI
@@ -589,3 +589,16 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** tooling
 - **Date:** 2026-10-15
 - **Source:** PR 280 parallel agent work: a stash pop applied the work of one agent to the branch of another agent
+
+
+### CI secrets use plain names in GitHub environments
+- **Rule:** A CI secret keeps its plain name (for example `MODEL_PROVIDER_API_KEY`). Never add a prefix such as `PREVIEW_`. The GitHub environment decides which value a job reads. `Preview` is only for the Railway PR preview deploy, roll and cleanup jobs. `workbench` is for checks, evals, proofs and live contracts that call outside services; it holds only spend-capped or test-scoped keys. `Production` is the production deploy. Do not add a new environment without a stated need. `scripts/ci/check-secret-jobs.mjs` enforces the rules.
+- **Category:** tooling
+- **Date:** 2026-10-18
+- **Source:** CTO decision for the PR preview secrets work
+
+### Linear has five statuses; "Waiting for human" needs a named action
+- **Rule:** Team CTX uses five statuses. `Backlog` holds ideas that are not ready and need more exploration by humans and agents. `Todo` is ready for an agent. `In Progress` means an agent works on it now, review agents included. `Waiting for human` means blocked until a human answers a question or does an action. `Done` is complete. This replaces the old `In Review` status. An agent moves a ticket to `Waiting for human` only with a comment that names the human action and who does it (the CTO, or the teammate who retests). A ticket that no agent works on and that waits for an event goes to `Todo`, with a comment that says when to pick it up.
+- **Category:** workflow
+- **Date:** 2026-10-18
+- **Source:** CTO decision that changed the Linear workflow
