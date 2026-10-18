@@ -452,18 +452,29 @@ async function* streamTanstackWorkspaceChatBody(
   await turn.onUserPersist?.()
   const prepared = await startWorkspaceChat(turn)
   if (!prepared.ok) throw new Error(prepared.error)
+  // The title starts when the run is accepted (its first event). A rejected
+  // run must not spend a model call or rename the conversation.
+  let titleStarted = false
+  let titleName: string | null = null
   yield workspaceChatSandboxSetupChunk("ready")
   const masked = credentialMaskedChunks()
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
-    if (typed.type === "RUN_STARTED") continue
+    if (typed.type === "RUN_STARTED") {
+      if (!titleStarted) {
+        titleStarted = true
+        void saveConversationTitle(turn).then((name) => {
+          titleName = name
+        })
+      }
+      continue
+    }
     if (typed.type === "RUN_ERROR") await turn.onError?.()
     if (typed.type === "RUN_FINISHED") {
-      const name = await nameConversationIfUnnamed({
-        conversationId: turn.conversationId,
-        prompt: turn.prompt,
-      })
-      if (name) yield conversationRenameChunk(name)
+      // The final event does not wait for the title. A title that is not
+      // ready yet is still saved. The stream sends no rename for it, so the
+      // client reads the conversation until it has a name.
+      if (titleName) yield conversationRenameChunk(titleName)
       await turn.onFinish?.()
     }
     if (
@@ -474,6 +485,39 @@ async function* streamTanstackWorkspaceChatBody(
       markWorkspaceChatFirstShownToken(turnId)
     // Tool arguments, tool output and model text can repeat a credential.
     yield* masked(typed)
+  }
+}
+
+/** Conversations that have a title call in flight in this process. */
+const titlesInFlight = new Set<string>()
+
+/**
+ * Name an unnamed conversation from the prompt, in parallel with the turn.
+ * The model call (about 2 s) usually ends before the answer does. The work
+ * is not bound to the stream, so a client that goes away does not stop it.
+ * A turn that overlaps a title call of the same conversation makes no second
+ * call. Returns the saved title, or null. A failure is logged, not thrown.
+ */
+async function saveConversationTitle(
+  turn: TanstackWorkspaceChatInput,
+): Promise<string | null> {
+  if (titlesInFlight.has(turn.conversationId)) return null
+  titlesInFlight.add(turn.conversationId)
+  try {
+    return await nameConversationIfUnnamed({
+      conversationId: turn.conversationId,
+      prompt: turn.prompt,
+    })
+  } catch (error) {
+    log.error({
+      step: "workspace-chat-title",
+      message: `Naming the conversation failed: ${String(error)}`,
+      stack: error instanceof Error ? error.stack : undefined,
+      conversationId: turn.conversationId,
+    })
+    return null
+  } finally {
+    titlesInFlight.delete(turn.conversationId)
   }
 }
 

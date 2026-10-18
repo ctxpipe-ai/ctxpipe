@@ -203,4 +203,105 @@ describe("workspace chat websocket reuse", () => {
     expect(shouldReuseWarmedWorkspaceChatSocket(warmed, resume)).toBe(false)
     expect(shouldReuseWarmedWorkspaceChatSocket(warmed, warmed)).toBe(true)
   })
+
+  it("sends the first run frame on the warmed socket, with no second handshake", async () => {
+    const instances: Array<{ url: string; sent: string[] }> = []
+    class FakeSocket {
+      readyState = 1
+      url: string
+      sent: string[] = []
+      onopen: (() => void) | null = null
+      close = vi.fn()
+      send(data: string) {
+        this.sent.push(data)
+      }
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    try {
+      const connection = workspaceChatWebSocket("acme", "conv_1")
+      connection.warm()
+      // The chat client opens the run at `?runId=`, as on the first Send.
+      await connection.send([], {}, undefined, {
+        runId: "run_1",
+        threadId: "conv_1",
+      })
+      expect(instances).toHaveLength(1)
+      expect(instances[0]?.sent).toHaveLength(1)
+      expect(JSON.parse(instances[0]?.sent[0] ?? "{}")).toMatchObject({
+        runId: "run_1",
+      })
+      connection.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
+  it("never hands a resume socket to a later run, even when it is still open", async () => {
+    vi.useFakeTimers()
+    const instances: FakeSocket[] = []
+    class FakeSocket {
+      readyState = 1
+      url: string
+      sent: string[] = []
+      onopen: (() => void) | null = null
+      onclose: (() => void) | null = null
+      onmessage: ((event: { data: string }) => void) | null = null
+      close = vi.fn(() => {
+        this.readyState = 3
+      })
+      send(data: string) {
+        this.sent.push(data)
+      }
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    try {
+      const connection = workspaceChatWebSocket("acme", "conv_1")
+      connection.warm()
+      const first = new AbortController()
+      await connection.send([], {}, first.signal, {
+        runId: "run_1",
+        threadId: "conv_1",
+      })
+      expect(instances).toHaveLength(1)
+      // The server tags an event with an offset, then the socket drops.
+      instances[0]?.onmessage?.({
+        data: JSON.stringify({
+          id: "1",
+          chunk: { type: "RUN_STARTED", runId: "run_1", threadId: "conv_1" },
+        }),
+      })
+      if (instances[0]) instances[0].readyState = 3
+      instances[0]?.onclose?.()
+      await vi.advanceTimersByTimeAsync(250)
+      const resume = instances[1]
+      expect(resume?.url).toContain("offset=1")
+      // Stop keeps the resume socket open. A new message opens run_2.
+      first.abort()
+      const sending = connection.send([], {}, undefined, {
+        runId: "run_2",
+        threadId: "conv_1",
+      })
+      await vi.advanceTimersByTimeAsync(0)
+      const run2 = instances[2]
+      expect(instances).toHaveLength(3)
+      expect(run2?.url).toContain("runId=run_2")
+      expect(run2?.url).not.toContain("offset")
+      await sending
+      expect(run2?.sent).toHaveLength(1)
+      expect(JSON.parse(run2?.sent[0] ?? "{}")).toMatchObject({
+        runId: "run_2",
+      })
+      connection.dispose()
+    } finally {
+      vi.useRealTimers()
+      vi.unstubAllGlobals()
+    }
+  })
 })
