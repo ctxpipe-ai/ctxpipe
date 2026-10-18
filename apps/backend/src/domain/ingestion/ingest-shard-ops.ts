@@ -6,7 +6,11 @@ import {
   ingestOpenCodeEnv,
 } from "./ingest-opencode.js"
 import {
+  type IngestFailureHint,
+  ingestFailureHint,
   ingestModelRunCommand,
+  parseOpenCodeError,
+  parseOpenCodeLogMessages,
   parseOpenCodeUsage,
 } from "./ingest-opencode-usage.js"
 import {
@@ -22,6 +26,7 @@ import type {
 } from "./ingest-shard-runtime.js"
 import {
   INGEST_CONTEXT_ROOT,
+  INGEST_HOME,
   INGEST_ROOT,
   INGEST_SKILLS_ROOT,
   INGEST_SOURCE_ROOT,
@@ -299,6 +304,10 @@ export async function runIngestShardStep(
         part === command ? "skill" : "finish",
         result.exitCode,
         `Ingest step ${step.name} failed (${result.exitCode}): ${result.stderr.slice(-500)}`,
+        await stepFailureDiagnosis(root, {
+          result,
+          model: part === command && step.run === "model",
+        }),
       )
     if (part === command && step.run === "model")
       usage = parseOpenCodeUsage(result.stdout)
@@ -317,9 +326,44 @@ export class IngestStepCommandError extends Error {
     readonly part: "skill" | "finish",
     readonly exitCode: number,
     message: string,
+    readonly diagnosis?: IngestStepFailureDiagnosis,
   ) {
     super(message)
     this.name = "IngestStepCommandError"
+  }
+}
+
+/**
+ * What a log can show about a failed step command; it holds no source text.
+ * `hint` is the class of the command's output. A model step adds the name
+ * and HTTP status of OpenCode's last `error` event, and the fixed ERROR and
+ * WARN messages of the OpenCode log of the step.
+ */
+export type IngestStepFailureDiagnosis = {
+  hint: IngestFailureHint
+  agentError?: { name: string; statusCode?: number }
+  agentLog?: string[]
+}
+
+async function stepFailureDiagnosis(
+  root: RootExec,
+  input: { result: { stdout: string; stderr: string }; model: boolean },
+): Promise<IngestStepFailureDiagnosis> {
+  const { stdout, stderr } = input.result
+  if (!input.model) return { hint: ingestFailureHint(stderr) }
+  // Each step starts with an empty HOME, so this log is the step's own.
+  const log = await root(
+    `cat ${INGEST_HOME}/data/opencode/log/*.log 2>/dev/null | grep -E 'level=(ERROR|WARN)' | tail -n 200`,
+  ).then(
+    (read) => read.stdout,
+    () => "",
+  )
+  const agentError = parseOpenCodeError(stdout)
+  const agentLog = parseOpenCodeLogMessages(log)
+  return {
+    hint: ingestFailureHint(`${stderr}\n${stdout}\n${log}`),
+    ...(agentError ? { agentError } : {}),
+    ...(agentLog.length > 0 ? { agentLog } : {}),
   }
 }
 

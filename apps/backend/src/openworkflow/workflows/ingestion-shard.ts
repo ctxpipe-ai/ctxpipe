@@ -695,8 +695,10 @@ async function attemptSkillStep(
       reason = refused ? "broker_refused" : "step_failed"
       // The error text can hold source text, so the log has only where the
       // attempt failed (the stage, the step command and its exit code, or
-      // the time limit) and the fields of `ingestErrorFields`.
+      // the time limit), the fields of `ingestErrorFields`, and the
+      // diagnosis of a failed step command (fixed classes and names only).
       const command = error instanceof IngestStepCommandError ? error : null
+      const diagnosis = command?.diagnosis
       logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
         ingestionRunId: run.runId,
         ...(run.shard === undefined ? {} : { shard: run.shard }),
@@ -706,6 +708,18 @@ async function attemptSkillStep(
         stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
         ...(command ? { exitCode: command.exitCode } : {}),
         ...ingestErrorFields(error),
+        ...(diagnosis
+          ? {
+              hint: diagnosis.hint,
+              ...(diagnosis.agentError
+                ? {
+                    agentError: diagnosis.agentError.name,
+                    agentErrorStatus: diagnosis.agentError.statusCode,
+                  }
+                : {}),
+              ...(diagnosis.agentLog ? { agentLog: diagnosis.agentLog } : {}),
+            }
+          : {}),
       })
       span.setAttribute(
         "error.type",

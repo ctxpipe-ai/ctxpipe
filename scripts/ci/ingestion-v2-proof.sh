@@ -185,7 +185,7 @@ for ((i = 0; i < count; i++)); do
   # Where each failed step attempt failed (the log has no error text).
   docker compose logs --no-color worker 2>/dev/null |
     grep -aF '"ingestion-v2.step-attempt-failed"' | grep -aF "$run_id" |
-    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode, errorClass, errorCode, errorKind}' || true
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode, errorClass, errorCode, errorKind, hint, agentError, agentErrorStatus, agentLog}' || true
   # The ops, rejects and model spend of each finished step. A failed attempt
   # reports no spend.
   steps=$(proof STEPS steps --run-id "$run_id" || true)

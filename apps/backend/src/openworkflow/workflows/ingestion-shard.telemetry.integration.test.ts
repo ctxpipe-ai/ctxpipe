@@ -298,26 +298,43 @@ describe("ingestion step telemetry with the local git broker", () => {
     },
   )
   it(
-    "logs the step command and its exit code of a failed attempt, with no stderr",
+    "logs the step command, its exit code and its diagnosis of a failed attempt, with no stderr",
     { timeout: 25000 },
     async () => {
       const runtime = {
         ensure: async () => {},
         discoverRoots: async () => ({}),
         runStep: async () => {
-          throw new IngestStepCommandError("finish", 3, "private sentinel")
+          throw new IngestStepCommandError("skill", 1, "private sentinel", {
+            hint: "connect",
+            agentError: { name: "APIError", statusCode: 403 },
+            agentLog: ["server unavailable"],
+          })
         },
       }
       expect((await runStep({}, { runtime })).partial).toBe(1)
+      const failed = events.filter(
+        (e) => e.step === "ingestion-v2.step-attempt-failed",
+      )
       expect(
-        events
-          .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
-          .map((e) => [e.stage, e.exitCode]),
-      ).toEqual([
-        ["finish", 3],
-        ["finish", 3],
-        ["finish", 3],
-      ])
+        failed.map((e) => [
+          e.stage,
+          e.exitCode,
+          e.hint,
+          e.agentError,
+          e.agentErrorStatus,
+          e.agentLog,
+        ]),
+      ).toEqual(
+        Array(3).fill([
+          "skill",
+          1,
+          "connect",
+          "APIError",
+          403,
+          ["server unavailable"],
+        ]),
+      )
       expect(JSON.stringify([events, spans()])).not.toContain(
         "private sentinel",
       )
