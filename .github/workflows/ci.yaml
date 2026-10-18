@@ -209,15 +209,15 @@ jobs:
         run: |
           pnpm exec tsx src/db/migrate.ts
       - uses: ./.github/actions/setup-buildx
+      # This job reads the layer cache without a login. The layer-cache job
+      # writes it (see the comment there).
       - name: Required chat sandbox image
         uses: docker/build-push-action@v6
         with:
           context: scripts/chat-sandbox
           tags: ctxpipe-chat-sandbox:opencode-1.18.34-r3
           load: true
-          cache-from: type=gha,scope=chat-sandbox
-          # One writer avoids nine jobs racing to save the same layers.
-          cache-to: ${{ matrix.lane == 'backend' && matrix.shard == 1 && 'type=gha,mode=max,scope=chat-sandbox' || '' }}
+          cache-from: type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
       - name: Required ${{ matrix.lane }} tests
         env:
           GRAPH_DB_URI: redis://127.0.0.1:6379
@@ -358,19 +358,72 @@ jobs:
         with:
           platforms: arm64
       - uses: ./.github/actions/setup-buildx
-      # Only codesearch keeps a layer cache: its toolchain stages are the slow
-      # part, and the repository GHA cache cannot hold all five images. The
-      # cache is best effort: the GHA cache evicts layer blobs, and the export
-      # then fails with "error writing layer blob: not_found" after the image
-      # built. ignore-error keeps that cache failure from failing the build.
+      # Only codesearch reads a layer cache: its toolchain stages are the slow
+      # part. This job reads it without a login. The layer-cache job writes it
+      # (see the comment there).
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context || '.' }}
           file: ${{ matrix.dockerfile }}
           platforms: ${{ matrix.platforms }}
           push: false
-          cache-from: ${{ matrix.name == 'codesearch' && 'type=gha,scope=production-codesearch' || '' }}
-          cache-to: ${{ matrix.name == 'codesearch' && 'type=gha,mode=max,ignore-error=true,scope=production-codesearch' || '' }}
+          cache-from: ${{ matrix.name == 'codesearch' && 'type=registry,ref=ghcr.io/ctxpipe-ai/ci-cache:production-codesearch' || '' }}
+
+  # Writes the Docker layer caches that test-shards (chat sandbox) and
+  # production-builds (codesearch) read.
+  # - The cache is in GHCR, not in the GHA cache. The GHA cache evicts layer
+  #   blobs while their manifest stays, and BuildKit then fails the build with
+  #   "BlobNotFound". GHCR keeps each blob until someone deletes its version.
+  # - Do not delete versions of ghcr.io/ctxpipe-ai/ci-cache that are newer than
+  #   one day: an import fails when a blob under a live manifest is missing.
+  # - The package is public, so each reader imports it without a login, and a
+  #   job that runs dependency code holds no token that can write packages.
+  # - All branches share one tag. Thus only main writes it: a push to main
+  #   (merged, reviewed code) or a dispatch on main. Other branches only read.
+  # - This job runs no repository code on the runner: the checkout has no
+  #   credentials, and each action is pinned to a commit. The BuildKit image
+  #   that setup-buildx pulls is not pinned. BuildKit runs the Dockerfile
+  #   steps in containers that do not see the registry login.
+  # - The cache is best effort: an export error or a failed job is a miss on
+  #   the next run, not a failure.
+  layer-cache:
+    timeout-minutes: 45
+    name: Layer cache (${{ matrix.name }})
+    if: github.ref == 'refs/heads/main'
+    continue-on-error: true
+    permissions:
+      contents: read
+      packages: write
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: chat-sandbox
+            context: scripts/chat-sandbox
+            dockerfile: scripts/chat-sandbox/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:chat-sandbox
+          - name: codesearch
+            context: .
+            dockerfile: apps/codesearch/Dockerfile
+            cache: ghcr.io/ctxpipe-ai/ci-cache:production-codesearch
+    steps:
+      - uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3
+      - uses: docker/login-action@c94ce9fb468520275223c153574b00df6fe4bcc9 # v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+      - uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: false
+          cache-from: type=registry,ref=${{ matrix.cache }}
+          cache-to: type=registry,ref=${{ matrix.cache }},mode=max,ignore-error=true
 
   packages:
     timeout-minutes: 20
