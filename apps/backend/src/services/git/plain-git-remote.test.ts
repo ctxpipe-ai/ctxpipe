@@ -24,7 +24,6 @@ import {
   isMetadataAddress,
   isPublicAddress,
   PlainGitUrlError,
-  plainGitPinnedRequest,
   plainGitRemote,
   plainGitRemoteEnvironment,
   resolvePlainGitRemote,
@@ -154,7 +153,7 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
     vi.unstubAllEnvs()
   })
 
-  it("docker: reads a private host, an IP host, http, and another port, and pins the checked address", async () => {
+  it("docker: reads a private host, an IP host, http, and another port", async () => {
     vi.stubEnv("SANDBOX_PROVIDER", "docker")
     await expect(
       resolvePlainGitRemote("http://git.internal:3000/team/app.git", internal),
@@ -186,30 +185,17 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
         ]),
       )
     const http = config(
-      plainGitRemoteEnvironment({
-        url: "http://git.internal:3000/team/app.git",
-        host: "git.internal",
-        port: 3000,
-        addresses: ["10.1.2.3"],
-      }),
+      plainGitRemoteEnvironment("http://git.internal:3000/team/app.git"),
     )
     expect(http).toMatchObject({
       "credential.helper": "",
       "http.followRedirects": "false",
       "protocol.allow": "never",
       "protocol.http.allow": "always",
-      "http.curloptResolve": "git.internal:3000:10.1.2.3",
     })
     // An https source gets no http.
     expect(
-      config(
-        plainGitRemoteEnvironment({
-          url: "https://git.internal/team/app.git",
-          host: "git.internal",
-          port: 443,
-          addresses: ["10.1.2.3"],
-        }),
-      ),
+      config(plainGitRemoteEnvironment("https://git.internal/team/app.git")),
     ).not.toHaveProperty("protocol.http.allow")
   })
 
@@ -239,22 +225,23 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
     ).rejects.toMatchObject({ rule: "metadata_address" })
   })
 
-  it("keeps only a short list of the backend variables in the git environment, and adds a low-speed limit", () => {
+  it("keeps only a short list of the backend variables in the git environment, with the proxy, and adds a low-speed limit", () => {
     vi.stubEnv("CTXPIPE_TEST_SECRET", "not-for-git")
-    vi.stubEnv("HTTPS_PROXY", "http://127.0.0.1:1")
+    vi.stubEnv("HTTPS_PROXY", "http://proxy.internal:3128")
+    vi.stubEnv("NO_PROXY", "git.internal")
     vi.stubEnv("GIT_SSL_NO_VERIFY", "1")
     vi.stubEnv("GIT_CONFIG_PARAMETERS", "'http.extraHeader'='X: leaked'")
     vi.stubEnv("GIT_DIR", "/tmp/elsewhere")
-    const env = plainGitRemoteEnvironment({
-      url: "https://git.example.org/team/app.git",
-      host: "git.example.org",
-      port: 443,
-      addresses: ["93.184.215.14"],
+    const env = plainGitRemoteEnvironment(
+      "https://git.example.org/team/app.git",
+    )
+    expect(env).toMatchObject({
+      PATH: process.env.PATH,
+      HTTPS_PROXY: "http://proxy.internal:3128",
+      NO_PROXY: "git.internal",
     })
-    expect(env.PATH).toBe(process.env.PATH)
     for (const name of [
       "CTXPIPE_TEST_SECRET",
-      "HTTPS_PROXY",
       "GIT_SSL_NO_VERIFY",
       "GIT_CONFIG_PARAMETERS",
       "GIT_DIR",
@@ -291,12 +278,7 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
     await expect(
       resolvePlainGitRemote("https://private.example.org/team/app.git", lookup),
     ).rejects.toMatchObject({ rule: "private_address" })
-    const env = plainGitRemoteEnvironment({
-      url: "http://git.example.org/team/app.git",
-      host: "git.example.org",
-      port: 80,
-      addresses: ["93.184.215.14"],
-    })
+    const env = plainGitRemoteEnvironment("http://git.example.org/team/app.git")
     expect(
       Array.from(
         { length: Number(env.GIT_CONFIG_COUNT) },
@@ -319,7 +301,6 @@ describe("the plain git policy of the deployment mode (SANDBOX_PROVIDER)", () =>
 
 describe("a self-host plain git read over http with real git", () => {
   let server: Server
-  let restore: () => void
   const requests: Array<{ url: string; authorization: string | null }> = []
   let port: number
 
@@ -334,12 +315,6 @@ describe("a self-host plain git read over http with real git", () => {
     })
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
     port = (server.address() as AddressInfo).port
-    // `git.internal` resolves to the loopback address only in the DNS of
-    // the test: git reaches the server only through the pinned address.
-    restore = usePlainGitNetwork({
-      lookup: async (host) =>
-        host === "git.internal" ? [{ address: "127.0.0.1" }] : [],
-    })
   })
 
   beforeEach(() => {
@@ -351,13 +326,12 @@ describe("a self-host plain git read over http with real git", () => {
   })
 
   afterAll(async () => {
-    restore()
     await new Promise((resolve) => server.close(resolve))
   })
 
-  it("connects over http to the internal host on its port, at the checked address, with no credential and no redirect", async () => {
+  it("connects over http to the private host on its port, with no credential and no redirect", async () => {
     await expect(
-      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+      resolvePlainGitTip(`http://127.0.0.1:${port}/team/app.git`),
     ).rejects.toThrow(/returned error: 302/)
     expect(requests).toEqual([
       {
@@ -371,7 +345,7 @@ describe("a self-host plain git read over http with real git", () => {
     vi.stubEnv("SANDBOX_PROVIDER", "vercel")
     const before = requests.length
     await expect(
-      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+      resolvePlainGitTip(`http://127.0.0.1:${port}/team/app.git`),
     ).rejects.toMatchObject({ rule: "not_https" })
     expect(requests.length).toBe(before)
   })
@@ -380,7 +354,6 @@ describe("a self-host plain git read over http with real git", () => {
 describe("a plain git read and the .netrc file of the backend user", () => {
   let server: Server
   let home: string
-  let restore: () => void
   const authorizations: Array<string | null> = []
 
   beforeAll(async () => {
@@ -392,15 +365,11 @@ describe("a plain git read and the .netrc file of the backend user", () => {
       response.end()
     })
     await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
-    restore = usePlainGitNetwork({
-      lookup: async (host) =>
-        host === "git.internal" ? [{ address: "127.0.0.1" }] : [],
-    })
     // The home folder of the backend user has a .netrc entry for the host.
     home = await mkdtemp(join(tmpdir(), "plain-git-home-"))
     await writeFile(
       join(home, ".netrc"),
-      "machine git.internal login backend password netrc-secret\n",
+      "machine 127.0.0.1 login backend password netrc-secret\n",
     )
   })
 
@@ -409,7 +378,6 @@ describe("a plain git read and the .netrc file of the backend user", () => {
   })
 
   afterAll(async () => {
-    restore()
     await new Promise((resolve) => server.close(resolve))
     await rm(home, { recursive: true, force: true })
   })
@@ -419,7 +387,7 @@ describe("a plain git read and the .netrc file of the backend user", () => {
     vi.stubEnv("HOME", home)
     const { port } = server.address() as AddressInfo
     await expect(
-      resolvePlainGitTip(`http://git.internal:${port}/team/app.git`),
+      resolvePlainGitTip(`http://127.0.0.1:${port}/team/app.git`),
     ).rejects.toThrow()
     expect(authorizations.length).toBeGreaterThan(0)
     expect(authorizations).toEqual(authorizations.map(() => null))
@@ -500,7 +468,7 @@ describe("a plain git read with real git", () => {
     ])
   })
 
-  it("connects to the host, not to a proxy of the backend environment", async () => {
+  it("uses the proxy of the backend environment, except for a NO_PROXY host", async () => {
     const proxied: string[] = []
     const proxy = createServer((request, response) => {
       proxied.push(request.url ?? "")
@@ -509,24 +477,30 @@ describe("a plain git read with real git", () => {
     })
     await new Promise<void>((resolve) => proxy.listen(0, "127.0.0.1", resolve))
     const proxyUrl = `http://127.0.0.1:${(proxy.address() as AddressInfo).port}`
-    for (const name of ["http_proxy", "https_proxy", "all_proxy"]) {
-      vi.stubEnv(name, proxyUrl)
-      vi.stubEnv(name.toUpperCase(), proxyUrl)
-    }
-    vi.stubEnv("no_proxy", "")
+    const { port } = server.address() as AddressInfo
+    vi.stubEnv("http_proxy", proxyUrl)
     vi.stubEnv("NO_PROXY", "")
     const before = requests.length
     try {
-      // The host answers 302, which git does not follow.
+      await expect(
+        resolvePlainGitTip("https://git.example.org/team/app.git"),
+      ).rejects.toThrow(/returned error: 502/)
+      expect(proxied).toEqual([
+        `http://127.0.0.1:${port}/team/app.git/info/refs?service=git-upload-pack`,
+      ])
+      expect(requests.length).toBe(before)
+      // A NO_PROXY host: git connects to the host. It answers 302, which
+      // git does not follow.
+      vi.stubEnv("NO_PROXY", "127.0.0.1")
       await expect(
         resolvePlainGitTip("https://git.example.org/team/app.git"),
       ).rejects.toThrow(/returned error: 302/)
     } finally {
-      for (const name of ["http_proxy", "https_proxy", "all_proxy", "no_proxy"])
-        for (const each of [name, name.toUpperCase()]) vi.stubEnv(each, "")
+      vi.stubEnv("http_proxy", "")
+      vi.stubEnv("NO_PROXY", "")
       await new Promise((resolve) => proxy.close(resolve))
     }
-    expect(proxied).toEqual([])
+    expect(proxied.length).toBe(1)
     expect(requests.slice(before).map((request) => request.url)).toEqual([
       "/team/app.git/info/refs?service=git-upload-pack",
     ])
@@ -551,15 +525,14 @@ describe("a plain git read with real git", () => {
   })
 })
 
-describe("plainGitPinnedRequest", () => {
+describe("a plain git read of an https host", () => {
   let server: HttpsServer
   let folder: string
-  let ca: string
   let port: number
-  const requests: Array<{ url: string; host: string | undefined }> = []
+  const requests: string[] = []
 
   beforeAll(async () => {
-    folder = await mkdtemp(join(tmpdir(), "plain-git-pin-"))
+    folder = await mkdtemp(join(tmpdir(), "plain-git-tls-"))
     const file = (name: string) => join(folder, name)
     const openssl = (...args: string[]) =>
       exec("openssl", args, { timeout: 20_000 })
@@ -572,23 +545,19 @@ describe("plainGitPinnedRequest", () => {
       "-days",
       "1",
       "-subj",
-      "/CN=pinned.example.test",
+      "/CN=git.example.test",
       "-addext",
-      "subjectAltName=DNS:pinned.example.test",
+      "subjectAltName=DNS:git.example.test",
       "-keyout",
       file("key"),
       "-out",
       file("crt"),
     )
-    ca = await readFile(file("crt"), "utf8")
-    // The repository path redirects to a private address.
     server = createHttpsServer(
-      { key: await readFile(file("key")), cert: ca },
+      { key: await readFile(file("key")), cert: await readFile(file("crt")) },
       (request, response) => {
-        requests.push({ url: request.url ?? "", host: request.headers.host })
-        response.writeHead(302, {
-          location: "https://169.254.169.254/latest/meta-data",
-        })
+        requests.push(request.url ?? "")
+        response.writeHead(404)
         response.end()
       },
     )
@@ -599,47 +568,6 @@ describe("plainGitPinnedRequest", () => {
   afterAll(async () => {
     await new Promise((resolve) => server.close(resolve))
     await rm(folder, { recursive: true, force: true })
-  })
-
-  it("connects only to the checked address, with no DNS lookup, and passes a redirect back without following it", async () => {
-    // `.test` names have no DNS answer: only the pin reaches the server.
-    const response = await plainGitPinnedRequest({
-      url: new URL(
-        "https://pinned.example.test/team/app.git/info/refs?service=git-upload-pack",
-      ),
-      method: "GET",
-      headers: new Headers({ "git-protocol": "version=2" }),
-      body: null,
-      addresses: ["127.0.0.1"],
-      ca,
-      port,
-    })
-    expect(response.status).toBe(302)
-    expect(response.headers.get("location")).toBe(
-      "https://169.254.169.254/latest/meta-data",
-    )
-    expect(requests).toEqual([
-      {
-        url: "/team/app.git/info/refs?service=git-upload-pack",
-        host: `pinned.example.test:${port}`,
-      },
-    ])
-  })
-
-  it("refuses a server whose certificate is not for the host name", async () => {
-    await expect(
-      plainGitPinnedRequest({
-        url: new URL("https://other.example.test/team/app.git/info/refs"),
-        method: "GET",
-        headers: new Headers(),
-        body: null,
-        addresses: ["127.0.0.1"],
-        ca,
-        port,
-      }),
-    ).rejects.toThrow(
-      "Hostname/IP does not match certificate's altnames: Host: other.example.test. is not in the cert's altnames: DNS:pinned.example.test",
-    )
   })
 
   it("makes git check the certificate of the host, also when the backend environment sets GIT_SSL_NO_VERIFY", async () => {

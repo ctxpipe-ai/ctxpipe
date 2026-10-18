@@ -96,26 +96,15 @@ export function isMetadataAddress(address: string): boolean {
   return true
 }
 
-/** What the deployment mode lets a plain git URL use. */
-export type PlainGitRemotePolicy = {
-  /** `http://` too, not only `https://` (self-host only). */
-  http: boolean
-  /** A host with private addresses (self-host only). */
-  privateHosts: boolean
-}
-
 /**
- * A plain git remote that the backend checked: the URL that git reads, its
- * host and port, the addresses that the check saw, and the policy of the
- * check. The backend gives it to codesearch with each index request of a
- * repository that has no GitHub token.
+ * A plain git remote that the backend checked: the URL that git reads, and
+ * whether the deployment mode allows `http://` (self-host only). The backend
+ * gives it to codesearch with each index request of a repository that has
+ * no GitHub token.
  */
-export type PinnedPlainGitRemote = {
+export type CheckedPlainGitRemote = {
   url: string
-  host: string
-  port: number
-  addresses: string[]
-  policy: PlainGitRemotePolicy
+  http: boolean
 }
 
 /** The address of an IP host (`10.0.0.5`, `[fd00::5]`), or null. */
@@ -125,13 +114,12 @@ export function ipLiteral(host: string): string | null {
 }
 
 /**
- * The reason why a git read must not use `remote`, or null. A second check
- * of a remote that the backend checked: codesearch runs it before each read,
- * so a fault in a request cannot send git to another scheme, host, or
- * address.
+ * The reason why a git read must not use `remote`, or null. Codesearch
+ * checks the URL again before each read, so a fault in a request cannot send
+ * git to another scheme or give git a credential.
  */
-export function pinnedPlainGitRemoteFault(
-  remote: PinnedPlainGitRemote,
+export function plainGitRemoteFault(
+  remote: CheckedPlainGitRemote,
 ): string | null {
   let url: URL
   try {
@@ -139,36 +127,19 @@ export function pinnedPlainGitRemoteFault(
   } catch {
     return "The plain git URL is not a URL"
   }
-  if (
-    url.protocol !== "https:" &&
-    !(remote.policy.http && url.protocol === "http:")
-  )
+  if (url.protocol !== "https:" && !(remote.http && url.protocol === "http:"))
     return "Plain git sources must use an https:// URL (http:// only on self-host). ssh, git:// and file:// are not supported."
   if (url.username || url.password || url.search || url.hash)
     return "A plain git URL must not have a user name, a password, a query, or a fragment"
-  const port = Number(url.port) || (url.protocol === "http:" ? 80 : 443)
-  if (url.hostname.toLowerCase() !== remote.host || port !== remote.port)
-    return "The plain git URL does not match its checked host"
-  if (!remote.addresses.length) return "The plain git host has no address"
-  const literal = ipLiteral(remote.host)
-  if (
-    literal &&
-    (remote.addresses.length !== 1 || remote.addresses[0] !== literal)
-  )
-    return "The plain git address does not match its IP host"
-  if (remote.addresses.some(isMetadataAddress))
-    return `The host ${remote.host} of the plain git URL resolves to a cloud metadata or link-local address`
-  if (!remote.policy.privateHosts && !remote.addresses.every(isPublicAddress))
-    return `The host ${remote.host} of the plain git URL resolves to a private, loopback, or link-local address`
   return null
 }
 
 /**
  * The only variables of the parent process that a plain git read keeps: the
- * program path, the temporary folder, the locale, and the TLS trust store.
- * Each other variable (a proxy, `GIT_SSL_NO_VERIFY`, a `GIT_CONFIG_*` of a
- * parent, a token) stays out. `HOME` is an empty folder
- * ({@link emptyHome}).
+ * program path, the temporary folder, the locale, the TLS trust store, and
+ * the proxy of the operator (self-host). Each other variable
+ * (`GIT_SSL_NO_VERIFY`, a `GIT_CONFIG_*` of a parent, a token) stays out.
+ * `HOME` is an empty folder ({@link emptyHome}).
  */
 const KEPT_VARIABLES = [
   "PATH",
@@ -180,6 +151,13 @@ const KEPT_VARIABLES = [
   "SSL_CERT_DIR",
   "GIT_SSL_CAINFO",
   "GIT_SSL_CAPATH",
+  "http_proxy",
+  "HTTPS_PROXY",
+  "https_proxy",
+  "ALL_PROXY",
+  "all_proxy",
+  "NO_PROXY",
+  "no_proxy",
 ]
 
 let home: string | undefined
@@ -203,23 +181,17 @@ function emptyHome(): string {
  * - Only HTTPS, and also `http` when `allowHttp` is true (an `http://` URL
  *   on self-host). Never `ssh`, `git://`, or `file://`.
  * - No redirect.
- * - The host name connects only to the checked addresses
- *   (`http.curloptResolve`), so a new DNS answer cannot send git to another
- *   address. An IP host has no DNS answer to pin.
  * - A transfer that stays below 1 KiB/s for 60 seconds stops
  *   (`http.lowSpeedLimit`, `http.lowSpeedTime`). The caller also sets a time
  *   limit for the whole command and a size limit for each file.
  *
  * `extra` is git config that comes after the fixed config (tests only).
  */
-export function plainGitRemoteEnvironment(
-  remote: { host: string; port: number; addresses: readonly string[] },
-  options: {
-    allowHttp: boolean
-    extra?: ReadonlyArray<readonly [string, string]>
-    parent?: Record<string, string | undefined>
-  },
-): Record<string, string> {
+export function plainGitRemoteEnvironment(options: {
+  allowHttp: boolean
+  extra?: ReadonlyArray<readonly [string, string]>
+  parent?: Record<string, string | undefined>
+}): Record<string, string> {
   const config: Array<readonly [string, string]> = [
     ["credential.helper", ""],
     ["http.followRedirects", "false"],
@@ -228,18 +200,6 @@ export function plainGitRemoteEnvironment(
     ...(options.allowHttp ? [["protocol.http.allow", "always"] as const] : []),
     ["http.lowSpeedLimit", "1024"],
     ["http.lowSpeedTime", "60"],
-    ...(ipLiteral(remote.host)
-      ? []
-      : [
-          [
-            "http.curloptResolve",
-            `${remote.host}:${remote.port}:${remote.addresses
-              .map((address) =>
-                address.includes(":") ? `[${address}]` : address,
-              )
-              .join(",")}`,
-          ] as const,
-        ]),
     ...(options.extra ?? []),
   ]
   const parent = options.parent ?? process.env

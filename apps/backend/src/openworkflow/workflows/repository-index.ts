@@ -41,7 +41,7 @@ import {
   getLogger,
   withLogger,
 } from "../../observability/logger.js"
-import { pinnedPlainGitRemote } from "../../services/git/plain-git-remote.js"
+import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 import { parseIndexerConcurrency } from "../codesearchCapacity.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { withLoggedStepAttempt } from "../withLoggedStepAttempt.js"
@@ -415,7 +415,7 @@ export const repositoryIndex = defineWorkflow(
                   // checks: the stored URL must obey the plain git rules of
                   // the deployment mode (CTX-815). A refused URL fails the
                   // index with the rule.
-                  { plainGit: await pinnedPlainGitRemote(repository.gitUrl) }),
+                  { plainGit: await checkedPlainGitRemote(repository.gitUrl) }),
               targetHash: input.targetHash,
               fromHash: input.fromHash,
             }),

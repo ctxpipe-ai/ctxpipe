@@ -9,7 +9,6 @@ import { decodeJwt } from "jose"
 import { log } from "../../observability/logger.js"
 import {
   type PlainGitLookup,
-  plainGitPinnedRequest,
   resolvePlainGitRemote,
 } from "../../services/git/plain-git-remote.js"
 import { plainGitUrlPolicy } from "../workspace-sources/providers/git.js"
@@ -325,45 +324,47 @@ export async function ingestEgressProxy(input: {
         return refuse(`${request.method} ${url.host}${url.pathname}`, meta)
       const headers = forwardedHeaders(request.headers)
       if (rule.authorization) headers.set("authorization", rule.authorization)
-      // A plain git host must resolve only to public addresses (CTX-815),
-      // and the request connects only to the addresses of that check, so a
-      // new DNS answer cannot send it to a private address. The proxy
-      // follows no redirect, and a redirect to another path or host has no
-      // rule. This proxy is hosted only, so it always uses the strict
-      // hosted policy, whatever the environment of the process is.
-      let plainGitAddresses: string[] | undefined
-      if (!rule.authorization) {
-        const checked = await resolvePlainGitRemote(
+      // A plain git host must resolve only to public addresses (CTX-815).
+      // The proxy follows no redirect of a plain git host, and a redirect of
+      // GitHub to another path or host has no rule. This proxy is hosted
+      // only, so it always uses the strict hosted policy, whatever the
+      // environment of the process is.
+      const plainGit = !rule.authorization
+      if (plainGit) {
+        const refused = await resolvePlainGitRemote(
           `https://${url.host}${url.pathname}`,
           input.lookup,
           plainGitUrlPolicy("hosted"),
         ).then(
-          (remote) => remote.addresses,
+          () => null,
           (error: unknown) =>
             error instanceof Error ? error.message : String(error),
         )
-        if (typeof checked === "string")
-          return refuse(`${url.host}: ${checked}`, meta)
-        plainGitAddresses = checked
+        if (refused !== null) return refuse(`${url.host}: ${refused}`, meta)
       }
       const body = request.method === "GET" ? null : request.body
+      // A plain git host that does not start its answer in 60 seconds
+      // gets no more time. The size limit below stops a long answer.
+      const upstreamAbort = new AbortController()
+      const timer = plainGit
+        ? setTimeout(
+            () =>
+              upstreamAbort.abort(
+                new Error("The plain git host did not answer in time"),
+              ),
+            60_000,
+          )
+        : undefined
       let upstream: Response
       try {
-        upstream = plainGitAddresses
-          ? await plainGitPinnedRequest({
-              url,
-              method: request.method,
-              headers,
-              body,
-              addresses: plainGitAddresses,
-            })
-          : await fetch(url, {
-              method: request.method,
-              headers,
-              ...(body ? { body } : {}),
-              redirect: "manual",
-              duplex: "half",
-            } as RequestInit)
+        upstream = await fetch(url, {
+          method: request.method,
+          headers,
+          ...(body ? { body } : {}),
+          redirect: plainGit ? "error" : "manual",
+          signal: upstreamAbort.signal,
+          duplex: "half",
+        } as RequestInit)
       } catch (error) {
         log.warn({
           step: "ingest-egress-upstream",
@@ -372,11 +373,13 @@ export async function ingestEgressProxy(input: {
           sandboxName: meta.sandboxName,
         })
         return new Response("Bad Gateway", { status: 502 })
+      } finally {
+        clearTimeout(timer)
       }
       const responseHeaders = new Headers(upstream.headers)
       for (const name of DROPPED_RESPONSE_HEADERS) responseHeaders.delete(name)
       let answer: ReadableStream<Uint8Array> | null = upstream.body
-      if (plainGitAddresses && answer) {
+      if (plainGit && answer) {
         const limit = input.plainGitMaxBytes ?? PLAIN_GIT_MAX_RESPONSE_BYTES
         const tooLarge = () => {
           const message = `The plain git host ${url.host} sent an answer larger than the limit of ${limit} bytes`
@@ -389,7 +392,7 @@ export async function ingestEgressProxy(input: {
           return message
         }
         if (Number(upstream.headers.get("content-length")) > limit) {
-          await answer.cancel()
+          upstreamAbort.abort()
           return new Response(tooLarge(), { status: 502 })
         }
         answer = answer.pipeThrough(byteLimit(limit, tooLarge))
