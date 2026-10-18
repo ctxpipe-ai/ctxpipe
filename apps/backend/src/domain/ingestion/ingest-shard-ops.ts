@@ -360,12 +360,21 @@ export class IngestStepCommandError extends Error {
  * on PATH, and the sandbox's egress proxy settings. `env -i` gives the agent
  * nothing else. `path` replaces the sandbox's own PATH (hosted: the pinned
  * tools of the agent snapshot).
+ *
+ * The proxy settings come from the root command's own environment: a Docker
+ * exec gets the container's environment, where the vault session is. Root
+ * in a Docker sandbox cannot read `/proc/1/environ` when PID 1 runs as
+ * another user (no `CAP_SYS_PTRACE`); then the agent got no proxy, and each
+ * model call went direct, which the sandbox host drops. Where root can read
+ * it, `/proc/1/environ` is read last, so its values win.
  */
 export async function ingestAgentEnv(
   root: RootExec,
   input: { modelProxyUrl: string; path?: string },
 ): Promise<Record<string, string>> {
-  const result = await root("tr '\\0' '\\n' < /proc/1/environ")
+  const result = await root(
+    "{ env -0; cat /proc/1/environ 2>/dev/null; } | tr '\\0' '\\n'",
+  )
   const keep =
     /^(https?_proxy|HTTPS?_PROXY|no_proxy|NO_PROXY|NODE_EXTRA_CA_CERTS|SSL_CERT_FILE|GIT_SSL_CAINFO|PATH)$/
   const sandbox = Object.fromEntries(
