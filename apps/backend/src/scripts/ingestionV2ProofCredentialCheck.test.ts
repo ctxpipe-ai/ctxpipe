@@ -62,6 +62,14 @@ describe("sandbox credential check", () => {
     expect(result.out).not.toContain(githubToken)
   })
 
+  it("fails on a GitHub App installation token in the current form (CTX-845)", () => {
+    const appToken = `ghs_${"1234567"}_${"Ab3dE_f6Gh-9jKmN2pQ"}.${"rS5tU-v8Wx_y1Z"}`
+    const result = run({ SOME_SETTING: appToken })
+    expect(result.code).toBe(1)
+    expect(result.out).toContain("FINDING env SOME_SETTING github-token")
+    expect(result.out).not.toContain(appToken)
+  })
+
   it("fails on a model key by pattern and by known hash", () => {
     const known = "plain-model-key-without-a-known-prefix"
     const hash = createHash("sha256").update(known).digest("hex")
