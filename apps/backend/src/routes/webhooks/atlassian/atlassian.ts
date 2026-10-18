@@ -16,7 +16,6 @@ import { handleForgeConfluenceContentEvent } from "../../../services/confluence/
 import { CONFLUENCE_DELETED_PAGE_EVENT } from "../../../services/confluence/sync.js"
 import type { ConfluenceSourceEvent } from "../../../services/confluence/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
-import { WEBHOOK_BODY_LIMIT_BYTES, webhookBodyLimit } from "../body-limit.js"
 import type { InstallationEvent } from "./atlassian-events.js"
 
 const FORGE_ECOSYSTEM_INSTALLATION_ARI_PREFIX =
@@ -214,10 +213,6 @@ async function handleForgeLifecyclePost(
 }
 
 export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
-  app.use(
-    "/api/v1/webhook/atlassian/forge",
-    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.atlassianForge),
-  )
   app.post("/api/v1/webhook/atlassian/forge", async (c) => {
     const log = getLogger()
     const invocationToken = getBearerToken(c.req.header("authorization"))
@@ -442,10 +437,6 @@ export function registerAtlassianWebhookRoute(app: OpenAPIHono<AppEnv>) {
     return c.json({ error: "Unhandled event type", eventType }, 501)
   })
 
-  app.use(
-    "/api/v1/webhook/atlassian/forge/token-refresh",
-    webhookBodyLimit(WEBHOOK_BODY_LIMIT_BYTES.atlassianForge),
-  )
   app.post("/api/v1/webhook/atlassian/forge/token-refresh", async (c) => {
     const invocationToken = getBearerToken(c.req.header("authorization"))
     if (!invocationToken) {
