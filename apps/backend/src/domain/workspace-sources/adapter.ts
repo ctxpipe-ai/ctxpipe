@@ -33,10 +33,13 @@ type SourceFetchInput<S> = {
   existing?: ReadonlyArray<{ path: string; sha: string | null }>
 }
 
+/** A provider whose sources sync files. A plain git source syncs none. */
+export type MirrorProvider = Exclude<SourceProvider, "git">
+
 export type SourceAdapter<
   S extends Record<string, unknown> = Record<string, unknown>,
 > = {
-  provider: SourceProvider
+  provider: MirrorProvider
   /**
    * The path prefixes (each ends with "/") that one scope owns in a Workspace
    * repository, for example `confluence/ENG/`. Every prefix must be under the

@@ -3,8 +3,10 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import type { Env } from "../../config/env.js"
 import { gitRemoteEnvironment } from "../../services/git/clone-tree.js"
+import { plainGitRemote } from "../../services/git/plain-git-remote.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
 import { heldScratch, holdScratch, releaseScratch } from "./held-scratch.js"
+import type { IngestSource } from "./ingestion-run.js"
 import { MAX_SOURCE_READ_BYTES } from "./patch-validator.js"
 import { GitOutputTooLargeError, runGit } from "./run-git.js"
 
@@ -39,20 +41,13 @@ function treeKey(runId: string, sha: string, holder = "run") {
 
 async function fetchTree(input: {
   orgId: string
-  source: { url: string; githubConnectionId: string }
+  source: IngestSource
   sha: string
   env: Env
 }): Promise<{ dir: string }> {
   const dir = await mkdtemp(join(tmpdir(), "ctxpipe-ingest-source-"))
   try {
-    const token = await resolveRepositoryReadCredential({
-      orgId: input.orgId,
-      env: input.env,
-      remote: {
-        url: input.source.url,
-        connectionId: input.source.githubConnectionId,
-      },
-    })
+    const remote = await sourceRemote(input)
     await runGit(dir, ["init", "--quiet", "--bare"])
     await runGit(
       dir,
@@ -63,15 +58,40 @@ async function fetchTree(input: {
         "--depth=1",
         "--filter=blob:none",
         "--",
-        input.source.url,
+        remote.url,
         input.sha,
       ],
-      { env: gitRemoteEnvironment({ url: input.source.url, token }) },
+      { env: remote.env },
     )
     return { dir }
   } catch (error) {
     await rm(dir, { recursive: true, force: true })
     throw error
+  }
+}
+
+/**
+ * The URL and the git environment of one read of the source: a GitHub
+ * source with a read token of its connection, or a plain git source with no
+ * credential, a checked public host, and no redirect (CTX-815).
+ */
+async function sourceRemote(input: {
+  orgId: string
+  source: IngestSource
+  env: Env
+}): Promise<{ url: string; env: NodeJS.ProcessEnv }> {
+  if (input.source.kind === "git") return plainGitRemote(input.source.url)
+  const token = await resolveRepositoryReadCredential({
+    orgId: input.orgId,
+    env: input.env,
+    remote: {
+      url: input.source.url,
+      connectionId: input.source.githubConnectionId,
+    },
+  })
+  return {
+    url: input.source.url,
+    env: gitRemoteEnvironment({ url: input.source.url, token }),
   }
 }
 
@@ -87,7 +107,7 @@ async function removeTemporaryPacks(repo: string) {
 export function ingestSourceTree(input: {
   orgId: string
   runId: string
-  source: { url: string; githubConnectionId: string }
+  source: IngestSource
   sha: string
   env: Env
   /** `${mode}:${shard}` for a shard child; the parent has none. */
@@ -159,14 +179,7 @@ export function ingestSourceTree(input: {
         // is not in the tree and `ls-tree -l` fetches every blob it lists,
         // so the size limit is on the download: git dies when it writes more
         // than the limit.
-        const token = await resolveRepositoryReadCredential({
-          orgId: input.orgId,
-          env: input.env,
-          remote: {
-            url: input.source.url,
-            connectionId: input.source.githubConnectionId,
-          },
-        })
+        const remote = await sourceRemote(input)
         try {
           await runGit(
             repo,
@@ -176,11 +189,11 @@ export function ingestSourceTree(input: {
               "--no-write-fetch-head",
               "--recurse-submodules=no",
               "--filter=blob:none",
-              input.source.url,
+              remote.url,
               oid,
             ],
             {
-              env: gitRemoteEnvironment({ url: input.source.url, token }),
+              env: remote.env,
               maxFileBytes: MAX_SOURCE_READ_BYTES + 64 * 1024,
             },
           )

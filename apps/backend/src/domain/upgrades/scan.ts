@@ -18,6 +18,7 @@ import {
   parseGithubPullNumberFromUrl,
 } from "../../services/github/installation-write-client.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
+import { sourceRepositoryName } from "../workspace-sources/providers/git.js"
 import { SOURCES_FILE_PATH } from "../workspace-sources/sources-file.js"
 import { isLinkedRepositoryDeclaration } from "../workspaces/layout.js"
 import { resolveRepositoryReadCredential } from "../workspaces/resolve-revision.js"
@@ -270,9 +271,10 @@ export async function scanWorkspaceUpgrade(input: {
  */
 /**
  * The source repositories of a re-ingestion. A Workspace below format 3 that
- * has no source rows (the layout of main) gets the GitHub repositories that
- * step 1 of the format upgrade links, so the scan can show the re-ingestion
- * as blocked with an estimate before the format upgrade merges.
+ * has no source rows (the layout of main) gets the GitHub and plain git
+ * repositories that step 1 of the format upgrade links, so the scan can show
+ * the re-ingestion as blocked with an estimate before the format upgrade
+ * merges.
  */
 async function reingestRepositories(input: {
   orgId: string
@@ -315,24 +317,31 @@ async function reingestRepositories(input: {
   })
   const sourcesFile =
     file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : null
-  const { linkedRepositories } = await formatOneLinkedRepositories({
+  const { linkedRepositories, plainGit } = await formatOneLinkedRepositories({
     workspaceId: workspace.id,
     connectionId: workspace.githubConnectionId,
     sourcesFile,
     repositoryFiles,
   })
   const own = normalizeWorkspaceRepositoryUrl(workspace.workspaceRepositoryUrl)
-  return githubSourceRepositories(
+  const github: ReingestRepository[] = githubSourceRepositories(
     linkedRepositories.sourcesFile ?? sourcesFile,
     null,
+  ).flatMap(({ gitUrl, connectionId }) => {
+    const repository = githubRepoFullNameFromWorkspaceUrl(gitUrl)
+    return repository && gitUrl !== own
+      ? [{ repository, url: gitUrl, githubConnectionId: connectionId }]
+      : []
+  })
+  // The plain git sources that step 1 adds (CTX-815).
+  const plain: ReingestRepository[] = plainGit.map(({ url }) => ({
+    repository: sourceRepositoryName(url),
+    url,
+    githubConnectionId: null,
+  }))
+  return [...github, ...plain].sort((a, b) =>
+    a.repository < b.repository ? -1 : 1,
   )
-    .flatMap(({ gitUrl, connectionId }) => {
-      const repository = githubRepoFullNameFromWorkspaceUrl(gitUrl)
-      return repository && gitUrl !== own
-        ? [{ repository, url: gitUrl, githubConnectionId: connectionId }]
-        : []
-    })
-    .sort((a, b) => (a.repository < b.repository ? -1 : 1))
 }
 
 export async function scanWorkspaceReingest(input: {

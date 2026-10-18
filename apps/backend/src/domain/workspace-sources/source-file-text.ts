@@ -61,7 +61,9 @@ export function renderSourceFile(source: SourceFile, body: string): string {
   const frontMatter = YAML.stringify(
     {
       provider: source.provider,
-      connection: source.connectionId,
+      ...(source.connectionId === null
+        ? {}
+        : { connection: source.connectionId }),
       ...source.scope,
     },
     { lineWidth: 0 },

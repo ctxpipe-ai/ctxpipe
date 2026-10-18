@@ -53,7 +53,7 @@ export function ownershipMigrationFiles(input: {
   /**
    * The source file path of each repository that a GitHub source file of
    * the Workspace declares, by normalized repository URL
-   * (`githubSourcePathsByRepository`).
+   * (`repositorySourcePathsAtRevision`).
    */
   sourcePaths: ReadonlyMap<string, string>
   files: ReadonlyArray<{ path: string; content: string }>

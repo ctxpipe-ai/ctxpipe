@@ -4,6 +4,7 @@ import {
 } from "backend/domain/workspace-sources/sources-file"
 import type { ComponentType } from "react"
 import { confluenceSourceUi } from "./providers/confluence"
+import { gitSourceUi } from "./providers/git"
 import { githubSourceUi } from "./providers/github"
 import { linearSourceUi } from "./providers/linear"
 import { notionSourceUi } from "./providers/notion"
@@ -50,6 +51,7 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  git: gitSourceUi,
 }
 
 export function sourceProviderLabel(provider: SourceProvider): string {

@@ -582,6 +582,132 @@ describe("planSourceRows from source files", () => {
   })
 })
 
+function gitFile(path: string, url: string) {
+  return { path, text: `---\nprovider: git\nurl: ${url}\n---\n` }
+}
+
+describe("planSourceRows of plain git source files (CTX-815)", () => {
+  it("gives an ok row with no connection and no access check", async () => {
+    const checked: string[] = []
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        gitFile(
+          "sources/git/git.example.org/team-app.md",
+          "https://git.example.org/team/app.git",
+        ),
+      ],
+      connections: fileConnections,
+      checkAccess: async (entry) => {
+        checked.push(entry.key)
+        return "no access"
+      },
+    })
+    expect(rows).toEqual([
+      {
+        sourceKey: "sources/git/git.example.org/team-app.md",
+        provider: "git",
+        connectionId: null,
+        scope: { url: "https://git.example.org/team/app.git" },
+        status: "ok",
+        statusDetail: null,
+      },
+    ])
+    expect(checked).toEqual([])
+  })
+
+  it("makes a plain git file invalid when its URL is refused or names the Workspace repository", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        gitFile(
+          "sources/git/git.example.org/plain-http.md",
+          "http://git.example.org/team/app.git",
+        ),
+        gitFile(
+          "sources/git/github.com/acme-context.md",
+          "https://github.com/Acme/Context.git",
+        ),
+      ],
+      connections: fileConnections,
+      workspaceUrl: "https://github.com/acme/context",
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/git/git.example.org/plain-http.md",
+        "invalid",
+        expect.stringContaining("must use an https:// URL"),
+      ],
+      [
+        "sources/git/github.com/acme-context.md",
+        "invalid",
+        expect.stringContaining("Workspace repository"),
+      ],
+    ])
+  })
+
+  it("keeps one source of a repository that a GitHub file and a plain git file both name", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        githubFile("sources/github/acme/web.md", "acme/web"),
+        gitFile(
+          "sources/git/github.com/acme-web.md",
+          "https://github.com/acme/web.git",
+        ),
+      ],
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["sources/git/github.com/acme-web.md", "ok", null],
+      [
+        "sources/github/acme/web.md",
+        "invalid",
+        expect.stringContaining("sources/git/github.com/acme-web.md"),
+      ],
+    ])
+  })
+
+  it("makes a plain git file that now names another URL invalid", async () => {
+    const rows = await planSourceRows({
+      text: null,
+      files: [
+        gitFile(
+          "sources/git/git.example.org/team-app.md",
+          "https://git.example.org/team/other.git",
+        ),
+      ],
+      connections: fileConnections,
+      previousRows: [
+        {
+          sourceKey: "sources/git/git.example.org/team-app.md",
+          provider: "git",
+          connectionId: null,
+          scope: { url: "https://git.example.org/team/app.git" },
+          status: "ok",
+        },
+      ],
+    })
+    expect(statuses(rows)).toEqual([
+      [
+        "sources/git/git.example.org/team-app.md",
+        "invalid",
+        expect.stringContaining("names another repository"),
+      ],
+    ])
+  })
+
+  it("refuses a plain git entry in .ctxpipe/sources.yaml", async () => {
+    const rows = await planSourceRows({
+      text: "version: 1\nsources:\n  - id: plain\n    provider: git\n    connection: con_linear1\n    url: https://git.example.org/team/app.git\n",
+      connections: fileConnections,
+    })
+    expect(statuses(rows)).toEqual([
+      ["plain", "invalid", expect.stringContaining("sources/git/")],
+    ])
+  })
+})
+
 describe("unmatchedSourceDetail", () => {
   const plan = (text: string) => planSourceRows({ text, connections })
 

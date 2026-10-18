@@ -223,7 +223,8 @@ export function linkGithubSourceFile(input: {
       action: "edit",
       path: existing.file.path,
       provider: "github",
-      connectionId: existing.parsed.source.connectionId,
+      // A GitHub source file always has a connection.
+      connectionId: existing.parsed.source.connectionId ?? input.connectionId,
       scope: { ...existing.parsed.source.scope, ref },
     },
   })

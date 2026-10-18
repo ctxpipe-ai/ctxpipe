@@ -1298,3 +1298,20 @@ describe("ownership skill", () => {
     ])
   })
 })
+
+describe("the repository name of a source URL", () => {
+  it("reads a GitHub URL and a plain git URL with a group or with one segment (CTX-815)", async () => {
+    const lib = await import(join(INGEST_SKILLS_DIR, "bin/knowledge-lib.mjs"))
+    expect(lib.repositoryName("https://github.com/acme/web")).toBe("acme/web")
+    expect(lib.repositoryName("https://git.example.org/acme/tools.git")).toBe(
+      "acme/tools",
+    )
+    expect(
+      lib.repositoryName("https://git.example.org/group/sub/tools.git"),
+    ).toBe("sub/tools")
+    expect(lib.repositoryName("https://git.example.org/tools.git")).toBe(
+      "git.example.org/tools",
+    )
+    expect(lib.repositoryName("https://git.example.org/")).toBeNull()
+  })
+})

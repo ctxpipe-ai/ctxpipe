@@ -366,6 +366,7 @@ function startRun(authorTime: string, source = sourceName, sha = sourceSha) {
     orgId,
     shadow: false,
     source: {
+      kind: "github" as const,
       url: `https://github.com/${source}`,
       githubConnectionId: connectionId,
     },
