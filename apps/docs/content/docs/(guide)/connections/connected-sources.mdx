@@ -19,6 +19,24 @@ foundation: it hosts workspace repositories and the code repositories you link.
 | **PagerDuty** | Select services, review draft `pagerduty/config.yaml` in a pull request, then merge it. Incidents from those services are mirrored as Markdown. |
 | **Repo-native docs** | README files, `docs/**`, ADRs, `AGENTS.md`, skills, and similar files in linked repositories are indexed with the code. |
 
+## Scope limits
+
+Each source has a maximum number of items in one list. The limit keeps one
+sync in the API rate limits of the provider. When you need more items, add a
+second source with the same connection. ctx| shows an error when a selection
+is above its limit.
+
+| Source | Maximum in one source |
+| --- | --- |
+| **GitHub** | 100 repositories in one entry of `.ctxpipe/sources.yaml` |
+| **Confluence** | 100 spaces, and 500 selected pages in one space (select all pages for more) |
+| **Slack** | 100 channels |
+| **Linear** | 50 teams and 100 projects |
+| **Notion** | 100 root pages and 100 databases |
+| **PagerDuty** | 100 services |
+
+The upgrade of an older Workspace splits a longer list into several sources.
+
 ## What belongs in Git
 
 Keep standards, decisions, and agent instructions close to the code when
