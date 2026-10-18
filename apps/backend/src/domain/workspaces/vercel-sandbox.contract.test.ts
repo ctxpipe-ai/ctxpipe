@@ -657,10 +657,20 @@ describe("hosted turn credentials", { timeout: 600_000 }, () => {
     expect(inside.stdout.length).toBeGreaterThan(0)
     for (const secret of secrets)
       expect(inside.stdout.includes(secret)).toBe(false)
+    const [scanStarted, sizes] = [
+      Date.now(),
+      await handle.process.exec(
+        'du -sk --exclude=/proc /vercel/sandbox "$HOME" /etc /tmp 2>/dev/null; du -sk "$HOME/.local" 2>/dev/null',
+      ),
+    ]
+    report(`[DEBUG-841] sizes in KiB ${Date.now() - scanStarted}ms: ${sizes.stdout.replaceAll("\n", " | ")}`)
+    const treeStarted = Date.now()
     const tree = await handle.process.exec(
       'tar -czf - --ignore-failed-read /vercel/sandbox "$HOME" /etc /tmp 2>/dev/null | base64 -w0',
     )
+    report(`[DEBUG-841] tar exec ${Date.now() - treeStarted}ms, base64 chars ${tree.stdout.length}`)
     const archive = gunzipSync(Buffer.from(tree.stdout, "base64"))
+    report(`[DEBUG-841] archive bytes ${archive.length}`)
     for (const secret of secrets) expect(archive.includes(secret)).toBe(false)
 
     started = Date.now()
