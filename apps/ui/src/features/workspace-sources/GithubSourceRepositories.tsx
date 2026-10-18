@@ -524,7 +524,9 @@ export function WorkspaceAddRepositoriesDialog(props: {
       ? sourcesQuery
       : upgradesQuery.isError
         ? upgradesQuery
-        : null
+        : connectionsQuery.isError
+          ? connectionsQuery
+          : null
   const gate =
     detailQuery.data && sourcesQuery.data && upgradesQuery.data
       ? addRepositoriesGate({

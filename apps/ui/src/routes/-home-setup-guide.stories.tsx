@@ -678,6 +678,33 @@ export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
   },
 }
 
+/** The connections load fails: the dialog shows Retry, not "connect first". */
+export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          failed("/api/v1/connectors"),
+          ...repositoriesGateHandlers({
+            detail: emptyLinkedWorkspaceDetail,
+            canEdit: true,
+            formatVersion: 3,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText("Could not load the Workspace")
+    await dialog.findByRole("button", { name: "Retry" })
+    await expect(
+      dialog.queryByText("Connect GitHub on the Connectors page first."),
+    ).not.toBeInTheDocument()
+  },
+}
+
 /** After the first question the guide is one line. Expand still works. */
 export const GuideAdminAfterFirstQuestion: Story = {
   tags: ["workspace-golden"],
