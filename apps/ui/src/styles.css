@@ -284,6 +284,25 @@
   animation: ctx-skeleton-wait var(--skeleton-wait, 1000ms) linear;
 }
 
+/*
+ * A block that may not show (the Get started guide) holds no space while it
+ * loads. When it mounts, it opens its height (DESIGN.md "Loading states").
+ * Reduced motion shortens the animation to 0.01 ms, by the motion rule below.
+ */
+@keyframes ctx-reveal-height {
+  from {
+    grid-template-rows: 0fr;
+  }
+  to {
+    grid-template-rows: 1fr;
+  }
+}
+
+.ctx-reveal-height {
+  display: grid;
+  animation: ctx-reveal-height 150ms ease-out;
+}
+
 @keyframes ctx-indexing-pulse {
   0%,
   100% {

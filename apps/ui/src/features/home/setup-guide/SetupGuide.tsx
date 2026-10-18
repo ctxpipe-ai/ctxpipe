@@ -11,7 +11,7 @@ import {
   IconUsersPlus,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useEffect, useState, useSyncExternalStore } from "react"
+import { type ReactNode, useState, useSyncExternalStore } from "react"
 import {
   Button as RACButton,
   ProgressBar as RACProgressBar,
@@ -528,30 +528,10 @@ function SetupGuidePanel(props: {
  * appears without animation.
  */
 export function SetupGuideReveal(props: { children: ReactNode }) {
-  const [open, setOpen] = useState(false)
-  const [settled, setSettled] = useState(false)
-  useEffect(() => {
-    const frame = requestAnimationFrame(() => setOpen(true))
-    // With reduced motion, no transition ends: settle after the duration.
-    const timer = setTimeout(() => setSettled(true), 250)
-    return () => {
-      cancelAnimationFrame(frame)
-      clearTimeout(timer)
-    }
-  }, [])
   return (
-    <div
-      className={cn(
-        "grid transition-[grid-template-rows] duration-150 ease-out motion-reduce:transition-none",
-        open ? "grid-rows-[1fr]" : "grid-rows-[0fr]",
-      )}
-      onTransitionEnd={(event) => {
-        if (event.target === event.currentTarget) setSettled(true)
-      }}
-    >
-      <div className={cn("min-h-0", !settled && "overflow-hidden")}>
-        {props.children}
-      </div>
+    <div className="ctx-reveal-height">
+      {/* The 1 px of room keeps the ring of the card inside the clip. */}
+      <div className="-m-px min-h-0 overflow-hidden p-px">{props.children}</div>
     </div>
   )
 }
