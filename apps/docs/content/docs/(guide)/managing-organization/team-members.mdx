@@ -7,17 +7,23 @@ description: Invitations, roles, and how membership gates access in ctx|.
 
 Each member has exactly one role per organization:
 
-| Role | Capabilities (summary) |
+| Role | What the role can do |
 | --- | --- |
-| **owner** | Full control including destructive org actions and ownership transfer. |
-| **admin** | Manage members, repositories, and settings. |
-| **member** | Work with repositories and conversations within the org. |
+| **owner** | Everything that an admin can do. Also delete the organization and transfer ownership. |
+| **admin** | Manage members and invitations. Add and change connectors. Start Workspace upgrades. Create organization API keys. |
+| **member** | Open and use the Workspaces of the organization, and chat in them. A member cannot manage members, connectors, upgrades, or organization API keys. |
 
-Roles are enforced across organization pages and MCP access.
+A connector is a connection to GitHub, Confluence, Slack, Linear, Notion, or
+PagerDuty. Only an **owner** or an **admin** can add or change one, and start a
+sync of one. Only an **owner** or an **admin** can start a Workspace upgrade or
+check for upgrades. A **member** can see that an upgrade is pending.
+
+These actions need a signed-in browser session. An API key or an MCP OAuth
+token cannot start them, even when the person who owns the key is an admin.
 
 ## Inviting by email
 
-From the dashboard (**Settings → Members**), send an invitation. The invitee
+In **Organization settings → Members**, send an invitation. The invitee
 receives an email with an accept link.
 
 - If the invitee **already has an account**, accepting attaches them to the org
@@ -28,11 +34,22 @@ receives an email with an accept link.
 ## Switching organizations
 
 Users in multiple organizations switch with the organization switcher. The URL
-updates so it is always clear which organization owns the current repository,
+updates so it is always clear which organization owns the current Workspace,
 conversation, connector, or graph context.
 
 ## MCP and membership
 
-MCP requests authenticate the user, then verify **membership in the org implied
-by `orgSlug`**. Without membership, the call does not proceed - there is no
-`orgId` knob inside tool schemas for agents to override.
+Each MCP tool call names one organization in its `org` argument. The server
+allows the call only when both of these are true:
+
+- The organization is in the set that the connection holds. You choose the set
+  when you authorize a client. You can change it later in
+  [Connected apps](/docs/mcp/connected-apps).
+- You are still a member of the organization.
+
+When you leave an organization, your connections lose access to it at once.
+There is no `orgId` argument in the tools for an agent to override.
+
+An organization API key is different. It reads the one organization that it was
+created for, and the `org` argument must name that organization. Create it in
+**Organization settings → API Keys**. See [Remote MCP](/docs/mcp/mcp-docs#api-key-auth).
