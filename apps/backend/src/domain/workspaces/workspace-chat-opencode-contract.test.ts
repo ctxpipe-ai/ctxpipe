@@ -147,14 +147,7 @@ describe("workspaceChatOpenCodeContract", () => {
         webfetch: "deny",
         websearch: "deny",
         external_directory: "deny",
-        doom_loop: "deny",
         question: "deny",
-        read: {
-          "*": "allow",
-          "*.env": "deny",
-          "*.env.*": "deny",
-          "*.env.example": "allow",
-        },
       },
       agent: {
         title: { disable: true },

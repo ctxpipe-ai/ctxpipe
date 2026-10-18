@@ -1,10 +1,18 @@
 import { execFileSync, spawn } from "node:child_process"
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  realpath,
+  rm,
+  writeFile,
+} from "node:fs/promises"
 import { createServer, request as httpRequest } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { type AdapterYieldChunk, chat } from "@tanstack/ai"
 import {
+  type OpencodePermissionRequest,
   type OpencodeStreamEvent,
   opencodeText,
   type SandboxOpencodeServer,
@@ -19,6 +27,7 @@ import {
 } from "@tanstack/ai-sandbox"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { expect, it, vi } from "vitest"
+import { createWorkspaceChatPermissionHandler } from "./chat-sandbox-policy.js"
 import { timedSandboxProvider } from "./sandbox-lifecycle-timing.js"
 import { conversationSandboxProvider } from "./tanstack-workspace-chat.js"
 import { turnAgentPassword } from "./vercel-sandbox-provider.js"
@@ -469,9 +478,9 @@ it(
   "refuses a chat write outside the repository at once, with a tool error the agent sees (CTX-846)",
   { timeout: 60_000 },
   async () => {
-    // OpenCode asks before it touches a path outside its directory. The
-    // adapter answers only the older permission event, so an ask that the
-    // chat config does not answer holds the turn until it is cancelled.
+    // By default, OpenCode asks before it touches a path outside its
+    // directory. The chat config denies such a path, so OpenCode refuses the
+    // call at once and the model gets the refusal as a tool result.
     const directory = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-outside-"))
     const outside = await mkdtemp(join(tmpdir(), "ctxpipe-opencode-target-"))
     const target = join(outside, "idle-probe.txt")
@@ -586,6 +595,160 @@ it(
       await sandbox.destroy()
       await rm(directory, { recursive: true, force: true })
       await rm(outside, { recursive: true, force: true })
+    }
+  },
+)
+
+it.each([
+  {
+    file: "local.env",
+    answer: "once",
+    tool: {
+      status: "completed",
+      output: expect.stringMatching(/ask-probe-secret/),
+    },
+  },
+  {
+    file: "auth_secret.env",
+    answer: "reject",
+    tool: {
+      status: "error",
+      error: expect.stringMatching(/rejected permission/),
+    },
+  },
+] as const)(
+  "sends the OpenCode 1.18 permission ask for $file to the chat permission handler and applies its $answer",
+  { timeout: 60_000 },
+  async ({ file, answer, tool }) => {
+    // OpenCode 1.18 asks with `permission.asked`, and the chat config keeps
+    // OpenCode's "ask" for a read of a .env file. The workspace chat handler
+    // must get the ask, and OpenCode must apply its answer.
+    // OpenCode resolves its directory through symlinks (macOS /var is one).
+    const directory = await realpath(
+      await mkdtemp(join(tmpdir(), "ctxpipe-opencode-ask-")),
+    )
+    const target = join(directory, file)
+    await writeFile(target, "ask-probe-secret\n")
+    const model = createServer((request, response) => {
+      if (request.url !== "/model/v1/chat/completions") {
+        response.writeHead(404)
+        response.end()
+        return
+      }
+      let body = ""
+      request.on("data", (chunk) => {
+        body += chunk
+      })
+      request.on("end", () => {
+        const chunks = body.includes("call_ask")
+          ? [
+              completionChunk({ role: "assistant", content: "done" }),
+              completionChunk({}, "stop"),
+            ]
+          : [
+              completionChunk({
+                role: "assistant",
+                tool_calls: [
+                  {
+                    index: 0,
+                    id: "call_ask",
+                    type: "function",
+                    function: {
+                      name: "read",
+                      arguments: JSON.stringify({ filePath: target }),
+                    },
+                  },
+                ],
+              }),
+              completionChunk({}, "tool_calls"),
+            ]
+        response.writeHead(200, { "content-type": "text/event-stream" })
+        for (const chunk of chunks)
+          response.write(`data: ${JSON.stringify(chunk)}\n\n`)
+        response.end("data: [DONE]\n\n")
+      })
+    })
+    const sandbox = await localProcessSandbox({
+      dir: directory,
+      removeOnDestroy: true,
+    }).create({ id: directory, workspace: { source: { type: "none" } } })
+    const handler = createWorkspaceChatPermissionHandler({
+      writeStatus: "read_only",
+      judge: async () => {
+        throw new Error("a read must not go to the judge")
+      },
+    })
+    const asks: OpencodePermissionRequest[] = []
+    const answers: string[] = []
+    const toolStates: unknown[] = []
+    let timer: ReturnType<typeof setTimeout> | undefined
+    try {
+      await new Promise<void>((resolve) =>
+        model.listen(0, "127.0.0.1", () => resolve()),
+      )
+      const address = model.address()
+      if (!address || typeof address === "string")
+        throw new Error("model fixture did not bind")
+      await sandbox.env.set(
+        syntheticOpencodeEnv(
+          directory,
+          `http://127.0.0.1:${address.port}/model/v1`,
+          workspaceChatOpenCodeConfig({
+            modelBase: "probe",
+            proxyAddsCredentials: true,
+          }).permission,
+        ),
+      )
+      const server = await startOpencodeServerInSandbox(sandbox, {
+        port: await freeLoopbackPort(),
+        hostname: "127.0.0.1",
+        cwd: ".",
+      })
+      let session: Awaited<ReturnType<typeof startOpencodeSession>> | undefined
+      try {
+        session = await startOpencodeSession({
+          baseUrl: server.baseUrl,
+          providerID: "synthetic",
+          modelID: "probe",
+          onEvent: (event) => {
+            if (
+              event.type === "message.part.updated" &&
+              event.properties.part.type === "tool" &&
+              event.properties.part.callID === "call_ask"
+            )
+              toolStates.push(event.properties.part.state)
+          },
+          onPermissionRequest: async (request) => {
+            asks.push(request)
+            const reply = await handler(request)
+            answers.push(reply)
+            return reply
+          },
+        })
+        const reply = await Promise.race([
+          session.prompt(`Read ${target}.`),
+          new Promise<"hung">((resolve) => {
+            timer = setTimeout(() => resolve("hung"), 20_000)
+          }),
+        ])
+        expect(reply).not.toBe("hung")
+      } finally {
+        await session?.abort()
+        await session?.dispose()
+        await server.dispose()
+      }
+      expect(asks).toEqual([
+        expect.objectContaining({ type: "read", callID: "call_ask" }),
+      ])
+      expect(answers).toEqual([answer])
+      // OpenCode applied the answer to the tool call.
+      expect(toolStates.at(-1)).toEqual(expect.objectContaining(tool))
+    } finally {
+      clearTimeout(timer)
+      model.closeAllConnections()
+      model.close()
+      await sandbox.destroy()
+      await rm(directory, { recursive: true, force: true })
     }
   },
 )
