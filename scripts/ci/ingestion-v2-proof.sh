@@ -176,6 +176,8 @@ for ((i = 0; i < count; i++)); do
     sleep "$poll_seconds"
   done
   echo "::endgroup::"
+  # The job summary is not in the API, so the log also shows how the run ended.
+  echo "Run $run_id ended: $(jq -c '{status, outputStatus, outputReason, error}' <<<"$state")"
 
   status=$(jq -r .status <<<"$state")
   spend=$(jq -r .spendUsd <<<"$state")
@@ -194,6 +196,9 @@ for ((i = 0; i < count; i++)); do
 
   result=PASS
   case "$status" in completed | succeeded) ;; *) result="FAIL: run $status" ;; esac
+  output_status=$(jq -r '.outputStatus // empty' <<<"$state")
+  [ "$result" != PASS ] || [ -z "$output_status" ] || [ "$output_status" = done ] ||
+    result="FAIL: output $output_status ($(jq -r '.outputReason // "no reason"' <<<"$state"))"
   [ -z "$note" ] || result="FAIL: $note"
   if [ "$kill_here" -eq 1 ]; then
     if [ "$killed" -eq 0 ]; then
