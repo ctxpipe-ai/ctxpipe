@@ -13,6 +13,7 @@ import {
 } from "../db/schema/repositories.js"
 import { restoreJobTelemetry } from "../observability/jobTelemetry.js"
 import { createLogger, withLogger } from "../observability/logger.js"
+import { usePlainGitNetwork } from "../services/git/plain-git-remote.js"
 
 // The worker's OpenTelemetry SDK installs a context manager; restored job
 // attribution reaches an awaited enqueue through it.
@@ -38,6 +39,9 @@ describe("enqueueFollowUpIfTipAhead (Postgres)", () => {
   beforeAll(async () => {
     const connectionString = process.env.DATABASE_URL
     if (!connectionString) throw new Error("DATABASE_URL is required")
+    // The repository has no GitHub token, so the backend checks it as a
+    // plain git URL (CTX-815). The test has its own DNS answer.
+    usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
     process.env.CODESEARCH_URL = codesearch
     initDb(connectionString)
     await withOrgDbContext(orgId, (db) =>

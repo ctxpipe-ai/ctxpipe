@@ -64,8 +64,11 @@ export function githubFetchCredentialRules(
   )
 }
 
-/** One public plain git repository: its host and its path (CTX-815). */
-export type PlainGitRepository = { host: string; path: string }
+/**
+ * One plain git repository: its host, its path, and the port that git
+ * connects to (CTX-815). With no port, the port is 443.
+ */
+export type PlainGitRepository = { host: string; path: string; port?: number }
 
 /**
  * Git fetch only of one public plain git repository, with no credential

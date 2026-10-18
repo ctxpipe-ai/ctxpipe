@@ -21,6 +21,7 @@ import {
 } from "../../db/schema/repositories.js"
 import { generateObjectId } from "../../lib/id.js"
 import { markRepositoryIndexingReady } from "../../models/repositories.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { repositoryIndex } from "./repository-index.js"
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url))
@@ -72,6 +73,9 @@ describeWithDatabase("repository-index same-SHA coalescing", () => {
   let runner: OpenWorkflow | undefined
 
   beforeAll(async () => {
+    // The repository has no GitHub token, so the backend checks it as a
+    // plain git URL (CTX-815). The test has its own DNS answer.
+    usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
     const databaseUrl = process.env.DATABASE_URL
     if (!databaseUrl) return
     vi.stubEnv("CODESEARCH_URL", CODESEARCH)
