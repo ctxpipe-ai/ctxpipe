@@ -46,8 +46,10 @@ commit and pull request. The Workspace graph then joins the build to them.
     In Buildkite, open
     [API Access Tokens](https://buildkite.com/user/api-access-tokens/new).
     Select only your organization, and only these REST scopes:
-    `read_pipelines` and `read_builds`. ctx| refuses a token that has
-    any other scope, because the connector only needs these two.
+    `read_pipelines` and `read_builds`. Do not select **Enable GraphQL API
+    access**: that option gives the token full access, also writes. ctx|
+    refuses a token that has any other scope or GraphQL API access, because
+    the connector only needs these two scopes.
   </Step>
 
   <Step>
@@ -112,7 +114,7 @@ no longer among the latest 25, ctx| deletes its file in the same commit.
 ### Buildkite refuses the token
 
 The setup shows the reason. Make sure that the token has the two read
-scopes, and that the organization of the token is the organization slug that
+scopes and no GraphQL API access, and that the organization of the token is the organization slug that
 you typed.
 
 ### The card shows “Needs reconnect”

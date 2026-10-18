@@ -41,6 +41,10 @@ const server = setupServer(
       ? HttpResponse.json({ scopes: ["read_pipelines", "read_builds"] })
       : HttpResponse.json({ message: "Unauthorized" }, { status: 401 }),
   ),
+  // The good token has no GraphQL access, so Buildkite refuses the query.
+  http.post("https://graphql.buildkite.com/v1", () =>
+    HttpResponse.json({ message: "Unauthorized" }, { status: 401 }),
+  ),
   http.get(`${API}/organizations/:slug/pipelines`, ({ params }) =>
     params.slug === "acme"
       ? HttpResponse.json([
@@ -180,6 +184,33 @@ describe("Buildkite connector routes (Postgres + msw)", () => {
     expect(res.status).toBe(400)
     expect(await res.json()).toEqual({
       error: "Buildkite does not accept this API access token.",
+    })
+    const after = await withOrgDbContext(seed.orgId, (db) =>
+      db.select().from(connections).where(eq(connections.orgId, seed.orgId)),
+    )
+    expect(after).toHaveLength(before.length)
+  })
+
+  it("refuses a token with GraphQL API access, and saves nothing", async () => {
+    // The REST scopes are correct, but GraphQL access is a separate setting.
+    server.use(
+      http.post("https://graphql.buildkite.com/v1", () =>
+        HttpResponse.json({ data: { viewer: { id: "VXNlci0t" } } }),
+      ),
+    )
+    const before = await withOrgDbContext(seed.orgId, (db) =>
+      db.select().from(connections).where(eq(connections.orgId, seed.orgId)),
+    )
+
+    const res = await connect({
+      organizationSlug: "acme",
+      apiToken: GOOD_TOKEN,
+    })
+
+    expect(res.status).toBe(400)
+    expect(await res.json()).toEqual({
+      error:
+        "The token has GraphQL API access. Edit the token in Buildkite and turn off GraphQL API access. The connector only reads.",
     })
     const after = await withOrgDbContext(seed.orgId, (db) =>
       db.select().from(connections).where(eq(connections.orgId, seed.orgId)),

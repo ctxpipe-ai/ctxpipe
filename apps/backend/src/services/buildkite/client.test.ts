@@ -18,6 +18,7 @@ import {
 } from "./client.js"
 
 const API = "https://api.buildkite.com/v2"
+const GRAPHQL = "https://graphql.buildkite.com/v1"
 const requests: string[] = []
 const server = setupServer()
 
@@ -138,18 +139,82 @@ describe("verifyBuildkiteAccess", () => {
     verifyBuildkiteAccess({ apiToken: "token", organizationSlug: "acme" })
   const token = (scopes: string[]) =>
     http.get(`${API}/access-token`, () => HttpResponse.json({ scopes }))
+  // Buildkite refuses a GraphQL request when the token has no GraphQL access.
+  const graphqlDisabled = (status = 401) =>
+    http.post(GRAPHQL, () =>
+      HttpResponse.json(
+        { errors: [{ message: "GraphQL API access is not enabled" }] },
+        { status },
+      ),
+    )
+  const pipelines = () =>
+    http.get(`${API}/organizations/acme/pipelines`, ({ request }) => {
+      requests.push(new URL(request.url).search)
+      return HttpResponse.json([{ slug: "web-app", name: "Web App" }])
+    })
 
   it("accepts a token with the read scopes that lists the pipelines", async () => {
     server.use(
       token(["read_pipelines", "read_builds"]),
-      http.get(`${API}/organizations/acme/pipelines`, ({ request }) => {
-        requests.push(new URL(request.url).search)
-        return HttpResponse.json([{ slug: "web-app", name: "Web App" }])
-      }),
+      graphqlDisabled(),
+      pipelines(),
     )
     expect(await verify()).toEqual({ ok: true })
     // One pipeline is enough to prove access to the organization.
     expect(requests).toEqual(["?per_page=1"])
+  })
+
+  it.each([
+    401, 403,
+  ])("accepts a token for which GraphQL answers %s (GraphQL access off)", async (status) => {
+    server.use(
+      token(["read_pipelines", "read_builds"]),
+      graphqlDisabled(status),
+      pipelines(),
+    )
+    expect(await verify()).toEqual({ ok: true })
+  })
+
+  it("refuses a token with GraphQL access, which the REST scopes do not show", async () => {
+    const queries: unknown[] = []
+    server.use(
+      token(["read_pipelines", "read_builds"]),
+      http.post(GRAPHQL, async ({ request }) => {
+        expect(request.headers.get("authorization")).toBe("Bearer token")
+        queries.push(await request.json())
+        return HttpResponse.json({ data: { viewer: { id: "VXNlci0t" } } })
+      }),
+      pipelines(),
+    )
+    expect(await verify()).toEqual({
+      ok: false,
+      error:
+        "The token has GraphQL API access. Edit the token in Buildkite and turn off GraphQL API access. The connector only reads.",
+    })
+    expect(queries).toEqual([{ query: "{ viewer { id } }" }])
+    expect(requests).toEqual([])
+  })
+
+  it.each([
+    ["a server error", () => new HttpResponse(null, { status: 500 })],
+    ["a rate limit", () => new HttpResponse(null, { status: 429 })],
+    ["a network error", () => HttpResponse.error()],
+    [
+      "a redirect",
+      () => HttpResponse.redirect("https://elsewhere.example/graphql", 307),
+    ],
+  ])("refuses the token when the GraphQL check gives %s", async (_name, answer) => {
+    server.use(
+      token(["read_pipelines", "read_builds"]),
+      http.post(GRAPHQL, answer),
+      pipelines(),
+    )
+    expect(await verify()).toEqual({
+      ok: false,
+      error:
+        "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
+    })
+    expect(requests).toEqual([])
   })
 
   it("names the missing scopes", async () => {
@@ -177,6 +242,7 @@ describe("verifyBuildkiteAccess", () => {
     "read_agents",
     "read_clusters",
     "read_teams",
+    "graphql",
   ])("refuses a token that also has %s", async (extra) => {
     server.use(token(["read_pipelines", "read_builds", extra]))
     expect(await verify()).toEqual({
@@ -209,6 +275,7 @@ describe("verifyBuildkiteAccess", () => {
   it("refuses an organization that the token cannot read", async () => {
     server.use(
       token(["read_pipelines", "read_builds"]),
+      graphqlDisabled(),
       http.get(`${API}/organizations/acme/pipelines`, () =>
         HttpResponse.json({ message: "Not Found" }, { status: 404 }),
       ),

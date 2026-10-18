@@ -6,6 +6,7 @@ import type {
 } from "./converter.js"
 
 const BUILDKITE_API = "https://api.buildkite.com/v2"
+const BUILDKITE_GRAPHQL = "https://graphql.buildkite.com/v1"
 
 /** The REST scopes that the API access token must have (ADR-054). */
 export const BUILDKITE_REQUIRED_SCOPES = [
@@ -164,8 +165,44 @@ function toBuild(build: z.infer<typeof buildSchema>): BuildkiteBuildForMirror {
 }
 
 /**
- * Check that the token is valid, has the read scopes, and can list the
- * pipelines of the organization. Gives the reason to show the admin.
+ * GraphQL access is a token setting apart from the REST scopes, and
+ * `/access-token` does not always show it. With GraphQL access, the token can
+ * do all that its user can do, also writes. Thus send one read query:
+ * Buildkite refuses it (401 or 403) only when GraphQL access is off. Each
+ * other result, also an error, gives "enabled" or "unknown", and the caller
+ * refuses the token (fail closed).
+ */
+async function buildkiteGraphqlAccess(input: {
+  apiToken: string
+  timeoutMs?: number
+}): Promise<"disabled" | "enabled" | "unknown"> {
+  let response: Response
+  try {
+    // No redirect: the token stays on the Buildkite GraphQL host.
+    response = await fetch(BUILDKITE_GRAPHQL, {
+      method: "POST",
+      headers: {
+        accept: "application/json",
+        authorization: `Bearer ${input.apiToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ query: "{ viewer { id } }" }),
+      redirect: "error",
+      signal: AbortSignal.timeout(input.timeoutMs ?? 15_000),
+    })
+  } catch {
+    return "unknown"
+  }
+  // The body is not necessary. Do not read it.
+  await response.body?.cancel().catch(() => undefined)
+  if (response.status === 401 || response.status === 403) return "disabled"
+  return response.ok ? "enabled" : "unknown"
+}
+
+/**
+ * Check that the token is valid, has the read scopes only, has no GraphQL
+ * access, and can list the pipelines of the organization. Gives the reason
+ * to show the admin.
  */
 export async function verifyBuildkiteAccess(input: {
   apiToken: string
@@ -216,6 +253,19 @@ export async function verifyBuildkiteAccess(input: {
     return {
       ok: false,
       error: `Give the token these scopes: ${missing.join(", ")}.`,
+    }
+  const graphql = await buildkiteGraphqlAccess(input)
+  if (graphql === "enabled")
+    return {
+      ok: false,
+      error:
+        "The token has GraphQL API access. Edit the token in Buildkite and turn off GraphQL API access. The connector only reads.",
+    }
+  if (graphql === "unknown")
+    return {
+      ok: false,
+      error:
+        "ctx| cannot make sure that the token has no GraphQL API access. Try again later.",
     }
   const response = await buildkiteGet({
     apiToken: input.apiToken,

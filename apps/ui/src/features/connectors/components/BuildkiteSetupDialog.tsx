@@ -257,7 +257,8 @@ function ConnectStep(props: {
           </code>{" "}
           and{" "}
           <code className="font-mono text-xs text-foreground">read_builds</code>{" "}
-          scopes. ctx| refuses a token with more scopes. It only reads with the
+          scopes, and do not select GraphQL API access. ctx| refuses a token
+          with more scopes or with GraphQL API access. It only reads with the
           token, and keeps it encrypted.
         </p>
       </div>
