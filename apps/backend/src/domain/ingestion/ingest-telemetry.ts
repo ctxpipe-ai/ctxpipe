@@ -29,6 +29,32 @@ export function capIngestText(text: string): string {
     : text
 }
 
+/**
+ * The log fields of a failed ingest step. An error message or `name` can
+ * hold source text, so the fields hold only the class of the error, a
+ * system error code (for example `ECONNRESET`), and the start of a message
+ * from this list. The list holds only messages with no source text.
+ */
+export function ingestErrorFields(error: unknown): {
+  errorClass: string
+  errorCode?: string
+  errorKind?: string
+} {
+  if (!(error instanceof Error)) return { errorClass: typeof error }
+  const code = (error as { code?: unknown }).code
+  const kind =
+    /^(?:Ingest root command failed \(exit -?\d+\)|Sandbox lock ownership (?:lost|expired)|The ingest step reached its time limit|\(HTTP code \d{3}\)|aborted$|socket hang up$|discover-roots failed)/.exec(
+      error.message,
+    )?.[0]
+  return {
+    errorClass: error.constructor.name,
+    ...(typeof code === "string" && /^E[A-Z0-9_]{2,40}$/.test(code)
+      ? { errorCode: code }
+      : {}),
+    ...(kind ? { errorKind: kind } : {}),
+  }
+}
+
 const tracer = () => trace.getTracer("ctxpipe-ingestion")
 
 /**

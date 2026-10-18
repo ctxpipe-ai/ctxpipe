@@ -250,16 +250,48 @@ describe("ingestion step telemetry with the local git broker", () => {
       expect(
         events.find((e) => e.step === "ingestion-v2.step-partial")?.reason,
       ).toBe("step_failed")
-      // Each failed attempt logs where it failed, with no error text.
+      // Each failed attempt logs where it failed and the error class, with
+      // no error text.
       expect(
         events
           .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
-          .map((e) => [e.attempt, e.stage, e.exitCode]),
+          .map((e) => [e.attempt, e.stage, e.exitCode, e.errorClass]),
       ).toEqual([
-        [1, "runtime", undefined],
-        [2, "runtime", undefined],
-        [3, "runtime", undefined],
+        [1, "runtime", undefined, "Error"],
+        [2, "runtime", undefined, "Error"],
+        [3, "runtime", undefined, "Error"],
       ])
+      expect(JSON.stringify([events, spans()])).not.toContain(
+        "private sentinel",
+      )
+    },
+  )
+  it(
+    "logs the code and the known start of a runtime error, with no source text",
+    { timeout: 25000 },
+    async () => {
+      const runtime = {
+        ensure: async () => {},
+        discoverRoots: async () => ({}),
+        runStep: async () => {
+          throw Object.assign(
+            new Error("Ingest root command failed (exit -1): private sentinel"),
+            { code: "ECONNRESET" },
+          )
+        },
+      }
+      expect((await runStep({}, { runtime })).partial).toBe(1)
+      expect(
+        events
+          .filter((e) => e.step === "ingestion-v2.step-attempt-failed")
+          .map((e) => [e.stage, e.errorCode, e.errorKind]),
+      ).toEqual(
+        Array(3).fill([
+          "runtime",
+          "ECONNRESET",
+          "Ingest root command failed (exit -1)",
+        ]),
+      )
       expect(JSON.stringify([events, spans()])).not.toContain(
         "private sentinel",
       )

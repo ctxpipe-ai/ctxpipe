@@ -116,7 +116,11 @@ function signalledRootExec(exec: RootCommand): RootExec {
 
 export function dockerRootExec(
   containerId: string,
-  docker: Docker = new Docker({ timeout: 120_000 }),
+  // The client timeout is an idle timeout: it also ends an exec that writes
+  // nothing for that long. A model step can write nothing for minutes, so
+  // the timeout is longer than the step limit (`INGEST_STEP_LIMIT_MS`, 10
+  // min), and the step limit ends a step.
+  docker: Docker = new Docker({ timeout: 15 * 60_000 }),
 ): RootExec {
   const container = docker.getContainer(containerId)
   return signalledRootExec(async (cmd) => {
