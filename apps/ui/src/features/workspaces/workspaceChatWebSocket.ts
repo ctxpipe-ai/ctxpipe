@@ -123,10 +123,14 @@ export function workspaceChatWebSocket(
   }
 }
 
+/**
+ * Only an `offset` makes a resume, as on the backend. The first Send of a run
+ * also has `?runId=`; it must use the warmed socket, because a new socket
+ * adds a full handshake to the first turn.
+ */
 export function workspaceChatSocketIsResume(url: string): boolean {
   try {
-    const parsed = new URL(url, "http://localhost")
-    return parsed.searchParams.has("offset") || parsed.searchParams.has("runId")
+    return new URL(url, "http://localhost").searchParams.has("offset")
   } catch {
     return false
   }

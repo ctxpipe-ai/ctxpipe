@@ -203,4 +203,40 @@ describe("workspace chat websocket reuse", () => {
     expect(shouldReuseWarmedWorkspaceChatSocket(warmed, resume)).toBe(false)
     expect(shouldReuseWarmedWorkspaceChatSocket(warmed, warmed)).toBe(true)
   })
+
+  it("sends the first run frame on the warmed socket, with no second handshake", async () => {
+    const instances: Array<{ url: string; sent: string[] }> = []
+    class FakeSocket {
+      readyState = 1
+      url: string
+      sent: string[] = []
+      onopen: (() => void) | null = null
+      close = vi.fn()
+      send(data: string) {
+        this.sent.push(data)
+      }
+      constructor(url: string | URL) {
+        this.url = String(url)
+        instances.push(this)
+      }
+    }
+    vi.stubGlobal("WebSocket", FakeSocket)
+    try {
+      const connection = workspaceChatWebSocket("acme", "conv_1")
+      connection.warm()
+      // The chat client opens the run at `?runId=`, as on the first Send.
+      await connection.send([], {}, undefined, {
+        runId: "run_1",
+        threadId: "conv_1",
+      } as Parameters<typeof connection.send>[3])
+      expect(instances).toHaveLength(1)
+      expect(instances[0]?.sent).toHaveLength(1)
+      expect(JSON.parse(instances[0]?.sent[0] ?? "{}")).toMatchObject({
+        runId: "run_1",
+      })
+      connection.dispose()
+    } finally {
+      vi.unstubAllGlobals()
+    }
+  })
 })
