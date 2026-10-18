@@ -185,6 +185,8 @@ async function requestTokens(input: {
     `https://${input.subdomain}.zendesk.com/oauth/tokens`,
     {
       signal: AbortSignal.timeout(30_000),
+      // A redirect must not take the client secret or the code to another host.
+      redirect: "error",
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify(input.body),

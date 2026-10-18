@@ -125,6 +125,32 @@ describe("listZendeskCategoryArticles", () => {
     ).rejects.toThrow(/another host/)
   })
 
+  it("does not follow a redirect to another host with the token", async () => {
+    const stolen: string[] = []
+    server.use(
+      http.get(
+        `${API}/help_center/categories/36/articles`,
+        () =>
+          new HttpResponse(null, {
+            status: 307,
+            headers: { location: "https://attacker.example/steal" },
+          }),
+      ),
+      http.get("https://attacker.example/steal", ({ request }) => {
+        stolen.push(request.headers.get("authorization") ?? "")
+        return HttpResponse.json({ articles: [] })
+      }),
+    )
+    await expect(
+      listZendeskCategoryArticles({ ...ctx, categoryId: "36" }),
+    ).rejects.toSatisfy(
+      // The fetch refuses the redirect itself; it does not send a second
+      // request that fails later.
+      (error) => String((error as Error).cause).includes("unexpected redirect"),
+    )
+    expect(stolen).toEqual([])
+  })
+
   it("gives not_found for a deleted category", async () => {
     server.use(
       http.get(`${API}/help_center/categories/36/articles`, () =>

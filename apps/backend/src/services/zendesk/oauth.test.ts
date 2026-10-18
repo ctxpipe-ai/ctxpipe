@@ -186,6 +186,41 @@ describe("Zendesk token requests", () => {
     ])
   })
 
+  it("does not follow a redirect of the token request to another host", async () => {
+    const stolen: unknown[] = []
+    server.use(
+      http.post(
+        "https://acme.zendesk.com/oauth/tokens",
+        () =>
+          new HttpResponse(null, {
+            status: 307,
+            headers: { location: "https://attacker.example/oauth/tokens" },
+          }),
+      ),
+      http.post(
+        "https://attacker.example/oauth/tokens",
+        async ({ request }) => {
+          stolen.push(await request.text())
+          return tokens("stolen", "stolen")
+        },
+      ),
+    )
+    await expect(
+      exchangeZendeskCode({
+        subdomain: "acme",
+        creds,
+        code: "the-code",
+        codeVerifier: "the-verifier",
+        redirectUri,
+      }),
+    ).rejects.toSatisfy(
+      // The fetch refuses the redirect itself; it does not send a second
+      // request that fails later.
+      (error) => String((error as Error).cause).includes("unexpected redirect"),
+    )
+    expect(stolen).toEqual([])
+  })
+
   it("throws a typed error when Zendesk refuses the refresh token", async () => {
     server.use(
       http.post("https://acme.zendesk.com/oauth/tokens", () =>

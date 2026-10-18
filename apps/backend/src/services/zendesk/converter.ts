@@ -70,11 +70,8 @@ function linkText(value: string): string {
 
 /** A URL that carries a credential: a signed URL, a token, or a Zendesk attachment token path. */
 function isPrivateUrl(url: string): boolean {
-  // A link with another scheme (javascript:, data:) is never kept.
-  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase()
-  if (scheme && !["http", "https", "mailto"].includes(scheme)) return true
   // A relative link resolves first, so its query is checked too.
-  const absolute = scheme
+  const absolute = /^[a-z][a-z0-9+.-]*:/i.test(url)
     ? url
     : `https://zendesk.invalid${url.startsWith("/") ? "" : "/"}${url}`
   return (
@@ -87,6 +84,16 @@ function isPrivateUrl(url: string): boolean {
 }
 
 /**
+ * A Markdown link target that the mirror keeps: an https or a relative link
+ * without a credential. A link with another scheme (http:, mailto:,
+ * javascript:, data:) keeps only its text.
+ */
+function keepsLinkTarget(url: string): boolean {
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(url)?.[1]?.toLowerCase()
+  return (scheme === undefined || scheme === "https") && !isPrivateUrl(url)
+}
+
+/**
  * Text without private URLs. A Markdown link to one keeps only its text; a
  * bare or angle-bracket URL becomes a stub.
  */
@@ -94,11 +101,81 @@ function withoutPrivateUrls(text: string): string {
   return text
     .replace(
       /\[([^\]]*)\]\((\S+?)(?:\s+"[^"]*")?\)/g,
-      (link, label: string, url: string) => (isPrivateUrl(url) ? label : link),
+      (link, label: string, url: string) =>
+        keepsLinkTarget(url) ? link : label,
     )
     .replace(/https?:\/\/[^\s<>()"']+/g, (url) =>
       isPrivateUrl(url) ? "[link removed]" : url,
     )
+}
+
+/**
+ * Text in which each URL has no query and no fragment: the scheme, the host
+ * and the path stay. The query of a URL in a ticket can hold any credential,
+ * so no list of parameter names decides. The query ends at a space, at `<` or
+ * `>`, or at the `](` of a Markdown link. A closing bracket or a punctuation
+ * mark at the end stays when the text around the URL needs it, but a `)` that
+ * the query opened goes with the query.
+ */
+function withoutUrlQueries(text: string): string {
+  return text.replace(
+    /((?:\b[a-z][a-z0-9+.-]*:\/\/|\bwww\.|\]\()[^\s?#<>]*)([?#](?:(?!\]\()[^\s<>])*)/gi,
+    (_match, base: string, query: string) => {
+      const tail = /[)\]}.,;:!?'"*_]*$/.exec(query)?.[0] ?? ""
+      const open = (query.match(/\(/g) ?? []).length
+      const close = (query.match(/\)/g) ?? []).length
+      let unmatched = close - open
+      // Keep the end marks from the right: a `)` only while the text before
+      // the query opened it.
+      let kept = ""
+      for (const mark of [...tail].reverse()) {
+        if (mark === ")") {
+          if (unmatched <= 0) break
+          unmatched -= 1
+        }
+        kept = mark + kept
+      }
+      return base + kept
+    },
+  )
+}
+
+/** Dates and times stay: `2026-10-14`, `14.10.2026`, `09:00`. */
+const datePattern =
+  /\d{4}-\d{2}-\d{2}(?:[T ]\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:?\d{2})?)?|\d{1,2}[./]\d{1,2}[./]\d{2,4}(?: \d{2}:\d{2})?/
+    .source
+
+/**
+ * A run of digit groups that can be a phone number: an optional `+`, then
+ * digit groups with one space, dot or dash between them, and brackets around
+ * a group. A run never starts after a letter, a digit, `.`, `/`, `#` or `-`
+ * (a version, a path, a ticket reference) and never ends before a letter, a
+ * digit or `:` (a time).
+ */
+const phoneRunPattern =
+  /(?<![\w.+/#-])(?:\+ ?)?\(?\d+(?:(?:\) ?|[ .-]\(?|\()(?!\d{4}-\d{2}-\d{2})\d+)*(?![\w:])/
+    .source
+
+/**
+ * Text without phone numbers: 9 to 15 digits in one run, or a short local
+ * number such as `555-1234`. In a code span, a run of digit groups with only
+ * dots between them is a version and stays.
+ */
+function withoutPhoneNumbers(text: string): string {
+  const pattern = new RegExp(`(${datePattern})|${phoneRunPattern}`, "g")
+  return text
+    .split(/(```[\s\S]*?```|`[^`\n]*`)/)
+    .map((part, index) =>
+      part.replace(pattern, (match, date: string | undefined) => {
+        if (date) return match
+        if (index % 2 === 1 && /^\d+(?:\.\d+)+$/.test(match)) return match
+        const digits = match.replace(/\D/g, "").length
+        return (digits >= 9 && digits <= 15) || /^\d{3}-\d{4}$/.test(match)
+          ? "[phone removed]"
+          : match
+      }),
+    )
+    .join("")
 }
 
 /**
@@ -107,23 +184,72 @@ function withoutPrivateUrls(text: string): string {
  * addresses and phone numbers. Other personal data can remain.
  */
 function redactTicketText(text: string): string {
-  return (
-    withoutPrivateUrls(text)
+  return withoutPhoneNumbers(
+    withoutUrlQueries(withoutPrivateUrls(text))
+      // A link with a script or data scheme that a bracket in its target
+      // kept out of the link pass.
+      .replace(/\b(?:javascript|data|vbscript|file):\S*/gi, "[link removed]")
       .replace(
         /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
         "[email removed]",
-      )
-      .replace(
-        /\+\d[\d\s().-]{7,}\d|\(\d{3}\)\s?\d{3}[-.\s]\d{4}|\b\d{3}[-. ]\d{3}[-. ]\d{4}\b/g,
-        "[phone removed]",
-      )
-      // A national number that starts with 0 (Australia, the UK): 9 to 11
-      // digits in groups. The digit count keeps a spaced date out.
-      .replace(/\b0\d{1,4}(?:[ -]\d{2,6}){1,3}\b/g, (match) => {
-        const digits = match.replace(/\D/g, "").length
-        return digits >= 9 && digits <= 11 ? "[phone removed]" : match
-      })
+      ),
   )
+}
+
+/**
+ * Customer text for one line (a subject, a name, a tag): one line, with no
+ * HTML and no Markdown heading or link syntax.
+ */
+function inlineTicketText(text: string): string {
+  return redactTicketText(text.replace(/\s*[\r\n]+\s*/g, " ").trim())
+    .split(/(\[(?:email|phone|link) removed\])/)
+    .map((part, index) =>
+      index % 2 === 1
+        ? part
+        : part.replace(/[\\<#[\]]/g, (mark) =>
+            mark === "<" ? "&lt;" : `\\${mark}`,
+          ),
+    )
+    .join("")
+}
+
+/**
+ * A comment body as a Markdown quote, so that customer text cannot add a
+ * heading or another block to the file. A line that would still be a
+ * heading or a heading underline inside the quote is escaped.
+ */
+function quotedTicketText(text: string): string {
+  return redactTicketText(text.trim())
+    .split(/\r?\n/)
+    .map((line) => {
+      const escaped = line
+        .replace(/^(\s*)(#|[=-]+\s*$)/, "$1\\$2")
+        .replace(/</g, "&lt;")
+      return escaped ? `> ${escaped}` : ">"
+    })
+    .join("\n")
+}
+
+/**
+ * The article link, only when it is an https link on the account's own
+ * Zendesk host. A bracket in it is encoded, so it cannot end the link.
+ */
+function articleUrl(url: string, subdomain: string): string | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  if (
+    parsed.protocol !== "https:" ||
+    parsed.hostname !== `${subdomain.toLowerCase()}.zendesk.com` ||
+    parsed.port !== "" ||
+    parsed.username !== "" ||
+    parsed.password !== ""
+  )
+    return null
+  return parsed.href.replace(/\(/g, "%28").replace(/\)/g, "%29")
 }
 
 /**
@@ -145,16 +271,19 @@ function articleBodyMarkdown(html: string): string {
 }
 
 export function zendeskArticleFile(input: {
+  /** The account's subdomain: the article link must be on its host. */
+  subdomain: string
   categoryId: string
   article: ZendeskArticleForMirror
 }): GitFileChange {
   const { article } = input
   const slug = slugify(article.title).slice(0, 80) || "untitled"
+  const url = articleUrl(article.url, input.subdomain)
   const lines = [
     ...frontMatter([
       ["source", "zendesk"],
       ["zendesk_id", article.id],
-      ["url", article.url],
+      ["url", url],
       ["category_id", input.categoryId],
       ["section_id", article.sectionId],
       ["locale", article.locale],
@@ -163,7 +292,9 @@ export function zendeskArticleFile(input: {
     ]),
     `# ${article.title}`,
     "",
-    `- Zendesk: [${linkText(article.title)}](${article.url})`,
+    url
+      ? `- Zendesk: [${linkText(article.title)}](${url})`
+      : `- Zendesk: ${linkText(article.title)}`,
   ]
   if (article.sectionName) lines.push(`- Section: ${article.sectionName}`)
   if (article.authorName) lines.push(`- Author: ${article.authorName}`)
@@ -193,7 +324,7 @@ export function zendeskTicketFile(input: {
       ["created_at", ticket.createdAt],
       ["updated_at", ticket.updatedAt],
     ]),
-    `# Ticket #${ticket.id}: ${redactTicketText(ticket.subject)}`,
+    `# Ticket #${ticket.id}: ${inlineTicketText(ticket.subject)}`,
     "",
     `- Zendesk: [#${ticket.id}](${ticket.url})`,
     `- Status: ${ticket.status}`,
@@ -201,16 +332,16 @@ export function zendeskTicketFile(input: {
   if (ticket.priority) lines.push(`- Priority: ${ticket.priority}`)
   if (ticket.type) lines.push(`- Type: ${ticket.type}`)
   if (ticket.tags.length)
-    lines.push(`- Tags: ${redactTicketText(ticket.tags.join(", "))}`)
+    lines.push(`- Tags: ${inlineTicketText(ticket.tags.join(", "))}`)
   if (ticket.requesterName)
-    lines.push(`- Requester: ${redactTicketText(ticket.requesterName)}`)
+    lines.push(`- Requester: ${inlineTicketText(ticket.requesterName)}`)
   if (ticket.assigneeName)
-    lines.push(`- Assignee: ${redactTicketText(ticket.assigneeName)}`)
+    lines.push(`- Assignee: ${inlineTicketText(ticket.assigneeName)}`)
   lines.push("", "## Comments", "")
   if (!ticket.comments.length) lines.push("No comments.", "")
   for (const comment of ticket.comments) {
     const heading = [
-      comment.authorName ? redactTicketText(comment.authorName) : "Unknown",
+      comment.authorName ? inlineTicketText(comment.authorName) : "Unknown",
       comment.createdAt,
     ]
       .filter(Boolean)
@@ -218,12 +349,12 @@ export function zendeskTicketFile(input: {
     lines.push(
       `### ${heading}${comment.public ? "" : " (internal note)"}`,
       "",
-      redactTicketText(comment.body.trim()),
+      quotedTicketText(comment.body),
       "",
     )
     if (comment.attachments.length)
       lines.push(
-        `Attachments (in Zendesk): ${redactTicketText(comment.attachments.join(", "))}`,
+        `Attachments (in Zendesk): ${inlineTicketText(comment.attachments.join(", "))}`,
         "",
       )
   }

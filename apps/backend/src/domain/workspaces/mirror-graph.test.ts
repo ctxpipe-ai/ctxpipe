@@ -447,6 +447,7 @@ describe("Slack, PagerDuty, and Linear project-root mirror units", () => {
 
 describe("Zendesk mirror units", () => {
   const article = zendeskArticleFile({
+    subdomain: "acme",
     categoryId: "36",
     article: {
       id: "1",

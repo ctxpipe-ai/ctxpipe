@@ -95,7 +95,11 @@ async function readItem(
     return typeof articles === "string"
       ? articles
       : articles.map((article) =>
-          zendeskArticleFile({ categoryId: item.id, article }),
+          zendeskArticleFile({
+            subdomain: auth.subdomain,
+            categoryId: item.id,
+            article,
+          }),
         )
   }
   const tickets = await listZendeskViewTickets({ ...auth, viewId: item.id })

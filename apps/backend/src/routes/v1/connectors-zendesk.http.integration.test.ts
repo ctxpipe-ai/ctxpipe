@@ -15,7 +15,7 @@ import {
 import { cleanupSeededOrg, type SeededOrg, seedOrg } from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { members } from "../../db/schema/auth.js"
 import {
   connectionDirectory,
@@ -34,15 +34,20 @@ vi.hoisted(() => {
 })
 
 const ZD = "https://acme.zendesk.com"
-const zendesk = { webhookStatus: 201, deleted: [] as string[] }
+const zendesk = {
+  webhookStatus: 201,
+  deleted: [] as string[],
+  tokenRequests: 0,
+}
 const server = setupServer(
-  http.post(`${ZD}/oauth/tokens`, () =>
-    HttpResponse.json({
+  http.post(`${ZD}/oauth/tokens`, () => {
+    zendesk.tokenRequests += 1
+    return HttpResponse.json({
       access_token: "access-token-fixture",
       refresh_token: "refresh-token-fixture",
       expires_in: 1800,
-    }),
-  ),
+    })
+  }),
   http.post(`${ZD}/api/v2/webhooks`, () =>
     zendesk.webhookStatus === 201
       ? HttpResponse.json({ webhook: { id: "01WH" } }, { status: 201 })
@@ -74,6 +79,8 @@ const server = setupServer(
 
 describe("Zendesk connector routes (Postgres + msw)", () => {
   let seed: SeededOrg
+  /** A second user, in another org. */
+  let other: SeededOrg
   const env = parseEnv({
     ...(process.env as Record<string, string | undefined>),
     // Self-host: no deployment OAuth client.
@@ -135,19 +142,36 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     expect(res.status).toBe(204)
   }
 
-  /** Start OAuth, then call the callback as the browser would. */
-  async function connect(connectionId: string) {
+  /** Start OAuth: the signed state and the PKCE cookie that the browser gets. */
+  async function startOAuth(connectionId: string) {
     const start = await org(`/oauth/start?connectionId=${connectionId}`)
     expect(start.status).toBe(200)
     const { authorizationUrl } = (await start.json()) as {
       authorizationUrl: string
     }
-    const state = new URL(authorizationUrl).searchParams.get("state") ?? ""
-    const pkceCookie = (start.headers.get("set-cookie") ?? "").split(";")[0]
-    return request(
-      `/api/v1/integrations/zendesk/callback?code=the-code&state=${encodeURIComponent(state)}`,
-      { headers: { cookie: `${seed.cookie}; ${pkceCookie}` } },
+    return {
+      state: new URL(authorizationUrl).searchParams.get("state") ?? "",
+      pkceCookie: (start.headers.get("set-cookie") ?? "").split(";")[0],
+    }
+  }
+
+  const oauthCallback = (input: {
+    state: string
+    pkceCookie: string
+    sessionCookie?: string
+  }) =>
+    request(
+      `/api/v1/integrations/zendesk/callback?code=the-code&state=${encodeURIComponent(input.state)}`,
+      {
+        headers: {
+          cookie: `${input.sessionCookie ?? seed.cookie}; ${input.pkceCookie}`,
+        },
+      },
     )
+
+  /** Start OAuth, then call the callback as the browser would. */
+  async function connect(connectionId: string) {
+    return oauthCallback(await startOAuth(connectionId))
   }
 
   async function storedConfig(connectionId: string) {
@@ -182,11 +206,13 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
       throw new Error("DATABASE_URL is required for this integration test")
     server.listen({ onUnhandledRequest: "bypass" })
     seed = await seedOrg()
+    other = await seedOrg()
   })
   afterEach(() => {
     server.resetHandlers()
     zendesk.webhookStatus = 201
     zendesk.deleted.length = 0
+    zendesk.tokenRequests = 0
   })
   afterAll(async () => {
     server.close()
@@ -196,6 +222,9 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     await getSystemDb()
       .delete(connectionDirectory)
       .where(eq(connectionDirectory.orgId, seed.orgId))
+    if (other) await cleanupSeededOrg(other)
+    // cleanupSeededOrg closes the pool, so open it again for the next seed.
+    initDb(process.env.DATABASE_URL ?? "")
     if (seed) await cleanupSeededOrg(seed)
     vi.unstubAllEnvs()
   })
@@ -314,6 +343,87 @@ describe("Zendesk connector routes (Postgres + msw)", () => {
     expect(res.status).toBe(400)
     // The PKCE cookie is cleared on a refused callback too.
     expect(res.headers.get("set-cookie")).toMatch(/^zendesk_pkce=;.*Max-Age=0/)
+  })
+
+  it("refuses a valid state that another user started", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    const started = await startOAuth(connectionId)
+
+    const res = await oauthCallback({ ...started, sessionCookie: other.cookie })
+
+    expect(res.status).toBe(400)
+    expect(zendesk.tokenRequests).toBe(0)
+    expect(await status(connectionId)).toMatchObject({ status: "pending" })
+  })
+
+  it("refuses a PKCE cookie with the nonce of another start", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    const first = await startOAuth(connectionId)
+    const second = await startOAuth(connectionId)
+    expect(second.pkceCookie).not.toBe(first.pkceCookie)
+
+    const res = await oauthCallback({
+      state: first.state,
+      pkceCookie: second.pkceCookie,
+    })
+
+    expect(res.status).toBe(400)
+    expect(zendesk.tokenRequests).toBe(0)
+    expect(await status(connectionId)).toMatchObject({ status: "pending" })
+  })
+
+  it("refuses an admin who lost the role between the start and the callback", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    const started = await startOAuth(connectionId)
+    await setRole("member")
+    let res: Response
+    try {
+      res = await oauthCallback(started)
+    } finally {
+      await setRole("owner")
+    }
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('"type":"zendesk-oauth-error"')
+    expect(zendesk.tokenRequests).toBe(0)
+    expect(await status(connectionId)).toMatchObject({ status: "pending" })
+  })
+
+  it("does not follow a redirect of the token request to another host", async () => {
+    const connectionId = await draft()
+    await saveClient(connectionId)
+    const stolen: string[] = []
+    server.use(
+      http.post(
+        `${ZD}/oauth/tokens`,
+        () =>
+          new HttpResponse(null, {
+            status: 307,
+            headers: { location: "https://attacker.example/oauth/tokens" },
+          }),
+      ),
+      http.post(
+        "https://attacker.example/oauth/tokens",
+        async ({ request }) => {
+          stolen.push(await request.text())
+          return HttpResponse.json({
+            access_token: "stolen",
+            refresh_token: "stolen",
+            expires_in: 1800,
+          })
+        },
+      ),
+    )
+
+    const res = await connect(connectionId)
+
+    expect(res.status).toBe(200)
+    expect(await res.text()).toContain('"type":"zendesk-oauth-error"')
+    expect(stolen).toEqual([])
+    expect(await status(connectionId)).toMatchObject({ status: "pending" })
   })
 
   it("lists the categories and the active views for the scope picker", async () => {

@@ -26,6 +26,8 @@ async function zendeskRequest(
   for (let attempt = 0; ; attempt += 1) {
     const response = await fetch(url, {
       signal: AbortSignal.timeout(30_000),
+      // A redirect must not take the access token to another host.
+      redirect: "error",
       method: init.method ?? "GET",
       headers: {
         accept: "application/json",
