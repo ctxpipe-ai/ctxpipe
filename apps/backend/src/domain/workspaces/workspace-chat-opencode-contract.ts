@@ -309,6 +309,32 @@ export function workspaceChatOpenCodeProvider(input: {
   }
 }
 
+/**
+ * Deny rules for the `bash` tool that mirror the `read` deny rules and the
+ * backend permission handler's secret and metadata hard-denies (CTX-874).
+ * Without them, a bash command reads what the named tools deny: an `*.env`
+ * file, the OpenCode server password, a cloud-metadata endpoint, or a backend
+ * secret. OpenCode matches each glob against the whole command string, so the
+ * patterns use a leading and trailing wildcard to catch the token anywhere in
+ * the command. `*` stays "allow" so Git and ordinary reads still run.
+ */
+export const WORKSPACE_CHAT_BASH_DENY: Record<string, "allow" | "deny"> = {
+  "*": "allow",
+  "*.env*": "deny",
+  "*.env.example*": "allow",
+  "*OPENCODE_SERVER_PASSWORD*": "deny",
+  "*printenv*": "deny",
+  "*/proc/*": "deny",
+  "*169.254.169.254*": "deny",
+  "*metadata.google.internal*": "deny",
+  "*AUTH_SECRET*": "deny",
+  "*MODEL_PROVIDER_API_KEY*": "deny",
+  "*OPENAI_API_KEY*": "deny",
+  "*ANTHROPIC_API_KEY*": "deny",
+  "*OPENROUTER_API_KEY*": "deny",
+  "*DATABASE_URL*": "deny",
+}
+
 export function workspaceChatOpenCodeConfig(input: {
   modelBase: string
   mcp?: { name: string; url: string; token: string }
@@ -343,6 +369,7 @@ export function workspaceChatOpenCodeConfig(input: {
     doom_loop: "deny"
     question: "deny"
     read: Record<string, "allow" | "deny">
+    bash: Record<string, "allow" | "deny">
   }
   agent: {
     title: { disable: true }
@@ -387,6 +414,13 @@ export function workspaceChatOpenCodeConfig(input: {
         "*.env.*": "deny",
         "*.env.example": "allow",
       },
+      // `bash` is "allow" by default, so a bash command (for example `cat
+      // .env` or `echo $OPENCODE_SERVER_PASSWORD`) would read what the `read`
+      // rules and the backend permission handler deny (CTX-874). The agent
+      // still needs bash for Git, so bash stays allowed, but these deny rules
+      // mirror the read deny and the secret rules so bash is not a bypass.
+      // OpenCode matches each glob against the whole command string.
+      bash: WORKSPACE_CHAT_BASH_DENY,
     },
     // Title generation is a parallel completion that contends for the same
     // model as the first user turn.

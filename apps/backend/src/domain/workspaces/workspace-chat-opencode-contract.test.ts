@@ -3,6 +3,7 @@ import { basename } from "node:path"
 import { afterEach, describe, expect, it } from "vitest"
 import { modelCallSettings } from "../../retrieval/services/modelProvider.js"
 import {
+  WORKSPACE_CHAT_BASH_DENY,
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
   WORKSPACE_CHAT_OPENCODE_AGENT_PROMPT,
   WORKSPACE_CHAT_OPENCODE_CLI,
@@ -155,6 +156,7 @@ describe("workspaceChatOpenCodeContract", () => {
           "*.env.*": "deny",
           "*.env.example": "allow",
         },
+        bash: WORKSPACE_CHAT_BASH_DENY,
       },
       agent: {
         title: { disable: true },
