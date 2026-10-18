@@ -391,6 +391,20 @@ describe("readPages", () => {
     )
     expect(operations).toHaveLength(2)
   })
+
+  it("fails at 50 pages, also when every cursor is new", async () => {
+    let next = 0
+    plain({
+      PlainHelpCenters: () => {
+        next += 1
+        return { helpCenters: page([], `c${next}`) }
+      },
+    })
+    await expect(listPlainHelpCenters("key")).rejects.toThrow(
+      "Plain has more than 50 pages in one read",
+    )
+    expect(operations).toHaveLength(50)
+  })
 })
 
 describe("plainRequest", () => {

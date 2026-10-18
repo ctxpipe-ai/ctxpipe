@@ -345,6 +345,27 @@ describe("personal data and private links in thread text", () => {
   ])("removes %s", (_name, link) => {
     expect(text(`See ${link}.`)).not.toContain("SECRET1")
   })
+
+  it("removes a scheme-less link with a token", () => {
+    expect(text("See www.example.com/x?token=SECRET1 now.")).not.toContain(
+      "SECRET1",
+    )
+    expect(text("See www.example.com/docs now.")).toContain(
+      "www.example.com/docs",
+    )
+  })
+
+  it.each([
+    ["an email", "jane\u00AD@example.com", /jane@example\.com/],
+    ["an email", "jane\u200B@exa\u200Bmple.com", /jane@example\.com/],
+    ["a phone number", "0412\u00AD345\u200B678", /0412345678/],
+    ["a phone number", "+61\u200B 412\u00AD 345 678", /412\s?345/],
+    ["a token value", "https://x.example.com/f?to\u200Bken=SECRET1", /SECRET1/],
+    ["a token value", "https://x.example.com/f?tok\u00ADen=SECRET1", /SECRET1/],
+  ])("removes %s that has a format character inside", (_name, body, leak) => {
+    expect(text(`See ${body} now`)).not.toMatch(leak)
+    expect(text("x", { title: body, customerName: body })).not.toMatch(leak)
+  })
 })
 
 describe("headings and links from the Plain API", () => {
