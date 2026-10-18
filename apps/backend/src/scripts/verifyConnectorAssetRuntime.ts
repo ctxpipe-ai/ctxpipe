@@ -101,13 +101,16 @@ await retryOnConnectionError(() =>
           family: 4,
         }),
         (response) => {
-          response.destroy()
           onResponse()
+          response.destroy()
         },
       ),
     {
       timeoutMs: 5_000,
-      message: "Timed out verifying the deliberately wrong pin",
+      timeoutMessage: "Timed out verifying the deliberately wrong pin",
+      answeredMessage: "Bun ignored the callback-selected pinned address",
+      // The pinned address has a valid certificate for another host name.
+      refusalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
     },
   ),
 )

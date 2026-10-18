@@ -1,5 +1,11 @@
+import { execFileSync } from "node:child_process"
+import { mkdtempSync, readFileSync, rmSync } from "node:fs"
 import { request } from "node:http"
+import { request as httpsRequest } from "node:https"
 import { createServer, type Server } from "node:net"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { createServer as createTlsServer } from "node:tls"
 import { afterEach, describe, expect, it } from "vitest"
 import {
   connectionTimeoutError,
@@ -129,51 +135,160 @@ describe("retryOnConnectionError with a probe timeout", () => {
   })
 })
 
-describe("expectRefusal", () => {
-  it("fails with ETIMEDOUT when the probe host stays silent", async () => {
-    const { open } = await silentServer("all")
-    await expect(
-      expectRefusal(open, { timeoutMs: 50, message: "Timed out" }),
-    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
-  })
+function refusalOptions(timeoutMs: number) {
+  return {
+    timeoutMs,
+    timeoutMessage: "Timed out",
+    answeredMessage: "The host answered",
+    refusalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
+  }
+}
 
-  it("fails after the last attempt when the host stays silent", async () => {
-    const { open, count } = await silentServer("all")
-    await expect(
-      retryOnConnectionError(
-        () => expectRefusal(open, { timeoutMs: 50, message: "Timed out" }),
-        { attempts: 3, delayMs: 1 },
-      ),
-    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
-    expect(count()).toBe(3)
-  })
-
-  it("passes on a refusal", async () => {
-    server = createServer((socket) => socket.resetAndDestroy())
+// A TLS server whose self-signed certificate is for another host name.
+async function mismatchServer() {
+  const dir = mkdtempSync(join(tmpdir(), "refusal-"))
+  try {
+    execFileSync(
+      "openssl",
+      [
+        ...["req", "-x509", "-newkey", "rsa:2048", "-nodes", "-days", "2"],
+        ...["-keyout", join(dir, "k.pem"), "-out", join(dir, "c.pem")],
+        ...["-subj", "/CN=other.example"],
+        ...["-addext", "subjectAltName=DNS:other.example"],
+      ],
+      { stdio: "ignore" },
+    )
+    const cert = readFileSync(join(dir, "c.pem"))
+    const key = readFileSync(join(dir, "k.pem"))
+    server = createTlsServer({ key, cert }, (socket) => socket.end())
+    server.on("tlsClientError", () => {})
     await new Promise<void>((resolve) =>
       server?.listen(0, "127.0.0.1", resolve),
     )
     const address = server.address()
     const port = typeof address === "object" && address ? address.port : 0
-    await expect(
-      expectRefusal(
-        (onResponse) => request({ host: "127.0.0.1", port }, onResponse),
+    const open = (onResponse: () => void) =>
+      httpsRequest(
+        "https://requested.example/",
         {
-          timeoutMs: 1_000,
-          message: "Timed out",
+          ca: cert,
+          port,
+          lookup: (_host, _options, callback) =>
+            callback(null, [{ address: "127.0.0.1", family: 4 }] as never),
         },
-      ),
-    ).resolves.toBeUndefined()
+        onResponse,
+      )
+    return { open }
+  } finally {
+    rmSync(dir, { recursive: true, force: true })
+  }
+}
+
+// Probes that fail with an error other than the expected refusal.
+async function failingProbe(
+  kind: "reset" | "hangup" | "epipe" | "dns" | "dns-notfound",
+) {
+  server = createServer((socket) => {
+    if (kind === "reset") socket.resetAndDestroy()
+    else socket.destroy()
+  })
+  await new Promise<void>((resolve) => server?.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  const port = typeof address === "object" && address ? address.port : 0
+  let attempts = 0
+  const open = (onResponse: () => void) => {
+    attempts += 1
+    if (kind === "dns" || kind === "dns-notfound") {
+      const code = kind === "dns" ? "EAI_AGAIN" : "ENOTFOUND"
+      return request(
+        {
+          host: "probe.example",
+          port,
+          lookup: (_host, _options, callback) =>
+            callback(Object.assign(new Error(code), { code }) as never, "", 4),
+        },
+        onResponse,
+      )
+    }
+    const req = request({ host: "127.0.0.1", port }, onResponse)
+    if (kind === "epipe") {
+      queueMicrotask(() =>
+        req.destroy(Object.assign(new Error("write EPIPE"), { code: "EPIPE" })),
+      )
+    }
+    return req
+  }
+  return {
+    open,
+    count: () => attempts,
+  }
+}
+
+describe("expectRefusal", () => {
+  it("fails with ETIMEDOUT when the probe host stays silent", async () => {
+    const { open } = await silentServer("all")
+    await expect(expectRefusal(open, refusalOptions(50))).rejects.toMatchObject(
+      { code: "ETIMEDOUT" },
+    )
+  })
+
+  it("fails after the last attempt when the host stays silent", async () => {
+    const { open, count } = await silentServer("all")
+    await expect(
+      retryOnConnectionError(() => expectRefusal(open, refusalOptions(50)), {
+        attempts: 3,
+        delayMs: 1,
+      }),
+    ).rejects.toMatchObject({ code: "ETIMEDOUT" })
+    expect(count()).toBe(3)
+  })
+
+  it("passes on a TLS host name mismatch", async () => {
+    const { open } = await mismatchServer()
+    await expect(expectRefusal(open, refusalOptions(1_000))).resolves.toBe(
+      undefined,
+    )
+  })
+
+  it.each([
+    ["a reset", "reset"],
+    ["a hang up", "hangup"],
+    ["an EPIPE", "epipe"],
+    ["a DNS error", "dns"],
+  ] as const)("does not pass on %s, and retries then fails", async (_, kind) => {
+    const { open, count } = await failingProbe(kind)
+    const expected = {
+      reset: "ECONNRESET",
+      hangup: "ECONNRESET",
+      epipe: "EPIPE",
+      dns: "EAI_AGAIN",
+    }[kind]
+    await expect(
+      retryOnConnectionError(() => expectRefusal(open, refusalOptions(1_000)), {
+        attempts: 3,
+        delayMs: 1,
+      }),
+    ).rejects.toMatchObject({ code: expected })
+    expect(count()).toBe(3)
+  })
+
+  it("does not retry an error that is not a connection error", async () => {
+    const { open, count } = await failingProbe("dns-notfound")
+    await expect(
+      retryOnConnectionError(() => expectRefusal(open, refusalOptions(1_000)), {
+        attempts: 3,
+        delayMs: 1,
+      }),
+    ).rejects.toMatchObject({ code: "ENOTFOUND" })
+    expect(count()).toBe(1)
   })
 
   it("fails when the host answers", async () => {
     const { open } = await silentServer("first")
     // The first connection is silent, so use a second probe that gets an answer.
-    await expect(
-      expectRefusal(open, { timeoutMs: 50, message: "t" }),
-    ).rejects.toBeDefined()
-    await expect(
-      expectRefusal(open, { timeoutMs: 1_000, message: "t" }),
-    ).rejects.toThrow("ignored the callback-selected pinned address")
+    await expect(expectRefusal(open, refusalOptions(50))).rejects.toBeDefined()
+    await expect(expectRefusal(open, refusalOptions(1_000))).rejects.toThrow(
+      "answered",
+    )
   })
 })
