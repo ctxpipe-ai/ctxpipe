@@ -326,7 +326,6 @@ export function buildMcpOperations({
 export function buildClientOperations({
   client,
   baseUrl,
-  org,
   scope,
   auth = "oauth",
   context = createOperationContext(),
@@ -338,7 +337,7 @@ export function buildClientOperations({
   auth?: McpAuthMode
   context?: OperationContext
 }): Operation[] {
-  const url = mcpUrl({ baseUrl, org })
+  const url = mcpUrl({ baseUrl })
   const headerValue = mcpHeaderValue(client, auth)
   switch (client) {
     case "cursor":

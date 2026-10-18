@@ -74,7 +74,7 @@ describe("MCP operation builders", () => {
         other: { url: "x" },
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
         },
       },
     })
@@ -100,7 +100,7 @@ describe("MCP operation builders", () => {
         "ctxpipe",
         "--scope",
         "user",
-        "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+        "https://app.ctxpipe.ai/mcp",
       ],
       description: "run Claude Code MCP add command",
     })
@@ -232,7 +232,7 @@ describe("MCP operation builders", () => {
       mcpServers: {
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           headers: header,
         },
       },
@@ -241,7 +241,7 @@ describe("MCP operation builders", () => {
       mcpServers: {
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           headers: header,
         },
       },
@@ -266,7 +266,7 @@ describe("MCP operation builders", () => {
       mcp: {
         ctxpipe: {
           type: "remote",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           enabled: true,
           headers: { "x-api-key": "{env:CTXPIPE_API_KEY}" },
           oauth: false,
@@ -310,7 +310,7 @@ describe("MCP operation builders", () => {
         "ctxpipe",
         "--scope",
         "user",
-        "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+        "https://app.ctxpipe.ai/mcp",
         "--header",
         `x-api-key: \${CTXPIPE_API_KEY}`,
       ],
@@ -319,7 +319,7 @@ describe("MCP operation builders", () => {
     expect(withoutCli).toEqual({
       type: "manual",
       description: "show Claude Code user MCP add command",
-      detail: `Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp?orgSlug=acme --header 'x-api-key: \${CTXPIPE_API_KEY}'`,
+      detail: `Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp --header 'x-api-key: \${CTXPIPE_API_KEY}'`,
     })
   })
 
@@ -343,7 +343,7 @@ describe("MCP operation builders", () => {
     })
     const detail = operation?.type === "manual" ? operation.detail : ""
     expect(detail).toBe(
-      `Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp?orgSlug=acme --header 'x-api-key: \${CTXPIPE_API_KEY}'`,
+      `Run: claude mcp add --transport http ctxpipe --scope user https://app.ctxpipe.ai/mcp --header 'x-api-key: \${CTXPIPE_API_KEY}'`,
     )
     expect(detail).not.toContain('--header "x-api-key:')
   })
@@ -408,7 +408,7 @@ describe("MCP operation builders", () => {
       mcpServers: {
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           headers: { "x-api-key": `\${env:CTXPIPE_API_KEY}` },
         },
       },
@@ -429,7 +429,7 @@ describe("MCP operation builders", () => {
       mcp: {
         ctxpipe: {
           type: "remote",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           enabled: true,
           headers: { "x-api-key": "{env:CTXPIPE_API_KEY}" },
           oauth: false,
@@ -453,7 +453,7 @@ describe("MCP operation builders", () => {
       mcpServers: {
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           headers: { "x-api-key": `\${CTXPIPE_API_KEY}` },
         },
       },
@@ -475,7 +475,7 @@ describe("MCP operation builders", () => {
       servers: {
         ctxpipe: {
           type: "http",
-          url: "https://app.ctxpipe.ai/mcp?orgSlug=acme",
+          url: "https://app.ctxpipe.ai/mcp",
           headers: { "x-api-key": `\${env:CTXPIPE_API_KEY}` },
         },
       },

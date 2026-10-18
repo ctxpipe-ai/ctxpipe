@@ -77,7 +77,7 @@ Examples (non-interactive):
   npx ctxpipe mcp add --org acme --client cursor --scope repo --non-interactive
   npx ctxpipe mcp add --org acme --client cursor --scope both --auth api-key --non-interactive
   npx ctxpipe doctor --json
-  npx ctxpipe doctor mcp --url "https://app.example.com/mcp?orgSlug=acme"
+  npx ctxpipe doctor mcp --url "https://app.example.com/mcp"
 `,
     )
 
@@ -203,7 +203,7 @@ MCP auth:
     )
     .requiredOption(
       "--url <url>",
-      "ctx| MCP URL, including /mcp (optional ?orgSlug=<slug>)",
+      "ctx| MCP URL, including /mcp. Each tool call names the organization.",
     )
     .option("--timeout <ms>", "Per-request timeout in milliseconds", "10000")
     .option("--json", "Print diagnostics as JSON", false)
