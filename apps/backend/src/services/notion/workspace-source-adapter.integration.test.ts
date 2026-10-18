@@ -49,6 +49,8 @@ const notion = {
   /** Notion refuses the access token (a revoked install). */
   unauthorized: false,
   reads: [] as string[],
+  /** The id of the row that the database query returns. */
+  rowId: ROW,
 }
 
 const page = (pageId: string) => ({
@@ -124,7 +126,7 @@ const server = setupServer(
     notion.reads.push(`database:${dataSourceId}`)
     return (
       failure(dataSourceId) ??
-      HttpResponse.json({ results: [page(ROW)], has_more: false })
+      HttpResponse.json({ results: [page(notion.rowId)], has_more: false })
     )
   }),
 )
@@ -210,6 +212,7 @@ describe("Notion source adapter (Postgres + msw)", () => {
     notion.unauthorized = false
     notion.reads.length = 0
     notion.failing.clear()
+    notion.rowId = ROW
     notion.titles.set(HANDBOOK, "Handbook")
   })
   afterAll(async () => {
@@ -387,6 +390,28 @@ describe("Notion source adapter (Postgres + msw)", () => {
       (await loadNotionStoredConfig(seed.orgId, connection))?.sourceSync
         ?.failures,
     ).toEqual({})
+  })
+
+  it("keeps a hostile database row id from Notion under the database folder", async () => {
+    const connection = await seed.addConnection("notion", installed)
+    const docs = await addSource(connection, "notion-hostile-row", {
+      databases: [{ id: TASKS, title: "Tasks" }],
+    })
+    const hostile = "../../../../.ctxpipe/workspace"
+    notion.rowId = hostile
+    notion.titles.set(hostile, "../Evil/../Row")
+
+    const writes = await sync(connection)
+
+    const written = paths(writes.get(docs))
+    const row = `notion/databases/tasks--${TASKS}/rows/evil-row---.-..-..-..-.ctxpipe-workspace/index.md`
+    expect(written).toContain(row)
+    for (const path of written) {
+      expect(path.startsWith(`notion/databases/tasks--${TASKS}/`)).toBe(true)
+      expect(
+        path.split("/").some((part) => ["", ".", ".."].includes(part)),
+      ).toBe(false)
+    }
   })
 
   it("marks the connection revoked when Notion refuses its token", async () => {
