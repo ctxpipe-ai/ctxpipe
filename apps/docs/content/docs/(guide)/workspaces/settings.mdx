@@ -3,10 +3,13 @@ title: Workspace settings
 description: Manage the sources of a Workspace, and read its write access, upgrade, and status messages.
 ---
 
-Open a Workspace and choose the **Settings** tab. The pane has these groups:
+Open a Workspace and choose the **Settings** tab. The pane has two tags at the
+top and these groups:
 
-| Group | What it holds |
+| Part | What it holds |
 | --- | --- |
+| Write access tag | Whether ctx\| can save changes. See [Write access](#write-access). |
+| Hydrate tag | The state of the last read of the repository. See [Hydrate and skipped files](#hydrate-and-skipped-files). |
 | **General** | **Name** and **URL name**. |
 | **Repositories** | The **Context repository** and the **Root folder**. |
 | **Sources** | The source files of the Workspace, grouped by provider. |
@@ -24,26 +27,28 @@ Choose **Save** to apply a change. The message "Workspace updated" confirms it.
 ## Repositories
 
 - **Context repository**: the GitHub repository where the Workspace keeps its
-  files. Choose the edit button (**Edit context repository**) to change it. The
-  dialog **Context repository** says "You keep this Workspace and its
-  conversations. Files in the old repository stay where they are." It has the
-  same tabs as [Create a Workspace](/docs/workspaces/create-workspace):
-  **Select GitHub**, **Create on GitHub**, and **Paste URL**. Choose **Save**.
-  Until the new repository finishes loading, the pane says that answers still
-  come from the old repository.
+  files. It is also called the Workspace repository. This page says "the
+  context repository". Choose the edit button (**Edit context repository**) to
+  change it. The dialog **Context repository** says "You keep this Workspace
+  and its conversations. Files in the old repository stay where they are." It
+  has the same tabs as
+  [Create a Workspace](/docs/workspaces/create-workspace): **Select GitHub**,
+  **Create on GitHub**, and **Paste URL**. Choose **Save**. Until the new
+  repository finishes loading, the pane says that answers still come from the
+  old repository.
 - **Root folder**: the folder of the repository that holds the Workspace. Choose
   **Save root folder** to apply a change. The message "Root folder saved"
   confirms it. See [Root folder](/docs/workspaces/create-workspace#root-folder).
 
 ## Write access
 
-ctx| writes to the workspace repository through the ctx| GitHub App. The tag at
+ctx| writes to the context repository through the ctx| GitHub App. The tag at
 the top of the pane shows the result of the last check. The tag next to it shows
 the [hydrate status](#hydrate-and-skipped-files).
 
 | Tag | Meaning |
 | --- | --- |
-| **Can save changes** | The state **Writable**. The GitHub App can push to the repository. |
+| **Can save changes** | The GitHub App can push to the repository. |
 | **Changes by pull request** | The default branch is protected. A conversation pushes its own branch and opens a pull request. Source changes use pull requests too. This is a normal state, not a fault. |
 | **Checking write access** | ctx\| is checking whether the GitHub App can push. The pane checks again by itself. |
 | **Could not check write access** | GitHub returned an error or a rate limit. Choose **Check again**. |
@@ -64,12 +69,13 @@ A **Read-only** Workspace shows an alert with one of these reasons:
 | "The file .ctxpipe/workspace.yaml is not valid. ctx\| can read this Workspace, but it cannot write to it until the file is repaired." | Repair the format file in the repository. |
 
 For a **Read-only** reason, the alert adds: "After you fix it, reload this page.
-ctxpipe checks again at most once a minute." The button **Check again** shows only
-for the state **Could not check write access**.
+ctxpipe checks again at most once a minute." The button **Check again** shows
+on the alert **Could not check write access** and on the alert **Still checking
+write access**. It does not show on a **Read-only** alert.
 
 ## Hydrate and skipped files
 
-Hydrate is the step where ctx| reads the files of the workspace repository at a
+Hydrate is the step where ctx| reads the files of the context repository at a
 commit and builds the search index and the graph. The second tag at the top of
 the pane shows its status:
 
@@ -80,8 +86,9 @@ the pane shows its status:
 | **Hydrating** | ctx\| is reading a commit. The previous index keeps serving. |
 | **Loading failed** | ctx\| could not read the repository. |
 
-Before the first hydrate ends, the Workspace page shows **Preparing X** with the
-steps **Fetching repository** and **Reading knowledge**. If ctx| does not know
+Before the first hydrate ends, the Workspace page shows **Preparing** and the
+name of the Workspace, with the steps **Fetching repository** and **Reading
+knowledge**. If ctx| does not know
 the latest commit, the page says so and shows **Try again**. If the first read
 fails, the page shows **Prepare failed** and **Could not prepare the Workspace**
 with the reason and **Try again**. When the reason starts with "ctx| has no access
@@ -90,22 +97,20 @@ to this repository.", the alert also has **Open Connectors**.
 When ctx| skips files, **Settings** shows **Hydrate skipped N files** (or **1
 file**) with the text "Chat, MCP, search, and the graph do not use these files.
 Fix each file and push the change to the default branch." Each row gives the path
-and the reason. Select the path to open the file in **Files**.
-
-| Reason | Meaning |
-| --- | --- |
-| Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. |
-| Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version. ctx\| no longer reads `repositories/*.md` files. |
-
-See [Knowledge files](/docs/workspaces/knowledge-files#skipped-files).
+and the reason. Select the path to open the file in **Files**. For the reasons,
+see [Knowledge files](/docs/workspaces/knowledge-files#skipped-files).
 
 ## Sources
 
 A source tells the Workspace what to read through a connection. Each source is
-one Markdown file at `sources/<provider>/…md` in the workspace repository. The
+one Markdown file at `sources/<provider>/…md` in the context repository. The
 file holds the provider, the connection, and the scope in its front matter. The
 body is an optional description. The path of the file is the identity of the
 source.
+
+The file on the default branch is the live scope. The file on the branch of an
+open pull request is a draft scope. ctx| keeps no second copy of the scope
+outside Git.
 
 The **Sources** group shows one line of summary, for example "3 sources from 2
 connectors · 1 needs attention · 1 change awaiting merge". The note "Saved as one
@@ -121,7 +126,7 @@ yet. Connect a tool under Connectors, then add it to this Workspace." Choose
 Each change to a source is a pull request that a person merges. No agent can
 change `sources/` without that review. The buttons show only when ctx| can
 open a pull request: the Workspace must have a connected GitHub repository and
-must allow edits. See [Write access](#write-access). A Workspace repository
+must allow edits. See [Write access](#write-access). A context repository
 that is below format 2 refuses each change with **Upgrade this Workspace first**.
 See [Upgrades](#upgrades).
 
@@ -133,8 +138,7 @@ See [Upgrades](#upgrades).
 
     In the group of the provider, choose **Add** (**Add repositories** for
     GitHub). The button shows only when the organization has a connection of
-    that provider. Otherwise, the dialog says "Connect X on the Connectors page
-    first."
+    that provider.
 
     You can also start from **Connectors**. See
     [Connections](/docs/connections).
@@ -143,19 +147,21 @@ See [Upgrades](#upgrades).
   <Step>
     ### Fill in the fields
 
-    The dialog **Add X source** has these fields:
+    The dialog title names the provider, for example **Add Linear source**. It
+    has these fields:
 
     - **Connection**: shown when the organization has more than one connection
       of the provider.
     - The scope editor of the provider, for example the teams of Linear or the
       channels of Slack. Only an organization owner or admin can list the content
       of most providers. A member sees "Ask an admin to choose what this source
-      syncs." Confluence is the exception.
+      syncs." The exception is Confluence: any member can list Confluence
+      spaces.
     - **File name (optional)**: the name of the file. The hint shows the result,
       for example `sources/linear/linear.md`. A name has lowercase letters,
       digits, `.`, `_`, and `-`. It starts with a letter or a digit and has at
       most 100 characters. Without a name, ctx| names the file from the
-      provider, with a free suffix (`linear`, `linear-2`). A GitHub source is
+      provider, with the next free number (`linear`, `linear-2`). A GitHub source is
       always `sources/github/<owner>/<name>.md`.
     - **Description (optional)**: what the source is for. People and agents read
       it.
@@ -171,10 +177,20 @@ See [Upgrades](#upgrades).
   </Step>
 </Steps>
 
+### Add source shows an error
+
+- **Upgrade this Workspace first.** The context repository does not use one file
+  for each source yet. An owner or admin starts the upgrade in **Upgrades**.
+  Merge the pull request, then add the source again.
+- **This Workspace is read-only.** ctx| cannot open a pull request. See
+  [Write access](#write-access).
+- **Ask an admin to choose what this source syncs.** Only an owner or admin can
+  list the content of this provider.
+
 ### Edit a source
 
-Choose the pencil button of the row (**Edit sources/…md**). The dialog **Edit X
-source** says "The change goes to sources/…md." It has the same fields as the
+Choose the pencil button of the row (**Edit sources/…md**). The dialog **Edit
+Linear source** (the title names the provider) says "The change goes to sources/…md." It has the same fields as the
 add dialog, with no file name. Choose **Open a pull request** to save.
 
 The row has no edit button when the source has no connection (a plain git
@@ -244,16 +260,16 @@ These rules apply across files:
 
 - Two GitHub sources cannot name the same repository. The second file is **Not
   valid**.
-- A GitHub source cannot name the workspace repository.
+- A GitHub source cannot name the context repository.
 - Two sources cannot write to the same folder. A source that already syncs keeps
   its place.
 - A file larger than 64 KiB, or a file that is not text, is **Not valid**.
 
 ### Source file format
 
-All files have the front matter keys `provider` and `connection`. The scope keys
-depend on the provider. An unknown key makes the row **Not valid**. A plain git
-source has no `connection`.
+Each file has the front matter key `provider`. Each file except a plain git
+source has `connection`. The scope keys depend on the provider. An unknown key
+makes the row **Not valid**.
 
 | Provider | Path | Scope keys |
 | --- | --- | --- |
@@ -271,8 +287,7 @@ matter. Do not repeat the front matter in the body.
 
 ## Upgrades
 
-The **Upgrades** group moves the workspace repository to the layout that this
-version of ctx| reads. It says: "Upgrades move your Workspace repository to the
+The **Upgrades** group says: "Upgrades move your Workspace repository to the
 layout that this version of ctx| reads. Nothing changes until you merge the pull
 request." Every member can read the group. Only an organization owner or admin
 can start an item. A member sees **Ask an admin** in place of the button.
@@ -290,8 +305,8 @@ format that ctx| reads:
 
 When nothing is pending, the group says "No upgrades are pending." Items that are
 done show under **History**. The Home page shows one alert for each Workspace
-that has an item to finish. It reads "X has N upgrades to finish", and
-**Review upgrades** opens this group.
+that has an item to finish. It names the Workspace and reads "has N upgrades to
+finish". **Review upgrades** opens this group.
 
 ### Upgrade items
 
@@ -307,13 +322,13 @@ Each item shows one status:
 
 | Status | Meaning | What to do |
 | --- | --- | --- |
-| **Ready to start** | ctx\| found the upgrade. It waits for a click. | An owner or admin chooses **Start**. |
-| **Queued** | The click is recorded. The run did not begin. | Wait. |
+| **Ready to start** | ctx\| found the upgrade. It waits for a start. | An owner or admin chooses **Start**. A member sees **Ask an admin**. |
+| **Queued** | The start is recorded. The run did not begin. | Wait. |
 | **Preparing the pull request** | The run builds the commits. | Wait. |
-| **Waiting for merge** | The pull request is open. | Review and merge it. |
+| **Waiting for merge** | The pull request is open. | Review and merge it. If the card does not change after a few minutes, an owner or admin chooses **Check again**. |
 | **Applied** | The upgrade is done. | None. |
-| **Failed** | The run stopped. The card shows "The upgrade failed" and the reason. | Fix the cause, then choose **Start again**. |
-| **Blocked** | ctx\| cannot start the item. The card shows why. | Remove the cause. |
+| **Failed** | The run stopped. The card shows "The upgrade failed" and the reason. | Fix the cause, then an owner or admin chooses **Start again**. |
+| **Blocked** | ctx\| cannot start the item. The card shows a title and a reason. | Remove the cause. See [Blocked items](#blocked-items). |
 
 Nothing starts by itself. This is true for hosted and for self-hosted
 deployments.
@@ -332,9 +347,9 @@ A format upgrade is a pull request:
    new format of the repository. This takes a few minutes. This page updates by
    itself."
 4. Review and merge the pull request. The merge lands the files and the new
-   format together. If the card does not change after a few minutes, choose
-   **Check again**. The message "ctx| is reading the repository now. This takes a
-   minute." confirms it.
+   format together. If the card does not change after a few minutes, an owner or
+   admin chooses **Check again**. The message "ctx| is reading the repository
+   now. This takes a minute." confirms it.
 
 If someone closes the pull request without a merge, the item goes back to
 **Ready to start** with a note.
@@ -352,21 +367,24 @@ choose **Start**, the message "The re-ingestion is queued. ctx| reads each sourc
 repository again." confirms it. A re-ingestion opens no pull request when it
 starts.
 
-A re-ingestion can be **Blocked**:
-
-| Title | Cause |
-| --- | --- |
-| "ctx\| cannot publish the re-ingestion" | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
-| "Apply the format upgrade first" | The repository is below format 3. Merge the format upgrade. The card shows **Check again**. |
-| "This deployment cannot run the re-ingestion" | The deployment has no ingest sandbox. The operator must configure one. |
-| "The re-ingestion cannot run here yet" | ctx\| has not read a valid format file of this Workspace. |
-
 For the cost cap, the throttle, and the restart rules, see
 [Upgrade a Workspace](/docs/self-hosting/upgrades#upgrade-a-workspace).
 
+### Blocked items
+
+A blocked card shows a title and a reason. The title tells the cause:
+
+| Title | Item | Cause |
+| --- | --- | --- |
+| "ctx\| cannot open the upgrade pull request" | Format upgrade | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
+| "ctx\| cannot publish the re-ingestion" | Re-ingestion | ctx\| has no write access through the GitHub App. See [Write access](#write-access). |
+| "Apply the format upgrade first" | Re-ingestion | The repository is below format 3. Merge the format upgrade. An owner or admin chooses **Check again** on the card. |
+| "This deployment cannot run the re-ingestion" | Re-ingestion | The deployment has no ingest sandbox. The operator must configure one. |
+| "The re-ingestion cannot run here yet" | Re-ingestion | ctx\| has not read a valid format file of this Workspace. |
+
 ### Repository format
 
-Each workspace repository holds `.ctxpipe/workspace.yaml`, below its root folder.
+Each context repository holds `.ctxpipe/workspace.yaml`, below its root folder.
 The file has one key:
 
 ```yaml
@@ -381,7 +399,7 @@ hydrate. The **Upgrades** health line shows it.
 | 0 | No format file: a repository from before Workspaces. |
 | 1 | The knowledge that fresh ingestion cannot rebuild is exported. The sources are in the older `.ctxpipe/sources.yaml`. |
 | 2 | One Markdown file for each source under `sources/`. |
-| 3 | The ownership front matter of ingestion v2. This is the current format. |
+| 3 | The ownership front matter that ingestion writes in each knowledge file. This is the current format. |
 
 - Only the setup commit of a new Workspace and an upgrade pull request write the
   file. No agent or chat write can change it.

@@ -10,12 +10,12 @@ Each member has exactly one role per organization:
 | Role | What the role can do |
 | --- | --- |
 | **owner** | Everything that an admin can do. Also delete the organization and transfer ownership. |
-| **admin** | Manage members and invitations. Add and change connectors. Start Workspace upgrades. Create organization API keys. |
-| **member** | Open and use the Workspaces of the organization, and chat in them. A member cannot manage members, connectors, upgrades, or organization API keys. |
+| **admin** | Manage members and invitations. Add and remove connections, and start a sync. Start Workspace upgrades. Create organization API keys. |
+| **member** | Open and use the Workspaces of the organization, and chat in them. A member cannot manage members, connections, upgrades, or organization API keys. |
 
-A connector is a connection to GitHub, Confluence, Slack, Linear, Notion, or
-PagerDuty. Only an **owner** or an **admin** can add or change one, and start a
-sync of one. Only an **owner** or an **admin** can start a Workspace upgrade or
+A connection is the authorization for GitHub, Confluence, Slack, Linear, Notion,
+or PagerDuty. Only an **owner** or an **admin** can add and remove connections,
+and start a sync. Only an **owner** or an **admin** can start a Workspace upgrade or
 check for upgrades. A **member** can see that an upgrade is pending.
 
 These actions need a signed-in browser session. An API key or an MCP OAuth

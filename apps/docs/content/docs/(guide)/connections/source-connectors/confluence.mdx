@@ -84,10 +84,10 @@ spaces:
 ---
 ```
 
-- **Draft scope** is the file on the branch of the open pull request.
-- **Live scope** is the file on the default branch after the merge.
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
 
-ctx| keeps no second copy of the scope outside Git. Each Workspace has its own
+Each Workspace has its own
 scope. Mirrored pages are in `confluence/<spaceKey>/` in the Workspace
 repository. The source owns these folders, so do not edit the files by hand.
 
@@ -196,9 +196,8 @@ repository. The source owns these folders, so do not edit the files by hand.
 
 ## Change what syncs
 
-Open the Workspace, then **Settings**. Find **Confluence** under **Sources**.
-Each source has an edit, a rename, and a remove button. Each action opens a pull
-request. See [Workspace settings](/docs/workspaces/settings#sources).
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources).
 
 ## Keeping content current
 
@@ -210,25 +209,18 @@ when change events did not arrive.
 
 ### Add to a Workspace shows an error
 
-- **Upgrade this Workspace first.** The Workspace repository does not use one
-  file for each source yet. An owner or admin starts the upgrade in **Settings**,
-  under **Upgrades**. Merge the pull request, then add the source again.
-- **This Workspace is read-only.** ctx| cannot open a pull request. See
-  [Write access](/docs/workspaces/settings#write-access).
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
 
 ### The source shows a status other than OK
 
-Each source row in **Settings** shows **OK**, **Not valid**, **Connection
-missing**, or **Out of access**, with a reason. See
+Read the status and the reason of the row in **Settings**. See
 [Source status](/docs/workspaces/settings#source-status).
 
 ### Removing the connector
 
-Choose **Remove connector** in the menu of the connector card. This deletes the
-ctx| authorization. The sources of the connection show **Connection missing**
-and stop syncing. The source files and the files that ctx| already committed
-stay in the Workspace repositories. Delete them in GitHub if you do not need
-them.
+Choose **Remove connector** in the menu of the connector card. See
+[Connection menu](/docs/connections#connection-menu) for what stays in Git.
 
 ## Related pages
 

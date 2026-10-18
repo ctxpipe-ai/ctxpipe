@@ -11,7 +11,7 @@ hosted ctx|:
 ```
 
 Every client uses this one URL. During authorization, the user chooses the
-organizations that the client may read. Each tool call names one organization in
+organizations that the client can read. Each tool call names one organization in
 the `org` argument. The server accepts the old `?orgSlug=` parameter and ignores
 it.
 
@@ -135,7 +135,7 @@ concurrent clients. Do not gate CI on interactive OAuth or LLM evals.
 - **`org_not_found` or `org_required`** — the tool call named an organization
   that is not in the connection, an organization that the user is not a member
   of, or no organization. Pass the right slug in `org`. For an OAuth connection,
-  add the organization on **Connected apps**, or reconnect the client and tick
+  add the organization on **Connected apps**, or reconnect the client and select
   the organization during authorization.
 - **`AUTH_BASE_URL` mismatch** — issuer, callbacks, and MCP discovery must use
   the same public origin clients see.

@@ -73,8 +73,8 @@ https://ctx.example.com/mcp
 ```
 
 The client should complete OAuth against **your deployment**. During
-authorization, you choose the organizations that the client may read. Access is
-not automatic merely because the URL exists: the signed-in user must be a member
+authorization, you choose the organizations that the client can read. The URL alone
+gives no access: the signed-in user must be a member
 of each organization. Each tool call names one organization in the `org`
 argument.
 

@@ -22,14 +22,18 @@ sources are read-only. ctx| reads them with git over HTTP(S) and no credential,
 so a private repository on another host does not work. The URL rules depend on
 where ctx| runs:
 
-- **Hosted ctx|:** the URL uses `https://` and the default port. The host is a
-  public domain name. ctx| refuses an IP address, a private name such as
-  `localhost`, and a host that resolves to a private address.
-- **Self-hosted ctx| (Docker sandboxes):** the URL can also use `http://`, a
-  custom port, an IP address, a private host name, or a host on your own network.
-- **Both:** ssh (`git@…` or `ssh://`), `git://`, and `file://` URLs are not
-  supported. The URL has no user name, password, query, or fragment. ctx| does
-  not follow a redirect.
+- **Hosted ctx|, and a deployment that does not set `SANDBOX_PROVIDER=docker`:**
+  the URL uses `https://` and the default port. The host is a public domain
+  name. ctx| refuses an IP address, a private name such as `localhost`, and a
+  host that resolves to a private address.
+- **Self-hosted ctx| with `SANDBOX_PROVIDER=docker`:** the operator must set this
+  value. The URL can also use `http://`, a custom port, an IP address, or a
+  private host name. Agent Vault reaches a private address only when that
+  address is in `AGENT_VAULT_NETWORK_ALLOWLIST`.
+- **Both:** SSH (`git@…` or `ssh://`), `git://`, and `file://` URLs are not
+  supported. ctx| always refuses cloud metadata addresses (169.254.0.0/16 and
+  the IPv6 metadata addresses). The URL has no user name, password, query, or
+  fragment. ctx| does not follow a redirect.
 
 See [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories).
 
@@ -44,8 +48,8 @@ site** is the technical companion. Some content overlaps by design.
 
 The `/mcp` URL is the same for every organization. Each tool call names one
 organization with the `org` argument (the slug from your ctx| URL). Only
-`list_workspaces` can omit it. Then it lists each organization of the
-connection.
+`list_workspaces` can omit it. Then it returns the Workspaces of each
+organization in the connection.
 
 ctx| is multi-tenant, so the server checks every call. It allows the call only
 when the organization is in the set that you chose when you authorized the

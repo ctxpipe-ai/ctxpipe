@@ -71,10 +71,10 @@ customerRequests: exclude
 Engineering and operations work. Customer requests stay in the support Workspace.
 ```
 
-- **Draft scope** is the file on the branch of the open pull request.
-- **Live scope** is the file on the default branch after the merge.
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live scope.
 
-ctx| keeps no second copy of the scope outside Git. A Workspace can have many
+A Workspace can have many
 Linear source files, and each Workspace has its own scope.
 
 ## Setup flow
@@ -92,7 +92,7 @@ Linear source files, and each Workspace has its own scope.
   <Step>
     ### Choose Workspaces
 
-    The next step is **Add to Workspaces**. Select the Workspaces that sync from
+    The next step is **Choose Workspaces**. Select the Workspaces that sync from
     Linear. Then select the teams and projects. When you select more than one
     Workspace, choose **Same scope for each Workspace** or **A different scope
     for each Workspace**. Clear **Include customer requests** to leave them out.
@@ -126,12 +126,11 @@ Linear source files, and each Workspace has its own scope.
 
 ## Change what syncs
 
-Open the Workspace, then **Settings**. Find **Linear** under **Sources**. Each
-source has an edit, a rename, and a remove button. Each action opens a pull
-request. See [Workspace settings](/docs/workspaces/settings#sources).
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources).
 
 To change the connection for a source, use **Manage** on the connector card.
-**Manage** opens the same **Add to Workspaces** step. It starts from the
+**Manage** opens the same **Choose Workspaces** step. It starts from the
 current Workspaces and scopes.
 
 ## Files in the repository
@@ -168,8 +167,8 @@ An owner or admin can do this.
 
 1. Complete Linear OAuth and confirm that the expected Linear workspace appears
    on **Connectors**.
-2. Choose **Add to Workspaces**, select a Workspace, and select at least one
-   team or project.
+2. In **Choose Workspaces**, select a Workspace, and select at least one team
+   or project.
 3. Merge the pull request that adds `sources/linear/<name>.md`.
 4. Confirm that the Workspace repository has files under `linear/`.
 5. Edit a mirrored issue in Linear and confirm that the matching Git file
@@ -189,13 +188,8 @@ OAuth credentials are configured and that the callback URI matches exactly.
 
 ### Add to a Workspace shows an error
 
-- **Upgrade this Workspace first.** The Workspace repository does not use one
-  file for each source yet. An owner or admin starts the upgrade in **Settings**,
-  under **Upgrades**. Merge the pull request, then add the source again.
-- **This Workspace is read-only.** ctx| cannot open a pull request. See
-  [Write access](/docs/workspaces/settings#write-access).
-- **Ask an admin to choose what this source syncs.** Only an owner or admin can
-  list the Linear teams and projects.
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
 
 ### No pull request appears
 
@@ -204,8 +198,7 @@ the dialog reports an error, close it and try again.
 
 ### The source shows a status other than OK
 
-Each source row in **Settings** shows **OK**, **Not valid**, **Connection
-missing**, or **Out of access**, with a reason. See
+Read the status and the reason of the row in **Settings**. See
 [Source status](/docs/workspaces/settings#source-status).
 
 ### Content sync failed
@@ -227,8 +220,5 @@ the authorization is revoked.
 
 ### Removing the connector
 
-Choose **Remove connector** in the menu of the connector card. This deletes the
-ctx| authorization. The sources of the connection show **Connection missing**
-and stop syncing. The source files and the files that ctx| already committed
-stay in the Workspace repositories. Delete them in GitHub if you do not need
-them.
+Choose **Remove connector** in the menu of the connector card. See
+[Connection menu](/docs/connections#connection-menu) for what stays in Git.

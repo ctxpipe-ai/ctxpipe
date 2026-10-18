@@ -109,13 +109,12 @@ The sandbox that extracts knowledge can fetch the repository only while it
 prepares its copy of the source. The steps after that cannot reach the git
 host.
 
-The source file links the repository to the Workspace. Each index of the
-repository also updates the knowledge of each Workspace whose source file names
-it.
-
-Repositories that an organization had before Workspaces, and the REST indexing
-API, are in
-[Repositories from before Workspaces](/docs/self-hosting/upgrades#repositories-from-before-workspaces).
+The source file links the repository to the Workspace. As before Workspaces,
+ctx| indexes a plain git repository when you add it with the repositories
+API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
+when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
+Each index of the repository also updates the knowledge of each Workspace
+whose source file names it.
 
 ## Indexing status
 

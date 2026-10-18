@@ -135,21 +135,12 @@ deployments.
 An organization owner or admin can click **Start**. A member sees the
 upgrades but gets **Ask an admin** in place of the button.
 
-#### Item states
+#### Item status
 
-| State | Meaning | Next action |
-|---|---|---|
-| Ready to start | ctx| found the upgrade. It waits for a click. | An owner or admin clicks **Start**. |
-| Queued | The click is recorded. The run did not begin. | Wait. |
-| Preparing the pull request | The run builds the commits. | Wait. |
-| Waiting for merge | The pull request is open. | Review and merge it. After the merge, choose **Check again** if the item does not change. |
-| Applied | The upgrade is done. | None. |
-| Failed | The run stopped. The item shows the reason. | Fix the cause, then click **Start again**. |
-| Blocked | ctx| cannot start the item. The item shows the reason. | Remove the cause. |
-
-A re-ingestion is blocked for one of these reasons: ctx| has no write access
-to the repository, the Workspace is below format 3, the deployment has no
-Docker sandbox host, or ingestion v2 does not publish to the Workspace.
+Each item shows one status. For the statuses, the next action for each status,
+and the reasons for a blocked item, see
+[Upgrade items](/docs/workspaces/settings#upgrade-items) and
+[Blocked items](/docs/workspaces/settings#blocked-items).
 
 If someone closes the pull request without a merge, the item goes back to
 **Ready to start** with a note. Click **Start** to open a new pull request.
@@ -239,11 +230,14 @@ Workspace does the work:
 - A repository that the Workspace repository already is, or that another
   source already links, is not added again.
 - A repository that has no GitHub connection becomes a plain git source file at
-  `sources/git/<host>/<name>.md`, when its URL is a public HTTPS git URL. See
+  `sources/git/<host>/<name>.md`, when ctx| can read its URL as a plain git URL
+  under the deployment's URL rule. See
   [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories)
   for the URL rules.
 - ctx| does not link any other repository. The pull request description names
-  each one. Add a source for it in the Workspace **Settings**, or leave it out.
+  each one. To add a plain git repository as a source, open a pull request in
+  Git that adds its source file. Workspace **Settings** lists only GitHub App
+  repositories. Or leave the repository out.
 
 Below format 3, the Workspace serves the knowledge from before Workspaces as
 read-only units from the database (source `legacy`). After the re-ingestion of a
