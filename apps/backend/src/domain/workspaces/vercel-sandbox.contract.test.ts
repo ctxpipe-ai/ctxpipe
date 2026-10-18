@@ -402,7 +402,7 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
 })
 
 describe("hosted conversation provider", { timeout: 600_000 }, () => {
-  it.only("PROBE (temporary): CA bundle rewrites after create and after a policy update", async () => {
+  it("PROBE (temporary): CA bundle rewrites after create and after a policy update", async () => {
     const githubToken = process.env.GITHUB_TOKEN?.trim() ?? ""
     const store = new Map<string, { token: string; mintedAt: Date }>()
     const access = {
