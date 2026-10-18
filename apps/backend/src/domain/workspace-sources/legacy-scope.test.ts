@@ -3,7 +3,7 @@ import { parseLegacyScope, splitLegacyScope } from "./legacy-scope.js"
 import { confluenceSourceScopeSchema } from "./providers/confluence.js"
 import { linearScopeSchema } from "./providers/linear.js"
 
-const ids = (count: number, make: (i: number) => string) =>
+const ids = <T>(count: number, make: (i: number) => T) =>
   Array.from({ length: count }, (_, i) => make(i))
 
 describe("splitLegacyScope", () => {

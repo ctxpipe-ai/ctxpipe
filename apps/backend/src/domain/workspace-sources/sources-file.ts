@@ -131,7 +131,9 @@ export function parseLegacySourceEntry(raw: unknown): ParsedSourceEntry {
 
 function parseEntry(
   raw: unknown,
-  scopeSchemas: Partial<Record<SourceProvider, z.ZodType>>,
+  scopeSchemas: Partial<
+    Record<SourceProvider, z.ZodType<Record<string, unknown>>>
+  >,
 ): ParsedSourceEntry {
   const record =
     raw && typeof raw === "object" && !Array.isArray(raw)
