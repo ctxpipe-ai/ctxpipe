@@ -4,15 +4,7 @@ import { Webhooks } from "@octokit/webhooks"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { HttpResponse, http } from "msw"
-import {
-  afterAll,
-  afterEach,
-  beforeAll,
-  describe,
-  expect,
-  it,
-  vi,
-} from "vitest"
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest"
 import {
   cleanupSeededOrg,
   type SeededOrg,
@@ -152,27 +144,25 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     if (seed) await cleanupSeededOrg(seed)
   })
 
-  it("refuses an unsigned delivery on the shared route before it parses the body", async () => {
-    const body = JSON.stringify({ zen: `unsigned-${seed.orgId}` })
-    const parse = vi.spyOn(JSON, "parse")
-    try {
-      const res = await createApp().request(
-        "http://backend.test/api/v1/webhook/github",
-        {
+  it("refuses an unsigned delivery on the shared route with 401, and a signed body that is not JSON with 400", async () => {
+    const post = async (signature: string) =>
+      (
+        await createApp().request("http://backend.test/api/v1/webhook/github", {
           method: "POST",
           headers: {
             "content-type": "application/json",
             "x-github-event": "ping",
-            "x-hub-signature-256": "sha256=00",
+            "x-hub-signature-256": signature,
           },
-          body,
-        },
-      )
-      expect(res.status).toBe(401)
-      expect(parse).not.toHaveBeenCalledWith(body)
-    } finally {
-      parse.mockRestore()
-    }
+          body: "not json",
+        })
+      ).status
+    expect(await post("sha256=00")).toBe(401)
+    expect(
+      await post(
+        await new Webhooks({ secret: deploymentSecret }).sign("not json"),
+      ),
+    ).toBe(400)
   })
 
   it("does not deliver deployment App events to a connection with its own App", async () => {
