@@ -21,8 +21,11 @@ import { withSandboxLockIfFree } from "./sandbox-lock-store.js"
  * revokes them; the sweep revokes those of finished runs.
  *
  * GitHub installation tokens are valid for 60 minutes. A token is used only
- * in the 50-minute window it was minted in, so a token in use has at least
- * 10 minutes left.
+ * for 50 minutes after its mint, so a token in use has at least 10 minutes
+ * left. The `<window>` of the key is the 50-minute clock window of the mint.
+ * It makes parallel mints of one label meet at one key. It does not limit
+ * the reuse: a token minted just before a window boundary stays in use after
+ * the boundary.
  */
 const WINDOW_MS = 50 * 60_000
 const TOKEN_LIFETIME_MS = 60 * 60_000
@@ -52,8 +55,8 @@ const storeFor = (input: RunTokenOptions) =>
   )
 
 /**
- * The conversation's recorded token for `label` in the current window, or a
- * new uncached token from `mint`, recorded before it is returned.
+ * The owner's recorded token for `label` that is younger than 50 minutes, or
+ * a new uncached token from `mint`, recorded before it is returned.
  */
 export async function recordedRunGitToken(
   input: RunTokenOptions &
@@ -63,9 +66,18 @@ export async function recordedRunGitToken(
     },
 ): Promise<string | undefined> {
   const store = storeFor(input)
-  const key = `${keyBase(input)}${input.label}:${Math.floor(Date.now() / WINDOW_MS)}`
-  const recorded = await store.get(key)
+  const prefix = `${keyBase(input)}${input.label}:`
+  const now = Date.now()
+  // Only `<prefix><window>` keys: a label can start with another label.
+  const recorded = (await store.list(prefix))
+    .filter(
+      (row) =>
+        /^\d+$/.test(row.key.slice(prefix.length)) &&
+        now - row.mintedAt.getTime() < WINDOW_MS,
+    )
+    .sort((a, b) => b.mintedAt.getTime() - a.mintedAt.getTime())[0]
   if (recorded) return recorded.token
+  const key = `${prefix}${Math.floor(now / WINDOW_MS)}`
   const minted = await input.mint()
   if (!minted) return undefined
   if (await store.add(key, minted)) return minted

@@ -103,6 +103,37 @@ it("records one token per label and window, and revokes the token a parallel min
   expect(await revokeRunGitTokens({ orgId, conversationId })).toBe(0)
 })
 
+it("reuses a token for 50 minutes after its mint, also across a clock window boundary", async () => {
+  const ingestThreadId = ingestSandboxThreadId(`run_window_${suffix}`, 0)
+  const window = 50 * 60_000
+  // One second before a 50-minute boundary of the clock. Each faked time is
+  // in the past, so the revoke at the end (real time) sees no young token.
+  const start = Math.floor(Date.now() / window) * window - window - 1_000
+  let minted = 0
+  const record = () =>
+    recordedRunGitToken({
+      orgId,
+      ingestThreadId,
+      label: "git:con_window",
+      mint: async () => `ghs_window_${++minted}`,
+    })
+  vi.useFakeTimers({ toFake: ["Date"], now: start })
+  try {
+    expect(await record()).toBe("ghs_window_1")
+    // A later step, two seconds later and after the boundary.
+    vi.setSystemTime(start + 2_000)
+    expect(await record()).toBe("ghs_window_1")
+    expect(minted).toBe(1)
+    // After 50 minutes the token has less than 10 minutes left: mint again.
+    vi.setSystemTime(start + window + 1_000)
+    expect(await record()).toBe("ghs_window_2")
+    expect(minted).toBe(2)
+  } finally {
+    vi.useRealTimers()
+  }
+  expect(await revokeRunGitTokens({ orgId, ingestThreadId })).toBe(0)
+})
+
 it("revokes only one turn's tokens, keeps a token whose revoke failed, and the sweep retries it", async () => {
   const conversationId = `conv_revoke_${suffix}`
   const record = (label: string) =>
