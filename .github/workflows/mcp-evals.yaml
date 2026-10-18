@@ -41,6 +41,11 @@ jobs:
       )
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 90
+    # The model keys are secrets of the workbench environment: a spend-capped
+    # MODEL_PROVIDER_API_KEY for CI. This job runs pnpm install, so it must
+    # never get the production key. Settings keep the production value in the
+    # Production environment, not in a repository secret.
+    environment: workbench
     services:
       postgres:
         image: pgvector/pgvector:pg17
@@ -76,15 +81,23 @@ jobs:
       MODEL_PROVIDER_URL: ${{ vars.MODEL_PROVIDER_URL }}
       MODEL_EMBEDDING_NAME: ${{ vars.MODEL_EMBEDDING_NAME }}
     steps:
+      - name: Check the workbench model key
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+        run: |
+          [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
+            exit 1
+          }
       - uses: actions/checkout@v6
         with:
           persist-credentials: false
-      - uses: pnpm/action-setup@v6
+      - uses: pnpm/action-setup@0977fd99725f1db4007ccb2928dbb4e90d06cc86 # v6
       - uses: actions/setup-node@v6
         with:
           node-version: 22
           cache: pnpm
-      - uses: oven-sh/setup-bun@v2
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
         with:
           bun-version: 1.4.2
       - run: pnpm install --frozen-lockfile
@@ -151,8 +164,8 @@ jobs:
         working-directory: apps/backend
         env:
           MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+          # run.ts sends every model of MCP_EVAL_MODELS through OpenRouter
+          # with this key (BYOK covers Anthropic and OpenAI).
           MODELS: ${{ vars.MCP_EVAL_MODELS }}
           UPDATE_BASELINE: ${{ inputs.update_baseline }}
         run: |

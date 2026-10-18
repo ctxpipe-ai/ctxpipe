@@ -234,6 +234,7 @@ export function defineRepositoryIngestionV2Workflow(
               orgId: input.orgId,
               targetHash: input.sha,
               githubConnectionId: input.source.githubConnectionId,
+              ingestionV2: true,
             },
             { name: "index" },
           )
