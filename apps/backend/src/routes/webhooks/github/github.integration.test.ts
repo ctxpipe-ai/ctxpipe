@@ -144,6 +144,27 @@ describe("GitHub webhooks reach only the connections they belong to (Postgres)",
     if (seed) await cleanupSeededOrg(seed)
   })
 
+  it("refuses an unsigned delivery on the shared route with 401, and a signed body that is not JSON with 400", async () => {
+    const post = async (signature: string) =>
+      (
+        await createApp().request("http://backend.test/api/v1/webhook/github", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-github-event": "ping",
+            "x-hub-signature-256": signature,
+          },
+          body: "not json",
+        })
+      ).status
+    expect(await post("sha256=00")).toBe(401)
+    expect(
+      await post(
+        await new Webhooks({ secret: deploymentSecret }).sign("not json"),
+      ),
+    ).toBe(400)
+  })
+
   it("does not deliver deployment App events to a connection with its own App", async () => {
     const draft = await createOwnAppDraft()
     await registerInstallationOnConnection({

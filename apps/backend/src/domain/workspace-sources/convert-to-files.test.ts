@@ -135,6 +135,18 @@ describe("planSourcesConversion", () => {
     })
   })
 
+  it("gives one file for each repository of a stored GitHub entry above the cap", () => {
+    const names = Array.from({ length: 101 }, (_, i) => `acme/repo-${i}`)
+    const plan = planSourcesConversion({
+      sourcesYaml: `version: 1\nsources:\n  - id: linked-repositories\n    provider: github\n    connection: con_example\n    repositories: [${names.join(", ")}]\n`,
+      sourceFiles: [],
+    })
+    expect(plan.report).toEqual([])
+    expect(plan.writes.map((write) => write.path).sort()).toEqual(
+      names.map((name) => `sources/github/${name}.md`).sort(),
+    )
+  })
+
   it("keeps each entry, connection, scope, ref, and description of every provider", () => {
     const tree = { sourcesYaml: ALL_PROVIDERS, sourceFiles: [] }
     const plan = planSourcesConversion(tree)
