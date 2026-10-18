@@ -282,7 +282,7 @@ async function start(argv: string[]): Promise<void> {
   const input = {
     orgId,
     shadow: true,
-    source: { url, githubConnectionId: connection.id },
+    source: { kind: "github", url, githubConnectionId: connection.id },
     sha,
     authorTime: new Date().toISOString(),
   } satisfies IngestionV2Input

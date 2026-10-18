@@ -9,7 +9,10 @@ import { z } from "zod"
 export type SourceScopeDefinition<
   S extends Record<string, unknown> = Record<string, unknown>,
 > = {
-  /** The `connections.type` that a source of this provider must use. */
+  /**
+   * The `connections.type` that a source of this provider must use. Null: a
+   * source of this provider has no connection (plain git).
+   */
   connectionType:
     | "github"
     | "forge"
@@ -17,6 +20,7 @@ export type SourceScopeDefinition<
     | "linear"
     | "notion"
     | "pagerduty"
+    | null
   /** The label for one provider, for example "Confluence". */
   label: string
   schema: z.ZodType<S>
@@ -29,7 +33,7 @@ export type SourceScopeDefinition<
  * It accepts any object and keeps every key.
  */
 export function placeholderScope(
-  connectionType: SourceScopeDefinition["connectionType"],
+  connectionType: NonNullable<SourceScopeDefinition["connectionType"]>,
   label: string,
 ): SourceScopeDefinition {
   return {

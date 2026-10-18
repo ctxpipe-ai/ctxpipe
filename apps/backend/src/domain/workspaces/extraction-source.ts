@@ -1,4 +1,5 @@
 import { z } from "zod"
+import { ingestSourceSchema } from "../ingestion/ingestion-run.js"
 import { gitObjectIdSchema } from "./revision.js"
 
 /**
@@ -17,9 +18,8 @@ export const ingestPublishSourceSchema = z
     tip: gitObjectIdSchema,
     withheldRoots: z.array(z.string().min(1)),
     bundle: z.string().min(1),
-    source: z
-      .object({ url: z.string().min(1), githubConnectionId: z.string().min(1) })
-      .strict(),
+    /** A GitHub or a plain git source (CTX-815). */
+    source: ingestSourceSchema,
     sourcePath: z.string().min(1),
     sourceSha: gitObjectIdSchema,
     /** The run's author time: the commit date, so a replay makes the same SHA. */

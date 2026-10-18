@@ -1,4 +1,5 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
+import { Sandbox } from "@vercel/sandbox"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
@@ -14,15 +15,29 @@ import {
 } from "vitest"
 import type { AppEnv } from "../app/env.js"
 import { parseEnv } from "../config/env.js"
+import type { RootExec } from "../domain/ingestion/ingest-root.js"
+import { withShardStep } from "../domain/ingestion/ingest-shard-step.js"
 import {
   type IngestEgressScope,
   ingestEgressProxy,
   sealIngestEgressScope,
 } from "../domain/workspaces/ingest-egress-proxy.js"
 import {
+  ingestNetworkPolicy,
+  vercelIngestSandboxProvider,
+} from "../domain/workspaces/ingest-sandbox-egress.js"
+import {
   registerSandboxEgressRoute,
   sandboxEgressGuard,
 } from "./sandbox-egress.js"
+
+/** The DNS answers of the plain git hosts (the environment of the test). */
+const dnsAnswers = new Map<string, string[]>([
+  ["git.example.org", ["93.184.215.14"]],
+  ["private.example.org", ["93.184.215.14", "169.254.169.254"]],
+])
+const lookup = async (host: string) =>
+  (dnsAnswers.get(host) ?? []).map((address) => ({ address }))
 
 const secret = "egress-test-secret-0123456789abcdef"
 const backendHost = "app.example.test"
@@ -81,6 +96,8 @@ const server = setupServer(
     HttpResponse.json({ id: project, accountId: team }),
   ),
   http.all("https://github.com/*", record),
+  http.all("https://git.example.org/*", record),
+  http.all("https://private.example.org/*", record),
   http.all(`https://${backendHost}/*`, record),
 )
 
@@ -102,7 +119,7 @@ afterEach(() => {
   server.resetHandlers()
 })
 
-function egressApp() {
+function egressApp(plainGitMaxBytes?: number) {
   const env = parseEnv({
     DATABASE_URL: "postgres://unused@localhost:5432/unused",
     AUTH_SECRET: secret,
@@ -117,7 +134,10 @@ function egressApp() {
     c.set("env", env)
     await next()
   })
-  registerSandboxEgressRoute(app)
+  registerSandboxEgressRoute(app, {
+    lookup,
+    ...(plainGitMaxBytes ? { plainGitMaxBytes } : {}),
+  })
   // Another backend route, as the sandbox must never reach it.
   app.all("/:orgSlug/api/v1/*", (c) => c.text("reached"))
   return app
@@ -163,13 +183,15 @@ async function forwarded(
     issuer?: string
     /** The request path as the backend sees it; defaults to the forward URL plus `path`. */
     requestPath?: string
+    /** The size limit of one plain git answer. */
+    plainGitMaxBytes?: number
   } = {},
 ) {
   const sealed = options.sealed ?? sealIngestEgressScope(scope, secret)
   const forwardUrl = `https://${backendHost}/api/v1/sandbox-egress/${sealed}`
   const url = new URL(target)
   const path = options.rawPath ?? `${url.pathname}${url.search}`
-  return egressApp().request(
+  return egressApp(options.plainGitMaxBytes).request(
     `http://127.0.0.1:3000${options.requestPath ?? `/api/v1/sandbox-egress/${sealed}${path}`}`,
     {
       method: options.method ?? "GET",
@@ -631,5 +653,418 @@ describe("the ingest egress proxy route", () => {
     const denied = await forwarded(target)
     expect(denied.status).toBe(403)
     expect(await denied.text()).toBe("Forbidden")
+  })
+})
+
+describe("the ingest egress proxy route for a plain git source (CTX-815)", () => {
+  const plainScope: IngestEgressScope = {
+    ...scope,
+    plainGit: [
+      { host: "git.example.org", path: "/team/app.git" },
+      { host: "private.example.org", path: "/team/app.git" },
+    ],
+  }
+  const sealed = () => sealIngestEgressScope(plainScope, secret)
+
+  it("forwards a Git fetch of the repository with no credential, also when the sandbox sends one", async () => {
+    const refs = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      {
+        sealed: sealed(),
+        headers: { authorization: "Basic c2FuZGJveDpzZWNyZXQ=" },
+      },
+    )
+    const pack = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      { sealed: sealed(), method: "POST", body: "0032want abc\n0000" },
+    )
+    expect([refs.status, pack.status]).toEqual([200, 200])
+    expect(seen).toEqual([
+      {
+        method: "GET",
+        url: "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        authorization: null,
+        body: "",
+      },
+      {
+        method: "POST",
+        url: "https://git.example.org/team/app.git/git-upload-pack",
+        authorization: null,
+        body: "0032want abc\n0000",
+      },
+    ])
+  })
+
+  it("refuses another host, another path, a push, and another method", async () => {
+    for (const [target, method] of [
+      [
+        "https://other.example.org/team/app.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      [
+        "https://git.example.org/team/other.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      [
+        "https://git.example.org/team/app.git.evil/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+      ["https://git.example.org/team/app.git", "GET"],
+      ["https://git.example.org/team/app.git/git-receive-pack", "POST"],
+      [
+        "https://git.example.org/team/app.git/info/refs?service=git-receive-pack",
+        "GET",
+      ],
+      ["https://git.example.org/team/app.git/git-upload-pack", "GET"],
+      [
+        "https://github.com/team/app.git/info/refs?service=git-upload-pack",
+        "GET",
+      ],
+    ] as const) {
+      const response = await forwarded(target, {
+        sealed: sealed(),
+        method,
+        ...(method === "POST" ? { body: "0000" } : {}),
+      })
+      expect(response.status, `${method} ${target}`).toBe(403)
+    }
+    expect(seen).toEqual([])
+  })
+
+  it("refuses a Git fetch of the plain git source from a step after prepare: no POST body can leave to the git host", async () => {
+    const plainGit = [{ host: "git.example.org", path: "/team/app.git" }]
+    const sealedOf = (fetchSource: boolean) => {
+      const policy = ingestNetworkPolicy({
+        git: scope.git,
+        plainGit,
+        backendHost,
+        secret,
+        sandboxName: "sbx-ingest",
+        step: fetchSource ? { ...step, fetchSource } : step,
+      }) as { allow: Record<string, Array<{ forwardURL?: string }>> }
+      return new URL(
+        policy.allow["github.com"]?.[0]?.forwardURL ?? "",
+      ).pathname.replace("/api/v1/sandbox-egress/", "")
+    }
+    const fetchOf = (sealed: string) =>
+      Promise.all([
+        forwarded(
+          "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+          { sealed },
+        ),
+        forwarded("https://git.example.org/team/app.git/git-upload-pack", {
+          sealed,
+          method: "POST",
+          body: "0032want abc\nWorkspace content\n0000",
+        }),
+      ]).then((responses) => responses.map((response) => response.status))
+    expect(await fetchOf(sealedOf(false))).toEqual([403, 403])
+    expect(seen).toEqual([])
+    // During prepare, the same fetch reaches the host.
+    expect(await fetchOf(sealedOf(true))).toEqual([200, 200])
+  })
+
+  it("stops a plain git answer that is larger than the size limit, with a clear error", async () => {
+    const chunk = new Uint8Array(512).fill(65)
+    server.use(
+      // No length: the proxy counts the bytes as they pass.
+      http.post(
+        "https://git.example.org/team/app.git/git-upload-pack",
+        () =>
+          new HttpResponse(
+            new ReadableStream({
+              start(controller) {
+                for (let i = 0; i < 4; i++) controller.enqueue(chunk)
+                controller.close()
+              },
+            }),
+          ),
+      ),
+      // A declared length over the limit: refused before any byte passes.
+      http.get(
+        "https://git.example.org/team/app.git/info/refs",
+        () =>
+          new HttpResponse(new Uint8Array(4096), {
+            headers: { "content-length": "4096" },
+          }),
+      ),
+    )
+    const message =
+      "The plain git host git.example.org sent an answer larger than the limit of 1024 bytes"
+    const pack = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      {
+        sealed: sealed(),
+        method: "POST",
+        body: "0032want abc\n0000",
+        plainGitMaxBytes: 1024,
+      },
+    )
+    expect(pack.status).toBe(200)
+    await expect(pack.text()).rejects.toThrow(message)
+    const refs = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed(), plainGitMaxBytes: 1024 },
+    )
+    expect(refs.status).toBe(502)
+    expect(await refs.text()).toBe(message)
+    // Under the limit, the whole answer passes.
+    const small = await forwarded(
+      "https://git.example.org/team/app.git/git-upload-pack",
+      {
+        sealed: sealed(),
+        method: "POST",
+        body: "0032want abc\n0000",
+        plainGitMaxBytes: 4096,
+      },
+    )
+    expect((await small.text()).length).toBe(2048)
+  })
+
+  it("refuses a plain git host that resolves to a private address", async () => {
+    const response = await forwarded(
+      "https://private.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed() },
+    )
+    expect(response.status).toBe(403)
+    expect(seen).toEqual([])
+  })
+
+  it("does not follow a redirect of the plain git host", async () => {
+    server.use(
+      http.get("https://git.example.org/team/app.git/info/refs", () =>
+        HttpResponse.text("", {
+          status: 301,
+          headers: {
+            location:
+              "https://private.example.org/team/app.git/info/refs?service=git-upload-pack",
+          },
+        }),
+      ),
+    )
+    const response = await forwarded(
+      "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+      { sealed: sealed() },
+    )
+    expect(response.status).toBe(301)
+    expect(
+      outbound.filter((url) => url.includes("private.example.org")),
+    ).toEqual([])
+  })
+})
+
+describe("the plain git source fetch of a shard step (CTX-815)", () => {
+  const name = "sbx-ingest"
+  const vercel = { token: "t", teamId: team, projectId: project }
+  const session = {
+    id: "sess_shard_step",
+    memory: 2048,
+    vcpus: 1,
+    region: "iad1",
+    runtime: "node22",
+    timeout: 60_000,
+    status: "running",
+    requestedAt: 1,
+    createdAt: 1,
+    cwd: "/vercel/sandbox",
+    updatedAt: 1,
+  }
+  const sandbox = {
+    name,
+    persistent: true,
+    createdAt: 1,
+    updatedAt: 1,
+    currentSessionId: session.id,
+    status: "running",
+  }
+  type Policy = { allow: Record<string, Array<{ forwardURL?: string }>> }
+  /** Each network policy that Vercel applied, in order. */
+  let applied: Policy[] = []
+  /** The sandbox's prepared marker, as `ingestShardPrepared` reads it. */
+  let prepared = false
+  const root: RootExec = async (script) => ({
+    exitCode: script.startsWith("test -f ") && !prepared ? 1 : 0,
+    stdout: "",
+    stderr: "",
+  })
+  const sealedOf = (policy: Policy | undefined) =>
+    new URL(
+      policy?.allow["github.com"]?.[0]?.forwardURL ?? "",
+    ).pathname.replace("/api/v1/sandbox-egress/", "")
+  /** A Git fetch of the source through the policy that Vercel applied last. */
+  const fetchNow = () => {
+    const sealed = sealedOf(applied.at(-1))
+    return Promise.all([
+      forwarded(
+        "https://git.example.org/team/app.git/info/refs?service=git-upload-pack",
+        { sealed },
+      ),
+      forwarded("https://git.example.org/team/app.git/git-upload-pack", {
+        sealed,
+        method: "POST",
+        body: "0032want abc\nWorkspace content\n0000",
+      }),
+    ]).then((responses) => responses.map((response) => response.status))
+  }
+
+  async function hostedFirewall() {
+    vi.stubEnv("AUTH_SECRET", secret)
+    vi.stubEnv("DATABASE_URL", "postgres://unused@localhost:5432/unused")
+    vi.stubEnv("AUTH_BASE_URL", `https://${backendHost}`)
+    server.use(
+      http.get(`https://vercel.com/api/v2/sandboxes/${name}`, () =>
+        HttpResponse.json({ sandbox, session, routes: [] }),
+      ),
+      http.patch(
+        `https://vercel.com/api/v2/sandboxes/${name}`,
+        async ({ request }) => {
+          const body = (await request.json()) as { networkPolicy: Policy }
+          applied.push(body.networkPolicy)
+          return HttpResponse.json({ sandbox })
+        },
+      ),
+      http.post(
+        `https://vercel.com/api/v2/sandboxes/sessions/${session.id}/network-policy`,
+        () => HttpResponse.json({ session }),
+      ),
+    )
+    const { firewall } = vercelIngestSandboxProvider({
+      orgId: "org_shard_step",
+      runId: "run_shard_step",
+      shard: 0,
+      repositories: [
+        { kind: "git", host: "git.example.org", path: "/team/app.git" },
+      ],
+      backendHost,
+      credentials: vercel,
+      agentPassword: "password",
+      tags: {},
+      agentSnapshot: async () => "snap_test",
+    })
+    // The provider attaches the sandbox at each step's create or resume.
+    const attach = async () =>
+      firewall.attach(
+        await Sandbox.get({ ...vercel, name, resume: false }),
+        "git-1",
+      )
+    return { firewall, attach }
+  }
+
+  /** One step as `withShard` runs it; `prepare` and `stopAgents` fetch too. */
+  function stepOf(
+    hosted: Awaited<ReturnType<typeof hostedFirewall>> | undefined,
+    input: {
+      existing: boolean
+      refresh?: (fetchSource: boolean) => Promise<void>
+      prepare?: () => Promise<void>
+      stopAgents?: () => Promise<void>
+    },
+  ) {
+    return withShardStep({
+      existingRoot: input.existing ? root : null,
+      plainGitSource: true,
+      firewall: hosted?.firewall,
+      credentials: step,
+      refresh:
+        input.refresh ??
+        (() => Promise.reject(new Error("A hosted step refreshes no vault"))),
+      attach: async () => {
+        await hosted?.attach()
+        return { handle: { id: name }, root }
+      },
+      prepare: async () => {
+        await input.prepare?.()
+        prepared = true
+      },
+      run: fetchNow,
+      stopAgents: async () => {
+        await input.stopAgents?.()
+      },
+      logContext: { orgId: "org_shard_step", runId: "run_shard_step" },
+    })
+  }
+
+  it("reaches the plain git host only while it prepares a new or an unprepared sandbox; the step after it gets 403", async () => {
+    const hosted = await hostedFirewall()
+    const duringPrepare: number[][] = []
+    const fetchInPrepare = async () => {
+      duringPrepare.push(await fetchNow())
+    }
+
+    // A new sandbox: prepare, then the step.
+    prepared = false
+    expect(
+      await stepOf(hosted, { existing: false, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toEqual([[200, 200]])
+
+    // An existing, prepared sandbox does not prepare, and never gets the
+    // plain git host.
+    applied = []
+    expect(
+      await stepOf(hosted, { existing: true, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toHaveLength(1)
+    expect(applied.some((policy) => "git.example.org" in policy.allow)).toBe(
+      false,
+    )
+
+    // An existing sandbox whose prepare did not finish prepares again.
+    prepared = false
+    expect(
+      await stepOf(hosted, { existing: true, prepare: fetchInPrepare }),
+    ).toEqual([403, 403])
+    expect(duringPrepare).toEqual([
+      [200, 200],
+      [200, 200],
+    ])
+  })
+
+  it("removes the plain git host when the prepare fails, before the step's agents are stopped", async () => {
+    const hosted = await hostedFirewall()
+    prepared = false
+    let duringPrepare: number[] = []
+    let afterFailure: number[] = []
+    await expect(
+      stepOf(hosted, {
+        existing: false,
+        prepare: async () => {
+          duringPrepare = await fetchNow()
+          throw new Error("The clone failed")
+        },
+        stopAgents: async () => {
+          afterFailure = await fetchNow()
+        },
+      }),
+    ).rejects.toThrow("The clone failed")
+    expect(duringPrepare).toEqual([200, 200])
+    expect(afterFailure).toEqual([403, 403])
+    expect(prepared).toBe(false)
+  })
+
+  it("Docker: sets the vault rules with the source fetch only for the prepare, also when it fails", async () => {
+    const refreshes: boolean[] = []
+    const refresh = async (fetchSource: boolean) => {
+      refreshes.push(fetchSource)
+    }
+    // An existing, prepared sandbox: this step's rules, with no source fetch.
+    prepared = true
+    await stepOf(undefined, { existing: true, refresh })
+    expect(refreshes).toEqual([false])
+    // An existing, unprepared sandbox: the source fetch, then no fetch.
+    prepared = false
+    await stepOf(undefined, { existing: true, refresh })
+    expect(refreshes).toEqual([false, true, false])
+    // A new sandbox got the source fetch rules at create; a failed prepare
+    // removes them.
+    prepared = false
+    await expect(
+      stepOf(undefined, {
+        existing: false,
+        refresh,
+        prepare: () => Promise.reject(new Error("The clone failed")),
+      }),
+    ).rejects.toThrow("The clone failed")
+    expect(refreshes).toEqual([false, true, false, false])
   })
 })
