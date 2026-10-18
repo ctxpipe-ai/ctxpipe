@@ -18,6 +18,61 @@ beforeAll(() => {
     throw new Error("DATABASE_URL is required: run pnpm dev:infra")
 })
 
+type Fixture = Parameters<Parameters<typeof withNativeHydrationFixture>[1]>[0]
+
+/** Run the queued connector mirror command of the Workspace to its end. */
+async function runConnectorMirror(f: Fixture, jobId: string) {
+  const { BackendPostgres } = await import("openworkflow/postgres")
+  const { OpenWorkflow } = await import("openworkflow")
+  const backend = await BackendPostgres.connect(f.databaseUrl, {
+    namespaceId: openWorkflowNamespaceId(),
+    runMigrations: false,
+  })
+  const runner = new OpenWorkflow({ backend })
+  const { workspaceConnectorMirror } = await import(
+    "../../openworkflow/workflows/workspace-connector-mirror.js"
+  )
+  const { workspaceSemanticMerge } = await import(
+    "../../openworkflow/workflows/workspace-semantic-merge.js"
+  )
+  runner.implementWorkflow(
+    workspaceConnectorMirror.spec,
+    workspaceConnectorMirror.fn,
+  )
+  // When the head moved after the queue, the commit merges onto it.
+  runner.implementWorkflow(
+    workspaceSemanticMerge.spec,
+    workspaceSemanticMerge.fn,
+  )
+  const worker = runner.newWorker({ concurrency: 1 })
+  try {
+    await worker.start()
+    await expect
+      .poll(
+        () => withOrgIdContext(f.org, () => reconcileWorkspaceWriteJob(jobId)),
+        { timeout: 30_000 },
+      )
+      .toMatchObject({ status: "completed" })
+  } finally {
+    await worker.stop()
+    await backend.stop()
+  }
+}
+
+async function connectorMirrorJobs(f: Fixture) {
+  return withOrgDbContext(f.org.id, (db) =>
+    db
+      .select({ id: workspaceWriteJobs.id })
+      .from(workspaceWriteJobs)
+      .where(
+        and(
+          eq(workspaceWriteJobs.workspaceId, f.workspaceId),
+          eq(workspaceWriteJobs.kind, "connector_mirror"),
+        ),
+      ),
+  )
+}
+
 it(
   "queues the connector mirror commit from a workflow step, where no request logger exists",
   { timeout: 60_000 },
@@ -154,56 +209,9 @@ it(
           "Add W",
         )
 
-        const [job] = await withOrgDbContext(f.org.id, (db) =>
-          db
-            .select({ id: workspaceWriteJobs.id })
-            .from(workspaceWriteJobs)
-            .where(
-              and(
-                eq(workspaceWriteJobs.workspaceId, f.workspaceId),
-                eq(workspaceWriteJobs.kind, "connector_mirror"),
-              ),
-            ),
-        )
+        const [job] = await connectorMirrorJobs(f)
         if (!job) throw new Error("Expected a queued cleanup")
-        const { BackendPostgres } = await import("openworkflow/postgres")
-        const { OpenWorkflow } = await import("openworkflow")
-        const backend = await BackendPostgres.connect(f.databaseUrl, {
-          namespaceId: openWorkflowNamespaceId(),
-          runMigrations: false,
-        })
-        const runner = new OpenWorkflow({ backend })
-        const { workspaceConnectorMirror } = await import(
-          "../../openworkflow/workflows/workspace-connector-mirror.js"
-        )
-        const { workspaceSemanticMerge } = await import(
-          "../../openworkflow/workflows/workspace-semantic-merge.js"
-        )
-        runner.implementWorkflow(
-          workspaceConnectorMirror.spec,
-          workspaceConnectorMirror.fn,
-        )
-        // The head moved after the queue, so the commit merges onto it.
-        runner.implementWorkflow(
-          workspaceSemanticMerge.spec,
-          workspaceSemanticMerge.fn,
-        )
-        const worker = runner.newWorker({ concurrency: 1 })
-        try {
-          await worker.start()
-          await expect
-            .poll(
-              () =>
-                withOrgIdContext(f.org, () =>
-                  reconcileWorkspaceWriteJob(job.id),
-                ),
-              { timeout: 30_000 },
-            )
-            .toMatchObject({ status: "completed" })
-        } finally {
-          await worker.stop()
-          await backend.stop()
-        }
+        await runConnectorMirror(f, job.id)
         expect(
           f
             .git("--git-dir", f.remote, "ls-tree", "-r", "--name-only", "main")
@@ -282,6 +290,108 @@ it(
         expect(
           await writeWorkspaceSlice({ ...write, sourcesRevision: head }, env),
         ).toEqual({ queued: true })
+      },
+    )
+  },
+)
+
+it(
+  "refuses a slice file or deleted path outside the owned paths",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [{ path: "linear/teams/OPS/README.md", body: "# OPS\n" }],
+      },
+      async (f) => {
+        await f.publish()
+        const write = {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          provider: "linear" as const,
+          connectionId: "con_linear",
+          ownedPrefixes: ["linear/teams/ENG/"],
+          keepPrefixes: [],
+          sourcesRevision: f.git("rev-parse", "HEAD"),
+        }
+        const env = parseEnv(process.env)
+
+        await expect(
+          writeWorkspaceSlice(
+            {
+              ...write,
+              files: [{ path: "linear/teams/OPS/README.md", content: "# X\n" }],
+            },
+            env,
+          ),
+        ).rejects.toThrow("The linear sync refused an unsafe path.")
+        await expect(
+          writeWorkspaceSlice(
+            {
+              ...write,
+              files: [],
+              deletePaths: ["linear/teams/OPS/README.md"],
+            },
+            env,
+          ),
+        ).rejects.toThrow("The linear sync refused an unsafe path.")
+        expect(await connectorMirrorJobs(f)).toEqual([])
+      },
+    )
+  },
+)
+
+it(
+  "writes a slice file as a regular file over a symlink",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        files: [
+          { path: "knowledge/owner.md", body: "# Owner\n" },
+          {
+            path: "linear/teams/ENG/README.md",
+            body: "../../../knowledge/owner.md",
+            mode: "120000",
+          },
+        ],
+      },
+      async (f) => {
+        await f.publish()
+        const result = await writeWorkspaceSlice(
+          {
+            orgId: f.org.id,
+            workspaceId: f.workspaceId,
+            provider: "linear",
+            connectionId: "con_linear",
+            files: [{ path: "linear/teams/ENG/README.md", content: "# ENG\n" }],
+            ownedPrefixes: ["linear/teams/ENG/"],
+            keepPrefixes: [],
+            sourcesRevision: f.git("rev-parse", "HEAD"),
+          },
+          parseEnv(process.env),
+        )
+        expect(result).toEqual({ queued: true })
+        const [job] = await connectorMirrorJobs(f)
+        if (!job) throw new Error("Expected a queued connector mirror")
+
+        await runConnectorMirror(f, job.id)
+
+        expect(
+          f.git(
+            "--git-dir",
+            f.remote,
+            "ls-tree",
+            "main",
+            "linear/teams/ENG/README.md",
+          ),
+        ).toMatch(/^100644 blob /)
       },
     )
   },

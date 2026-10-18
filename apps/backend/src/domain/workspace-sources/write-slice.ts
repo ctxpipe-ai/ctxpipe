@@ -11,6 +11,7 @@ import {
 import { resolveWorkspaceReadRevision } from "../workspaces/resolve-revision.js"
 import { workspaceRootPath } from "../workspaces/root-path.js"
 import { listExistingBlobs } from "./existing-blobs.js"
+import { refuseMirrorPath, unsafeMirrorPath } from "./mirror-path.js"
 import { diffSlice } from "./slice-diff.js"
 import { readSliceTarget } from "./slice-target.js"
 import type { ExistingBlob, StampOwner, WorkspaceSliceWrite } from "./sync.js"
@@ -26,6 +27,20 @@ export async function writeWorkspaceSlice(
   write: WorkspaceSliceWrite,
   env: Env,
 ): Promise<{ queued: boolean }> {
+  // Each changed path must be safe and under a path that this write owns:
+  // another source of the Workspace owns the other paths of the provider.
+  for (const path of [
+    ...write.files.map((file) => file.path),
+    ...(write.deletePaths ?? []),
+  ]) {
+    const unsafe =
+      unsafeMirrorPath(path) ??
+      (write.ownedPrefixes.some((prefix) => path.startsWith(prefix))
+        ? null
+        : "is not under a path that the write owns")
+    if (unsafe)
+      refuseMirrorPath({ provider: write.provider, path, reason: unsafe })
+  }
   const org = await getSystemDb().query.organizations.findFirst({
     where: { id: { eq: write.orgId } },
   })
@@ -67,7 +82,11 @@ export async function writeWorkspaceSlice(
             ? { removedTargets: write.removed }
             : { sourcesBlobSha: captured.sourcesBlobSha }),
         },
-        mergeFiles: change.files,
+        // A regular file, also where the head has a symlink at the path.
+        mergeFiles: change.files.map((file) => ({
+          ...file,
+          mode: "100644" as const,
+        })),
         mergeDeletePaths: change.deletePaths,
       },
       // The sources sync workflow has no request logger.

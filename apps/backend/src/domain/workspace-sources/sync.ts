@@ -1,4 +1,3 @@
-import { posix } from "node:path"
 import type { Env } from "../../config/env.js"
 import {
   lastGoodTarget,
@@ -15,6 +14,7 @@ import type {
   SourceAdapter,
   SourceFetchResult,
 } from "./adapter.js"
+import { refuseMirrorPath, unsafeMirrorPath } from "./mirror-path.js"
 import { checkSourcePath } from "./source-file.js"
 import type { SourceProvider } from "./sources-file.js"
 import { stampSources } from "./stamp-sources.js"
@@ -95,38 +95,19 @@ function overlaps(a: string, b: string): boolean {
   return a.startsWith(b) || b.startsWith(a)
 }
 
-/**
- * Why `path` is not a safe mirror path, or null. A folder path ends with
- * "/". The path must already be in its normal form: the sync refuses a path
- * that a POSIX or a Unicode (NFC) normalization changes. It does not repair
- * the path, because the repaired path can point to a file of a different
- * owner.
- */
-export function unsafeMirrorPath(path: string, folder = false): string | null {
-  if (path.normalize("NFC") !== path) return "changes in Unicode NFC form"
-  // biome-ignore lint/suspicious/noControlCharactersInRegex: the check refuses control characters
-  if (/[\u0000-\u001f\u007f-\u009f]/.test(path))
-    return "contains a control character"
-  if (path.includes("\\")) return "contains a backslash"
-  if (path.startsWith("/")) return "is absolute"
-  if (folder !== path.endsWith("/"))
-    return folder ? 'must end with "/"' : 'must not end with "/"'
-  const body = folder ? path.slice(0, -1) : path
-  if (
-    body.split("/").some((part) => part === "" || part === "." || part === "..")
-  )
-    return 'has an empty, ".", or ".." segment'
-  if (posix.normalize(body) !== body) return "changes when normalized"
-  return null
-}
-
 function assertManagedPaths(adapter: SourceAdapter, prefixes: string[]) {
   for (const prefix of prefixes) {
-    const unsafe = unsafeMirrorPath(prefix, true)
-    if (unsafe || !prefix.startsWith(`${adapter.provider}/`))
-      throw new Error(
-        `Managed path ${JSON.stringify(prefix)} must be a relative path under ${adapter.provider}/ that ends with "/"${unsafe ? `: it ${unsafe}` : ""}`,
-      )
+    const unsafe =
+      unsafeMirrorPath(prefix, true) ??
+      (prefix.startsWith(`${adapter.provider}/`)
+        ? null
+        : `is not under ${adapter.provider}/`)
+    if (unsafe)
+      refuseMirrorPath({
+        provider: adapter.provider,
+        path: prefix,
+        reason: unsafe,
+      })
   }
 }
 
@@ -142,11 +123,8 @@ function assertFetchedPaths(
   result: SourceFetchResult,
   managed: readonly string[],
 ) {
-  const refuse = (path: string, why: string) => {
-    throw new Error(
-      `The ${adapter.provider} sync refused the path ${JSON.stringify(path)}: it ${why}. Nothing was written.`,
-    )
-  }
+  const refuse = (path: string, reason: string) =>
+    refuseMirrorPath({ provider: adapter.provider, path, reason })
   const files = "files" in result ? result.files : result.filesByScope.flat()
   for (const path of [
     ...files.flatMap((file) => (file ? [file.path] : [])),

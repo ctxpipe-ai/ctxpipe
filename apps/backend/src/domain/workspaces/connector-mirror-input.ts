@@ -4,6 +4,7 @@ import {
   gitFileChangeSchema,
   repositoryFilePathSchema,
 } from "../../services/git/file-change.js"
+import { unsafeMirrorPath } from "../workspace-sources/mirror-path.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import { gitObjectIdSchema } from "./revision.js"
 
@@ -80,9 +81,10 @@ export const connectorMirrorContentSchema = z
       [...input.files.map((file) => file.path), ...input.deletePaths].every(
         (path) =>
           path.startsWith(`${input.mirror.provider}/`) &&
-          path !== `${input.mirror.provider}/config.yaml`,
+          path !== `${input.mirror.provider}/config.yaml` &&
+          unsafeMirrorPath(path) === null,
       ),
-    "A mirror may only change content under its managed provider root",
+    "A mirror may only change safe paths under its managed provider root",
   )
   .refine(
     (input) =>

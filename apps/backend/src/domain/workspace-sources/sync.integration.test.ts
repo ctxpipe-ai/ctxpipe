@@ -574,6 +574,7 @@ describe("Workspace source sync frame (Postgres)", () => {
       "/confluence/x/",
       "confluence\\x/",
       "confluence/x",
+      "confluence/.git/",
     ]) {
       await expect(
         syncConnectionSources({
@@ -587,7 +588,9 @@ describe("Workspace source sync frame (Postgres)", () => {
           },
           write: async () => {},
         }),
-      ).rejects.toThrow(/Managed path/)
+      ).rejects.toThrow(
+        /^The confluence sync refused an unsafe path\. Nothing was written\.$/,
+      )
     }
   })
 
@@ -643,12 +646,16 @@ describe("Workspace source sync frame (Postgres)", () => {
       ["a control character", "confluence/ENG/page\n.md"],
       ["a form that NFC changes", "confluence/ENG/cafe\u0301.md"],
       ["a path of another source", "confluence/HR/page.md"],
+      ["a .git segment", "confluence/ENG/.git/config"],
+      ["a .GIT segment", "confluence/ENG/.GIT/hooks/post-checkout"],
+      ["a file name that starts with a dot", "confluence/ENG/.gitattributes"],
     ])("refuses a file with %s", async (_, path) => {
       const { run, writes } = await syncWith({
         files: ["confluence/ENG/home.md", path],
       })
+      // The error goes to workflow errors: it does not name the path.
       await expect(run).rejects.toThrow(
-        /The confluence sync refused the path .*Nothing was written/,
+        /^The confluence sync refused an unsafe path\. Nothing was written\.$/,
       )
       expect(writes).toEqual([])
     })
@@ -658,13 +665,13 @@ describe("Workspace source sync frame (Postgres)", () => {
         files: ["confluence/ENG/home.md"],
         deletePaths: ["confluence/ENG/../../sources/docs.md"],
       })
-      await expect(deleted.run).rejects.toThrow(/refused the path/)
+      await expect(deleted.run).rejects.toThrow(/refused an unsafe path/)
       expect(deleted.writes).toEqual([])
       const kept = await syncWith({
         files: ["confluence/ENG/home.md"],
         keepPaths: ["confluence/../linear/"],
       })
-      await expect(kept.run).rejects.toThrow(/refused the path/)
+      await expect(kept.run).rejects.toThrow(/refused an unsafe path/)
       expect(kept.writes).toEqual([])
     })
 
