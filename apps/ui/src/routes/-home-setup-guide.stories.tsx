@@ -650,14 +650,38 @@ export const GuideAdminLinksRepositoriesOnHome: Story = {
     await userEvent.click(
       await within(dialog).findByRole("checkbox", { name: "acme/api" }),
     )
+    const doc = canvasElement.ownerDocument
+    const dialogElement = dialog.getByRole("heading").closest("section") as HTMLElement
+    const events: string[] = []
+    const record = (event: Event) => {
+      const target = event.target as HTMLElement
+      events.push(
+        `${Math.round(performance.now())} ${event.type} ${"animationName" in event ? (event as AnimationEvent).animationName : ""} ${target.tagName} ${String(target.className).slice(0, 60)}`,
+      )
+    }
+    for (const type of ["animationstart", "animationend", "animationcancel"])
+      doc.addEventListener(type, record, true)
+    events.push(`${Math.round(performance.now())} submit`)
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Open a pull request" }),
     )
-    await waitFor(() =>
-      expect(
-        body.queryByRole("dialog", { name: "Add repositories" }),
-      ).not.toBeInTheDocument(),
-    )
+    try {
+      await waitFor(
+        () =>
+          expect(
+            body.queryByRole("dialog", { name: "Add repositories" }),
+          ).not.toBeInTheDocument(),
+        { timeout: 3000 },
+      )
+    } catch (error) {
+      throw new Error(
+        `DIAG Add repositories stayed. viewTransition=${String((doc as unknown as { activeViewTransition?: unknown }).activeViewTransition ?? "none")} events=${JSON.stringify(events)} state=${describeExit(dialogElement, 0, doc)}`,
+        { cause: error },
+      )
+    } finally {
+      for (const type of ["animationstart", "animationend", "animationcancel"])
+        doc.removeEventListener(type, record, true)
+    }
     // Home stays, and the row shows the pull request that waits.
     const after = await findGuide(canvasElement)
     await waitFor(() =>
