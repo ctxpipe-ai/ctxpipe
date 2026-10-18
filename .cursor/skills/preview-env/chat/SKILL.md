@@ -20,7 +20,7 @@ Use a **real** question about the Workspace's repository (a named file, how a fe
 
 **Expect (UI)** the URL becomes `/{orgSlug}/ws/{workspace1Slug}/conv_…`; the user bubble holds the question; **Setting up sandbox** and **Thinking…** clear; assistant text arrives progressively (more than one text update, not one dump) with tool or reasoning chips; the answer cites the named file; the sidebar entry changes from **New conversation** to a model-written title.
 **Expect (backend)** `conversations` row (name updated once after the first turn); `chat_threads`, `chat_runs`, `conversation_messages`; `workspace_sandbox_instances` row for the conversation (hosted: Vercel provider, tagged with the environment, started from the Workspace base snapshot with no clone in this turn); hosted `workspace_sandbox_git_tokens` row (encrypted); the model call arrived through the app proxy at a configured tier (default fast), no other model host.
-**Budget** 5 s / 15 s, **Send** to a complete answer (the PRD target). Also record time to first token and time to **Setting up sandbox** clearing.
+**Budget** 12 s / 20 s, **Send** to a complete answer. This budget is a CTO decision on CTX-848. Also record time to first token and time to **Setting up sandbox** clearing.
 **Evidence** `CHAT-1-1.png` (mid-stream), `CHAT-1-2.png` (final), `chat.webm`; trace of the conversation request and the `opencode.chatStream` / `tanstack-workspace-chat` steps.
 
 ### CHAT-2 Second turn on the same conversation (warm)
