@@ -229,6 +229,13 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
       `id; echo "HOME=$HOME"; echo "PATH=$PATH"; command -v node npm git; for p in ${places.join(" ")}; do mkdir -p "$(dirname "$p")" 2>/dev/null; echo kept > "$p" 2>/dev/null && echo "wrote $p" || echo "cannot write $p"; done`,
     )
     report(`[vercel] places before stop: ${write.stdout.replace(/\n/g, " | ")}`)
+    const bootProbe = (target: Sandbox, label: string, seconds: number) =>
+      handle(target)
+        .process.exec(
+          `b=/etc/ssl/certs/ca-certificates.crt; echo "${label} now=$(date +%s) btime=$(awk '/^btime/{print $2}' /proc/stat) uptime=$(cut -d' ' -f1 /proc/uptime) linkctime=$(stat -c %Z $b 2>&1) linkbirth=$(stat -c %w $b 2>&1)"; last=""; for i in $(seq 1 ${seconds * 5}); do cur="linkctime=$(stat -c %Z $b 2>&1) linkbirth=$(stat -c %w $b 2>&1) btime=$(awk '/^btime/{print $2}' /proc/stat) procs=$(pgrep -x update-ca-trust | wc -l)/$(pgrep -x trust | wc -l)"; if [ "$cur" != "$last" ]; then echo "t=$(date +%s.%N) $cur"; last="$cur"; fi; sleep 0.2; done`,
+        )
+        .then((r) => `${r.stdout}${r.stderr}`)
+    report(`[PROBE-838] before stop: ${(await bootProbe(sandbox, "before", 1)).replaceAll("\n", " | ")}`)
     let started = Date.now()
     await sandbox.stop()
     report(`[vercel] stop ${Date.now() - started}ms`)
@@ -245,6 +252,8 @@ describe("Vercel Sandbox", { timeout: 600_000 }, () => {
     ).not.toBe("running")
     started = Date.now()
     const resumed = await Sandbox.get({ ...credentials, name: sandbox.name })
+    report(`[PROBE-838] resume returned at ms=${Date.now()} after ${Date.now() - started}ms`)
+    report(`[PROBE-838] after resume: ${(await bootProbe(resumed, "after", 20)).replaceAll("\n", " | ")}`)
     expect(await handle(resumed).fs.read("/workspace/state.txt")).toBe("kept")
     const kept = await handle(resumed).process.exec(
       `for p in ${places.join(" ")}; do [ "$(cat "$p" 2>/dev/null)" = kept ] && echo "kept $p" || echo "lost $p"; done`,
