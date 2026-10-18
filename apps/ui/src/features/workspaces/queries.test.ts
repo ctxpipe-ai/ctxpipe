@@ -24,6 +24,7 @@ import {
   landingWorkspace,
   refreshConversationAfterTurn,
   retryPrepareWorkspace,
+  waitForConversationTitle,
   workspaceChatPrepareOptions,
   workspaceGitTreeOptions,
   workspaceGraphOptions,
@@ -182,6 +183,64 @@ describe("workspace query HTTP helpers", () => {
     )
     await vi.waitFor(() => expect(calls).toBe(1))
     unsubscribe()
+  })
+
+  it("reads the conversation until the backend has saved its title", async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      server.use(
+        http.get("*/api/v1/conversations/conv_1", () => {
+          calls += 1
+          return HttpResponse.json({
+            conversation: {
+              id: "conv_1",
+              name: calls < 3 ? "New conversation" : "Ledger answer",
+              source: "ui",
+              lastMessageAt: "2026-08-16T09:30:00.000Z",
+              orgId: "org_1",
+              userId: null,
+              workspaceId: "ws_1",
+              createdAt: "2026-08-16T09:30:00.000Z",
+              updatedAt: "2026-08-16T09:30:00.000Z",
+            },
+            messages: [],
+          })
+        }),
+      )
+      const waiting = waitForConversationTitle("acme", "conv_1", "ws_1", {
+        signal: new AbortController().signal,
+      })
+      await vi.advanceTimersByTimeAsync(1500)
+      await vi.advanceTimersByTimeAsync(1500)
+      await vi.advanceTimersByTimeAsync(1500)
+      await expect(waiting).resolves.toBe("Ledger answer")
+      expect(calls).toBe(3)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("stops reading for a title when the signal aborts", async () => {
+    vi.useFakeTimers()
+    try {
+      let calls = 0
+      server.use(
+        http.get("*/api/v1/conversations/conv_1", () => {
+          calls += 1
+          return HttpResponse.json({ error: "unused" }, { status: 500 })
+        }),
+      )
+      const controller = new AbortController()
+      const waiting = waitForConversationTitle("acme", "conv_1", "ws_1", {
+        signal: controller.signal,
+      })
+      controller.abort()
+      await expect(waiting).resolves.toBeNull()
+      expect(calls).toBe(0)
+    } finally {
+      vi.useRealTimers()
+    }
   })
 
   it("returns pending after a successful retry", async () => {

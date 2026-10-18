@@ -56,7 +56,6 @@ import {
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   cleanUpUnlessParked,
@@ -213,6 +212,11 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
   const env = deps.env ?? (() => parseEnv(process.env))
   return defineWorkflow(
     {
+      logFields: (input) => ({
+        orgId: input.orgId,
+        ingestionRunId: input.runId,
+        shard: input.shard,
+      }),
       name: INGESTION_SHARD_WORKFLOW_NAME,
       schema: ingestionShardInputSchema,
     },
@@ -335,26 +339,17 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
             return output
           },
         )
-      return withLogger(
-        createLogger({
-          workflow: INGESTION_SHARD_WORKFLOW_NAME,
-          orgId: input.orgId,
-          ingestionRunId: input.runId,
-          shard: input.shard,
-        }),
-        // The child's own copy of the source tree and its index
-        // repositories go when the child ends, also when it fails. A sibling
-        // child has its own copies.
-        () =>
-          cleanUpUnlessParked(runShardSpan, async () => {
-            await releaseIngestSourceTree(
-              input.runId,
-              input.source.sha,
-              shardTreeHolder(input),
-            )
-            await releaseIngestStepIndexes(input.runId, input.shard)
-          }),
-      )
+      // The child's own copy of the source tree and its index
+      // repositories go when the child ends, also when it fails. A sibling
+      // child has its own copies.
+      return cleanUpUnlessParked(runShardSpan, async () => {
+        await releaseIngestSourceTree(
+          input.runId,
+          input.source.sha,
+          shardTreeHolder(input),
+        )
+        await releaseIngestStepIndexes(input.runId, input.shard)
+      })
     },
   )
 }

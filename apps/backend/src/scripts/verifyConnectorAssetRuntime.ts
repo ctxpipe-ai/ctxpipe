@@ -8,7 +8,11 @@ import {
   downloadConnectorAsset,
   isPublicConnectorAssetAddress,
 } from "../services/connectors/assets.js"
-import { retryOnConnectionError } from "./retryOnConnectionError.js"
+import {
+  connectionTimeoutError,
+  expectRefusal,
+  retryOnConnectionError,
+} from "./retryOnConnectionError.js"
 
 initEvlog()
 
@@ -26,9 +30,11 @@ if (
 }
 
 const selectedAddress = (
-  await lookup("www.google.com", {
-    all: true,
-  })
+  await retryOnConnectionError(() =>
+    lookup("www.google.com", {
+      all: true,
+    }),
+  )
 ).filter(
   (
     candidate,
@@ -70,7 +76,9 @@ await retryOnConnectionError(
         },
       )
       req.setTimeout(10_000, () =>
-        req.destroy(new Error("Timed out verifying connector DNS pinning")),
+        req.destroy(
+          connectionTimeoutError("Timed out verifying connector DNS pinning"),
+        ),
       )
       req.on("error", reject)
       req.end()
@@ -82,27 +90,36 @@ if (lookupCalls !== 1) {
   )
 }
 
-await new Promise<void>((resolve, reject) => {
-  const req = request(
-    "https://www.google.com/robots.txt",
-    connectorAssetPinnedTlsOptions({
-      hostname: "www.google.com",
-      address: "1.1.1.1",
-      family: 4,
-    }),
-    (response) => {
-      response.destroy()
-      reject(new Error("Bun ignored the callback-selected pinned address"))
+await retryOnConnectionError(() =>
+  expectRefusal(
+    (onResponse) =>
+      request(
+        "https://www.google.com/robots.txt",
+        connectorAssetPinnedTlsOptions({
+          hostname: "www.google.com",
+          address: "1.1.1.1",
+          family: 4,
+        }),
+        (response) => {
+          onResponse()
+          response.destroy()
+        },
+      ),
+    {
+      timeoutMs: 5_000,
+      timeoutMessage: "Timed out verifying the deliberately wrong pin",
+      answeredMessage: "Bun ignored the callback-selected pinned address",
+      // The pinned address has a valid certificate for another host name.
+      refusalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
     },
-  )
-  req.setTimeout(5_000, () =>
-    req.destroy(new Error("Expected failure from deliberately wrong pin")),
-  )
-  req.on("error", () => resolve())
-  req.end()
-})
+  ),
+)
 
-const expiredAddress = (await lookup("expired.badssl.com", { all: true })).find(
+const expiredAddress = (
+  await retryOnConnectionError(() =>
+    lookup("expired.badssl.com", { all: true }),
+  )
+).find(
   (
     candidate,
   ): candidate is {
@@ -135,7 +152,11 @@ try {
           },
         )
         req.setTimeout(10_000, () =>
-          req.destroy(new Error("Timed out verifying connector TLS rejection")),
+          req.destroy(
+            connectionTimeoutError(
+              "Timed out verifying connector TLS rejection",
+            ),
+          ),
         )
         req.on("error", (error: NodeJS.ErrnoException) => {
           if (error.code === "CERT_HAS_EXPIRED") {
