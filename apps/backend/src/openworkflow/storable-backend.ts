@@ -9,7 +9,15 @@ import { openWorkflowNamespaceId } from "./namespace.js"
  */
 function storable<T>(value: T): T {
   if (value === undefined) return value
-  const clean = (text: string) => text.replaceAll("\u0000", "").toWellFormed()
+  // The UI project also compiles this file, and its lib has no
+  // `String.prototype.toWellFormed`.
+  const clean = (text: string) =>
+    text
+      .replaceAll("\u0000", "")
+      .replace(
+        /[\ud800-\udbff](?![\udc00-\udfff])|(?<![\ud800-\udbff])[\udc00-\udfff]/g,
+        "\ufffd",
+      )
   return JSON.parse(JSON.stringify(value), (_key, item: unknown) => {
     if (typeof item === "string") return clean(item)
     if (item && typeof item === "object" && !Array.isArray(item))
