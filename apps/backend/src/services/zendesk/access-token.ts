@@ -19,7 +19,7 @@ import {
  */
 export function loggableZendeskError(error: unknown): string {
   return error instanceof DrizzleQueryError
-    ? `${error.name}: ${formatUnknownError(error.cause ?? "no cause")}`
+    ? `Query failed: ${formatUnknownError(error.cause ?? "no cause")}`
     : formatUnknownError(error)
 }
 

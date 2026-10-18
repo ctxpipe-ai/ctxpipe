@@ -16,7 +16,7 @@ describe("loggableZendeskError", () => {
     const text = loggableZendeskError(error)
 
     expect(text).not.toContain("encrypted-access-token-fixture")
-    expect(text).toBe("DrizzleQueryError: deadlock detected (40P01)")
+    expect(text).toBe("Query failed: deadlock detected (40P01)")
   })
 
   it("keeps the message of another error", () => {
