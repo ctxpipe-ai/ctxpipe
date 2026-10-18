@@ -65,13 +65,22 @@ export function startConversationChatSocket(
 ) {
   const runLog = (runId: string) =>
     `${scope.orgId}/${scope.userId}/${scope.conversationId}/${runId}`
-  if (conversationWebSocketHasResumeOffset(request.url)) {
-    const query = new URL(request.url).searchParams
-    transport.resume(socket, {
-      adapter: memoryStream({
-        runId: runLog(query.get("runId") ?? ""),
-        offset: query.get("offset"),
-      }),
+  const query = new URL(request.url).searchParams
+  const offset = query.get("offset")
+  if (offset !== null) {
+    const runId = query.get("runId")
+    if (!runId) {
+      socket.close(1011, "resume failed")
+      return "resume" as const
+    }
+    const adapter = memoryStream({ runId: runLog(runId), offset })
+    // A read of an unknown run from the start adds an empty run log entry.
+    // When the socket closes before the first chunk, nothing removes that
+    // entry. Thus close a run with no data before the read, with the same
+    // close that the read gives.
+    void adapter.snapshot().then((entries) => {
+      if (entries.length === 0) socket.close(1011, "resume failed")
+      else transport.resume(socket, { adapter })
     })
     return "resume" as const
   }
