@@ -1,3 +1,5 @@
+import type { ClientRequest } from "node:http"
+
 const connectionErrorCodes = new Set([
   "ECONNRESET",
   "ECONNREFUSED",
@@ -14,6 +16,29 @@ export function isConnectionError(error: unknown): boolean {
 /** A probe timeout is a connection error, so the retry covers it. */
 export function connectionTimeoutError(message: string): Error {
   return Object.assign(new Error(message), { code: "ETIMEDOUT" })
+}
+
+/**
+ * Runs a probe that must be refused, for example a request with a wrong DNS
+ * pin. Only a refusal passes. A timeout rejects with `ETIMEDOUT`, so the retry
+ * covers it and the check fails after the last attempt.
+ */
+export function expectRefusal(
+  open: (onResponse: () => void) => ClientRequest,
+  { timeoutMs, message }: { timeoutMs: number; message: string },
+): Promise<void> {
+  return new Promise<void>((resolve, reject) => {
+    const req = open(() =>
+      reject(new Error("Bun ignored the callback-selected pinned address")),
+    )
+    req.setTimeout(timeoutMs, () =>
+      req.destroy(connectionTimeoutError(message)),
+    )
+    req.on("error", (error: NodeJS.ErrnoException) =>
+      error.code === "ETIMEDOUT" ? reject(error) : resolve(),
+    )
+    req.end()
+  })
 }
 
 /**

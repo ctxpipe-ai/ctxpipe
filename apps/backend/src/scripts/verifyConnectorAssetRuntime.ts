@@ -10,6 +10,7 @@ import {
 } from "../services/connectors/assets.js"
 import {
   connectionTimeoutError,
+  expectRefusal,
   retryOnConnectionError,
 } from "./retryOnConnectionError.js"
 
@@ -29,9 +30,11 @@ if (
 }
 
 const selectedAddress = (
-  await lookup("www.google.com", {
-    all: true,
-  })
+  await retryOnConnectionError(() =>
+    lookup("www.google.com", {
+      all: true,
+    }),
+  )
 ).filter(
   (
     candidate,
@@ -87,27 +90,33 @@ if (lookupCalls !== 1) {
   )
 }
 
-await new Promise<void>((resolve, reject) => {
-  const req = request(
-    "https://www.google.com/robots.txt",
-    connectorAssetPinnedTlsOptions({
-      hostname: "www.google.com",
-      address: "1.1.1.1",
-      family: 4,
-    }),
-    (response) => {
-      response.destroy()
-      reject(new Error("Bun ignored the callback-selected pinned address"))
+await retryOnConnectionError(() =>
+  expectRefusal(
+    (onResponse) =>
+      request(
+        "https://www.google.com/robots.txt",
+        connectorAssetPinnedTlsOptions({
+          hostname: "www.google.com",
+          address: "1.1.1.1",
+          family: 4,
+        }),
+        (response) => {
+          response.destroy()
+          onResponse()
+        },
+      ),
+    {
+      timeoutMs: 5_000,
+      message: "Timed out verifying the deliberately wrong pin",
     },
-  )
-  req.setTimeout(5_000, () =>
-    req.destroy(new Error("Expected failure from deliberately wrong pin")),
-  )
-  req.on("error", () => resolve())
-  req.end()
-})
+  ),
+)
 
-const expiredAddress = (await lookup("expired.badssl.com", { all: true })).find(
+const expiredAddress = (
+  await retryOnConnectionError(() =>
+    lookup("expired.badssl.com", { all: true }),
+  )
+).find(
   (
     candidate,
   ): candidate is {
