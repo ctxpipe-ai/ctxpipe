@@ -3,7 +3,7 @@ import { cp, mkdir, readdir, readFile } from "node:fs/promises"
 import { basename, dirname, join } from "node:path"
 import { fileURLToPath, pathToFileURL } from "node:url"
 import { z } from "zod"
-import type { PinnedPlainGitRemote } from "../../../../shared/plain-git.js"
+import type { CheckedPlainGitRemote } from "../../../../shared/plain-git.js"
 import { getAuth } from "../../src/auth/config.js"
 import { withUserIdContext } from "../../src/auth/context.js"
 import { setOrganizations } from "../../src/auth/oauth-grants.js"
@@ -51,7 +51,7 @@ import {
   listMarkdownFilesAtGitSha,
   resolveGitRemoteTip,
 } from "../../src/services/git/clone-tree.js"
-import { pinnedPlainGitRemote } from "../../src/services/git/plain-git-remote.js"
+import { checkedPlainGitRemote } from "../../src/services/git/plain-git-remote.js"
 import { startGitHttpServer } from "../../src/test/git-http-server.js"
 import manifestJson from "./fixtures/manifest.json"
 
@@ -190,8 +190,8 @@ const fixtureGitServers = new Map<
  */
 async function fixturePlainGitRemote(
   url: string,
-): Promise<PinnedPlainGitRemote> {
-  if (!url.startsWith("file:")) return pinnedPlainGitRemote(url)
+): Promise<CheckedPlainGitRemote> {
+  if (!url.startsWith("file:")) return checkedPlainGitRemote(url)
   const path = fileURLToPath(url)
   const root = dirname(path)
   let server = fixtureGitServers.get(root)
@@ -202,10 +202,7 @@ async function fixturePlainGitRemote(
   const { port } = await server
   return {
     url: `http://127.0.0.1:${port}/${basename(path)}`,
-    host: "127.0.0.1",
-    port,
-    addresses: ["127.0.0.1"],
-    policy: { http: true, privateHosts: true },
+    http: true,
   }
 }
 

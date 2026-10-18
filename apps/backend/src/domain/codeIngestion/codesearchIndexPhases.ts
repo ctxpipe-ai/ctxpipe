@@ -1,5 +1,5 @@
 import { z } from "zod"
-import type { PinnedPlainGitRemote } from "../../../../../shared/plain-git.js"
+import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
@@ -158,7 +158,7 @@ export async function codesearchIndexCloneCheckout(
   body: {
     githubToken?: string
     /** The checked plain git remote of a repository with no token (CTX-815). */
-    plainGit?: PinnedPlainGitRemote
+    plainGit?: CheckedPlainGitRemote
     targetHash?: string
     fromHash?: string
     checkoutKey?: string
