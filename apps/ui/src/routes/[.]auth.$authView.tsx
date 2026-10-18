@@ -11,13 +11,18 @@ import {
   betterAuthAuthViewClassNames,
   betterAuthEmailPlaceholder,
 } from "@/features/auth/betterAuthShellClassNames"
+import { InviteAcceptErrorNotice } from "@/features/auth/InviteAcceptErrorNotice"
 import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import {
   decideInviteAccept,
   inviteSignInHref,
   inviteSignOutHref,
 } from "@/features/auth/invite-accept-decision"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import {
+  type InviteAcceptError,
+  inviteAcceptError,
+} from "@/features/auth/invite-accept-error"
+import { apiFetch, readApiJson, retryQuery } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
@@ -37,17 +42,6 @@ type InviteAcceptSignUpProps = {
   invitationId?: string
   invitationEmail?: string
   redirectTo?: string
-}
-
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "object" && error != null) {
-    const maybeMessage = (error as { message?: unknown }).message
-    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
-      return maybeMessage
-    }
-  }
-  return "Request failed. Please try again."
 }
 
 function AuthStatusMessage({ message }: { message: string }) {
@@ -80,7 +74,18 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  // A form input problem, shown under the form.
   const [error, setError] = useState<string | null>(null)
+  // A failed sign-up or accept, shown in place of the form with a next step.
+  const [failure, setFailure] = useState<InviteAcceptError | null>(null)
+  const showFailure = (err: unknown) => {
+    const next = inviteAcceptError(err)
+    if (next.kind === "invalid-password") {
+      setError("Use a password of 8 to 128 characters.")
+      return
+    }
+    setFailure(next)
+  }
   // Set when sign-up needs the address verified first: there is no session
   // until they click the emailed link, which returns here to finish joining.
   const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
@@ -103,6 +108,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       }
     },
     enabled: invitationId.length > 0,
+    retry: retryQuery,
   })
 
   const acceptInviteMutation = useMutation({
@@ -137,7 +143,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         () => window.location.assign(redirectTo),
       )
     },
-    onError: (err) => setError(extractErrorMessage(err)),
+    onError: showFailure,
   })
 
   const sessionEmail =
@@ -164,9 +170,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     void acceptInvitationThenRedirect(
       () => acceptInviteMutation.mutateAsync(invitationId),
       () => window.location.assign(redirectTo),
-    ).catch((err) => {
-      setError(extractErrorMessage(err))
-    })
+    ).catch((err) => setFailure(inviteAcceptError(err)))
   }, [
     session,
     sessionPending,
@@ -188,20 +192,23 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       />
     )
   }
-  if (decision.kind === "unknown" && session) {
-    if (invitationEmailQuery.error) {
-      return (
-        <p className="text-sm text-red-400">
-          {invitationEmailQuery.error instanceof Error
-            ? invitationEmailQuery.error.message
-            : "Invitation not found or expired"}
-        </p>
-      )
-    }
-    return <AuthStatusMessage message="Loading invitation…" />
+  const failureShown =
+    failure ??
+    (invitationEmailQuery.error
+      ? inviteAcceptError(invitationEmailQuery.error)
+      : null)
+  if (failureShown) {
+    return (
+      <InviteAcceptErrorNotice
+        error={failureShown}
+        invitationId={invitationId}
+        invitationEmail={invitationEmail}
+        onRetry={() => window.location.reload()}
+      />
+    )
   }
-  if (session && error) {
-    return <p className="text-sm text-red-400">{error}</p>
+  if (decision.kind === "unknown" && session) {
+    return <AuthStatusMessage message="Loading invitation…" />
   }
   if (verifyEmailFor) {
     return (
@@ -243,14 +250,8 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     return <PageBodySkeleton label="Loading invitation" />
   }
 
-  if (invitationEmailQuery.error || !invitationEmailQuery.data) {
-    return (
-      <p className="text-sm text-red-400">
-        {invitationEmailQuery.error instanceof Error
-          ? invitationEmailQuery.error.message
-          : "Invitation not found or expired"}
-      </p>
-    )
+  if (!invitationEmailQuery.data) {
+    return <PageBodySkeleton label="Loading invitation" />
   }
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
