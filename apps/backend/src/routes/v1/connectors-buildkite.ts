@@ -182,6 +182,7 @@ export const buildkiteConnectorRoutes = new OpenAPIHono<AppEnv>()
           { error: result.error.issues[0]?.message ?? "Check the input" },
           400,
         )
+      return undefined
     },
   )
   .openapi(statusRoute, async (c) => {
