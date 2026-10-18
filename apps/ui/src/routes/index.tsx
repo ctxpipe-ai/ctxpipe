@@ -113,7 +113,9 @@ function WorkspaceLandingRedirect(props: { orgSlug: string }) {
   const { orgSlug } = props
   const { data, isError } = useQuery(workspaceListOptions(orgSlug))
   // Home shows a failed list read. Do not send it to the root error screen.
-  if (isError) return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
+  // A failed background refetch keeps the cached list, so land as usual.
+  if (isError && !data)
+    return <Navigate to="/$orgSlug" params={{ orgSlug }} replace />
   if (!data) return null
   const workspace = landingWorkspace(data)
   // With no Workspace, Home shows the setup guide (CTX-552).
