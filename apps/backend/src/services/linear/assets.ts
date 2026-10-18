@@ -13,6 +13,7 @@ import {
   createConnectorAssetBytePool,
   downloadConnectorAsset,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { CommitFile } from "../github/installation-write-client.js"
 import {
   applyLinearAssetRewrites,
@@ -44,8 +45,8 @@ export function linearManagedPathsForEntity(
   paths: string[],
   id: string,
 ): string[] {
-  const markdownSuffix = `--${id}.md`
-  const assetInfix = `--${id}/assets/`
+  const markdownSuffix = `--${connectorPathSegment(id)}.md`
+  const assetInfix = `--${connectorPathSegment(id)}/assets/`
   return paths.filter(
     (path) =>
       path.startsWith("linear/") &&
@@ -201,7 +202,7 @@ export async function captureLinearEntityAssets(input: {
     pending.set(attachment.id, {
       url: attachment.url,
       sourceUrls: [attachment.url],
-      sourceKey: attachment.id,
+      sourceKey: connectorPathSegment(attachment.id),
       filename: attachment.title,
     })
     const identity = canonicalLinearAssetUrl(attachment.url)
