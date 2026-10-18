@@ -85,9 +85,9 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   ],
   [/\bBearer\s+[A-Za-z0-9._\-+=/]+/gi, "Bearer [REDACTED_SECRET]"],
   [/\bsk-(?:ant|proj)-[A-Za-z0-9_-]+/g, "[REDACTED_SECRET]"],
-  // A GitHub token; the installation token form can hold "." and "-".
+  // A GitHub token; the installation token form can hold "." between its parts.
   [
-    /\bgh[pousr]_[A-Za-z0-9_]{1,4096}(?:[.-][A-Za-z0-9_]{1,4096}){0,8}/g,
+    /\bgh[pousr]_[A-Za-z0-9_-]{1,4096}(?:\.[A-Za-z0-9_-]{1,4096}){0,8}/g,
     "[REDACTED_SECRET]",
   ],
   [/\bgithub_pat_[A-Za-z0-9_]+/g, "[REDACTED_SECRET]"],

@@ -96,6 +96,8 @@ describe("findSuspectedSecret on values that look like code or test data", () =>
       "const ghs_count_total_for_each_repository_owner = 0",
     ],
     ["a file name with a GitHub prefix", "see ghs_12_build.log"],
+    ["a snake-case name with a number", "daily_highs_2_moving_average_window"],
+    ["a bare prefix with a snake-case name", "ghs_2_repository_owner_total_count"],
     ["a short word and digits", "DB_PASSWORD=password123"],
   ])("does not find %s", (_, line) => {
     expect(found(line)).toBeNull()

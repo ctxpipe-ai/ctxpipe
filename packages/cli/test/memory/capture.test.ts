@@ -51,6 +51,15 @@ describe("memory/capture", () => {
     expect(text).toBe("clone with [REDACTED_SECRET].")
   })
 
+  it("redacts a long installation token whose parts hold many dashes", () => {
+    // Built at run time; the characters are made up.
+    const part = (n: number) => "aB3-_--x.-Z9".repeat(n).replaceAll(".", "-")
+    const token = `ghs_1234567_${part(22)}.${part(22)}.${part(22)}`
+    expect(token.length).toBeGreaterThan(750)
+    const { text } = redactText(`clone with ${token} now`)
+    expect(text).toBe("clone with [REDACTED_SECRET] now")
+  })
+
   it("redacts connection strings", () => {
     const { text, redacted } = redactText(
       "DATABASE_URL=postgres://user:hunter2@db.example:5432/app",

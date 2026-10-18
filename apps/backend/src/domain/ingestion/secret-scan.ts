@@ -27,7 +27,7 @@ const SECRET_TOKENS: ReadonlyArray<[string, RegExp]> = [
   // its value can hold "." (CTX-845), so the token word ends at the first dot.
   [
     "GitHub token",
-    /^(?:gh[pousr]_(?:[0-9]{1,20}_[\w-]{16,256}|[A-Za-z0-9]{30,})|github_pat_\w{40,})/,
+    /^(?:gh[pousr]_(?:[0-9]{1,20}_(?=[\w-]{0,256}[A-Z])[\w-]{16,256}|[A-Za-z0-9]{30,})|github_pat_\w{40,})/,
   ],
   ["AWS access key id", /^(?:AKIA|ASIA)[A-Z0-9]{16}(?![A-Z0-9])/],
   ["Slack token", /^xox[abprs]-(?=[\w-]*\d)[\w-]{10,}/],
