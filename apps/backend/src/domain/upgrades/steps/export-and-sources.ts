@@ -135,6 +135,7 @@ const PROVIDER_NAMES: Record<SourceProvider, string> = {
   slack: "Slack",
   confluence: "Confluence",
   pagerduty: "PagerDuty",
+  zendesk: "Zendesk",
 }
 
 /** The connection scopes: the source entries from the connection settings. */
