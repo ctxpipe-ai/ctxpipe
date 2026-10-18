@@ -1,13 +1,9 @@
 import { z } from "zod"
-import {
-  currentSandboxAgent,
-  type WorkspaceBaseBuilder,
-} from "../../domain/workspaces/workspace-base-providers.js"
+import { currentSandboxAgent } from "../../domain/workspaces/workspace-base-providers.js"
 import {
   reserveWorkspaceBaseBuild,
   runWorkspaceBaseBuild,
 } from "../../domain/workspaces/workspace-sandbox-base.js"
-import { createLogger, withLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 
@@ -20,52 +16,29 @@ import { defineWorkflow } from "../defineObservedWorkflow.js"
  * requests a new build.
  * Requested by new sandbox starts when the base is missing or stale; reserve
  * decides. Unused bases are deleted by the org's sandbox sweep.
- * The steps log through `getLogger()`, so the body runs in a workflow logger.
  */
-export function defineWorkspaceSandboxBaseWorkflow(
-  deps: {
-    /** Tests pass their own; production uses the deployment's provider. */
-    builder?: WorkspaceBaseBuilder
-  } = {},
-) {
-  return defineWorkflow(
-    {
-      name: "workspace-sandbox-base",
-      schema: z.object({
-        orgId: z.string().min(1),
-        workspaceId: z.string().min(1),
-      }),
-    },
-    async ({ input, step, run }) =>
-      withLogger(
-        createLogger({
-          workflow: "workspace-sandbox-base",
-          orgId: input.orgId,
-          workspaceId: input.workspaceId,
-        }),
-        async () => {
-          const baseId = await step.run({ name: "reserve" }, async () => {
-            const agent = await currentSandboxAgent()
-            if (!agent) return null
-            return reserveWorkspaceBaseBuild({ ...input, runId: run.id, agent })
-          })
-          if (!baseId) return { built: false }
-          const ref = await step.run(
-            { name: "build", retryPolicy: { maximumAttempts: 1 } },
-            () =>
-              runWorkspaceBaseBuild({
-                orgId: input.orgId,
-                baseId,
-                builder: deps.builder,
-              }),
-          )
-          return { built: ref !== null }
-        },
-      ),
-  )
-}
-
-export const workspaceSandboxBase = defineWorkspaceSandboxBaseWorkflow()
+export const workspaceSandboxBase = defineWorkflow(
+  {
+    name: "workspace-sandbox-base",
+    schema: z.object({
+      orgId: z.string().min(1),
+      workspaceId: z.string().min(1),
+    }),
+  },
+  async ({ input, step, run }) => {
+    const baseId = await step.run({ name: "reserve" }, async () => {
+      const agent = await currentSandboxAgent()
+      if (!agent) return null
+      return reserveWorkspaceBaseBuild({ ...input, runId: run.id, agent })
+    })
+    if (!baseId) return { built: false }
+    const ref = await step.run(
+      { name: "build", retryPolicy: { maximumAttempts: 1 } },
+      () => runWorkspaceBaseBuild({ orgId: input.orgId, baseId }),
+    )
+    return { built: ref !== null }
+  },
+)
 
 /**
  * Ask for a base build. Requests within one 10-minute window share a run, so

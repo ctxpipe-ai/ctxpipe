@@ -7,8 +7,6 @@ import { setTimeout as delay } from "node:timers/promises"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { OpenWorkflow } from "openworkflow"
-import { BackendPostgres } from "openworkflow/postgres"
 import {
   afterAll,
   beforeAll,
@@ -39,8 +37,6 @@ import {
   getSandboxInstance,
   listSandboxInstances,
 } from "../../models/workspaces.js"
-import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import { defineWorkspaceSandboxBaseWorkflow } from "../../openworkflow/workflows/workspace-sandbox-base.js"
 import { withTestLogger } from "../../test/with-test-logger.js"
 import {
   CHAT_SANDBOX_DELETE_AFTER_MS,
@@ -622,41 +618,6 @@ describe("Vercel build step", () => {
         runWorkspaceBaseBuild({ orgId, baseId, builder }),
       ),
     ).toBe("snap_built")
-    expect(builder.finished()).toBe(1)
-  })
-
-  it("builds through the real workflow runner, which gives the steps no logger of a request", async () => {
-    // Its own URL: one Workspace per repository URL in an org.
-    const ws = await workspace(`${repository}/`)
-    const backend = await BackendPostgres.connect(
-      process.env.DATABASE_URL as string,
-      { runMigrations: false, namespaceId: openWorkflowNamespaceId() },
-    )
-    const runner = new OpenWorkflow({ backend })
-    const builder = localBuilder(async () => "snap_workflow")
-    const workflow = defineWorkspaceSandboxBaseWorkflow({ builder })
-    runner.implementWorkflow(workflow.spec, workflow.fn)
-    const worker = runner.newWorker({ concurrency: 1 })
-    await worker.start()
-    try {
-      const handle = await runner.runWorkflow(workflow.spec, {
-        orgId,
-        workspaceId: ws.id,
-      })
-      expect(await handle.result({ timeoutMs: 60_000 })).toEqual({
-        built: true,
-      })
-    } finally {
-      await worker.stop()
-      await backend.stop()
-    }
-    const [base] = await withOrgDbContext(orgId, () =>
-      listSandboxInstances({ workspaceId: ws.id, kind: "base" }),
-    )
-    expect(base).toMatchObject({
-      state: "live",
-      latestSnapshotId: "snap_workflow",
-    })
     expect(builder.finished()).toBe(1)
   })
 
