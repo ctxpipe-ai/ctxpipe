@@ -19,16 +19,18 @@ index d11df14ae2159d0558a0f928b72c3d24867b164a..18095baa3b8dd18fd811f7b8f692d129
  	}
  	structuredOutput(_options) {
 diff --git a/dist/esm/process/server.js b/dist/esm/process/server.js
-index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c7427863961289 100644
+index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..d7615ac4a99082db6b4755d3390adfc4cdeb1fdd 100644
 --- a/dist/esm/process/server.js
 +++ b/dist/esm/process/server.js
-@@ -54,6 +54,16 @@ async function startOpencodeSession(options) {
+@@ -54,6 +54,18 @@ async function startOpencodeSession(options) {
  		ownedServer = result.server;
  	}
  	const lifecycle = { disposed: false };
 +	// ctxpipe patch (upstream PR pending): wait for the event stream before the
 +	// first prompt, wait for each assistant's terminal update before resolving
-+	// it, and never let disposal wait on a pending stream read.
++	// it, and never let disposal wait on a pending stream read. The event
++	// stream ends when its connection drops: by default the SDK reconnects
++	// without end, also to a stopped server, and that keeps the process alive.
 +	const terminal = new Set();
 +	const terminalWaiters = new Map();
 +	let subscriptionFailure;
@@ -39,10 +41,12 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  	const teardown = async () => {
  		if (lifecycle.disposed) return;
  		lifecycle.disposed = true;
-@@ -101,10 +111,19 @@ async function startOpencodeSession(options) {
+@@ -100,11 +112,20 @@ async function startOpencodeSession(options) {
+ 				if (!lifecycle.disposed) options.onError?.(error);
  			}
  		};
- 		const stream = (await client.event.subscribe()).stream;
+-		const stream = (await client.event.subscribe()).stream;
++		const stream = (await client.event.subscribe({ sseMaxRetryAttempts: 1 })).stream;
 +		let connected;
 +		let connectFailed;
 +		const ready = new Promise((resolve, reject) => { connected = resolve; connectFailed = reject; });
@@ -59,7 +63,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  					const sid = sessionIdOf(event);
  					if (sid !== void 0 && sid !== resolvedSessionId) continue;
  					if (event.type === "permission.updated") {
-@@ -114,9 +133,12 @@ async function startOpencodeSession(options) {
+@@ -114,9 +135,12 @@ async function startOpencodeSession(options) {
  					options.onEvent(event);
  				}
  			} catch (error) {
@@ -72,7 +76,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  		return {
  			sessionId: resolvedSessionId,
  			resumed,
-@@ -136,6 +158,9 @@ async function startOpencodeSession(options) {
+@@ -136,6 +160,9 @@ async function startOpencodeSession(options) {
  					},
  					throwOnError: true
  				})).data;
@@ -82,7 +86,7 @@ index c3f62754a7a2e2dbf6cc4482e188b4bf5d10b37d..e46983d0b02d5a9583fbb8f097c74278
  				return {
  					message: data.info,
  					text: data.parts.filter((part) => part.type === "text").map((part) => part.text).join("")
-@@ -151,9 +176,7 @@ async function startOpencodeSession(options) {
+@@ -151,9 +178,7 @@ async function startOpencodeSession(options) {
  			},
  			dispose: async () => {
  				lifecycle.disposed = true;
