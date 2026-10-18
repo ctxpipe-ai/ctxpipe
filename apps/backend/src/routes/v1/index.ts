@@ -101,9 +101,12 @@ const pagerdutyConnectorScoped = pagerdutyConnectorScopedGate.route(
   pagerdutyConnectorRoutes,
 )
 
-const zendeskConnectorScoped = new OpenAPIHono<AppEnv>()
-  .use("*", requireOrgAdminOrOwner)
-  .route("/", zendeskConnectorRoutes)
+const zendeskConnectorScopedGate = new OpenAPIHono<AppEnv>()
+zendeskConnectorScopedGate.use("*", requireOrgAdminOrOwner)
+const zendeskConnectorScoped = zendeskConnectorScopedGate.route(
+  "/",
+  zendeskConnectorRoutes,
+)
 
 // Only the sync path: this app mounts on "/connectors" beside other routes.
 const connectionSyncScopedGate = new OpenAPIHono<AppEnv>()
@@ -154,41 +157,43 @@ export type OrgScopedV1Rpc = ReturnType<
 >
 
 function createUserScopedV1() {
-  return new OpenAPIHono<AppEnv>()
-    .basePath("/api/v1")
-    .use("/me/connected-apps/*", async (c, next) => {
-      if (
-        c.req.raw.headers.has("authorization") ||
-        c.req.raw.headers.has("x-api-key")
-      ) {
-        return c.json({ error: "Sign in to manage connected apps" }, 403)
-      }
-      return next()
-    })
-    // Only a browser session sets the org set of a personal API key. A key
-    // must not widen its own set.
-    .use("/me/api-keys/*", async (c, next) => {
-      if (
-        c.req.raw.headers.has("authorization") ||
-        c.req.raw.headers.has("x-api-key")
-      ) {
-        return c.json({ error: "Sign in to manage API keys" }, 403)
-      }
-      return next()
-    })
-    .use("*", withCookieAuth)
-    .use("*", withBearerAuth)
-    .use("*", requireAuth)
-    .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
-    .route("/connectors/slack", slackOAuthCallbackRoutes)
-    .route("/integrations/linear", linearOauthCallbackRoutes)
-    .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
-    .route("/integrations/zendesk", zendeskOauthCallbackRoutes)
-    .route("/me/github/installations", meGithubInstallationsRoutes)
-    .route("/me/connected-apps", meConnectedAppsRoutes)
-    .route("/me/api-keys", meApiKeysRoutes)
-    .route("/connectors/notion", notionOAuthCallbackRoutes)
-    .route("/onboarding", userOnboardingRoutes)
+  return (
+    new OpenAPIHono<AppEnv>()
+      .basePath("/api/v1")
+      .use("/me/connected-apps/*", async (c, next) => {
+        if (
+          c.req.raw.headers.has("authorization") ||
+          c.req.raw.headers.has("x-api-key")
+        ) {
+          return c.json({ error: "Sign in to manage connected apps" }, 403)
+        }
+        return next()
+      })
+      // Only a browser session sets the org set of a personal API key. A key
+      // must not widen its own set.
+      .use("/me/api-keys/*", async (c, next) => {
+        if (
+          c.req.raw.headers.has("authorization") ||
+          c.req.raw.headers.has("x-api-key")
+        ) {
+          return c.json({ error: "Sign in to manage API keys" }, 403)
+        }
+        return next()
+      })
+      .use("*", withCookieAuth)
+      .use("*", withBearerAuth)
+      .use("*", requireAuth)
+      .route("/integrations/atlassian", atlassianOauthCallbackRoutes)
+      .route("/connectors/slack", slackOAuthCallbackRoutes)
+      .route("/integrations/linear", linearOauthCallbackRoutes)
+      .route("/integrations/pagerduty", pagerdutyOauthCallbackRoutes)
+      .route("/integrations/zendesk", zendeskOauthCallbackRoutes)
+      .route("/me/github/installations", meGithubInstallationsRoutes)
+      .route("/me/connected-apps", meConnectedAppsRoutes)
+      .route("/me/api-keys", meApiKeysRoutes)
+      .route("/connectors/notion", notionOAuthCallbackRoutes)
+      .route("/onboarding", userOnboardingRoutes)
+  )
 }
 
 /** UI `hc` surface of the routes with no org in the path: `userClient.api.v1.…` */

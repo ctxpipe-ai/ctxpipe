@@ -354,7 +354,6 @@ export const AddToWorkspaces: Story = {
             connectionId,
             scope: { categories: ["360001"] },
           },
-          delivery: "pull_request",
         },
       },
     ])
