@@ -442,7 +442,7 @@ function AuthViewRoute() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(window.location.search, window.location.origin)
+      : getAuthContinuationProps(window.location.origin, window.location.search)
 
   const inviteFromRedirect =
     authView === "sign-up" && continuation?.redirectTo

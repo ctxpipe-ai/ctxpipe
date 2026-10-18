@@ -17,8 +17,8 @@ export function getOAuthRedirectUri(data: unknown): string | undefined {
 
 /** The `redirectTo` of the query, only when it stays on `origin`. */
 export function getAuthContinuationProps(
-  search: string,
   origin: string,
+  search: string,
 ): AuthContinuationProps {
   const normalizedSearch = search.startsWith("?") ? search : `?${search}`
   const searchParams = new URLSearchParams(

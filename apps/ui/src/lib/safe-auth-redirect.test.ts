@@ -37,6 +37,12 @@ describe("safeAuthRedirectPath", () => {
     "JavaScript:alert(1)",
     "data:text/html,hi",
     "http://app.example/",
+    "/.//evil.example",
+    "/./\\evil.example",
+    "/x/..//evil.example",
+    "/%2e//evil.example",
+    `${origin}//evil.example`,
+    `${origin}/\\evil.example`,
   ])("does not leave the origin for %j", (value) => {
     expect(safeAuthRedirectPath(value, fallback, origin)).toBe(fallback)
   })
