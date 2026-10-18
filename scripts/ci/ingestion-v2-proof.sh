@@ -179,6 +179,10 @@ for ((i = 0; i < count; i++)); do
   echo "::endgroup::"
   # The job summary is not in the API, so the log also shows how the run ended.
   echo "Run $run_id ended: $(jq -c '{status, outputStatus, outputReason, error}' <<<"$state")"
+  # Where each failed step attempt failed (the log has no error text).
+  docker compose logs --no-color worker 2>/dev/null |
+    grep -aF '"ingestion-v2.step-attempt-failed"' | grep -aF "$run_id" |
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode}' || true
 
   status=$(jq -r .status <<<"$state")
   spend=$(jq -r .spendUsd <<<"$state")
@@ -233,4 +237,6 @@ done
   echo "$estimate_line"
   echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend is the cost of the finished steps; a step with no reported cost counts at the token price."
 } >>"$summary"
+# The job summary is not in the API: print it in the log too.
+[ "$summary" = /dev/stdout ] || cat "$summary"
 exit "$failed"
