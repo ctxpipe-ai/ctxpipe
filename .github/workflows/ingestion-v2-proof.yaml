@@ -12,10 +12,11 @@ name: Ingestion v2 proof (Docker)
 # it checks that the shard sandbox holds no GitHub token, model key or vault
 # token, and it fails the proof when one is there.
 #
-# Repository secrets (names only):
-#   MODEL_PROVIDER_API_KEY  the model provider key
-#   GH_APP_ID               the GitHub App id of the test org (Preview environment)
-#   GH_PRIVATE_KEY          the GitHub App private key, PEM (Preview environment)
+# Secrets of the workbench environment (names only):
+#   MODEL_PROVIDER_API_KEY  a spend-capped model key for CI, never the
+#                           production key
+#   GH_APP_ID               the GitHub App id of the test org
+#   GH_PRIVATE_KEY          the GitHub App private key, PEM
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
 # How to start a run (GitHub runs workflow_dispatch only for a workflow file on
@@ -69,13 +70,23 @@ jobs:
     name: Ingestion v2 proof (Docker)
     runs-on: blacksmith-8vcpu-ubuntu-2404
     timeout-minutes: 360
-    # GH_APP_ID and GH_PRIVATE_KEY are secrets of the Preview environment.
-    environment: Preview
+    # GH_APP_ID, GH_PRIVATE_KEY and MODEL_PROVIDER_API_KEY are secrets
+    # of the workbench environment. The job builds images and runs dependency
+    # code, so it never gets the production model key.
+    environment: workbench
     permissions:
       contents: read
     env:
       COMPOSE_PROFILES: deploy
     steps:
+      - name: Check the workbench model key
+        env:
+          MODEL_PROVIDER_API_KEY: ${{ secrets.MODEL_PROVIDER_API_KEY }}
+        run: |
+          [[ -n "$MODEL_PROVIDER_API_KEY" ]] || {
+            echo "::error::MODEL_PROVIDER_API_KEY is missing. Add the spend-capped model key to the workbench environment (Settings > Environments)."
+            exit 1
+          }
       - uses: actions/checkout@v6
       - uses: ./.github/actions/setup-buildx
       - name: Write the Compose settings
