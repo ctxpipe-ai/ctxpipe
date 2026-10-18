@@ -175,18 +175,18 @@ What the construct sets up:
 
 ### Private git servers
 
-Ingestion can read a plain git repository on a git server inside your network. The ingestion sandbox fetches it through Agent Vault on the sandbox host. Agent Vault connects only to the private addresses in its allowlist, and by default that list holds only the backend subnets. Add the address or CIDR of your git server:
+Ingestion can read a plain git repository on a git server inside your network. The ingestion sandbox fetches it through Agent Vault on the sandbox host. Agent Vault connects only to the private addresses in its allowlist, and by default that list holds only the backend subnets. Add the single host address of your git server. Chat-sandbox vaults forward each host that no rule matches, so an address or CIDR in this list lets every chat agent reach every port and path at that address. Never add a whole subnet:
 
 ```ts
 new CtxPipe(stack, "CtxPipe", {
   // ...orgSlug, customDomain, modelProvider
   sandboxHost: {
-    agentVaultNetworkAllowlist: ["10.20.0.0/24"],
+    agentVaultNetworkAllowlist: ["10.20.0.15/32"],
   },
 });
 ```
 
-The stack adds each entry after the backend subnets. Each entry must be an IPv4 or IPv6 address or CIDR. Synth rejects an entry with a cloud metadata or link-local address. The sandbox host must also have a route to that network (for example VPC peering or a transit gateway), and the git server must accept connections from the host. A change to the list replaces the host.
+The stack adds each entry after the backend subnets. Each entry must be an IPv4 or IPv6 address or CIDR. Synth rejects an entry with a cloud metadata or link-local address. The sandbox host must also have a route to that address (for example VPC peering or a transit gateway), and the git server must accept connections from the host. A change to the list replaces the host.
 
 The stack output `SandboxHostAutoScalingGroupName` names the group. Open a shell on its instance with Session Manager (no SSH key or open port) for the checks in the [operations docs](https://docs.ctxpipe.ai/docs/self-hosting/operations).
 
