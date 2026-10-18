@@ -282,6 +282,11 @@ function teeOutput(source: AsyncIterable<string>) {
  * says the address is in use, start it again on a fresh OS port, up to 3
  * attempts in all. Any other exit goes on unchanged: the caller reads the
  * output of the dead process and reports it.
+ *
+ * OpenCode 1.18.34 does not print EADDRINUSE. For a taken port it prints only
+ * "Unexpected error" and "ServeError". It makes a ServeError only from the
+ * error event of its server's listen call, and the local serve listens on
+ * 127.0.0.1, so a ServeError is a taken port.
  */
 export function withOpencodeServeRetry(
   provider: SandboxProvider,
@@ -316,7 +321,7 @@ export function withOpencodeServeRetry(
             if (!stdout.text().includes(OPENCODE_READY_MARKER))
               await Promise.all([stdout.finished, stderr.finished])
             const ready = stdout.text().includes(OPENCODE_READY_MARKER)
-            const taken = /EADDRINUSE|address already in use/i.test(
+            const taken = /EADDRINUSE|address already in use|ServeError/i.test(
               `${stdout.text()}\n${stderr.text()}`,
             )
             if (!ready && taken && attempt < OPENCODE_SERVE_ATTEMPTS) {
