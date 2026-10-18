@@ -355,6 +355,10 @@ export function workspaceChatOpenCodeConfig(input: {
     task: "deny"
     webfetch: "allow" | "deny"
     websearch: "deny"
+    external_directory: "deny"
+    doom_loop: "deny"
+    question: "deny"
+    read: Record<string, "allow" | "deny">
   }
   agent: {
     title: { disable: true }
@@ -379,10 +383,26 @@ export function workspaceChatOpenCodeConfig(input: {
     // not ours, so it stays off. A hosted or Docker agent may read web
     // pages: its network is open and holds no credential. An unsandboxed
     // agent shares the backend's network, so web reads stay off.
+    //
+    // OpenCode 1.18 sends an "ask" as `permission.asked`. The adapter answers
+    // only the older `permission.updated`, and the UI shows no ask. Thus each
+    // ask waits until the turn is cancelled (CTX-846). Each rule that OpenCode
+    // sets to "ask" by default is "deny" here, so the agent gets a tool error
+    // at once. A path outside the Workspace repository is not part of the
+    // Workspace: the agent cannot show it to the user or push it.
     permission: {
       task: "deny",
       webfetch: input.proxyAddsCredentials ? "allow" : "deny",
       websearch: "deny",
+      external_directory: "deny",
+      doom_loop: "deny",
+      question: "deny",
+      read: {
+        "*": "allow",
+        "*.env": "deny",
+        "*.env.*": "deny",
+        "*.env.example": "allow",
+      },
     },
     // Title generation is a parallel completion that contends for the same
     // model as the first user turn.
