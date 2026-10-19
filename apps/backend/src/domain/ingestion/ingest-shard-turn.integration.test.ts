@@ -63,8 +63,7 @@ useMswServer(
       }
       // The step's credentials are in the backend host's scope.
       applied.push(
-        body.networkPolicy?.allow?.["app.example.test"]?.[0]?.forwardURL ??
-          "",
+        body.networkPolicy?.allow?.["app.example.test"]?.[0]?.forwardURL ?? "",
       )
       if (refuseNextUpdate) {
         refuseNextUpdate = false
