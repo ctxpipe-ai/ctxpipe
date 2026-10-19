@@ -1,14 +1,11 @@
-import { queryOptions, useQuery } from "@tanstack/react-query"
-import { client } from "@/lib/api"
-import { pollWhileOk, readApiJson } from "@/lib/api-result"
+
 import {
   formatIndexingStepLabel,
   getRepositoryIndexingStatus,
-  type Repository,
   type RepositoryIndexingStatus,
 } from "./types"
 
-export type RepositoryIndexingSummary = {
+type RepositoryIndexingSummary = {
   totalCount: number
   activeCount: number
   queuedCount: number
@@ -65,47 +62,3 @@ export function getRepositoryIndexingSummary(
   }
 }
 
-export function repositoriesListOptions(orgSlug: string) {
-  return queryOptions({
-    queryKey: ["repositories", orgSlug],
-    queryFn: async () => {
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      const json = await readApiJson(res, {
-        message: "Failed to fetch repositories",
-      })
-      return json.items
-    },
-  })
-}
-
-export function useRepositoryIndexingSummary(
-  orgSlug: string | null,
-  options: {
-    enabled?: boolean
-    pollWhileEmpty?: boolean
-  } = {},
-) {
-  const query = useQuery({
-    ...repositoriesListOptions(orgSlug ?? ""),
-    enabled: Boolean(orgSlug) && (options.enabled ?? true),
-    refetchInterval: (query) => {
-      const interval = pollWhileOk(3000)(query)
-      if (interval === false) return false
-      const repositories = (query.state.data as Repository[] | undefined) ?? []
-      const summary = getRepositoryIndexingSummary(repositories)
-      return summary.activeCount > 0 ||
-        (options.pollWhileEmpty && repositories.length === 0)
-        ? interval
-        : false
-    },
-  })
-
-  return {
-    repositories: query.data,
-    summary: getRepositoryIndexingSummary(query.data ?? []),
-    isPending: query.isPending,
-    isError: query.isError,
-  }
-}

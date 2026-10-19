@@ -7,7 +7,7 @@ import { toast } from "sonner"
 import { Spinner } from "@/components/ui/spinner"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 
-export type AddGithubConnectorButtonProps = {
+type AddGithubConnectorButtonProps = {
   orgSlug: string
   /** Called when a navigation or install flow has started (e.g. close the catalog). */
   onFlowStarted?: () => void

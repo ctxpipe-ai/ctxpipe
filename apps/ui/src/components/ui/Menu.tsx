@@ -9,14 +9,12 @@ import {
   type MenuSectionProps as AriaMenuSectionProps,
   MenuTrigger as AriaMenuTrigger,
   type MenuTriggerProps as AriaMenuTriggerProps,
-  SubmenuTrigger as AriaSubmenuTrigger,
   Collection,
   composeRenderProps,
   Header,
   type MenuItemProps,
   type MenuProps,
   Separator,
-  type SubmenuTriggerProps,
 } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
 import { dropdownItemStylesDark } from "@/components/ui/ListBox"
@@ -86,7 +84,7 @@ export function MenuSeparator(props: SeparatorProps) {
 export const menuSectionHeaderClassName =
   "px-3 py-1.5 text-[11px] font-medium uppercase tracking-[0.14em] text-zinc-500 bg-zinc-900/95 border-t border-zinc-800 first:border-t-0"
 
-export interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
+interface MenuSectionProps<T> extends AriaMenuSectionProps<T> {
   title?: string
   items?: any
   headerClassName?: string
@@ -135,17 +133,3 @@ export function MenuTrigger(props: MenuTriggerProps) {
   )
 }
 
-export function SubmenuTrigger(props: SubmenuTriggerProps) {
-  const [trigger, menu] = React.Children.toArray(props.children) as [
-    React.ReactElement,
-    React.ReactElement,
-  ]
-  return (
-    <AriaSubmenuTrigger {...props}>
-      {trigger}
-      <Popover offset={-2} crossOffset={-4}>
-        {menu}
-      </Popover>
-    </AriaSubmenuTrigger>
-  )
-}

@@ -151,7 +151,7 @@ function linkedStatus(item: WorkspaceLinkedRepository): StatusTag {
 }
 
 /** One row: a linked repository, a source repository, or both. */
-export type RepositoryRow = {
+type RepositoryRow = {
   key: string
   title: string
   gitUrl: string

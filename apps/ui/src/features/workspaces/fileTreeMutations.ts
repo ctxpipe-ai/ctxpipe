@@ -4,7 +4,7 @@ export function parentDirectory(path: string): string | null {
   return path.slice(0, index)
 }
 
-export function fileBasename(path: string): string {
+function fileBasename(path: string): string {
   return path.split("/").pop() ?? path
 }
 

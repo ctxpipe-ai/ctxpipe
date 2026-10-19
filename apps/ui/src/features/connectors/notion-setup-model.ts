@@ -3,7 +3,7 @@ type SetupStatus = {
   isInstalled?: boolean
 }
 
-export type NotionOauthMeta = {
+type NotionOauthMeta = {
   oauthAppSaved: boolean
   globalNotionOAuthConfigured: boolean
   webhookConfigured?: boolean

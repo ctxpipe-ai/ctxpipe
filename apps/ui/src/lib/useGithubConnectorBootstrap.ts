@@ -4,9 +4,9 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 
-export type { GithubConnectorBootstrap } from "@/features/connectors/queries/github-connector"
 
-export { fetchGithubConnectorBootstrap } from "@/features/connectors/queries/github-connector"
+
+
 
 export function useGithubConnectorBootstrap(
   orgSlug: string | null,

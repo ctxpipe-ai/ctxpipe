@@ -38,7 +38,7 @@ import {
  * The card is one skeleton chain, so a skeleton in the card can hand over to
  * the next one (see `SkeletonChain`).
  */
-export function WorkspaceCreateFrame(props: {
+function WorkspaceCreateFrame(props: {
   step: 0 | 1
   children: ReactNode
 }) {

@@ -124,7 +124,7 @@ export function isGuideRecent(input: GuideStart): boolean {
  * organization with no Workspace at any age. `workspaceCount` is null when
  * the Workspace list did not load. Then only the recent days open the guide.
  */
-export function isGuideWindowOpen(
+function isGuideWindowOpen(
   input: GuideStart & { workspaceCount: number | null },
 ): boolean {
   return input.workspaceCount === 0 || isGuideRecent(input)

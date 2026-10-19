@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { CopyableBlock } from "../CopyableBlock"
 
-export type GithubSelfHostedCredentialsStepProps = {
+type GithubSelfHostedCredentialsStepProps = {
   githubAppId: string
   setGithubAppId: (v: string) => void
   appSlug: string

@@ -13,7 +13,7 @@ import { ApiError, readApiJson } from "@/lib/api-result"
  * opener via localStorage. The popup writes, the opener reads + deletes.
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
-export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
 export const PAGERDUTY_SETUP_RESULT_KEY = "pagerduty-setup-result"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
@@ -39,12 +39,12 @@ export type GithubSetupRegistrationStatus =
   /** Left for `/.github/setup` to link a GitHub account; callers do nothing. */
   | "redirected"
 
-export type NotionSetupPopupResult =
+type NotionSetupPopupResult =
   | { status: "no_result" }
   | { status: "connected"; connectionId: string }
   | { status: "error"; error: string }
 
-export type PagerdutySetupPopupResult =
+type PagerdutySetupPopupResult =
   | { status: "no_result" }
   | { status: "connected"; connectionId: string }
   | { status: "error"; error: string }
@@ -52,7 +52,6 @@ export type PagerdutySetupPopupResult =
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
-export const PAGERDUTY_POPUP_NAME = "ctxpipe-pagerduty-connect"
 export const GITHUB_SETUP_RESULT_MESSAGE = "ctxpipe-github-setup-result"
 
 function safeNowMs() {
@@ -129,11 +128,6 @@ export function consumeGithubSetupOrgHint() {
   const orgSlug = localStorage.getItem(GITHUB_SETUP_ORG_HINT_KEY)
   localStorage.removeItem(GITHUB_SETUP_ORG_HINT_KEY)
   return orgSlug
-}
-
-export function peekGithubDraftConnectionHint(): string | null {
-  if (typeof window === "undefined") return null
-  return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
 }
 
 /**
@@ -228,7 +222,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
  * `onClosed`. Returns a disposer that clears the watcher.
  * Prefer {@link useWatchPopupClose} in components so cleanup runs on unmount and when opening a new popup.
  */
-export function onPopupClosed(
+function onPopupClosed(
   popup: Window,
   onClosed: () => void,
   options?: { resultKey?: string; messageType?: string },
