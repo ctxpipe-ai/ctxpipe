@@ -39,11 +39,6 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
     link: "connectors",
     linkLabel: "Open access settings",
   },
-  cost_cap: {
-    reason: "The model spend passed the cost cap of this run.",
-    action:
-      "Start it again. The spend of repositories that finished does not count again.",
-  },
   sandbox: {
     reason: "The ingest sandbox stopped or did not start.",
     action:

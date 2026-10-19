@@ -42,6 +42,19 @@ export function upgradeDismissKey(item: {
   return [item.orgSlug, item.workspaceSlug, item.key, item.status].join("/")
 }
 
+/** Show again the dismissed upgrades in `keys`. */
+export function withoutDismissedUpgrades(
+  preferences: UserPreferences,
+  keys: readonly string[],
+): UserPreferences {
+  return {
+    ...preferences,
+    dismissedUpgrades: preferences.dismissedUpgrades.filter(
+      (key) => !keys.includes(key),
+    ),
+  }
+}
+
 /** Add `key` to the dismissed upgrades; the oldest keys drop out. */
 export function withDismissedUpgrade(
   preferences: UserPreferences,

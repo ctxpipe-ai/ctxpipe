@@ -214,6 +214,37 @@ export const Running: Story = {
   },
 }
 
+/** A re-ingestion that waits for a free sandbox slot (CTX-908). */
+export const WaitingForSandbox: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          kind: "reingest",
+          title: "Ingest the source repositories again",
+          status: "running",
+          waitingForSlot: {
+            reason: "The re-ingestion slots of this instance are full.",
+            since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
+          },
+        }),
+      ]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () => {
+      expect(
+        await canvas.findByText("Waiting for a free sandbox"),
+      ).toBeVisible()
+      expect(await canvas.findByText(/for 12 min\./)).toBeVisible()
+    })
+    await waitFor(() =>
+      expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
+    )
+  },
+}
+
 /** The pull request is open. The step commits and the notes show. */
 export const PullRequestOpen: Story = {
   parameters: withUpgrades(
@@ -537,27 +568,6 @@ export const FailedSourceAccess: Story = {
     expect(
       canvas.getByText("Failed step: Read the source repository (acme/ky)."),
     ).toBeVisible()
-  },
-}
-
-export const FailedCostCap: Story = {
-  parameters: failedReingest({
-    code: "cost_cap",
-    step: "ingest",
-    repository: "acme/ky",
-    summary:
-      "ctx| stopped the ingestion run at the cost cap: it spent $6.80, and the cap left for it was $6.72.",
-  }),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText(
-          "The model spend passed the cost cap of this run.",
-        ),
-      ).toBeVisible(),
-    )
-    expect(canvas.getByRole("button", { name: REINGEST_START })).toBeVisible()
   },
 }
 

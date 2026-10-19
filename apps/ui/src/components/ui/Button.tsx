@@ -19,7 +19,7 @@ interface ButtonProps extends Omit<RACButtonProps, "size"> {
     | "ghost"
     | "outline"
   /** @default 'default' */
-  size?: "default" | "icon" | "icon-sm"
+  size?: "default" | "sm" | "icon" | "icon-sm"
   ref?: Ref<HTMLButtonElement>
   href?: string
   target?: ComponentProps<typeof RACLink>["target"]
@@ -47,6 +47,7 @@ const button = tv({
     },
     size: {
       default: "",
+      sm: "h-7 gap-1.5 px-2.5 text-xs",
       icon: "h-9 w-9 min-w-9 shrink-0 px-0",
       "icon-sm": "h-8 w-8 min-w-8 shrink-0 px-0",
     },

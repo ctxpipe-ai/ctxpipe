@@ -654,7 +654,7 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
     const patch = Buffer.from(result.tar)
     expect(patch.includes("vercel-contract.md")).toBe(true)
     expect(patch.includes(PATCH_TEXT)).toBe(true)
-    // The usage reaches the run, so the cost cap counts hosted steps too.
+    // The usage reaches the run, so the recorded spend counts hosted steps too.
     expect(result.usage?.inputTokens).toBeGreaterThan(0)
     expect(result.usage?.outputTokens).toBeGreaterThan(0)
     // The model route took the step's capability and called the model with

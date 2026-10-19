@@ -123,7 +123,7 @@ const WorkspaceUpgradeItemSchema = z
           }),
           spendUnknown: z.boolean().openapi({
             description:
-              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part, and the cost cap counts only that part.",
+              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part.",
           }),
         }),
       )
@@ -139,6 +139,13 @@ const WorkspaceUpgradeItemSchema = z
           "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
       }),
     note: z.string().nullable(),
+    waitingForSlot: z
+      .object({ reason: z.string(), since: z.string().datetime() })
+      .nullable()
+      .openapi({
+        description:
+          "Only on a re-ingestion that waits for its turn to use a free sandbox slot: why it waits and when the wait began. `null` when it does not wait.",
+      }),
     failureReason: z.string().nullable(),
     failure: z
       .object({
@@ -150,7 +157,7 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `cost_cap`: the run stopped at the cost cap. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
+          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
       }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
@@ -230,11 +237,11 @@ function serializeUpgrade(
     })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
+    waitingForSlot: upgrade.waitingForSlot ?? null,
     failureReason: row.failureReason,
     failure: classifyUpgradeFailure({
       status: row.status,
       failureReason: row.failureReason,
-      stopReason: upgrade.stopReason,
       repositories: upgrade.repositories,
     }),
     approvedBy: upgrade.approvedBy ?? null,

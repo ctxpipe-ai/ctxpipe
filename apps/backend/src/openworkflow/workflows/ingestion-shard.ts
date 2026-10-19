@@ -172,7 +172,7 @@ type StepResult = (
     }
   | { partial: true }
 ) & {
-  /** The model usage of the step's attempts, when the runtime reports it (the re-ingestion cost cap reads it). */
+  /** The model usage of the step's attempts, when the runtime reports it (the recorded spend reads it). */
   usage?: IngestStepUsage
 }
 
@@ -635,7 +635,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason:
-            "The model step reported no usage: the spend of the run is unknown, and the cost cap counts only the known spend",
+            "The model step reported no usage: the spend of the run is unknown, and the recorded spend counts only the known part",
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
@@ -737,9 +737,12 @@ function addIngestUsage(
   const [a, b] = [cost(total), cost(next)]
   const costUsd = a !== undefined && b !== undefined ? a + b : undefined
   const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
+  const cacheReadTokens =
+    (total.cacheReadTokens ?? 0) + (next.cacheReadTokens ?? 0)
   return {
     inputTokens: total.inputTokens + next.inputTokens,
     outputTokens: total.outputTokens + next.outputTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(unknownSteps ? { unknownSteps } : {}),
   }

@@ -50,7 +50,8 @@ function count(value: unknown): number {
  * The usage in the stdout of `ingestModelRunCommand`, or undefined when no
  * line is a `step_finish` event. Input tokens include the cache reads and
  * writes, and output tokens include the reasoning tokens, so that the
- * estimate at the committed prices is not low. `costUsd` is set only when
+ * estimate at the committed prices is not low. `cacheReadTokens` keeps the
+ * cache reads apart, so that the estimate prices them at the cache rate. `costUsd` is set only when
  * each call reports a cost above 0: OpenCode reports 0 for a model that has
  * no price in its config.
  */
@@ -60,6 +61,7 @@ export function parseOpenCodeUsage(
   let found = false
   let inputTokens = 0
   let outputTokens = 0
+  let cacheReadTokens = 0
   let costUsd = 0
   let costKnown = true
   for (const line of stdout.split("\n")) {
@@ -75,6 +77,7 @@ export function parseOpenCodeUsage(
     found = true
     const cache = (tokens.cache ?? {}) as Record<string, unknown>
     inputTokens += count(tokens.input) + count(cache.read) + count(cache.write)
+    cacheReadTokens += count(cache.read)
     outputTokens += count(tokens.output) + count(tokens.reasoning)
     const cost = count(event.part?.cost)
     if (cost > 0) costUsd += cost
@@ -84,6 +87,7 @@ export function parseOpenCodeUsage(
   return {
     inputTokens,
     outputTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
     ...(costKnown ? { costUsd } : {}),
   }
 }

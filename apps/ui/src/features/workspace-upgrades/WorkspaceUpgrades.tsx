@@ -30,7 +30,6 @@ import {
 import {
   formatHealthLine,
   MEMBER_ASK_ADMIN,
-  UPGRADE_STATUS_TAG,
   upgradeBlockedCopy,
   upgradeBlockedNextStep,
   upgradeCanCheck,
@@ -38,6 +37,7 @@ import {
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
+  upgradeStatusTag,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
 import {
@@ -83,7 +83,7 @@ function UpgradeItemCard(props: {
               : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
-        <StatusTag {...UPGRADE_STATUS_TAG[item.status]} />
+        <StatusTag {...upgradeStatusTag(item)} />
       </div>
 
       {item.steps.length > 0 ? (
