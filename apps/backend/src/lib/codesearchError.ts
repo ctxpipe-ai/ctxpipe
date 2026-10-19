@@ -1,4 +1,4 @@
-export type CodesearchError = {
+type CodesearchError = {
   status: number
   message: string
   code?: string

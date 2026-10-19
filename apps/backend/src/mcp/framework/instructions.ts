@@ -19,7 +19,7 @@ export const INSTRUCTION_RULES = [
   "3. Search knowledge before a design choice. Name one org in each call. Cite refs.",
 ].join("\n")
 
-export type InstructionOrg = { slug: string; workspaces: readonly string[] }
+type InstructionOrg = { slug: string; workspaces: readonly string[] }
 
 /**
  * Rules, then each org with its Workspace slugs, under 2,048 characters.

@@ -42,7 +42,7 @@ function freeKey(taken: ReadonlySet<string>, provider: string): string {
 }
 
 /** Refuse a change whose key or scope cannot go into the file (400). */
-export function assertSourcesYamlChangeShape(change: SourcesYamlChange): void {
+function assertSourcesYamlChangeShape(change: SourcesYamlChange): void {
   if (
     change.action !== "add" &&
     !sourceKeySchema.safeParse(change.sourceKey).success

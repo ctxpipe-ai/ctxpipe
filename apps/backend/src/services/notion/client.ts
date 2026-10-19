@@ -30,7 +30,7 @@ type NotionParent =
   | { type: "workspace"; workspace: true }
   | { type: string }
 
-export type NotionSearchResource = {
+type NotionSearchResource = {
   id: string
   type: "page" | "database"
   title: string
@@ -56,7 +56,7 @@ export type NotionPage = {
   icon?: unknown
 }
 
-export type NotionTokenResponse = {
+type NotionTokenResponse = {
   access_token: string
   refresh_token?: string
   bot_id: string

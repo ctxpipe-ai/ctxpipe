@@ -1,5 +1,5 @@
 /** JSON and JSONB store `createdAt` as an ISO string. TanStack wire needs Date. */
-export function reviveChatMessageCreatedAt(value: unknown): Date | undefined {
+function reviveChatMessageCreatedAt(value: unknown): Date | undefined {
   if (value instanceof Date) {
     return Number.isNaN(value.getTime()) ? undefined : value
   }

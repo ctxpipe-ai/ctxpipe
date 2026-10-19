@@ -35,7 +35,7 @@ function forbiddenResponse(description: string) {
  * this 403, so neither reaches this check. The check stays as defense in
  * depth for a route under /mcp or a route that skips `requireAuth`.
  */
-export const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
+const requireWriteGrant: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("personalApiKeyId") || c.get("orgApiKey")) {
     return c.json(
       {

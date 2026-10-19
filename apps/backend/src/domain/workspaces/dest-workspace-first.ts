@@ -46,7 +46,7 @@ export function unkeyedCollisionExcerpt(text: string): string {
   return text.trim().slice(0, UNKEYED_COLLISION_EXCERPT_CHARS)
 }
 
-export function unkeyedCollisionPrompt(input: {
+function unkeyedCollisionPrompt(input: {
   existingPath: string
   incomingPath: string
   existingExcerpt: string

@@ -2,7 +2,7 @@ import { readFile, stat } from "node:fs/promises"
 import { resolve } from "node:path"
 import { decodeScipField, scipIndexFields } from "./scipProto.js"
 
-export type GraphPrimitiveName =
+type GraphPrimitiveName =
   | "find_references"
   | "find_symbol"
   | "get_callers"
@@ -12,7 +12,7 @@ export type GraphPrimitiveName =
   | "get_containing_scope"
   | "trace_path"
 
-export type ScipGraphPayload = {
+type ScipGraphPayload = {
   primitive: GraphPrimitiveName
   scipIndexPath: string
   repoPath: string
@@ -24,7 +24,7 @@ export type ScipGraphPayload = {
   endSymbol?: string
 }
 
-export type ScipGraphResult = {
+type ScipGraphResult = {
   ok: boolean
   results: Record<string, unknown>[]
   note?: string

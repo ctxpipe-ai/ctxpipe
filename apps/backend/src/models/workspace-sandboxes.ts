@@ -60,12 +60,12 @@ export type SandboxInstanceState =
   | "destroy_failed"
   | "building"
 
-export type SandboxInstanceOwnership = Pick<
+type SandboxInstanceOwnership = Pick<
   SandboxInstanceRecord,
   "kind" | "workspaceId" | "conversationId" | "provider" | "image" | "revision"
 >
 
-export type SandboxInstanceDeleteOwnership = SandboxInstanceOwnership &
+type SandboxInstanceDeleteOwnership = SandboxInstanceOwnership &
   Pick<SandboxInstanceRecord, "providerSandboxId">
 
 /** The identity a write must still match, so it never takes over another owner's row. */

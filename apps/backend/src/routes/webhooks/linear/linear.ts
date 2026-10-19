@@ -373,4 +373,3 @@ export function registerLinearWebhookRoute(app: OpenAPIHono<AppEnv>) {
 }
 
 export const linearEntityTargetForPayload = entityTargetForPayload
-export const bindLinearWebhookConnectionsForTest = bindLinearWebhookConnections

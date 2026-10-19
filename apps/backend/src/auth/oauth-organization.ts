@@ -28,7 +28,7 @@ export function oauthAccessTokenClaims(
     : { [OAUTH_ORGANIZATION_CLAIM]: referenceId }
 }
 
-export type OAuthOrganizationBinding = {
+type OAuthOrganizationBinding = {
   requiresSelection: boolean
   referenceId: string | null
 }

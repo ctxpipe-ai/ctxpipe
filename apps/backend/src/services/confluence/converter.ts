@@ -103,7 +103,7 @@ function redactCredentialBearingBareUrls(value: string): string {
   })
 }
 
-export function confluenceMediaStub(input: {
+function confluenceMediaStub(input: {
   label: string
   reason: Extract<ConfluenceMediaResolution, { status: "stub" }>["reason"]
 }): string {
@@ -121,7 +121,7 @@ export function confluenceMediaStub(input: {
   }
 }
 
-export type ConfluencePageTreeNode = {
+type ConfluencePageTreeNode = {
   id: string
   title: string
   parentId: string | null

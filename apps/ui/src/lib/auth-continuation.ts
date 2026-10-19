@@ -1,6 +1,6 @@
 import { safeAuthRedirectPath } from "./safe-auth-redirect"
 
-export type AuthContinuationProps = {
+type AuthContinuationProps = {
   redirectTo?: string
 }
 

@@ -11,7 +11,7 @@ export type PendingSavedSetupRepo = {
   gitUrl: string
 }
 
-export type PendingGithubSetupData = {
+type PendingGithubSetupData = {
   ingestAllRepositories: boolean
   includeFutureRepos: boolean
   savedRepositories: PendingSavedSetupRepo[]

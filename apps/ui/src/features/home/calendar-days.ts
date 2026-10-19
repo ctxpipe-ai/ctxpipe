@@ -10,10 +10,10 @@ export const CALENDAR_WEEKDAYS = [
   "Sat",
 ] as const
 
-export type CalendarWeekday = (typeof CALENDAR_WEEKDAYS)[number]
+type CalendarWeekday = (typeof CALENDAR_WEEKDAYS)[number]
 
 export const COMMIT_LEVELS = ["none", "low", "mid", "high", "hot"] as const
-export type CommitLevel = (typeof COMMIT_LEVELS)[number]
+type CommitLevel = (typeof COMMIT_LEVELS)[number]
 
 export const COMMIT_LEVEL_COLORS: Record<CommitLevel, string> = {
   none: "#27272a",
@@ -23,7 +23,7 @@ export const COMMIT_LEVEL_COLORS: Record<CommitLevel, string> = {
   hot: "#2dd4bf",
 }
 
-export type CalendarCell = {
+type CalendarCell = {
   date: string
   count: number
   week: number
@@ -31,12 +31,12 @@ export type CalendarCell = {
   level: CommitLevel
 }
 
-export function parseUtcDate(date: string): Date {
+function parseUtcDate(date: string): Date {
   const [year, month, day] = date.split("-").map(Number)
   return new Date(Date.UTC(year ?? 0, (month ?? 1) - 1, day ?? 1))
 }
 
-export function startOfUtcSunday(date: Date): Date {
+function startOfUtcSunday(date: Date): Date {
   const day = new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
   )

@@ -14,7 +14,7 @@ import { tv } from "tailwind-variants"
 import { Description, FieldError, Label } from "@/components/ui/Field"
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 
-export interface RadioGroupProps extends Omit<RACRadioGroupProps, "children"> {
+interface RadioGroupProps extends Omit<RACRadioGroupProps, "children"> {
   label?: string
   children?: ReactNode
   description?: string

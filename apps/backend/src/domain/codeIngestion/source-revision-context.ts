@@ -1,7 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { repositoryRevisionCheckoutKey } from "../../../../../shared/workspace-checkout.js"
 
-export type RepositorySourceRevision = {
+type RepositorySourceRevision = {
   orgId: string
   repositoryId: string
   sha: string

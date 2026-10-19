@@ -3,7 +3,7 @@ import type { Env } from "../config/env.js"
 
 type UpstreamPrincipal = "user" | "service"
 
-export type UpstreamClaims = {
+type UpstreamClaims = {
   sub: string
   orgId: string
   principal: UpstreamPrincipal

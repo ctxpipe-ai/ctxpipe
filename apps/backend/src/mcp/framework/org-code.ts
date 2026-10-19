@@ -63,7 +63,7 @@ export type SkippedRepository = {
  * The repositories of one code search call. `excluded` lists the handles in
  * scope that `excludeRepositories` removed; codesearch never receives them.
  */
-export type CodeScope = {
+type CodeScope = {
   repositories: CodeRepository[]
   excluded: string[]
   skipped: SkippedRepository[]
@@ -266,7 +266,7 @@ function checkRegex(query: string): string {
 }
 
 /** One file of a Zoekt answer, with its matching lines. */
-export type CodeFileMatches = {
+type CodeFileMatches = {
   repository: string
   path: string
   language: string | null

@@ -2,15 +2,11 @@
 import {
   GridList as AriaGridList,
   GridListItem as AriaGridListItem,
-  GridListHeader as AriaGridListHeader,
-  GridListLoadMoreItem as AriaGridListLoadMoreItem,
   Button,
   composeRenderProps,
   type GridListItemProps,
-  type GridListLoadMoreItemProps,
   type GridListProps,
 } from "react-aria-components"
-import type { HTMLAttributes } from "react"
 import { tv } from "tailwind-variants"
 import { Checkbox } from "@/components/ui/Checkbox"
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
@@ -78,37 +74,3 @@ export function GridListItem({
   )
 }
 
-export function GridListHeader({
-  children,
-  ...props
-}: HTMLAttributes<HTMLElement>) {
-  return (
-    <AriaGridListHeader
-      {...props}
-      className={twMerge(
-        "text-sm font-semibold text-zinc-500 dark:text-zinc-300 px-4 py-1 -mt-px z-10 bg-zinc-100/60 dark:bg-zinc-700/60 backdrop-blur-md supports-[-moz-appearance:none]:bg-zinc-100 border-y border-y-zinc-200 dark:border-y-zinc-700",
-        props.className,
-      )}
-    >
-      {children}
-    </AriaGridListHeader>
-  )
-}
-
-export function GridListLoadMoreItem({
-  children = "Show more",
-  className,
-  ...props
-}: GridListLoadMoreItemProps) {
-  return (
-    <AriaGridListLoadMoreItem
-      {...props}
-      className={twMerge(
-        "relative flex cursor-default select-none py-2 px-3 text-sm text-zinc-400 hover:text-zinc-200 hover:bg-zinc-700/60 border-t border-t-zinc-700 -outline-offset-2",
-        className,
-      )}
-    >
-      {children}
-    </AriaGridListLoadMoreItem>
-  )
-}

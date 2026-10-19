@@ -10,7 +10,7 @@ const MeInstallationOrganizationResponseSchema = z
   .object({ orgSlug: z.string() })
   .openapi("MeInstallationOrganizationResponse")
 
-export const getMyInstallationOrganizationRoute = createRoute({
+const getMyInstallationOrganizationRoute = createRoute({
   method: "get",
   path: "/:installationId/organization",
   request: {

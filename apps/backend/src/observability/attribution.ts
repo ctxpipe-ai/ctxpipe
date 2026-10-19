@@ -41,13 +41,6 @@ export const ATTRIBUTION_KEYS = [
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]
 
-export type ActorType =
-  | "user"
-  | "org_api_key"
-  | "oauth_client"
-  | "webhook"
-  | "job"
-
 const ATTRIBUTION_BAG = createContextKey("ctxpipe.attribution.bag")
 
 export type AttributionInput = Partial<

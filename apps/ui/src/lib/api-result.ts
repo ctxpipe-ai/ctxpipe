@@ -1,7 +1,7 @@
 import type { ClientResponse } from "hono/client"
 import type { SuccessStatusCode } from "hono/utils/http-status"
 
-export type ApiErrorBody = {
+type ApiErrorBody = {
   error?: string
   message?: string
   code?: string
@@ -29,9 +29,9 @@ export class ApiError extends Error {
 }
 
 export const API_FETCH_TIMEOUT_SSR_MS = 10_000
-export const API_FETCH_TIMEOUT_BROWSER_MS = 30_000
+const API_FETCH_TIMEOUT_BROWSER_MS = 30_000
 
-export type ApiFetchInit = RequestInit & {
+type ApiFetchInit = RequestInit & {
   /** `null` skips the default timeout (long-lived SSE). */
   timeoutMs?: number | null
 }
@@ -76,7 +76,7 @@ export async function apiFetch(
 }
 
 /** The JSON body types of the success responses (2xx) of a Hono client call. */
-export type ApiOkJson<R> =
+type ApiOkJson<R> =
   R extends ClientResponse<
     infer T,
     infer S extends number,

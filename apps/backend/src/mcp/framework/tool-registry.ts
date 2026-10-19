@@ -42,7 +42,7 @@ type ToolContext<Mode extends OrgMode> = {
   org: Mode extends "required" ? CallOrg : CallOrg | null
 }
 
-export type McpReadToolDefinition<
+type McpReadToolDefinition<
   Shape extends z.ZodRawShape,
   Output extends z.ZodObject,
   Mode extends OrgMode,

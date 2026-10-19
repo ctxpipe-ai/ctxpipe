@@ -27,7 +27,7 @@ import { loadNotionConnection } from "./connection-load.js"
  * Map the old `notion/config.yaml` scope to a source scope. Each selected
  * page and database becomes a root with its title.
  */
-export function notionScopeFromLegacyConfig(
+function notionScopeFromLegacyConfig(
   config: ParsedNotionRepoConfig,
 ): { scope: NotionSourceScope } | { unmapped: string } {
   const roots = (type: "page" | "database") =>
@@ -51,7 +51,7 @@ export function notionScopeFromLegacyConfig(
 }
 
 /** Turn off the legacy binding of a connection (migration `--apply`). */
-export async function disableNotionLegacySync(input: {
+async function disableNotionLegacySync(input: {
   orgId: string
   connectionId: string
 }): Promise<void> {

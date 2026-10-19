@@ -20,7 +20,7 @@ import {
   writeMergedScipIndex,
 } from "./phases.js"
 
-export type IndexRepoResult = {
+type IndexRepoResult = {
   targetHash: string
   ingestMode: "full" | "partial"
   changedPaths: string[]
@@ -50,9 +50,7 @@ type IndexInput = {
 
 export { discardScipShardFiles, publishMergedScipIndex, writeMergedScipIndex }
 
-export type OptionalIndexPhaseResult =
-  | { ok: true }
-  | { ok: false; error: unknown }
+type OptionalIndexPhaseResult = { ok: true } | { ok: false; error: unknown }
 
 /**
  * Run an optional index phase. Failures are warnings so non-OW callers get

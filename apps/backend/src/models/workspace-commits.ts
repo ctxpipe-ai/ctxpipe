@@ -45,7 +45,7 @@ export async function getWorkspaceCommitProjection(
   })
 }
 
-export type WorkspaceActivityCommitRecord = ProjectedCommit & {
+type WorkspaceActivityCommitRecord = ProjectedCommit & {
   workspaceId: string
   workspaceSlug: string
   workspaceName: string

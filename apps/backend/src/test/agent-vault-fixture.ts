@@ -90,7 +90,7 @@ if (process.env.BACKEND_PORT) require("node:net").createServer((client) => {
 }).listen(3000, "0.0.0.0")
 `
 
-export type AgentVaultFixture = {
+type AgentVaultFixture = {
   access: AgentVaultAccess
   network: string
   /** The network that sandboxes join (internal with `closed`). */
@@ -405,7 +405,7 @@ net.createServer((client) => {
 }
 
 /** The rate limits our deployments set (see docker-compose.yml). */
-export const AGENT_VAULT_RATE_LIMIT_ENV = [
+const AGENT_VAULT_RATE_LIMIT_ENV = [
   "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
   "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
   "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",

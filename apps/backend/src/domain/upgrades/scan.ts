@@ -53,7 +53,7 @@ import { formatOneLinkedRepositories } from "./steps/export-and-sources.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
-export type WorkspaceUpgradeScanResult =
+type WorkspaceUpgradeScanResult =
   | { kind: "none"; reason: "no_steps" | "unknown_format" | "not_upgradable" }
   | { kind: "current"; format: number }
   | { kind: "pending"; key: string; status: UpgradeStatus }

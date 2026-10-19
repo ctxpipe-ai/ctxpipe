@@ -3,7 +3,7 @@ import type { SandboxHandle, SandboxProvider } from "@tanstack/ai-sandbox"
 import { log } from "../../observability/logger.js"
 import { SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 
-export const SANDBOX_LIFECYCLE_MARK_PATH =
+const SANDBOX_LIFECYCLE_MARK_PATH =
   "/tmp/ctxpipe-sandbox-lifecycle.jsonl"
 
 type SandboxLifecycleScope = "ensure" | "chat"
@@ -22,16 +22,6 @@ export function enterSandboxLifecycleContext(conversationId: string): void {
     originMs: Date.now(),
     scope: "ensure",
   })
-}
-
-export function withSandboxLifecycleContext<T>(
-  conversationId: string,
-  fn: () => T,
-): T {
-  return lifecycleContext.run(
-    { conversationId, originMs: Date.now(), scope: "ensure" },
-    fn,
-  )
 }
 
 export function setSandboxLifecycleScope(scope: SandboxLifecycleScope): void {

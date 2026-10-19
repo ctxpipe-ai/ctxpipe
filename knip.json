@@ -1,0 +1,95 @@
+{
+  "$schema": "https://unpkg.com/knip@5.88.1/schema.json",
+  "rules": {
+    "duplicates": "off"
+  },
+  "ignoreWorkspaces": ["apps/otel-collector", "apps/forge-ctxpipe-agent"],
+  "ignoreBinaries": [
+    "tsx",
+    "src/scripts/deletePreviewSandboxes.ts",
+    "evals/mcp/run-seed.ts",
+    "evals/mcp/run.ts"
+  ],
+  "ignoreUnresolved": ["./pinned-service-image-tag"],
+  "workspaces": {
+    ".": {
+      "entry": ["scripts/**/*.{mjs,js,ts}"],
+      "project": ["scripts/**/*.{mjs,js,ts}"],
+      "ignoreDependencies": ["vitest"]
+    },
+    "apps/backend": {
+      "entry": [
+        "src/server.ts",
+        "src/openworkflow/worker-supervisor.ts",
+        "src/openworkflow/workflows/*.ts",
+        "openworkflow.config.ts",
+        "src/scripts/*.{ts,mjs}",
+        "src/auth/cli.ts",
+        "src/**/*.test.ts",
+        "test/**/*.ts",
+        "evals/**/*.ts",
+        "vitest.*.config.ts",
+        "src/db/print-owner-migrate-url.ts",
+        "src/db/recover-connector-content-cli.ts",
+        "src/routes/mcp.conformance.server.ts",
+        "src/db/migrate.ts"
+      ],
+      "project": ["src/**/*.{ts,tsx}", "test/**/*.ts", "evals/**/*.ts", "*.ts"],
+      "ignore": ["src/services/linear/*.generated.ts"],
+      "ignoreDependencies": [
+        "@forge/cli",
+        "@graphql-codegen/typed-document-node",
+        "@graphql-codegen/typescript-operations",
+        "@modelcontextprotocol/conformance"
+      ]
+    },
+    "apps/ui": {
+      "entry": [
+        "src/router.tsx",
+        "src/routes/**/*.{ts,tsx}",
+        "src/**/*.stories.tsx",
+        "src/**/*.test.{ts,tsx}",
+        ".storybook/*.{ts,tsx}"
+      ],
+      "project": ["src/**/*.{ts,tsx}", ".storybook/**/*.{ts,tsx}"],
+      "ignoreDependencies": [
+        "shadcn",
+        "tailwindcss-animate",
+        "tailwindcss-react-aria-components",
+        "tw-animate-css",
+        "jsdom"
+      ]
+    },
+    "apps/codesearch": {
+      "entry": ["src/server.ts", "scripts/*.{ts,mjs}", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts", "scripts/**/*.{ts,mjs}"]
+    },
+    "apps/docs": {
+      "entry": ["app/**/*.{ts,tsx}", "source.config.ts", "lib/**/*.{ts,tsx}"],
+      "project": ["**/*.{ts,tsx}"]
+    },
+    "packages/cli": {
+      "entry": ["src/cli.ts", "test/**/*.ts"],
+      "project": ["src/**/*.ts", "test/**/*.ts"]
+    },
+    "packages/aws-cdk": {
+      "entry": ["scripts/*.mjs", "src/**/*.test.ts"],
+      "project": ["src/**/*.ts", "scripts/*.mjs"]
+    },
+    "examples/aws-cdk-self-host": {
+      "entry": ["bin/app.ts", "scripts/*.ts"],
+      "project": ["**/*.ts"]
+    },
+    "ops/observability/railway-telemetry": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["**/*.ts"]
+    },
+    "ops/observability/cost-telemetry": {
+      "entry": ["src/**/*.test.ts"],
+      "project": ["**/*.ts"]
+    },
+    "ops/observability/hyperdx": {
+      "project": ["**/*.ts"]
+    }
+  }
+}

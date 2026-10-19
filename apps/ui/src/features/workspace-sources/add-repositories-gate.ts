@@ -3,7 +3,7 @@ import { formatHealthLine } from "@/features/workspace-upgrades/upgrade-copy"
 /** Copy of SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts. */
 const sourceFilesFormat = 2
 
-export type AddRepositoriesGate = {
+type AddRepositoriesGate = {
   title: string
   body: string
   /** The button that opens the next step in the Workspace settings. */

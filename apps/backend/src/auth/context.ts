@@ -50,7 +50,7 @@ export function requireCurrentUserId(): string {
   return fromStore
 }
 
-export type McpActor =
+type McpActor =
   | { type: "user"; userId: string }
   | { type: "org-service"; orgId: string }
 

@@ -17,7 +17,7 @@ import { runGit } from "./run-git.js"
  * The agent reads it before it writes, so the file is compact and bounded.
  */
 
-export type ContextIndexEntry = {
+type ContextIndexEntry = {
   path: string
   kind: string | null
   title: string | null
@@ -34,7 +34,7 @@ export type ContextIndexEntry = {
   owned: boolean
 }
 
-export type ContextIndex = {
+type ContextIndex = {
   workspaceId: string
   revision: string
   /** Units in the projection, also when the cap leaves some out. */
@@ -47,7 +47,7 @@ export type ContextIndex = {
 /** Entry cap. Owned entries are kept first, then the others in path order. */
 export const CONTEXT_INDEX_MAX_ENTRIES = 2000
 /** Cap on the JSON size. The index drops entries from the end to fit. */
-export const CONTEXT_INDEX_MAX_BYTES = 256 * 1024
+const CONTEXT_INDEX_MAX_BYTES = 256 * 1024
 const MAX_TITLE = 120
 const MAX_SUMMARY = 160
 const MAX_SOURCES = 5
@@ -57,7 +57,7 @@ const MAX_LINKS = 10
  * Reads the raw files of a git revision with one `git cat-file --batch`.
  * `paths` and the keys of the result are relative to `rootPath`.
  */
-export async function readGitFiles(
+async function readGitFiles(
   repoDir: string,
   sha: string,
   paths: readonly string[],

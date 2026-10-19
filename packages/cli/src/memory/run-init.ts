@@ -13,7 +13,7 @@ import { commandExists } from "../system.js"
 import { buildMemoryHookOperations } from "./hooks.js"
 import { buildMemoryUpgradeOperations } from "./upgrade.js"
 
-export type MemoryInitRunOpts = {
+type MemoryInitRunOpts = {
   baseUrl: string
   org?: string
   scope?: string

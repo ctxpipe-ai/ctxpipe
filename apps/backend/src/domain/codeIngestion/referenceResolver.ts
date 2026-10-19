@@ -8,7 +8,7 @@ import { isConnectorMirrorPath } from "./connectorMirrorPaths.js"
  * Pure functions only.
  */
 
-export type GithubPullRequestRef = {
+type GithubPullRequestRef = {
   owner: string
   repo: string
   repository: string
@@ -51,10 +51,6 @@ export function pullRequestDedupKey(input: {
 /** Unconnected GitHub identities — dropped in `finalizeExtractedReferences`. */
 export function isUnresolvedProviderIdentity(key: string): boolean {
   return key.startsWith("prq:github:") || key.startsWith("fil:github:")
-}
-
-export function fileDedupKey(scope: string, path: string): string {
-  return `fil:${scope}:${path}`
 }
 
 /**
@@ -180,14 +176,6 @@ export function linearWorkspaceOfUrl(rawUrl: string): string | null {
   return url.pathname.split("/").filter(Boolean)[0]?.toLowerCase() ?? null
 }
 
-export function linearTeamDedupKey(teamKey: string): string {
-  const normalized = teamKey.trim().toUpperCase()
-  if (!/^[A-Z][A-Z0-9]{0,9}$/.test(normalized)) {
-    throw new Error(`Invalid Linear team key "${teamKey}"`)
-  }
-  return `team:linear:${normalized}`
-}
-
 export function githubTeamDedupKey(org: string, slug: string): string {
   return `team:github:${org.toLowerCase()}/${slug.toLowerCase()}`
 }
@@ -202,7 +190,7 @@ export function parseGithubTeamOwner(token: string): string | null {
   return githubTeamDedupKey(match[1], match[2])
 }
 
-export type SlackPermalinkRef = { channelId: string; ts: string }
+type SlackPermalinkRef = { channelId: string; ts: string }
 
 /** `https://{team}.slack.com/archives/{C…}/p{ts-without-dot}[?thread_ts=…]` */
 export function parseSlackPermalink(rawUrl: string): SlackPermalinkRef | null {
@@ -227,10 +215,6 @@ export function parseSlackPermalink(rawUrl: string): SlackPermalinkRef | null {
 
 export function threadDedupKey(channelId: string, threadTs: string): string {
   return `thr:slack:${channelId}:${threadTs}`
-}
-
-export function decisionDedupKey(repositoryId: string, path: string): string {
-  return `dec:${repositoryId}:${path}`
 }
 
 /** `ADR-031`, `ADR 031`, `adr-0031` → `ADR-031` (number kept as written, sans leading zeros). */

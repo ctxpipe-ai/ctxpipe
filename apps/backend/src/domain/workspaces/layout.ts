@@ -2,7 +2,7 @@ import { parse as parseYaml } from "yaml"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 
 export const KNOWLEDGE_SKILL_PATH = ".agents/skills/ctxpipe-knowledge/SKILL.md"
-export const REPOSITORIES_DIR = "repositories"
+const REPOSITORIES_DIR = "repositories"
 
 export function greenfieldKnowledgePath(area: string, unit: string): string {
   return `knowledge/${slugSegment(area)}/${slugSegment(unit)}.md`

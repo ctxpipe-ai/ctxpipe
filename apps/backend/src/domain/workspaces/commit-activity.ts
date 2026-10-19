@@ -1,5 +1,5 @@
-export const COMMIT_RETENTION_DAYS = 396
-export const ACTIVITY_CALENDAR_WEEKS = 53
+const COMMIT_RETENTION_DAYS = 396
+const ACTIVITY_CALENDAR_WEEKS = 53
 
 export type ProjectedCommit = {
   sha: string
@@ -11,7 +11,7 @@ export type ProjectedCommit = {
   htmlUrl: string | null
 }
 
-export type ActivityDay = {
+type ActivityDay = {
   date: string
   count: number
 }
@@ -20,7 +20,7 @@ export function utcDateKey(date: Date): string {
   return date.toISOString().slice(0, 10)
 }
 
-export function startOfUtcDay(date: Date): Date {
+function startOfUtcDay(date: Date): Date {
   return new Date(
     Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()),
   )

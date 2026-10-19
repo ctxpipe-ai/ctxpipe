@@ -7,7 +7,7 @@ import { registerAtlassianInstallIntent } from "../queries/atlassian-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import { ConfluenceMark } from "./ConfluenceMark"
 
-export type AddConfluenceConnectorButtonProps = {
+type AddConfluenceConnectorButtonProps = {
   orgSlug: string
   /** After the pending connection row exists and org connections are invalidated. */
   onInstallIntentRegistered: (args: { connectionId: string }) => void

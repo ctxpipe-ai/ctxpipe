@@ -18,7 +18,7 @@ const REQUEST_ID_RE = /^[A-Za-z0-9._:-]{1,128}$/
  * documents and assets. A newly registered route is ahead of the catch-all
  * and keeps a server span without a path allowlist.
  */
-export function isUiProxyRequest(c: Context): boolean {
+function isUiProxyRequest(c: Context): boolean {
   const responder = matchedRoutes(c).find((route) => route.handler.length < 2)
   return responder?.path === "/*" || responder?.path === "*"
 }

@@ -23,7 +23,6 @@ import { log } from "../observability/logger.js"
 import {
   deleteConnectionDirectory,
   listConnectionDirectoryByGithubInstallationId,
-  listConnectionDirectoryByType,
   loadConnectionViaDirectory,
   upsertConnectionDirectory,
 } from "./connection-directory.js"
@@ -392,20 +391,6 @@ export async function listGithubConnectionsForOrg(
   })
 }
 
-export async function listGithubConnections(): Promise<
-  GitHubInstallationShape[]
-> {
-  const directoryRows = await listConnectionDirectoryByType(
-    CONNECTION_TYPE_GITHUB,
-  )
-  const rows = await Promise.all(
-    directoryRows.map((row) => loadConnectionViaDirectory(row.connectionId)),
-  )
-  return rows
-    .filter((row): row is ConnectionRow => row?.type === CONNECTION_TYPE_GITHUB)
-    .map(githubConnectionToShape)
-}
-
 export async function listGithubConnectionRowsForOrg(
   orgId: string,
 ): Promise<ConnectionRow[]> {
@@ -421,17 +406,6 @@ export async function listGithubConnectionRowsForOrg(
       )
       .orderBy(connections.createdAt),
   )
-}
-
-/**
- * @deprecated Prefer `listGithubConnectionsForOrg` or `resolveGithubInstallationForOrg`.
- * Returns an arbitrary row when multiple exist.
- */
-export async function getInstallationByOrgId(
-  orgId: string,
-): Promise<GitHubInstallationShape | undefined> {
-  const list = await listGithubConnectionsForOrg(orgId)
-  return list[0]
 }
 
 export async function getGithubInstallationByConnectionId(
@@ -487,7 +461,7 @@ export async function deleteGithubConnectionById(
 export const MULTIPLE_GITHUB_CONNECTIONS_MESSAGE =
   "Multiple GitHub connections for this organization; specify connectionId query parameter"
 
-export type ResolveGithubInstallationResult =
+type ResolveGithubInstallationResult =
   | { status: "ok"; installation: GitHubInstallationShape }
   | { status: "none" }
   | { status: "ambiguous" }
@@ -513,7 +487,7 @@ export async function resolveGithubInstallationForOrgDetailed(
 }
 
 /** Resolve org GitHub connection: explicit `connectionId`, or the only row when exactly one. */
-export async function resolveGithubInstallationForOrg(
+async function resolveGithubInstallationForOrg(
   orgId: string,
   connectionId?: string | null,
 ): Promise<GitHubInstallationShape | undefined> {
@@ -672,7 +646,7 @@ export async function githubAppOwnsInstallation(
   }
 }
 
-export type GitHubRepoItem = {
+type GitHubRepoItem = {
   id: number
   full_name: string
   html_url: string
@@ -713,7 +687,7 @@ function getGitHubAppFromEnv(env: Env): App {
   return cachedApp
 }
 
-export async function fetchInstallationAccountSlug(
+async function fetchInstallationAccountSlug(
   installationId: number,
   env: Env,
   connectionRow?: ConnectionRow,
@@ -874,49 +848,6 @@ export function isGithubInstallationTokenError(error: unknown): boolean {
     status === 404 ||
     message.includes("create-an-installation-access-token-for-an-app")
   )
-}
-
-export async function getInstallationToken(
-  orgId: string,
-  env: Env,
-  githubConnectionId: string | undefined,
-  scope: RepositoryInstallationScope,
-): Promise<string | undefined> {
-  const installation = githubConnectionId
-    ? await getGithubInstallationByConnectionId(orgId, githubConnectionId)
-    : await resolveGithubInstallationForOrg(orgId, null)
-  if (!installation || installation.installationId == null) return undefined
-  const id = githubConnectionId ?? installation.id
-  const row = await loadGithubConnectionRow(orgId, id)
-  if (!row) return undefined
-  try {
-    const app = buildAppForConnection(row, env)
-    const octokit = await app.getInstallationOctokit(
-      installation.installationId,
-    )
-    const { token } = (await octokit.auth({
-      type: "installation",
-      repositoryNames: repoReadCloneTokenRequest(scope.repoFullName)
-        .repositoryNames,
-      permissions: scope.permissions,
-    })) as {
-      token: string
-    }
-    return token
-  } catch (error) {
-    const message = error instanceof Error ? error.message : String(error)
-    if (isGithubInstallationTokenError(error)) {
-      const stored = parseGithubConnectionStored(
-        row.config as Record<string, unknown>,
-      )
-      log.error(error instanceof Error ? error : new Error(message), {
-        step: "github.installation_token",
-        githubAppId: stored.githubAppId ?? env.GITHUB_APP_ID?.trim() ?? null,
-        installationId: installation.installationId,
-      })
-    }
-    throw error
-  }
 }
 
 /** Read metadata with the same repository-scoped credential used for native Git. */

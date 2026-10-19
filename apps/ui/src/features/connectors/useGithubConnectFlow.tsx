@@ -28,7 +28,7 @@ import {
 import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 import { useGithubConnectorBootstrap } from "@/lib/useGithubConnectorBootstrap"
 
-export type UseGithubConnectFlowOptions = {
+type UseGithubConnectFlowOptions = {
   orgSlug: string
   onAlreadyInstalled?: () => void
   onRegistered?: () => void

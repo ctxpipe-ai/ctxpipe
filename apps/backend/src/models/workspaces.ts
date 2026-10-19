@@ -86,9 +86,9 @@ export type WorkspaceRecord = Omit<
   activeRevision?: WorkspaceRevision | null
   desiredDefaultBranch?: string | null
 }
-export type WorkspaceLinkedRepositoryRecord = LinkedRepositoryPin
+type WorkspaceLinkedRepositoryRecord = LinkedRepositoryPin
 
-export type WorkspaceListItem = WorkspaceRecord & {
+type WorkspaceListItem = WorkspaceRecord & {
   mostRecentConversationId: string | null
 }
 
@@ -1243,18 +1243,6 @@ export async function listWorkspaceUnitsAtRevision(
   )
 }
 
-export async function listKnowledgeUnitPaths(
-  workspaceId: string,
-): Promise<string[]> {
-  return orgSql(async () => {
-    const rows = await getOrgDb()
-      .select({ path: workspaceKnowledgeUnits.path })
-      .from(workspaceKnowledgeUnits)
-      .where(eq(workspaceKnowledgeUnits.workspaceId, workspaceId))
-    return rows.map((row) => row.path)
-  })
-}
-
 /**
  * The Workspace format (ADR-053) that hydrate cached for the binding of
  * `revision`, or 0. The cache belongs to the active projection, so a
@@ -1590,7 +1578,7 @@ export async function persistLinkedIndexedSha(
   )
 }
 
-export async function getOrgFirstWorkspace(orgId: string): Promise<{
+async function getOrgFirstWorkspace(orgId: string): Promise<{
   workspaceId: string
   sourceRepositoryId: string
 } | null> {

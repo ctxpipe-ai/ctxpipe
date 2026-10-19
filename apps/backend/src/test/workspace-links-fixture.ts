@@ -1,6 +1,5 @@
 import { and, eq } from "drizzle-orm"
-import { requireCurrentOrgId } from "../auth/context.js"
-import { type Db, getOrgDb } from "../db/client.js"
+import { type Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-status.js"
 import { generateObjectId } from "../lib/id.js"
@@ -11,12 +10,11 @@ import {
   type SourceState,
   type StoredSourceState,
 } from "../models/workspace-source-state.js"
-import { orgSql } from "../models/workspace-sql.js"
 
 type Tx = Parameters<Parameters<Db["transaction"]>[0]>[0]
 
 /** One linked repository, in the shape of the old table row. */
-export type LinkedRepositoryFixture = {
+type LinkedRepositoryFixture = {
   id?: string
   orgId: string
   workspaceId: string
@@ -114,31 +112,6 @@ export async function insertProjectedSourceRows(
       state: states.get(`${row.workspaceId} ${row.sourceKey}`) ?? {},
     })),
   )
-}
-
-/** Link repositories in the current org context. */
-export async function insertWorkspaceLinks(
-  links: Array<{ workspaceId: string; gitUrl: string }>,
-): Promise<void> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    const present = new Set(
-      (
-        await db
-          .select()
-          .from(workspaceSources)
-          .where(eq(workspaceSources.orgId, orgId))
-      ).flatMap((row) =>
-        githubPins(row).map((pin) => `${row.workspaceId} ${pin.gitUrl}`),
-      ),
-    )
-    for (const link of links) {
-      if (present.has(`${link.workspaceId} ${link.gitUrl}`)) continue
-      present.add(`${link.workspaceId} ${link.gitUrl}`)
-      await insertLinkedRepositoryRows(db, { orgId, ...link })
-    }
-  })
 }
 
 /** Change the ref of one pin in place, as a concurrent relink would. */

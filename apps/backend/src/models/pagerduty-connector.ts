@@ -210,7 +210,7 @@ export async function getPagerdutyConnectionByConnectionId(
 export const MULTIPLE_PAGERDUTY_CONNECTIONS_MESSAGE =
   "Multiple PagerDuty connections for this organization; specify connectionId query parameter"
 
-export type ResolvePagerdutyConnectionResult =
+type ResolvePagerdutyConnectionResult =
   | { status: "ok"; connection: PagerdutyConnection }
   | { status: "none" }
   | { status: "ambiguous" }
@@ -632,7 +632,7 @@ export async function createOrReusePagerdutyDraft(input: {
   })
 }
 
-export type PagerdutyOAuthAppMetadata = {
+type PagerdutyOAuthAppMetadata = {
   oauthAppSaved: boolean
   globalPagerdutyOAuthConfigured: boolean
   oauthCallbackUrl: string

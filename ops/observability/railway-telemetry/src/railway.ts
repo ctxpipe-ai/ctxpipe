@@ -6,7 +6,7 @@ export const LOG_LINE_CAP = 5000
 
 type NamedNode = { id: string; name: string }
 
-export type ProjectInventory = {
+type ProjectInventory = {
   name: string
   environments: NamedNode[]
   services: NamedNode[]
