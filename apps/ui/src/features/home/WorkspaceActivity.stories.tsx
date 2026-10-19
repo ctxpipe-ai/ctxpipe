@@ -1,6 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { useRouterState } from "@tanstack/react-router"
 import { HttpResponse, http } from "msw"
+import { I18nProvider } from "react-aria-components"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import type { WorkspaceActivityCommit } from "@/features/workspaces/types"
 import {
@@ -416,6 +417,155 @@ export const CustomDateRange: Story = {
     expect(
       canvas.queryByText("Document billing ledger rules"),
     ).not.toBeInTheDocument()
+  },
+}
+
+async function openCalendar(canvasElement: HTMLElement, label: string) {
+  const canvas = within(canvasElement)
+  const page = within(canvasElement.ownerDocument.body)
+  await userEvent.click(
+    await canvas.findByRole("button", {
+      name: `Filter commits by date: ${label}`,
+    }),
+  )
+  const dialog = await page.findByRole("dialog", { name: "Date range" })
+  await userEvent.click(
+    within(dialog).getByRole("button", { name: /open calendar/i }),
+  )
+  await page.findByRole("grid")
+  return page
+}
+
+/** The selected cells of the open calendar, in reading order. */
+function selectedCells(page: ReturnType<typeof within>): HTMLElement[] {
+  return page
+    .getAllByRole("button", { hidden: true })
+    .filter((cell: HTMLElement) => cell.hasAttribute("data-selected"))
+}
+
+/** A one-day range keeps every corner round. */
+export const OneDayRange: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?since=2026-08-12&until=2026-08-12",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const page = await openCalendar(
+      canvasElement,
+      "Aug 12, 2026 – Aug 12, 2026",
+    )
+    await waitFor(() => {
+      const cells = selectedCells(page)
+      expect(cells).toHaveLength(1)
+      expect(cells[0]).toHaveClass("rounded-s-md", "rounded-e-md")
+    })
+  },
+}
+
+/** A range inside one week: round start, flat middle, round end. */
+export const MultiDayRange: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?since=2026-08-10&until=2026-08-13",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const page = await openCalendar(
+      canvasElement,
+      "Aug 10, 2026 – Aug 13, 2026",
+    )
+    await waitFor(() => {
+      const cells = selectedCells(page)
+      expect(cells).toHaveLength(4)
+      expect(cells[0]).toHaveClass("rounded-s-md")
+      expect(cells[0]).not.toHaveClass("rounded-e-md")
+      expect(cells[1]).toHaveClass("rounded-none")
+      expect(cells[2]).toHaveClass("rounded-none")
+      expect(cells[3]).toHaveClass("rounded-e-md")
+      expect(cells[3]).not.toHaveClass("rounded-s-md")
+    })
+  },
+}
+
+/** A range over three weeks stays one connected band. */
+export const RangeAcrossWeeks: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?since=2026-08-05&until=2026-08-20",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const page = await openCalendar(canvasElement, "Aug 5, 2026 – Aug 20, 2026")
+    await waitFor(() => {
+      const cells = selectedCells(page)
+      expect(cells).toHaveLength(16)
+      expect(cells[0]).toHaveClass("rounded-s-md")
+      expect(cells[8]).toHaveClass("rounded-none")
+      expect(cells[15]).toHaveClass("rounded-e-md")
+    })
+  },
+}
+
+/** On a short window the calendar popover stays inside the viewport. */
+export const CalendarOnShortViewport: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?since=2026-08-05&until=2026-08-20",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    const page = await openCalendar(canvasElement, "Aug 5, 2026 – Aug 20, 2026")
+    await document.fonts.ready
+    await waitFor(() => {
+      const popover = page.getByRole("grid").closest("[data-trigger]")
+      if (!popover) throw new Error("No calendar popover")
+      const box = popover.getBoundingClientRect()
+      expect(box.top).toBeGreaterThanOrEqual(0)
+      expect(box.bottom).toBeLessThanOrEqual(window.innerHeight)
+    })
+  },
+}
+
+/** The field and the calendar follow the browser locale (here German). */
+export const GermanLocale: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?since=2026-08-05&until=2026-08-20",
+    } satisfies StoryRouteParams,
+  },
+  decorators: [
+    (Story) => (
+      <I18nProvider locale="de-DE">
+        <Story />
+      </I18nProvider>
+    ),
+  ],
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Filter commits by date: Aug 5, 2026 – Aug 20, 2026",
+      }),
+    )
+    const dialog = await page.findByRole("dialog", { name: "Date range" })
+    await waitFor(() => {
+      const segments = within(dialog).getAllByRole("spinbutton")
+      // The day comes first in German, so the end date starts with 20.
+      expect(segments[3]).toHaveTextContent("20")
+      expect(segments[4]).toHaveTextContent("8")
+    })
   },
 }
 
