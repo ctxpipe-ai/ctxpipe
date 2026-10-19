@@ -342,7 +342,7 @@ export const DateRangeFiltersRecent: Story = {
       canvas.getByRole("button", { name: "Filter commits by date: Any time" }),
     )
     await userEvent.click(
-      await page.findByRole("option", { name: "Last 30 days" }),
+      await page.findByRole("button", { name: "Last 30 days" }),
     )
 
     const since = utcDayBefore(29)

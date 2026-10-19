@@ -321,9 +321,11 @@ export const Loading: Story = {
     // Three rows with falling opacity: the skeleton does not guess the count.
     const rows = canvasElement.querySelectorAll("li")
     expect(rows).toHaveLength(3)
-    expect(
-      Array.from(rows, (row) => getComputedStyle(row).opacity),
-    ).toEqual(["0.75", "0.5", "0.25"])
+    expect(Array.from(rows, (row) => getComputedStyle(row).opacity)).toEqual([
+      "0.75",
+      "0.5",
+      "0.25",
+    ])
   },
 }
 
