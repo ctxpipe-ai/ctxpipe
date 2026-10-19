@@ -1220,6 +1220,46 @@ export async function listWorkspaceKnowledgeUnits(
   })
 }
 
+/**
+ * The number of knowledge units in each top-level folder of the active
+ * projection, largest first, at most `limit` folders. `""` holds the files at
+ * the Workspace root. Each row also has the totals of all folders. The
+ * database groups the rows, so a Workspace with many files sends only one
+ * small row for each folder.
+ */
+export async function workspaceKnowledgeFolderCounts(
+  workspaceId: string,
+  limit: number,
+): Promise<
+  Array<{ folder: string; files: number; folders: number; total: number }>
+> {
+  return orgSql(async () => {
+    const folder = sql<string>`case when strpos(${workspaceKnowledgeUnits.path}, '/') > 0 then split_part(${workspaceKnowledgeUnits.path}, '/', 1) else '' end`
+    const files = sql<number>`count(*)::int`
+    return getOrgDb()
+      .select({
+        folder,
+        files,
+        folders: sql<number>`(count(*) over ())::int`,
+        total: sql<number>`(sum(count(*)) over ())::int`,
+      })
+      .from(workspaceKnowledgeUnits)
+      .innerJoin(
+        workspaces,
+        eq(workspaces.id, workspaceKnowledgeUnits.workspaceId),
+      )
+      .where(
+        and(
+          eq(workspaceKnowledgeUnits.workspaceId, workspaceId),
+          sql`${workspaceKnowledgeUnits.projectionSha} = coalesce(${workspaces.activeRevision}->>'sha', ${workspaces.activeProjectionSha})`,
+        ),
+      )
+      .groupBy(sql`1`)
+      .orderBy(desc(files), asc(folder))
+      .limit(limit)
+  })
+}
+
 /** Paths, kinds, and links of the units projected at one revision, in path order. */
 export async function listWorkspaceUnitsAtRevision(
   workspaceId: string,

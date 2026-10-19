@@ -4,7 +4,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import type { ReactNode } from "react"
+import { type ReactNode, useState } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { SkeletonSuspense, SkeletonText } from "@/components/ui/Skeleton"
@@ -14,8 +14,15 @@ import { ConversationThreadSkeleton } from "@/features/chat/components/Conversat
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
 import { cn } from "@/lib/utils"
 import type { ParsedPane } from "./pane"
-import { workspaceConversationOptions, workspaceKeys } from "./queries"
-import { openWorkspaceConversation } from "./start-workspace-conversation-ui"
+import {
+  workspaceChatPrepareOptions,
+  workspaceConversationOptions,
+  workspaceKeys,
+} from "./queries"
+import {
+  newUiConversationId,
+  openWorkspaceConversation,
+} from "./start-workspace-conversation-ui"
 import type { Workspace } from "./types"
 import type { ConversationPublish } from "./useWorkspaceConversationPublish"
 import { WorkspaceChatChrome } from "./WorkspaceChatChrome"
@@ -76,6 +83,32 @@ function WorkspaceComposeChat(props: {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const selectNav = useSelectNav()
+  // The first message starts the conversation with this id. Focus on the
+  // composer starts the sandbox prepare for it, so the first turn does not
+  // wait for the sandbox. Prepare is the only work that focus starts.
+  // The id lives in the query cache, so a remount of this composer keeps it
+  // and does not prepare a second sandbox. Send clears it.
+  const composeKey = [
+    "workspace-compose-conversation",
+    props.orgSlug,
+    props.workspace.id,
+  ]
+  const [conversationId] = useState(() => {
+    const kept = queryClient.getQueryData<string>(composeKey)
+    if (kept) return kept
+    const id = newUiConversationId()
+    queryClient.setQueryData(composeKey, id)
+    return id
+  })
+  const prepare = () => {
+    void queryClient.prefetchQuery(
+      workspaceChatPrepareOptions(
+        props.orgSlug,
+        conversationId,
+        props.workspace.id,
+      ),
+    )
+  }
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
@@ -96,7 +129,9 @@ function WorkspaceComposeChat(props: {
           <MessageInputBox
             layout="empty"
             draftKey={chatDraftKey(props.orgSlug, props.workspace.id)}
+            onFocus={prepare}
             sendMessage={({ text }) => {
+              queryClient.removeQueries({ queryKey: composeKey, exact: true })
               openWorkspaceConversation({
                 queryClient,
                 navigate,
@@ -104,6 +139,7 @@ function WorkspaceComposeChat(props: {
                 orgSlug: props.orgSlug,
                 workspace: props.workspace,
                 text,
+                conversationId,
               })
             }}
             placeholder="What should ctxpipe do in this Workspace?"

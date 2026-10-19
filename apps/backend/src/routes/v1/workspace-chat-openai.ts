@@ -198,6 +198,7 @@ export const workspaceChatOpenaiRoutes = new OpenAPIHono<AppEnv>()
       beginWorkspaceChatProxyGeneration(turnId, {
         model: contract.modelBase,
         messages: body.messages,
+        reasoningEffort: extras.reasoning_effort ?? body.reasoning_effort,
       })
     const startedAt = Date.now()
     let ttfbMs: number | null = null

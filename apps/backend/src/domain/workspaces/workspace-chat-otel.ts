@@ -250,7 +250,7 @@ function langfuseContent(value: unknown): string {
 
 export function beginWorkspaceChatProxyGeneration(
   turnId: string,
-  request?: { model?: string; messages?: unknown },
+  request?: { model?: string; messages?: unknown; reasoningEffort?: unknown },
 ): void {
   const state = turns.get(turnId)
   if (!state) return
@@ -281,6 +281,15 @@ export function beginWorkspaceChatProxyGeneration(
       "workspace_chat.turn_id": turnId,
       "workspace_chat.generation.index": state.generations.length,
       ...(request?.model ? { "gen_ai.request.model": request.model } : {}),
+      // The effort sent upstream: traces then show why an answer reasons long.
+      ...(typeof request?.reasoningEffort === "string"
+        ? {
+            "gen_ai.request.reasoning_effort": request.reasoningEffort,
+            "langfuse.observation.model.parameters": JSON.stringify({
+              reasoning_effort: request.reasoningEffort,
+            }),
+          }
+        : {}),
       ...(request?.messages !== undefined
         ? { "langfuse.observation.input": langfuseContent(request.messages) }
         : {}),
