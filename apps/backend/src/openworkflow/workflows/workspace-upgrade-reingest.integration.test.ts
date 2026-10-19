@@ -231,8 +231,15 @@ beforeAll(async () => {
     "README.md": "# Billing API\n",
   })
   remote(otherSource, { "README.md": "# Ledger\n" })
-  for (const name of capSources)
-    remote(name, { "package.json": '{ "name": "cap" }\n' })
+  // The first cap source is a small monorepo with three roots.
+  remote(capSources[0] ?? "", {
+    "package.json": '{ "name": "cap" }\n',
+    // The workspace manifest names the roots, so no model chooses a root.
+    "pnpm-workspace.yaml": 'packages:\n  - "."\n  - packages/*\n',
+    "packages/a/package.json": '{ "name": "a" }\n',
+    "packages/b/package.json": '{ "name": "b" }\n',
+  })
+  remote(capSources[1] ?? "", { "package.json": '{ "name": "cap" }\n' })
   // The tree of each Workspace has the format of its row: ingestion v2
   // reads the format at the pinned commit before it publishes (G5).
   // Each source file is in the tree too: the publish checks it.
@@ -681,14 +688,16 @@ it(
 )
 
 it(
-  "stops the run when the model spend passes 2 times the p90 estimate",
+  "stops starting model steps at the cost cap, publishes the finished part, and continues later without paying it again",
   { timeout: 420_000 },
   async () => {
-    // Each model step of this Workspace reports more than the whole cap.
-    stepCostUsd.set(capped, 1_000)
+    // The bundle of this file has one model skill (`classify-kind`, one step
+    // for each root), so the cap of each repository is the minimum, $5. Each
+    // model step reports $2: two steps run (spend $4), and the third would
+    // pass the cap.
+    stepCostUsd.set(capped, 2)
     expect(await row(capped)).toMatchObject({ status: "awaiting_operator" })
-    const high = (await row(capped))?.upgrade.estimate?.costUsd.high ?? 0
-    expect(high * 2).toBeLessThan(1_000)
+    const callsBefore = modelCalls.filter((id) => id === capped).length
     expect(await start(capped)).toMatchObject({ kind: "queued" })
     const stopped = await settled(capped)
     expect(stopped).toMatchObject({
@@ -699,21 +708,78 @@ it(
         repositories: [
           expect.objectContaining({
             repository: capSources[0],
-            spendUsd: expect.any(Number),
+            status: "partial",
+            capUsd: 5,
+            spendUsd: 4,
+            report: [expect.stringContaining("reached its cost cap of $5.00")],
+          }),
+          // The other repository has its own cap, and runs.
+          expect.objectContaining({
+            repository: capSources[1],
+            status: "done",
+            capUsd: 5,
+          }),
+        ],
+      },
+    })
+    const [first, second] = stopped?.upgrade.repositories ?? []
+    // The spend stays inside the cap: the step that would pass it did not
+    // start.
+    expect(first?.spendUsd ?? 0).toBeLessThanOrEqual(first?.capUsd ?? 0)
+    expect(modelCalls.filter((id) => id === capped).length - callsBefore).toBe(
+      3,
+    )
+    expect(first?.doneRoots).toHaveLength(2)
+    // The finished part is published.
+    expect(
+      git(
+        join(remotes, contexts[2] ?? ""),
+        "show",
+        `main:${modelFile(capSources[0] ?? "").path}`,
+      ),
+    ).toContain("The cap-a service sends invoices.")
+
+    // Continue: the new run skips the two roots that are done, so it pays
+    // for one model step of the first repository, and none of the second.
+    stepCostUsd.delete(capped)
+    const callsBeforeContinue = modelCalls.filter((id) => id === capped).length
+    expect(await start(capped)).toMatchObject({ kind: "queued" })
+    expect(await settled(capped)).toMatchObject({
+      status: "completed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({
+            repository: capSources[0],
+            status: "done",
           }),
           expect.objectContaining({
             repository: capSources[1],
-            status: "failed",
-            report: ["Not started: the re-ingestion stopped at the cost cap."],
+            status: "done",
           }),
         ],
       },
     })
     expect(
-      stopped?.upgrade.repositories?.[0]?.spendUsd ?? 0,
-    ).toBeGreaterThanOrEqual(1_000)
-    // The second repository started no ingestion run.
-    expect(await reingestRuns(capped)).toHaveLength(1)
+      modelCalls.filter((id) => id === capped).length - callsBeforeContinue,
+    ).toBe(1)
+    expect(await reingestRuns(capped)).toHaveLength(3)
+
+    // The later tests of this file start from a failed row whose second
+    // repository did not run.
+    await setRow(capped, {
+      to: "failed",
+      failureReason: "The re-ingestion stopped.",
+      upgrade: {
+        repositories: [
+          first as NonNullable<typeof first>,
+          {
+            ...(second as NonNullable<typeof second>),
+            status: "failed",
+            report: ["Not started."],
+          },
+        ],
+      },
+    })
   },
 )
 

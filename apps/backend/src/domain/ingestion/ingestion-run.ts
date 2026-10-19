@@ -73,6 +73,13 @@ export const ingestionV2InputSchema = z.object({
    * it is not set, each Workspace that declares the source is a candidate.
    */
   destinations: z.array(z.string().min(1)).min(1).optional(),
+  /**
+   * A run with a cost cap (a re-ingestion, CTX-897). The cap scales with
+   * the roots that the run does (`ingestionCostCapUsd`). `doneRoots`: the
+   * roots that an earlier capped run of the same commit did and published;
+   * this run skips them, so it does not pay for them again.
+   */
+  costCap: z.object({ doneRoots: z.array(z.string().min(1)) }).optional(),
 })
 
 export type IngestionV2Input = z.infer<typeof ingestionV2InputSchema>

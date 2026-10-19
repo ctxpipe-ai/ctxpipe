@@ -235,15 +235,24 @@ function UpgradeItemCard(props: {
             variant="primary"
             isPending={isStarting}
             onPress={onStart}
-            aria-label={`${item.status === "failed" ? "Start again" : "Start"}: ${item.title}`}
+            aria-label={`${startLabel(item)}: ${item.title}`}
           >
-            {item.status === "failed" ? "Start again" : "Start"}
+            {startLabel(item)}
           </Button>
         ) : upgradeCanStart(item) && isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
       </div>
     </li>
+  )
+}
+
+/** The start button label: "Continue" after a cost cap, "Start again" after another failure. */
+function startLabel(item: WorkspaceUpgradeItem): string {
+  if (item.status !== "failed") return "Start"
+  return (
+    (item.failure && upgradeFailureCopy(item.failure).partial?.startLabel) ??
+    "Start again"
   )
 }
 
@@ -273,8 +282,8 @@ function UpgradeFailureAlert(props: {
     ) : null
   return (
     <InlineAlert
-      variant="error"
-      title="The upgrade failed"
+      variant={copy.partial ? "warning" : "error"}
+      title={copy.partial?.title ?? "The upgrade failed"}
       actions={
         link || agent ? (
           <>
@@ -284,7 +293,11 @@ function UpgradeFailureAlert(props: {
         ) : undefined
       }
     >
-      {copy.step ? <p>Failed step: {copy.step}.</p> : null}
+      {copy.step ? (
+        <p>
+          {copy.partial ? "Stopped at" : "Failed step"}: {copy.step}.
+        </p>
+      ) : null}
       <p className={copy.step ? "mt-1" : undefined}>{copy.reason}</p>
       <p className="mt-1 text-xs break-words opacity-80">
         Details: {failure.summary}

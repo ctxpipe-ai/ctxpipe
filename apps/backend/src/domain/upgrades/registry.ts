@@ -255,7 +255,10 @@ export type WorkspaceUpgradePayload = {
    * drop the main-era knowledge of that repository. See {@link reingestedNames}.
    */
   reingested?: string[]
-  /** Only on a re-ingestion that the cost cap stopped. */
+  /**
+   * Only on a re-ingestion where a repository run reached its cost cap. The
+   * finished part is published; a next run continues.
+   */
   stopReason?: "cost_cap"
 }
 
@@ -294,4 +297,11 @@ export type ReingestRepositoryReport = {
   spendUsd?: number
   /** A model step of the run reported no usage: `spendUsd` is only the known part. */
   spendUnknown?: boolean
+  /** The cost cap in USD of the ingestion run; it scales with the size of the repository (CTX-897). */
+  capUsd?: number
+  /**
+   * After a run that reached the cost cap: the roots that are done and
+   * published at `sha`. A next run at the same commit skips them.
+   */
+  doneRoots?: string[]
 }

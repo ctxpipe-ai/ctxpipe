@@ -2,6 +2,7 @@ import { setTimeout as delay } from "node:timers/promises"
 import { type Span, SpanStatusCode } from "@opentelemetry/api"
 import { z } from "zod"
 import { type Env, parseEnv } from "../../config/env.js"
+import { ingestBudgetAllows } from "../../domain/ingestion/ingest-cost-cap.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -130,6 +131,14 @@ export const ingestionShardInputSchema = z.object({
     z.string(),
     z.object({ tip: sha, ops: z.number().int().nonnegative() }),
   ),
+  /**
+   * The cost cap of the run in USD (CTX-897). Each model step checks it
+   * before it starts; at the cap the shard starts no more model steps.
+   * Absent: no cap.
+   */
+  costCapUsd: z.number().positive().optional(),
+  /** Roots that an earlier capped run of the same commit did: this run skips them. */
+  skipRoots: z.array(z.string()).optional(),
 })
 
 export type IngestionShardInput = z.infer<typeof ingestionShardInputSchema>
@@ -155,7 +164,16 @@ export type IngestionShardWorkspace = {
 export type IngestionShardOutput = {
   shard: number
   workspaces: IngestionShardWorkspace[]
+  /** True when the cost cap stopped a model step of the shard. */
+  costCapReached?: boolean
 }
+
+/**
+ * The cost cap of a run, as one shard or the parent sees it. `reached`
+ * turns true when a model step did not start because of the cap; then no
+ * later model step of the same workflow starts.
+ */
+export type IngestBudget = { capUsd: number; reached: boolean }
 
 /** At most 2 retries for each step (concept section 8). */
 const STEP_ATTEMPTS = 3
@@ -170,7 +188,11 @@ type StepResult = (
       more: boolean
       partial?: undefined
     }
-  | { partial: true }
+  | {
+      partial: true
+      /** The cost cap stopped the step before its model run. */
+      costCap?: true
+    }
 ) & {
   /** The model usage of the step's attempts, when the runtime reports it (the re-ingestion cost cap reads it). */
   usage?: IngestStepUsage
@@ -197,11 +219,17 @@ export function shardTreeHolder(
   return `${input.mode}:${input.shard}`
 }
 
-/** The roots that a `roots` shard runs: its part of the run's list. */
+/**
+ * The roots that a `roots` shard runs: its part of the run's list, without
+ * the roots that an earlier capped run did (`skipRoots`).
+ */
 export function shardRoots(
-  roots: readonly IngestionRoot[],
+  allRoots: readonly IngestionRoot[],
   shard: number,
+  skipRoots: readonly string[] = [],
 ): IngestionRoot[] {
+  const skip = new Set(skipRoots)
+  const roots = allRoots.filter((root) => !skip.has(root.path))
   return roots.slice(
     shard * INGEST_SHARD_MAX_ROOTS,
     (shard + 1) * INGEST_SHARD_MAX_ROOTS,
@@ -268,8 +296,14 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         )
         const roots =
           input.mode === "roots"
-            ? shardRoots(input.roots, input.shard).map((r) => r.path)
+            ? shardRoots(input.roots, input.shard, input.skipRoots).map(
+                (r) => r.path,
+              )
             : [null]
+        const budget: IngestBudget | undefined =
+          input.costCapUsd === undefined
+            ? undefined
+            : { capUsd: input.costCapUsd, reached: false }
         for (const root of roots)
           for (const skill of skills)
             for (const destination of input.destinations) {
@@ -304,6 +338,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
                   input.start[destination.workspaceId]?.tip ??
                   destination.pinnedRevision,
                 state: current,
+                ...(budget ? { budget } : {}),
               })
             }
         await step.run({ name: "destroy-sandbox" }, async () => {
@@ -315,7 +350,11 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
           })
           return { destroyed: true }
         })
-        return { shard: input.shard, workspaces: [...state.values()] }
+        return {
+          shard: input.shard,
+          workspaces: [...state.values()],
+          ...(budget?.reached ? { costCapReached: true } : {}),
+        }
       }
       const runShardSpan = () =>
         withIngestSpan(
@@ -452,6 +491,8 @@ type SkillPages = {
   runBase: string
   /** The Workspace's tip and counts; each page adds to them. */
   state: IngestionShardWorkspace
+  /** The cost cap of the run; absent: no cap. */
+  budget?: IngestBudget
 }
 
 /**
@@ -473,7 +514,20 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     ctx.skill.name,
     ctx.destination.workspaceId,
   )
+  const capped = (page: number) => {
+    failed()
+    logStepPartial(
+      ctx,
+      label,
+      `The cost cap of the run ($${ctx.budget?.capUsd.toFixed(2)}) was reached before page ${page}`,
+    )
+  }
   for (let page = 1; page <= INGEST_MAX_PAGES; page++) {
+    // At the cap, no new model step starts (no workflow step either).
+    if (ctx.budget?.reached && ctx.skill.run === "model") {
+      capped(page)
+      return
+    }
     const name = skillStepName(
       ctx.root,
       ctx.skill.name,
@@ -486,6 +540,11 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
       runSkillStep({ ...ctx, name, oldTip, opsBefore }),
     )
     if (result.partial) {
+      if (result.costCap && ctx.budget) {
+        ctx.budget.reached = true
+        capped(page)
+        return
+      }
       failed()
       return
     }
@@ -590,6 +649,20 @@ async function attemptSkillStep(
           rejects: found.rejects,
           more: found.more,
         })
+      // The cost cap (CTX-897): the step checks the spend of the run
+      // before its model run. A step that pushed already (above) costs
+      // nothing more.
+      if (ctx.budget && ctx.skill.run === "model") {
+        const budget = await ingestBudgetAllows({
+          runId: run.runId,
+          capUsd: ctx.budget.capUsd,
+          step: ctx.name,
+        })
+        if (!budget.allowed) {
+          span.setAttribute("ctxpipe.ingest.cost_cap", true)
+          return withUsage({ partial: true as const, costCap: true as const })
+        }
+      }
       const baseCommit = ctx.oldTip ?? runBase
       // A new shard ref starts at the run base, which is on the assembled ref.
       const fetchRef = ctx.oldTip
@@ -737,9 +810,12 @@ function addIngestUsage(
   const [a, b] = [cost(total), cost(next)]
   const costUsd = a !== undefined && b !== undefined ? a + b : undefined
   const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
+  const cacheReadTokens =
+    (total.cacheReadTokens ?? 0) + (next.cacheReadTokens ?? 0)
   return {
     inputTokens: total.inputTokens + next.inputTokens,
     outputTokens: total.outputTokens + next.outputTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(unknownSteps ? { unknownSteps } : {}),
   }

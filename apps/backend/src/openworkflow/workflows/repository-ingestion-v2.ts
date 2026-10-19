@@ -2,6 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
+import { ingestionCostCapUsd } from "../../domain/ingestion/ingest-cost-cap.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -46,6 +47,7 @@ import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
+  type IngestBudget,
   type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
@@ -109,6 +111,14 @@ export type IngestionV2Output =
   | {
       /** `partial` when a Workspace is refused or has a `partial` step. */
       status: "done" | "partial"
+      /** Set when the cost cap stopped the run: "cost cap reached". */
+      reason?: string
+      /**
+       * Only on a run with a cost cap (CTX-897): the cap, whether the run
+       * reached it, and each root that is done at this commit (this run and
+       * the earlier runs). A next run skips those roots.
+       */
+      costCap?: { capUsd: number; reached: boolean; doneRoots: string[] }
       shards: number
       workspaces: Array<{
         workspaceId: string
@@ -169,7 +179,7 @@ export function defineRepositoryIngestionV2Workflow(
           async (attributes) => {
             const output = await ingest(attributes)
             attributes["ctxpipe.ingest.status"] = output.status
-            if ("reason" in output)
+            if ("reason" in output && output.reason)
               attributes["ctxpipe.ingest.reason"] = capIngestText(output.reason)
             if ("workspaces" in output)
               Object.assign(attributes, {
@@ -309,11 +319,38 @@ export function defineRepositoryIngestionV2Workflow(
           return { status: "partial", reason: scope.partial }
         }
         const roots = unpackRoots(scope.roots)
-        const shards = Math.ceil(roots.length / INGEST_SHARD_MAX_ROOTS)
+        // A capped run skips the roots that an earlier run of this commit
+        // did; the cap counts only the roots that this run does.
+        const skipRoots = roots
+          .map((r) => r.path)
+          .filter((path) => input.costCap?.doneRoots.includes(path))
+        const pendingRoots = roots.length - skipRoots.length
+        const shards = Math.ceil(pendingRoots / INGEST_SHARD_MAX_ROOTS)
         Object.assign(attributes, {
           "ctxpipe.ingest.bundle": scope.bundle,
           "ctxpipe.ingest.roots": roots.length,
         })
+
+        const bundle = await deps.bundle()
+        if (bundle.name !== scope.bundle)
+          throw new Error(
+            `The ingest skill bundle changed during the run (${scope.bundle} to ${bundle.name})`,
+          )
+        const modelSkills = (scopeName: "root" | "repository") =>
+          plannedIngestSkills(bundle.skills, scopeName).filter(
+            (skill) => skill.run === "model",
+          ).length
+        const budget: IngestBudget | undefined = input.costCap
+          ? {
+              capUsd: ingestionCostCapUsd({
+                roots: pendingRoots,
+                rootModelSkills: modelSkills("root"),
+                repositoryModelSkills: modelSkills("repository"),
+              }),
+              reached: false,
+            }
+          : undefined
+        if (budget) attributes["ctxpipe.ingest.cost_cap_usd"] = budget.capUsd
 
         const child = (
           shard: number,
@@ -330,15 +367,12 @@ export function defineRepositoryIngestionV2Workflow(
           authorTime: input.authorTime,
           destinations,
           start,
+          ...(budget ? { costCapUsd: budget.capUsd } : {}),
+          ...(skipRoots.length ? { skipRoots } : {}),
         })
 
         // The repository unit, on the assembled ref and in the sandbox of
         // shard 0. Its tip is the run base of each Workspace.
-        const bundle = await deps.bundle()
-        if (bundle.name !== scope.bundle)
-          throw new Error(
-            `The ingest skill bundle changed during the run (${scope.bundle} to ${bundle.name})`,
-          )
         const runtime = deps.runtime({
           orgId: input.orgId,
           runId: run.id,
@@ -391,6 +425,7 @@ export function defineRepositoryIngestionV2Workflow(
               }),
               runBase: destination.pinnedRevision,
               state,
+              ...(budget ? { budget } : {}),
             })
           }
         const runBase = Object.fromEntries(
@@ -573,7 +608,10 @@ export function defineRepositoryIngestionV2Workflow(
             entry.rejects += done.rejects
             entry.partial += done.partial
           }
+          if (budget && repository.costCapReached) budget.reached = true
         }
+        if (budget && shardOutputs.some((output) => output.costCapReached))
+          budget.reached = true
 
         await release()
 
@@ -731,7 +769,33 @@ export function defineRepositoryIngestionV2Workflow(
           ops: workspaces.reduce((sum, w) => sum + w.ops, 0),
           partial: workspaces.reduce((sum, w) => sum + w.partial, 0),
         })
-        return { status: ingestionV2Status(workspaces), shards, workspaces }
+        if (!budget)
+          return { status: ingestionV2Status(workspaces), shards, workspaces }
+        // A root is done when each of its steps finished in each Workspace.
+        const notDone = new Set(
+          shardOutputs.flatMap((output) =>
+            output.workspaces.flatMap((w) => w.partialRoots),
+          ),
+        )
+        const doneRoots = roots
+          .map((r) => r.path)
+          .filter((path) => skipRoots.includes(path) || !notDone.has(path))
+        if (budget.reached)
+          logIngestEvent("warn", "ingestion-v2.cost-cap", {
+            ingestionRunId: run.id,
+            reason: `The cost cap of $${budget.capUsd.toFixed(2)} was reached; ${doneRoots.length} of ${roots.length} roots are done`,
+          })
+        return {
+          status: budget.reached ? "partial" : ingestionV2Status(workspaces),
+          ...(budget.reached ? { reason: "cost cap reached" } : {}),
+          costCap: {
+            capUsd: budget.capUsd,
+            reached: budget.reached,
+            doneRoots,
+          },
+          shards,
+          workspaces,
+        }
       }
     },
   )
