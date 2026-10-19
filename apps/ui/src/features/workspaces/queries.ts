@@ -161,6 +161,10 @@ export function workspaceChatPrepareOptions(
       return null
     },
     staleTime: Number.POSITIVE_INFINITY,
+    // The composer prepares before the session mounts and observes this
+    // query. Keep the result in between, so the session does not prepare
+    // again.
+    gcTime: Number.POSITIVE_INFINITY,
     retry: false,
   })
 }
