@@ -312,6 +312,7 @@ export const ActivityAndRecentKeepTheirGap: Story = {
     ).closest("section")
     const recent = (await canvas.findByText("Recent")).closest("section")
     if (!activity || !recent) throw new Error("No Activity or Recent section")
+    await document.fonts.ready
     const gap =
       recent.getBoundingClientRect().top -
       activity.getBoundingClientRect().bottom
