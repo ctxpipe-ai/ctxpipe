@@ -303,9 +303,20 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   try {
     authSession = await requestSession(c)
   } catch (err) {
-    // Org keys cannot mock a user session. The user-config session hook may
-    // throw when `x-api-key` is an organization key; fall through to verify.
     if (!apiKeyHeader) throw err
+    // getSession checks a personal key and deletes it when it is expired, so
+    // a later verify finds no row. Record the reason of getSession here. An
+    // organization key gets `INVALID_API_KEY` from getSession and falls
+    // through to verify.
+    const refusal = await personalApiKeyRefusal(err, apiKeyHeader)
+    if (refusal) {
+      recordApiKeyRefusal(refusal)
+      return c.json(
+        { error: "Unauthorized" },
+        401,
+        wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+      )
+    }
     authSession = null
   }
   const resolvedIn = Math.round(performance.now() - started)
@@ -388,6 +399,33 @@ function refusalReason(code: unknown): string {
   }
 }
 
+/** A refusal with the key id when the key row is still there. */
+async function apiKeyRefusal(
+  reason: string,
+  apiKey: string,
+): Promise<OrgApiKeyRefusal> {
+  return {
+    reason,
+    keyId:
+      reason === "disabled" || reason === "rate_limited"
+        ? await refusedKeyId(apiKey)
+        : undefined,
+  }
+}
+
+/**
+ * The refusal of a personal key from the error of `getSession`, or undefined
+ * when the error does not tell why (an unknown key, or an organization key).
+ */
+async function personalApiKeyRefusal(
+  err: unknown,
+  apiKey: string,
+): Promise<OrgApiKeyRefusal | undefined> {
+  const code = (err as { body?: { code?: unknown } } | null)?.body?.code
+  const reason = refusalReason(code)
+  return reason === "invalid" ? undefined : apiKeyRefusal(reason, apiKey)
+}
+
 /**
  * The id of a refused key, found by the hash of the key value. `verifyApiKey`
  * does not return the key of a refusal. An expired key is already deleted, and
@@ -434,15 +472,11 @@ async function verifyOrgApiKey(
     })
 
   if (!verified?.valid || !verified.key) {
-    const reason = refusalReason(verified?.error?.code)
     return {
-      refusal: {
-        reason,
-        keyId:
-          reason === "disabled" || reason === "rate_limited"
-            ? await refusedKeyId(apiKey)
-            : undefined,
-      },
+      refusal: await apiKeyRefusal(
+        refusalReason(verified?.error?.code),
+        apiKey,
+      ),
     }
   }
   if (verified.key.configId !== "organization" || !verified.key.referenceId) {
@@ -479,7 +513,9 @@ async function resolveBearerApiKeyAuth(
         personalApiKeyId: authSession.session.id,
       }
     }
-  } catch {
+  } catch (err) {
+    const refusal = await personalApiKeyRefusal(err, apiKey)
+    if (refusal) return { kind: "invalid", refusal }
     // Org keys cannot mock a user session; fall through to verifyApiKey.
   }
 
@@ -582,7 +618,11 @@ async function authenticateBearer(
         applyPrincipalAttribution(c)
         return next()
       }
-      recordApiKeyRefusal(apiKeyAuth.refusal)
+      // An unknown token can be an OAuth token that expired (a client
+      // refreshes it after this 401), so only a known key is a key refusal.
+      if (apiKeyAuth.refusal.reason !== "invalid") {
+        recordApiKeyRefusal(apiKeyAuth.refusal)
+      }
     }
 
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
@@ -777,7 +817,12 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const orgApiKey = c.get("orgApiKey")
   if (orgApiKey) {
     if (!isMcpRequestPath(c.req.path)) {
-      getLogger().warn("Unauthorized because org API key is MCP-only")
+      recordApiKeyEvent({
+        step: "api_key.refused",
+        outcome: "refused",
+        reason: "mcp_only",
+        apiKey: {},
+      })
       return c.json(
         { error: "Unauthorized" },
         401,

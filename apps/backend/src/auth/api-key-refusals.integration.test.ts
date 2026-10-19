@@ -97,7 +97,11 @@ describe("API key refusal events (Postgres)", () => {
       withNetworkOrgContext,
     )
     app.post("/mcp/bearer", (c) => c.json({ ok: true }))
+    // No REST route verifies an org key today; this route shows that
+    // requireAuth refuses one outside /mcp.
+    app.use("/api/v1/org/*", withCookieAuth, withOrgApiKeyAuth)
     app.use("/api/v1/*", withCookieAuth, requireAuth)
+    app.get("/api/v1/org/things", (c) => c.json({ ok: true }))
     app.get("/api/v1/things", (c) => c.json({ ok: true }))
     app.post("/api/v1/things", (c) => c.json({ ok: true }))
     return app
@@ -133,6 +137,22 @@ describe("API key refusal events (Postgres)", () => {
       spans: spans.finishedSpans().map((span) => span.attributes),
     })
     expect(exported).not.toContain(secret)
+  }
+
+  /** A new personal key whose expiry date is in the past. */
+  async function expiredPersonalKey() {
+    const created = await getAuth().api.createApiKey({
+      body: { name: "refusal-test-personal" },
+      headers: new Headers({
+        origin: process.env.AUTH_BASE_URL ?? "http://localhost:3000",
+        cookie: s().cookie,
+      }),
+    })
+    await getSystemDb()
+      .update(apikeys)
+      .set({ expiresAt: new Date(Date.now() - 60_000) })
+      .where(eq(apikeys.id, created.id))
+    return created.key
   }
 
   /** A new org key, so that a test can break it without the shared seed key. */
@@ -220,18 +240,70 @@ describe("API key refusal events (Postgres)", () => {
     noSecretAnywhere(created.key)
   })
 
-  it("logs the reason for a refused Bearer key, with the key id when known, and not the key", async () => {
-    const unknown = "ctx_not_a_real_bearer_key_0123456789abcdefghijklmnop"
-    expect((await mcpBearer(unknown)).status).toBe(401)
+  it("logs the reason expired for an expired personal key on REST", async () => {
+    const key = await expiredPersonalKey()
+    const response = await createApp().request(
+      "http://backend.test/api/v1/things",
+      { headers: { "x-api-key": key } },
+    )
+
+    expect(response.status).toBe(401)
     expect(refusalEvent()).toMatchObject({
       "ctxpipe.api_key.outcome": "refused",
-      "ctxpipe.auth.refusal_reason": "invalid",
+      "ctxpipe.auth.refusal_reason": "expired",
+    })
+    noSecretAnywhere(key)
+  })
+
+  it("logs the reason expired for an expired personal key on /mcp", async () => {
+    const key = await expiredPersonalKey()
+
+    expect((await mcp(key)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "expired",
+    })
+    noSecretAnywhere(key)
+  })
+
+  it("logs the reason mcp_only with the key id for an org key outside /mcp", async () => {
+    const response = await createApp().request(
+      "http://backend.test/api/v1/org/things",
+      { headers: { "x-api-key": s().orgApiKey } },
+    )
+
+    expect(response.status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      level: "warn",
+      "ctxpipe.auth.refusal_reason": "mcp_only",
+      "ctxpipe.api_key.id": expect.any(String),
+    })
+    noSecretAnywhere(s().orgApiKey)
+  })
+
+  it("logs no key refusal for an opaque Bearer token that is no key, such as an expired OAuth token", async () => {
+    const token = "oauthAccessTokenThatHasExpired0123"
+    expect((await mcpBearer(token)).status).toBe(401)
+    expect(
+      events.filter((e) => e["ctxpipe.api_key.event"] === "api_key.refused"),
+    ).toEqual([])
+    expect(
+      spans.serverSpan()?.attributes["ctxpipe.api_key.event"],
+    ).toBeUndefined()
+    noSecretAnywhere(token)
+  })
+
+  it("logs the reason for a refused Bearer key, with the key id when known, and not the key", async () => {
+    const personal = await expiredPersonalKey()
+    expect((await mcpBearer(personal)).status).toBe(401)
+    expect(refusalEvent()).toMatchObject({
+      "ctxpipe.api_key.outcome": "refused",
+      "ctxpipe.auth.refusal_reason": "expired",
     })
     expect(spans.serverSpan()?.attributes).toMatchObject({
       "ctxpipe.api_key.event": "api_key.refused",
-      "ctxpipe.auth.refusal_reason": "invalid",
+      "ctxpipe.auth.refusal_reason": "expired",
     })
-    noSecretAnywhere(unknown)
+    noSecretAnywhere(personal)
 
     const disabled = await newOrgKey()
     await getSystemDb()
