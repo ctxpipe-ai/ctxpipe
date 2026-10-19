@@ -12,6 +12,7 @@ import { InlineLoader } from "@/components/ui/InlineLoader"
 import { Link } from "@/components/ui/Link"
 import { Modal } from "@/components/ui/Modal"
 import { SearchField } from "@/components/ui/SearchField"
+import { Tab, TabList, TabPanel, Tabs } from "@/components/ui/Tabs"
 import {
   Tooltip,
   TooltipContent,
@@ -44,6 +45,7 @@ import type { WorkspaceLinkedRepository } from "@/features/workspaces/types"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import { cn } from "@/lib/utils"
+import { AddRepositoryByUrlForm } from "./AddRepositoryByUrl"
 import { addRepositoriesGate } from "./add-repositories-gate"
 import {
   createWorkspaceSource,
@@ -481,6 +483,7 @@ export function WorkspaceAddRepositoriesDialog(props: {
   const [searchQuery, setSearchQuery] = useState("")
   const [sort, setSort] = useState<GithubRepoSort>("pushed-desc")
   const [selectedKeys, setSelectedKeys] = useState<Set<string>>(new Set())
+  const [mode, setMode] = useState<"select" | "paste">("select")
 
   // Only an owner or admin can list the installation repositories.
   const isAdmin = useIsOrgAdmin(orgSlug)
@@ -592,7 +595,36 @@ export function WorkspaceAddRepositoriesDialog(props: {
   const close = () => {
     setSearchQuery("")
     setSelectedKeys(new Set())
+    setMode("select")
     onOpenChange(false)
+  }
+
+  /** After an add: load the sources again, say where the change is, and close. */
+  const added = (results: ReadonlyArray<{ pullRequestUrl: string }>) => {
+    void queryClient.invalidateQueries({
+      queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
+    })
+    void queryClient.invalidateQueries({
+      queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
+    })
+    HyperDX.addAction("repository_index_started")
+    const first = results[0]
+    if (first)
+      toast.success(
+        results.length > 1
+          ? `${results.length} pull requests opened. Each change applies after its merge.`
+          : sourceChangeMessage(),
+        {
+          // Long enough to read the text and to press the action.
+          duration: 10_000,
+          action: {
+            label: "View pull request",
+            onClick: () =>
+              window.open(first.pullRequestUrl, "_blank", "noopener"),
+          },
+        },
+      )
+    close()
   }
 
   const addMutation = useMutation({
@@ -623,32 +655,7 @@ export function WorkspaceAddRepositoriesDialog(props: {
         )
       return results
     },
-    onSuccess: (results) => {
-      void queryClient.invalidateQueries({
-        queryKey: workspaceSourceKeys.list(orgSlug, workspaceSlug),
-      })
-      void queryClient.invalidateQueries({
-        queryKey: workspaceKeys.detail(orgSlug, workspaceSlug),
-      })
-      HyperDX.addAction("repository_index_started")
-      const first = results[0]
-      if (first)
-        toast.success(
-          results.length > 1
-            ? `${results.length} pull requests opened. Each change applies after its merge.`
-            : sourceChangeMessage(),
-          {
-            // Long enough to read the text and to press the action.
-            duration: 10_000,
-            action: {
-              label: "View pull request",
-              onClick: () =>
-                window.open(first.pullRequestUrl, "_blank", "noopener"),
-            },
-          },
-        )
-      close()
-    },
+    onSuccess: added,
     onError: (error: Error) => toast.error(error.message),
   })
 
@@ -678,9 +685,9 @@ export function WorkspaceAddRepositoriesDialog(props: {
               Open a pull request
             </strong>{" "}
             adds one file for each repository under{" "}
-            <code className="font-mono text-xs">sources/github/</code> in the
-            Workspace repository. Each repository becomes active when you merge
-            the pull request that adds it.
+            <code className="font-mono text-xs">sources/</code> in the Workspace
+            repository. Each repository becomes active when you merge the pull
+            request that adds it.
           </p>
         </div>
 
@@ -729,141 +736,177 @@ export function WorkspaceAddRepositoriesDialog(props: {
             >
               {gate.body}
             </InlineAlert>
-          ) : connectionIds.length === 0 ? (
-            <p className="text-sm text-muted-foreground">
-              <Link href={`/${orgSlug}/connectors`}>
-                Connect GitHub on the Connectors page first.
-              </Link>
-            </p>
           ) : (
-            <>
-              <div className="flex flex-col gap-3 sm:flex-row">
-                <SearchField
-                  value={searchQuery}
-                  onChange={setSearchQuery}
-                  placeholder="Search repositories"
-                  aria-label="Search GitHub repositories"
-                  className="min-w-0 flex-1"
-                />
-                <GithubRepoSortSelect value={sort} onChange={setSort} />
-              </div>
-              {reposQuery.isPending ? (
-                <InlineLoader label="Loading repositories" />
-              ) : reposQuery.isError ? (
-                <p className="text-sm text-muted-foreground">
-                  Could not load the GitHub repositories.
-                </p>
-              ) : eligibleRepos.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No installation repositories left to link.
-                </p>
-              ) : filteredRepos.length === 0 ? (
-                <p className="text-sm text-muted-foreground">
-                  No repositories match that search.
-                </p>
-              ) : (
-                <GithubRepoPickerList
-                  repos={filteredRepos}
-                  disabledLabels={disabledLabels}
-                  selectedIds={new Set(selected.map((repo) => repo.id))}
-                  onToggle={(id, isSelected) => {
-                    const repo = eligibleRepos.find((item) => item.id === id)
-                    if (!repo) return
-                    setSelectedKeys((previous) => {
-                      const next = new Set(previous)
-                      if (isSelected) next.add(pickKey(repo))
-                      else next.delete(pickKey(repo))
-                      return next
-                    })
-                  }}
-                  className="rounded-md border-border bg-zinc-900/40"
-                />
-              )}
-              {reposQuery.isPending ? null : (
-                <div className="space-y-1 text-sm text-muted-foreground">
-                  {accessLinks.length === 0 ? (
-                    <p>
-                      Don't see a repository?{" "}
-                      <Link href={`/${orgSlug}/connectors`}>
-                        Check the GitHub connection on the Connectors page
-                      </Link>
-                      .
-                    </p>
-                  ) : accessLinks.length === 1 ? (
-                    <p>
-                      Don't see a repository?{" "}
-                      <Link
-                        href={accessLinks[0]?.url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1"
-                      >
-                        Give ctxpipe access on GitHub
-                        <IconExternalLink className="size-3.5" aria-hidden />
-                      </Link>
-                      .
-                    </p>
-                  ) : (
-                    <>
-                      <p>
-                        Don't see a repository? Give ctxpipe access on GitHub.
+            <Tabs
+              selectedKey={mode}
+              onSelectionChange={(key) => {
+                if (key === "select" || key === "paste") setMode(key)
+              }}
+              className="gap-3"
+            >
+              <TabList
+                aria-label="How to add repositories"
+                className="m-0 self-start rounded-md bg-zinc-800 p-1"
+              >
+                <Tab id="select">Select GitHub</Tab>
+                <Tab id="paste">Paste URL</Tab>
+              </TabList>
+              <TabPanel id="select" className="space-y-3 p-0">
+                {connectionIds.length === 0 ? (
+                  <p className="text-sm text-muted-foreground">
+                    <Link href={`/${orgSlug}/connectors`}>
+                      Connect GitHub on the Connectors page first.
+                    </Link>
+                  </p>
+                ) : (
+                  <>
+                    <div className="flex flex-col gap-3 sm:flex-row">
+                      <SearchField
+                        value={searchQuery}
+                        onChange={setSearchQuery}
+                        placeholder="Search repositories"
+                        aria-label="Search GitHub repositories"
+                        className="min-w-0 flex-1"
+                      />
+                      <GithubRepoSortSelect value={sort} onChange={setSort} />
+                    </div>
+                    {reposQuery.isPending ? (
+                      <InlineLoader label="Loading repositories" />
+                    ) : reposQuery.isError ? (
+                      <p className="text-sm text-muted-foreground">
+                        Could not load the GitHub repositories.
                       </p>
-                      <ul className="m-0 list-none space-y-0.5 p-0">
-                        {accessLinks.map((link) => (
-                          <li key={link.url}>
+                    ) : eligibleRepos.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No installation repositories left to link.
+                      </p>
+                    ) : filteredRepos.length === 0 ? (
+                      <p className="text-sm text-muted-foreground">
+                        No repositories match that search.
+                      </p>
+                    ) : (
+                      <GithubRepoPickerList
+                        repos={filteredRepos}
+                        disabledLabels={disabledLabels}
+                        selectedIds={new Set(selected.map((repo) => repo.id))}
+                        onToggle={(id, isSelected) => {
+                          const repo = eligibleRepos.find(
+                            (item) => item.id === id,
+                          )
+                          if (!repo) return
+                          setSelectedKeys((previous) => {
+                            const next = new Set(previous)
+                            if (isSelected) next.add(pickKey(repo))
+                            else next.delete(pickKey(repo))
+                            return next
+                          })
+                        }}
+                        className="rounded-md border-border bg-zinc-900/40"
+                      />
+                    )}
+                    {reposQuery.isPending ? null : (
+                      <div className="space-y-1 text-sm text-muted-foreground">
+                        {accessLinks.length === 0 ? (
+                          <p>
+                            Don't see a repository?{" "}
+                            <Link href={`/${orgSlug}/connectors`}>
+                              Check the GitHub connection on the Connectors page
+                            </Link>
+                            .
+                          </p>
+                        ) : accessLinks.length === 1 ? (
+                          <p>
+                            Don't see a repository?{" "}
                             <Link
-                              href={link.url}
+                              href={accessLinks[0]?.url}
                               target="_blank"
                               rel="noopener noreferrer"
                               className="inline-flex items-center gap-1"
                             >
-                              Give ctxpipe access for {link.name}
+                              Give ctxpipe access on GitHub
                               <IconExternalLink
                                 className="size-3.5"
                                 aria-hidden
                               />
                             </Link>
-                          </li>
-                        ))}
-                      </ul>
-                    </>
-                  )}
-                  <p>
-                    Only an owner of the GitHub organization can give access. If
-                    you are not an owner, ask one to do it.
-                  </p>
-                </div>
-              )}
-              {selected.length > 0 ? (
-                <p className="text-xs tabular-nums text-muted-foreground">
-                  {selected.length}{" "}
-                  {selected.length === 1 ? "repository" : "repositories"}{" "}
-                  selected
-                </p>
-              ) : null}
-            </>
+                            .
+                          </p>
+                        ) : (
+                          <>
+                            <p>
+                              Don't see a repository? Give ctxpipe access on
+                              GitHub.
+                            </p>
+                            <ul className="m-0 list-none space-y-0.5 p-0">
+                              {accessLinks.map((link) => (
+                                <li key={link.url}>
+                                  <Link
+                                    href={link.url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="inline-flex items-center gap-1"
+                                  >
+                                    Give ctxpipe access for {link.name}
+                                    <IconExternalLink
+                                      className="size-3.5"
+                                      aria-hidden
+                                    />
+                                  </Link>
+                                </li>
+                              ))}
+                            </ul>
+                          </>
+                        )}
+                        <p>
+                          Only an owner of the GitHub organization can give
+                          access. If you are not an owner, ask one to do it.
+                        </p>
+                      </div>
+                    )}
+                    {selected.length > 0 ? (
+                      <p className="text-xs tabular-nums text-muted-foreground">
+                        {selected.length}{" "}
+                        {selected.length === 1 ? "repository" : "repositories"}{" "}
+                        selected
+                      </p>
+                    ) : null}
+                  </>
+                )}
+              </TabPanel>
+              <TabPanel id="paste" className="p-0">
+                <AddRepositoryByUrlForm
+                  orgSlug={orgSlug}
+                  workspaceSlug={workspaceSlug}
+                  onAdded={(result) => added([result])}
+                  onCancel={close}
+                />
+              </TabPanel>
+            </Tabs>
           )}
         </div>
 
-        <div className="mt-6 flex justify-end gap-2">
-          <Button
-            variant="quiet"
-            isDisabled={addMutation.isPending}
-            onPress={close}
-          >
-            Cancel
-          </Button>
-          {showPicker ? (
+        {/* The Paste URL form has its own buttons. */}
+        {showPicker && mode === "paste" ? null : (
+          <div className="mt-6 flex justify-end gap-2">
             <Button
-              variant="primary"
-              isDisabled={selected.length === 0}
-              isPending={addMutation.isPending}
-              onPress={() => addMutation.mutate(selected)}
+              variant="quiet"
+              isDisabled={addMutation.isPending}
+              onPress={close}
             >
-              Open a pull request
+              Cancel
             </Button>
-          ) : null}
-        </div>
+            {showPicker && connectionIds.length > 0 ? (
+              <Button
+                variant="primary"
+                isDisabled={selected.length === 0}
+                isPending={addMutation.isPending}
+                onPress={() => addMutation.mutate(selected)}
+              >
+                Open a pull request
+              </Button>
+            ) : null}
+          </div>
+        )}
       </Dialog>
     </Modal>
   )

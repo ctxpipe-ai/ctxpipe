@@ -80,7 +80,8 @@ export const WorkspaceSourceListResponseSchema = z
 const WorkspaceSourceInputSchema = z
   .object({
     provider: ProviderSchema,
-    connectionId: z.string().min(1),
+    /** Null only for a plain git source (`git`), which has no connection. */
+    connectionId: z.string().min(1).nullable(),
     scope: ScopeSchema,
     /**
      * The body of the source file: what the source is for. An edit without it
