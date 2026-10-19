@@ -29,13 +29,15 @@ export function WorkspaceChat(props: {
   headerExtra?: ReactNode
   onOpenPane?: (pane: ParsedPane) => void
   publish?: ConversationPublish | null
+  /** A new value mounts a new composer, which reads its draft again. */
+  composeRound?: number
 }) {
   const { orgSlug, workspace, conversationId: routeConversationId } = props
 
   if (!routeConversationId) {
     return (
       <WorkspaceComposeChat
-        key={workspace.id}
+        key={`${workspace.id}:${props.composeRound ?? 0}`}
         orgSlug={orgSlug}
         workspace={workspace}
         headerExtra={props.headerExtra}

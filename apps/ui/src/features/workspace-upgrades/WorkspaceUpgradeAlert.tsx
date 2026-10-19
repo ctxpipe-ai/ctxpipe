@@ -5,7 +5,10 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import type { Workspace } from "@/features/workspaces/types"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
-import { pendingWorkspaceUpgradesOptions } from "./queries"
+import {
+  pendingWorkspaceUpgradesOptions,
+  WORKSPACE_UPGRADES_HASH,
+} from "./queries"
 import { upgradeAlertLines, upgradeIsPending } from "./upgrade-copy"
 
 /**
@@ -54,6 +57,7 @@ export function WorkspaceUpgradeAlerts(props: {
                     to: "/$orgSlug/ws/$workspaceSlug",
                     params: { orgSlug, workspaceSlug: workspace.slug },
                     search: { pane: "settings" },
+                    hash: WORKSPACE_UPGRADES_HASH,
                   })
                 }}
               >

@@ -11,7 +11,7 @@ describe("isWorkspaceConversationDocument", () => {
   it("treats a conversation URL as the stored-thread document", () => {
     expect(
       isWorkspaceConversationDocument(
-        "/jakub-riedl-phw/ws/context/conv_agqcxxv4gb3abdn46ruf3f42xe",
+        "/acme-test/ws/context/conv_00000000000000000000000000",
       ),
     ).toBe(true)
   })
