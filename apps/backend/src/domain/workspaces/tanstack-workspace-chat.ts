@@ -969,23 +969,28 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
               : []),
             ...(orientationPrompt ? [orientationPrompt] : []),
           ]
-          if (!revisionConflict)
-            return rootPrompts.length
-              ? { systemPrompts: [...config.systemPrompts, ...rootPrompts] }
-              : undefined
-          return {
-            systemPrompts: [
-              ...config.systemPrompts,
-              ...rootPrompts,
-              JSON.stringify({
-                type: "workspace_revision_conflict",
-                effectiveSha: revisionConflict.sha,
-                desiredSha: built.revision.sha,
-                instructions:
-                  "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
-              }),
-            ],
-          }
+          const prompts = [
+            ...rootPrompts,
+            ...(revisionConflict
+              ? [
+                  JSON.stringify({
+                    type: "workspace_revision_conflict",
+                    effectiveSha: revisionConflict.sha,
+                    desiredSha: built.revision.sha,
+                    instructions:
+                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
+                  }),
+                ]
+              : []),
+          ]
+          // TanStack calls onConfig at the start and again before each model
+          // call: add each prompt once.
+          const missing = prompts.filter(
+            (prompt) => !config.systemPrompts.includes(prompt),
+          )
+          return missing.length
+            ? { systemPrompts: [...config.systemPrompts, ...missing] }
+            : undefined
         },
       }),
       defineChatMiddleware({
