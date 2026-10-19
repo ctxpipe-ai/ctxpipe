@@ -15,26 +15,8 @@
     },
     {
       "file": "src/components/ai-elements/message.tsx",
-      "code": 2322,
-      "message": "Type 'ChildrenOrFunction<ButtonRenderProps>' is not assignable to type 'ReactNode'.\n  Type '(values: ButtonRenderProps & { defaultChildren: ReactNode; }) => ReactNode' is not assignable to type 'ReactNode'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/message.tsx",
       "code": 4104,
       "message": "The type 'readonly [\"github-light\", \"github-dark-dimmed\"]' is 'readonly' and cannot be assigned to the mutable type '[BundledTheme, BundledTheme]'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/prompt-input.tsx",
-      "code": 2322,
-      "message": "Type '(e: Event) => void' is not assignable to type '((event: BaseUIEvent<SyntheticEvent<HTMLDivElement, Event>>) => void) & ((event: BaseUIEvent<MouseEvent<HTMLDivElement, MouseEvent>>) => void)'.\n  Type '(e: Event) => void' is not assignable to type '(event: BaseUIEvent<SyntheticEvent<HTMLDivElement, Event>>) => void'.\n    Types of parameters 'e' and 'event' are incompatible.\n      Type 'SyntheticEvent<HTMLDivElement, Event> & { preventBaseUIHandler: () => void; readonly baseUIHandlerPrevented?: boolean | undefined; }' is missing the following properties from type 'Event': cancelBubble, composed, returnValue, srcElement, and 7 more.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/prompt-input.tsx",
-      "code": 2322,
-      "message": "Type 'string | number | bigint | boolean | Iterable<ReactNode> | Promise<AwaitedReactNode> | Element | ((values: ButtonRenderProps & { ...; }) => ReactNode)' is not assignable to type 'ReactNode'.\n  Type '(values: ButtonRenderProps & { defaultChildren: ReactNode; }) => ReactNode' is not assignable to type 'ReactNode'.",
       "count": 1
     },
     {
@@ -47,24 +29,6 @@
       "file": "src/components/ai-elements/prompt-input.tsx",
       "code": 2322,
       "message": "Type '(e: React.MouseEvent<HTMLButtonElement>) => void' is not assignable to type '(e: MouseEvent<FocusableElement, MouseEvent>) => void'.\n  Types of parameters 'e' and 'e' are incompatible.\n    Type 'MouseEvent<FocusableElement, MouseEvent>' is not assignable to type 'MouseEvent<HTMLButtonElement, MouseEvent>'.\n      Type 'FocusableElement' is missing the following properties from type 'HTMLButtonElement': disabled, form, formAction, formEnctype, and 143 more.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/prompt-input.tsx",
-      "code": 2339,
-      "message": "Property 'openDelay' does not exist on type 'Props<unknown>'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/prompt-input.tsx",
-      "code": 2339,
-      "message": "Property 'closeDelay' does not exist on type 'Props<unknown>'.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ai-elements/prompt-input.tsx",
-      "code": 2322,
-      "message": "Type '{ defaultOpen?: boolean | undefined; open?: boolean | undefined; onOpenChange?: ((open: boolean, eventDetails: PreviewCardRootChangeEventDetails) => void) | undefined; ... 7 more ...; openDelay: any; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.\n  Property 'closeDelay' does not exist on type 'IntrinsicAttributes & Props<unknown>'.",
       "count": 1
     },
     {
@@ -92,18 +56,6 @@
       "count": 1
     },
     {
-      "file": "src/components/ui/Field.tsx",
-      "code": 6133,
-      "message": "'React' is declared but its value is never read.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/FieldButton.tsx",
-      "code": 6133,
-      "message": "'React' is declared but its value is never read.",
-      "count": 1
-    },
-    {
       "file": "src/components/ui/Form.tsx",
       "code": 6133,
       "message": "'React' is declared but its value is never read.",
@@ -117,18 +69,6 @@
     },
     {
       "file": "src/components/ui/Link.tsx",
-      "code": 6133,
-      "message": "'React' is declared but its value is never read.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/ListBox.tsx",
-      "code": 6133,
-      "message": "'React' is declared but its value is never read.",
-      "count": 1
-    },
-    {
-      "file": "src/components/ui/SearchField.tsx",
       "code": 6133,
       "message": "'React' is declared but its value is never read.",
       "count": 1
