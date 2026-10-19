@@ -87,7 +87,7 @@ function appWithRoutes(): OpenAPIHono<AppEnv> {
     MODEL_PROVIDER: "openai-like",
     MODEL_PROVIDER_URL,
     MODEL_PROVIDER_API_KEY: "sk-upstream",
-    MODEL_FAST_NAME: "test/model-fast",
+    MODEL_FAST_NAME: "test/model-fast?reasoning.effort=high",
   })
 
   const app = new OpenAPIHono<AppEnv>().basePath(
@@ -190,7 +190,7 @@ describeWithDatabase("workspace-chat capability attribution", () => {
     })
   }
 
-  it("records the model, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
+  it("records the model, the reasoning effort, the tokens, the cost, the prompt, and the output of a streamed generation", async () => {
     let upstreamBody: Record<string, unknown> = {}
     const sse = [
       {
@@ -259,7 +259,9 @@ describeWithDatabase("workspace-chat capability attribution", () => {
       "gen_ai.usage.cache_read.input_tokens": 6800,
       "gen_ai.usage.cost": 0.0021,
       "gen_ai.response.finish_reasons": "stop",
+      "gen_ai.request.reasoning_effort": "high",
     })
+    expect(upstreamBody.reasoning_effort).toBe("high")
     expect(
       JSON.parse(String(generation?.attributes["langfuse.observation.input"])),
     ).toEqual([
