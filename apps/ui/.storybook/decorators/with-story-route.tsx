@@ -41,6 +41,8 @@ export type StoryRouteParams =
       workspaceSlug: string
       conversationId?: string
       pane?: string
+      /** The URL hash, without its `#`. */
+      hash?: string
     }
 
 type LoadedStoryRoute = {
@@ -239,6 +241,8 @@ function createStoryRouter(
     spec.pattern === "orgWorkspace" && spec.pane
       ? `?pane=${encodeURIComponent(spec.pane)}`
       : ""
+  const workspaceHash =
+    spec.pattern === "orgWorkspace" && spec.hash ? `#${spec.hash}` : ""
   const initialPath =
     spec.pattern === "orgConnectors"
       ? `/${spec.orgSlug}/connectors${spec.search ?? ""}`
@@ -250,8 +254,8 @@ function createStoryRouter(
             ? `/${spec.orgSlug}/workspaces/new${spec.search ?? ""}`
             : spec.pattern === "orgWorkspace"
               ? spec.conversationId
-                ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
-                : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
+                ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}${workspaceHash}`
+                : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}${workspaceHash}`
               : `/${spec.orgSlug}${spec.pattern === "orgIndex" ? (spec.search ?? "") : ""}`
   return createRouter({
     routeTree,

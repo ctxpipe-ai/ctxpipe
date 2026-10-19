@@ -21,6 +21,7 @@ import {
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 import {
+  upgradeItemFixture,
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
@@ -63,6 +64,7 @@ type Story = StoryObj<typeof meta>
 function workspaceRoute(input?: {
   conversationId?: string
   pane?: string
+  hash?: string
 }): StoryRouteParams {
   return {
     pattern: "orgWorkspace",
@@ -70,6 +72,7 @@ function workspaceRoute(input?: {
     workspaceSlug,
     conversationId: input?.conversationId,
     pane: input?.pane,
+    hash: input?.hash,
   }
 }
 
@@ -1285,6 +1288,51 @@ export const SettingsPane: Story = {
         }),
       },
     },
+  },
+}
+
+/**
+ * A link from Home lands on the Upgrades group. Only the pane's own scroll
+ * area moves: no outer box scrolls, so the pane keeps filling the panel.
+ */
+export const SettingsPaneLandsOnUpgrades: Story = {
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings", hash: "upgrades" }),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const group = await waitFor(() => {
+      const found = canvasElement.querySelector<HTMLElement>(
+        '[data-settings-group="Upgrades"]',
+      )
+      expect(found).toHaveFocus()
+      return found as HTMLElement
+    })
+    await document.fonts.ready
+    const panel = group.closest<HTMLElement>('[role="tabpanel"]')
+    const scroller = group.closest<HTMLElement>("[data-settings-scroll]")
+    if (!panel || !scroller) throw new Error("The settings pane is missing")
+    await waitFor(() => {
+      // The panel has a 1px border.
+      expect(
+        panel.getBoundingClientRect().bottom -
+          scroller.getBoundingClientRect().bottom,
+      ).toBeLessThanOrEqual(2)
+      for (
+        let box = scroller.parentElement;
+        box && box !== canvasElement.ownerDocument.body;
+        box = box.parentElement
+      ) {
+        expect(box.scrollTop).toBe(0)
+      }
+    })
   },
 }
 
