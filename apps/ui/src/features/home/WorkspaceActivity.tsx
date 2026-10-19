@@ -533,7 +533,10 @@ export function DateRangeMenu(props: {
                             }) =>
                               cn(
                                 "cursor-default py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
-                                "data-[hovered]:bg-zinc-800 data-[outside-month]:text-zinc-600",
+                                "data-[outside-month]:text-zinc-600",
+                                // The hover tint must not cover the dark text
+                                // of a start or end cell (it wins on specificity).
+                                !isSelected && "data-[hovered]:bg-zinc-800",
                                 // A range is one connected band: the start has
                                 // its left corners round, the end its right
                                 // corners, and a one-day range keeps all four.

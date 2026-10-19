@@ -67,3 +67,28 @@ export const TriggerWellInsideBottom: Story = {
   render: () => <AtHeight fromBottom={150} />,
   play: ({ canvasElement }) => expectWholeMenuInView(canvasElement),
 }
+
+/** The user chose a start date and has not chosen the end date yet. */
+export const StartChosenEndPending: Story = {
+  render: () => <AtHeight fromBottom={400} />,
+  play: async ({ canvasElement }) => {
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await page.findByRole("button", { name: /Filter commits by date/ }),
+    )
+    await userEvent.click(
+      await page.findByRole("button", { name: /calendar/i }),
+    )
+    const start = await page.findAllByRole("button", { name: /\b6\b/ })
+    await userEvent.click(start[0])
+    // The pointer still rests on the start cell: hover must not hide its text.
+    await waitFor(() => {
+      const cell = canvasElement.ownerDocument.querySelector(
+        "[data-selection-start]",
+      )
+      if (!cell) throw new Error("No selected start cell")
+      expect(cell).toHaveClass("text-zinc-950")
+      expect(cell).not.toHaveClass("data-[hovered]:bg-zinc-800")
+    })
+  },
+}
