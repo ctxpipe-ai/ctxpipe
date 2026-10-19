@@ -901,8 +901,15 @@ export const DiffTriggerPaneClosed: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    // The trigger fades in for 100 ms when it mounts, and a re-render can
-    // replace it, so find it again on each try.
+    // The loading conversation also shows the pane triggers in its header.
+    // When the conversation loads, new triggers replace them. A click on a
+    // replaced trigger does nothing, so wait for the loaded conversation
+    // before you find the trigger.
+    await waitFor(
+      () => expect(page.getByText("How is billing structured?")).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    // The trigger fades in for 100 ms when it mounts.
     await waitFor(
       () => expect(page.getByRole("button", { name: "Diff" })).toBeVisible(),
       { timeout: 15_000 },
