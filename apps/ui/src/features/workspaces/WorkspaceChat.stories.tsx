@@ -1241,8 +1241,13 @@ export const ComposeFocusPreparesSandbox: Story = {
         /what should ctxpipe do in this workspace/i,
       )
       await userEvent.click(composer)
-      await waitFor(() => expect(preparedConversations).toHaveLength(1))
+      await waitFor(() =>
+        expect(preparedConversations.length).toBeGreaterThan(0),
+      )
       await userEvent.type(composer, "Where is the billing service?")
+      // The story harness can mount the composer again with a new query
+      // cache; count only what the send adds.
+      const beforeSend = [...preparedConversations]
       await userEvent.click(canvas.getByRole("button", { name: /send/i }))
       await waitFor(
         () => expect(canvas.getByText(firstTurnAnswer)).toBeVisible(),
@@ -1250,7 +1255,8 @@ export const ComposeFocusPreparesSandbox: Story = {
       )
       expect(socket.runFrames).toHaveLength(1)
       const { threadId } = socket.runFrames[0] as { threadId: string }
-      expect(preparedConversations).toEqual([threadId])
+      expect(beforeSend.at(-1), JSON.stringify(beforeSend)).toBe(threadId)
+      expect(preparedConversations).toEqual(beforeSend)
     } finally {
       socket.restore()
     }
