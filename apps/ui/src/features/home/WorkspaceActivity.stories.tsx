@@ -177,6 +177,7 @@ export const MonthLabelsStayInTheChart: Story = {
     const chart = dayCell(canvasElement, "2026-08-22")?.closest("svg")
     const host = chart?.parentElement
     if (!chart || !host) throw new Error("No heatmap")
+    await document.fonts.ready
     const months = [...chart.querySelectorAll("text")].filter((label) =>
       /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/.test(
         label.textContent ?? "",
