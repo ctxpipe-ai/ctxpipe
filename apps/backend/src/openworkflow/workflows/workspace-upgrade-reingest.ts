@@ -547,6 +547,10 @@ export function defineWorkspaceUpgradeReingest(
                     orgId,
                     upgradeRunId: run.id,
                     runsPerInstance: throttle.runsPerInstance,
+                    workspaceId,
+                    sourceUrls: planned.repositories
+                      .filter((r) => r.sha && !r.done)
+                      .map((r) => r.url),
                   })
                 },
               )
