@@ -3,9 +3,12 @@ import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema/repositories.js"
+import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import type { PlannedSourceRow } from "../domain/workspace-sources/projection-plan.js"
 import { workspaceGithubReadScope } from "../domain/workspaces/docker-run-vault.js"
+import { generateObjectId } from "../lib/id.js"
+import { resolveCodeScope } from "../mcp/framework/org-code.js"
 import { seedSourcesOrg } from "../test/workspace-sources-fixture.js"
 import {
   clearLinkedRepositoryShas,
@@ -452,5 +455,64 @@ describe("workspace source state (Postgres)", () => {
       listServedRepositoryPins(db, { workspaceId }),
     )
     expect(served.find((pin) => pin.gitUrl.endsWith(jobs))?.id).toBe(before?.id)
+  })
+
+  it("links the repository of a plain git source, so search_code searches it (CTX-893)", async () => {
+    const workspaceId = await seed.addWorkspace("plain-git")
+    const name = `fastify/fastify-${seed.suffix}`
+    const gitUrl = `https://github.com/${name}`
+    // The org repository and its published code index, with no connection.
+    const repositoryId = generateObjectId("repo")
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: repositoryId,
+        orgId: seed.orgId,
+        name,
+        gitUrl,
+        githubConnectionId: null,
+      })
+      await db.insert(repositoryCheckouts).values({
+        id: generateObjectId("checkout"),
+        orgId: seed.orgId,
+        repositoryId,
+        checkoutKey: "default",
+        ref: "main",
+        commitSha: "e".repeat(40),
+      })
+    })
+    await replaceWorkspaceSourceRows({
+      orgId: seed.orgId,
+      workspaceId,
+      revision: "a".repeat(40),
+      rows: [
+        {
+          sourceKey: "sources/git/github.com/fastify-fastify.md",
+          provider: "git",
+          connectionId: null,
+          scope: { url: `${gitUrl}.git` },
+          status: "ok",
+          statusDetail: null,
+        },
+      ],
+    })
+
+    const linked = await inOrg(() => listLinkedRepositories(workspaceId))
+    expect(linked.map((row) => row.gitUrl)).toEqual([gitUrl])
+    expect(
+      (
+        await withOrgDbContext(seed.orgId, (db) =>
+          listServedRepositoryPins(db, { workspaceId }),
+        )
+      ).map((pin) => pin.gitUrl),
+    ).toEqual([gitUrl])
+    // search_code scoped to the Workspace searches the org code index.
+    const scope = await resolveCodeScope(
+      { id: seed.orgId, slug: seed.orgId },
+      { workspaceId, excludeRepositories: [] },
+    )
+    expect(scope.repositories.map((row) => row.repositoryId)).toEqual([
+      repositoryId,
+    ])
+    expect(scope.skipped).toEqual([])
   })
 })
