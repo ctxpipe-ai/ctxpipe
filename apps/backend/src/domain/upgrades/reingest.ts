@@ -18,6 +18,7 @@ import {
   sourceRepositoryName,
 } from "../workspace-sources/providers/git.js"
 import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
+import { hostedIngestEgressEnabled } from "../workspaces/ingest-sandbox-egress.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -87,18 +88,22 @@ const ESTIMATE = {
 export { isReingestUpgradeKey, reingestUpgradeKey } from "./keys.js"
 
 /**
- * Why this deployment cannot run an ingest sandbox, or null. Ingest needs a
- * Docker sandbox host now; the hosted Vercel path waits for its egress proxy
- * (`shardSandbox` in `ingest-shard-sandbox.ts`).
+ * Why this deployment cannot run an ingest sandbox, or null. It makes the
+ * same provider choice as ingestion (`ingestIsolation` in
+ * `ingest-shard-sandbox.ts`): Vercel on hosted, Docker on self-host. A Docker
+ * host that does not answer fails the run with its own message
+ * (`dockerHostError`), because only a start of a container proves it.
  */
 export function ingestSandboxUnavailable(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const provider = lockedSandboxProvider(env) ?? "docker"
   if (provider === "docker") return null
-  return provider === "unsandboxed"
-    ? "Re-ingestion needs a Docker sandbox host. This deployment runs agents unsandboxed."
-    : `Re-ingestion needs a Docker sandbox host. Ingest does not run on the ${provider} sandbox provider yet.`
+  if (provider === "vercel")
+    return hostedIngestEgressEnabled(env)
+      ? null
+      : "Re-ingestion needs the Vercel sandbox settings. Set VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID on the backend and the worker."
+  return "Re-ingestion needs a Docker or Vercel sandbox. This deployment runs agents unsandboxed."
 }
 
 export type ReingestRepository = {
