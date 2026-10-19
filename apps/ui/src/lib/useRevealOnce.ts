@@ -11,10 +11,11 @@ import { flushSync } from "react-dom"
  */
 export function useRevealOnce(ready: boolean, immediate = false): boolean {
   const [shown, setShown] = useState(ready)
+  // An immediate caller sets it while it renders, so no extra commit follows.
+  if (immediate && ready && !shown) setShown(true)
   useEffect(() => {
     if (!ready || shown) return
     const animate =
-      !immediate &&
       typeof document.startViewTransition === "function" &&
       !window.matchMedia("(prefers-reduced-motion: reduce)").matches
     if (animate) {
@@ -22,6 +23,6 @@ export function useRevealOnce(ready: boolean, immediate = false): boolean {
     } else {
       setShown(true)
     }
-  }, [ready, shown, immediate])
-  return shown || (immediate && ready)
+  }, [ready, shown])
+  return shown
 }
