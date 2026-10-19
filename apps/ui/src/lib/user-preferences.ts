@@ -22,6 +22,38 @@ type UserPreferences = {
   sideNavWidth: number
   /** Keyed by `${userId}:${orgSlug}`. */
   orgGuides: Record<string, OrgGuidePreferences>
+  /**
+   * The upgrade toasts that the user dismissed on Home (CTX-894), by
+   * {@link upgradeDismissKey}. A changed item has a new key, so it shows again.
+   */
+  dismissedUpgrades: string[]
+}
+
+/** The most dismissed upgrade keys that the browser keeps. */
+const DISMISSED_UPGRADES_MAX = 100
+
+/** The key of one state of one upgrade item. */
+export function upgradeDismissKey(item: {
+  orgSlug: string
+  workspaceSlug: string
+  key: string
+  status: string
+}): string {
+  return [item.orgSlug, item.workspaceSlug, item.key, item.status].join("/")
+}
+
+/** Add `key` to the dismissed upgrades; the oldest keys drop out. */
+export function withDismissedUpgrade(
+  preferences: UserPreferences,
+  key: string,
+): UserPreferences {
+  if (preferences.dismissedUpgrades.includes(key)) return preferences
+  return {
+    ...preferences,
+    dismissedUpgrades: [...preferences.dismissedUpgrades, key].slice(
+      -DISMISSED_UPGRADES_MAX,
+    ),
+  }
 }
 
 export function clampSideNavWidth(width: number): number {
@@ -37,6 +69,7 @@ function defaultPreferences(): UserPreferences {
     isSideNavExpanded: true,
     sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
     orgGuides: {},
+    dismissedUpgrades: [],
   }
 }
 
@@ -100,6 +133,11 @@ export function parseUserPreferences(raw: string | null): UserPreferences {
         ? clampSideNavWidth(parsed.sideNavWidth)
         : SIDE_NAV_DEFAULT_WIDTH,
     orgGuides,
+    dismissedUpgrades: Array.isArray(parsed.dismissedUpgrades)
+      ? parsed.dismissedUpgrades
+          .filter((key): key is string => typeof key === "string")
+          .slice(-DISMISSED_UPGRADES_MAX)
+      : [],
   }
 }
 

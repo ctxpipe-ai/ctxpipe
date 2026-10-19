@@ -18,7 +18,7 @@ import {
   WorkspaceActivity,
 } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
-import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
+import { WorkspaceUpgradeToasts } from "@/features/workspace-upgrades/WorkspaceUpgradeToasts"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -157,7 +157,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     </InlineAlert>
   ) : hasWorkspace ? (
     <>
-      <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
+      <WorkspaceUpgradeToasts orgSlug={orgSlug} workspaces={workspaces} />
       {composer}
       {guideCard}
     </>

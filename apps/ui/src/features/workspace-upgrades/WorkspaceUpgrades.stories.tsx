@@ -12,7 +12,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { UpgradeItemCard, WorkspaceUpgrades } from "./WorkspaceUpgrades"
+import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const startRequests: string[] = []
 const checkRequests: string[] = []
@@ -564,7 +564,7 @@ async function expectReingestCard(canvasElement: HTMLElement, title: string) {
   )
   await waitFor(() =>
     expect(
-      canvas.getByText(/reads each source repository again/),
+      canvas.getByText(/Ingests each source repository again/),
     ).toBeVisible(),
   )
   expect(canvas.queryByText(/opens one pull request/)).toBeNull()
@@ -737,51 +737,28 @@ export const LoadError: Story = {
 }
 
 /**
- * The slot for the cost estimate of a re-ingestion item (CTX-746). The item
- * list fills it when the API gives an estimate.
+ * The card says what the upgrade does to the Workspace repository. It shows
+ * no cost or time estimate: the range was too wide to help (CTX-894).
  */
-export const EstimateSlot: Story = {
-  render: () => (
-    <ul>
-      <UpgradeItemCard
-        item={upgradeItemFixture({
-          key: "reingest",
-          title: "Ingest the Workspace sources again",
-          steps: [],
-        })}
-        isAdmin
-        onStart={() => {}}
-        estimate={<span>Estimated cost: about 4 USD for 120 files.</span>}
-      />
-    </ul>
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText("Estimated cost: about 4 USD for 120 files."),
-      ).toBeVisible(),
-    )
-  },
-}
-
-/** The estimate of the item shows in its card when the API gives one. */
-export const EstimateFromItem: Story = {
+export const DescriptionWithoutEstimate: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture([
         upgradeItemFixture({
           key: "reingest",
-          title: "Ingest the Workspace sources again",
+          title: "Fresh re-ingestion of the source repositories",
+          description:
+            "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money.",
           steps: [],
           kind: "reingest",
           estimate: {
             repositories: 1,
-            costUsd: { low: 1.2, high: 4.8 },
-            minutes: { low: 10, high: 30 },
+            costUsd: { low: 0.28, high: 3.36 },
+            minutes: { low: 10, high: 92 },
             perRepository: [],
           },
         }),
+        upgradeItemFixture(),
       ]),
     ),
   ),
@@ -790,10 +767,16 @@ export const EstimateFromItem: Story = {
     await waitFor(async () =>
       expect(
         await canvas.findByText(
-          "Estimated cost: $1.20 to $4.80 for 1 repository, about 10 to 30 minutes.",
+          /publishes the new knowledge files under knowledge\//,
         ),
       ).toBeVisible(),
     )
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(/into \.ctxpipe\/sources\.yaml/),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(canvas.queryByText(/Estimated cost/)).toBeNull())
   },
 }
 

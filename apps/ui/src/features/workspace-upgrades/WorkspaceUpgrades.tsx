@@ -4,7 +4,6 @@ import {
   IconGitPullRequest,
 } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import type { ReactNode } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import {
@@ -30,7 +29,6 @@ import {
 } from "./queries"
 import {
   formatHealthLine,
-  formatUpgradeEstimate,
   MEMBER_ASK_ADMIN,
   UPGRADE_STATUS_TAG,
   upgradeBlockedCopy,
@@ -45,20 +43,19 @@ import {
 
 /**
  * One upgrade. `isAdmin` is `null` while the role loads: no action shows.
- * `estimate` is the slot for the cost estimate of a re-ingestion item
- * (CTX-746). The list fills it from `item.estimate` when the API gives one.
+ * The card shows no cost or time estimate: the p50 to p90 range was too
+ * wide to help (CTX-894). The description says that a re-ingestion costs
+ * money.
  */
-export function UpgradeItemCard(props: {
+function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
   isAdmin: boolean | null
   onStart: () => void
   onCheck?: () => void
   isStarting?: boolean
   isChecking?: boolean
-  estimate?: ReactNode
 }) {
-  const { item, isAdmin, onStart, onCheck, isStarting, isChecking, estimate } =
-    props
+  const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
   const waiting = upgradeWaitingCopy(item)
   const blockedNextStep = upgradeBlockedNextStep(item)
   const notices = upgradeNotices(item)
@@ -73,8 +70,8 @@ export function UpgradeItemCard(props: {
           <h3 className="text-sm font-medium text-foreground">{item.title}</h3>
           <p className="mt-1 text-xs text-muted-foreground">
             {item.kind === "reingest"
-              ? "ctx| reads each source repository again and publishes the new knowledge to the Workspace."
-              : `Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
+              ? item.description
+              : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
         <StatusTag {...UPGRADE_STATUS_TAG[item.status]} />
@@ -164,10 +161,6 @@ export function UpgradeItemCard(props: {
             </div>
           </DisclosurePanel>
         </Disclosure>
-      ) : null}
-
-      {estimate ? (
-        <div className="mt-3 text-xs text-muted-foreground">{estimate}</div>
       ) : null}
 
       {item.status === "blocked" ? (
@@ -290,7 +283,6 @@ function UpgradeItemRow(props: {
       isChecking={checkMutation.isPending}
       onStart={() => startMutation.mutate()}
       onCheck={() => checkMutation.mutate()}
-      estimate={item.estimate ? formatUpgradeEstimate(item.estimate) : null}
     />
   )
 }

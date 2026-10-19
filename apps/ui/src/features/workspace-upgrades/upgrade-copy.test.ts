@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest"
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
-  formatUpgradeEstimate,
-  upgradeAlertLines,
   upgradeBlockedCopy,
   upgradeBlockedNextStep,
   upgradeCanCheck,
@@ -77,30 +75,6 @@ describe("upgrade copy", () => {
     )
   })
 
-  it("words the alert from the statuses that are present", () => {
-    expect(upgradeAlertLines([item("awaiting_operator")], true)).toEqual([
-      "An owner or admin must start it.",
-    ])
-    expect(upgradeAlertLines([item("failed")], false)).toEqual([
-      "Ask an admin to start it.",
-    ])
-    expect(
-      upgradeAlertLines(
-        [item("queued"), item("running"), item("pr_open")],
-        null,
-      ),
-    ).toEqual([
-      "An upgrade is running.",
-      "Review and merge the upgrade pull request.",
-    ])
-    expect(
-      upgradeAlertLines(
-        [{ ...item("blocked"), kind: "format", blockedReason: "write_access" }],
-        true,
-      )[0],
-    ).toMatch(/needs write access through the GitHub App/)
-  })
-
   it("words a blocked item for its kind and reason, and prefers the note of the server", () => {
     const blocked = (
       kind: WorkspaceUpgradeItem["kind"],
@@ -132,19 +106,6 @@ describe("upgrade copy", () => {
       title: "The upgrade cannot start",
       body: "ctx| cannot start this item now.",
     })
-  })
-
-  it("words the estimate of a re-ingestion as a range", () => {
-    expect(
-      formatUpgradeEstimate({
-        repositories: 2,
-        costUsd: { low: 1.2, high: 4.8 },
-        minutes: { low: 10, high: 30 },
-        perRepository: [],
-      }),
-    ).toBe(
-      "Estimated cost: $1.20 to $4.80 for 2 repositories, about 10 to 30 minutes.",
-    )
   })
 
   it("names what an open item waits for, and the next step of a blocked re-ingestion", () => {

@@ -1,8 +1,4 @@
-import type {
-  UpgradeEstimate,
-  UpgradeStatus,
-  WorkspaceUpgradeItem,
-} from "./queries"
+import type { UpgradeStatus, WorkspaceUpgradeItem } from "./queries"
 
 /** An item that still needs work. Only `completed` is done. */
 export function upgradeIsPending(item: WorkspaceUpgradeItem): boolean {
@@ -173,16 +169,6 @@ export function upgradeStartedMessage(item: { kind: string }): string {
     : "The upgrade is queued. ctx| prepares a pull request."
 }
 
-/** The estimate of a re-ingestion, from the p50 to the p90 value. */
-export function formatUpgradeEstimate(estimate: UpgradeEstimate): string {
-  const usd = (value: number) => `$${value.toFixed(2)}`
-  const repositories =
-    estimate.repositories === 1
-      ? "1 repository"
-      : `${estimate.repositories} repositories`
-  return `Estimated cost: ${usd(estimate.costUsd.low)} to ${usd(estimate.costUsd.high)} for ${repositories}, about ${estimate.minutes.low} to ${estimate.minutes.high} minutes.`
-}
-
 /** The health line: the format of the repository against the format ctx| reads. */
 export function formatHealthLine(
   formatVersion: number | null,
@@ -196,30 +182,6 @@ export function formatHealthLine(
   if (formatVersion === codeFormat)
     return `The repository uses format ${formatVersion}. It is up to date.`
   return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}.`
-}
-
-/**
- * The lines of the home alert. Each line comes from a status that is present
- * in the pending items. `isAdmin` is `null` while the role loads.
- */
-export function upgradeAlertLines(
-  pending: WorkspaceUpgradeItem[],
-  isAdmin: boolean | null,
-): string[] {
-  const has = (...statuses: UpgradeStatus[]) =>
-    pending.some((item) => statuses.includes(item.status))
-  const lines: string[] = []
-  if (has("awaiting_operator", "failed"))
-    lines.push(
-      isAdmin === false
-        ? "Ask an admin to start it."
-        : "An owner or admin must start it.",
-    )
-  if (has("queued", "running")) lines.push("An upgrade is running.")
-  if (has("pr_open")) lines.push("Review and merge the upgrade pull request.")
-  for (const item of pending)
-    if (item.status === "blocked") lines.push(upgradeBlockedCopy(item).body)
-  return lines
 }
 
 /** The text of the next action for a member. */
