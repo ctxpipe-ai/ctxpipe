@@ -3,8 +3,6 @@ import { twMerge } from "tailwind-merge"
 
 export {
   focusRing,
-  
-  
 } from "./focus-styles"
 
 export function composeTailwindRenderProps<T>(

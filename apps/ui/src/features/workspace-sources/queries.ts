@@ -11,8 +11,7 @@ import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
-  
-  
+  WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 }
 /** One source file. `description` is the trimmed file body, when it has one. */

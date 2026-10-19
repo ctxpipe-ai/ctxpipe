@@ -121,7 +121,5 @@ export {
   InputGroup,
   InputGroupAddon,
   InputGroupButton,
-  
-  
   InputGroupTextarea,
 }
