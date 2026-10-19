@@ -40,7 +40,7 @@ export const sourceStateSchema = z.discriminatedUnion("provider", [
 ])
 
 export type SourceState = z.infer<typeof sourceStateSchema>
-export type GithubSourceState = Extract<SourceState, { provider: "github" }>
+type GithubSourceState = Extract<SourceState, { provider: "github" }>
 
 export const sourceTargetSchema = z.object({
   provider: z.string().min(1),
@@ -227,7 +227,7 @@ export function reconcileGithubState(
 }
 
 /** A row status whose connection can read the linked repositories. */
-export const LINKING_SOURCE_STATUSES = ["ok", "out_of_access"] as const
+const LINKING_SOURCE_STATUSES = ["ok", "out_of_access"] as const
 
 /**
  * A row status whose linked repositories the product serves: MCP, chat, and

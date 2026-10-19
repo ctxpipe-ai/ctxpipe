@@ -4,7 +4,7 @@ import {
   type RepositoryStatusDisplay,
 } from "./types"
 
-export type GitSourceStatusFilter =
+type GitSourceStatusFilter =
   | "all"
   | "indexed"
   | "indexing"

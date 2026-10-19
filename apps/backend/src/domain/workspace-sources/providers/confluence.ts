@@ -14,11 +14,11 @@ export const CONFLUENCE_SOURCE_MAX_SPACES = 100
 export const CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE = 500
 
 /** A Confluence space key. It is one path segment under `confluence/`. */
-export const confluenceSpaceKeySchema = z
+const confluenceSpaceKeySchema = z
   .string()
   .regex(/^~?[A-Za-z0-9_-]{1,255}$/, "Use a Confluence space key")
 
-export const confluencePageIdSchema = z
+const confluencePageIdSchema = z
   .string()
   .regex(/^[0-9]{1,32}$/, "Use a Confluence page id")
 

@@ -258,7 +258,7 @@ export const failedHydrateWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
-export const docsConversationListItem: ConversationListItem = {
+const docsConversationListItem: ConversationListItem = {
   id: "conv_1",
   name: "Repo layout",
   source: "ui",

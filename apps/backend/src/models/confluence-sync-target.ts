@@ -12,7 +12,7 @@ import {
 
 export type ConfluenceSyncTarget = typeof confluenceSyncTargets.$inferSelect
 
-export type ConfluenceSyncTargetWithRepo = ConfluenceSyncTarget & {
+type ConfluenceSyncTargetWithRepo = ConfluenceSyncTarget & {
   repositoryName: string
   githubConnectionId: string | null
 }
@@ -26,21 +26,7 @@ async function withOrgDbForConnection<T>(
   return withOrgDbContext(directoryRow.orgId, fn)
 }
 
-async function requireConfluenceSyncTargetWrite(
-  connectionId: string,
-  fn: (db: Db) => Promise<{ id: string } | undefined>,
-): Promise<void> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(connectionId)
-  if (!directoryRow) {
-    throw new Error(`connection_directory missing for ${connectionId}`)
-  }
-  const updated = await withOrgDbContext(directoryRow.orgId, fn)
-  if (!updated) {
-    throw new Error(`confluence sync target UPDATE 0 for ${connectionId}`)
-  }
-}
-
-export async function getConfluenceSyncTargetByOrgId(
+async function getConfluenceSyncTargetByOrgId(
   orgId: string,
 ): Promise<ConfluenceSyncTarget | undefined> {
   return withOrgDbContext(orgId, async () => {
@@ -104,31 +90,6 @@ export async function getConfluenceSyncTargetWithRepoByConnectionId(
   })
 }
 
-export async function getConfluenceSyncTargetByConnectionId(
-  connectionId: string,
-): Promise<ConfluenceSyncTarget | undefined> {
-  return withOrgDbForConnection(connectionId, async (db) => {
-    const [row] = await db
-      .select()
-      .from(confluenceSyncTargets)
-      .where(eq(confluenceSyncTargets.connectionId, connectionId))
-      .limit(1)
-    return row
-  })
-}
-
-export async function listConfluenceSyncTargetsByRepositoryId(
-  orgId: string,
-  repositoryId: string,
-): Promise<ConfluenceSyncTarget[]> {
-  return withOrgDbContext(orgId, async () => {
-    return getOrgDb()
-      .select()
-      .from(confluenceSyncTargets)
-      .where(eq(confluenceSyncTargets.repositoryId, repositoryId))
-  })
-}
-
 export async function listConfluenceSyncTargetsWithRepoByRepositoryId(
   orgId: string,
   repositoryId: string,
@@ -156,60 +117,6 @@ export async function listConfluenceSyncTargetsWithRepoByRepositoryId(
         eq(confluenceSyncTargets.repositoryId, repositories.id),
       )
       .where(eq(confluenceSyncTargets.repositoryId, repositoryId))
-  })
-}
-
-export async function markAwaitingConfigMergeSetup(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "awaiting_merge",
-        pendingConfigPrCreating: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-/** After config push webhook: first full reconcile from Git before flipping to `live`. */
-export async function markConfluenceSyncTargetInitialSync(input: {
-  connectionId: string
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        setupPhase: "initial_sync",
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        enabled: true,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
-  })
-}
-
-export async function setPendingConfigPrCreating(input: {
-  connectionId: string
-  pendingConfigPrCreating: boolean
-}): Promise<void> {
-  await requireConfluenceSyncTargetWrite(input.connectionId, async (db) => {
-    const [row] = await db
-      .update(confluenceSyncTargets)
-      .set({
-        pendingConfigPrCreating: input.pendingConfigPrCreating,
-        updatedAt: new Date(),
-      })
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-      .returning({ id: confluenceSyncTargets.id })
-    return row
   })
 }
 

@@ -142,7 +142,7 @@ export function githubConnectionIdForWriteProbe(input: {
   return input.existing
 }
 
-export function writableWorkspaceWriteProbe(): WorkspaceWriteProbe {
+function writableWorkspaceWriteProbe(): WorkspaceWriteProbe {
   return {
     writeStatus: WORKSPACE_WRITE_STATUSES.writable,
     readOnlyReason: null,
@@ -185,11 +185,11 @@ export type GithubRepoWriteView = {
   canPush: boolean
 }
 
-export type WorkspaceWriteProbeResult = WorkspaceWriteProbe & {
+type WorkspaceWriteProbeResult = WorkspaceWriteProbe & {
   defaultBranch: string | null
 }
 
-export type WorkspaceWriteViewFetcher = (input: {
+type WorkspaceWriteViewFetcher = (input: {
   orgId: string
   githubConnectionId?: string | null
   repoFullName: string

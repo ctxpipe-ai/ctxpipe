@@ -42,7 +42,7 @@ export function markdownLines(
   })
 }
 
-export type KnowledgeChunk = {
+type KnowledgeChunk = {
   /** Headings that contain the chunk, outermost first. */
   headingPath: string[]
   text: string

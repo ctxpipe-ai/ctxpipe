@@ -22,7 +22,7 @@ export const PAGERDUTY_OAUTH_SCOPES = [
   "webhook_subscriptions.write",
 ] as const
 
-export const PAGERDUTY_INCIDENT_WEBHOOK_EVENTS = [
+const PAGERDUTY_INCIDENT_WEBHOOK_EVENTS = [
   "incident.acknowledged",
   "incident.annotated",
   "incident.delegated",
@@ -62,7 +62,7 @@ export function createPagerdutyPkcePair(): {
   return { codeVerifier, codeChallenge }
 }
 
-export class PagerdutyAuthorizationRevokedError extends Error {
+class PagerdutyAuthorizationRevokedError extends Error {
   constructor(message = "PagerDuty authorization is revoked") {
     super(message)
     this.name = "PagerdutyAuthorizationRevokedError"
@@ -97,7 +97,7 @@ export function getPagerdutyOAuthAuthorizeUrl(input: {
   return url.toString()
 }
 
-export function pagerdutyTokenExpiresAt(
+function pagerdutyTokenExpiresAt(
   expiresIn: number | undefined,
   now = Date.now(),
 ): string | null {
@@ -251,7 +251,7 @@ export function pagerdutySubdomainFromHtmlUrl(
   }
 }
 
-export type PagerdutyAccountIdentity = {
+type PagerdutyAccountIdentity = {
   accountId: string
   accountName: string
   accountSubdomain: string
@@ -350,7 +350,7 @@ export async function getPagerdutyAccountIdentity(input: {
   )
 }
 
-export type PagerdutyServiceSummary = {
+type PagerdutyServiceSummary = {
   id: string
   name: string
   url?: string
@@ -653,7 +653,7 @@ async function listPagerdutyIncidentNotes(input: {
   })
 }
 
-export async function createPagerdutyWebhookSubscription(input: {
+async function createPagerdutyWebhookSubscription(input: {
   accessToken: string
   region: PagerdutyRegion
   deliveryUrl: string

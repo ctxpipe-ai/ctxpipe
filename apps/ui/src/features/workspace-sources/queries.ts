@@ -11,7 +11,6 @@ import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
-  WorkspaceSourceBatchResult,
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 }

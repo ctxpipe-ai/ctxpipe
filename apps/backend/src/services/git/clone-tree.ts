@@ -36,7 +36,7 @@ async function gitExec(
   }
 }
 
-export type GitShaFile =
+type GitShaFile =
   | { kind: "missing" }
   | { kind: "bytes"; bytes: Uint8Array }
 

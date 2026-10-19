@@ -2,7 +2,6 @@ import { createHash } from "node:crypto"
 import { localProcessSandbox } from "@tanstack/ai-sandbox-local-process"
 import { isRunningSandboxProvider } from "../../models/workspace-sandboxes.js"
 import { listSandboxInstances } from "../../models/workspaces.js"
-import { conversationSessionBranch } from "./chat-lifecycle.js"
 import {
   type ExplorerGitStatusEntry,
   explorerBlobFromContent,
@@ -15,7 +14,7 @@ import type { JobSandboxHandle } from "./job-worktree.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 import { attachProviderSandbox } from "./sandbox-provider.js"
 
-export { conversationSessionBranch }
+
 
 export function splitGitNulPaths(stdout: string): string[] {
   return stdout.split("\0").filter((path) => path.length > 0)
@@ -59,7 +58,7 @@ export const CONVERSATION_SANDBOX_GIT_EXCLUDE_LINES = [
   "tmp/tanstack-ai-*",
 ] as const
 
-export function isConversationSandboxHarnessPath(path: string): boolean {
+function isConversationSandboxHarnessPath(path: string): boolean {
   if (path === "opencode.json" || path.startsWith("opencode.json/")) return true
   if (path.startsWith(".tanstack-projected-")) return true
   if (path.includes("/.tanstack-projected-")) return true
@@ -373,7 +372,7 @@ export async function renameConversationSandboxPath(input: {
   }
 }
 
-export type ConversationSandboxStatus = {
+type ConversationSandboxStatus = {
   branch: string
   dirty: boolean
   differsFromDefault: boolean

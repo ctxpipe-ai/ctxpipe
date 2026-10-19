@@ -14,10 +14,7 @@ import {
 } from "./client.js"
 import type { SlackCaptureResult } from "./sync.js"
 
-export {
-  SLACK_MENTION_CAPABILITY_REPLY,
-  SLACK_MENTION_STATUS_WORKING,
-} from "./client.js"
+
 
 const SLACK_MENTION_SYSTEM_PROMPT = `You are ctx|'s Slack mention agent for one thread.
 Decide whether the user wants ctx| to capture this Slack thread into the organization's context git repository.
@@ -147,7 +144,7 @@ export function formatSlackMentionStatusText(
   }
 }
 
-export type SlackMentionIntent =
+type SlackMentionIntent =
   | { kind: "capture" }
   | Exclude<SlackMentionAgentResult, { kind: "captured" }>
 

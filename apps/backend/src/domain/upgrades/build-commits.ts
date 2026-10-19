@@ -26,7 +26,7 @@ import {
   type UpgradeTreeReader,
 } from "./registry.js"
 
-export type UpgradeStepResult = {
+type UpgradeStepResult = {
   format: number
   title: string
   /** The commit of the step, or null when the step changed no file. */

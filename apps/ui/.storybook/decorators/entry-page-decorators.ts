@@ -17,7 +17,7 @@ export const entryPageInnerDecorators: Decorator[] = [
   withStoryRoute,
 ]
 
-export { withOrgAppShell }
+
 
 export const orgPageDecorators: Decorator[] = [
   withOrgAppShell,

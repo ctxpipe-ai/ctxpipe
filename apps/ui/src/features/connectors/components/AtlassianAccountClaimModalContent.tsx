@@ -1,6 +1,6 @@
 import { Button } from "@/components/ui/Button"
 
-export type AtlassianAccountClaimModalContentProps = {
+type AtlassianAccountClaimModalContentProps = {
   onCancel: () => void | Promise<void>
   onConfirm: () => void | Promise<void>
 }

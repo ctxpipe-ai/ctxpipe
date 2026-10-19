@@ -198,7 +198,7 @@ export function publicRouteBridgeProvisioner(
  * The OpenCode MCP configuration in the sandbox gets a placeholder; the run's
  * vault holds the bridge token, and Agent Vault adds it to bridge calls.
  */
-export function withBridgeTokenInVault(
+function withBridgeTokenInVault(
   provisioner: ToolBridgeProvisioner,
   vault: Pick<RunVault, "addRules"> | undefined,
 ): ToolBridgeProvisioner {

@@ -21,7 +21,7 @@ const LinearOAuthTokenResponseSchema = z.object({
   scope: z.union([z.string(), z.array(z.string())]),
 })
 
-export type LinearOAuthTokenResponse = z.infer<
+type LinearOAuthTokenResponse = z.infer<
   typeof LinearOAuthTokenResponseSchema
 >
 
@@ -34,7 +34,7 @@ export type LinearTokenRefreshHandler = (
   accessTokenExpiresAt: string | null
 }>
 
-export type LinearDiscoveredScope = {
+type LinearDiscoveredScope = {
   externalId: string
   type: "team" | "project" | "document" | "initiative"
   title: string

@@ -6,7 +6,7 @@ import {
 } from "../queries/linear-connector"
 import { LinearMark } from "./LinearMark"
 
-export type AddLinearConnectorButtonProps = {
+type AddLinearConnectorButtonProps = {
   orgSlug: string
   onStart: (connectionId?: string) => void
 }

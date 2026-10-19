@@ -2,7 +2,6 @@
 import type {
   TabListProps,
   TabPanelProps,
-  TabPanelsProps,
   TabProps,
   TabsProps,
 } from "react-aria-components"
@@ -11,11 +10,9 @@ import {
   Tab as RACTab,
   TabList as RACTabList,
   TabPanel as RACTabPanel,
-  TabPanels as RACTabPanels,
   Tabs as RACTabs,
   SelectionIndicator,
 } from "react-aria-components"
-import { twMerge } from "tailwind-merge"
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
@@ -86,18 +83,6 @@ export function Tab(props: TabProps) {
         </>
       ))}
     </RACTab>
-  )
-}
-
-export function TabPanels<T extends object>(props: TabPanelsProps<T>) {
-  return (
-    <RACTabPanels
-      {...props}
-      className={twMerge(
-        "relative h-(--tab-panel-height) overflow-clip",
-        props.className,
-      )}
-    />
   )
 }
 

@@ -6,7 +6,7 @@ import {
 import { Label } from "@/components/ui/Field"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
-export interface ProgressBarProps extends AriaProgressBarProps {
+interface ProgressBarProps extends AriaProgressBarProps {
   label?: string
 }
 

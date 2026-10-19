@@ -38,7 +38,7 @@ const graphRequestSchema = z
   })
   .openapi("GraphRequest")
 
-export const graphRoute = createRoute({
+const graphRoute = createRoute({
   method: "post",
   path: "/{repoId}/graph",
   request: {

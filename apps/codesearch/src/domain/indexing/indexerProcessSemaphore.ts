@@ -6,9 +6,6 @@
  */
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
 
-/** Default when CODESEARCH_INDEXER_CONCURRENCY is unset (kubernetes memory gate). */
-export const INDEXER_PROCESS_CONCURRENCY = 2
-
 let activeIndexerProcesses = 0
 const indexerProcessWaiters: Array<() => void> = []
 

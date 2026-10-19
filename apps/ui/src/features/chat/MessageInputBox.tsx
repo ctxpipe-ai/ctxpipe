@@ -20,7 +20,7 @@ import { cn } from "@/lib/utils"
 import { chatColumnClassName } from "./chat-column"
 import { readChatDraft, writeChatDraft } from "./chat-draft"
 
-export type MessageInputLayout = "thread" | "empty"
+type MessageInputLayout = "thread" | "empty"
 
 export function MessageInputBox(props: {
   sendMessage: (params: { text: string }) => void

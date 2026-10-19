@@ -15,7 +15,7 @@ const SCOPE_TEXT: Record<string, string> = {
   offline_access: "Stay connected when you are not signed in.",
 }
 
-export type OAuthConsentOrganization = {
+type OAuthConsentOrganization = {
   id: string
   name: string
   slug: string

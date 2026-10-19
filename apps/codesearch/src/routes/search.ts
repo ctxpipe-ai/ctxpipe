@@ -26,7 +26,7 @@ const SearchRequestSchema = z
 
 const SearchResponseSchema = z.record(z.string(), z.unknown())
 
-export const searchRoute = createRoute({
+const searchRoute = createRoute({
   method: "post",
   path: "/search",
   request: {

@@ -139,7 +139,7 @@ const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
 }
 
 /** The chat prompt that asks the agent to fix one skipped file. */
-export function skippedFileFixPrompt(file: WorkspaceSkippedFile): string {
+function skippedFileFixPrompt(file: WorkspaceSkippedFile): string {
   return `Hydrate skipped ${file.path}: ${skippedReasonCopy[file.reason]}. Fix the front matter of this file so that it is valid, then open the change.`
 }
 

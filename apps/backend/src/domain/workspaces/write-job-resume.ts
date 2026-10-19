@@ -5,7 +5,7 @@ import {
 } from "./write-job-intent.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
-export type PausedWriteJobRow = {
+type PausedWriteJobRow = {
   id: string
   kind: WorkspaceWriteJobKind
   generation: number

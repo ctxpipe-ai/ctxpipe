@@ -25,7 +25,6 @@
     "@opentelemetry/sdk-metrics": "^2.6.0",
     "@opentelemetry/sdk-trace-base": "^2.6.0",
     "@opentelemetry/sdk-trace-node": "^2.6.0",
-    "@opentelemetry/semantic-conventions": "^1.40.0",
     "@scalar/hono-api-reference": "^0.9.44",
     "drizzle-orm": "beta",
     "evlog": "^2.13.0",

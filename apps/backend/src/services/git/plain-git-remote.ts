@@ -70,7 +70,7 @@ const systemLookup: PlainGitLookup = (host) =>
   dnsLookup(host, { all: true, verbatim: true })
 
 /** The limits of one host fetch of a plain git source. */
-export type PlainGitFetchLimits = {
+type PlainGitFetchLimits = {
   /** The time limit of one git command; then the backend kills git. */
   timeoutMs: number
   /** The size limit of each file that git writes (the pack). */
@@ -85,7 +85,7 @@ export type PlainGitFetchLimits = {
  * ({@link usePlainGitNetwork}), can send a host to a local repository
  * (`url.<folder>.insteadOf`), and can make the limits small.
  */
-export type PlainGitNetwork = {
+type PlainGitNetwork = {
   lookup: PlainGitLookup
   gitConfig?: ReadonlyArray<readonly [string, string]>
   limits?: Partial<PlainGitFetchLimits>

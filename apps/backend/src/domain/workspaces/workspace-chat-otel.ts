@@ -17,7 +17,7 @@ import { log } from "../../observability/logger.js"
 import { maskCredentialsDeep } from "./mask-credentials.js"
 import type { WorkspaceChatCompletionUsage } from "./workspace-chat-model-proxy.js"
 
-export type WorkspaceChatGenerationRecord = {
+type WorkspaceChatGenerationRecord = {
   index: number
   ttfbMs: number
   durationMs: number
@@ -26,7 +26,7 @@ export type WorkspaceChatGenerationRecord = {
   text?: string
 }
 
-export type WorkspaceChatToolRecord = {
+type WorkspaceChatToolRecord = {
   name: string
   durationMs: number
   generationIndex: number
@@ -75,7 +75,7 @@ export function workspaceChatTurnId(input: {
 }
 
 /** Who runs the turn, for its attribution and Langfuse trace. */
-export type WorkspaceChatTurnOwner = {
+type WorkspaceChatTurnOwner = {
   orgId?: string
   orgSlug?: string
   workspaceId?: string

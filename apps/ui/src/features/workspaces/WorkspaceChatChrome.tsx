@@ -66,7 +66,7 @@ function ChromeTooltip(props: {
   )
 }
 
-export type ConversationBranchChrome = {
+type ConversationBranchChrome = {
   shortName: string
   href?: string | null
 }

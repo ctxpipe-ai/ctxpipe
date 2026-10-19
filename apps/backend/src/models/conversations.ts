@@ -353,29 +353,6 @@ export async function listOrgConversationsForSandboxGc(
   })
 }
 
-export async function persistConversationLastBranch(input: {
-  conversationId: string
-  lastBranch: string | null
-}): Promise<void> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const userId = requireCurrentUserId()
-    await getOrgDb()
-      .update(conversations)
-      .set({
-        lastBranch: input.lastBranch,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(conversations.id, input.conversationId),
-          eq(conversations.orgId, orgId),
-          eq(conversations.userId, userId),
-        ),
-      )
-  })
-}
-
 export async function touchConversationLastMessage(
   conversationId: string,
 ): Promise<void> {
@@ -560,29 +537,6 @@ export async function getConversation(
       return null
     }
     return row
-  })
-}
-
-/** Org + workspace existence check. Not an ACL — callers already authorized. */
-export async function findConversationInWorkspace(
-  conversationId: string,
-  workspaceId: string,
-): Promise<ConversationRecord | null> {
-  return orgSql(async () => {
-    const orgId = requireCurrentOrgId()
-    const db = getOrgDb()
-    const [row] = await db
-      .select(conversationFieldsWithCurrentPr())
-      .from(conversations)
-      .where(
-        and(
-          eq(conversations.id, conversationId),
-          eq(conversations.orgId, orgId),
-          eq(conversations.workspaceId, workspaceId),
-        ),
-      )
-      .limit(1)
-    return row ?? null
   })
 }
 

@@ -28,7 +28,7 @@ import { pagerdutyServiceIncidentsRoot } from "./converter.js"
  * service ids. The source writes under
  * `pagerduty/services/<serviceId>/incidents/`.
  */
-export function pagerdutyScopeFromLegacyConfig(
+function pagerdutyScopeFromLegacyConfig(
   config: ParsedPagerdutyRepoConfig,
 ): { scope: PagerdutySourceScope } | { unmapped: string } {
   const parsed = parseLegacyScope(pagerdutySourceScopeSchema, {
@@ -89,7 +89,7 @@ export async function planPagerdutyLegacyMoves(input: {
 }
 
 /** Turn off the legacy binding of a connection (migration `--apply`). */
-export async function disablePagerdutyLegacySync(input: {
+async function disablePagerdutyLegacySync(input: {
   orgId: string
   connectionId: string
 }): Promise<void> {

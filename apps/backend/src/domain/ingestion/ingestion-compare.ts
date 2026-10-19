@@ -15,7 +15,7 @@ import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
  * a change to the meaning of a field needs a new `version`.
  */
 
-export const INGESTION_COMPARISON_VERSION = 1
+const INGESTION_COMPARISON_VERSION = 1
 
 /** `generated_by` of a file that the old pipeline wrote. */
 export const OLD_GENERATED_BY = "ctxpipe"
@@ -23,15 +23,15 @@ export const OLD_GENERATED_BY = "ctxpipe"
 export const SHADOW_GENERATED_BY = "ctxpipe-extract"
 
 /** The phase 3 exit criteria of the CTX-584 plan. */
-export const INGESTION_EXIT_THRESHOLDS = {
+const INGESTION_EXIT_THRESHOLDS = {
   unitRecall: 0.9,
   claimRecall: 0.9,
   rejectRate: 0.05,
   injectionsThrough: 0,
 } as const
 
-export type UnitRef = { kind: string; name: string; path: string }
-export type ClaimRef = {
+type UnitRef = { kind: string; name: string; path: string }
+type ClaimRef = {
   /** The unit key of the subject (`<kind>/<name>`, normalized). */
   subject: string
   predicate: string
@@ -40,7 +40,7 @@ export type ClaimRef = {
   path: string
 }
 
-export type Coverage = {
+type Coverage = {
   old: number
   shadow: number
   matched: number
@@ -48,7 +48,7 @@ export type Coverage = {
   recall: number | null
 }
 
-export type InjectionHit = { path: string; payloadId: string }
+type InjectionHit = { path: string; payloadId: string }
 
 export type WorkspaceComparison = {
   workspaceId: string
@@ -105,7 +105,7 @@ export type RunComparison = {
   labels: { units: LabelCoverage; claims: LabelCoverage } | null
 }
 
-export type ExitCriterionId =
+type ExitCriterionId =
   | "unit_recall"
   | "claim_recall"
   | "reject_rate"
@@ -113,7 +113,7 @@ export type ExitCriterionId =
   | "cost"
   | "p95_time"
 
-export type ExitCriterion = {
+type ExitCriterion = {
   id: ExitCriterionId
   /** `unknown` when the data is not there; `unknown` is not a pass. */
   status: "pass" | "fail" | "unknown"
@@ -122,7 +122,7 @@ export type ExitCriterion = {
   threshold: number | null
 }
 
-export type IngestionComparisonReport = {
+type IngestionComparisonReport = {
   version: typeof INGESTION_COMPARISON_VERSION
   generatedAt: string
   runs: RunComparison[]
@@ -163,7 +163,7 @@ export type ExtractedUnit = UnitRef & {
 
 export type ExtractedProjection = { units: ExtractedUnit[] }
 
-export function normalizeName(value: string): string {
+function normalizeName(value: string): string {
   return value
     .normalize("NFKC")
     .toLowerCase()

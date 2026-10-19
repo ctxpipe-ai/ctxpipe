@@ -33,7 +33,7 @@ export const linearSourceEventSchema = z.object({
     })
     .optional(),
 })
-export type LinearSourceEvent = z.infer<typeof linearSourceEventSchema>
+type LinearSourceEvent = z.infer<typeof linearSourceEventSchema>
 
 function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value)

@@ -18,7 +18,7 @@ export type HyperDxRuntimeConfig = {
   enabled: boolean
 }
 
-export type HyperDxDocumentContext = {
+type HyperDxDocumentContext = {
   config: HyperDxRuntimeConfig
   identity: HyperDxSessionIdentity | null
 }

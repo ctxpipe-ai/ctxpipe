@@ -9,7 +9,7 @@ import { markSandboxLifecycle } from "./sandbox-lifecycle-timing.js"
 const LEASE_MS = 30_000
 const expiresAt = sql`clock_timestamp() + interval '30 seconds'`
 
-export type SandboxLockAcquired = (receipt: {
+type SandboxLockAcquired = (receipt: {
   key: string
   owner: string
 }) => void | Promise<void>

@@ -100,7 +100,7 @@ export function createNotionTokenRefreshHandler(input: {
     )
 }
 
-export type NotionSyncResult = {
+type NotionSyncResult = {
   status: "completed" | "partial_failed" | "failed"
   resourcesProcessed: number
   resourcesFailed: number
@@ -496,7 +496,7 @@ export async function captureNotionContent(input: {
   }
 }
 
-export type NotionIncrementalSyncResult = {
+type NotionIncrementalSyncResult = {
   status: "completed" | "failed"
   written: number
   deleted: number

@@ -1,7 +1,7 @@
 import {
   type CheckedPlainGitRemote,
-  plainGitRemoteFault,
   plainGitRemoteEnvironment,
+  plainGitRemoteFault,
 } from "../../../../shared/plain-git.js"
 
 function isGitHubUrl(gitUrl: string): boolean {
@@ -18,7 +18,7 @@ function isGitHubUrl(gitUrl: string): boolean {
  * Removes a user name and password from an HTTP(S) remote URL, so that Git
  * does not write a credential into `.git/config`.
  */
-export function credentialFreeGitUrl(gitUrl: string): string {
+function credentialFreeGitUrl(gitUrl: string): string {
   if (!URL.canParse(gitUrl)) return gitUrl
   const url = new URL(gitUrl)
   if (!["http:", "https:"].includes(url.protocol)) return gitUrl
@@ -37,7 +37,7 @@ export function credentialFreeGitUrl(gitUrl: string): string {
  * to another host. The empty helper first removes the other helpers, so no
  * keychain stores the token. Git never prompts for a credential.
  */
-export function gitCommandEnv(
+function gitCommandEnv(
   gitUrl: string,
   githubToken?: string,
 ): Record<string, string | undefined> {
@@ -95,7 +95,7 @@ export function usePlainGitLimits(next: Partial<PlainGitLimits>): () => void {
 }
 
 /** A repository that codesearch must not read, with the reason. */
-export class GitRemoteRefusedError extends Error {
+class GitRemoteRefusedError extends Error {
   constructor(message: string) {
     super(message)
     this.name = "GitRemoteRefusedError"

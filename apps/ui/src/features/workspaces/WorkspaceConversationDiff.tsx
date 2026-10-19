@@ -106,7 +106,7 @@ export function WorkspaceConversationDiffPane(props: {
   )
 }
 
-export function ConversationDiffList(props: {
+function ConversationDiffList(props: {
   items: ConversationGitDiffItem[]
   base: string | null
   focusPath?: string
@@ -241,7 +241,7 @@ export function ChangedFileStatusIcon(props: {
   )
 }
 
-export function changedFileLabel(file: ChangedFile): string {
+function changedFileLabel(file: ChangedFile): string {
   const status = file.oldPath
     ? `${STATUS_LABEL[file.status]} from ${file.oldPath}`
     : STATUS_LABEL[file.status]

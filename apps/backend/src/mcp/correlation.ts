@@ -29,16 +29,16 @@ import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
  * (`ops/observability/clickhouse/schema/mcp-call-correlation.sql`).
  */
 
-export type CorrelationSource =
+type CorrelationSource =
   | "meta"
   | "header"
   | "baggage"
   | "openai"
   | "codex"
 
-export type CorrelatedId = { id: string; source: CorrelationSource }
+type CorrelatedId = { id: string; source: CorrelationSource }
 
-export type McpCorrelation = {
+type McpCorrelation = {
   conversation?: CorrelatedId
   turn?: CorrelatedId
   /** Client span context from a valid `_meta.traceparent` (a span link only). */
@@ -106,7 +106,7 @@ function first(
  * W3C trace context from `_meta.traceparent`; `undefined` when not valid.
  * The client `tracestate` is not kept: it must not go out on our requests.
  */
-export function clientSpanContext(
+function clientSpanContext(
   traceparent: unknown,
 ): SpanContext | undefined {
   if (typeof traceparent !== "string") return undefined
@@ -182,7 +182,7 @@ function sha256Hex(value: string): string {
  * secret. The inputs are ids with low entropy, so the hash is a pseudonym, not
  * a guarantee that nobody can find the principal.
  */
-export function mcpConnectionKey(input: {
+function mcpConnectionKey(input: {
   principal: string
   client: string
 }): string {
@@ -238,7 +238,7 @@ type ToolFailure = {
   _meta?: Record<string, unknown>
 }
 
-export type McpToolCall = {
+type McpToolCall = {
   callId: string
   connectionKey: string
   correlation: McpCorrelation

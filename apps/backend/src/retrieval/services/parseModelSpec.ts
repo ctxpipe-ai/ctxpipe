@@ -1,16 +1,8 @@
 import { type ModelParams, paramsToModelParams } from "./modelParams.js"
 
-export {
-  type ModelParams,
-  mergeModelParams,
-  paramsToModelParams,
-  REASONING_EFFORT_VALUES,
-  type ReasoningEffort,
-  VERBOSITY_VALUES,
-  type Verbosity,
-} from "./modelParams.js"
 
-export type ParsedModelSpec = {
+
+type ParsedModelSpec = {
   readonly modelId: string
   readonly params: Record<string, string>
 }

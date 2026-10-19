@@ -5,7 +5,7 @@ import {
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import type { HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
-export type WorkspaceGraphPayload = {
+type WorkspaceGraphPayload = {
   metrics: {
     totalNodes: number
     totalEdges: number

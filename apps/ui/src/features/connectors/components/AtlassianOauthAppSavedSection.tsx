@@ -9,7 +9,7 @@ import {
   saveOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
 
-export type AtlassianOauthAppSavedSectionProps = {
+type AtlassianOauthAppSavedSectionProps = {
   orgSlug: string
   connectionId: string
   /**

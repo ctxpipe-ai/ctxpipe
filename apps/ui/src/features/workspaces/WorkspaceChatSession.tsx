@@ -59,7 +59,7 @@ export function workspaceChatHasAssistantText(
   )
 }
 
-export type SandboxPhase = "idle" | "starting" | "ready"
+type SandboxPhase = "idle" | "starting" | "ready"
 
 /** Null lets the thread show the current thought or "Thinking". */
 export function workspaceChatWaitLabel(phase: SandboxPhase): string | null {

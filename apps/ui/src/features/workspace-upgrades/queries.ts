@@ -35,7 +35,7 @@ type PendingUpgradesResponse = InferResponseType<
 >
 
 /** The pending upgrades of the org, one entry for each Workspace that has one. */
-export type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
+type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
 
 /** The hash of the Workspace settings link that lands on the Upgrades group. */
 export const WORKSPACE_UPGRADES_HASH = "upgrades"

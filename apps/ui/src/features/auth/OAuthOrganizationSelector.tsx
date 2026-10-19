@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 
-export type OAuthOrganizationOption = {
+type OAuthOrganizationOption = {
   id: string
   name: string
   slug: string

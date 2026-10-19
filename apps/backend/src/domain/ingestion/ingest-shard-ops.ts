@@ -42,7 +42,7 @@ import {
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
 
 /** The source checkout: `/ctxpipe/source/source`. */
-export const INGEST_SOURCE_HANDLE = "source"
+const INGEST_SOURCE_HANDLE = "source"
 const SOURCE_DIR = `${INGEST_SOURCE_ROOT}/${INGEST_SOURCE_HANDLE}`
 /** Root writes it last in prepare; the agent cannot write in /ctxpipe. */
 const PREPARED = `${INGEST_ROOT}/prepared`
@@ -244,7 +244,7 @@ export function ingestSkillArguments(step: {
 }
 
 /** The prompt of one model step. Source paths are data: they are quoted. */
-export function ingestStepPrompt(
+function ingestStepPrompt(
   step: IngestRuntimeStep,
   source: { sourceUrl: string; sourcePath: string },
 ): string {

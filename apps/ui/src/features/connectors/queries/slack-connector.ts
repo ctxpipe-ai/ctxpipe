@@ -1,8 +1,6 @@
 import { client } from "@/lib/api"
 import { ApiError, readApiJson } from "@/lib/api-result"
 
-export type SlackSetupPhase = "draft" | "live"
-
 export class SlackOAuthNotConfiguredError extends Error {
   constructor() {
     super("Slack OAuth is not configured for this ctxpipe deployment.")

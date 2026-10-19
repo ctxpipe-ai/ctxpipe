@@ -9,7 +9,7 @@ import {
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
-export interface ButtonProps extends Omit<RACButtonProps, "size"> {
+interface ButtonProps extends Omit<RACButtonProps, "size"> {
   /** @default 'primary' */
   variant?:
     | "primary"

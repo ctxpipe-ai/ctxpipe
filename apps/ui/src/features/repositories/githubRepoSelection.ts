@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
-export type SavedGithubRepo = {
+type SavedGithubRepo = {
   name: string
   gitUrl: string
 }
@@ -25,7 +25,7 @@ export type GithubRepoSort =
   | "created-asc"
   | "name-asc"
 
-export type SelectedGithubRepo = {
+type SelectedGithubRepo = {
   id?: number
   full_name: string
   name: string
@@ -137,7 +137,7 @@ export async function collectInstallationRepoPages(
   }
 }
 
-export async function fetchGithubInstallationReposPage(
+async function fetchGithubInstallationReposPage(
   orgSlug: string,
   page: number,
   connectionId?: string,
@@ -178,17 +178,6 @@ export async function fetchGithubInstallationReposPage(
     manageUrl: body.manageUrl ?? null,
     totalCount: body.totalCount,
   }
-}
-
-export function selectedCloneUrlKeys(
-  githubRepos: readonly GithubRepoItem[],
-  selectedIds: ReadonlySet<number>,
-): Set<string> {
-  const keys = new Set<string>()
-  for (const repo of githubRepos) {
-    if (selectedIds.has(repo.id)) keys.add(githubCloneUrlKey(repo.clone_url))
-  }
-  return keys
 }
 
 export function countSelectionDelta(args: {

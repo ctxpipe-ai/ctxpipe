@@ -36,7 +36,7 @@ export function notionIdKey(id: string): string {
   return connectorPathSegment(id).replaceAll("-", "").toLowerCase()
 }
 
-export type NotionFilesPropertyAssetKey = {
+type NotionFilesPropertyAssetKey = {
   mapKey: string
   pathKey: string
   propertyIdentity: string
@@ -591,7 +591,7 @@ export function getNotionDatabaseIndexPath(resource: {
   return `${MANAGED_ROOT}/databases/${databaseSegment(resource)}/index.md`
 }
 
-export function getNotionDatabaseCsvPath(resource: {
+function getNotionDatabaseCsvPath(resource: {
   externalId: string
   title: string
 }): string {
@@ -638,7 +638,7 @@ function propertyMarkdownLine(
   return text ? `- **${markdownLabel(name)}:** ${text}` : ""
 }
 
-export function toNotionDatabaseRowMarkdownFile(input: {
+function toNotionDatabaseRowMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   page: NotionPage
   blocks: NotionBlock[]
@@ -705,7 +705,7 @@ export function toNotionDatabaseRowMarkdownFile(input: {
   }
 }
 
-export function toNotionDatabaseIndexMarkdownFile(input: {
+function toNotionDatabaseIndexMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
 }): { path: string; content: string } {

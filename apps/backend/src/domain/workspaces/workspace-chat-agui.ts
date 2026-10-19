@@ -4,7 +4,7 @@ import {
   toServerSentEventsResponse,
 } from "@tanstack/ai"
 
-export const WORKSPACE_CHAT_RENAME_EVENT = "rename-conversation"
+const WORKSPACE_CHAT_RENAME_EVENT = "rename-conversation"
 
 export type WorkspaceChatWireFormat = "sse" | "ndjson"
 
@@ -59,23 +59,6 @@ export function workspaceChatRunError(message: string): StreamChunk {
     message,
     timestamp: Date.now(),
   } as StreamChunk
-}
-
-export function isWorkspaceChatRenameChunk(chunk: object): string | null {
-  const record = chunk as Record<string, unknown>
-  if (record.type !== "CUSTOM" || record.name !== WORKSPACE_CHAT_RENAME_EVENT) {
-    return null
-  }
-  const value = record.value
-  if (
-    value &&
-    typeof value === "object" &&
-    "name" in value &&
-    typeof (value as { name: unknown }).name === "string"
-  ) {
-    return (value as { name: string }).name
-  }
-  return null
 }
 
 function abortControllerForRequest(request?: Request): AbortController {

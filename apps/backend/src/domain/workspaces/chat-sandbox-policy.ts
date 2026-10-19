@@ -4,7 +4,7 @@ import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 export const CHAT_PERMISSION_MODE = "acceptEdits" as const
 
-export const CHAT_HARD_DENY_REASONS = [
+const CHAT_HARD_DENY_REASONS = [
   "app_pem",
   "auth_secret",
   "contents_write",
@@ -20,17 +20,13 @@ export const CHAT_HARD_DENY_REASONS = [
   "env_file",
 ] as const
 
-export type ChatHardDenyReason = (typeof CHAT_HARD_DENY_REASONS)[number]
+type ChatHardDenyReason = (typeof CHAT_HARD_DENY_REASONS)[number]
 
 export function chatSandboxAllowsRemotePush(
   writeStatus: string,
   readOnlyReason?: string | null,
 ): boolean {
   return workspaceAllowsConversationEdits(writeStatus, readOnlyReason)
-}
-
-export function isChatHardDeny(reason: string): reason is ChatHardDenyReason {
-  return (CHAT_HARD_DENY_REASONS as readonly string[]).includes(reason)
 }
 
 /** Judge cannot override a hard deny. Timeout/garbage also deny. */
@@ -66,7 +62,7 @@ function excerptLooksLikeCommit(name: string, excerpt: string): boolean {
   return name.includes("commit") || excerpt.includes("git commit")
 }
 
-export function classifyChatToolRequest(input: {
+function classifyChatToolRequest(input: {
   toolName: string
   argsExcerpt?: string
   writeStatus: string

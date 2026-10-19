@@ -37,7 +37,7 @@ export type PlainGitUrl = {
   path: string
 }
 
-export type PlainGitUrlCheck =
+type PlainGitUrlCheck =
   | ({ ok: true } & PlainGitUrl)
   | { ok: false; rule: PlainGitUrlRule; reason: string }
 
@@ -58,7 +58,7 @@ const PRIVATE_NAME_SUFFIXES = [
 ]
 
 /** Where ctx| runs: ctx| runs the service (`hosted`), or a customer does. */
-export type PlainGitDeployment = "hosted" | "self-host"
+type PlainGitDeployment = "hosted" | "self-host"
 
 /**
  * The deployment mode of the plain git URL policy. Only
@@ -223,9 +223,7 @@ export const plainGitUrlSchema = z.string().superRefine((value, ctx) => {
 })
 
 /** The scope of a plain git source file: one plain git URL. */
-export const gitFileScopeSchema = z.strictObject({ url: plainGitUrlSchema })
-
-export type GitFileScope = z.infer<typeof gitFileScopeSchema>
+const gitFileScopeSchema = z.strictObject({ url: plainGitUrlSchema })
 
 /** The scope of a plain git source file under `sources/git/`. */
 export const gitSourceScope: SourceScopeDefinition = {

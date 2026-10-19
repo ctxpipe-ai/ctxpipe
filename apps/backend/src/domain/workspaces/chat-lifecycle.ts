@@ -1,7 +1,5 @@
 import { chatSandboxAllowsRemotePush } from "./chat-sandbox-policy.js"
 
-/** Lifetime of a chat run token. */
-export const CHAT_SESSION_TTL_MS = 30 * 60 * 1000
 /** A conversation sandbox stops (files kept) after this long unused. */
 export const CHAT_SANDBOX_IDLE_STOP_MS = 5 * 60 * 1000
 /** A conversation's saved sandbox state is deleted this long after its last use. */
@@ -23,8 +21,8 @@ export const ORG_INGEST_SANDBOX_LIMIT = 40
 /** One ingest shard runs at most this long; the sweep then deletes its sandbox. */
 export const INGEST_SHARD_LIMIT_MS = 60 * 60_000
 export const JOB_SANDBOX_IDLE_MS = 60 * 60 * 1000
-export const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
-export const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"
+const CHAT_HEARTBEAT_INTERVAL_MS = 60 * 1000
+const CHAT_SESSION_BRANCH_PREFIX = "ctxpipe/chat"
 
 export function chatSessionBranchName(
   conversationId: string,
@@ -151,7 +149,7 @@ export function shouldDestroyJobSandbox(input: {
   return input.now.getTime() - input.lastJobAt.getTime() >= JOB_SANDBOX_IDLE_MS
 }
 
-export type QuietUpdateDecision =
+type QuietUpdateDecision =
   | { action: "reset_to_tip" }
   | { action: "rebase_onto_tip" }
   | { action: "stay_stale" }

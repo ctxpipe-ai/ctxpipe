@@ -5,7 +5,7 @@ import {
   resolveContainedRealPath,
 } from "../repositories/paths.js"
 
-export type StructuralSearchMatch = Record<string, unknown>
+type StructuralSearchMatch = Record<string, unknown>
 
 function assertWithinCheckout(
   checkoutPath: string,

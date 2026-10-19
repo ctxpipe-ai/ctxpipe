@@ -7,7 +7,7 @@ import type { StreamChunk } from "@tanstack/ai"
  * so each tool call is marked as provider-executed. The engine then splits the
  * stored message at each thought that follows a tool call.
  */
-export async function* withReasoningSteps(
+async function* withReasoningSteps(
   chunks: AsyncIterable<StreamChunk>,
 ): AsyncIterable<StreamChunk> {
   for await (const chunk of chunks) {

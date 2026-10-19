@@ -136,12 +136,6 @@ async function loadEntityMapForProjection(
   return entityMap
 }
 
-export type ProjectionGroupKey = {
-  subjectKind: string
-  objectKind: string
-  predicate: string
-}
-
 export type PreparedProjectionRow = {
   claim: ClaimForProjection
   subjectProps: Record<string, unknown>
@@ -559,11 +553,6 @@ export async function deleteObjectsFromGraph(
   )
 }
 
-/** @deprecated Prefer {@link deleteObjectsFromGraph} for batches. */
-export async function deleteObjectFromGraph(objectId: string): Promise<void> {
-  await deleteObjectsFromGraph([objectId])
-}
-
 /**
  * Removes claim edges from FalkorDB (Postgres remains source of truth).
  */
@@ -591,11 +580,6 @@ export async function retractClaimsFromGraph(
       }
     },
   )
-}
-
-/** @deprecated Prefer {@link retractClaimsFromGraph} for batches. */
-export async function retractClaimFromGraph(claimId: string): Promise<void> {
-  await retractClaimsFromGraph([claimId])
 }
 
 /**
@@ -685,7 +669,3 @@ export async function refreshClaimProjections(
   return result.projected
 }
 
-/** Re-projects a single claim after aggregate or evidence changes. */
-export async function refreshClaimProjection(claimId: string): Promise<void> {
-  await refreshClaimProjections([claimId])
-}

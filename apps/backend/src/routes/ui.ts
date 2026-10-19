@@ -9,11 +9,11 @@ type UiProxyClientMessage = string | ArrayBuffer | Uint8Array
 
 export const UI_PROXY_TIMEOUT_MS = 15_000
 
-export function isUiProxyAbortError(error: unknown): boolean {
+function isUiProxyAbortError(error: unknown): boolean {
   return error instanceof Error && error.name === "AbortError"
 }
 
-export type UiProxyOriginTrust = {
+type UiProxyOriginTrust = {
   publicOrigin: string
   allowedOrigins?: string
 }

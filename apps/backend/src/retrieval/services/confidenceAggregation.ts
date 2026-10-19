@@ -4,7 +4,7 @@ import type { ExtractionMethod, SourceType } from "../schema/claims.js"
 type SourceTypeValue = z.infer<typeof SourceType>
 type ExtractionMethodValue = z.infer<typeof ExtractionMethod>
 
-export type EvidenceInput = {
+type EvidenceInput = {
   sourceType: SourceTypeValue
   extractionMethod: ExtractionMethodValue
   confidence: number

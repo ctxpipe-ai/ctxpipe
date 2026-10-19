@@ -12,7 +12,7 @@ import { githubRepoFullNameFromWorkspaceUrl } from "../domain/workspaces/write-s
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryIngestionV2 } from "./workflows/repository-ingestion-v2.js"
 
-export type IngestionV2ShadowStart =
+type IngestionV2ShadowStart =
   | { started: true; runId: string }
   | {
       started: false
@@ -23,7 +23,7 @@ export type IngestionV2ShadowStart =
       reason: "unsupported_url" | "repository_gone"
     }
 
-export type IngestionV2PublishStart =
+type IngestionV2PublishStart =
   | IngestionV2ShadowStart
   | { started: false; reason: "no_v2_destination" }
 
@@ -68,7 +68,7 @@ export function startIngestionV2Publish(
  * credential under the plain git URL policy of the deployment mode, as the
  * old ingestion on main read it (CTX-815). Null when neither applies.
  */
-export function ingestSourceOf(repository: {
+function ingestSourceOf(repository: {
   gitUrl: string
   githubConnectionId: string | null
 }): IngestSource | null {
