@@ -36,8 +36,6 @@ export function MessageInputBox(props: {
   contentClassName?: string
   /** Example prompts under the composer. Picking one fills the composer; it does not send. */
   suggestions?: readonly string[]
-  /** The text field gets focus (also on autofocus). */
-  onFocus?: () => void
 }) {
   const {
     sendMessage,
@@ -50,7 +48,6 @@ export function MessageInputBox(props: {
     draftKey,
     contentClassName,
     suggestions,
-    onFocus,
   } = props
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const isGenerating = status === "submitted" || status === "streaming"
@@ -97,7 +94,6 @@ export function MessageInputBox(props: {
                   : "min-h-16 px-4 pt-3 pb-12",
               )}
               autoFocus={layout === "empty" && !isDisabled}
-              onFocus={onFocus}
             />
           </PromptInputBody>
           <PromptInputFooter className="absolute inset-x-0 bottom-0 flex items-center justify-between gap-2 border-0 bg-transparent px-3 pb-3 pt-0 shadow-none">

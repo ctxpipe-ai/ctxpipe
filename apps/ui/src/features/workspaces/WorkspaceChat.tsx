@@ -4,7 +4,7 @@ import {
   useSuspenseQuery,
 } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useEffect, useState } from "react"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { SkeletonSuspense, SkeletonText } from "@/components/ui/Skeleton"
@@ -83,11 +83,14 @@ function WorkspaceComposeChat(props: {
   const queryClient = useQueryClient()
   const navigate = useNavigate()
   const selectNav = useSelectNav()
-  // The first message starts the conversation with this id. Focus on the
-  // composer starts the sandbox prepare for it, so the first turn does not
-  // wait for the sandbox. Prepare is the only work that focus starts.
+  // The first message starts the conversation with this id. Opening the
+  // composer (it takes focus at once) starts the sandbox prepare for it, so
+  // the first turn does not wait for the sandbox. Prepare is the only work
+  // that opening starts.
   // The id lives in the query cache, so a remount of this composer keeps it
   // and does not prepare a second sandbox. Send clears it.
+  const { orgSlug } = props
+  const workspaceId = props.workspace.id
   const composeKey = [
     "workspace-compose-conversation",
     props.orgSlug,
@@ -100,15 +103,11 @@ function WorkspaceComposeChat(props: {
     queryClient.setQueryData(composeKey, id)
     return id
   })
-  const prepare = () => {
+  useEffect(() => {
     void queryClient.prefetchQuery(
-      workspaceChatPrepareOptions(
-        props.orgSlug,
-        conversationId,
-        props.workspace.id,
-      ),
+      workspaceChatPrepareOptions(orgSlug, conversationId, workspaceId),
     )
-  }
+  }, [queryClient, orgSlug, conversationId, workspaceId])
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
@@ -129,7 +128,6 @@ function WorkspaceComposeChat(props: {
           <MessageInputBox
             layout="empty"
             draftKey={chatDraftKey(props.orgSlug, props.workspace.id)}
-            onFocus={prepare}
             sendMessage={({ text }) => {
               queryClient.removeQueries({ queryKey: composeKey, exact: true })
               openWorkspaceConversation({
