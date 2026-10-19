@@ -513,7 +513,7 @@ function DateRangeMenu(props: {
                 </DateInput>
                 <RACButton
                   className={cn(
-                    "ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
+                    "mx-1 ml-auto flex size-6 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-foreground",
                     focusVisibleClassName,
                   )}
                 >
@@ -522,7 +522,9 @@ function DateRangeMenu(props: {
               </Group>
               <Popover
                 placement="bottom end"
-                className="rounded-md border-zinc-800 bg-zinc-900 p-3"
+                // Light shadow and a lighter border lift it over the menu; the
+                // scroll keeps the last week inside a short window.
+                className="overflow-y-auto rounded-md border-zinc-700 bg-zinc-900 p-3 shadow-md shadow-black/40"
               >
                 <Dialog className="outline-0">
                   <RangeCalendar className="w-64">
@@ -533,13 +535,27 @@ function DateRangeMenu(props: {
                         {(date) => (
                           <CalendarCell
                             date={date}
-                            className={cn(
-                              "cursor-default rounded-md py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
-                              "data-[hovered]:bg-zinc-800 data-[outside-month]:text-zinc-600",
-                              "data-[selected]:bg-teal-400/15 data-[selected]:text-foreground",
-                              "data-[selection-start]:bg-teal-400 data-[selection-start]:text-zinc-950 data-[selection-end]:bg-teal-400 data-[selection-end]:text-zinc-950",
-                              focusVisibleClassName,
-                            )}
+                            className={({
+                              isSelected,
+                              isSelectionStart,
+                              isSelectionEnd,
+                            }) =>
+                              cn(
+                                "cursor-default py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
+                                "data-[hovered]:bg-zinc-800 data-[outside-month]:text-zinc-600",
+                                // A range is one connected band: the start has
+                                // its left corners round, the end its right
+                                // corners, and a one-day range keeps all four.
+                                !isSelected && "rounded-md",
+                                isSelected &&
+                                  "bg-teal-400/15 text-foreground rounded-none",
+                                isSelectionStart && "rounded-s-md",
+                                isSelectionEnd && "rounded-e-md",
+                                (isSelectionStart || isSelectionEnd) &&
+                                  "bg-teal-400 text-zinc-950",
+                                focusVisibleClassName,
+                              )
+                            }
                           />
                         )}
                       </CalendarGridBody>
