@@ -5,7 +5,10 @@ import { z } from "zod"
 import type { Db } from "../db/client.js"
 import { workspaceSources } from "../db/schema/workspace_sources.js"
 import { linkingOrder } from "../domain/workspace-sources/github-sources.js"
-import { sourceRepositoryUrls } from "../domain/workspace-sources/providers/git.js"
+import {
+  gitSourceScopeUrl,
+  sourceRepositoryUrls,
+} from "../domain/workspace-sources/providers/git.js"
 import { githubSourceScopeRepositories } from "../domain/workspace-sources/providers/github.js"
 import type { SourceStatus } from "../domain/workspace-sources/sources-file.js"
 import { normalizeWorkspaceRepositoryUrl } from "../domain/workspaces/slug.js"
@@ -31,13 +34,48 @@ const githubRepositoryPinSchema = z.object({
 
 export type GithubRepositoryPin = z.infer<typeof githubRepositoryPinSchema>
 
-/** Each provider adds its member. The key is the provider of the row. */
+/**
+ * Each provider adds its member. The key is the provider of the row. A plain
+ * git source pins its one repository the same way as a GitHub source
+ * (CTX-893).
+ */
 export const sourceStateSchema = z.discriminatedUnion("provider", [
   z.object({
     provider: z.literal("github"),
     repositories: z.array(githubRepositoryPinSchema),
   }),
+  z.object({
+    provider: z.literal("git"),
+    repositories: z.array(githubRepositoryPinSchema),
+  }),
 ])
+
+/** The providers whose rows link repositories to their Workspace. */
+const LINKING_PROVIDERS = ["github", "git"] as const
+type LinkingProvider = (typeof LINKING_PROVIDERS)[number]
+
+function isLinkingProvider(
+  provider: string | null,
+): provider is LinkingProvider {
+  return (LINKING_PROVIDERS as readonly (string | null)[]).includes(provider)
+}
+
+/** The repositories (normalized URL and ref) that one source scope names. */
+function scopeRepositories(
+  provider: LinkingProvider,
+  scope: unknown,
+): Array<{ gitUrl: string; ref: string | null }> {
+  if (provider === "git") {
+    const url = gitSourceScopeUrl(scope)
+    return url
+      ? [{ gitUrl: normalizeWorkspaceRepositoryUrl(url), ref: null }]
+      : []
+  }
+  return githubSourceScopeRepositories(scope).map(({ name, ref }) => ({
+    gitUrl: normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`),
+    ref,
+  }))
+}
 
 export type SourceState = z.infer<typeof sourceStateSchema>
 type GithubSourceState = Extract<SourceState, { provider: "github" }>
@@ -174,27 +212,26 @@ export function sourceRowsNameRepository(
   })
 }
 
-/** A GitHub state with `repositories` that keeps the target of `row`. */
+/** A pinned state with `repositories` that keeps the target of `row`. */
 function withPins(
-  row: { state: unknown },
+  row: { provider: string | null; state: unknown },
   repositories: GithubRepositoryPin[],
 ): StoredSourceState {
   const target = storedTarget(row.state)
   return {
-    provider: "github",
+    provider: row.provider === "git" ? "git" : "github",
     repositories,
     ...(target !== null ? { lastGoodTarget: target } : {}),
   }
 }
 
-/** The GitHub pins of one row, or none. */
+/** The repository pins of one GitHub or plain git row, or none. */
 export function githubPins(row: {
   id: string
   provider: string | null
   state: unknown
 }): GithubRepositoryPin[] {
-  const state = parseSourceState(row)
-  return state?.provider === "github" ? state.repositories : []
+  return parseSourceState(row)?.repositories ?? []
 }
 
 /**
@@ -297,25 +334,25 @@ export function planSourceStates(input: {
   const linking = (status: string) =>
     (LINKING_SOURCE_STATUSES as readonly string[]).includes(status)
   for (const planned of linkingOrder(input.planned)) {
-    if (planned.provider !== "github") {
+    const provider = planned.provider
+    if (!isLinkingProvider(provider)) {
       states.set(planned.sourceKey, {})
       continue
     }
     if (!linking(planned.status)) continue
-    const wanted = githubSourceScopeRepositories(planned.scope).flatMap(
-      ({ name, ref }) => {
-        const gitUrl = normalizeWorkspaceRepositoryUrl(
-          `https://github.com/${name}`,
-        )
-        if (linked.has(gitUrl)) return []
+    const wanted = scopeRepositories(provider, planned.scope).filter(
+      ({ gitUrl }) => {
+        if (linked.has(gitUrl)) return false
         linked.add(gitUrl)
-        return [{ gitUrl, ref }]
+        return true
       },
     )
-    states.set(
-      planned.sourceKey,
-      reconcileGithubState([...pool.values()], wanted, input.now),
+    const { repositories } = reconcileGithubState(
+      [...pool.values()],
+      wanted,
+      input.now,
     )
+    states.set(planned.sourceKey, { provider, repositories })
   }
   // A row that cannot link keeps its own pins and the pins of the
   // repositories that its scope names (by URL and ref), so a file that is
@@ -324,11 +361,11 @@ export function planSourceStates(input: {
   const kept = new Set<string>()
   for (const planned of input.planned) {
     const current = rowOf(planned.sourceKey)
-    if (planned.provider === "github" && !linking(planned.status)) {
+    const provider = planned.provider
+    if (isLinkingProvider(provider) && !linking(planned.status)) {
       const named = new Set(
-        githubSourceScopeRepositories(planned.scope).map(
-          ({ name, ref }) =>
-            `${normalizeWorkspaceRepositoryUrl(`https://github.com/${name}`)} ${ref ?? ""}`,
+        scopeRepositories(provider, planned.scope).map(
+          ({ gitUrl, ref }) => `${gitUrl} ${ref ?? ""}`,
         ),
       )
       const repositories = [
@@ -341,7 +378,7 @@ export function planSourceStates(input: {
         kept.add(pin.id)
         return true
       })
-      states.set(planned.sourceKey, { provider: "github", repositories })
+      states.set(planned.sourceKey, { provider, repositories })
     }
     if (planned.status !== "invalid" || !current) continue
     const target = heldTargetOf(current.row)
@@ -378,7 +415,7 @@ export function sameSourceState(a: unknown, b: unknown): boolean {
 }
 
 /**
- * A jsonb select value: the state of each serving GitHub row of the
+ * A jsonb select value: the state of each serving GitHub or plain git row of the
  * Workspace with the id `workspaceId`. Read it with {@link linkedSourcePins}.
  */
 export function servedSourceStatesSql(workspaceId: SQL) {
@@ -388,7 +425,7 @@ export function servedSourceStatesSql(workspaceId: SQL) {
     select jsonb_agg(jsonb_build_object('id', ${column(workspaceSources.id)}, 'provider', ${column(workspaceSources.provider)}, 'state', ${column(workspaceSources.state)}))
     from ${workspaceSources}
     where ${column(workspaceSources.workspaceId)} = ${workspaceId}
-    and ${column(workspaceSources.provider)} = 'github'
+    and ${column(workspaceSources.provider)} in ('github', 'git')
     and ${column(workspaceSources.status)} in (${sql.join(
       SERVING_SOURCE_STATUSES.map((status) => sql`${status}`),
       sql`, `,
@@ -409,7 +446,7 @@ export function linkedSourcePins(
   return rows.flatMap(githubPins)
 }
 
-/** One linked repository of a Workspace, from the state of a GitHub source row. */
+/** One linked repository of a Workspace, from the state of a GitHub or plain git source row. */
 export type LinkedRepositoryPin = {
   id: string
   orgId: string
@@ -479,7 +516,7 @@ async function listPins(
     .from(workspaceSources)
     .where(
       and(
-        eq(workspaceSources.provider, "github"),
+        inArray(workspaceSources.provider, [...LINKING_PROVIDERS]),
         // A row that cannot link keeps its pins, but they link nothing.
         inArray(workspaceSources.status, [...statuses]),
         filter.orgId ? eq(workspaceSources.orgId, filter.orgId) : undefined,
@@ -518,7 +555,7 @@ export async function getLinkedRepositoryPin(
 
 function linkPredicate(linkId: string) {
   return and(
-    eq(workspaceSources.provider, "github"),
+    inArray(workspaceSources.provider, [...LINKING_PROVIDERS]),
     sql`${workspaceSources.state}->'repositories' @> ${JSON.stringify([{ id: linkId }])}::jsonb`,
   )
 }
@@ -584,7 +621,7 @@ export async function clearLinkedRepositoryShas(
         state: workspaceSources.state,
       })
       .from(workspaceSources)
-      .where(eq(workspaceSources.provider, "github"))
+      .where(inArray(workspaceSources.provider, [...LINKING_PROVIDERS]))
       .for("update")
     for (const row of rows) {
       const pins = githubPins(row)

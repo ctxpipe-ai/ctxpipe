@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import {
+  observeWorkspaceChatCompletionStream,
   workspaceChatCompletionsBaseUrl,
   workspaceChatModelProxyAdvertisedHost,
 } from "./workspace-chat-model-proxy.js"
@@ -45,5 +46,42 @@ describe("workspace chat completions URL", () => {
         callbackHost: "backend.internal",
       }),
     ).toBe("http://backend.internal:3000/acme/api/v1/workspace-chat/openai/v1")
+  })
+})
+
+function observe(usage: Record<string, unknown>) {
+  const observer = observeWorkspaceChatCompletionStream()
+  const chunk = { model: "m", choices: [], usage }
+  observer.push(
+    new TextEncoder().encode(
+      `data: ${JSON.stringify(chunk)}\n\ndata: [DONE]\n\n`,
+    ),
+  )
+  observer.end()
+  return observer.usage
+}
+
+describe("observeWorkspaceChatCompletionStream cost", () => {
+  it("adds the provider charge to the OpenRouter fee on a bring-your-own-key call", () => {
+    expect(
+      observe({
+        prompt_tokens: 14000,
+        completion_tokens: 300,
+        cost: 0.0004,
+        is_byok: true,
+        cost_details: { upstream_inference_cost: 0.0426 },
+      })?.cost,
+    ).toBeCloseTo(0.043, 6)
+  })
+
+  it("keeps the reported cost when the call is not bring-your-own-key", () => {
+    expect(
+      observe({
+        prompt_tokens: 10,
+        cost: 0.0021,
+        is_byok: false,
+        cost_details: { upstream_inference_cost: null },
+      })?.cost,
+    ).toBe(0.0021)
   })
 })
