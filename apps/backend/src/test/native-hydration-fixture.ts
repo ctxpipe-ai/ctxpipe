@@ -17,7 +17,7 @@ import { HttpResponse, http, passthrough } from "msw"
 import { setupServer } from "msw/node"
 import { OpenWorkflow } from "openworkflow"
 import { BackendPostgres } from "openworkflow/postgres"
-import { expect } from "vitest"
+import { expect, vi } from "vitest"
 import { withOrgIdContext } from "../auth/withAuth.js"
 import { parseEnv } from "../config/env.js"
 import { closeDb, getSystemDb, initDb, withOrgDbContext } from "../db/client.js"
@@ -973,6 +973,22 @@ async function createNativeHydrationFixture(
           workflowRunId: handle.workflowRun.id,
         })
         expect(run?.status).toBe("completed")
+        // The hydrate queues a workspace-index run. The fixture has no
+        // repository row, so that run records a failed index. Wait for it to
+        // end, or it can write that result over the ready index below. A tip
+        // check then sees a failed index and queues one more hydrate.
+        await vi.waitFor(
+          async () => {
+            const open = await getSystemDb().execute(
+              sql`select id from openworkflow.workflow_runs
+                where workflow_name = ${workspaceIndex.spec.name}
+                  and input->'revision'->>'workspaceId' = ${workspaceId}
+                  and status in ('pending', 'running', 'sleeping')`,
+            )
+            expect(open.rows).toEqual([])
+          },
+          { timeout: 30_000, interval: 50 },
+        )
         await withOrgIdContext(org, async () => {
           const active = await getWorkspaceProjection(workspaceId)
           if (active.kind !== "active")
