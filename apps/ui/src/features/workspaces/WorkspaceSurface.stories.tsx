@@ -1315,6 +1315,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
       expect(found).toHaveFocus()
       return found as HTMLElement
     })
+    await document.fonts.ready
     const panel = group.closest<HTMLElement>('[role="tabpanel"]')
     const scroller = group.closest<HTMLElement>("[data-settings-scroll]")
     if (!panel || !scroller) throw new Error("The settings pane is missing")
