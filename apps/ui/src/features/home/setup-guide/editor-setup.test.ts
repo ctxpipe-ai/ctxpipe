@@ -1,9 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { describe, expect, it, vi } from "vitest"
-import {
-  editorSetupCommand,
-  recordMcpConfigCopied,
-} from "./editor-setup"
+import { editorSetupCommand, recordMcpConfigCopied } from "./editor-setup"
 
 describe("editorSetupCommand", () => {
   it("is the bare command on the hosted origin", () => {
