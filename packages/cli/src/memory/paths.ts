@@ -1,7 +1,7 @@
 import { spawnSync } from "node:child_process"
 import { resolve } from "node:path"
 
-export const DEFAULT_MEMORY_ROOT = ".ai/memory"
+const DEFAULT_MEMORY_ROOT = ".ai/memory"
 
 /** Shared git toplevel resolution for init/status/doctor/capture. */
 export function resolveRepoRoot(cwd = process.cwd()): string {

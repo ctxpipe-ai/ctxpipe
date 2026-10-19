@@ -7,7 +7,7 @@ import {
 import type { AddressInfo } from "node:net"
 
 /** One request that the server got: the method, the path, and the host. */
-export type GitHttpRequest = { method: string; url: string; host: string }
+type GitHttpRequest = { method: string; url: string; host: string }
 
 /**
  * A real Git smart HTTP server on 127.0.0.1: `git http-backend` over the

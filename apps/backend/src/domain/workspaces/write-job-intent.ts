@@ -107,7 +107,7 @@ export const workspaceWriteJobInputSchema = writeJobBaseSchema.extend({
 
 export type EnqueueWriteJobInput = z.infer<typeof workspaceWriteJobInputSchema>
 
-export type WriteJobEnqueueFields = Pick<
+type WriteJobEnqueueFields = Pick<
   EnqueueWriteJobInput,
   | "extraction"
   | "kind"

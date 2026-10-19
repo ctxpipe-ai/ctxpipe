@@ -24,7 +24,7 @@ import { isDeepStrictEqual } from "node:util"
  *   ## Being replaced   rules, in the same form as Rules
  */
 
-export type AreaEvidence = {
+type AreaEvidence = {
   basis: "documented" | "inferred"
   paths: string[]
   /** The literal text that each evidence file of an inferred rule holds. */
@@ -261,7 +261,7 @@ function relativePath(path: string): boolean {
   )
 }
 
-export type AreaChange =
+type AreaChange =
   | { error: string }
   | {
       /** `sources` of the result file. */

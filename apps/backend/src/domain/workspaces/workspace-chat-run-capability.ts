@@ -244,7 +244,7 @@ export type WorkspaceIngestToolsClaims = z.infer<
   typeof WorkspaceIngestToolsClaimsSchema
 >
 
-export type WorkspaceIngestRunCapabilityClaims = z.infer<
+type WorkspaceIngestRunCapabilityClaims = z.infer<
   typeof IngestCapabilityClaimsSchema
 >
 

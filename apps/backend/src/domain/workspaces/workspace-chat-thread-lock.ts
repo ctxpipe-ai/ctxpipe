@@ -1,7 +1,7 @@
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
 import type { LockStore } from "@tanstack/ai/locks"
 
-export class ConversationChangedError extends Error {
+class ConversationChangedError extends Error {
   constructor() {
     super("Conversation changed during another send; reload before retrying")
   }

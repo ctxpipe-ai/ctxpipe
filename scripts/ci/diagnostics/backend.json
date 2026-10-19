@@ -8,12 +8,6 @@
       "count": 1
     },
     {
-      "file": "src/models/github-installation.ts",
-      "code": 2345,
-      "message": "Argument of type 'Error' is not assignable to parameter of type 'string'.",
-      "count": 1
-    },
-    {
       "file": "src/routes/auth.ts",
       "code": 2339,
       "message": "Property 'getProtectedResourceMetadata' does not exist on type 'AuthClient<BetterAuthClientOptions>'.",

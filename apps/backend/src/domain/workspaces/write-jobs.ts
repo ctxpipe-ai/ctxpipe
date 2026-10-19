@@ -27,8 +27,8 @@ export function writeJobLoopGuardSha(
   return sha.length > 0 ? sha : null
 }
 
-export const BOOTSTRAP_AGENTS_MD = "AGENTS.md"
-export const BOOTSTRAP_KNOWLEDGE_SKILL_PREFIX =
+const BOOTSTRAP_AGENTS_MD = "AGENTS.md"
+const BOOTSTRAP_KNOWLEDGE_SKILL_PREFIX =
   ".agents/skills/ctxpipe-knowledge/"
 
 export function isWorkspaceWriteJobKind(

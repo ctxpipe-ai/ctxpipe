@@ -30,7 +30,7 @@ import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
-export type ConnectedApp = Awaited<
+type ConnectedApp = Awaited<
   ReturnType<typeof fetchConnectedApps>
 >[number]
 

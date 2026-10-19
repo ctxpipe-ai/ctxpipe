@@ -46,7 +46,7 @@ export function workspaceRootPath(
   return workspaceRootPathSchema.parse(source?.rootPath ?? "")
 }
 
-export type WorkspaceRootViolation = {
+type WorkspaceRootViolation = {
   path: string
   reason: "outside_root" | "symlink_outside_root" | "submodule"
 }

@@ -2,7 +2,7 @@ import type { ConversationGitTreeResponse } from "./types"
 
 const STORAGE_PREFIX = "ctxpipe.conversation-git-tree."
 
-export function conversationGitTreeSnapshotKey(conversationId: string): string {
+function conversationGitTreeSnapshotKey(conversationId: string): string {
   return `${STORAGE_PREFIX}${conversationId}`
 }
 
@@ -65,10 +65,6 @@ export function writeConversationGitTreeSnapshot(
   } catch {
     // Private mode / quota — refresh then falls back to the live tree.
   }
-}
-
-export function clearConversationGitTreeSnapshot(conversationId: string): void {
-  sessionStore()?.removeItem(conversationGitTreeSnapshotKey(conversationId))
 }
 
 export function clearAllConversationGitTreeSnapshots(): void {

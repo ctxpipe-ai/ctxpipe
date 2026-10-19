@@ -8,7 +8,7 @@ import { CheckboxGroup as AriaCheckboxGroup } from "react-aria-components"
 import { Description, FieldError, Label } from "@/components/ui/Field"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
-export interface CheckboxGroupProps
+interface CheckboxGroupProps
   extends Omit<AriaCheckboxGroupProps, "children"> {
   label?: string
   children?: ReactNode

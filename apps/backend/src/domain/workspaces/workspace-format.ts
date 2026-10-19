@@ -48,7 +48,7 @@ const workspaceFormatSchema = z
   })
   .strict()
 
-export type WorkspaceFormatRead =
+type WorkspaceFormatRead =
   | { kind: "format"; format: number }
   | { kind: "invalid"; error: string }
 

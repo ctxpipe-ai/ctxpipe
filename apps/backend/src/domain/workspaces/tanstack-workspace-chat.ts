@@ -4,7 +4,6 @@ import {
   chat,
   defineChatMiddleware,
   type ModelMessage,
-  modelMessagesToUIMessages,
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
@@ -115,10 +114,8 @@ import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
-  workspaceChatHttpResponse,
   workspaceChatRunStartedChunk,
   workspaceChatSandboxSetupChunk,
-  workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import {
   sandboxCallbackHost,
@@ -203,7 +200,7 @@ export type TanstackWorkspaceChatInput = {
   wireFormat?: WorkspaceChatWireFormat
 }
 
-export { conversationRenameChunk } from "./workspace-chat-agui.js"
+
 
 /** Counters for contract tests: how often a sandbox was ensured. */
 export const workspaceChatDockerOwnership = {
@@ -564,15 +561,6 @@ async function requestBaseBuild(
       workspaceId,
     })
   }
-}
-
-export async function runTanstackWorkspaceChat(
-  input: TanstackWorkspaceChatInput,
-): Promise<Response> {
-  return workspaceChatHttpResponse(
-    streamTanstackWorkspaceChat(input),
-    input.wireFormat ?? workspaceChatWireFormat(new Request("http://local")),
-  )
 }
 
 function sandboxEnsureContext(
@@ -1516,8 +1504,3 @@ export async function conversationHasStoredTurns(
   return turns.length > 0
 }
 
-export function conversationUiMessagesFromModelMessages(
-  messages: Parameters<typeof modelMessagesToUIMessages>[0],
-) {
-  return modelMessagesToUIMessages(messages)
-}

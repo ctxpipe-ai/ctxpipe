@@ -10,6 +10,3 @@ export const parsedNotionRepoScopeSchema = z.object({
   ),
 })
 
-export type ParsedNotionRepoScopeInput = z.infer<
-  typeof parsedNotionRepoScopeSchema
->

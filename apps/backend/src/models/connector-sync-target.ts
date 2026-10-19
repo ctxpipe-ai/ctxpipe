@@ -9,7 +9,7 @@ import {
 } from "../db/schema/connections.js"
 import { repositories } from "../db/schema/repositories.js"
 
-export type ConnectorSource = "confluence" | "notion" | "linear" | "slack"
+type ConnectorSource = "confluence" | "notion" | "linear" | "slack"
 
 type SyncTargetCandidate = {
   repositoryId: string
@@ -20,7 +20,7 @@ type SyncTargetCandidate = {
   source: ConnectorSource
 }
 
-export type SuggestedConnectorSyncTarget = Omit<
+type SuggestedConnectorSyncTarget = Omit<
   SyncTargetCandidate,
   "source"
 > & {

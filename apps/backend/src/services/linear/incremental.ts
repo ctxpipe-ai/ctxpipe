@@ -30,7 +30,7 @@ import {
   loadUser,
 } from "./read.js"
 
-export type LinearIncrementalChanges = {
+type LinearIncrementalChanges = {
   files: LinearMirrorFile[]
   deletePaths: string[]
   failures: Array<{ type: string; id: string; message: string }>

@@ -22,7 +22,7 @@ export type CallPrincipal =
 
 export type CallOrg = { id: string; slug: string }
 
-export type CallOrgResult =
+type CallOrgResult =
   | { ok: true; org: CallOrg }
   | { ok: false; error: "org_not_found" | "org_required" }
 

@@ -38,7 +38,7 @@ export type HydrateWriteRequirement =
   | { kind: "rename_rewrite"; remainder: number; previousSha: string }
 
 /** The changes between the last hydrated revision and this one. */
-export type HydrateWriteHistory = {
+type HydrateWriteHistory = {
   previousSha: string
   /** The format in the tree of `previousSha`. */
   previousFormat: number

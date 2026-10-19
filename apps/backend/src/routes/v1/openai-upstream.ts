@@ -28,7 +28,7 @@ export function unavailableResponse(reason: string, message: string) {
   }
 }
 
-export async function resolveUpstreamAuthorization(
+async function resolveUpstreamAuthorization(
   env: AppEnv["Variables"]["env"],
 ): Promise<string | null> {
   const apiKey = env.MODEL_PROVIDER_API_KEY?.trim()
@@ -36,7 +36,7 @@ export async function resolveUpstreamAuthorization(
   return null
 }
 
-export async function fetchOpenAiCompatibleUpstream(input: {
+async function fetchOpenAiCompatibleUpstream(input: {
   env: AppEnv["Variables"]["env"]
   path: string
   body: unknown

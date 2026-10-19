@@ -39,7 +39,7 @@ export function ingestionV2ShadowEnabled(): boolean {
  * Each publish path reads the format from the tree that it pushes on, not
  * from the cache, so a revert of the upgrade pull request stops ingestion.
  */
-export type IngestionPublishPipeline = "v2" | "none"
+type IngestionPublishPipeline = "v2" | "none"
 
 /** The ingestion that writes to a Workspace at `format`. */
 export function workspacePublishPipeline(

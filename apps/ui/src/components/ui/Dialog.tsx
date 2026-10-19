@@ -1,9 +1,7 @@
 "use client"
-import { IconX } from "@tabler/icons-react"
 import type React from "react"
 import { type DialogProps, Dialog as RACDialog } from "react-aria-components"
 import { twMerge } from "tailwind-merge"
-import { Button } from "@/components/ui/Button"
 
 export function Dialog(props: DialogProps) {
   return (
@@ -14,33 +12,6 @@ export function Dialog(props: DialogProps) {
         props.className,
       )}
     />
-  )
-}
-
-export function DialogContent(
-  props: React.ComponentProps<"div"> & { showCloseButton?: boolean },
-) {
-  const { className, children, showCloseButton = false, ...rest } = props
-  return (
-    <div
-      {...rest}
-      className={twMerge(
-        "relative rounded-md border border-zinc-800 bg-zinc-950/95 p-6",
-        className,
-      )}
-    >
-      {children}
-      {showCloseButton ? (
-        <Button
-          className="absolute right-3 top-3"
-          variant="quiet"
-          size="icon-sm"
-          aria-label="Close"
-        >
-          <IconX />
-        </Button>
-      ) : null}
-    </div>
   )
 }
 

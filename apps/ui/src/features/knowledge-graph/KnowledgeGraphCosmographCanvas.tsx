@@ -51,7 +51,7 @@ export type KnowledgeGraphCosmographCanvasHandle = {
   clearSelectionFilters: () => void
 }
 
-export type GraphPointRow = {
+type GraphPointRow = {
   id: string
   label: string
   kind: string

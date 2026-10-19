@@ -2,7 +2,7 @@ import { HttpResponse, http } from "msw"
 import type { PagerdutyService } from "@/features/connectors/queries/pagerduty-connector"
 
 /** The PagerDuty services that the story connection can read. */
-export const PAGERDUTY_STORY_SERVICES: PagerdutyService[] = [
+const PAGERDUTY_STORY_SERVICES: PagerdutyService[] = [
   { id: "PSVC001", name: "checkout-api" },
   { id: "PSVC002", name: "billing-worker" },
   { id: "PSVC003", name: "search-gateway" },

@@ -88,7 +88,7 @@ import type {
  *   org does not have any more. No source reads that repository, so step 1
  *   does not export its knowledge.
  */
-export type LegacyKnowledgeOrigin =
+type LegacyKnowledgeOrigin =
   | {
       kind: "kept"
       /** The repository URL, or the group name in the report. */
@@ -100,7 +100,7 @@ export type LegacyKnowledgeOrigin =
   | { kind: "no_repository" }
   | { kind: "deleted_repository" }
 
-export function legacyKnowledgeOrigin(input: {
+function legacyKnowledgeOrigin(input: {
   object: Pick<ExportObjectRow, "deduplicationKey">
   /** True when a Markdown file that stays in the Workspace backs the object. */
   markdownBacked: boolean

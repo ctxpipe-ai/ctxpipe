@@ -18,7 +18,7 @@ export const LINK_BASE = "rgba(226, 232, 240, 0.55)"
 export const UNKNOWN_COLOR = "#52525b"
 export const PAGE_BG = "#09090b"
 
-export function hashStringToIndex(s: string, mod: number): number {
+function hashStringToIndex(s: string, mod: number): number {
   let h = 0
   for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0
   return Math.abs(h) % mod

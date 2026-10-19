@@ -24,7 +24,7 @@ import {
  * leave config for the next.
  */
 
-export const INGEST_OPENCODE_CONFIG = `${INGEST_OPENCODE_ROOT}/opencode.json`
+const INGEST_OPENCODE_CONFIG = `${INGEST_OPENCODE_ROOT}/opencode.json`
 
 export const INGEST_OPENCODE_AGENT_PROMPT = [
   "You extract knowledge units from a source repository into a Workspace context repository.",
@@ -147,7 +147,7 @@ export function ingestAgentCommand(input: {
 }
 
 /** The one OpenCode version whose isolation flags the contract test proves. */
-export const INGEST_OPENCODE_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(
+const INGEST_OPENCODE_VERSION = WORKSPACE_CHAT_OPENCODE_CLI.replace(
   "opencode-ai@",
   "",
 )

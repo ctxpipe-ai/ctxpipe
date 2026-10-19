@@ -99,7 +99,7 @@ export function logIngestEvent(
  * The Langfuse session of a run: one session groups the model calls of every
  * shard and step. The id differs from a conversation id.
  */
-export function ingestLangfuseSession(runId: string): string {
+function ingestLangfuseSession(runId: string): string {
   return `ingest:${runId}`
 }
 

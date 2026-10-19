@@ -25,7 +25,7 @@ const RUN_VAULT_PREFIX = "ctxpipe-run-"
 const REQUEST_TIMEOUT_MS = 10_000
 
 /** Where a sandbox finds the proxy's CA certificate. */
-export const SANDBOX_PROXY_CA_PATH = "/tmp/ctxpipe-proxy-ca.pem"
+const SANDBOX_PROXY_CA_PATH = "/tmp/ctxpipe-proxy-ca.pem"
 
 /** Agent Vault is not configured or does not answer: Docker chat fails closed. */
 export class AgentVaultUnavailableError extends Error {

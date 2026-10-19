@@ -11,7 +11,7 @@ import { dbErrorException } from "./scrubDbError.js"
 
 type PgQuery = (...args: unknown[]) => unknown
 
-export type TraceablePgClient = {
+type TraceablePgClient = {
   query: PgQuery
   database?: string
   connectionParameters?: {
@@ -249,7 +249,7 @@ function tracePromiseQuery(
 }
 
 /** One CLIENT span per promise-API query, parented to the active span. */
-export function instrumentPgClient(
+function instrumentPgClient(
   client: TraceablePgClient,
   tracerName = "ctxpipe-backend",
 ): void {

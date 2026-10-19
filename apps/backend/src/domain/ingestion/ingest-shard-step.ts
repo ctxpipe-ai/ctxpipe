@@ -43,7 +43,7 @@ export async function withStepFirewall<T>(
 }
 
 /** The sandbox of a step: its handle and its root commands. */
-export type ShardStepBox = { handle: { id: string }; root: RootExec }
+type ShardStepBox = { handle: { id: string }; root: RootExec }
 
 /**
  * One step in the shard's sandbox. A new sandbox, or one whose prepare did

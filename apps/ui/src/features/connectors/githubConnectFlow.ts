@@ -4,7 +4,7 @@ import { githubInstallationIsLinked } from "@/features/connectors/queries/github
  * Pure decision helper for GitHub connector “start connect” — easy to unit test.
  * Mirrors {@link useGithubConnectFlow} branching without browser APIs.
  */
-export type GithubConnectStartBranch =
+type GithubConnectStartBranch =
   | "noop_bootstrap_pending"
   | "noop_installation_pending"
   | "already_installed"
@@ -35,7 +35,7 @@ export function getGithubConnectStartBranch(args: {
   return "self_hosted_wizard"
 }
 
-export type GithubSetupOrganizationResolution =
+type GithubSetupOrganizationResolution =
   | { kind: "existing"; orgSlug: string }
   | { kind: "selected"; orgSlug: string }
   | { kind: "missing" }

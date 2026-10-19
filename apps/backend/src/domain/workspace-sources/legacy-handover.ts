@@ -9,7 +9,7 @@ import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import type { SourceMigrationHook } from "./migration-plan.js"
 import type { SourceProvider } from "./sources-file.js"
 
-export type LegacyHandoverInput = {
+type LegacyHandoverInput = {
   orgId: string
   connectionId: string
   /** The old sync repository of the legacy binding. */

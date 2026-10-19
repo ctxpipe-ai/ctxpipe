@@ -26,10 +26,6 @@ export async function fetchGithubConnectorBootstrap(orgSlug: string) {
   })
 }
 
-export type GithubConnectorBootstrap = Awaited<
-  ReturnType<typeof fetchGithubConnectorBootstrap>
->
-
 export function githubInstallationIsLinked(
   installation: unknown,
 ): installation is { installationId: number } {
@@ -117,24 +113,11 @@ export function githubSetupLinkOptions(orgSlug: string) {
   })
 }
 
-export type CreateGithubDraftBody = {
+type CreateGithubDraftBody = {
   githubAppId: string
   appSlug: string
   privateKey: string
   webhookSecret: string
-}
-
-export async function createGithubDraftConnection(
-  orgSlug: string,
-  body: CreateGithubDraftBody,
-) {
-  const res = await client[":orgSlug"].api.v1.github.installation.draft.$post({
-    param: { orgSlug },
-    json: body,
-  })
-  return readApiJson(res, {
-    message: "Failed to save connector",
-  })
 }
 
 export async function createGithubDraftPlaceholder(orgSlug: string) {
@@ -159,21 +142,3 @@ export async function patchGithubDraftConnection(
   })
 }
 
-export type GithubConnectorStatus = Awaited<
-  ReturnType<typeof fetchGithubConnectorStatus>
->
-
-export async function fetchGithubConnectorStatus(
-  orgSlug: string,
-  connectionId: string,
-) {
-  const res = await client[":orgSlug"].api.v1.github.installation[
-    "connector-status"
-  ].$get({
-    param: { orgSlug },
-    query: { connectionId },
-  })
-  return readApiJson(res, {
-    message: "Failed to load GitHub connector status",
-  })
-}

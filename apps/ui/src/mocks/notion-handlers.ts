@@ -2,7 +2,7 @@ import { HttpResponse, http } from "msw"
 import type { NotionResource } from "@/features/connectors/types"
 
 /** Notion pages and databases that the story connection can read. */
-export const NOTION_STORY_RESOURCES: NotionResource[] = [
+const NOTION_STORY_RESOURCES: NotionResource[] = [
   {
     externalId: "1a2b3c4d-0000-4000-8000-000000000001",
     type: "page",

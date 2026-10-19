@@ -14,7 +14,7 @@ export type GitMergeConflict = {
   incoming: string | null
 }
 
-export type GitMergeResult = {
+type GitMergeResult = {
   staged: StagedGitTree
   paths: string[]
   conflicts: GitMergeConflict[]

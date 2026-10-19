@@ -1,7 +1,7 @@
 import type { HydrateUnit } from "./hydrate.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 
-export const RENAME_SIMILARITY_THRESHOLD = 0.5
+const RENAME_SIMILARITY_THRESHOLD = 0.5
 
 function tokens(value: string): Set<string> {
   return new Set(
@@ -14,7 +14,7 @@ function tokens(value: string): Set<string> {
   )
 }
 
-export function diceSimilarity(left: string, right: string): number {
+function diceSimilarity(left: string, right: string): number {
   const a = tokens(left)
   const b = tokens(right)
   if (a.size === 0 && b.size === 0) return 1

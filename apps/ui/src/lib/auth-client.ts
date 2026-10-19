@@ -91,9 +91,6 @@ export async function refetchSessionOnboardingComplete(): Promise<boolean> {
 }
 
 export const {
-  signIn,
-  signOut,
-  signUp,
   useSession,
   getSession,
   useListOrganizations,

@@ -1,4 +1,4 @@
-export type InviteAcceptDecision =
+type InviteAcceptDecision =
   | { kind: "join" }
   | { kind: "unknown" }
   | { kind: "accept" }

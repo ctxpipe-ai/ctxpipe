@@ -26,14 +26,14 @@ import type {
 import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** One selected root, as the picker holds it. */
-export type NotionRootItem = {
+type NotionRootItem = {
   id: string
   type: "page" | "database"
   title: string
 }
 
 /** The picker selection of a source scope. A bad scope starts empty. */
-export function notionScopeToItems(
+function notionScopeToItems(
   scope: Record<string, unknown>,
 ): NotionRootItem[] {
   const parsed = notionSourceScopeSchema.safeParse(scope)
@@ -51,7 +51,7 @@ export function notionScopeToItems(
 }
 
 /** The source scope of a picker selection, or null when it is not complete. */
-export function notionItemsToScope(
+function notionItemsToScope(
   items: readonly NotionRootItem[],
 ): NotionSourceScope | null {
   const parsed = notionSourceScopeSchema.safeParse(notionItemsScope(items))

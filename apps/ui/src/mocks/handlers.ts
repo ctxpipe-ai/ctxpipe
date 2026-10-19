@@ -182,7 +182,7 @@ async function requireOrganizationApiKeyBody(
   )
 }
 
-export function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
+function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
   return http.get(`${authBase}/api-key/list`, ({ request }) => {
     const url = new URL(request.url)
     if (url.searchParams.get("configId") !== "organization") {

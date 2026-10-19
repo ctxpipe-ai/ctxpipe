@@ -220,7 +220,7 @@ function metricReaderFor(url: string): MetricReader {
 
 const TRACE_SCOPE = "ctxpipe-backend"
 
-export function installOutgoingFetchInstrumentation(): void {
+function installOutgoingFetchInstrumentation(): void {
   if (outgoingFetchInstrumented) return
   outgoingFetchInstrumented = true
   const original = globalThis.fetch.bind(globalThis)

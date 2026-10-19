@@ -16,7 +16,7 @@ export type OrgGuidePreferences = {
   hintsSeen?: string[]
 }
 
-export type UserPreferences = {
+type UserPreferences = {
   selectedOrganizationSlug: string | null
   isSideNavExpanded: boolean | null
   sideNavWidth: number

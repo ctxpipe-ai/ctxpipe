@@ -26,7 +26,7 @@ import type {
   ProviderCallOpts,
 } from "./providers/providerTypes.js"
 
-export type { ModelProviderKind, ModelTier } from "./providers/providerTypes.js"
+
 
 const EMBEDDING_DIMENSIONS = 2000
 
@@ -78,7 +78,7 @@ export function modelProviderConfigured(): boolean {
   return modelEnvSchema.safeParse(process.env).success
 }
 
-export type GetModelOptions = {
+type GetModelOptions = {
   /** Fixed-purpose model selection; bypasses the configurable tier fallback chain. */
   model?: string
   temperature?: number
@@ -105,7 +105,7 @@ function uniqueModelChain(ids: string[]): string[] {
   return out
 }
 
-export function resolveChatBaseUrl(
+function resolveChatBaseUrl(
   provider: ModelProviderKind,
   url: string | undefined,
 ): string {
@@ -177,7 +177,7 @@ export function getModel(tier: ModelTier, options?: GetModelOptions) {
 }
 
 /** Max texts per OpenAI-compatible `/embeddings` request. */
-export const EMBEDDING_BATCH_SIZE = 64
+const EMBEDDING_BATCH_SIZE = 64
 /** Bounded concurrency when the provider only exposes single-text `embed`. */
 const EMBEDDING_SINGLE_CONCURRENCY = 8
 

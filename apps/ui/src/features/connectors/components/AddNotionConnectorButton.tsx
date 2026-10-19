@@ -7,7 +7,7 @@ import { Spinner } from "@/components/ui/spinner"
 import { createDraftNotionConnection } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
 
-export type AddNotionConnectorButtonProps = {
+type AddNotionConnectorButtonProps = {
   orgSlug: string
   /** Open the setup dialog. Its "Connect Notion" step starts OAuth. */
   onStart: (args: { connectionId: string }) => void

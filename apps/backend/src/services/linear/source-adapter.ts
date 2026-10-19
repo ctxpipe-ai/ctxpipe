@@ -58,7 +58,7 @@ export function linearRootPath(
     : `linear/projects/${root.id}/`
 }
 
-export function linearManagedPaths(scope: LinearSourceScope): string[] {
+function linearManagedPaths(scope: LinearSourceScope): string[] {
   return [
     ...linearTeams(scope).map((key) => linearRootPath({ kind: "team", key })),
     ...linearProjects(scope).map((id) =>
@@ -80,7 +80,7 @@ type LinearFetchRoot = {
  * scopes. `teamIdByKey` maps an upper-case team key to its Linear id. A key
  * that Linear does not know has no root; it is in `unknownTeams`.
  */
-export function linearFetchRoots(
+function linearFetchRoots(
   scopes: readonly LinearSourceScope[],
   teamIdByKey: ReadonlyMap<string, string>,
 ): { roots: LinearFetchRoot[]; unknownTeams: string[] } {
@@ -210,7 +210,7 @@ async function linearTeamIdsByKey(input: {
 }
 
 /** Linear refused the entity for good: it does not exist, or the grant cannot read it. */
-export function isPermanentLinearError(error: unknown): boolean {
+function isPermanentLinearError(error: unknown): boolean {
   return (
     error instanceof InvalidInputLinearError ||
     error instanceof ForbiddenLinearError ||
@@ -232,7 +232,7 @@ const missingTeamsDetail = (keys: readonly string[]) =>
  * for another item; when Linear gives no answer, the scope counts as in
  * reach and the sync reports a later failure.
  */
-export async function checkLinearSourceAccess(input: {
+async function checkLinearSourceAccess(input: {
   orgId: string
   connectionId: string
   scope: LinearSourceScope
@@ -404,7 +404,7 @@ async function readRoot(input: {
  * Workspace blobs, the result is a patch: unchanged files are left out, and
  * a webhook entity uses the incremental mirror.
  */
-export async function fetchLinearSources(input: {
+async function fetchLinearSources(input: {
   orgId: string
   connectionId: string
   scopes: readonly LinearSourceScope[]

@@ -1,5 +1,5 @@
 /** One change in the output of `git diff --name-status -z`. */
-export type GitNameStatus = { status: string; from: string; to: string }
+type GitNameStatus = { status: string; from: string; to: string }
 
 /**
  * Parses the output of `git diff --name-status -z` (or `diff-tree`). A rename

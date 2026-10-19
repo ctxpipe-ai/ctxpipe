@@ -1,13 +1,13 @@
 import type { OrgAtlassianOauthGet } from "./queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "./types"
 
-export type ConfluenceWizardStepId =
+type ConfluenceWizardStepId =
   | "oauth_register"
   | "link"
   | "forge"
   | "workspaces"
 
-export type ConfluenceWizardStepDef = {
+type ConfluenceWizardStepDef = {
   readonly id: ConfluenceWizardStepId
   readonly label: string
 }
@@ -72,7 +72,7 @@ export function getConfluenceCardCurrentIndex(
   return stepIndex(defs, "forge")
 }
 
-export type ConfluenceWizardBodyId =
+type ConfluenceWizardBodyId =
   | "oauth_register"
   | "link"
   | "install"
@@ -130,7 +130,7 @@ export function getConfluenceWizardBodyIdForStepIndex(
 }
 
 /** The card action: continue setup, or none once the connection is ready. */
-export type ConfluenceCardPrimaryCta = { kind: "open_wizard"; label: string }
+type ConfluenceCardPrimaryCta = { kind: "open_wizard"; label: string }
 
 export function getConfluenceCardPrimaryCta(
   currentIndex: number,
@@ -150,11 +150,3 @@ export function getConfluenceCardPrimaryCta(
   }
 }
 
-export function hasConfluenceConnectionRow(
-  status: AtlassianConnectorStatus | undefined,
-): boolean {
-  if (!status) return false
-  return Boolean(
-    status.isLinked || status.isInstalled || status.installationStatus != null,
-  )
-}

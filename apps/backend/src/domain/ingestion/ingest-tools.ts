@@ -85,7 +85,7 @@ const LIST_CHECKOUTS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
 }
 
 /** The step's tools. Each call must name a bound repository and checkout key. */
-export function ingestTools(
+function ingestTools(
   orgId: string,
   checkouts: ReadonlyArray<BoundCheckout & { checkout: CodeCheckout }>,
 ): WorkspaceChatTanstackTool[] {

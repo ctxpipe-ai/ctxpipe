@@ -1,7 +1,7 @@
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 
-export type PickerOrganization = { id: string; name: string; slug: string }
+type PickerOrganization = { id: string; name: string; slug: string }
 
 /**
  * Check boxes for the orgs an OAuth connection can reach. The parent keeps

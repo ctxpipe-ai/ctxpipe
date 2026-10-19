@@ -12,7 +12,7 @@ import { relativePath } from "../mcp/paths.js"
 import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
 
 /** Legacy AgentMemory / ConKeeper guidance that must not survive re-init. */
-export function isLegacyMemoryDoc(text: string): boolean {
+function isLegacyMemoryDoc(text: string): boolean {
   // Require multiple signals so a single negated mention ("do not use AgentMemory")
   // does not wipe a custom README.
   let score = 0
@@ -53,7 +53,7 @@ export function isLegacyMemoryDoc(text: string): boolean {
  * Strip retired local-memory MCP tables from Codex config.toml
  * (e.g. `[mcp_servers.ctxpipe-memory]` from `codex mcp add`).
  */
-export function stripLegacyCodexMemoryToml(existing: string): string {
+function stripLegacyCodexMemoryToml(existing: string): string {
   // Match section headers even when indented; stop at the next header line.
   let text = existing.replace(
     /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[)[^\n]*)*/gm,
@@ -108,7 +108,7 @@ function stripServerMap(
 }
 
 /** Strip legacy AgentMemory MCP + memory stanza from JSON configs. */
-export function stripLegacyMemoryMcp(
+function stripLegacyMemoryMcp(
   existing: Record<string, unknown>,
 ): Record<string, unknown> {
   const next = { ...existing }

@@ -1,6 +1,6 @@
 import type { SlackConnectorStatus } from "./queries/slack-connector"
 
-export type SlackSetupView =
+type SlackSetupView =
   | "loading"
   | "error"
   | "authorize"
