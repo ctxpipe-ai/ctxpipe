@@ -68,7 +68,8 @@ function UpgradeToast(props: {
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconCircleArrowUp
-        className="size-4 shrink-0 text-teal-300"
+        className="size-5 shrink-0 text-teal-300"
+        stroke={1.25}
         aria-hidden
       />
       <div className="min-w-0 grow basis-64">
@@ -107,7 +108,7 @@ function UpgradeToast(props: {
             Always update
           </Button>
           <Button
-            variant="quiet"
+            variant="ghost"
             size="sm"
             isDisabled={start.isPending}
             onPress={onDismiss}
@@ -151,7 +152,13 @@ export function WorkspaceUpgradeToasts(props: {
       />
     ),
   }))
-  return <ToastStack label="Workspace upgrades" toasts={toasts} />
+  return (
+    <ToastStack
+      label="Workspace upgrades"
+      slotClassName="h-53 sm:h-28"
+      toasts={toasts}
+    />
+  )
 }
 
 /**

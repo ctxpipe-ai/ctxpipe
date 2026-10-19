@@ -8,6 +8,7 @@ import {
   useRef,
   useState,
 } from "react"
+import { cn } from "@/lib/utils"
 
 /** The space between two open toasts, and the step of the closed stack (px). */
 const GAP = 12
@@ -45,35 +46,36 @@ function useHeights(list: RefObject<HTMLOListElement | null>, key: string) {
 }
 
 /**
- * A stack of toasts in the top center of the screen (CTX-894). The front toast
- * shows in full; the others are edges behind it. Hover or focus in the stack
+ * A stack of toasts in a reserved slot of the page flow (CTX-894). The slot
+ * keeps the height of one toast, with or without a toast, so nothing moves
+ * when a toast shows. The front toast shows in full; the others are edges
+ * behind it. Hover or focus in the stack
  * opens it, so each toast shows in full above the front one and Tab reaches
  * each control. Only transforms and opacity move (DESIGN.md Motion), and the
  * reduced-motion rule stops them.
  */
 export function ToastStack(props: {
   label: string
+  /** The class names of the slot: they set its height. */
+  slotClassName?: string
   toasts: ReadonlyArray<{ id: string; content: ReactNode }>
 }) {
-  const { label, toasts } = props
+  const { label, toasts, slotClassName } = props
   const list = useRef<HTMLOListElement>(null)
   // The pointer opens the stack; focus opens it with `:focus-within`.
   const [hovered, setHovered] = useState(false)
   const heights = useHeights(list, toasts.map((toast) => toast.id).join("\n"))
-  if (toasts.length === 0) return null
+  if (toasts.length === 0) return <div aria-hidden className={slotClassName} />
   const frontHeight = heights[toasts[0]?.id ?? ""] ?? 0
   let offset = 0
   return (
-    <section
-      aria-label={label}
-      className="pointer-events-none fixed inset-x-4 top-4 z-40 flex justify-center"
-    >
+    <section aria-label={label} className={cn("relative z-40", slotClassName)}>
       <ol
         ref={list}
         data-open={hovered || undefined}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
-        className="group/stack pointer-events-auto relative w-full max-w-3xl"
+        className="group/stack absolute inset-x-0 top-0"
       >
         {toasts.map((toast, index) => {
           const openY = offset
@@ -92,7 +94,7 @@ export function ToastStack(props: {
               style={style}
               data-front={front || undefined}
               className={[
-                "rounded-md border border-white/10 bg-zinc-900 text-foreground",
+                "rounded-md border border-white/15 bg-zinc-800 text-foreground shadow-lg shadow-black/40",
                 "origin-top translate-y-(--toast-closed-y) scale-(--toast-closed-scale) ease-out transition-[translate,scale,opacity]",
                 "group-data-open/stack:translate-y-(--toast-open-y) group-data-open/stack:scale-100 group-focus-within/stack:translate-y-(--toast-open-y) group-focus-within/stack:scale-100",
                 // The space under an open toast keeps the hover, so the stack
