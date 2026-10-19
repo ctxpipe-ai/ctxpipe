@@ -273,6 +273,44 @@ it("wraps a failed model call of an ingest merge in a SemanticResolveError", asy
   )
 }, 60_000)
 
+// CTX-899: a model that skips the forced output tool once must not fail the
+// whole re-ingestion.
+const slipThen = (slips: number) =>
+  http.post("https://semantic-merge.test/v1/chat/completions", () => {
+    if (calls >= slips) return undefined
+    calls += 1
+    return HttpResponse.json({
+      id: "merge",
+      object: "chat.completion",
+      created: 1,
+      model: "fixture",
+      choices: [
+        {
+          index: 0,
+          message: { role: "assistant", content: "Here is the merge." },
+          finish_reason: "stop",
+        },
+      ],
+    })
+  })
+
+it("asks the merge model again when it does not call the output tool", async () => {
+  answer = [
+    { path: "knowledge/services/checkout.md", content: `${HUMAN}\nBoth.\n` },
+  ]
+  server.use(slipThen(2))
+  await expect(resolveIngestConflicts(ingestConflicts)).resolves.toEqual(answer)
+  expect(calls).toBe(3)
+})
+
+it("fails the merge with the cause after a bounded count of slips", async () => {
+  server.use(slipThen(Number.POSITIVE_INFINITY))
+  await expect(resolveIngestConflicts(ingestConflicts)).rejects.toThrow(
+    "The semantic merge failed: The model did not call the structured output tool (3 attempts)",
+  )
+  expect(calls).toBe(3)
+})
+
 // CTX-721: each file under sources/ is one source. Only the host writes it
 // without a pull request.
 it("lets a host write change sources/ and refuses an agent or extraction write", () => {

@@ -268,7 +268,8 @@ it.each(["valid", "out-of-scope"] as const)(
                 "main",
               ),
             ).toBe(path)
-            expect(f.semanticRequests).toHaveLength(3)
+            // Each step attempt asks the model 3 times (CTX-899).
+            expect(f.semanticRequests).toHaveLength(9)
           }
           const attempts = (
             await f.backend.listStepAttempts({
