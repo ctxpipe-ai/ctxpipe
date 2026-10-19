@@ -69,7 +69,7 @@ export function CalendarHeader() {
   const { direction } = useLocale()
 
   return (
-    <header className="flex items-center gap-1 pb-4 px-1 border-box">
+    <header className="flex items-center gap-1 pb-2 px-1 border-box">
       <Button variant="quiet" size="icon-sm" slot="previous">
         {direction === "rtl" ? (
           <IconChevronRight aria-hidden size={18} />
@@ -77,7 +77,7 @@ export function CalendarHeader() {
           <IconChevronLeft aria-hidden size={18} />
         )}
       </Button>
-      <Heading className="flex-1 font-sans font-semibold [font-variation-settings:normal] text-base text-center mx-2 my-0 text-neutral-900 dark:text-neutral-200" />
+      <Heading className="flex-1 font-sans font-semibold [font-variation-settings:normal] text-sm text-center mx-2 my-0 text-neutral-900 dark:text-neutral-200" />
       <Button variant="quiet" size="icon-sm" slot="next">
         {direction === "rtl" ? (
           <IconChevronLeft aria-hidden size={18} />
