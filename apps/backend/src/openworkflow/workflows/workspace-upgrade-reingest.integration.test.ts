@@ -102,14 +102,14 @@ const otherSource = `acme/ledger-${suffix}`
 /** A source repository with no remote: no run can read it. */
 const goneSource = `acme/gone-${suffix}`
 const contexts = [`acme/context-a-${suffix}`, `acme/context-b-${suffix}`]
-const capSources = [`acme/cap-a-${suffix}`, `acme/cap-b-${suffix}`]
+const costlySources = [`acme/costly-a-${suffix}`, `acme/costly-b-${suffix}`]
 contexts.push(
   `acme/context-c-${suffix}`,
   `acme/context-d-${suffix}`,
   `acme/context-e-${suffix}`,
   `acme/context-f-${suffix}`,
 )
-const [ready, behind, capped, wide, yamlOnly, overlay] = [
+const [ready, behind, costly, wide, yamlOnly, overlay] = [
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -124,8 +124,8 @@ const [ready, behind, capped, wide, yamlOnly, overlay] = [
 const sourcesOf = [
   [sourceName],
   [otherSource],
-  capSources,
-  [sourceName, otherSource, capSources[0] ?? ""],
+  costlySources,
+  [sourceName, otherSource, costlySources[0] ?? ""],
   [otherSource],
   [sourceName, goneSource],
 ]
@@ -231,15 +231,15 @@ beforeAll(async () => {
     "README.md": "# Billing API\n",
   })
   remote(otherSource, { "README.md": "# Ledger\n" })
-  // The first cap source is a small monorepo with three roots.
-  remote(capSources[0] ?? "", {
+  // The first costly source is a small monorepo with three roots.
+  remote(costlySources[0] ?? "", {
     "package.json": '{ "name": "cap" }\n',
     // The workspace manifest names the roots, so no model chooses a root.
     "pnpm-workspace.yaml": 'packages:\n  - "."\n  - packages/*\n',
     "packages/a/package.json": '{ "name": "a" }\n',
     "packages/b/package.json": '{ "name": "b" }\n',
   })
-  remote(capSources[1] ?? "", { "package.json": '{ "name": "cap" }\n' })
+  remote(costlySources[1] ?? "", { "package.json": '{ "name": "cap" }\n' })
   // The tree of each Workspace has the format of its row: ingestion v2
   // reads the format at the pinned commit before it publishes (G5).
   // Each source file is in the tree too: the publish checks it.
@@ -303,13 +303,13 @@ beforeAll(async () => {
     installationId: 446,
     accountSlug: "acme",
   })
-  // `ready`, `capped`, `wide` and `yamlOnly` are at format 3. `wide` has
+  // `ready`, `costly`, `wide` and `yamlOnly` are at format 3. `wide` has
   // more source repositories than the step budget of this file holds.
   // `behind` is at format 2, so it must merge the format upgrade first (G5).
   for (const [i, workspaceId] of [
     ready,
     behind,
-    capped,
+    costly,
     wide,
     yamlOnly,
     overlay,
@@ -688,85 +688,50 @@ it(
 )
 
 it(
-  "stops starting model steps at the cost cap, publishes the finished part, and continues later without paying it again",
+  "runs every model step when the spend is high, publishes all of it, and records the spend",
   { timeout: 420_000 },
   async () => {
-    // The bundle of this file has one model skill (`classify-kind`, one step
-    // for each root), so the cap of each repository is the minimum, $5. Each
-    // model step reports $2: two steps run (spend $4), and the third would
-    // pass the cap.
-    stepCostUsd.set(capped, 2)
-    expect(await row(capped)).toMatchObject({ status: "awaiting_operator" })
-    const callsBefore = modelCalls.filter((id) => id === capped).length
-    expect(await start(capped)).toMatchObject({ kind: "queued" })
-    const stopped = await settled(capped)
-    expect(stopped).toMatchObject({
-      status: "failed",
-      failureReason: expect.stringContaining("cost_cap"),
-      upgrade: {
-        stopReason: "cost_cap",
-        repositories: [
-          expect.objectContaining({
-            repository: capSources[0],
-            status: "partial",
-            capUsd: 5,
-            spendUsd: 4,
-            report: [expect.stringContaining("reached its cost cap of $5.00")],
-          }),
-          // The other repository has its own cap, and runs.
-          expect.objectContaining({
-            repository: capSources[1],
-            status: "done",
-            capUsd: 5,
-          }),
-        ],
-      },
-    })
-    const [first, second] = stopped?.upgrade.repositories ?? []
-    // The spend stays inside the cap: the step that would pass it did not
-    // start.
-    expect(first?.spendUsd ?? 0).toBeLessThanOrEqual(first?.capUsd ?? 0)
-    expect(modelCalls.filter((id) => id === capped).length - callsBefore).toBe(
-      3,
-    )
-    expect(first?.doneRoots).toHaveLength(2)
-    // The finished part is published.
-    expect(
-      git(
-        join(remotes, contexts[2] ?? ""),
-        "show",
-        `main:${modelFile(capSources[0] ?? "").path}`,
-      ),
-    ).toContain("The cap-a service sends invoices.")
-
-    // Continue: the new run skips the two roots that are done, so it pays
-    // for one model step of the first repository, and none of the second.
-    stepCostUsd.delete(capped)
-    const callsBeforeContinue = modelCalls.filter((id) => id === capped).length
-    expect(await start(capped)).toMatchObject({ kind: "queued" })
-    expect(await settled(capped)).toMatchObject({
+    // Each model step reports $50. The first repository has three roots
+    // and the second one root, so the run spends $200. The product records
+    // spend and does not cap it (ADR-052): each step runs.
+    stepCostUsd.set(costly, 50)
+    expect(await row(costly)).toMatchObject({ status: "awaiting_operator" })
+    const callsBefore = modelCalls.filter((id) => id === costly).length
+    expect(await start(costly)).toMatchObject({ kind: "queued" })
+    const finished = await settled(costly)
+    expect(finished).toMatchObject({
       status: "completed",
       upgrade: {
         repositories: [
           expect.objectContaining({
-            repository: capSources[0],
+            repository: costlySources[0],
             status: "done",
+            spendUsd: 150,
           }),
           expect.objectContaining({
-            repository: capSources[1],
+            repository: costlySources[1],
             status: "done",
+            spendUsd: 50,
           }),
         ],
       },
     })
+    expect(modelCalls.filter((id) => id === costly).length - callsBefore).toBe(
+      4,
+    )
     expect(
-      modelCalls.filter((id) => id === capped).length - callsBeforeContinue,
-    ).toBe(1)
-    expect(await reingestRuns(capped)).toHaveLength(3)
+      git(
+        join(remotes, contexts[2] ?? ""),
+        "show",
+        `main:${modelFile(costlySources[0] ?? "").path}`,
+      ),
+    ).toContain("The costly-a service sends invoices.")
+    stepCostUsd.delete(costly)
+    const [first, second] = finished?.upgrade.repositories ?? []
 
     // The later tests of this file start from a failed row whose second
     // repository did not run.
-    await setRow(capped, {
+    await setRow(costly, {
       to: "failed",
       failureReason: "The re-ingestion stopped.",
       upgrade: {
@@ -803,9 +768,9 @@ it(
 )
 
 it("keeps the row when the scan cannot read the format, or the format is newer than this code", async () => {
-  expect(await row(capped)).toMatchObject({ status: "failed" })
+  expect(await row(costly)).toMatchObject({ status: "failed" })
   const [workspace] = await withOrgDbContext(org.id, (db) =>
-    db.select().from(workspaces).where(eq(workspaces.id, capped)),
+    db.select().from(workspaces).where(eq(workspaces.id, costly)),
   )
   // No cached format and no commit: git cannot give the format file now.
   // Then a format that is newer than this code.
@@ -813,12 +778,12 @@ it("keeps the row when the scan cannot read the format, or the format is newer t
     { formatVersion: null, desiredSha: null },
     { formatVersion: 4 },
   ]) {
-    await setWorkspace(capped, fields)
+    await setWorkspace(costly, fields)
     await runScan()
-    expect(await row(capped)).toMatchObject({ status: "failed" })
-    expect((await row(capped))?.upgrade.blockedReason).toBeUndefined()
+    expect(await row(costly)).toMatchObject({ status: "failed" })
+    expect((await row(costly))?.upgrade.blockedReason).toBeUndefined()
   }
-  await setWorkspace(capped, {
+  await setWorkspace(costly, {
     formatVersion: 3,
     desiredSha: workspace?.desiredSha ?? null,
   })
@@ -830,35 +795,35 @@ it(
   async () => {
     // Queued: the run of this click ended before it claimed the row.
     const approvedAt = new Date().toISOString()
-    await endedUpgradeRun(capped, approvedAt)
-    await setRow(capped, {
+    await endedUpgradeRun(costly, approvedAt)
+    await setRow(costly, {
       to: "queued",
       upgrade: { approvedAt },
       workflowRunId: null,
     })
-    await withOrgIdContext(org, () => failStoppedUpgradeRun(capped))
-    expect(await row(capped)).toMatchObject({
+    await withOrgIdContext(org, () => failStoppedUpgradeRun(costly))
+    expect(await row(costly)).toMatchObject({
       status: "failed",
       failureReason: "The upgrade run stopped before it finished.",
     })
 
     // Running: the recorded run ended without its result.
-    await setRow(capped, {
+    await setRow(costly, {
       to: "running",
-      workflowRunId: await endedUpgradeRun(capped),
+      workflowRunId: await endedUpgradeRun(costly),
     })
     await runScan()
-    expect(await row(capped)).toMatchObject({
+    expect(await row(costly)).toMatchObject({
       status: "failed",
       failureReason: "The upgrade run stopped before it finished.",
     })
 
-    stepCostUsd.delete(capped)
-    // An earlier run did the first repository and spent more than the cap.
-    // The new run skips it and does not count that spend again.
-    const [first, ...rest] = (await row(capped))?.upgrade.repositories ?? []
+    stepCostUsd.delete(costly)
+    // An earlier run did the first repository and spent a lot. The new
+    // run skips it and keeps that spend in the report.
+    const [first, ...rest] = (await row(costly))?.upgrade.repositories ?? []
     expect(first?.sha).toEqual(expect.any(String))
-    await setRow(capped, {
+    await setRow(costly, {
       to: "failed",
       upgrade: {
         repositories: [
@@ -872,18 +837,18 @@ it(
       },
     })
     // A publish of the first repository can land after the pin of the new
-    // run: the cost cap can cancel that run after its push. Force that
+    // run: the time limit can cancel that run after its push. Force that
     // order: the new run publishes on a default branch that moved.
     const work = mkdtempSync(join(folder, "late-"))
     git(work, "clone", "-q", join(remotes, contexts[2] ?? ""), ".")
-    const late = modelFile(capSources[0] ?? "")
+    const late = modelFile(costlySources[0] ?? "")
     mkdirSync(dirname(join(work, late.path)), { recursive: true })
     writeFileSync(join(work, late.path), late.content)
     git(work, "add", "-A")
     git(work, "commit", "-q", "-m", "A late publish of the first repository")
     git(work, "push", "-q", "origin", "HEAD:main")
-    expect(await start(capped)).toMatchObject({ kind: "queued" })
-    expect(await settled(capped)).toMatchObject({
+    expect(await start(costly)).toMatchObject({ kind: "queued" })
+    expect(await settled(costly)).toMatchObject({
       status: "completed",
       upgrade: {
         repositories: [

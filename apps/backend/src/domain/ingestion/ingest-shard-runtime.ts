@@ -89,7 +89,7 @@ export type IngestStepUsage = {
   costUsd?: number
   /**
    * The model steps that reported no usage. Their spend is unknown, so the
-   * spend and the cost cap count only the steps that reported usage.
+   * recorded spend counts only the steps that reported usage.
    */
   unknownSteps?: number
 }

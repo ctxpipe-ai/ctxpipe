@@ -50,8 +50,7 @@ export async function enableAutomaticUpgrades(
  * Start each upgrade item of the Workspace that waits for an owner or admin,
  * when the format file of the Workspace has `upgrades: automatic`. A git
  * upgrade starts before a re-ingestion. A failed item waits for a person.
- * The cost cap of a re-ingestion applies as on a click. It returns the keys
- * that it queued. Call it inside the org context.
+ * It returns the keys that it queued. Call it inside the org context.
  */
 export async function startAutomaticUpgrades(input: {
   orgId: string

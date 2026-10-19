@@ -67,7 +67,7 @@ All deploy paths run the same migrate command before the new code serves traffic
 
 - By default, nothing changes a Workspace repository or starts a paid run automatically. This applies to hosted too. There is no org-wide approval.
 - An org owner or admin starts each upgrade item of a Workspace in the UI. A merge of the upgrade pull request is a second human approval.
-- Revision 2026-10-19 (a product decision): an owner or admin can choose Always update for one Workspace. ctx| then writes `upgrades: automatic` into the format file of that Workspace, so the setting is in git and visible. The upgrade scan starts each item of that Workspace that waits for an operator. A failed item still waits for a person. The cost cap of a re-ingestion applies as on a click, and a merge of the upgrade pull request is still a human approval. The database stores no setting.
+- Revision 2026-10-19 (a product decision): an owner or admin can choose Always update for one Workspace. ctx| then writes `upgrades: automatic` into the format file of that Workspace, so the setting is in git and visible. The upgrade scan starts each item of that Workspace that waits for an operator. A failed item still waits for a person. A merge of the upgrade pull request is still a human approval. The database stores no setting.
 - Data work that changes no Workspace repository (for example the retirement of old workflows) runs in the migrate command or the worker, with no click.
 
 ## Consequences

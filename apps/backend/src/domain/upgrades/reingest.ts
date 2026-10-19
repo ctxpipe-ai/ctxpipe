@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import { ingestionRunTree } from "../ingestion/ingest-cost-cap.js"
+import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   plannedIngestSkills,
@@ -82,7 +82,7 @@ const ESTIMATE = {
   parallelShards: 4,
 } as const
 
-export { ingestionRunSpend } from "../ingestion/ingest-cost-cap.js"
+export { ingestionRunSpend } from "../ingestion/ingest-spend.js"
 export { isReingestUpgradeKey, reingestUpgradeKey } from "./keys.js"
 
 /**

@@ -293,12 +293,10 @@ describe("step budget", () => {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          doneRoots: [],
         })
         const result = await handle.result({ timeoutMs: 60_000 })
         expect(result).toMatchObject({
           status: "failed",
-          capped: false,
           report: [
             "The ingestion run did not finish in the time that the upgrade waits.",
           ],
@@ -367,7 +365,6 @@ async function orphanedRepositoryRun(orgId: string) {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          doneRoots: [],
         },
         { name: "repository:0" },
       ),
