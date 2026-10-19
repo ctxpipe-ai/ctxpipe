@@ -88,6 +88,8 @@ export function WorkspacePane(props: {
   maximized: boolean
   width: number | null
   onPane: (pane: ParsedPane) => void
+  /** Opens the Workspace chat with this prompt in the composer. */
+  onFixWithAgent?: (prompt: string) => void
   onClose: () => void
   onToggleMaximize: () => void
   onRestoreConversation: () => void
@@ -451,6 +453,9 @@ export function WorkspacePane(props: {
                 orgSlug={props.orgSlug}
                 workspace={props.workspace}
                 onOpenFile={openFile}
+                {...(props.onFixWithAgent
+                  ? { onFixWithAgent: props.onFixWithAgent }
+                  : {})}
               />
             ) : null}
             {pane.kind === "unknown" ? (
