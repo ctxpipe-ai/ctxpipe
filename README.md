@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="./apps/docs/public/ctxpipe-logo-readme.png" alt="ctx|" width="420" />
+  <img src="./apps/docs/public/ctxpipe-logo-readme.png" alt="ctx|" width="336" />
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="License: MIT" /></a>
-  <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/follow-@ctxpipe-000000.svg?logo=x&logoColor=white" alt="Follow @ctxpipe on X" /></a>
+  <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/@ctxpipe-555555.svg?logo=x&logoColor=white" alt="Follow @ctxpipe on X" /></a>
   <a href="https://ctxpipe.ai/discord"><img src="https://img.shields.io/badge/chat-Discord-5865F2.svg?logo=discord&logoColor=white" alt="Chat: Discord" /></a>
 </p>
 
