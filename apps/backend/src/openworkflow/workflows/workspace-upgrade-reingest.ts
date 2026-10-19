@@ -93,20 +93,30 @@ const repositoryInputSchema = z
     githubConnectionId: z.string().min(1).nullable(),
     sha: z.string().min(1),
     authorTime: z.string().min(1),
-    /** Stop the ingestion run when its spend passes this (USD). Null: no cap. */
-    capUsd: z.number().nullable(),
+    /**
+     * The roots that an earlier run of this commit did before it reached
+     * its cost cap. The ingestion run skips them (CTX-897).
+     */
+    doneRoots: z.array(z.string()),
   })
   .strict()
 
 type RepositoryResult = Pick<
   ReingestRepositoryReport,
-  "status" | "report" | "runId"
+  "status" | "report" | "runId" | "capUsd" | "doneRoots"
 > & { spendUsd: number; spendUnknown: boolean; capped: boolean }
 
 const runOutputSchema = z
   .object({
     status: z.enum(["done", "partial", "skipped"]),
     reason: z.string().optional(),
+    costCap: z
+      .object({
+        capUsd: z.number(),
+        reached: z.boolean(),
+        doneRoots: z.array(z.string()),
+      })
+      .optional(),
     workspaces: z
       .array(
         z
@@ -130,10 +140,16 @@ const runOutputSchema = z
 function runReport(
   state: Extract<Awaited<ReturnType<typeof ingestionRunState>>, { done: true }>,
   workspaceId: string,
-): Pick<ReingestRepositoryReport, "status" | "report"> {
+): Pick<
+  ReingestRepositoryReport,
+  "status" | "report" | "capUsd" | "doneRoots"
+> & {
+  capped: boolean
+} {
   if (state.status !== "completed")
     return {
       status: "failed",
+      capped: false,
       report: [
         state.status === "canceled"
           ? "The ingestion run was canceled."
@@ -144,6 +160,7 @@ function runReport(
   if (!output.success)
     return {
       status: "failed",
+      capped: false,
       report: ["ctx| cannot read the result of the ingestion run."],
     }
   const reason = output.data.reason ? [output.data.reason] : []
@@ -153,17 +170,33 @@ function runReport(
   if (!result)
     return {
       status: "failed",
+      capped: false,
       report: [
         ...reason,
         "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
       ],
     }
+  const costCap = output.data.costCap
+  const cap = costCap ? { capUsd: costCap.capUsd } : {}
+  if (costCap?.reached)
+    return {
+      status: "partial",
+      capped: true,
+      ...cap,
+      doneRoots: costCap.doneRoots,
+      report: [
+        `The run reached its cost cap of ${usd(costCap.capUsd)}, which scales with the size of the repository. ctx| published the finished part (${costCap.doneRoots.length} roots done). Continue to do the rest: the next run skips the finished roots.`,
+        ...(result.refused !== undefined ? [result.refused] : []),
+      ],
+    }
   if (result.refused !== undefined || result.partial > 0)
     return {
       status: "partial",
+      capped: false,
+      ...cap,
       report: result.refused !== undefined ? [result.refused] : reason,
     }
-  return { status: "done", report: [] }
+  return { status: "done", capped: false, ...cap, report: [] }
 }
 
 const usd = (value: number) => `$${value.toFixed(2)}`
@@ -171,10 +204,11 @@ const usd = (value: number) => `$${value.toFixed(2)}`
 /**
  * One source repository of a re-ingestion: its own run, so that each
  * repository has its own step budget. It starts the ingestion v2 run at the
- * pinned commit, then reads its state and its model spend with polls that
- * back off. When the spend passes `capUsd`, it cancels the ingestion run.
- * The ingestion v2 publish is the normal path (ADR-047 broker, `knowledge/`
- * only).
+ * pinned commit with a cost cap, then reads its state and its model spend
+ * with polls that back off. The ingestion run enforces its own cap: at the
+ * cap it starts no new model step and publishes the finished part
+ * (CTX-897). The ingestion v2 publish is the normal path (ADR-047 broker,
+ * `knowledge/` only).
  */
 export function defineWorkspaceUpgradeReingestRepository(
   options: Options = {},
@@ -200,6 +234,7 @@ export function defineWorkspaceUpgradeReingestRepository(
             // Only this Workspace: the other Workspaces of the repository
             // did not approve a publish, and the cap counts only this one.
             destinations: [input.workspaceId],
+            costCap: { doneRoots: input.doneRoots },
           } satisfies IngestionV2Input,
           {
             idempotencyKey: reingestRunKey({
@@ -227,21 +262,17 @@ export function defineWorkspaceUpgradeReingestRepository(
                 runId,
                 spendUsd,
                 spendUnknown,
-                capped: false,
               }
-            const capped = input.capUsd !== null && spendUsd > input.capUsd
-            if (!capped && !last) return null
+            if (!last) return null
             await cancelIngestionRun(runId)
             return {
               status: "failed",
               runId,
               spendUsd,
               spendUnknown,
-              capped,
+              capped: false,
               report: [
-                capped
-                  ? `ctx| stopped the ingestion run at the cost cap: it spent ${usd(spendUsd)}, and the cap left for it was ${usd(input.capUsd ?? 0)}.`
-                  : "The ingestion run did not finish in the time that the upgrade waits.",
+                "The ingestion run did not finish in the time that the upgrade waits.",
               ],
             }
           },
@@ -268,7 +299,6 @@ export const workspaceUpgradeReingestRepository =
 const plannedSchema = z.union([
   z.object({ blocked: z.string(), note: z.string() }),
   z.object({
-    capUsd: z.number().nullable(),
     repositories: z.array(
       z.object({
         repository: z.string(),
@@ -277,6 +307,8 @@ const plannedSchema = z.union([
         sha: z.string().nullable(),
         /** Why ctx| could not read the tip (with no `sha`). */
         tipError: z.string().nullable().optional(),
+        /** The roots that an earlier capped run did at this commit. */
+        doneRoots: z.array(z.string()).optional(),
         /** Done at this commit by an earlier run of this upgrade. */
         done: z
           .object({
@@ -312,7 +344,9 @@ function tipErrorText(error: unknown): string {
 /**
  * Check the gates again at the run, and pin each source repository at its
  * default tip. A repository that an earlier run of the row did at the same
- * commit is done: a new start does not pay for it again.
+ * commit is done: a new start does not pay for it again. A repository whose
+ * earlier run reached the cost cap at the same commit continues: the new
+ * run skips the roots that are done.
  */
 async function planReingest(input: {
   orgId: string
@@ -332,7 +366,6 @@ async function planReingest(input: {
   const earlier = new Map(
     (row?.upgrade.repositories ?? []).map((r) => [r.repository, r]),
   )
-  const high = row?.upgrade.estimate?.costUsd.high
   const env = parseEnv(process.env)
   const repositories = []
   for (const source of await workspaceSourceRepositories(
@@ -361,6 +394,8 @@ async function planReingest(input: {
       ...source,
       sha,
       tipError,
+      doneRoots:
+        sha && before?.sha === sha && before.doneRoots ? before.doneRoots : [],
       done:
         sha && before?.status === "done" && before.sha === sha
           ? {
@@ -371,8 +406,7 @@ async function planReingest(input: {
           : null,
     })
   }
-  // The cost cap: 2 times the p90 estimate of the whole re-ingestion.
-  return { capUsd: high === undefined ? null : 2 * high, repositories }
+  return { repositories }
 }
 
 /**
@@ -386,11 +420,13 @@ async function planReingest(input: {
  * of an org at a time, held until the run ends, and a cap of runs on the
  * instance. It runs one child run for each repository, one after the other
  * (`workspace-upgrade-reingest-repository`), so that each repository has its
- * own step budget. The model spend of the runs adds up; when it passes 2
- * times the p90 estimate, the run stops with `failed` and the spend. The row
+ * own step budget and its own cost cap, which scales with the size of the
+ * repository (CTX-897). A run that reaches its cap publishes the finished
+ * part and is `partial`; the row then fails with `stopReason: cost_cap`. The row
  * is `completed` when each repository is `done` for this Workspace, else
- * `failed` with the other repositories; the operator can start it again, and the next run
- * skips each repository that is done at the same commit.
+ * `failed` with the other repositories; the operator can start it again
+ * (continue). The next run skips each repository that is done at the same
+ * commit, and each root that a capped run did.
  */
 export function defineWorkspaceUpgradeReingest(
   options: Options & {
@@ -517,6 +553,7 @@ export function defineWorkspaceUpgradeReingest(
                     : [
                         `ctx| cannot read the default branch of the repository.${r.tipError ? ` ${r.tipError}` : ""}`,
                       ],
+                ...(r.doneRoots?.length ? { doneRoots: r.doneRoots } : {}),
                 ...(r.done
                   ? {
                       spendUsd: r.done.spendUsd,
@@ -572,23 +609,12 @@ export function defineWorkspaceUpgradeReingest(
                 ),
               )
             }
-            // The cap counts the spend of this run. A repository that an
-            // earlier run did keeps its spend in the report, but it does not
-            // count again: else a start after a cost cap stops at once.
-            let spent = 0
-            let capped = false
+            // Each repository run has its own cost cap. A repository that an
+            // earlier run did keeps its spend in the report.
+            const capped: string[] = []
             for (const [index, source] of planned.repositories.entries()) {
               const report = reports[index]
               if (!source.sha || !report || report.status === "done") continue
-              if (capped) {
-                Object.assign(report, {
-                  status: "failed",
-                  report: [
-                    "Not started: the re-ingestion stopped at the cost cap.",
-                  ],
-                })
-                continue
-              }
               const result: RepositoryResult = await step
                 .runWorkflow(
                   repositoryWorkflow.spec,
@@ -601,10 +627,7 @@ export function defineWorkspaceUpgradeReingest(
                     githubConnectionId: source.githubConnectionId,
                     sha: source.sha,
                     authorTime: run.createdAt.toISOString(),
-                    capUsd:
-                      planned.capUsd === null
-                        ? null
-                        : Math.max(0, planned.capUsd - spent),
+                    doneRoots: source.doneRoots ?? [],
                   },
                   { name: `repository:${index}` },
                 )
@@ -621,13 +644,12 @@ export function defineWorkspaceUpgradeReingest(
                     ],
                   }
                 })
-              spent += result.spendUsd
-              capped =
-                result.capped ||
-                (planned.capUsd !== null && spent > planned.capUsd)
+              if (result.capped) capped.push(source.repository)
               Object.assign(report, {
                 status: result.status,
                 runId: result.runId,
+                capUsd: result.capUsd,
+                doneRoots: result.doneRoots,
                 report: result.spendUnknown
                   ? [
                       ...result.report,
@@ -642,10 +664,10 @@ export function defineWorkspaceUpgradeReingest(
                 upgrade: { repositories: reports },
               })
             }
-            if (capped)
+            if (capped.length)
               return record("record-cost-cap", {
                 to: UPGRADE_STATUSES.failed,
-                failureReason: `The re-ingestion stopped at the cost cap (cost_cap): the model spend is ${usd(spent)}, and the cap is ${usd(planned.capUsd ?? 0)} (2 times the p90 estimate).`,
+                failureReason: `The re-ingestion reached the cost cap (cost_cap) for ${capped.join(", ")}. ctx| published the finished part. Continue to do the rest: the next run skips the finished parts and spends up to one more cap.`,
                 upgrade: { repositories: reports, stopReason: "cost_cap" },
               })
             // Only a run that published all of its work to this Workspace

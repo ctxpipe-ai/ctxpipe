@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import type { IngestStepUsage } from "../ingestion/ingest-shard-runtime.js"
+import { ingestionRunTree } from "../ingestion/ingest-cost-cap.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   plannedIngestSkills,
@@ -78,13 +78,9 @@ const ESTIMATE = {
   setupMinutes: { low: 3, high: 8 },
   /** Shards that run at the same time (`SHARD_BATCH` of the v2 workflow). */
   parallelShards: 4,
-  /**
-   * USD for one million tokens of the medium tier. The cost cap converts
-   * the reported tokens of a step with it, when the gateway reports no cost.
-   */
-  usdPerMillionTokens: { input: 3, output: 15 },
 } as const
 
+export { ingestionRunSpend } from "../ingestion/ingest-cost-cap.js"
 export { isReingestUpgradeKey, reingestUpgradeKey } from "./keys.js"
 
 /**
@@ -459,64 +455,6 @@ export async function reingestSlotTurn(input: {
       wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
     }
   return { turn: true }
-}
-
-/** USD of one usage report: the gateway cost, else the tokens at the estimate prices. */
-function ingestUsageUsd(usage: IngestStepUsage): number {
-  if (typeof usage.costUsd === "number") return usage.costUsd
-  const price = ESTIMATE.usdPerMillionTokens
-  return (
-    (usage.inputTokens * price.input + usage.outputTokens * price.output) /
-    1_000_000
-  )
-}
-
-/** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */
-function ingestionRunTree(runId: string) {
-  const namespaceId = openWorkflowNamespaceId()
-  return sql`
-    with recursive tree(id) as (
-      select id from openworkflow.workflow_runs
-      where namespace_id = ${namespaceId} and id = ${runId}
-      union
-      select child.id from openworkflow.workflow_runs child
-      join openworkflow.step_attempts parent_step
-        on parent_step.namespace_id = child.parent_step_attempt_namespace_id
-        and parent_step.id = child.parent_step_attempt_id
-      join tree on tree.id = parent_step.workflow_run_id
-      where child.namespace_id = ${namespaceId}
-    )`
-}
-
-/**
- * The model spend in USD of one ingestion v2 run so far: the usage that each
- * finished step of the run and of its child runs reports. `unknown` is true
- * when a model step reported no usage; then `usd` counts only the known part.
- */
-export async function ingestionRunSpend(
-  runId: string,
-): Promise<{ usd: number; unknown: boolean }> {
-  const result = await getSystemDb().execute<{ usage: unknown }>(sql`
-    ${ingestionRunTree(runId)}
-    select attempt.output->'usage' as usage
-    from openworkflow.step_attempts attempt
-    join tree on tree.id = attempt.workflow_run_id
-    where attempt.namespace_id = ${openWorkflowNamespaceId()}
-      and attempt.status = 'completed'
-      and jsonb_typeof(attempt.output->'usage') = 'object'
-  `)
-  let usd = 0
-  let unknown = false
-  for (const { usage } of result.rows) {
-    const value = usage as Partial<IngestStepUsage>
-    usd += ingestUsageUsd({
-      inputTokens: Number(value.inputTokens) || 0,
-      outputTokens: Number(value.outputTokens) || 0,
-      ...(typeof value.costUsd === "number" ? { costUsd: value.costUsd } : {}),
-    })
-    if (Number(value.unknownSteps) > 0) unknown = true
-  }
-  return { usd, unknown }
 }
 
 /** The runs of an ingestion v2 run tree that have not ended, the run first. */

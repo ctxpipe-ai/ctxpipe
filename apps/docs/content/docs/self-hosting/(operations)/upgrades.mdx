@@ -200,16 +200,22 @@ Workspace already holds.
   repositories run one after the other. An instance runs at most four
   re-ingestions at once. A run that waits for its turn stays queued and
   starts when a slot is free.
-- **Cost cap.** ctx| stops the run when its model spend passes 2 times the
-  p90 estimate. The item then shows **Failed** with the reason `cost_cap`,
-  and the repositories that did not start are marked as not started. When a
-  runtime reports no usage for a model step, the report shows "Spend
-  unknown". The spend and the cap then count only the known part.
+- **Cost cap.** Each repository run has a cost cap that scales with the
+  size of the repository: 2 times $0.20 for each expected model step (the
+  roots that the run finds, times the model skills), at least $5 and at most
+  $100. Before each model step, ctx| checks the spend so far, plus the
+  steps that run now, plus that step, against the cap. So the spend passes
+  the cap by at most one step. At the cap, ctx| starts no new model step,
+  lets the running steps finish, and publishes the finished part. The
+  repository then shows **partial** with the cause, and the item shows the
+  reason `cost_cap` with **Continue**. When a runtime reports no usage for a
+  model step, the report shows "Spend unknown". The spend and the cap then
+  count only the known part.
 - **Restart and resume.** A run that a restart of the worker interrupts
   continues. If a run stops with no result, a new click on **Start again**
   makes a new run. A repository that an earlier run finished at the same
-  commit is not paid for again, and its spend does not count against the
-  cap of the new run.
+  commit is not paid for again. After a cost cap, **Continue** skips the
+  roots that are done at the same commit, and spends up to one more cap.
 
 An organization with GitHub data but no Workspace is a new user. It creates
 its Workspace in normal onboarding, and its repositories get a fresh
