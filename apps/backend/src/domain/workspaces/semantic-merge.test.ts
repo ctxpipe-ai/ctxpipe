@@ -295,7 +295,9 @@ const slipThen = (slips: number) =>
   })
 
 it("asks the merge model again when it does not call the output tool", async () => {
-  answer = [{ path: ingestConflicts[0].path, content: `${HUMAN}\nBoth.\n` }]
+  answer = [
+    { path: "knowledge/services/checkout.md", content: `${HUMAN}\nBoth.\n` },
+  ]
   server.use(slipThen(2))
   await expect(resolveIngestConflicts(ingestConflicts)).resolves.toEqual(answer)
   expect(calls).toBe(3)
