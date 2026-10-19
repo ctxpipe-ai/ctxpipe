@@ -431,14 +431,19 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       process.env.DATABASE_URL as string,
       { namespaceId: openWorkflowNamespaceId(), runMigrations: false },
     )
-    const tipChecks = async () =>
+    const runsOf = async (workflowName: string) =>
       (await backend.listWorkflowRuns({ limit: 100 })).data
         .filter(
           (run) =>
-            run.workflowName === "workspace-tip-check" &&
+            run.workflowName === workflowName &&
             (run.input as { orgId?: string })?.orgId === s.orgId,
         )
         .map((run) => run.idempotencyKey)
+    const tipChecks = () => runsOf("workspace-tip-check")
+    const scans = async () =>
+      (await runsOf("workspace-upgrade-scan")).filter((key) =>
+        key?.endsWith(`:check:${minute}`),
+      )
     const check = () =>
       send(
         { method: "POST", path: `/workspaces/${slug}/upgrades/check` },
@@ -456,6 +461,8 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       expect(await tipChecks()).toEqual([
         `tip-check-on-demand:${s.orgId}:${minute}`,
       ])
+      // A blocked upgrade can clear with no new tip: the org is scanned again.
+      expect(await scans()).toHaveLength(1)
 
       vi.setSystemTime(minute * 60_000 + 30_000)
       const second = await check()
@@ -465,12 +472,14 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
       expect(await tipChecks()).toEqual([
         `tip-check-on-demand:${s.orgId}:${minute}`,
       ])
+      expect(await scans()).toHaveLength(1)
     } finally {
       vi.useRealTimers()
       // Another test file's worker must not claim the queued check.
       for (const run of (await backend.listWorkflowRuns({ limit: 100 })).data)
         if (
-          run.workflowName === "workspace-tip-check" &&
+          (run.workflowName === "workspace-tip-check" ||
+            run.workflowName === "workspace-upgrade-scan") &&
           run.status === "pending" &&
           (run.input as { orgId?: string })?.orgId === s.orgId
         )
