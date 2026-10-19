@@ -430,7 +430,7 @@ async function openCalendar(canvasElement: HTMLElement, label: string) {
   )
   const dialog = await page.findByRole("dialog", { name: "Date range" })
   await userEvent.click(
-    within(dialog).getByRole("button", { name: "Open calendar" }),
+    within(dialog).getByRole("button", { name: /open calendar/i }),
   )
   await page.findByRole("grid")
   return page
