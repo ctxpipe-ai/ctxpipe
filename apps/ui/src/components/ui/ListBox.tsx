@@ -2,12 +2,8 @@
 import { IconCheck } from "@tabler/icons-react"
 import {
   ListBoxItem as AriaListBoxItem,
-  Collection,
   composeRenderProps,
-  Header,
   type ListBoxItemProps,
-  ListBoxSection,
-  type SectionProps,
 } from "react-aria-components"
 import { tv } from "tailwind-variants"
 
@@ -86,20 +82,3 @@ export function DropdownItem(props: ListBoxItemProps) {
   )
 }
 
-export interface DropdownSectionProps<T> extends SectionProps<T> {
-  title?: string
-  items?: any
-}
-
-export function DropdownSection<T extends object>(
-  props: DropdownSectionProps<T>,
-) {
-  return (
-    <ListBoxSection className="first:-mt-[5px] after:content-[''] after:block after:h-[5px] last:after:hidden">
-      <Header className="text-sm font-semibold text-neutral-500 dark:text-neutral-300 px-4 py-1 truncate sticky -top-[5px] -mt-px -mx-1 z-10 bg-neutral-100/60 dark:bg-neutral-700/60 backdrop-blur-md supports-[-moz-appearance:none]:bg-neutral-100 border-y border-y-neutral-200 dark:border-y-neutral-700 [&+*]:mt-1">
-        {props.title}
-      </Header>
-      <Collection items={props.items}>{props.children}</Collection>
-    </ListBoxSection>
-  )
-}

@@ -134,12 +134,6 @@
       "count": 1
     },
     {
-      "file": "src/components/ui/Separator.tsx",
-      "code": 6133,
-      "message": "'React' is declared but its value is never read.",
-      "count": 1
-    },
-    {
       "file": "src/components/ui/TagGroup.tsx",
       "code": 2322,
       "message": "Type '{ children: Element; slot: string; size: string; className: TVReturnType<{} | { isFocusVisible: { false: ClassNameValue | SlotsClassValue<undefined, \"cursor-default rounded-full transition-[background-color] p-0.5 flex items-center justify-center bg-transparent text-[inherit] border-0 hover:bg-black/10 dark:hover:bg...' is not assignable to type 'IntrinsicAttributes & ButtonProps & RefAttributes<HTMLButtonElement>'.\n  Property 'size' does not exist on type 'IntrinsicAttributes & ButtonProps & RefAttributes<HTMLButtonElement>'.",

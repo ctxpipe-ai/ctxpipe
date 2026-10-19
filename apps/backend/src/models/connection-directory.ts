@@ -155,15 +155,6 @@ export async function listConnectionDirectoryByForgeInstallationId(
     .where(eq(connectionDirectory.forgeInstallationId, installationId))
 }
 
-export async function listConnectionDirectoryByForgeCloudId(
-  cloudId: string,
-): Promise<ConnectionDirectoryRow[]> {
-  return getSystemDb()
-    .select()
-    .from(connectionDirectory)
-    .where(eq(connectionDirectory.forgeCloudId, cloudId))
-}
-
 export async function listConnectionDirectoryByType(
   type: ConnectionType,
 ): Promise<ConnectionDirectoryRow[]> {

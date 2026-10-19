@@ -109,7 +109,7 @@ function pagerdutyIncidentAssetPrefix(
   return `${root}${number}--${connectorPathSegment(id)}/`
 }
 
-export function pagerdutyIncidentAssetDir(
+function pagerdutyIncidentAssetDir(
   number: number,
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,

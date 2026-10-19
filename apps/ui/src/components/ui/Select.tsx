@@ -14,8 +14,7 @@ import {
 } from "react-aria-components"
 import { tv } from "tailwind-variants"
 import { Description, FieldError, Label } from "@/components/ui/Field"
-import type { DropdownSectionProps } from "@/components/ui/ListBox"
-import { DropdownItem, DropdownSection } from "@/components/ui/ListBox"
+import { DropdownItem } from "@/components/ui/ListBox"
 import { Popover } from "@/components/ui/Popover"
 import { composeTailwindRenderProps, focusRing } from "@/lib/react-aria-utils"
 
@@ -86,8 +85,3 @@ export function SelectItem(props: ListBoxItemProps) {
   return <DropdownItem {...props} />
 }
 
-export function SelectSection<T extends object>(
-  props: DropdownSectionProps<T>,
-) {
-  return <DropdownSection {...props} />
-}
