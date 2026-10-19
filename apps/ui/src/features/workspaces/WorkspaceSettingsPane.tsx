@@ -102,12 +102,20 @@ function SettingsGroup(props: {
   useEffect(() => {
     const section = ref.current
     if (!props.landing || !section) return
-    section.focus()
+    // Scroll only the pane's own scroll area. `scrollIntoView` and a plain
+    // `focus` also scroll the outer boxes, which shifts the whole pane.
+    const scroller = section.closest<HTMLElement>("[data-settings-scroll]")
+    const toStart = () => {
+      if (!scroller) return
+      scroller.scrollTop +=
+        section.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top
+    }
+    section.focus({ preventScroll: true })
+    toStart()
     // The groups above grow when their data loads. Keep this group in view
     // until the user scrolls, or for a few seconds.
-    const keep = new ResizeObserver(() =>
-      section.scrollIntoView({ block: "start" }),
-    )
+    const keep = new ResizeObserver(toStart)
     if (section.parentElement) keep.observe(section.parentElement)
     const stop = () => keep.disconnect()
     const timer = setTimeout(stop, 3000)
@@ -357,7 +365,10 @@ export function WorkspaceSettingsPane(props: {
 
   return (
     // The pane is a container: the groups take columns when it is wide.
-    <div className="@container min-h-0 flex-1 overflow-auto">
+    <div
+      data-settings-scroll
+      className="@container min-h-0 flex-1 overflow-auto"
+    >
       <div className="mx-auto max-w-5xl px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
