@@ -562,9 +562,9 @@ export const GermanLocale: Story = {
     const dialog = await page.findByRole("dialog", { name: "Date range" })
     await waitFor(() => {
       const segments = within(dialog).getAllByRole("spinbutton")
-      // Day comes first in German: tt.MM.jjjj.
-      expect(segments[0]).toHaveTextContent("05")
-      expect(segments[1]).toHaveTextContent("08")
+      // The day comes first in German, so the end date starts with 20.
+      expect(segments[3]).toHaveTextContent("20")
+      expect(segments[4]).toHaveTextContent("8")
     })
   },
 }
