@@ -10,6 +10,7 @@ import { parseSideNavLocation } from "@/components/SideNav/sideNavLocation"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SkeletonRegion, SkeletonSuspense } from "@/components/ui/Skeleton"
+import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { pollWhileOk } from "@/lib/api-result"
 import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 import {
@@ -465,6 +466,21 @@ function WorkspaceSurfaceColumns(props: {
 
   const paneOpen = shownPane != null && !paneCollapsed
   const panePath = shownPane?.kind === "file" ? shownPane.path : null
+  const navigate = useNavigate()
+  // A new value mounts a new composer, which reads the draft again.
+  const [composeRound, setComposeRound] = useState(0)
+
+  /** Opens a new conversation with the prompt in the composer, not sent. */
+  const fixWithAgent = (prompt: string) => {
+    writeChatDraft(chatDraftKey(orgSlug, workspace.id), prompt)
+    setComposeRound((round) => round + 1)
+    setMaximized(false)
+    void navigate({
+      to: "/$orgSlug/ws/$workspaceSlug",
+      params: { orgSlug, workspaceSlug: workspace.slug },
+      search: {},
+    })
+  }
   const publish = useWorkspaceConversationPublish({
     orgSlug,
     workspaceId: workspace.id,
@@ -510,6 +526,7 @@ function WorkspaceSurfaceColumns(props: {
             orgSlug={orgSlug}
             workspace={workspace}
             conversationId={conversationId}
+            composeRound={composeRound}
             onOpenPane={(next) => setPane(next)}
             publish={publish}
             headerExtra={
@@ -558,6 +575,7 @@ function WorkspaceSurfaceColumns(props: {
             conversationTitle={conversationTitle}
             cta={publish?.chrome}
             onPane={(next) => setPane(next)}
+            onFixWithAgent={fixWithAgent}
             onClose={collapsePane}
             onToggleMaximize={() => setMaximized((value) => !value)}
             onRestoreConversation={() => {

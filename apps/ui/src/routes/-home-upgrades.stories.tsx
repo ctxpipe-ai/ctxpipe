@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -100,6 +100,22 @@ export const AlertForPendingWorkspace: Story = {
     // One read for the org, and no read for each Workspace.
     expect(answered).not.toHaveLength(0)
     expect(perWorkspaceReads).toEqual([])
+  },
+}
+
+/** Review upgrades lands on the Upgrades group of Workspace settings. */
+export const ReviewUpgradesLandsOnUpgrades: Story = {
+  parameters: homeHandlers(
+    "owner",
+    pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await canvas.findByRole("alert")
+    await userEvent.click(
+      await within(alert).findByRole("button", { name: "Review upgrades" }),
+    )
+    await canvas.findByText("Story route: /acme/ws/docs?pane=settings#upgrades")
   },
 }
 

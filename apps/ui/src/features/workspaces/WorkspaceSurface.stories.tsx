@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
+import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import {
   conversationDetailLoadingHandler,
   conversationGitDiffHandler,
@@ -35,6 +36,7 @@ import {
   failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
   readOnlyWorkspace,
+  skippedFilesWorkspaceDetail,
   waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
 
@@ -1283,6 +1285,41 @@ export const SettingsPane: Story = {
         }),
       },
     },
+  },
+}
+
+/** Fix using agent closes the pane and fills the composer of a new conversation. */
+export const FixUsingAgentOpensChat: Story = {
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings" }),
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }),
+      },
+    },
+  },
+  beforeEach: () => {
+    const key = chatDraftKey(orgSlug, docsWorkspace.id)
+    writeChatDraft(key, "")
+    return () => writeChatDraft(key, "")
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Fix knowledge/billing/tax.md using agent",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
+      ).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+    expect(canvas.queryByText("Workspace settings")).toBeNull()
   },
 }
 

@@ -313,6 +313,35 @@ echo closed`,
 }
 
 /**
+ * The error of a Docker call, with an action for the operator when the
+ * Docker host does not answer (no socket, a refused or timed-out connection).
+ * Other errors stay as they are.
+ */
+export function dockerHostError(error: unknown): unknown {
+  const { code, syscall } = (error ?? {}) as {
+    code?: unknown
+    syscall?: unknown
+  }
+  const down =
+    (syscall === "connect" || syscall === "getaddrinfo") &&
+    typeof code === "string" &&
+    [
+      "ECONNREFUSED",
+      "ENOENT",
+      "EACCES",
+      "EHOSTUNREACH",
+      "ETIMEDOUT",
+      "ENOTFOUND",
+    ].includes(code)
+  return down
+    ? new Error(
+        "Cannot start the Docker sandbox host. Check that your deployment has Docker available.",
+        { cause: error },
+      )
+    : error
+}
+
+/**
  * The Docker provider of one ingest shard. `create` opens the shard's vault
  * with `unmatchedHosts: "deny"`: the proxy forwards only the rules of
  * {@link ingestCredentialRules} and refuses each other request. The
@@ -373,10 +402,11 @@ export function dockerIngestSandboxProvider(input: {
           rules: ingestCredentialRules(egress, git, { fetchSource: true }),
           unmatchedHosts: "deny",
         })
-        handle = await docker.create({
-          ...createInput,
-          env: { ...createInput.env, ...vault.env },
-        })
+        handle = await docker
+          .create({ ...createInput, env: { ...createInput.env, ...vault.env } })
+          .catch((error: unknown) => {
+            throw dockerHostError(error)
+          })
         if (input.network) {
           const daemon = new Docker({ timeout: 30_000 })
           await daemon
