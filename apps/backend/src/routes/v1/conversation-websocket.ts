@@ -40,10 +40,10 @@ import { getReadableConversation } from "./conversations.js"
 export {
   type BunWebSocketLike,
   bunSocketToWebSocketLike,
-  conversationWebSocketHasResumeOffset,
+  
   isWorkspaceChatWebSocketRequest,
-  parseConversationWebSocketUpgradeUrl,
-  startConversationChatSocket,
+  
+  
 } from "./conversation-websocket-stream.js"
 
 export type ConversationWebSocketData = {

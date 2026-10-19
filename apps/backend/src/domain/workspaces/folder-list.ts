@@ -141,7 +141,7 @@ function listedFolder(line: string, known: ReadonlySet<string>): string | null {
   return named.size === 1 && folder && known.has(folder) ? folder : null
 }
 
-export type AgentsMdBlock = { start: number; end: number; text: string }
+type AgentsMdBlock = { start: number; end: number; text: string }
 
 /**
  * Body blocks of AGENTS.md: a heading line, or a run of non-blank lines. The

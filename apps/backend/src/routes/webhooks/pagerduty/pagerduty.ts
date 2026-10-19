@@ -18,7 +18,7 @@ import {
 import type { PagerdutySourceEvent } from "../../../services/pagerduty/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
-export function pagerdutyIncidentEventFromPayload(payload: unknown):
+function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {
       eventId?: string
       eventType: string

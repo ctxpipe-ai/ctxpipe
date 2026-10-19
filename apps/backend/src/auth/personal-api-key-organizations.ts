@@ -15,7 +15,7 @@ export const PERSONAL_API_KEY_ORGANIZATIONS_HEADER =
 type OrganizationSummary = { id: string; slug: string; name: string }
 
 /** The org set of one personal API key, as the key list shows it. */
-export type PersonalApiKeyOrganizations = {
+type PersonalApiKeyOrganizations = {
   id: string
   /**
    * The key's set ∩ the user's live memberships, in slug order. Null for a

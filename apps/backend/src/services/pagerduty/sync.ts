@@ -48,7 +48,7 @@ import {
 } from "./incremental.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
 
-export type PagerdutySyncResult = {
+type PagerdutySyncResult = {
   status: "completed" | "partial_failed" | "failed"
   resourcesProcessed: number
   resourcesFailed: number
@@ -178,7 +178,7 @@ async function resolveRepoContextForBinding(
   })
 }
 
-export function getPagerdutyDeletePaths(input: {
+function getPagerdutyDeletePaths(input: {
   managedRepoPaths: string[]
   desiredPaths: Set<string>
   resourcesFailed: number
@@ -360,7 +360,7 @@ export async function capturePagerdutyContent(input: {
   }
 }
 
-export type PagerdutyIncrementalCaptureResult = {
+type PagerdutyIncrementalCaptureResult = {
   status: "completed" | "failed"
   files: CommitFile[]
   deletePaths: string[]

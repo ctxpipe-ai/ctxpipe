@@ -24,7 +24,7 @@ const ScopeSchema = z
       "Provider scope: the front matter of the source file without provider and connection",
   })
 
-export const WorkspaceSourceSchema = z
+const WorkspaceSourceSchema = z
   .object({
     /** The path of the source file, for example sources/github/acme/web.md. */
     path: z.string(),
@@ -50,7 +50,7 @@ export const WorkspaceSourceSchema = z
   })
   .openapi("WorkspaceSource")
 
-export const PendingSourceChangeSchema = z
+const PendingSourceChangeSchema = z
   .object({
     /** The path that the pull request changes (the old path for a rename). */
     path: z.string(),
@@ -77,7 +77,7 @@ export const WorkspaceSourceListResponseSchema = z
   })
   .openapi("WorkspaceSourceListResponse")
 
-export const WorkspaceSourceInputSchema = z
+const WorkspaceSourceInputSchema = z
   .object({
     provider: ProviderSchema,
     connectionId: z.string().min(1),
@@ -90,7 +90,7 @@ export const WorkspaceSourceInputSchema = z
   })
   .openapi("WorkspaceSourceInput")
 
-export const CreateWorkspaceSourceRequestSchema = z
+const CreateWorkspaceSourceRequestSchema = z
   .object({
     /**
      * Optional. The server names the file when absent:
@@ -101,7 +101,7 @@ export const CreateWorkspaceSourceRequestSchema = z
   })
   .openapi("CreateWorkspaceSourceRequest")
 
-export const BatchCreateWorkspaceSourcesRequestSchema = z
+const BatchCreateWorkspaceSourcesRequestSchema = z
   .object({
     /** The new sources. One refused source refuses the whole request. */
     sources: z
@@ -119,7 +119,7 @@ export const BatchCreateWorkspaceSourcesRequestSchema = z
     description: "Add several sources in one pull request.",
   })
 
-export const UpdateWorkspaceSourceRequestSchema = z
+const UpdateWorkspaceSourceRequestSchema = z
   .object({
     /** The path of the source file to change. */
     path: z.string().min(1),
@@ -127,7 +127,7 @@ export const UpdateWorkspaceSourceRequestSchema = z
   })
   .openapi("UpdateWorkspaceSourceRequest")
 
-export const RenameWorkspaceSourceRequestSchema = z
+const RenameWorkspaceSourceRequestSchema = z
   .object({
     path: z.string().min(1),
     /** The new path. The provider folder stays the same. */
@@ -138,7 +138,7 @@ export const RenameWorkspaceSourceRequestSchema = z
       "Move a source file in one commit. The hydrate of the new revision gives the new path to each unit that names the old path in its sources list.",
   })
 
-export const DeleteWorkspaceSourceQuerySchema = z
+const DeleteWorkspaceSourceQuerySchema = z
   .object({ path: z.string().min(1) })
   .openapi("DeleteWorkspaceSourceQuery")
 
@@ -293,7 +293,7 @@ export const deleteWorkspaceSourceRoute = createRoute(
   }),
 )
 
-export const ConnectionUsageItemSchema = z
+const ConnectionUsageItemSchema = z
   .object({
     workspaceId: z.string(),
     workspaceSlug: z.string(),
@@ -317,7 +317,7 @@ export const ConnectionUsageResponseSchema = z
   .object({ items: z.array(ConnectionUsageItemSchema) })
   .openapi("ConnectionUsageResponse")
 
-export const ConnectionIdParamsSchema = z
+const ConnectionIdParamsSchema = z
   .object({ connectionId: z.string().min(1) })
   .openapi("ConnectionIdParams")
 

@@ -12,13 +12,13 @@ export type ZoektRepositoryRow = {
   name: string
 }
 
-export type ZoektSearchClientFailure = {
+type ZoektSearchClientFailure = {
   ok: false
   status: number
   error: string
 }
 
-export type ZoektSearchResult =
+type ZoektSearchResult =
   | Record<string, unknown>
   | ZoektSearchClientFailure
 

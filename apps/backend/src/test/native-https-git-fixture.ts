@@ -18,24 +18,24 @@ import type Docker from "dockerode"
 
 const exec = promisify(execFile)
 
-export interface NativeHttpsGitRemote {
+interface NativeHttpsGitRemote {
   url: string
   sync(): Promise<void>
   observedRequests(): Promise<Array<NativeHttpsGitRequest>>
 }
 
-export interface NativeHttpsGitRequest {
+interface NativeHttpsGitRequest {
   method: string
   path: string
   auth: "none" | "bootstrap" | "read" | "invalid"
 }
 
-export interface NativeHttpsGitGithubAuth {
+interface NativeHttpsGitGithubAuth {
   bootstrapToken: string
   readToken: string
 }
 
-export interface NativeHttpsGitFixture {
+interface NativeHttpsGitFixture {
   image: string
   /** The fixture CA, for a proxy (Agent Vault) that dials the server. */
   caCertificatePath: string

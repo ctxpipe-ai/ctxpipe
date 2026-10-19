@@ -14,8 +14,8 @@ export const COMPACT_SEARCH_OPTS: Record<string, unknown> = {
   MaxMatchDisplayCount: 120,
 }
 
-export const COMPACT_MAX_MATCHES = 80
-export const COMPACT_SNIPPET_CHARS = 220
+const COMPACT_MAX_MATCHES = 80
+const COMPACT_SNIPPET_CHARS = 220
 
 type ZoektLineMatch = {
   LineNumber?: number

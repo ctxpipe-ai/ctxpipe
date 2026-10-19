@@ -69,7 +69,7 @@ export function assertSourceChangeShape(change: SourceChange): void {
  * is the path of a source file, or the id of a legacy YAML entry), or a
  * source file.
  */
-export type KnownSource = {
+type KnownSource = {
   path: string
   provider: string | null
   scope: unknown

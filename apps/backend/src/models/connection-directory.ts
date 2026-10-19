@@ -7,7 +7,7 @@ import {
 } from "../db/schema/connections.js"
 import type { ConnectionRow } from "./connection-rows.js"
 
-export type ConnectionDirectoryRow = typeof connectionDirectory.$inferSelect
+type ConnectionDirectoryRow = typeof connectionDirectory.$inferSelect
 
 function nonemptyText(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) return String(value)

@@ -237,7 +237,7 @@ const PatchJsonSchema = z.object({
 })
 
 /** Ownership of a file at the base commit, from the host-only fields. */
-export type FileOwnership = "sole" | "shared" | "foreign"
+type FileOwnership = "sole" | "shared" | "foreign"
 
 /**
  * The text of one `sources` value as ownership compares it: a source file
@@ -336,7 +336,7 @@ export function gitSource(
  * listing is larger than the limit of `runGit`, each check fails with that
  * reason, so the step stops.
  */
-export function gitSourcePathExists(
+function gitSourcePathExists(
   repoDir: string,
   sha: string,
 ): (path: string) => Promise<boolean> {

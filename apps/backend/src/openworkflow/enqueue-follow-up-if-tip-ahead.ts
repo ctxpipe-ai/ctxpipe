@@ -1,6 +1,6 @@
 import { resolveRepositoryRef } from "../domain/codeIngestion/queue.js"
 
-export type EnqueueFollowUpIfTipAheadInput = {
+type EnqueueFollowUpIfTipAheadInput = {
   orgId: string
   repositoryId: string
   /** Commit hash this run just marked ready. */

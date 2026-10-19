@@ -140,7 +140,7 @@ type ParsedSource =
     }
 
 /** The input of {@link resolveSourceRows}. */
-export type SourceRowsInput = {
+type SourceRowsInput = {
   text: string | null
   /** Every blob under `sources/` at the revision. */
   files?: ReadonlyArray<SourceFileBlob>

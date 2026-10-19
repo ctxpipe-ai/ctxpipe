@@ -1,6 +1,6 @@
 import { z } from "zod/v3"
 
-export const RetrievalStepSchema = z.object({
+const RetrievalStepSchema = z.object({
   type: z.enum([
     "hybrid_search",
     "code_search",
@@ -19,5 +19,3 @@ export const RetrievalPlanSchema = z.object({
   resultLimit: z.number().min(1).max(50).default(20),
 })
 
-export type RetrievalStep = z.infer<typeof RetrievalStepSchema>
-export type RetrievalPlan = z.infer<typeof RetrievalPlanSchema>

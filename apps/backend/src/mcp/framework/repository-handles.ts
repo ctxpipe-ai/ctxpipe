@@ -160,7 +160,7 @@ export class RepositoryHandles {
   }
 }
 
-export type RepositoryExclusion = {
+type RepositoryExclusion = {
   /** Handles of the linked repositories that the call excludes. */
   excluded: string[]
   isExcluded(gitUrl: string): boolean

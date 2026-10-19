@@ -7,7 +7,7 @@ import type { AppEnv } from "../app/env.js"
 
 export const MCP_READ_SCOPE = "ctxpipe:read"
 export const MCP_WRITE_SCOPE = "ctxpipe:write"
-export type McpScope = typeof MCP_READ_SCOPE | typeof MCP_WRITE_SCOPE
+type McpScope = typeof MCP_READ_SCOPE | typeof MCP_WRITE_SCOPE
 
 /** Scopes that `/mcp` advertises in its protected resource metadata. */
 export const MCP_SCOPES: readonly McpScope[] = [MCP_READ_SCOPE, MCP_WRITE_SCOPE]
@@ -33,7 +33,7 @@ export function grantedMcpScopes(
  * A tool with `readOnlyHint: true` needs `ctxpipe:read`. Each other tool
  * needs `ctxpipe:write`, so a tool without annotations fails closed.
  */
-export function requiredMcpScope(
+function requiredMcpScope(
   tool: Pick<RegisteredTool, "annotations">,
 ): McpScope {
   return tool.annotations?.readOnlyHint === true

@@ -15,7 +15,7 @@ export class TransientHttpError extends Error {
   }
 }
 
-export type WithTransientHttpRetryOptions = {
+type WithTransientHttpRetryOptions = {
   /** Cancel each retry delay and prevent another attempt. */
   signal?: AbortSignal
   /** Retries after the first attempt (default 2 → 3 attempts total). */

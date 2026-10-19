@@ -367,7 +367,7 @@ type SyncModeInput = {
  * - **full** — all in-scope files + GitHub orphan deletion under the managed root (config POST, space webhooks, page deleted).
  * - **single_upsert** — one page write; no global orphan pass (per-page create/update webhooks).
  */
-export type ConfluenceSyncReconcileMode = "full" | "single_upsert"
+type ConfluenceSyncReconcileMode = "full" | "single_upsert"
 
 export function getConfluenceSyncReconcileMode(
   mode?: SyncModeInput,
@@ -382,7 +382,7 @@ export function getConfluenceSyncReconcileMode(
   return "single_upsert"
 }
 
-export type ConfluenceSyncResult = {
+type ConfluenceSyncResult = {
   status: "completed" | "partial_failed" | "failed"
   spacesProcessed: number
   pagesProcessed: number
@@ -394,7 +394,7 @@ export type ConfluenceSyncResult = {
 }
 
 /** Repo YAML rows mapped into `ConfluenceSpaceSelection`-compatible shape for sync loops. */
-export type RepoScopeRow = Pick<
+type RepoScopeRow = Pick<
   ConfluenceSpaceSelection,
   "spaceKey" | "selectedPageIds"
 >

@@ -21,7 +21,7 @@ export function explorerBlobPath(raw: string): string | null {
   return path
 }
 
-export function explorerBlobFromBytes(
+function explorerBlobFromBytes(
   bytes: Uint8Array,
 ): { body: string; binary: false } | { body: null; binary: true } {
   if (bytes.includes(0)) return { body: null, binary: true }
@@ -50,7 +50,7 @@ export function explorerBlobFromContent(
   return explorerBlobFromBytes(Buffer.from(content, "utf8"))
 }
 
-export const EXPLORER_GIT_STATUSES = [
+const EXPLORER_GIT_STATUSES = [
   "added",
   "deleted",
   "ignored",
@@ -116,7 +116,7 @@ export function explorerGitStatusFromPorcelain(
   return items
 }
 
-export type ExplorerGitLineCounts = {
+type ExplorerGitLineCounts = {
   additions: number
   deletions: number
 }

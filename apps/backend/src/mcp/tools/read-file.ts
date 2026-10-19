@@ -230,8 +230,8 @@ const readFileOutputSchema = z.object({
   truncated: z.boolean().describe("A line was cut at the size limit."),
 })
 
-export type ReadFileInput = z.infer<z.ZodObject<typeof readFileInputShape>>
-export type ReadFileOutput = z.infer<typeof readFileOutputSchema>
+type ReadFileInput = z.infer<z.ZodObject<typeof readFileInputShape>>
+type ReadFileOutput = z.infer<typeof readFileOutputSchema>
 
 /**
  * The read of `read_file`, for a call that has resolved `org`. The

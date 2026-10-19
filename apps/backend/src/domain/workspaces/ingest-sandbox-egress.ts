@@ -109,7 +109,7 @@ function githubIngestRepositories(
 }
 
 /** The plain git repositories of a shard, each once. */
-export function plainGitIngestRepositories(
+function plainGitIngestRepositories(
   repositories: readonly IngestRepository[],
 ): PlainGitRepository[] {
   const found = new Map<string, PlainGitRepository>()

@@ -191,7 +191,7 @@ export function validFromPersistFiles(input: {
   return out
 }
 
-export function stripImportKeyFromMarkdown(markdown: string): string | null {
+function stripImportKeyFromMarkdown(markdown: string): string | null {
   const parsed = parseSimpleFrontMatter(markdown)
   if (parsed.malformed || !Object.hasOwn(parsed.attributes, "import_key"))
     return null
@@ -222,20 +222,3 @@ export function importKeyCleanupRemainder(
   return importKeyCleanupFiles(files).length
 }
 
-export function extractIngestFiles(input: {
-  proposed: ReadonlyArray<{ path: string; content: string }>
-  existing: ReadonlyMap<string, string>
-}): Array<{ path: string; content: string }> {
-  return input.proposed.filter(
-    (file) =>
-      file.path.startsWith("knowledge/") &&
-      input.existing.get(file.path) !== file.content,
-  )
-}
-
-export function extractIngestRemainder(input: {
-  proposed: ReadonlyArray<{ path: string; content: string }>
-  existing: ReadonlyMap<string, string>
-}): number {
-  return extractIngestFiles(input).length
-}

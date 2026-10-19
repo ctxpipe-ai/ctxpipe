@@ -223,7 +223,7 @@ export function importKeyFromDedup(
   return key ? key : null
 }
 
-export type ImportedMarkdownClaim = {
+type ImportedMarkdownClaim = {
   to: string
   predicate: string
   confidence?: number
@@ -418,11 +418,11 @@ export function objectTitleFromPayload(payload: unknown): string {
   return payloadString(payload, "title", "name") || "Imported"
 }
 
-export function objectSummaryFromPayload(payload: unknown): string {
+function objectSummaryFromPayload(payload: unknown): string {
   return payloadString(payload, "summary")
 }
 
-export function objectConfidenceFromPayload(payload: unknown): number | null {
+function objectConfidenceFromPayload(payload: unknown): number | null {
   return payloadNumber(payload, "confidence")
 }
 
@@ -438,7 +438,7 @@ export function objectPathFromPayload(payload: unknown): string | null {
   return path || null
 }
 
-export function objectBodyFromPayload(
+function objectBodyFromPayload(
   payload: unknown,
   title?: string,
 ): string {
@@ -1028,7 +1028,7 @@ function linkLabelFromHref(href: string): string {
     .join(" ")
 }
 
-export function resolveImportedSource(input: {
+function resolveImportedSource(input: {
   knowledgePath: string
   payload?: unknown
   objectDedupKey?: string | null
@@ -1090,7 +1090,7 @@ function canonicalRecordedSource(
   return null
 }
 
-export function isDatabaseSourceKey(source: string): boolean {
+function isDatabaseSourceKey(source: string): boolean {
   const trimmed = source.trim()
   if (/^(git|llm|manual|extract)$/i.test(trimmed)) return true
   if (/obj_/i.test(trimmed)) return true
@@ -1103,7 +1103,7 @@ export function isDatabaseSourceKey(source: string): boolean {
   return false
 }
 
-export function checkoutableGitUrl(gitUrl: string): string {
+function checkoutableGitUrl(gitUrl: string): string {
   const trimmed = gitUrl.trim().replace(/\/+$/, "")
   if (trimmed.startsWith("git@")) return trimmed
   if (/\.git$/i.test(trimmed)) return trimmed

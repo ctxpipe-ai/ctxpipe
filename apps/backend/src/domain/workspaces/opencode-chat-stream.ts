@@ -2,7 +2,7 @@ import { log } from "../../observability/logger.js"
 
 const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g")
 
-export const OPENCODE_CHAT_STREAM_STEP = "opencode.chatStream" as const
+const OPENCODE_CHAT_STREAM_STEP = "opencode.chatStream" as const
 
 export function stripAnsi(text: string): string {
   return text.replace(ANSI, "")
@@ -20,7 +20,7 @@ export function opencodeChatStreamExcerpt(value: unknown, max = 400): string {
   return text.length > max ? `${text.slice(0, max)}…` : text
 }
 
-export function opencodeHttpStatus(error: unknown): number | null {
+function opencodeHttpStatus(error: unknown): number | null {
   if (!error || typeof error !== "object") return null
   const record = error as { status?: unknown; statusCode?: unknown }
   const status = record.status ?? record.statusCode

@@ -432,7 +432,7 @@ export async function reingestSlotTurn(input: {
 }
 
 /** USD of one usage report: the gateway cost, else the tokens at the estimate prices. */
-export function ingestUsageUsd(usage: IngestStepUsage): number {
+function ingestUsageUsd(usage: IngestStepUsage): number {
   if (typeof usage.costUsd === "number") return usage.costUsd
   const price = ESTIMATE.usdPerMillionTokens
   return (

@@ -4,7 +4,7 @@ import { getOrgDb, withOrgDbContext } from "../db/client.js"
 import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
 import { tryParseForgeConnectionConfig } from "../lib/connection-config.js"
 
-export type AtlassianOauthCreds = {
+type AtlassianOauthCreds = {
   clientId: string
   clientSecret: string
 }
@@ -13,7 +13,7 @@ export type AtlassianOauthCreds = {
  * In tests (or `ATLASSIAN_E2E_FALLBACK=1`), use global env when no per-connection config so CI
  * can run without saving 3LO in the DB.
  */
-export function getAtlassianGlobalEnvOauthCredsIfAllowed():
+function getAtlassianGlobalEnvOauthCredsIfAllowed():
   | AtlassianOauthCreds
   | undefined {
   if (

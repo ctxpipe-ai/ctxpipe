@@ -5,7 +5,7 @@ import {
 import { bedrockConverseInput, withBedrockClient } from "./bedrockConverse.js"
 import { invokeBedrockEmbedding } from "./bedrockEmbeddings.js"
 
-export { lowerBedrockConverseParams } from "./bedrockConverse.js"
+
 
 import {
   HostTextAdapter,

@@ -1,5 +1,5 @@
 /** Drizzle's `Failed query:` error puts bound values on a `params:` line. */
-export function scrubDrizzleParams(text: string): string {
+function scrubDrizzleParams(text: string): string {
   return text.replace(/\r?\nparams:[^\r\n]*/gi, "")
 }
 

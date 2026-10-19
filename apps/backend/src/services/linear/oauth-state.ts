@@ -10,7 +10,7 @@ const LinearOAuthStateSchema = z.object({
   connectionId: z.string().min(1).optional(),
 })
 
-export type LinearOAuthState = z.infer<typeof LinearOAuthStateSchema>
+type LinearOAuthState = z.infer<typeof LinearOAuthStateSchema>
 
 function sign(encodedPayload: string, secret: string): string {
   return createHmac("sha256", secret).update(encodedPayload).digest("base64url")

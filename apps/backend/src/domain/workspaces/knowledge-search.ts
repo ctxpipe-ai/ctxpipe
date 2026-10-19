@@ -3,7 +3,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { log } from "../../observability/logger.js"
 import { generateEmbedding } from "../../retrieval/services/modelProvider.js"
 
-export type KnowledgeSearchInput = {
+type KnowledgeSearchInput = {
   orgId: string
   /** Workspaces of `orgId` to search. Row-level security hides other orgs. */
   workspaceIds: readonly string[]
@@ -36,7 +36,7 @@ export type KnowledgeSearchInput = {
 }
 
 /** The best chunk of one unit. */
-export type KnowledgeHit = {
+type KnowledgeHit = {
   workspaceId: string
   unitId: string
   path: string
