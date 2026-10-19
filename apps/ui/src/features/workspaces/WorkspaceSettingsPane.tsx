@@ -598,6 +598,9 @@ export function WorkspaceSettingsPane(props: {
             <WorkspaceUpgrades
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
+              {...(props.onFixWithAgent
+                ? { onFixWithAgent: props.onFixWithAgent }
+                : {})}
             />
           </SettingsGroup>
 

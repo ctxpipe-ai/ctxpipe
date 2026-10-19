@@ -3,6 +3,11 @@ import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
 import {
+  classifyUpgradeFailure,
+  UPGRADE_FAILURE_CODES,
+  UPGRADE_FAILURE_STEPS,
+} from "../../domain/upgrades/failure.js"
+import {
   GIT_UPGRADE_STEPS,
   pendingUpgradeSteps,
   UPGRADE_BLOCKED_REASONS,
@@ -128,6 +133,18 @@ const WorkspaceUpgradeItemSchema = z
       }),
     note: z.string().nullable(),
     failureReason: z.string().nullable(),
+    failure: z
+      .object({
+        code: z.enum(UPGRADE_FAILURE_CODES),
+        step: z.enum(UPGRADE_FAILURE_STEPS).nullable(),
+        repository: z.string().nullable(),
+        summary: z.string(),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `cost_cap`: the run stopped at the cost cap. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
+      }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
     }),
@@ -197,6 +214,12 @@ function serializeUpgrade(
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
     failureReason: row.failureReason,
+    failure: classifyUpgradeFailure({
+      status: row.status,
+      failureReason: row.failureReason,
+      stopReason: upgrade.stopReason,
+      repositories: upgrade.repositories,
+    }),
     approvedBy: upgrade.approvedBy ?? null,
     approvedAt: upgrade.approvedAt ?? null,
     updatedAt: row.updatedAt.toISOString(),
