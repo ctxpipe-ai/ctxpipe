@@ -974,14 +974,16 @@ async function createNativeHydrationFixture(
         })
         expect(run?.status).toBe("completed")
         // The hydrate queues a workspace-index run. The fixture has no
-        // repository row, so that run records a failed index. Wait for it to
-        // end, or it can write that result over the ready index below. A tip
-        // check then sees a failed index and queues one more hydrate.
+        // repository row, so that run records a failed index. When the
+        // fixture worker runs that namespace, wait for the run to end, or it
+        // can write that result over the ready index below. A tip check then
+        // sees a failed index and queues one more hydrate.
         await vi.waitFor(
           async () => {
             const open = await getSystemDb().execute(
               sql`select id from openworkflow.workflow_runs
-                where workflow_name = ${workspaceIndex.spec.name}
+                where namespace_id = ${options.namespaceId ?? id}
+                  and workflow_name = ${workspaceIndex.spec.name}
                   and input->'revision'->>'workspaceId' = ${workspaceId}
                   and status in ('pending', 'running', 'sleeping')`,
             )
