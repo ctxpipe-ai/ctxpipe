@@ -1189,3 +1189,72 @@ export const FirstTurnFailureRestoresDraft: Story = {
     }
   },
 }
+
+/** The conversation ids of the prepare requests that the story saw. */
+const preparedConversations: string[] = []
+
+/**
+ * Focus on the new-conversation composer starts the sandbox prepare, before
+ * the first message. The first message then uses the prepared conversation,
+ * so the session does not prepare again and the turn does not wait for it.
+ */
+export const ComposeFocusPreparesSandbox: Story = {
+  render: () => <ComposeHarness />,
+  parameters: {
+    storyRoute: {
+      pattern: "orgWorkspace",
+      orgSlug: "acme",
+      workspaceSlug: "docs",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [
+          http.post(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+\/prepare$/.test(
+                new URL(request.url).pathname,
+              ),
+            ({ request }) => {
+              const id = new URL(request.url).pathname.split("/").at(-2)
+              if (id) preparedConversations.push(id)
+              return new HttpResponse(null, { status: 204 })
+            },
+          ),
+          http.get(
+            ({ request }) =>
+              /\/api\/v1\/conversations\/[^/]+(?:\/chat)?$/.test(
+                new URL(request.url).pathname,
+              ),
+            () => HttpResponse.json({ error: "Not found" }, { status: 404 }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    preparedConversations.length = 0
+    const canvas = within(canvasElement)
+    const socket = installAguiWebSocket(firstTurnEvents)
+    try {
+      const composer = await canvas.findByPlaceholderText(
+        /what should ctxpipe do in this workspace/i,
+      )
+      await userEvent.click(composer)
+      await waitFor(() => expect(preparedConversations).toHaveLength(1))
+      await userEvent.type(composer, "Where is the billing service?")
+      await userEvent.click(canvas.getByRole("button", { name: /send/i }))
+      await waitFor(
+        () => expect(canvas.getByText(firstTurnAnswer)).toBeVisible(),
+        { timeout: SEND_WAIT_MS },
+      )
+      expect(socket.runFrames).toHaveLength(1)
+      expect(socket.runFrames[0]).toMatchObject({
+        threadId: preparedConversations[0],
+      })
+      expect(preparedConversations).toHaveLength(1)
+    } finally {
+      socket.restore()
+    }
+  },
+}
