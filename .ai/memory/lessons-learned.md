@@ -349,6 +349,12 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Date:** 2026-08-22
 - **Source:** repo-page-ux (2026-08-13); user correction (GitHub workspace destination, candidate `ba616391f38e94cf`)
 
+### Connect GitHub is one step
+- **Rule:** Connect GitHub is one popup flow. With GitHub sign-in on, the popup opens `/.github/link` first. That page links the GitHub account of a user who has none, then goes on to the App install. Do not go back to the order of `main` (install first, then a second "Connect your GitHub account" page on `/.github/setup`). The backend still needs a linked GitHub account that can see the installation (#386). A GitHub account that is the sign-in of another ctx| user fails in both orders. That case is not a reason to remove the single step: show the link error, or change how the backend proves access.
+- **Category:** product
+- **Date:** 2026-10-19
+- **Source:** user correction after a PR 280 retest (the single step from `f52640644` was removed in `767082725` and restored)
+
 ### Connector list accordion
 - **Rule:** Connectors page rows share `ConnectorListItem`. Closed: icon, name, pulsing health (`connected` / `not yet connected` / `couldn't load` / `sync failed` / `config PR failed`), overflow menu, chevron. Open: Workspace, Scope, synchronised repository, text action link. Do not put setup steppers on the list — those belong in the wizard. Do not use a generic “Error” chip or orange alert icons; the chip names the cause. Display order is GitHub first (`sortOrgConnectionsForDisplay`). Linear “Manage scope” must open the scope editor (`manageScope`), same as Notion — not the “connected” splash.
 - **Category:** pattern

@@ -16,6 +16,7 @@ import {
   Button as RACButton,
   ProgressBar as RACProgressBar,
 } from "react-aria-components"
+import { toast } from "sonner"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
@@ -104,6 +105,7 @@ export function SetupGuideCard(props: {
   // An empty org slug turns off the flow's queries for a member.
   const github = useGithubConnectFlow({
     orgSlug: guide.role === "admin" ? orgSlug : "",
+    onRegistrationFailed: (message) => toast.error(message),
   })
   const landing = guide.landing
   const [addRepositoriesOpen, setAddRepositoriesOpen] = useState(false)
@@ -119,7 +121,7 @@ export function SetupGuideCard(props: {
   const actions: GuideActions = {
     github: {
       label: "Connect GitHub",
-      isPending: github.isSyncing,
+      isPending: github.isPending || github.isSyncing,
       onPress: () => github.start("connect"),
     },
     // Only an owner or admin can pick the repository of a Workspace.

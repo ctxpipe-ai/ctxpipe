@@ -1165,9 +1165,12 @@ export const HandOffShowsHomeWhenDataIsSlow: Story = {
     const canvas = within(canvasElement)
     const body = canvasElement.querySelector(".max-w-2xl")
     if (!body) throw new Error("Home has no body")
-    await waitFor(() => expect(getComputedStyle(body).visibility).toBe("visible"), {
-      timeout: 5000,
-    })
+    await waitFor(
+      () => expect(getComputedStyle(body).visibility).toBe("visible"),
+      {
+        timeout: 5000,
+      },
+    )
     expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
     await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
@@ -1358,5 +1361,58 @@ export const GuideMemberNoWorkspace: Story = {
         guide.queryByRole("button", { name: "Create Workspace" }),
       ).not.toBeInTheDocument(),
     )
+  },
+}
+
+const openPopup = fn()
+/**
+ * With GitHub sign-in on, Connect GitHub opens one popup that starts on the
+ * link page, with the App install (and the flow nonce) as `next`. The user
+ * does not come back to a second Connect GitHub.
+ */
+export const GuideConnectGithubOpensLinkPopup: Story = {
+  beforeEach: () => {
+    openPopup.mockClear()
+    const open = window.open
+    // A popup that stays open, so the page does not fall back to a redirect.
+    window.open = ((...args: Parameters<typeof window.open>) => {
+      openPopup(...args)
+      return { closed: false, focus: () => {} } as unknown as Window
+    }) as typeof window.open
+    return () => {
+      window.open = open
+    }
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          http.get("*/.auth/api/config", () =>
+            HttpResponse.json({ providers: ["github"] }),
+          ),
+          ...sessionDefaults(1).slice(1),
+        ],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    const connect = guide.getByRole("button", { name: "Connect GitHub" })
+    // A pending button ignores a press until the flow knows its config.
+    await waitFor(() => expect(connect).not.toHaveAttribute("data-pending"))
+    await userEvent.click(connect)
+    await waitFor(() => expect(openPopup).toHaveBeenCalledTimes(1))
+    const url = new URL(String(openPopup.mock.calls[0]?.[0]), "http://app.test")
+    await expect(url.pathname).toBe("/.github/link")
+    const next = new URL(url.searchParams.get("next") ?? "")
+    await expect(`${next.origin}${next.pathname}`).toBe(
+      "https://github.com/apps/ctxpipe-agent/installations/new",
+    )
+    await expect(next.searchParams.get("state")).toBeTruthy()
   },
 }

@@ -1,6 +1,7 @@
 "use client"
 
 import { useNavigate } from "@tanstack/react-router"
+import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 
@@ -21,6 +22,7 @@ export function GitHubPrerequisiteStep({
       orgSlug,
       onAlreadyInstalled: () => void onConnected?.(),
       onRegistered: () => void onConnected?.(),
+      onRegistrationFailed: (message) => toast.error(message),
     })
 
   return (
