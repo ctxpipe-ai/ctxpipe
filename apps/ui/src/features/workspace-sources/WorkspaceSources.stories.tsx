@@ -1020,20 +1020,21 @@ export const AddByUrlSendsGitSource: Story = {
     const field = await dialog.findByRole("textbox", {
       name: "Repository URL",
     })
-    const submit = dialog.getByRole("button", { name: "Open a pull request" })
+    const submit = () =>
+      dialog.getByRole("button", { name: "Open a pull request" })
 
     // An ssh URL is refused with the https rule of the policy.
     await userEvent.type(field, "git@github.com:fastify/fastify.git")
     await userEvent.tab()
     await dialog.findByText(/must use an https:\/\/ URL/)
     await expect(field).toBeInvalid()
-    await expect(submit).toBeDisabled()
+    await waitFor(() => expect(submit()).toBeDisabled())
 
     await userEvent.clear(field)
     await userEvent.type(field, "https://github.com/fastify/fastify")
     await userEvent.tab()
     await expect(field).toBeValid()
-    await userEvent.click(submit)
+    await userEvent.click(submit())
     await waitFor(() => expect(addCalls).toHaveLength(1))
     await expect(addCalls[0]).toMatchObject({
       method: "POST",
