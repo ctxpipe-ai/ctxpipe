@@ -9,7 +9,9 @@
 </p>
 
 <p align="center">
-  <a href="https://ctxpipe.ai/early-access">Get early access</a>
+  <a href="https://ctxpipe.ai/early-access">Request early access</a>
+  ·
+  <a href="https://cal.com/ctxpipe/30min">Book a demo</a>
   ·
   <a href="https://docs.ctxpipe.ai">Docs</a>
   ·
@@ -18,77 +20,122 @@
   <a href="https://github.com/ctxpipe-ai/ctxpipe/issues">Issues</a>
 </p>
 
-# ctx| (ctxpipe)
+# ctxpipe
 
-**Self-learning context infrastructure for AI engineering agents.**
+**Context management for software factories.** Open source, MIT licensed.
 
-ctx| gives coding agents the context they are missing: how your platform is
-structured, which decisions already exist, what standards your team follows, and
-how your organization does its work. ctx| keeps that context as Markdown in a
-git repository that you own. It reads your code and your tools, and it keeps the
-context current with small commits that you can review. Your agents read the
-context through one MCP connection.
+Your agents can reach everything, but they cannot tell what is true. ctxpipe
+turns your code, tickets, docs, and incidents into one organized, current git
+repository of Markdown that you can inspect. Background jobs keep it current,
+and every coding agent reads it over MCP. Self-host the open-source core, or use
+the hosted version ([early access](https://ctxpipe.ai/early-access)).
 
-Use the open-source core yourself, or get in touch for early access to the
-managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
+## The problem
 
-## What ctx| does
+Every repository, ticket, doc, incident, and Slack thread is one MCP call away.
+Thus agents read too much, trust the wrong parts, and you cannot see why. More
+context has not made the fleet better. It has made the fleet noisier.
 
-- **Portable context.** Every agent, repository, session, and tool reads the
-  same context.
-- **Reviewable context.** Instructions, decisions, and skills are Markdown in
-  git. Your team reviews each change as a commit or a pull request.
-- **Context that learns.** Agents save lasting lessons in `.ai/memory` in each
-  repository. After a pull request merges in a linked repository, ctx| reads
-  those lessons as instructions for your team.
-- **Self-host or managed.** Run the open-source core in your own environment,
-  or use the managed SaaS.
+- **Too much.** The context window fills with reading, not work.
+- **Too noisy.** Stale runbooks, duplicate docs, and decisions that contradict
+  each other all look equally true to an agent.
+- **Unorganized.** Knowledge is spread across tools and many repositories.
+  Nothing links a decision to the code that it governs.
+- **Opaque.** When an agent makes a mistake, you cannot see what it read or why
+  it believed it.
 
 ## How it works
 
+Write it down once. Keep it current. Serve it to every agent.
+
 <p align="center">
-  <img src="./apps/docs/public/ctxpipe-readme-how-it-works.svg" alt="How ctx| works: connectors and linked code commit Markdown to the Workspace repository. ctx| indexes each commit. Coding agents read through the MCP, and your team uses Workspace chat. Pull requests and merged lessons feed back in." width="1000" />
+  <img src="./apps/docs/public/ctxpipe-readme-how-it-works.svg" alt="How ctxpipe works in three steps: connect your code and tools, keep a Workspace repository of Markdown current, and serve it to every agent over MCP." width="1000" />
 </p>
 
-Each Workspace has one git repository of Markdown knowledge. ctx| commits
-connector content and facts from linked code to that repository. After each new
-commit, ctx| rebuilds the search index and the knowledge graph. For the full
-flow, see [How ctx| works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works).
+1. **Connect: agents read your decisions, not only your code.** Link your code
+   repositories, and select what to pull from Linear, Notion, Confluence, Slack,
+   and PagerDuty. ctxpipe writes it to one git repository as Markdown, with
+   links back to the code. Each team or product gets its own Workspace.
+2. **Keep current: agents stop acting on stale docs.** ctxpipe reads a linked
+   repository again on every push. Each fact links back to its source. A fact
+   expires when the code no longer backs it. Each job makes one commit that you
+   can revert.
+3. **Serve: every agent starts from the same facts.** Claude Code, Cursor,
+   Codex, OpenCode, and VS Code search the same Workspace over MCP: knowledge,
+   code, and graph. ctxpipe returns sources, not answers. Your agent reasons
+   with its own model and cites the sources.
 
-## Core capabilities
+For the full flow, see
+[How ctxpipe works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works).
+
+## Where ctxpipe fits
+
+Same models as everyone else. Your factory is the difference.
+
+<p align="center">
+  <img src="./apps/docs/public/ctxpipe-readme-factory.svg" alt="The software factory stack: what you ship, on agents and tools that are yours, on context that ctxpipe keeps in your git, on models that are rented and swappable." width="640" />
+</p>
+
+Teams that scale with AI build a harness around the models: agents, review
+bots, and internal tools. Under all of it is what your organization knows about
+how you build. Most teams make that layer by hand, and it goes stale when its
+maintainer moves on. ctxpipe is that layer: open source, and kept in your own
+repository.
+
+## Designed for transparency
+
+Nothing that your agents read is hidden from you.
+
+- **It is open source.** The core is MIT licensed, including every job that
+  writes to your Workspace. Read it, run it, or fork it.
+- **Context is files in a repository.** Every fact that your agents read is a
+  Markdown file in a git repository that you own. Open it in any editor, or
+  point any tool at it.
+- **History is git.** Every change is a commit that you can read, blame, or
+  revert. Jobs commit small and often. Workspace chat edits arrive as pull
+  requests.
+- **The knowledge stays with you.** If you stop using ctxpipe, the Workspace
+  repository stays where it is, with its full history.
+
+## What has shipped
 
 | Capability | What it gives you |
 |---|---|
-| Git-backed Workspaces | A team's knowledge is Markdown in a git repository that you own. ctx\| keeps it current with small commits that you can review. |
-| Cross-repo code search | Agents search all the code repositories that are linked to a Workspace, not only the files that are open in an editor. |
-| Product and engineering connectors | ctx\| mirrors the Confluence, GitHub, Linear, Notion, and PagerDuty content that you select into a Workspace as Markdown. It captures a Slack thread when someone mentions the bot. |
-| Knowledge graph per Workspace | ctx\| turns the links and claims in knowledge files, and the services, APIs, and libraries in linked code, into a graph that you can explore. |
-| One MCP for engineering knowledge | Cursor, Claude Code, Codex, OpenCode, VS Code, and custom tools use the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint. Seven read-only tools let your agent search knowledge and code, read files, and follow links. |
-| Workspace chat | Each conversation gets a coding agent. The agent answers questions about code, systems, and decisions, and it proposes knowledge changes as pull requests. |
+| Git-backed Workspaces | Each team or product gets a Workspace: one git repository of Markdown knowledge that you own, plus the code repositories that it links to. |
+| Six connectors | GitHub (linked code and merged pull requests), Linear, Notion, Confluence, PagerDuty, and Slack, which captures a thread when someone mentions ctxpipe. Each Workspace keeps its scope in `.ctxpipe/sources.yaml`, and you change it by pull request. |
+| Background upkeep | On every push, jobs extract services, APIs, and patterns from linked code again. They mirror new tickets, pull requests, and incidents, link facts into a graph, and expire the extracted facts that the code no longer backs. |
+| Files, Diff, and Graph views | See the files, the changes, and the [graph](https://docs.ctxpipe.ai/docs/workspaces/graph) of each Workspace, and an activity history of every commit. |
+| Workspace chat | An agent answers with sources, and it proposes changes on its own branch as a pull request. |
+| One MCP endpoint | Seven read-only tools: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and `get_related`. Each result has a ref, a line range, a branch, and a commit. ctxpipe runs no model in the MCP path. |
+| Scoped, read-only access | MCP tokens are read-only. At OAuth consent, the user selects the organizations that a connection can read. Postgres row-level security limits each call to one organization. |
 | Isolated agent sandboxes | Workspace chat and ingestion run each agent in its own sandbox. A sandbox holds only the repositories and keys that its job needs. |
-| Files, Diff, and Graph panes | A Workspace's Files, Diff, and [Graph](https://docs.ctxpipe.ai/docs/workspaces/graph) panes show the context that agents use before they act. |
-| Local memory | `npx ctxpipe memory init` adds `.ai/memory` and capture hooks to a repository, for Cursor, Claude Code, Codex, OpenCode, and VS Code. See [Local memory](https://docs.ctxpipe.ai/docs/mcp/local-memory). |
+| Self-hosting | Docker Compose for evaluation, and Terraform or AWS CDK in production. |
 
 ## Coming soon
 
-- Dashboard to see agent activity, patterns, and insights.
-- Proactive insights that surface stale context, missing instructions, and useful
-  patterns from agent usage.
-- More product and engineering connectors (Jira, Figma, and others).
+- Flags for contradictions and gaps between sources.
+- MCP write tools, so agents can propose knowledge changes and record what they
+  learn.
+- More connectors.
+- SOC 2.
 
 ## Get started
 
-### Managed SaaS
+### Hosted (early access)
 
-The managed SaaS is the fastest path. It includes hosting, connector
-credentials, model defaults, and production operations.
+We operate ctxpipe for you. We help you set up your first Workspace, connect
+GitHub and your tools, and connect your agents to it. Model calls go only to
+zero-data-retention endpoints, and ctxpipe does not train on your code.
 
-**Get early access:** [ctxpipe.ai](https://ctxpipe.ai/early-access)
+[Request early access](https://ctxpipe.ai/early-access), or
+[book a demo](https://cal.com/ctxpipe/30min).
 
 ### Self-host
 
-Teams can run ctx| in their own environment. Use the self-hosting docs as the
-deployment runbook, not this README:
+The MIT core runs on Docker Compose for evaluation, and on Terraform or AWS CDK
+in production. It works with any OpenAI-compatible model provider, including
+Azure and Bedrock. When you self-host, the servers of ctxpipe are not in the
+data path. Use the self-hosting docs as the deployment runbook, not this README:
 
 - [Self-hosting overview](https://docs.ctxpipe.ai/docs/self-hosting)
 - [Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)
@@ -109,9 +156,12 @@ Run the `ctxpipe` CLI in your repository:
 npx ctxpipe init
 ```
 
-The wizard writes the ctx| MCP config for Cursor, Claude Code, Codex, OpenCode,
-or VS Code. It can also add local memory. For local memory only, run
-`npx ctxpipe memory init`. See [packages/cli/README.md](packages/cli/README.md).
+The wizard writes the ctxpipe MCP config for Claude Code, Cursor, Codex,
+OpenCode, or VS Code. Any other MCP client can use the same endpoint. The wizard
+can also add [local memory](https://docs.ctxpipe.ai/docs/mcp/local-memory):
+Markdown lessons in `.ai/memory` that your agents keep with the code. For local
+memory only, run `npx ctxpipe memory init`. See
+[packages/cli/README.md](packages/cli/README.md).
 
 ### Local development
 
@@ -145,7 +195,7 @@ OpenAPI, MCP, contract tests, and package scripts, see
 
 - [Product docs](https://docs.ctxpipe.ai)
 - [Getting started](https://docs.ctxpipe.ai/docs/getting-started)
-- [How ctx| works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works)
+- [How ctxpipe works](https://docs.ctxpipe.ai/docs/getting-started/how-it-works)
 - [Workspaces](https://docs.ctxpipe.ai/docs/workspaces)
 - [Connections](https://docs.ctxpipe.ai/docs/connections)
 - [MCP setup](https://docs.ctxpipe.ai/docs/mcp/mcp-docs)
@@ -163,9 +213,9 @@ OpenAPI, MCP, contract tests, and package scripts, see
 | `apps/codesearch` | Zoekt-backed clone and code search service. |
 | `apps/otel-collector` | OpenTelemetry Collector for local development (Compose `infra` profile only). A self-hosted deployment can export with `OTEL_EXPORTER_OTLP_*`. |
 | `apps/forge-ctxpipe-agent` | Reference Atlassian Forge app manifest for the Confluence connector. |
-| `packages/aws-cdk` | AWS CDK construct for self-hosting ctx\| on AWS. |
+| `packages/aws-cdk` | AWS CDK construct for self-hosting ctxpipe on AWS. |
 | `packages/cli` | The `ctxpipe` CLI: MCP setup (`npx ctxpipe init`) and local memory. |
-| `plugins/ctxpipe` | Claude plugin for the hosted ctx\| MCP. |
+| `plugins/ctxpipe` | Claude plugin for the hosted ctxpipe MCP. |
 | `shared` | Git helpers that the backend and codesearch both use. |
 | `ops/observability` | Internal ClickStack and Langfuse project. It is not part of a product deploy. |
 | `examples/aws-cdk-self-host` | Runnable AWS CDK self-hosting example. |
@@ -191,7 +241,7 @@ OpenAPI, MCP, contract tests, and package scripts, see
 
 ## Support and contributing
 
-- Product or early access questions: [ctxpipe.ai](https://ctxpipe.ai)
+- Product or early access questions: [ctxpipe.ai](https://ctxpipe.ai), or [book a demo](https://cal.com/ctxpipe/30min)
 - Docs and setup questions: [docs.ctxpipe.ai](https://docs.ctxpipe.ai)
 - Bugs and feature requests: [GitHub issues](https://github.com/ctxpipe-ai/ctxpipe/issues)
 - Community chat: [Discord](https://ctxpipe.ai/discord)
@@ -202,6 +252,6 @@ that we can agree on the design and the product direction.
 
 ## License
 
-ctx| uses the **MIT License**. See [LICENSE](LICENSE) for the binding terms.
+ctxpipe uses the **MIT License**. See [LICENSE](LICENSE) for the binding terms.
 For more about the open-source core, see the
 [open-source guide](https://docs.ctxpipe.ai/docs/resources/open-source).
