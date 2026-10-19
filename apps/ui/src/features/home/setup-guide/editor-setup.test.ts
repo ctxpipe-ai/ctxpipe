@@ -2,7 +2,6 @@ import HyperDX from "@hyperdx/browser"
 import { describe, expect, it, vi } from "vitest"
 import {
   editorSetupCommand,
-  mcpServerUrl,
   recordMcpConfigCopied,
 } from "./editor-setup"
 
@@ -23,14 +22,6 @@ describe("editorSetupCommand", () => {
   })
 })
 
-describe("mcpServerUrl", () => {
-  it("is /mcp on the origin, with no organization in the query", () => {
-    expect(mcpServerUrl("https://ctx.example.com")).toBe(
-      "https://ctx.example.com/mcp",
-    )
-  })
-})
-
 describe("recordMcpConfigCopied", () => {
   it("records mcp_config_copy with the part that the user copied, and not the value", () => {
     const addAction = vi
@@ -38,11 +29,9 @@ describe("recordMcpConfigCopied", () => {
       .mockImplementation(() => {})
 
     recordMcpConfigCopied("setup_command")
-    recordMcpConfigCopied("server_url")
 
     expect(addAction.mock.calls).toEqual([
       ["mcp_config_copy", { target: "setup_command" }],
-      ["mcp_config_copy", { target: "server_url" }],
     ])
     addAction.mockRestore()
   })

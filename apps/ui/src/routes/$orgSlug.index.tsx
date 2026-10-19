@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
@@ -10,7 +11,7 @@ import { HomeComposer } from "@/features/home/HomeComposer"
 import {
   ASK_PROMPT,
   SetupGuideCard,
-  SetupGuideSkeleton,
+  SetupGuideReveal,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import {
@@ -87,6 +88,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // The flag goes after the fade, so a reload does not hold Home again.
   const fromOnboarding = useSessionFlag(onboardingHandOffFlag)
   const revealed = useFirstDataReveal(fromOnboarding, guide.status === "ready")
+  // After onboarding, Home fades in as a whole: the guide needs no transition.
+  const guideShown = useRevealOnce(guide.status === "ready", fromOnboarding)
   useEffect(() => {
     if (fromOnboarding && revealed) onboardingHandOffFlag.clear()
   }, [fromOnboarding, revealed])
@@ -122,15 +125,15 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
       }
     : undefined
   const guideCard =
-    guide.status === "ready" ? (
-      <SetupGuideCard
-        orgSlug={orgSlug}
-        guide={guide}
-        onAsk={ask}
-        onCreateWorkspace={() => setCreateOpen(true)}
-      />
-    ) : guide.mayShow ? (
-      <SetupGuideSkeleton collapsed={guide.collapsed} />
+    guide.status === "ready" && guideShown ? (
+      <SetupGuideReveal>
+        <SetupGuideCard
+          orgSlug={orgSlug}
+          guide={guide}
+          onAsk={ask}
+          onCreateWorkspace={() => setCreateOpen(true)}
+        />
+      </SetupGuideReveal>
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
@@ -192,15 +195,17 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}
-          <WorkspaceActivity
-            orgSlug={orgSlug}
-            workspaceSlug={
-              sessionPending || listQuery.isPending
-                ? null
-                : (selected?.slug ?? ALL_WORKSPACES)
-            }
-            workspaces={workspaces}
-          />
+          <div className="[view-transition-name:home-below]">
+            <WorkspaceActivity
+              orgSlug={orgSlug}
+              workspaceSlug={
+                sessionPending || listQuery.isPending
+                  ? null
+                  : (selected?.slug ?? ALL_WORKSPACES)
+              }
+              workspaces={workspaces}
+            />
+          </div>
         </div>
       </div>
       <WorkspaceCreateModal

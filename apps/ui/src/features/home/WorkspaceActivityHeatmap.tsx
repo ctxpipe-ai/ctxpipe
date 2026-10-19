@@ -137,7 +137,7 @@ export function WorkspaceActivityHeatmap(props: {
           : undefined
       }
       className={cn(
-        "w-full min-w-0 text-xs text-muted-foreground",
+        "h-32 w-full min-w-0 text-xs text-muted-foreground",
         onSelectDate && "cursor-pointer",
       )}
     />

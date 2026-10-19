@@ -11,12 +11,7 @@ export function editorSetupCommand(origin: string): string {
   return `npx ctxpipe init --base-url ${origin}`
 }
 
-/** The MCP endpoint. It has no `?orgSlug=`, because ADR-051 ignores it. */
-export function mcpServerUrl(origin: string): string {
-  return `${origin}/mcp`
-}
-
-/** The user copied part of the MCP setup. Records which part, not its value. */
-export function recordMcpConfigCopied(target: "setup_command" | "server_url") {
+/** The user copied the MCP setup command. Records the event, not the value. */
+export function recordMcpConfigCopied(target: "setup_command") {
   HyperDX.addAction("mcp_config_copy", { target })
 }
