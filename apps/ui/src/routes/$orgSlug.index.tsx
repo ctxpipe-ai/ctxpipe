@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query"
 import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
-import { useRevealOnce } from "@/lib/useRevealOnce"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
@@ -27,6 +26,7 @@ import {
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
 import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
 import { cn } from "@/lib/utils"
@@ -195,7 +195,8 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}
-          <div className="[view-transition-name:home-below]">
+          {/* Activity and Recent keep the gap of the other Home blocks. */}
+          <div className="space-y-10 [view-transition-name:home-below]">
             <WorkspaceActivity
               orgSlug={orgSlug}
               workspaceSlug={
