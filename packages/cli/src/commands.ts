@@ -45,7 +45,7 @@ export function isInteractive(opts: {
   return !opts.nonInteractive && !opts.json && input.isTTY && output.isTTY
 }
 
-export type InitRunOpts = {
+type InitRunOpts = {
   baseUrl: string
   org?: string
   scope?: string
@@ -59,7 +59,7 @@ export type InitRunOpts = {
   memory?: boolean
 }
 
-export type McpAddRunOpts = {
+type McpAddRunOpts = {
   baseUrl: string
   org?: string
   scope?: string
@@ -330,7 +330,7 @@ export async function runMcpDoctor(opts: {
   if (result.status === "failed") process.exitCode = 1
 }
 
-export type ConfirmAndApplyOpts = {
+type ConfirmAndApplyOpts = {
   operations: Operation[]
   json: boolean
   nonInteractive: boolean
