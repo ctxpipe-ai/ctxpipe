@@ -1249,10 +1249,8 @@ export const ComposeFocusPreparesSandbox: Story = {
         { timeout: SEND_WAIT_MS },
       )
       expect(socket.runFrames).toHaveLength(1)
-      expect(socket.runFrames[0]).toMatchObject({
-        threadId: preparedConversations[0],
-      })
-      expect(preparedConversations).toHaveLength(1)
+      const { threadId } = socket.runFrames[0] as { threadId: string }
+      expect(preparedConversations).toEqual([threadId])
     } finally {
       socket.restore()
     }

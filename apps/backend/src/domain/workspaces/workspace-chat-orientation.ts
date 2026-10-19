@@ -16,7 +16,7 @@ export const WORKSPACE_CHAT_ORIENTATION_MAX_CHARS = 2000
 const MAX_LISTED = 20
 const MAX_NAME_CHARS = 100
 
-export type WorkspaceChatOrientationInput = {
+type WorkspaceChatOrientationInput = {
   repositories: ReadonlyArray<{ id: string; name: string }>
   /** Top-level knowledge folders; `""` is the files at the Workspace root. */
   folders: ReadonlyArray<{ folder: string; files: number }>

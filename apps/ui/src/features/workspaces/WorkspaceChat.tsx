@@ -86,7 +86,20 @@ function WorkspaceComposeChat(props: {
   // The first message starts the conversation with this id. Focus on the
   // composer starts the sandbox prepare for it, so the first turn does not
   // wait for the sandbox. Prepare is the only work that focus starts.
-  const [conversationId] = useState(newUiConversationId)
+  // The id lives in the query cache, so a remount of this composer keeps it
+  // and does not prepare a second sandbox. Send clears it.
+  const composeKey = [
+    "workspace-compose-conversation",
+    props.orgSlug,
+    props.workspace.id,
+  ]
+  const [conversationId] = useState(() => {
+    const kept = queryClient.getQueryData<string>(composeKey)
+    if (kept) return kept
+    const id = newUiConversationId()
+    queryClient.setQueryData(composeKey, id)
+    return id
+  })
   const prepare = () => {
     void queryClient.prefetchQuery(
       workspaceChatPrepareOptions(
@@ -118,6 +131,7 @@ function WorkspaceComposeChat(props: {
             draftKey={chatDraftKey(props.orgSlug, props.workspace.id)}
             onFocus={prepare}
             sendMessage={({ text }) => {
+              queryClient.removeQueries({ queryKey: composeKey, exact: true })
               openWorkspaceConversation({
                 queryClient,
                 navigate,
