@@ -1,7 +1,6 @@
 /** Example tasks for a new Workspace conversation. Picking one fills the composer. */
 export const workspaceSuggestions = [
-  "Which decisions and lessons should I know before I change this Workspace?",
-  "Explain how the main parts of this Workspace fit together, with sources.",
-  "What changed recently in this Workspace, and why?",
-  "Record a lesson from what we learned as a knowledge file.",
+  "Find stale or unused files, and propose what to archive.",
+  "Identify knowledge files that disagree with each other, and propose one version.",
+  "Summarize what happened across the platform last week",
 ] as const
