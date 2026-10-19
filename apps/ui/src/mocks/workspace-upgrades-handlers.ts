@@ -38,6 +38,7 @@ export function upgradeItemFixture(
     repositories: [],
     blockedReason: null,
     note: null,
+    waitingForSlot: null,
     failureReason: null,
     failure: null,
     approvedBy: null,

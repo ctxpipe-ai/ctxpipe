@@ -260,6 +260,11 @@ export type WorkspaceUpgradePayload = {
    * finished part is published; a next run continues.
    */
   stopReason?: "cost_cap"
+  /**
+   * Only on a re-ingestion that waits for its turn (a free sandbox slot):
+   * why, and when the wait began. The run clears it when its turn comes.
+   */
+  waitingForSlot?: { reason: string; since: string }
 }
 
 /** A range from the p50 to the p90 value. */
