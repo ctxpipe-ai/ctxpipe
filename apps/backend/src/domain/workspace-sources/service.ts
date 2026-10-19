@@ -21,6 +21,11 @@ import type {
 } from "../../routes/v1/workspace-sources-contract.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import {
+  PlainGitUrlError,
+  plainGitRefusalReason,
+  resolvePlainGitRemote,
+} from "../../services/git/plain-git-remote.js"
+import {
   createPullRequestWithFiles,
   getFileContent,
   listFilesInTree,
@@ -52,7 +57,6 @@ import {
   sourceNamesWorkspaceRepository,
   WORKSPACE_REPOSITORY_SOURCE_DETAIL,
 } from "./projection-plan.js"
-import { plainGitSchemeRule } from "./providers/git.js"
 import { workspaceGithubRepository } from "./repository.js"
 import {
   checkSourcePath,
@@ -308,21 +312,35 @@ export async function listWorkspaceSources(
   }
 }
 
-async function assertConnection(
+/**
+ * Check the connection of an added or changed source, and give the scope to
+ * write. A plain git source has no connection (CTX-815): its URL must obey
+ * the plain git URL policy of the deployment mode, with the DNS check, and
+ * the file keeps the checked URL.
+ */
+async function checkedScope(
   orgId: string,
-  provider: SourceProvider,
-  connectionId: string,
-) {
-  const expected = SOURCE_SCOPES[provider].connectionType
-  // A plain git source has no connection; a person adds its file with a
-  // pull request (CTX-815).
-  if (expected === null)
-    throw new SourceChangeError(
-      400,
-      `A plain git source has no connection. Add or change its file under sources/git/ with a pull request. ${plainGitSchemeRule()}`,
-    )
+  change: {
+    provider: SourceProvider
+    connectionId: string | null
+    scope: Record<string, unknown>
+  },
+): Promise<Record<string, unknown>> {
+  const expected = SOURCE_SCOPES[change.provider].connectionType
+  if (expected === null) {
+    if (change.connectionId !== null)
+      throw new SourceChangeError(400, "A plain git source has no connection")
+    try {
+      const remote = await resolvePlainGitRemote(String(change.scope.url ?? ""))
+      return { ...change.scope, url: remote.url }
+    } catch (error) {
+      if (error instanceof PlainGitUrlError)
+        throw new SourceChangeError(400, plainGitRefusalReason(error))
+      throw error
+    }
+  }
   const connection = (await listOrgConnections(orgId)).find(
-    (item) => item.id === connectionId,
+    (item) => item.id === change.connectionId,
   )
   if (!connection)
     throw new SourceChangeError(400, "The connection does not exist")
@@ -331,6 +349,7 @@ async function assertConnection(
       400,
       `The connection is a ${connection.type} connection, not ${expected}`,
     )
+  return change.scope
 }
 
 /**
@@ -473,17 +492,18 @@ export async function changeWorkspaceSource(input: {
   workspace: WorkspaceRecord
   change: SourceChange
 }): Promise<WorkspaceSourceChangeResult> {
-  const { workspace, change } = input
-  assertSourceChangeShape(change)
-  if (change.action === "add" || change.action === "edit")
-    assertNotWorkspaceRepository(workspace, change)
+  const { workspace } = input
+  assertSourceChangeShape(input.change)
+  if (input.change.action === "add" || input.change.action === "edit")
+    assertNotWorkspaceRepository(workspace, input.change)
   const repository = await assertCanEdit(workspace)
-  if (change.action === "add" || change.action === "edit")
-    await assertConnection(
-      workspace.orgId,
-      change.provider,
-      change.connectionId,
-    )
+  const change: SourceChange =
+    input.change.action === "add" || input.change.action === "edit"
+      ? {
+          ...input.change,
+          scope: await checkedScope(workspace.orgId, input.change),
+        }
+      : input.change
   const sources = await projectedSources(workspace)
   const reservedPaths =
     change.action === "add" || change.action === "rename"
@@ -535,20 +555,20 @@ export async function addWorkspaceSources(input: {
   workspace: WorkspaceRecord
   changes: Array<Extract<SourceChange, { action: "add" }>>
 }): Promise<WorkspaceSourceBatchResult> {
-  const { workspace, changes } = input
-  if (!changes.length)
+  const { workspace } = input
+  if (!input.changes.length)
     throw new SourceChangeError(400, "Add at least one source")
-  for (const change of changes) {
+  for (const change of input.changes) {
     assertSourceChangeShape(change)
     assertNotWorkspaceRepository(workspace, change)
   }
   const repository = await assertCanEdit(workspace)
-  for (const change of changes)
-    await assertConnection(
-      workspace.orgId,
-      change.provider,
-      change.connectionId,
-    )
+  const changes: typeof input.changes = []
+  for (const change of input.changes)
+    changes.push({
+      ...change,
+      scope: await checkedScope(workspace.orgId, change),
+    })
   const sources = await projectedSources(workspace)
   const reservedPaths = await reservedPathsOf(workspace)
   // An auto path must not take a path that a later add of the batch names.
