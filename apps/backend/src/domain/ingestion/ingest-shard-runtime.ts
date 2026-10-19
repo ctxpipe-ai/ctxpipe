@@ -80,6 +80,11 @@ export type IngestRootMap = {
 export type IngestStepUsage = {
   inputTokens: number
   outputTokens: number
+  /**
+   * The part of `inputTokens` that the provider read from its prompt cache.
+   * The fallback price counts it at the cache rate, not the input rate.
+   */
+  cacheReadTokens?: number
   /** USD, when the gateway reports it. */
   costUsd?: number
   /**

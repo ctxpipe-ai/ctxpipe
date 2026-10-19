@@ -810,9 +810,12 @@ function addIngestUsage(
   const [a, b] = [cost(total), cost(next)]
   const costUsd = a !== undefined && b !== undefined ? a + b : undefined
   const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
+  const cacheReadTokens =
+    (total.cacheReadTokens ?? 0) + (next.cacheReadTokens ?? 0)
   return {
     inputTokens: total.inputTokens + next.inputTokens,
     outputTokens: total.outputTokens + next.outputTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(unknownSteps ? { unknownSteps } : {}),
   }

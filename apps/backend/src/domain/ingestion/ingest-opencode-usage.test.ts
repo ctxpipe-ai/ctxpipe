@@ -75,6 +75,7 @@ describe("parseOpenCodeUsage", () => {
     expect(parseOpenCodeUsage(recorded([0.0123, 0.0021]))).toEqual({
       inputTokens: 1200 + 4000 + 800 + 200 + 5000,
       outputTokens: 300 + 50 + 40,
+      cacheReadTokens: 4000 + 5000,
       costUsd: expect.closeTo(0.0144, 10),
     })
   })
@@ -83,6 +84,7 @@ describe("parseOpenCodeUsage", () => {
     expect(parseOpenCodeUsage(recorded([0, 0]))).toEqual({
       inputTokens: 11_200,
       outputTokens: 390,
+      cacheReadTokens: 9000,
     })
     expect(parseOpenCodeUsage(recorded([0.01, 0]))).not.toHaveProperty(
       "costUsd",

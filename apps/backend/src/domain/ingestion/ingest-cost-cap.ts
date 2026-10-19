@@ -12,24 +12,30 @@ import type { IngestStepUsage } from "./ingest-shard-runtime.js"
  */
 
 /**
- * USD for one model step at the p90. A full run of a large monorepo
- * (2026-10-19) spent $8.46 in 43 model steps, about $0.20 for each step.
+ * USD for one model step at the p90. A run of a large monorepo
+ * (2026-10-19) used 3.9M input tokens (3.7M of them cache reads) and 65k
+ * output tokens in 43 model steps: about $2.60, or $0.06 for each step, at
+ * the fallback prices with the cache rate. The value keeps a margin above
+ * that.
  */
-const USD_PER_MODEL_STEP = 0.2
+const USD_PER_MODEL_STEP = 0.1
 
 /** The cap of one run is in this range (USD). */
 export const INGEST_COST_CAP_RANGE = { minUsd: 5, maxUsd: 100 } as const
 
 /**
  * USD for one million tokens of the medium tier. The spend converts the
- * reported tokens of a step with it, when the gateway reports no cost.
+ * reported tokens of a step with it, when the gateway reports no cost. A
+ * cache read costs a tenth of an input token (CTX-900): a step that reads
+ * its prompt from the cache again on each model call would otherwise look
+ * many times too expensive.
  */
-const USD_PER_MILLION_TOKENS = { input: 3, output: 15 } as const
+const USD_PER_MILLION_TOKENS = { input: 3, cacheRead: 0.3, output: 15 } as const
 
 /**
  * The cost cap of one ingestion v2 run, in USD:
  *
- *   cap = clamp(2 * modelSteps * $0.20, $5, $100)
+ *   cap = clamp(2 * modelSteps * $0.10, $5, $100)
  *   modelSteps = roots * (root model skills) + (repository model skills)
  *
  * `roots` is the count of roots that the run does: `discover-roots` finds
@@ -52,10 +58,12 @@ export function ingestionCostCapUsd(input: {
 }
 
 /** USD of one usage report: the gateway cost, else the tokens at the medium-tier prices. */
-function ingestUsageUsd(usage: IngestStepUsage): number {
+export function ingestUsageUsd(usage: IngestStepUsage): number {
   if (typeof usage.costUsd === "number") return usage.costUsd
+  const cacheRead = Math.min(usage.cacheReadTokens ?? 0, usage.inputTokens)
   return (
-    (usage.inputTokens * USD_PER_MILLION_TOKENS.input +
+    ((usage.inputTokens - cacheRead) * USD_PER_MILLION_TOKENS.input +
+      cacheRead * USD_PER_MILLION_TOKENS.cacheRead +
       usage.outputTokens * USD_PER_MILLION_TOKENS.output) /
     1_000_000
   )
@@ -84,6 +92,7 @@ function usageUsd(usage: unknown): { usd: number; unknown: boolean } {
     usd: ingestUsageUsd({
       inputTokens: Number(value.inputTokens) || 0,
       outputTokens: Number(value.outputTokens) || 0,
+      cacheReadTokens: Number(value.cacheReadTokens) || 0,
       ...(typeof value.costUsd === "number" ? { costUsd: value.costUsd } : {}),
     }),
     unknown: Number(value.unknownSteps) > 0,
@@ -123,7 +132,7 @@ export async function ingestionRunSpend(
  * other skill step that runs now (the shards run in parallel), plus the
  * expected cost of this step, is at most the cap. The expected cost of a
  * step is the mean cost of the finished model steps of the run, and at
- * least $0.20. So the spend passes the cap by at most one step, when a step
+ * least $0.10. So the spend passes the cap by at most one step, when a step
  * costs more than expected.
  */
 export async function ingestBudgetAllows(input: {

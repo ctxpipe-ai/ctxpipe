@@ -201,7 +201,7 @@ Workspace already holds.
   re-ingestions at once. A run that waits for its turn stays queued and
   starts when a slot is free.
 - **Cost cap.** Each repository run has a cost cap that scales with the
-  size of the repository: 2 times $0.20 for each expected model step (the
+  size of the repository: 2 times $0.10 for each expected model step (the
   roots that the run finds, times the model skills), at least $5 and at most
   $100. Before each model step, ctx| checks the spend so far, plus the
   steps that run now, plus that step, against the cap. So the spend passes
