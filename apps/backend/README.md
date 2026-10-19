@@ -18,7 +18,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 - API contracts: `@hono/zod-openapi` + Zod
 - Auth: Better Auth
 - DB: PostgreSQL + Drizzle ORM
-- Orchestration: OpenWorkflow + LangGraph
+- Orchestration: OpenWorkflow
 - Testing: Vitest
 
 ## API & endpoints
@@ -141,7 +141,6 @@ For **local development**, GitHub cannot deliver webhooks to `localhost`; use an
 - `src/mcp` – MCP tools and server integration
 - `src/db` – schema and database access
 - `src/openworkflow` – ingestion and sync workflows
-- `src/graphs` – LangGraph pipelines
 
 ## Licence
 
