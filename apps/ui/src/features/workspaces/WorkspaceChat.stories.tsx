@@ -1194,11 +1194,11 @@ export const FirstTurnFailureRestoresDraft: Story = {
 const preparedConversations: string[] = []
 
 /**
- * Focus on the new-conversation composer starts the sandbox prepare, before
+ * Opening the new-conversation composer starts the sandbox prepare, before
  * the first message. The first message then uses the prepared conversation,
  * so the session does not prepare again and the turn does not wait for it.
  */
-export const ComposeFocusPreparesSandbox: Story = {
+export const ComposeOpenPreparesSandbox: Story = {
   render: () => <ComposeHarness />,
   parameters: {
     storyRoute: {
