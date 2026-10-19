@@ -540,33 +540,6 @@ export const FailedSourceAccess: Story = {
   },
 }
 
-export const FailedCostCap: Story = {
-  parameters: failedReingest({
-    code: "cost_cap",
-    step: "ingest",
-    repository: "acme/ky",
-    summary:
-      "The run reached its cost cap of $40.00, which scales with the size of the repository. ctx| published the finished part (32 roots done). Continue to do the rest: the next run skips the finished roots.",
-  }),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    // A partial result, not a dead end: the cause and the Continue action.
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText("Partly published: the cost cap was reached"),
-      ).toBeVisible(),
-    )
-    expect(
-      canvas.getByText("Stopped at: Ingest the source repository (acme/ky)."),
-    ).toBeVisible()
-    expect(
-      canvas.getByRole("button", {
-        name: "Continue: Fresh re-ingestion of the source repositories",
-      }),
-    ).toBeVisible()
-  },
-}
-
 const fixPrompts = fn()
 
 export const FailedUnknown: Story = {

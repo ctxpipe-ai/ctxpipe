@@ -53,14 +53,7 @@ describe("classifyUpgradeFailure", () => {
     expect(classifyUpgradeFailure(failed(report))).toMatchObject({ code, step })
   })
 
-  it("reads a cost cap from the stop reason, and a row error with no repository", () => {
-    expect(
-      classifyUpgradeFailure({
-        status: "failed",
-        failureReason: "The re-ingestion stopped at the cost cap (cost_cap).",
-        stopReason: "cost_cap",
-      }),
-    ).toMatchObject({ code: "cost_cap", repository: null })
+  it("reads a row error with no repository", () => {
     expect(
       classifyUpgradeFailure({
         status: "failed",

@@ -18,12 +18,6 @@ const STEP_LABEL: Record<NonNullable<UpgradeFailure["step"]>, string> = {
 type FailureCopy = {
   reason: string
   action: string
-  /**
-   * A stop that published a part (the cost cap): a warning with this
-   * title, and this label on the start button. Else "The upgrade failed"
-   * and "Start again".
-   */
-  partial?: { title: string; startLabel: string }
   link?: "connectors"
   linkLabel?: string
   agent?: true
@@ -44,16 +38,6 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
       "Give the GitHub App write access to the Workspace repository, then start it again.",
     link: "connectors",
     linkLabel: "Open access settings",
-  },
-  cost_cap: {
-    reason:
-      "The run reached its cost cap, which scales with the size of the repository. ctx| published the finished part.",
-    action:
-      "Choose Continue to do the rest. The next run skips the finished parts and spends up to one more cost cap.",
-    partial: {
-      title: "Partly published: the cost cap was reached",
-      startLabel: "Continue",
-    },
   },
   sandbox: {
     reason: "The ingest sandbox stopped or did not start.",

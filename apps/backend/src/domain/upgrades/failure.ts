@@ -7,7 +7,6 @@
 export const UPGRADE_FAILURE_CODES = [
   "source_access",
   "workspace_write_access",
-  "cost_cap",
   "sandbox",
   "model",
   "publish_conflict",
@@ -43,7 +42,6 @@ const RULES: Array<{
   step: UpgradeFailureStep | null
   match: RegExp
 }> = [
-  { code: "cost_cap", step: "ingest", match: /cost cap/ },
   {
     code: "too_many_sources",
     step: "plan",
@@ -103,7 +101,6 @@ export function safeFailureSummary(text: string): string {
 export function classifyUpgradeFailure(input: {
   status: string
   failureReason: string | null
-  stopReason?: string | undefined
   repositories?: ReadonlyArray<{
     repository: string
     status: string
@@ -116,10 +113,7 @@ export function classifyUpgradeFailure(input: {
   )
   const cause = failed?.report.join("\n") ?? input.failureReason ?? ""
   const text = `${cause}\n${input.failureReason ?? ""}`.toLowerCase()
-  const rule =
-    input.stopReason === "cost_cap"
-      ? RULES[0]
-      : RULES.find((r) => r.match.test(text))
+  const rule = RULES.find((r) => r.match.test(text))
   return {
     code: rule?.code ?? "unknown",
     step: rule?.step ?? (failed ? "ingest" : null),

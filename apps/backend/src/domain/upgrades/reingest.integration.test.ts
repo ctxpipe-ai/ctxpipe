@@ -293,7 +293,6 @@ describe("step budget", () => {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          doneRoots: [],
         })
         const result = await handle.result({ timeoutMs: 60_000 })
         expect(result).toMatchObject({
@@ -367,7 +366,6 @@ async function orphanedRepositoryRun(orgId: string) {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          doneRoots: [],
         },
         { name: "repository:0" },
       ),
