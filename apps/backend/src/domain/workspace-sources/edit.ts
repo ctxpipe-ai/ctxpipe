@@ -1,9 +1,10 @@
 import { isDeepStrictEqual } from "node:util"
 import { updateKnowledgeMetadata } from "../workspaces/knowledge-metadata.js"
-import { githubSourceScopeRepositories } from "./providers/github.js"
+import { checkPlainGitUrl, sourceRepositoryUrls } from "./providers/git.js"
 import {
   checkSourcePath,
   githubSourcePath,
+  gitSourcePath,
   type SourceFile,
   sourcePathFor,
 } from "./source-file.js"
@@ -21,7 +22,8 @@ export type SourceChange =
       /** Optional. The service names the file from the provider or the repository. */
       path?: string
       provider: SourceProvider
-      connectionId: string
+      /** Null only for a plain git source, which has no connection. */
+      connectionId: string | null
       scope: Record<string, unknown>
       description?: string
     }
@@ -29,7 +31,8 @@ export type SourceChange =
       action: "edit"
       path: string
       provider: SourceProvider
-      connectionId: string
+      /** Null only for a plain git source, which has no connection. */
+      connectionId: string | null
       scope: Record<string, unknown>
       description?: string
     }
@@ -97,23 +100,22 @@ function knownSources(
   ]
 }
 
-/** Refuse (409) a GitHub repository that another source already links. */
+/**
+ * Refuse (409) a repository (of a GitHub or a plain git source) that another
+ * source already links.
+ */
 function assertRepositoryFree(
   known: ReadonlyArray<KnownSource>,
-  scope: Record<string, unknown>,
+  change: { provider: SourceProvider; scope: Record<string, unknown> },
   except?: string,
 ) {
-  const wanted = new Set(
-    githubSourceScopeRepositories(scope).map(({ name }) => name.toLowerCase()),
-  )
+  const urlsOf = (source: { provider: string | null; scope: unknown }) =>
+    sourceRepositoryUrls(source).map((url) => url.toLowerCase())
+  const wanted = new Set(urlsOf(change))
   if (!wanted.size) return
   for (const source of known) {
-    if (source.provider !== "github" || source.path === except) continue
-    if (
-      githubSourceScopeRepositories(source.scope).some(({ name }) =>
-        wanted.has(name.toLowerCase()),
-      )
-    )
+    if (source.path === except) continue
+    if (urlsOf(source).some((url) => wanted.has(url)))
       throw new SourceChangeError(
         409,
         `The repository is already a source in ${source.path}`,
@@ -145,6 +147,18 @@ export function sourceAddPath(
   change: Extract<SourceChange, { action: "add" }>,
   taken: ReadonlySet<string>,
 ): string {
+  if (change.provider === "git") {
+    const url = String(change.scope.url ?? "")
+    const path = gitSourcePath(url, taken)
+    if (!path) {
+      const checked = checkPlainGitUrl(url)
+      throw new SourceChangeError(
+        400,
+        checked.ok ? "url: use a plain git URL" : checked.reason,
+      )
+    }
+    return path
+  }
   if (change.provider !== "github")
     return sourcePathFor(change.provider, "", taken)
   const [owner, name, ...rest] = String(change.scope.repository ?? "").split(
@@ -160,8 +174,11 @@ export function sourceAddPath(
  * a key that keeps its value keeps its comments and its place.
  */
 function editFrontMatter(content: string, source: SourceFile): string {
+  // A plain git source has no connection key.
   const wanted: Record<string, unknown> = {
-    connection: source.connectionId,
+    ...(source.connectionId === null
+      ? {}
+      : { connection: source.connectionId }),
     ...source.scope,
   }
   return updateKnowledgeMetadata(content, (document) => {
@@ -223,7 +240,7 @@ export function applySourceFileChange(input: {
         `The path is in the ${provider} folder, but the provider is ${change.provider}`,
       )
     assertFree(path)
-    assertRepositoryFree(known, change.scope)
+    assertRepositoryFree(known, change)
     const content = renderChecked(
       {
         path,
@@ -256,7 +273,7 @@ export function applySourceFileChange(input: {
         409,
         `The file cannot be read: ${parsed.detail}. Fix it in git first.`,
       )
-    assertRepositoryFree(known, change.scope, change.path)
+    assertRepositoryFree(known, change, change.path)
     const source = {
       path: change.path,
       provider,

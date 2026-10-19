@@ -989,6 +989,115 @@ export const AddSeveralSendsOneBatch: Story = {
   },
 }
 
+/**
+ * Paste URL adds one plain git repository by its https URL. The form checks
+ * the URL when the user leaves the field, and sends a `git` source with no
+ * connection.
+ */
+export const AddByUrlSendsGitSource: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          githubInstallationReposHandler([]),
+          ...workspaceSourceChangeHandlers(addCalls),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    addCalls.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(await dialog.findByRole("tab", { name: "Paste URL" }))
+    const field = await dialog.findByRole("textbox", {
+      name: "Repository URL",
+    })
+    const submit = () =>
+      dialog.getByRole("button", { name: "Open a pull request" })
+
+    // An ssh URL is refused with the https rule of the policy.
+    await userEvent.type(field, "git@github.com:fastify/fastify.git")
+    await userEvent.tab()
+    await dialog.findByText(/must use an https:\/\/ URL/)
+    await expect(field).toBeInvalid()
+    await waitFor(() => expect(submit()).toBeDisabled())
+
+    await userEvent.clear(field)
+    await userEvent.type(field, "https://github.com/fastify/fastify")
+    await userEvent.tab()
+    await expect(field).toBeValid()
+    await userEvent.click(submit())
+    await waitFor(() => expect(addCalls).toHaveLength(1))
+    await expect(addCalls[0]).toMatchObject({
+      method: "POST",
+      path: "/acme/api/v1/workspaces/docs/sources",
+      body: {
+        source: {
+          provider: "git",
+          connectionId: null,
+          scope: { url: "https://github.com/fastify/fastify" },
+        },
+      },
+    })
+    await within(canvasElement.ownerDocument.body).findByRole("button", {
+      name: "View pull request",
+    })
+  },
+}
+
+/** A URL that the backend refuses shows the backend's reason under the field. */
+export const AddByUrlShowsRefusal: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          workspaceSourcesHandler(workspaceSourceList()),
+          connected,
+          githubInstallationReposHandler([]),
+          http.post("*/api/v1/workspaces/docs/sources", () =>
+            HttpResponse.json(
+              {
+                error:
+                  "The host git.inside.example of the plain git URL has no public address. Plain git sources must use an https:// URL. ssh (git@… or ssh://), git:// and file:// are not supported.",
+              },
+              { status: 400 },
+            ),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Add repositories" }),
+    )
+    const dialog = within(await within(document.body).findByRole("dialog"))
+    await userEvent.click(await dialog.findByRole("tab", { name: "Paste URL" }))
+    const field = await dialog.findByRole("textbox", {
+      name: "Repository URL",
+    })
+    await userEvent.type(field, "https://git.inside.example/team/app.git")
+    await userEvent.click(
+      dialog.getByRole("button", { name: "Open a pull request" }),
+    )
+    await dialog.findByText(/has no public address/)
+    await expect(field).toBeInvalid()
+    // The dialog stays open, so the user can fix the URL.
+    await expect(
+      dialog.getByRole("heading", { name: "Add repositories" }),
+    ).toBeVisible()
+  },
+}
+
 export const RemoveSendsChange: Story = {
   parameters: {
     msw: {
