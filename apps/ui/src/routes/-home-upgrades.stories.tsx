@@ -197,6 +197,50 @@ export const Dismiss: Story = {
     expect(window.localStorage.getItem("ctxpipe:userPreferences")).toContain(
       "acme/docs/format-3/awaiting_operator",
     )
+    // The dismissed toast collapses to one icon button, with no count badge.
+    const show = await canvas.findByRole("button", {
+      name: "Show upgrades (1)",
+    })
+    expect(show.textContent).toBe("")
+    await userEvent.click(show)
+    await waitFor(() =>
+      expect(canvas.getByText("Docs upgrade available")).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: /Show upgrades/ }),
+      ).toBeNull(),
+    )
+  },
+}
+
+/** Two dismissed toasts collapse to one icon with a count; a press restores both. */
+export const DismissedCollapseToIcon: Story = {
+  parameters: homeHandlers("owner", threeItems),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("region", { name: "Workspace upgrades" })
+    // No toast is dismissed yet, so there is no icon.
+    expect(canvas.queryByRole("button", { name: /Show upgrades/ })).toBeNull()
+    for (const name of [
+      "Dismiss: Docs, Upgrade to format 3",
+      "Dismiss: Docs, Fresh re-ingestion of the source repositories",
+    ])
+      await userEvent.click(await canvas.findByRole("button", { name }))
+    const show = await canvas.findByRole("button", {
+      name: "Show upgrades (2)",
+    })
+    await waitFor(() => expect(show).toBeVisible())
+    expect(show.textContent).toBe("2")
+    // The Handbook toast stays in the stack.
+    expect(canvas.getByText("Handbook upgrade available")).toBeVisible()
+    await userEvent.click(show)
+    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: /Show upgrades/ }),
+      ).toBeNull(),
+    )
   },
 }
 
@@ -220,13 +264,13 @@ export const StackOfThree: Story = {
     await waitFor(() =>
       expect(canvas.getByText("Handbook upgrade available")).toBeVisible(),
     )
-    // Open: each toast sits above the one in front of it, with no overlap.
+    // Open: each toast sits below the one in front of it, with no overlap.
     await waitFor(() => {
       const [front, second, third] = toastItems(canvasElement).map((item) =>
         item.getBoundingClientRect(),
       )
-      expect(second?.bottom).toBeLessThanOrEqual(front?.top ?? 0)
-      expect(third?.bottom).toBeLessThanOrEqual(second?.top ?? 0)
+      expect(second?.top).toBeGreaterThanOrEqual(front?.bottom ?? 0)
+      expect(third?.top).toBeGreaterThanOrEqual(second?.bottom ?? 0)
     })
     await userEvent.unhover(frontTitle(canvasElement))
     await waitFor(() =>

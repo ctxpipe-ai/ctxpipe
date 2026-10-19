@@ -11,7 +11,7 @@ import {
 
 /** The space between two open toasts, and the step of the closed stack (px). */
 const GAP = 12
-const PEEK = 8
+const PEEK = 10
 /** The closed stack shows the front toast and two edges behind it. */
 const VISIBLE = 3
 
@@ -45,7 +45,7 @@ function useHeights(list: RefObject<HTMLOListElement | null>, key: string) {
 }
 
 /**
- * A stack of toasts in the lower right corner (CTX-894). The front toast
+ * A stack of toasts in the top center of the screen (CTX-894). The front toast
  * shows in full; the others are edges behind it. Hover or focus in the stack
  * opens it, so each toast shows in full above the front one and Tab reaches
  * each control. Only transforms and opacity move (DESIGN.md Motion), and the
@@ -66,24 +66,24 @@ export function ToastStack(props: {
   return (
     <section
       aria-label={label}
-      className="pointer-events-none fixed inset-x-4 bottom-4 z-40 flex justify-end"
+      className="pointer-events-none fixed inset-x-4 top-4 z-40 flex justify-center"
     >
       <ol
         ref={list}
         data-open={hovered || undefined}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
-        className="group/stack pointer-events-auto relative w-full max-w-sm"
+        className="group/stack pointer-events-auto relative w-full max-w-3xl"
       >
         {toasts.map((toast, index) => {
-          const openY = -offset
+          const openY = offset
           offset += (heights[toast.id] ?? 0) + GAP
           const front = index === 0
           const style = {
             zIndex: toasts.length - index,
-            "--toast-closed-y": `${-index * PEEK}px`,
+            "--toast-closed-y": `${index * PEEK}px`,
             "--toast-open-y": `${openY}px`,
-            "--toast-closed-scale": `${1 - index * 0.05}`,
+            "--toast-closed-scale": `${1 - index * 0.03}`,
             "--toast-closed-height": `${frontHeight}px`,
           } as CSSProperties
           return (
@@ -101,7 +101,7 @@ export function ToastStack(props: {
                 front
                   ? "relative"
                   : [
-                      "absolute inset-x-0 bottom-0 h-(--toast-closed-height) overflow-hidden",
+                      "absolute inset-x-0 top-0 h-(--toast-closed-height) overflow-hidden",
                       "group-data-open/stack:h-auto group-data-open/stack:overflow-visible group-focus-within/stack:h-auto group-focus-within/stack:overflow-visible",
                       index >= VISIBLE
                         ? "opacity-0 group-data-open/stack:opacity-100 group-focus-within/stack:opacity-100"
