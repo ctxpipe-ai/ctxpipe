@@ -19,6 +19,7 @@ import {
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
+import { enqueueWorkspaceUpgradeScan } from "../../openworkflow/workflows/workspace-upgrade-scan.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -274,7 +275,7 @@ const checkUpgradesRoute = createRoute(
             "application/json": { schema: z.object({ queued: z.boolean() }) },
           },
           description:
-            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts. `queued` is false when a check ran in the last minute: that check still writes its result.",
+            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts, and checks the upgrades of the org again. `queued` is false when a check ran in the last minute: that check still writes its result.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -317,9 +318,13 @@ const routes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     // The tip check reads every Workspace of the org. Start one each minute.
+    const minute = Math.floor(Date.now() / 60_000)
     const queued = await enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-      idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+      idempotencyKey: `tip-check-on-demand:${orgId}:${minute}`,
     })
+    // A blocked item can clear without a new tip or release: for example,
+    // this deployment can now run the ingest sandbox. Scan the org again.
+    await enqueueWorkspaceUpgradeScan({ orgId, trigger: `check:${minute}` })
     return c.json({ queued }, 202)
   })
   .openapi(startUpgradeRoute, async (c) => {
