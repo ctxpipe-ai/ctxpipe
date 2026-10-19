@@ -430,17 +430,17 @@ async function openCalendar(canvasElement: HTMLElement, label: string) {
   )
   const dialog = await page.findByRole("dialog", { name: "Date range" })
   await userEvent.click(
-    within(dialog).getByRole("button", { name: "Calendar" }),
+    within(dialog).getByRole("button", { name: "Open calendar" }),
   )
   await page.findByRole("grid")
   return page
 }
 
 /** The selected cells of the open calendar, in reading order. */
-function selectedCells(page: ReturnType<typeof within>) {
+function selectedCells(page: ReturnType<typeof within>): HTMLElement[] {
   return page
     .getAllByRole("button", { hidden: true })
-    .filter((cell) => cell.hasAttribute("data-selected"))
+    .filter((cell: HTMLElement) => cell.hasAttribute("data-selected"))
 }
 
 /** A one-day range keeps every corner round. */
@@ -552,9 +552,15 @@ export const GermanLocale: Story = {
     ),
   ],
   play: async ({ canvasElement }) => {
-    const page = await openCalendar(canvasElement, "Aug 5, 2026 – Aug 20, 2026")
+    const canvas = within(canvasElement)
+    const page = within(canvasElement.ownerDocument.body)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Filter commits by date: Aug 5, 2026 – Aug 20, 2026",
+      }),
+    )
+    const dialog = await page.findByRole("dialog", { name: "Date range" })
     await waitFor(() => {
-      const dialog = page.getByRole("dialog", { name: "Date range" })
       const segments = within(dialog).getAllByRole("spinbutton")
       // Day comes first in German: tt.MM.jjjj.
       expect(segments[0]).toHaveTextContent("05")

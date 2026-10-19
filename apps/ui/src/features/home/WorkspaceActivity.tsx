@@ -512,6 +512,7 @@ function DateRangeMenu(props: {
                   )}
                 </DateInput>
                 <RACButton
+                  aria-label="Open calendar"
                   className={cn(
                     "mx-1 ml-auto flex size-6 shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 text-zinc-300 hover:bg-zinc-700 hover:text-foreground",
                     focusVisibleClassName,
