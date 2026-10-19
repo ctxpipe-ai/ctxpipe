@@ -608,3 +608,9 @@ Read this when you set up or change a deployment: Railway production or previews
 - **Category:** workflow
 - **Date:** 2026-10-18
 - **Source:** CTO decision that changed the Linear workflow
+
+### Product descriptions follow the marketing positioning
+- **Rule:** Public text that describes the product (the README, docs introductions, launch text) uses the positioning of the marketing site. The source is `lib/positioning.ts` in the marketing site repository: the category, the problem, the steps, and the shipped and coming lists. Do not describe a coming item as shipped (for example, agents that record what they learn). Keep US English in this repository, although the marketing copy uses Australian English.
+- **Category:** docs
+- **Date:** 2026-10-19
+- **Source:** CTO correction during the README update for PR 280
