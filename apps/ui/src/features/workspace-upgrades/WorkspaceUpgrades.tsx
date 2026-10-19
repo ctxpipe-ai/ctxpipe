@@ -42,6 +42,11 @@ import {
   upgradeStartedMessage,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
+import {
+  type UpgradeFailure,
+  upgradeFailureCopy,
+  upgradeFailurePrompt,
+} from "./upgrade-failure"
 
 /**
  * One upgrade. `isAdmin` is `null` while the role loads: no action shows.
@@ -56,6 +61,10 @@ export function UpgradeItemCard(props: {
   isStarting?: boolean
   isChecking?: boolean
   estimate?: ReactNode
+  /** The org of the item: the failure card links to its connectors. */
+  orgSlug?: string
+  /** Opens the chat with this prompt ("Fix using agent"). */
+  onFixWithAgent?: (prompt: string) => void
 }) {
   const { item, isAdmin, onStart, onCheck, isStarting, isChecking, estimate } =
     props
@@ -187,10 +196,18 @@ export function UpgradeItemCard(props: {
 
       {item.status === "failed" ? (
         <div className="mt-3">
-          <InlineAlert variant="error" title="The upgrade failed">
-            <p>{item.failureReason ?? "ctx| gives no reason."}</p>
-            <p className="mt-1">Fix the cause, then start it again.</p>
-          </InlineAlert>
+          {item.failure ? (
+            <UpgradeFailureAlert
+              item={item}
+              failure={item.failure}
+              orgSlug={props.orgSlug}
+              onFixWithAgent={props.onFixWithAgent}
+            />
+          ) : (
+            <InlineAlert variant="error" title="The upgrade failed">
+              <p>{item.failureReason ?? "ctx| gives no reason."}</p>
+            </InlineAlert>
+          )}
         </div>
       ) : null}
 
@@ -237,11 +254,59 @@ export function UpgradeItemCard(props: {
   )
 }
 
+/** A failed item: the step that failed, why, and the fix (CTX-895). */
+function UpgradeFailureAlert(props: {
+  item: WorkspaceUpgradeItem
+  failure: UpgradeFailure
+  orgSlug: string | undefined
+  onFixWithAgent: ((prompt: string) => void) | undefined
+}) {
+  const { item, failure, orgSlug, onFixWithAgent } = props
+  const copy = upgradeFailureCopy(failure)
+  const link =
+    copy.link === "connectors" && orgSlug ? (
+      <TextLink href={`/${orgSlug}/connectors`} className="text-xs">
+        {copy.linkLabel}
+      </TextLink>
+    ) : null
+  const agent =
+    copy.agent && onFixWithAgent ? (
+      <Button
+        variant="secondary"
+        onPress={() => onFixWithAgent(upgradeFailurePrompt(item, failure))}
+      >
+        Fix using agent
+      </Button>
+    ) : null
+  return (
+    <InlineAlert
+      variant="error"
+      title="The upgrade failed"
+      actions={
+        link || agent ? (
+          <>
+            {link}
+            {agent}
+          </>
+        ) : undefined
+      }
+    >
+      {copy.step ? <p>Failed step: {copy.step}.</p> : null}
+      <p className={copy.step ? "mt-1" : undefined}>{copy.reason}</p>
+      <p className="mt-1 text-xs break-words opacity-80">
+        Details: {failure.summary}
+      </p>
+      <p className="mt-1">{copy.action}</p>
+    </InlineAlert>
+  )
+}
+
 function UpgradeItemRow(props: {
   item: WorkspaceUpgradeItem
   orgSlug: string
   workspaceSlug: string
   isAdmin: boolean | null
+  onFixWithAgent?: (prompt: string) => void
 }) {
   const { item, orgSlug, workspaceSlug, isAdmin } = props
   const queryClient = useQueryClient()
@@ -291,6 +356,10 @@ function UpgradeItemRow(props: {
       onStart={() => startMutation.mutate()}
       onCheck={() => checkMutation.mutate()}
       estimate={item.estimate ? formatUpgradeEstimate(item.estimate) : null}
+      orgSlug={orgSlug}
+      {...(props.onFixWithAgent
+        ? { onFixWithAgent: props.onFixWithAgent }
+        : {})}
     />
   )
 }
@@ -313,6 +382,8 @@ function UpgradesSkeleton() {
 export function WorkspaceUpgrades(props: {
   orgSlug: string
   workspaceSlug: string
+  /** Opens the chat with a prompt: the "Fix using agent" action of a failed item. */
+  onFixWithAgent?: (prompt: string) => void
 }) {
   const { orgSlug, workspaceSlug } = props
   const upgradesQuery = useQuery(
@@ -369,6 +440,9 @@ export function WorkspaceUpgrades(props: {
                     orgSlug={orgSlug}
                     workspaceSlug={workspaceSlug}
                     isAdmin={isAdmin}
+                    {...(props.onFixWithAgent
+                      ? { onFixWithAgent: props.onFixWithAgent }
+                      : {})}
                   />
                 ))}
               </ul>
