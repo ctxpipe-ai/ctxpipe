@@ -4,6 +4,7 @@ import {
   hkdfSync,
   randomBytes,
 } from "node:crypto"
+import { deflateRawSync, inflateRawSync } from "node:zlib"
 import { defineSandboxProxy, type ProxyMeta } from "@vercel/sandbox/proxy"
 import { decodeJwt } from "jose"
 import { log } from "../../observability/logger.js"
@@ -51,13 +52,17 @@ export type IngestEgressScope = {
 
 const IV_LENGTH = 12
 const TAG_LENGTH = 16
-const SEAL_CONTEXT = "ctxpipe-ingest-egress-v1"
+const SEAL_CONTEXT = "ctxpipe-ingest-egress-v2"
 
 function sealKey(secret: string): Buffer {
   return Buffer.from(hkdfSync("sha256", secret, "", SEAL_CONTEXT, 32))
 }
 
-/** Encrypt and authenticate a scope (AES-256-GCM) as one URL path segment. */
+/**
+ * Compress, encrypt, and authenticate a scope (AES-256-GCM) as one URL path
+ * segment. The compression keeps the `forwardURL` of a step small: Vercel
+ * answers 500 to a network policy whose forward URLs are too long (CTX-887).
+ */
 export function sealIngestEgressScope(
   scope: IngestEgressScope,
   secret: string,
@@ -66,7 +71,7 @@ export function sealIngestEgressScope(
   const cipher = createCipheriv("aes-256-gcm", sealKey(secret), iv)
   cipher.setAAD(Buffer.from(SEAL_CONTEXT))
   const data = Buffer.concat([
-    cipher.update(JSON.stringify(scope), "utf8"),
+    cipher.update(deflateRawSync(JSON.stringify(scope))),
     cipher.final(),
   ])
   return Buffer.concat([iv, cipher.getAuthTag(), data]).toString("base64url")
@@ -87,10 +92,13 @@ export function openIngestEgressScope(
     )
     decipher.setAAD(Buffer.from(SEAL_CONTEXT))
     decipher.setAuthTag(raw.subarray(IV_LENGTH, IV_LENGTH + TAG_LENGTH))
-    const text = Buffer.concat([
-      decipher.update(raw.subarray(IV_LENGTH + TAG_LENGTH)),
-      decipher.final(),
-    ]).toString("utf8")
+    // Only after the tag check: only the backend made this compressed data.
+    const text = inflateRawSync(
+      Buffer.concat([
+        decipher.update(raw.subarray(IV_LENGTH + TAG_LENGTH)),
+        decipher.final(),
+      ]),
+    ).toString("utf8")
     return JSON.parse(text) as IngestEgressScope
   } catch {
     return null

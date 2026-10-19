@@ -553,7 +553,10 @@ function shardSpec(bundle: Awaited<ReturnType<typeof readIngestSkillBundle>>) {
       url: HELLO_URL,
       githubConnectionId: connectionId,
       sha: HELLO_SHA,
-      repositoryId: null,
+      // As in the product: a linked source has its org repository row, so
+      // the step's tool capability binds two checkouts. Its firewall policy
+      // is then as large as the one that Vercel refused (CTX-887).
+      repositoryId,
     },
     destinations: [
       {

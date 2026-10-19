@@ -354,8 +354,9 @@ export function conversationFirewall(
       } catch (error) {
         const state = firewalls.get(sandboxName)
         if (state) state.turn = undefined
+        // The SDK message gives only the status code; add the API's reason.
         throw new Error(
-          `Setting the sandbox firewall for this turn failed: ${String(error)}`,
+          `Setting the sandbox firewall for this turn failed: ${String(error)}${error instanceof APIError ? `: ${error.text ?? ""}` : ""}`,
         )
       }
     },
