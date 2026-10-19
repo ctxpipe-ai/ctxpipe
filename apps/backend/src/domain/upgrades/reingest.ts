@@ -43,15 +43,17 @@ export const REINGEST_REQUIRES_FORMAT = 3
 /**
  * The throttle of re-ingestion (ADR-052): one upgrade run of an org at a
  * time, with its repositories one after the other, and a cap of upgrade runs
- * on the instance. The polls back off from `firstPoll`, so a long wait
- * spends few workflow steps.
+ * on the instance. The polls of a repository run back off from `firstPoll`,
+ * so a long run spends few workflow steps. The slot polls stay short
+ * (CTX-898): no event wakes a waiting run when a slot frees, so a long poll
+ * left the slot idle for up to that poll.
  */
 export const REINGEST_THROTTLE = {
   /** Upgrade runs (each one org) that run their repositories at a time on this instance. */
   runsPerInstance: 4,
   firstPollSeconds: 60,
-  /** The longest wait of the upgrade run for its turn. */
-  maxSlotPollSeconds: 15 * 60,
+  /** The longest wait of the upgrade run between two checks of its turn. */
+  maxSlotPollSeconds: 60,
   /** The longest wait of a repository run between two reads of its ingestion run and spend. */
   maxRunPollSeconds: 5 * 60,
 }
