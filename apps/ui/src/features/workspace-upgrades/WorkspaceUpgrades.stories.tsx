@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { Toaster } from "sonner"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
@@ -12,6 +12,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import type { WorkspaceUpgradeItem } from "./queries"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const startRequests: string[] = []
@@ -460,6 +461,125 @@ export const Failed: Story = {
       }),
     )
     await waitFor(() => expect(startRequests).toHaveLength(1))
+  },
+}
+
+/** A failed re-ingestion item with a classified cause (CTX-895). */
+function failedReingest(failure: NonNullable<WorkspaceUpgradeItem["failure"]>) {
+  return withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          key: "reingest-3",
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          status: "failed",
+          steps: [],
+          failureReason:
+            "The re-ingestion did not finish for acme/ky. Start it again.",
+          failure,
+        }),
+      ]),
+    ),
+  )
+}
+
+const REINGEST_START =
+  "Start again: Fresh re-ingestion of the source repositories"
+
+/** The CTX-895 case: another run published first, and the merge failed. */
+export const FailedPublishConflict: Story = {
+  parameters: failedReingest({
+    code: "publish_conflict",
+    step: "publish",
+    repository: "acme/ky",
+    summary:
+      "The semantic merge failed: The model did not call the structured output tool",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "Failed step: Publish to the Workspace (acme/ky).",
+        ),
+      ).toBeVisible(),
+    )
+    expect(
+      canvas.getByText(
+        "The Workspace changed while ctx| published, and ctx| could not merge the files.",
+      ),
+    ).toBeVisible()
+    expect(
+      canvas.getByText(/^Details: The semantic merge failed/),
+    ).toBeVisible()
+    // The fix is one sentence: no second "start it again".
+    expect(canvas.getAllByText(/start it again/i)).toHaveLength(1)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: REINGEST_START }),
+    )
+    await waitFor(() => expect(startRequests).toHaveLength(1))
+  },
+}
+
+export const FailedSourceAccess: Story = {
+  parameters: failedReingest({
+    code: "source_access",
+    step: "read_source",
+    repository: "acme/ky",
+    summary:
+      "ctx| cannot read the default branch of the repository. Repository not found.",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Reconnect GitHub" })
+    expect(link).toHaveAttribute("href", "/acme/connectors")
+    expect(
+      canvas.getByText("Failed step: Read the source repository (acme/ky)."),
+    ).toBeVisible()
+  },
+}
+
+export const FailedCostCap: Story = {
+  parameters: failedReingest({
+    code: "cost_cap",
+    step: "ingest",
+    repository: "acme/ky",
+    summary:
+      "ctx| stopped the ingestion run at the cost cap: it spent $6.80, and the cap left for it was $6.72.",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "The model spend passed the cost cap of this run.",
+        ),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByRole("button", { name: REINGEST_START })).toBeVisible()
+  },
+}
+
+const fixPrompts = fn()
+
+export const FailedUnknown: Story = {
+  args: { onFixWithAgent: fixPrompts },
+  parameters: failedReingest({
+    code: "unknown",
+    step: "ingest",
+    repository: "acme/ky",
+    summary: "The ingestion run failed: something odd happened",
+  }),
+  play: async ({ canvasElement }) => {
+    fixPrompts.mockClear()
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Fix using agent" }),
+    )
+    expect(fixPrompts).toHaveBeenCalledWith(
+      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctx| recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
+    )
   },
 }
 

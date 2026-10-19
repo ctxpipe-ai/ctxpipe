@@ -384,16 +384,26 @@ export const REINGEST_REPOSITORY_WORKFLOW_NAME =
  * that ended early frees no slot while its children spend. The answer comes only from the run
  * rows, so two runs cannot both take the same slot, and a run that ended
  * frees its slot.
+ *
+ * An ingestion v2 run of a source repository in `sourceUrls` that can publish
+ * to the Workspace (CTX-895) also makes the run wait. Both runs pin the same
+ * revision, so the later publish finds each file of the run changed on the
+ * default branch, and only the merge model can join them. When the upgrade
+ * waits, its run pins the revision that the other run published.
  */
 export async function reingestSlotTurn(input: {
   orgId: string
   upgradeRunId: string
   runsPerInstance: number
+  workspaceId: string
+  sourceUrls: readonly string[]
 }): Promise<{ turn: true } | { wait: string }> {
+  const sourceUrls = input.sourceUrls.map((url) => url.toLowerCase())
   const result = await getSystemDb().execute<{
     org_head: string | null
     ahead: string
     open_children: string
+    open_ingestions: string
   }>(sql`
     with heads as (
       select distinct on (input->>'orgId') id, input->>'orgId' as org_id, created_at
@@ -413,7 +423,23 @@ export async function reingestSlotTurn(input: {
           and child.workflow_name = ${REINGEST_REPOSITORY_WORKFLOW_NAME}
           and child.status in ('pending', 'running', 'sleeping')
           and child.input->>'orgId' = ${input.orgId}
-          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children
+          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children,
+      (select count(*) from openworkflow.workflow_runs ingest
+        where ingest.namespace_id = ${openWorkflowNamespaceId()}
+          and ingest.workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+          and ingest.status in ('pending', 'running', 'sleeping')
+          and ingest.input->>'orgId' = ${input.orgId}
+          and ingest.input->>'shadow' = 'false'
+          and ${
+            sourceUrls.length
+              ? sql`lower(ingest.input->'source'->>'url') in (${sql.join(
+                  sourceUrls.map((url) => sql`${url}`),
+                  sql`, `,
+                )})`
+              : sql`false`
+          }
+          and (ingest.input->'destinations' is null
+            or ingest.input->'destinations' @> ${JSON.stringify([input.workspaceId])}::jsonb)) as open_ingestions
   `)
   const row = result.rows[0]
   if (row?.org_head !== input.upgradeRunId)
@@ -428,6 +454,10 @@ export async function reingestSlotTurn(input: {
     }
   if (Number(row.ahead) >= input.runsPerInstance)
     return { wait: "The re-ingestion slots of this instance are full." }
+  if (Number(row.open_ingestions) > 0)
+    return {
+      wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
+    }
   return { turn: true }
 }
 
