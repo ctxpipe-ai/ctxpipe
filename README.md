@@ -1,10 +1,10 @@
 <p align="center">
-  <img src="./apps/docs/public/ctxpipe-logo-readme.png" alt="ctx|" width="420" />
+  <img src="./apps/docs/public/ctxpipe-logo-readme.png" alt="ctx|" width="336" />
 </p>
 
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-0f766e.svg" alt="License: MIT" /></a>
-  <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/follow-@ctxpipe-000000.svg?logo=x&logoColor=white" alt="Follow @ctxpipe on X" /></a>
+  <a href="https://x.com/ctxpipe"><img src="https://img.shields.io/badge/@ctxpipe-555555.svg?logo=x&logoColor=white" alt="Follow @ctxpipe on X" /></a>
   <a href="https://ctxpipe.ai/discord"><img src="https://img.shields.io/badge/chat-Discord-5865F2.svg?logo=discord&logoColor=white" alt="Chat: Discord" /></a>
 </p>
 
@@ -97,27 +97,20 @@ Nothing that your agents read is hidden from you.
 - **The knowledge stays with you.** If you stop using ctxpipe, the Workspace
   repository stays where it is, with its full history.
 
-## What has shipped
+## Features
 
-| Capability | What it gives you |
+| Feature | What it does |
 |---|---|
-| Git-backed Workspaces | Each team or product gets a Workspace: one git repository of Markdown knowledge that you own, plus the code repositories that it links to. |
-| Six connectors | GitHub (linked code and merged pull requests), Linear, Notion, Confluence, PagerDuty, and Slack, which captures a thread when someone mentions ctxpipe. Each Workspace keeps its scope in `.ctxpipe/sources.yaml`, and you change it by pull request. |
-| Background upkeep | On every push, jobs extract services, APIs, and patterns from linked code again. They mirror new tickets, pull requests, and incidents, link facts into a graph, and expire the extracted facts that the code no longer backs. |
-| Files, Diff, and Graph views | See the files, the changes, and the [graph](https://docs.ctxpipe.ai/docs/workspaces/graph) of each Workspace, and an activity history of every commit. |
-| Workspace chat | An agent answers with sources, and it proposes changes on its own branch as a pull request. |
-| One MCP endpoint | Seven read-only tools: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and `get_related`. Each result has a ref, a line range, a branch, and a commit. ctxpipe runs no model in the MCP path. |
-| Scoped, read-only access | MCP tokens are read-only. At OAuth consent, the user selects the organizations that a connection can read. Postgres row-level security limits each call to one organization. |
-| Isolated agent sandboxes | Workspace chat and ingestion run each agent in its own sandbox. A sandbox holds only the repositories and keys that its job needs. |
-| Self-hosting | Docker Compose for evaluation, and Terraform or AWS CDK in production. |
-
-## Coming soon
-
-- Flags for contradictions and gaps between sources.
-- MCP write tools, so agents can propose knowledge changes and record what they
-  learn.
-- More connectors.
-- SOC 2.
+| Git-backed Workspaces | One Markdown repository per team or product, in your git. |
+| Six connectors | GitHub, Linear, Notion, Confluence, PagerDuty, and Slack. |
+| Background upkeep | Reads code on every push, and expires facts that lose their source. |
+| Knowledge graph | Typed links between facts, code, and their sources. |
+| Inspectable views | Files, Diff, Graph, and the history of every commit. |
+| Workspace chat | Answers with sources, and proposes changes as pull requests. |
+| One MCP endpoint | Seven read-only tools that return sources, not answers. |
+| Scoped access | Read-only, and limited to the organizations that you approve. |
+| Isolated sandboxes | Each agent holds only the repositories and keys that it needs. |
+| Self-hosting | Docker Compose, Terraform, or AWS CDK. |
 
 ## Get started
 
