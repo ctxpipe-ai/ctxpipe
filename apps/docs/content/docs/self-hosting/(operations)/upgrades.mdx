@@ -199,7 +199,8 @@ Workspace already holds.
 - **Throttle.** One re-ingestion of an organization runs at a time. Its
   repositories run one after the other. An instance runs at most four
   re-ingestions at once. A run that waits for its turn stays queued and
-  starts when a slot is free.
+  starts when a slot is free. See
+  [sandbox limits](/docs/workspaces/chat#sandbox-limits).
 - **Cost cap.** Each repository run has a cost cap that scales with the
   size of the repository: 2 times $0.10 for each expected model step (the
   roots that the run finds, times the model skills), at least $5 and at most
