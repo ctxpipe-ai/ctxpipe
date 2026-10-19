@@ -51,7 +51,7 @@ export type IndexPhaseRepoContext = {
   plainGit?: CheckedPlainGitRemote
 }
 
-export type CloneCheckoutResult = {
+type CloneCheckoutResult = {
   targetHash: string
   ingestMode: "full" | "partial"
   changedPaths: string[]
@@ -59,7 +59,7 @@ export type CloneCheckoutResult = {
   renames: { from: string; to: string }[]
 }
 
-export type DetectLanguagesResult = {
+type DetectLanguagesResult = {
   detectedLanguages: string[]
   languagesToIndex: string[]
 }

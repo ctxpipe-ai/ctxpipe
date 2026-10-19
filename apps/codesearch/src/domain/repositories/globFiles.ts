@@ -42,13 +42,13 @@ const ROOT_ONLY_SKIP = new Set(["external"])
 const DEFAULT_LIMIT = 50_000
 const HARD_MAX_LIMIT = 50_000
 
-export type GlobFileEntry = {
+type GlobFileEntry = {
   name: string
   path: string
   type: "file" | "dir"
 }
 
-export type GlobFilesOptions = {
+type GlobFilesOptions = {
   /** Absolute path to the repository checkout root. */
   checkoutRoot: string
   /** Glob pattern relative to `path` (cwd). */
@@ -63,7 +63,7 @@ export type GlobFilesOptions = {
   limit?: number
 }
 
-export type GlobFilesResult = {
+type GlobFilesResult = {
   entries: GlobFileEntry[]
   truncated: boolean
   matched: number

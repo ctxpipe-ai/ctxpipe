@@ -1,4 +1,4 @@
-export type ZoektRepositoryIdentity = {
+type ZoektRepositoryIdentity = {
   orgId: string
   repoId: string
   checkoutKey?: string

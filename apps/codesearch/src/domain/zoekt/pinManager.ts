@@ -1,11 +1,11 @@
-import { lstat, mkdir, readlink, readdir, rm, symlink } from "node:fs/promises"
+import { lstat, mkdir, readdir, readlink, rm, symlink } from "node:fs/promises"
 import { join } from "node:path"
 import { ZOEKT_HOT_DIR, ZOEKT_INDEX_DIR } from "../../config/paths.js"
 import { log } from "../../observability/logger.js"
 import { isZoektShardBasenameForName } from "./shardPrefix.js"
 
 /** Idle time after last pin before hot symlinks for a repo are removed. */
-export const PIN_IDLE_TTL_MS = 5 * 60 * 1000
+const PIN_IDLE_TTL_MS = 5 * 60 * 1000
 
 type PinEntry = {
   zoektName: string
@@ -165,7 +165,7 @@ function armIdleTimer(
   pins.set(zoektRepoId, { zoektName, timer, generation })
 }
 
-export type PinResult = {
+type PinResult = {
   zoektRepoId: number
   zoektName: string
   /** Number of cold `.zoekt` shard files linked (excludes `.meta`). */

@@ -42,7 +42,7 @@ export type BaseStepKey = (typeof BASE_STEP_KEYS)[number]
 
 export type IndexingStepKey = BaseStepKey | `scip:${string}`
 
-export type BadgeWord =
+type BadgeWord =
   | "queued"
   | "resolving"
   | "cloning"
@@ -109,7 +109,7 @@ export function buildIndexingChecklist(
   return result
 }
 
-export interface IndexingStepResolution {
+interface IndexingStepResolution {
   step: number
   total: number
   key: IndexingStepKey
@@ -146,7 +146,7 @@ export function resolveHighestCompletedScipStep(
   return highest
 }
 
-export type SetRepositoryIndexingStepOptions = {
+type SetRepositoryIndexingStepOptions = {
   /**
    * Only advance the step counter — skip the update when DB step > new step.
    * Used so parallel SCIP/extract writers and retries cannot snap the badge
