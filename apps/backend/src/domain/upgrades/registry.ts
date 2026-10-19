@@ -78,6 +78,12 @@ export type GitUpgradeStep = {
   /** A short title for the commit and the pull request. */
   title: string
   /**
+   * What the step does to the Workspace repository, in plain words for the
+   * user: the files that it adds, moves or rewrites. The UI shows it before
+   * the start.
+   */
+  description: string
+  /**
    * Plan the change from the tree that the step before made. The function
    * reads only the tree and the database, and it writes nothing. A second
    * plan on its own output must give no change.
@@ -100,6 +106,10 @@ export const GIT_UPGRADE_STEPS: readonly GitUpgradeStep[] = [
   sourcesConversionStep,
   ownershipMigrationStep,
 ]
+
+/** What the re-ingestion does to the Workspace repository, for the user. */
+export const REINGEST_DESCRIPTION =
+  "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money."
 
 /** The prefix of every upgrade branch. Only the upgrade workflow pushes to it. */
 export const UPGRADE_BRANCH_PREFIX = "ctxpipe/upgrade/"

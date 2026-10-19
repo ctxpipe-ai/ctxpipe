@@ -436,6 +436,8 @@ export function exportAndSourcesStep(
   return {
     format: 1,
     title: "Move the sources and keep the old knowledge",
+    description:
+      "Moves the repository links from repositories/ into .ctxpipe/sources.yaml, and writes the old knowledge that a new ingestion cannot make again into files under knowledge/.",
     async plan(tree, ctx) {
       const connectionId = ctx.remote.connectionId
       const sourcesFile = await tree.read(SOURCES_FILE_PATH)

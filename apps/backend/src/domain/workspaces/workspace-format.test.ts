@@ -7,6 +7,7 @@ import {
   WORKSPACE_FORMAT_INVALID,
   WORKSPACE_FORMAT_PATH,
   withFormatWriteGate,
+  withWorkspaceFormatFields,
   workspaceFormatAtLeast,
   workspaceFormatCacheValue,
   workspaceFormatFile,
@@ -15,13 +16,18 @@ import { WRITE_STATUS_REASONS } from "./write-status.js"
 
 describe("readWorkspaceFormat", () => {
   it("reads no file as format 0", () => {
-    expect(readWorkspaceFormat(null)).toEqual({ kind: "format", format: 0 })
+    expect(readWorkspaceFormat(null)).toEqual({
+      kind: "format",
+      format: 0,
+      upgrades: "manual",
+    })
   })
 
   it("reads the integer format and ignores comments", () => {
     expect(readWorkspaceFormat("# A comment\nformat: 2\n")).toEqual({
       kind: "format",
       format: 2,
+      upgrades: "manual",
     })
   })
 
@@ -29,6 +35,15 @@ describe("readWorkspaceFormat", () => {
     expect(readWorkspaceFormat(workspaceFormatFile().content)).toEqual({
       kind: "format",
       format: CODE_FORMAT,
+      upgrades: "manual",
+    })
+  })
+
+  it("reads the upgrade setting", () => {
+    expect(readWorkspaceFormat("format: 2\nupgrades: automatic\n")).toEqual({
+      kind: "format",
+      format: 2,
+      upgrades: "automatic",
     })
   })
 
@@ -36,6 +51,7 @@ describe("readWorkspaceFormat", () => {
     ["an empty file", ""],
     ["a list of applied ids", "format: 3\napplied: [1, 2, 3]\n"],
     ["a text format", 'format: "3"\n'],
+    ["an unknown upgrade setting", "format: 3\nupgrades: sometimes\n"],
     ["a fraction", "format: 2.5\n"],
     ["a negative format", "format: -1\n"],
     ["a format larger than an integer column", "format: 3000000000\n"],
@@ -51,6 +67,45 @@ describe("readWorkspaceFormat", () => {
       WORKSPACE_FORMAT_INVALID,
     )
     expect(workspaceFormatCacheValue(readWorkspaceFormat(null))).toBe(0)
+  })
+})
+
+describe("withWorkspaceFormatFields", () => {
+  it("sets the upgrade setting and keeps the format and the comment", () => {
+    const next = withWorkspaceFormatFields(workspaceFormatFile(2).content, {
+      upgrades: "automatic",
+    })
+    expect(next).toContain("# ctx| Workspace format.")
+    expect(readWorkspaceFormat(next)).toEqual({
+      kind: "format",
+      format: 2,
+      upgrades: "automatic",
+    })
+  })
+
+  it("sets a new format and keeps the upgrade setting", () => {
+    const next = withWorkspaceFormatFields("format: 2\nupgrades: automatic\n", {
+      format: 3,
+    })
+    expect(readWorkspaceFormat(next)).toEqual({
+      kind: "format",
+      format: 3,
+      upgrades: "automatic",
+    })
+  })
+
+  it("starts from format 0 when there is no file", () => {
+    expect(
+      readWorkspaceFormat(
+        withWorkspaceFormatFields(null, { upgrades: "automatic" }),
+      ),
+    ).toEqual({ kind: "format", format: 0, upgrades: "automatic" })
+  })
+
+  it("gives null for a file that is not valid", () => {
+    expect(
+      withWorkspaceFormatFields("format: x\n", { upgrades: "automatic" }),
+    ).toBeNull()
   })
 })
 

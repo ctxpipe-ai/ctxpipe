@@ -24,6 +24,7 @@ const STEPS: GitUpgradeStep[] = [
   {
     format: 1,
     title: "Add notes",
+    description: "A test step.",
     plan: async () => ({
       writes: [{ path: "notes/a.md", content: "A\n" }],
       deletes: [],
@@ -33,11 +34,13 @@ const STEPS: GitUpgradeStep[] = [
   {
     format: 2,
     title: "Nothing to change",
+    description: "A test step.",
     plan: async () => ({ writes: [], deletes: [], report: [] }),
   },
   {
     format: 3,
     title: "Move notes",
+    description: "A test step.",
     plan: async (tree) => ({
       writes: [
         {

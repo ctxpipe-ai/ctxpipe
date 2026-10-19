@@ -7,11 +7,12 @@ import {
 
 /**
  * The Workspace format file, relative to the Workspace root folder (ADR-053).
- * It holds one integer: the layout version of the Workspace repository. Git
+ * It holds the layout version of the Workspace repository (`format`) and the
+ * optional upgrade setting of the Workspace (`upgrades`). Git
  * is the source of truth. `workspaces.format_version` is only a cache that
  * hydrate writes for each projection. The file is in `.ctxpipe/`, so it is
- * host-only: only the bootstrap commit and an upgrade pull request write it.
- * Bootstrap writes it on an empty repository, and on a repository with no
+ * host-only: only the bootstrap commit and an upgrade pull request write the
+ * format, and only the Always update action writes the setting. Bootstrap writes it on an empty repository, and on a repository with no
  * ctx| content (see {@link hasCtxpipeContent}).
  */
 export const WORKSPACE_FORMAT_PATH = ".ctxpipe/workspace.yaml"
@@ -45,11 +46,18 @@ const workspaceFormatSchema = z
       .int()
       .min(0)
       .max(2 ** 31 - 1),
+    upgrades: z.enum(["manual", "automatic"]).optional(),
   })
   .strict()
 
+/**
+ * `automatic`: ctx| starts each upgrade item of the Workspace when the scan
+ * finds it. `manual` (also no key): an owner or admin starts each item.
+ */
+export type WorkspaceUpgradeMode = "manual" | "automatic"
+
 type WorkspaceFormatRead =
-  | { kind: "format"; format: number }
+  | { kind: "format"; format: number; upgrades: WorkspaceUpgradeMode }
   | { kind: "invalid"; error: string }
 
 /**
@@ -57,7 +65,7 @@ type WorkspaceFormatRead =
  * is not YAML, or that has a key other than an integer `format`, is invalid.
  */
 export function readWorkspaceFormat(text: string | null): WorkspaceFormatRead {
-  if (text === null) return { kind: "format", format: 0 }
+  if (text === null) return { kind: "format", format: 0, upgrades: "manual" }
   if (Buffer.byteLength(text, "utf8") > WORKSPACE_FORMAT_MAX_BYTES)
     return {
       kind: "invalid",
@@ -83,9 +91,33 @@ export function readWorkspaceFormat(text: string | null): WorkspaceFormatRead {
   if (!parsed.success)
     return {
       kind: "invalid",
-      error: "The file must hold only `format`, an integer of 0 or more",
+      error:
+        "The file must hold `format`, an integer of 0 or more, and optionally `upgrades: manual` or `upgrades: automatic`",
     }
-  return { kind: "format", format: parsed.data.format }
+  return {
+    kind: "format",
+    format: parsed.data.format,
+    upgrades: parsed.data.upgrades ?? "manual",
+  }
+}
+
+/**
+ * The text of the format file with new values for `format` or `upgrades`.
+ * It keeps the comments and the other value of `current`. No file
+ * (null) starts from format 0. Null when `current` is not valid.
+ */
+export function withWorkspaceFormatFields(
+  current: string | null,
+  fields: { format?: number; upgrades?: WorkspaceUpgradeMode },
+): string | null {
+  const read = readWorkspaceFormat(current)
+  if (read.kind === "invalid") return null
+  const document = YAML.parseDocument(
+    current ?? workspaceFormatFile(read.format).content,
+  )
+  if (fields.format !== undefined) document.set("format", fields.format)
+  if (fields.upgrades !== undefined) document.set("upgrades", fields.upgrades)
+  return document.toString()
 }
 
 /** The format value of a read: an integer, or {@link WORKSPACE_FORMAT_INVALID}. */

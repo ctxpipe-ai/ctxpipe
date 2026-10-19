@@ -128,6 +128,12 @@ const DIRECT_WRITE_ROUTES: ReadonlyArray<{
   },
   {
     method: "POST",
+    path: "/workspaces/missing-ws/upgrades/automatic",
+    expectedStatus: 404,
+    orgAdmin: true,
+  },
+  {
+    method: "POST",
     path: "/connectors/con_missing/sync",
     expectedStatus: 404,
     orgAdmin: true,
@@ -529,6 +535,7 @@ describe("Direct-write REST routes need a session or the ctxpipe:write scope (Po
     const adminOnly = [
       `POST ${base}/workspaces/{workspaceSlug}/upgrades/{key}/start`,
       `POST ${base}/workspaces/{workspaceSlug}/upgrades/check`,
+      `POST ${base}/workspaces/{workspaceSlug}/upgrades/automatic`,
       `POST ${base}/connectors/{connectionId}/sync`,
       ...["linear", "notion", "pagerduty"].flatMap((connector) => [
         `PATCH ${base}/connectors/${connector}/config`,
