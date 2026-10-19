@@ -118,6 +118,19 @@ describe("upgrade copy", () => {
     expect(
       upgradeWaitingCopy({ status: "awaiting_operator", pullRequest: null }),
     ).toBeNull()
+    expect(
+      upgradeWaitingCopy(
+        {
+          status: "running",
+          pullRequest: null,
+          waitingForSlot: {
+            reason: "The slots are full.",
+            since: "2026-10-20T10:00:00.000Z",
+          },
+        },
+        Date.parse("2026-10-20T11:05:30.000Z"),
+      ),
+    ).toMatch(/Waiting for a free sandbox for 1 h 5 min\. The slots are full\./)
     const blocked = {
       kind: "reingest",
       status: "blocked",

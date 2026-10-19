@@ -37,7 +37,7 @@ export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"
 }
 
-export const UPGRADE_STATUS_TAG: Record<
+const UPGRADE_STATUS_TAG: Record<
   UpgradeStatus,
   { label: string; className: string; pulse?: boolean }
 > = {
@@ -139,7 +139,7 @@ export function upgradeCanCheck(item: WorkspaceUpgradeItem): boolean {
 }
 
 /** "12 min", "1 h 5 min" or "less than a minute". */
-export function waitedFor(sinceIso: string, now = Date.now()): string {
+function waitedFor(sinceIso: string, now = Date.now()): string {
   const minutes = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 60_000))
   if (minutes < 1) return "less than a minute"
   if (minutes < 60) return `${minutes} min`
@@ -157,7 +157,8 @@ export function upgradeStatusTag(
 
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
 export function upgradeWaitingCopy(
-  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest" | "waitingForSlot">,
+  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest"> &
+    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot">>,
   now = Date.now(),
 ): string | null {
   if (item.status === "running" && item.waitingForSlot)
