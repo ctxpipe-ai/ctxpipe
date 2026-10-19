@@ -19,7 +19,7 @@ import {
  * a URL with another scheme. The backend then checks the URL with the policy
  * of its mode and the DNS check, and the form shows that answer.
  */
-export function plainGitUrlProblem(raw: string): string | null {
+function plainGitUrlProblem(raw: string): string | null {
   const checked = checkPlainGitUrl(raw, plainGitUrlPolicy("self-host"))
   if (checked.ok) return null
   return checked.rule === "not_https" || checked.rule === "not_a_url"
