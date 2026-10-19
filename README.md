@@ -46,26 +46,9 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 
 ## How it works
 
-```mermaid
-flowchart LR
-  connectors["Connectors<br/>Confluence, GitHub, Linear,<br/>Notion, PagerDuty, Slack"]
-  code["Linked code repositories<br/>and their .ai/memory lessons"]
-  repo[("Workspace repository<br/>Markdown in git")]
-  index["Search index, knowledge graph,<br/>and code search"]
-  mcp["MCP<br/>seven read-only tools"]
-  chat["Workspace chat<br/>in an isolated sandbox"]
-  agents["Your coding agents"]
-  team["Your team"]
-
-  connectors -->|small commits| repo
-  code -->|small commits| repo
-  repo -->|every new commit| index
-  code -->|indexed| index
-  index --> mcp --> agents
-  index --> chat --> team
-  chat -.->|pull requests| repo
-  agents -.->|merged lessons| code
-```
+<p align="center">
+  <img src="./apps/docs/public/ctxpipe-readme-how-it-works.svg" alt="How ctx| works: connectors and linked code commit Markdown to the Workspace repository. ctx| indexes each commit. Coding agents read through the MCP, and your team uses Workspace chat. Pull requests and merged lessons feed back in." width="1000" />
+</p>
 
 Each Workspace has one git repository of Markdown knowledge. ctx| commits
 connector content and facts from linked code to that repository. After each new
