@@ -337,14 +337,18 @@ describe("conversationFirewall", () => {
     )
     // A new sandbox has no name yet, so it starts with no egress.
     expect(firewall.policy("git-1")).toBe("deny-all")
-    const scopeOf = (policy: NetworkPolicy | undefined) => {
+    // The step's credentials are in the scope of the backend host only.
+    const scopeOf = (
+      policy: NetworkPolicy | undefined,
+      host = "app.example.test",
+    ) => {
       const allow = allowOf(policy)
       expect(allow["*"]).toBeUndefined()
       expect(Object.keys(allow).sort()).toEqual([
         "app.example.test",
         "github.com",
       ])
-      const forwardUrl = allow["github.com"]?.[0]?.forwardURL ?? ""
+      const forwardUrl = allow[host]?.[0]?.forwardURL ?? ""
       return openIngestEgressScope(
         new URL(forwardUrl).pathname.replace("/api/v1/sandbox-egress/", ""),
         secret,
@@ -357,7 +361,7 @@ describe("conversationFirewall", () => {
       "git-1",
     )
     expect(policies).toHaveLength(1)
-    expect(scopeOf(policies.at(-1))).toMatchObject({
+    expect(scopeOf(policies.at(-1), "github.com")).toMatchObject({
       sandbox: "sbx-ingest",
       git: [{ token: "git-1", repositories: ["acme/source"] }],
     })

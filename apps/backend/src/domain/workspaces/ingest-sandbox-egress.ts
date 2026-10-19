@@ -487,32 +487,51 @@ export function ingestNetworkPolicy(input: {
 }): NetworkPolicy {
   if (!input.sandboxName) return "deny-all"
   const plainGit = input.step?.fetchSource ? (input.plainGit ?? []) : []
-  const forwardURL = ingestEgressForwardUrl(
-    {
-      sandbox: input.sandboxName,
-      // Each update seals a new scope; one shard runs at most this long.
-      exp: Date.now() + INGEST_SHARD_LIMIT_MS,
-      backendHost: input.backendHost,
-      git: input.git,
-      ...(plainGit.length ? { plainGit } : {}),
-      ...(input.step ? { step: input.step } : {}),
-    },
+  // Each update seals a new scope; one shard runs at most this long.
+  const base = {
+    sandbox: input.sandboxName,
+    exp: Date.now() + INGEST_SHARD_LIMIT_MS,
+    backendHost: input.backendHost,
+  }
+  // Each host gets only its own part of the scope: the Git hosts the Git
+  // fetch, the backend host the step's credentials. Vercel answers 500 to
+  // a policy whose forward URLs are too long together (CTX-887).
+  const gitURL = ingestEgressForwardUrl(
+    { ...base, git: input.git, ...(plainGit.length ? { plainGit } : {}) },
     input.secret,
   )
+  const backendURL = ingestEgressForwardUrl(
+    { ...base, git: [], ...(input.step ? { step: input.step } : {}) },
+    input.secret,
+  )
+  const forwardURLs = gitURL.length * (1 + plainGit.length) + backendURL.length
+  if (forwardURLs > INGEST_POLICY_MAX_FORWARD_URL_LENGTH)
+    throw new Error(
+      `The ingest firewall policy has ${forwardURLs} characters of forward URLs; the Vercel API refuses more than about ${INGEST_POLICY_MAX_FORWARD_URL_LENGTH}`,
+    )
   return {
     allow: {
-      "github.com": [{ forwardURL }],
+      "github.com": [{ forwardURL: gitURL }],
       // During the source fetch, each plain git host goes to the egress
       // proxy too, which allows only Git fetch of the shard's repository
       // paths on it.
       ...Object.fromEntries(
-        plainGit.map((repository) => [repository.host, [{ forwardURL }]]),
+        plainGit.map((repository) => [
+          repository.host,
+          [{ forwardURL: gitURL }],
+        ]),
       ),
-      [input.backendHost]: [{ forwardURL }],
+      [input.backendHost]: [{ forwardURL: backendURL }],
     },
     subnets: { deny: PRIVATE_SUBNETS },
   }
 }
+
+/**
+ * The forward URLs of one policy, all together. The Vercel API accepted
+ * 4,000 characters and answered 500 to 4,096 (a probe on 2026-10-19).
+ */
+export const INGEST_POLICY_MAX_FORWARD_URL_LENGTH = 3_600
 
 /**
  * The shard's hosted GitHub tokens, recorded under the shard's thread
