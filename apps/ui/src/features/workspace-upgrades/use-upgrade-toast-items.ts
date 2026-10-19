@@ -7,7 +7,7 @@ import {
 } from "./queries"
 import { upgradeCanStart } from "./upgrade-copy"
 
-export type UpgradeToastItem = {
+type UpgradeToastItem = {
   dismissKey: string
   workspace: Workspace
   item: WorkspaceUpgradeItem
