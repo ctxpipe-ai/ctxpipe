@@ -208,9 +208,10 @@ export const LandsOnUpgrades: Story = {
     } satisfies StoryRouteParams,
   },
   play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
     await waitFor(() =>
-      expect(canvas.getByRole("region", { name: "Upgrades" })).toHaveFocus(),
+      expect(
+        canvasElement.querySelector('[data-settings-group="Upgrades"]'),
+      ).toHaveFocus(),
     )
   },
 }

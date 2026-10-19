@@ -98,7 +98,7 @@ function SettingsGroup(props: {
   /** A link can land on the group: it gets the focus and scrolls into view. */
   landing?: boolean
 }) {
-  const ref = useRef<HTMLElement>(null)
+  const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const section = ref.current
     if (!props.landing || !section) return
@@ -120,15 +120,15 @@ function SettingsGroup(props: {
     }
   }, [props.landing])
   return (
-    <section
+    <div
       ref={ref}
-      aria-label={props.eyebrow}
+      data-settings-group={props.eyebrow}
       tabIndex={props.landing === undefined ? undefined : -1}
       className="border-t border-white/[0.06] pt-4 outline-none"
     >
       <p className="ctx-label text-muted-foreground">{props.eyebrow}</p>
       <div className="mt-6">{props.children}</div>
-    </section>
+    </div>
   )
 }
 
