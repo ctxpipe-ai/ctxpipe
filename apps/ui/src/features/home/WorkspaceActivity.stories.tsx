@@ -166,6 +166,33 @@ function clickDay(canvasElement: HTMLElement, date: string) {
 }
 
 /**
+ * The month labels stay in the box of the heatmap. The box keeps its height
+ * while it loads, so a label below it goes over the Recent header.
+ */
+export const MonthLabelsStayInTheChart: Story = {
+  play: async ({ canvasElement }) => {
+    await waitFor(() =>
+      expect(dayCell(canvasElement, "2026-08-22")).not.toBeNull(),
+    )
+    const chart = dayCell(canvasElement, "2026-08-22")?.closest("svg")
+    const host = chart?.parentElement
+    if (!chart || !host) throw new Error("No heatmap")
+    const months = [...chart.querySelectorAll("text")].filter((label) =>
+      /^(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)$/.test(
+        label.textContent ?? "",
+      ),
+    )
+    expect(months.length).toBeGreaterThan(0)
+    const bottom = host.getBoundingClientRect().bottom
+    for (const month of months) {
+      expect(month.getBoundingClientRect().bottom).toBeLessThanOrEqual(
+        bottom + 0.5,
+      )
+    }
+  },
+}
+
+/**
  * A click on a day shows only the commits of that day and outlines the day.
  * The day goes into the URL. Reset shows the latest commits again.
  */
