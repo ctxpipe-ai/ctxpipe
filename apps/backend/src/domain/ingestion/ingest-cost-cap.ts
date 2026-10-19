@@ -52,7 +52,7 @@ export function ingestionCostCapUsd(input: {
 }
 
 /** USD of one usage report: the gateway cost, else the tokens at the medium-tier prices. */
-export function ingestUsageUsd(usage: IngestStepUsage): number {
+function ingestUsageUsd(usage: IngestStepUsage): number {
   if (typeof usage.costUsd === "number") return usage.costUsd
   return (
     (usage.inputTokens * USD_PER_MILLION_TOKENS.input +
