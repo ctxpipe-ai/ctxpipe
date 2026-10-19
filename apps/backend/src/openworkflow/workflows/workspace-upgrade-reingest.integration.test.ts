@@ -109,7 +109,7 @@ contexts.push(
   `acme/context-e-${suffix}`,
   `acme/context-f-${suffix}`,
 )
-const [ready, behind, capped, wide, yamlOnly, overlay] = [
+const [ready, behind, costly, wide, yamlOnly, overlay] = [
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -303,13 +303,13 @@ beforeAll(async () => {
     installationId: 446,
     accountSlug: "acme",
   })
-  // `ready`, `capped`, `wide` and `yamlOnly` are at format 3. `wide` has
+  // `ready`, `costly`, `wide` and `yamlOnly` are at format 3. `wide` has
   // more source repositories than the step budget of this file holds.
   // `behind` is at format 2, so it must merge the format upgrade first (G5).
   for (const [i, workspaceId] of [
     ready,
     behind,
-    capped,
+    costly,
     wide,
     yamlOnly,
     overlay,
@@ -731,7 +731,7 @@ it(
 
     // The later tests of this file start from a failed row whose second
     // repository did not run.
-    await setRow(capped, {
+    await setRow(costly, {
       to: "failed",
       failureReason: "The re-ingestion stopped.",
       upgrade: {
@@ -768,9 +768,9 @@ it(
 )
 
 it("keeps the row when the scan cannot read the format, or the format is newer than this code", async () => {
-  expect(await row(capped)).toMatchObject({ status: "failed" })
+  expect(await row(costly)).toMatchObject({ status: "failed" })
   const [workspace] = await withOrgDbContext(org.id, (db) =>
-    db.select().from(workspaces).where(eq(workspaces.id, capped)),
+    db.select().from(workspaces).where(eq(workspaces.id, costly)),
   )
   // No cached format and no commit: git cannot give the format file now.
   // Then a format that is newer than this code.
@@ -778,12 +778,12 @@ it("keeps the row when the scan cannot read the format, or the format is newer t
     { formatVersion: null, desiredSha: null },
     { formatVersion: 4 },
   ]) {
-    await setWorkspace(capped, fields)
+    await setWorkspace(costly, fields)
     await runScan()
-    expect(await row(capped)).toMatchObject({ status: "failed" })
-    expect((await row(capped))?.upgrade.blockedReason).toBeUndefined()
+    expect(await row(costly)).toMatchObject({ status: "failed" })
+    expect((await row(costly))?.upgrade.blockedReason).toBeUndefined()
   }
-  await setWorkspace(capped, {
+  await setWorkspace(costly, {
     formatVersion: 3,
     desiredSha: workspace?.desiredSha ?? null,
   })
@@ -795,35 +795,35 @@ it(
   async () => {
     // Queued: the run of this click ended before it claimed the row.
     const approvedAt = new Date().toISOString()
-    await endedUpgradeRun(capped, approvedAt)
-    await setRow(capped, {
+    await endedUpgradeRun(costly, approvedAt)
+    await setRow(costly, {
       to: "queued",
       upgrade: { approvedAt },
       workflowRunId: null,
     })
-    await withOrgIdContext(org, () => failStoppedUpgradeRun(capped))
-    expect(await row(capped)).toMatchObject({
+    await withOrgIdContext(org, () => failStoppedUpgradeRun(costly))
+    expect(await row(costly)).toMatchObject({
       status: "failed",
       failureReason: "The upgrade run stopped before it finished.",
     })
 
     // Running: the recorded run ended without its result.
-    await setRow(capped, {
+    await setRow(costly, {
       to: "running",
-      workflowRunId: await endedUpgradeRun(capped),
+      workflowRunId: await endedUpgradeRun(costly),
     })
     await runScan()
-    expect(await row(capped)).toMatchObject({
+    expect(await row(costly)).toMatchObject({
       status: "failed",
       failureReason: "The upgrade run stopped before it finished.",
     })
 
-    stepCostUsd.delete(capped)
+    stepCostUsd.delete(costly)
     // An earlier run did the first repository and spent a lot. The new
     // run skips it and keeps that spend in the report.
-    const [first, ...rest] = (await row(capped))?.upgrade.repositories ?? []
+    const [first, ...rest] = (await row(costly))?.upgrade.repositories ?? []
     expect(first?.sha).toEqual(expect.any(String))
-    await setRow(capped, {
+    await setRow(costly, {
       to: "failed",
       upgrade: {
         repositories: [
@@ -847,8 +847,8 @@ it(
     git(work, "add", "-A")
     git(work, "commit", "-q", "-m", "A late publish of the first repository")
     git(work, "push", "-q", "origin", "HEAD:main")
-    expect(await start(capped)).toMatchObject({ kind: "queued" })
-    expect(await settled(capped)).toMatchObject({
+    expect(await start(costly)).toMatchObject({ kind: "queued" })
+    expect(await settled(costly)).toMatchObject({
       status: "completed",
       upgrade: {
         repositories: [

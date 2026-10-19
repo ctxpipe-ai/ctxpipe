@@ -297,7 +297,6 @@ describe("step budget", () => {
         const result = await handle.result({ timeoutMs: 60_000 })
         expect(result).toMatchObject({
           status: "failed",
-          capped: false,
           report: [
             "The ingestion run did not finish in the time that the upgrade waits.",
           ],
