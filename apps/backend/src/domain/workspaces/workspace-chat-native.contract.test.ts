@@ -505,7 +505,12 @@ it(
             chunk.type === "TEXT_MESSAGE_CONTENT" ? [chunk.delta] : [],
           )
           .join("")
-        expect(streamedText).toContain("The token is [masked].")
+        // CTX-892: this check failed once in CI with no text at all. The
+        // message lists the chunk types, so a new failure shows the order.
+        expect(
+          streamedText,
+          `chunk types: ${chunks.map((chunk) => chunk.type).join(", ")}`,
+        ).toContain("The token is [masked].")
         expect(streamedText).not.toContain(token)
         const stored = JSON.stringify(
           await workspaceChatPersistence().stores.messages.loadThread(
@@ -814,7 +819,10 @@ it(
 )
 
 /**
- * A title model call that answers only when `release()` runs, or after 10 s.
+ * A title model call that answers only when `release()` runs. `close()`
+ * releases it too, so a failed test does not leave the call waiting. No wall
+ * clock answers it: on a slow runner, a fallback timer answered the call
+ * while the two turns of a test still ran.
  * Other model calls go to the fixture model.
  */
 function slowTitleModel() {
@@ -833,14 +841,7 @@ function slowTitleModel() {
       if (!JSON.stringify(body.messages ?? []).includes("word title"))
         return passthrough()
       requests += 1
-      let timer: ReturnType<typeof setTimeout> | undefined
-      await Promise.race([
-        released,
-        new Promise((resolve) => {
-          timer = setTimeout(resolve, 10_000)
-        }),
-      ])
-      clearTimeout(timer)
+      await released
       answered = true
       return HttpResponse.json({
         id: "completion-title",
@@ -859,7 +860,10 @@ function slowTitleModel() {
   )
   server.listen({ onUnhandledRequest: "bypass" })
   return {
-    close: () => server.close(),
+    close: () => {
+      release()
+      server.close()
+    },
     release,
     requests: () => requests,
     answered: () => answered,

@@ -737,7 +737,19 @@ describe("hosted ingest shard", { timeout: 1_200_000 }, () => {
     const refs = (repository: string, service = "git-upload-pack") =>
       `'https://github.com/${repository}.git/info/refs?service=${service}'`
     // A1: Git fetch of the shard's repository works, through the proxy.
-    expect(await agentStatus(refs(HELLO))).toBe(200)
+    // CTX-892: this check once got 502. The message names the last requests
+    // that reached the tunnel: when none is for this fetch, the 502 came
+    // from Vercel, not from the backend egress proxy.
+    const servedBefore = served.length
+    const helloStatus = await agentStatus(refs(HELLO))
+    expect(
+      helloStatus,
+      `tunnel requests in this fetch: ${JSON.stringify(
+        served
+          .slice(servedBefore)
+          .map(({ forwarded, status }) => ({ forwarded, status })),
+      )}`,
+    ).toBe(200)
     const fetched = await asAgent(
       `git ls-remote ${HELLO_URL} HEAD 2>&1; echo "exit=$?"`,
     )
