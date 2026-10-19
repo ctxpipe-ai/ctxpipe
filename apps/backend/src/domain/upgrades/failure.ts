@@ -16,7 +16,7 @@ export const UPGRADE_FAILURE_CODES = [
   "unknown",
 ] as const
 
-export type UpgradeFailureCode = (typeof UPGRADE_FAILURE_CODES)[number]
+type UpgradeFailureCode = (typeof UPGRADE_FAILURE_CODES)[number]
 
 /** The step that failed. `null`: ctx| cannot tell. */
 export const UPGRADE_FAILURE_STEPS = [
@@ -27,9 +27,9 @@ export const UPGRADE_FAILURE_STEPS = [
   "publish",
 ] as const
 
-export type UpgradeFailureStep = (typeof UPGRADE_FAILURE_STEPS)[number]
+type UpgradeFailureStep = (typeof UPGRADE_FAILURE_STEPS)[number]
 
-export type UpgradeFailure = {
+type UpgradeFailure = {
   code: UpgradeFailureCode
   step: UpgradeFailureStep | null
   /** The source repository of the failed step, when one failed. */
