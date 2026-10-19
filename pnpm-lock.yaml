@@ -174,9 +174,6 @@ importers:
       '@vercel/sandbox':
         specifier: 2.9.2
         version: 2.9.2
-      ai:
-        specifier: ^6.0.105
-        version: 6.0.111(zod@4.3.6)
       better-auth:
         specifier: ^1.6.23
         version: 1.6.23(@opentelemetry/api@1.9.1)(@tanstack/react-start@1.168.60(crossws@0.3.5)(esbuild@0.28.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(rollup@4.59.0)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))(webpack@5.105.4(esbuild@0.28.1)))(drizzle-kit@1.0.0-beta.22)(drizzle-orm@1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9)(@types/pg@8.16.0)(bun-types@1.3.9)(gel@2.2.0)(mssql@11.0.1)(pg@8.18.0)(postgres@3.4.9)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6))(pg@8.18.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
@@ -191,7 +188,7 @@ importers:
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9)(@types/pg@8.16.0)(bun-types@1.3.9)(gel@2.2.0)(mssql@11.0.1)(pg@8.18.0)(postgres@3.4.9)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@6.0.111(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
+        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.6.5))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2))
       falkordb:
         specifier: ^6.6.2
         version: 6.6.2
@@ -348,7 +345,7 @@ importers:
         version: 1.0.0-beta.22(@opentelemetry/api@1.9.1)(@sinclair/typebox@0.34.52)(@types/mssql@9.1.9)(@types/pg@8.16.0)(bun-types@1.3.9)(gel@2.2.0)(mssql@11.0.1)(pg@8.18.0)(postgres@3.4.9)(valibot@1.2.0(typescript@5.9.3))(zod@4.3.6)
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))
+        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))
       hono:
         specifier: ^4.12.1
         version: 4.12.27
@@ -515,9 +512,6 @@ importers:
       '@tanstack/react-virtual':
         specifier: ^3.14.9
         version: 3.14.9(react-dom@19.2.4(react@19.2.4))(react@19.2.4)
-      ai:
-        specifier: ^6.0.105
-        version: 6.0.111(zod@4.3.6)
       better-auth:
         specifier: ^1.6.23
         version: 1.6.23(@opentelemetry/api@1.9.1)(@tanstack/react-start@1.168.60(esbuild@0.28.1)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(rollup@4.59.0)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))(webpack@5.105.4(esbuild@0.28.1)))(pg@8.18.0)(react-dom@19.2.4(react@19.2.4))(react@19.2.4)(solid-js@1.9.11)(vitest@4.0.18(@opentelemetry/api@1.9.1)(@types/node@25.3.0)(jiti@2.7.0)(jsdom@27.4.0(@noble/hashes@2.4.0))(lightningcss@1.33.0)(msw@2.13.6(@types/node@25.3.0)(typescript@5.9.3))(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))
@@ -529,7 +523,7 @@ importers:
         version: 2.1.1
       evlog:
         specifier: ^2.13.0
-        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@6.0.111(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))
+        version: 2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1))
       hono:
         specifier: ^4.0.0
         version: 4.12.27
@@ -825,12 +819,6 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/gateway@3.0.63':
-    resolution: {integrity: sha512-0jwdkN3elC4Q9aT2ALxjXtGGVoye15zYgof6GfvuH1a9QKx9Rj4Wi2vy6SyyLvtSA/lB786dTZgC+cGwe6vzmA==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
   '@ai-sdk/gateway@4.0.104':
     resolution: {integrity: sha512-4lTyt8a4BMfVz4QGo+VO5odakmYMX5kq+xiRgdQGGY7o/jP2WSasp6LvIvYvt/lHzz1MfE+xKTOJhz7mMwjynA==}
     engines: {node: '>=22'}
@@ -855,12 +843,6 @@ packages:
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
 
-  '@ai-sdk/provider-utils@4.0.17':
-    resolution: {integrity: sha512-oyCeFINTYK0B8ZGUBiQc05G5vytPlKSmTTtm19xfJuUgoi8zkvvRcoPQci4mSnyfpPn2XSFFDfsALG8uGcapfg==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
-
   '@ai-sdk/provider-utils@5.0.41':
     resolution: {integrity: sha512-hSosMII5k33z0buaZ6dugH/g8yIJjPQBILuQvr4ThdiMJxrkiZxFWTgIkvKsT6Dk493JbsnGz5W/q88Y5bR7WA==}
     engines: {node: '>=22'}
@@ -878,10 +860,6 @@ packages:
     engines: {node: '>=22'}
     peerDependencies:
       zod: ^3.25.76 || ^4.1.8
-
-  '@ai-sdk/provider@3.0.8':
-    resolution: {integrity: sha512-oGMAgGoQdBXbZqNG0Ze56CHjDZ1IDYOwGYxYjO5KLSlz5HiNQ9udIXsPZ61VWaHGZ5XW/jyjmr6t2xz2jGVwbQ==}
-    engines: {node: '>=18'}
 
   '@ai-sdk/provider@4.0.15':
     resolution: {integrity: sha512-LIDCrT8xgWVMiVUV13+v9FXPJ8B5uX/5ByEMXxp9Sspr2SyB1PwMSCPshZoI/t+4AgxyZCFEVutdaigCnqje3w==}
@@ -4003,10 +3981,6 @@ packages:
 
   '@opentelemetry/api-logs@0.219.0':
     resolution: {integrity: sha512-FFx7YnaYJlIjqWW/AG/yAZ0L/NEY724PipXXXQLdtZPbLwBGbUMTGL1i/esI56TWfTUXxhLfpgrnWJCG8aUJyg==}
-    engines: {node: '>=8.0.0'}
-
-  '@opentelemetry/api@1.9.0':
-    resolution: {integrity: sha512-3giAOQvZiH5F9bMlMiv8+GSPMeqg0dbaeo58/0SlA9sxSqZhnUtxzX9/2FzyhS9sWQf5S0GJE0AKBrFqjpeYcg==}
     engines: {node: '>=8.0.0'}
 
   '@opentelemetry/api@1.9.1':
@@ -7721,10 +7695,6 @@ packages:
     engines: {node: '>=20'}
     hasBin: true
 
-  '@vercel/oidc@3.1.0':
-    resolution: {integrity: sha512-Fw28YZpRnA3cAHHDlkt7xQHiJ0fcL+NRcIqsocZQUSmbzeIKRpwttJjik5ZGanXP+vlA4SbTg+AbA3bP363l+w==}
-    engines: {node: '>= 20'}
-
   '@vercel/oidc@3.2.0':
     resolution: {integrity: sha512-UycprH3T6n3jH0k44NHMa7pnFHGu/N05MjojYr+Mc6I7obkoLIJujSWwin1pCvdy/eOxrI/l3uDLQsmcrOb4ug==}
     engines: {node: '>= 20'}
@@ -7949,12 +7919,6 @@ packages:
   agent-base@7.1.4:
     resolution: {integrity: sha512-MnA+YT8fwfJPgBx3m60MNqakm30XOkyIoH1y6huTQvC0PwZG7ki8NacLBcrPbNoo8vEZy7Jpuk7+jMO+CUovTQ==}
     engines: {node: '>= 14'}
-
-  ai@6.0.111:
-    resolution: {integrity: sha512-K5aikNm4JGfJkzwIr3yA/qhOYIOIvOqjCxSQjQQ7bWWqm0uuPO2/qgdXL23gYJdTLPPYfvi2TTS+bg2Yp+r2Lw==}
-    engines: {node: '>=18'}
-    peerDependencies:
-      zod: ^3.25.76 || ^4.1.8
 
   ai@7.0.128:
     resolution: {integrity: sha512-WMKN83DodYtH52ETPHq0jrSwj3wU0aHkhLHXMrwMRabC/aMpIqeWsXJgjkUwrOqkaKHWONdupk/2ttPRvAyFcg==}
@@ -14830,21 +14794,6 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/gateway@3.0.63(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.17(zod@4.3.6)
-      '@vercel/oidc': 3.1.0
-      zod: 4.3.6
-
-  '@ai-sdk/gateway@4.0.104(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
-      '@vercel/oidc': 3.2.0
-      zod: 4.3.6
-    optional: true
-
   '@ai-sdk/gateway@4.0.104(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.22
@@ -14870,13 +14819,6 @@ snapshots:
       '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.6.5
 
-  '@ai-sdk/provider-utils@4.0.17(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 3.0.8
-      '@standard-schema/spec': 1.1.0
-      eventsource-parser: 3.1.0
-      zod: 4.3.6
-
   '@ai-sdk/provider-utils@5.0.41(zod@4.6.5)':
     dependencies:
       '@ai-sdk/provider': 4.0.15
@@ -14885,16 +14827,6 @@ snapshots:
       eventsource-parser: 3.1.1
       undici: 7.29.0
       zod: 4.6.5
-
-  '@ai-sdk/provider-utils@5.0.54(zod@4.3.6)':
-    dependencies:
-      '@ai-sdk/provider': 4.0.22
-      '@standard-schema/spec': 1.1.0
-      '@workflow/serde': 4.1.0
-      eventsource-parser: 3.1.1
-      undici: 7.29.0
-      zod: 4.3.6
-    optional: true
 
   '@ai-sdk/provider-utils@5.0.54(zod@4.6.5)':
     dependencies:
@@ -14913,10 +14845,6 @@ snapshots:
       eventsource-parser: 3.1.1
       undici: 7.29.0
       zod: 4.6.5
-
-  '@ai-sdk/provider@3.0.8':
-    dependencies:
-      json-schema: 0.4.0
 
   '@ai-sdk/provider@4.0.15':
     dependencies:
@@ -19269,8 +19197,6 @@ snapshots:
   '@opentelemetry/api-logs@0.219.0':
     dependencies:
       '@opentelemetry/api': 1.9.1
-
-  '@opentelemetry/api@1.9.0': {}
 
   '@opentelemetry/api@1.9.1': {}
 
@@ -23918,8 +23844,6 @@ snapshots:
       - rollup
       - supports-color
 
-  '@vercel/oidc@3.1.0': {}
-
   '@vercel/oidc@3.2.0': {}
 
   '@vercel/sandbox@2.9.2':
@@ -24216,19 +24140,11 @@ snapshots:
 
   agent-base@7.1.4: {}
 
-  ai@6.0.111(zod@4.3.6):
-    dependencies:
-      '@ai-sdk/gateway': 3.0.63(zod@4.3.6)
-      '@ai-sdk/provider': 3.0.8
-      '@ai-sdk/provider-utils': 4.0.17(zod@4.3.6)
-      '@opentelemetry/api': 1.9.0
-      zod: 4.3.6
-
   ai@7.0.128(zod@4.3.6):
     dependencies:
-      '@ai-sdk/gateway': 4.0.104(zod@4.3.6)
+      '@ai-sdk/gateway': 4.0.104(zod@4.6.5)
       '@ai-sdk/provider': 4.0.22
-      '@ai-sdk/provider-utils': 5.0.54(zod@4.3.6)
+      '@ai-sdk/provider-utils': 5.0.54(zod@4.6.5)
       zod: 4.3.6
     optional: true
 
@@ -26091,34 +26007,25 @@ snapshots:
     dependencies:
       eventsource-parser: 3.1.1
 
-  evlog@2.14.1(@tanstack/start-client-core@1.170.34)(ai@6.0.111(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
-    optionalDependencies:
-      '@tanstack/start-client-core': 1.170.34
-      ai: 6.0.111(zod@4.3.6)
-      express: 5.2.1
-      hono: 4.12.27
-      ofetch: 1.5.1
-      react: 19.2.4
-      vite: 7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
-
-  evlog@2.14.1(@tanstack/start-client-core@1.170.34)(ai@6.0.111(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1)):
-    optionalDependencies:
-      '@tanstack/start-client-core': 1.170.34
-      ai: 6.0.111(zod@4.3.6)
-      express: 5.2.1
-      hono: 4.12.27
-      ofetch: 1.5.1
-      react: 19.2.4
-      vite: 7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1)
-
-  evlog@2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1)):
+  evlog@2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.3.6))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1)):
     optionalDependencies:
       '@tanstack/start-client-core': 1.170.34
       ai: 7.0.128(zod@4.3.6)
       express: 5.2.1
       hono: 4.12.27
       ofetch: 1.5.1
+      react: 19.2.4
       vite: 7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.9.1)
+
+  evlog@2.14.1(@tanstack/start-client-core@1.170.34)(ai@7.0.128(zod@4.6.5))(express@5.2.1)(hono@4.12.27)(ofetch@1.5.1)(react@19.2.4)(vite@7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)):
+    optionalDependencies:
+      '@tanstack/start-client-core': 1.170.34
+      ai: 7.0.128(zod@4.6.5)
+      express: 5.2.1
+      hono: 4.12.27
+      ofetch: 1.5.1
+      react: 19.2.4
+      vite: 7.3.1(@types/node@25.3.0)(jiti@2.7.0)(lightningcss@1.33.0)(terser@5.46.0)(tsx@4.21.0)(yaml@2.8.2)
 
   execa@5.1.1:
     dependencies:
