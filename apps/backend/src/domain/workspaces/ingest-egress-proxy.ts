@@ -200,6 +200,8 @@ function egressRules(scope: IngestEgressScope): EgressRule[] {
 /** The request headers that the proxy sends on; also each `mcp-*` header. */
 const FORWARDED_REQUEST_HEADERS = [
   "content-type",
+  // Git gzips a large fetch body; the body goes on as sent.
+  "content-encoding",
   "accept",
   "accept-encoding",
   "git-protocol",
