@@ -24,9 +24,10 @@
 
 ctx| gives coding agents the context they are missing: how your platform is
 structured, which decisions already exist, what standards your team follows, and
-how work should be done in your organization. It ingests repositories and source
-material, builds a knowledge graph that compounds over time, and exposes that
-context to agents through one MCP connection.
+how work should be done in your organization. ctx| keeps that context as Markdown
+in a git repository that you own. It reads your code and your tools, and it keeps
+the context current with small commits that you can review. Your agents read the
+context through one MCP connection.
 
 Use the open-source core yourself, or get in touch for early access to the
 managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
@@ -36,10 +37,12 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 - Makes engineering context portable across agents, repos, sessions, and tools.
 - Uses Git as the source of truth for instructions, decisions, skills, and
   reviewable context changes.
-- Builds a self-learning knowledge graph from code, docs, ADRs, instructions,
-  usage, and connector data.
-- Gives agents one MCP endpoint for architecture, standards, retrieval, and
-  graph-backed context.
+- Builds a knowledge graph for each Workspace from its knowledge files, its
+  linked code, and connector data.
+- Gives agents one MCP endpoint with read-only search tools. Your agent finds
+  the context that it needs.
+- Runs each agent in an isolated sandbox that holds only the repositories and
+  keys that its job needs.
 - Helps teams govern agent planning and execution with transparent,
   version-controlled context.
 - Can be self-hosted or run as a managed SaaS.
@@ -58,8 +61,9 @@ managed SaaS at [ctxpipe.ai](https://ctxpipe.ai/early-access).
 | Cross-repo code search | Link code repositories to a Workspace and let agents search across them, not just the files currently open in an editor. |
 | Product and engineering connectors | Bring in GitHub, Confluence, Linear, Notion, PagerDuty, and Slack as Markdown files in a Workspace your team can inspect. |
 | Knowledge graph per Workspace | Turn links and claims in knowledge files, plus services, APIs, and libraries extracted from linked code, into a graph you can explore. |
-| One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint for ctx\| context. |
+| One MCP for engineering knowledge | Give Cursor, Claude Code, Codex, and custom tools the same [MCP](https://docs.ctxpipe.ai/docs/mcp/mcp-docs) endpoint. Seven read-only tools let your agent search knowledge and code, read files, and follow links. |
 | Workspace chat | A coding agent per conversation that answers questions about code, systems, and decisions, and proposes knowledge changes as pull requests. |
+| Isolated agent sandboxes | Workspace chat and ingestion run each agent in its own sandbox. A sandbox cannot get to a repository or a key that it does not hold. |
 | Human-readable context surfaces | Use a Workspace's Files, Diff, and [Graph](https://docs.ctxpipe.ai/docs/workspaces/graph) panes to see what agents can use before they act. |
 | CLI setup and local memory | Install ctx\| MCP with `npx ctxpipe init`, or add early repo-local memory with `npx ctxpipe memory init`. |
 
@@ -96,21 +100,23 @@ the deployment runbook:
 - [Quickstart](https://docs.ctxpipe.ai/docs/self-hosting/quickstart)
 - [Docker Compose](https://docs.ctxpipe.ai/docs/self-hosting/deployment/docker)
 - [Terraform](https://docs.ctxpipe.ai/docs/self-hosting/deployment/terraform)
-- [AWS](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws)
-- [AWS CDK](https://docs.ctxpipe.ai/docs/self-hosting/aws-cdk)
+- [AWS (CDK)](https://docs.ctxpipe.ai/docs/self-hosting/deployment/aws)
 - [Production readiness](https://docs.ctxpipe.ai/docs/self-hosting/production-readiness)
+- [Upgrades](https://docs.ctxpipe.ai/docs/self-hosting/upgrades)
 
 For CDK-based AWS deployments, see the package docs at
 [packages/aws-cdk/README.md](packages/aws-cdk/README.md).
 
 ## Quickstart for local development
 
-**Requirements:** Node.js 22+, pnpm 10, Docker with Compose v2.
+**Requirements:** Node.js 22+, pnpm 10, Bun 1.4.2+, Docker with Compose v2.
 
 ```bash
 pnpm install
 cp apps/backend/.env.example apps/backend/.env.local
 # Set AUTH_SECRET, at least 32 characters, in apps/backend/.env.local
+# Set MODEL_PROVIDER_API_KEY for Workspace chat and ingestion
+# Set AGENT_VAULT_OWNER_PASSWORD (openssl rand -hex 24) for chat sandboxes
 
 pnpm dev:infra
 pnpm dev
@@ -124,12 +130,10 @@ If your browser warns about the local certificate, run:
 pnpm trust
 ```
 
-For backend API, OpenAPI, MCP, and package scripts, see
+For the model provider settings, see
+[Models](https://docs.ctxpipe.ai/docs/self-hosting/models). For backend API,
+OpenAPI, MCP, contract tests, and package scripts, see
 [apps/backend/README.md](apps/backend/README.md).
-
-### Required backend contract checks
-
-Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI` pointing to disposable development services. The lane checks PostgreSQL, a writable FalkorDB graph, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. CI provisions PostgreSQL and a pinned FalkorDB image. Native graph contracts create scoped ACL users and delete their own tenant graphs, so their FalkorDB test connection needs ACL administration permissions.
 
 ## Documentation
 
@@ -155,7 +159,12 @@ Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI`
 | `apps/docs` | Fumadocs documentation site. |
 | `apps/codesearch` | Zoekt-backed clone and code search service. |
 | `apps/otel-collector` | Contributor laptop OpenTelemetry Collector (Compose `infra` only). Self-host export is optional `OTEL_EXPORTER_OTLP_*`. |
+| `apps/forge-ctxpipe-agent` | Reference Atlassian Forge app manifest for the Confluence connector. |
 | `packages/aws-cdk` | AWS CDK construct for self-hosting ctx\| on AWS. |
+| `packages/cli` | The `ctxpipe` CLI: MCP setup (`npx ctxpipe init`) and local memory. |
+| `plugins/ctxpipe` | Claude plugin for the hosted ctx\| MCP. |
+| `shared` | Git helpers that the backend and codesearch both use. |
+| `ops/observability` | Internal ClickStack and Langfuse project. It is not part of a product deploy. |
 | `examples/aws-cdk-self-host` | Runnable AWS CDK self-hosting example. |
 | `infra` | Terraform for the managed Railway and Neon deployment path. |
 | `.ai/memory` | Architecture decisions and project memory used by coding agents. |
