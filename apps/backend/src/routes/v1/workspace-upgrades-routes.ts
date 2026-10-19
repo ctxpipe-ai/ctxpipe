@@ -139,6 +139,13 @@ const WorkspaceUpgradeItemSchema = z
           "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
       }),
     note: z.string().nullable(),
+    waitingForSlot: z
+      .object({ reason: z.string(), since: z.string().datetime() })
+      .nullable()
+      .openapi({
+        description:
+          "Only on a re-ingestion that waits for its turn to use a free sandbox slot: why it waits and when the wait began. `null` when it does not wait.",
+      }),
     failureReason: z.string().nullable(),
     failure: z
       .object({
@@ -230,6 +237,7 @@ function serializeUpgrade(
     })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
+    waitingForSlot: upgrade.waitingForSlot ?? null,
     failureReason: row.failureReason,
     failure: classifyUpgradeFailure({
       status: row.status,

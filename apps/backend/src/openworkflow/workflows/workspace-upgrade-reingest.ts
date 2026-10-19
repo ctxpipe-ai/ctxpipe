@@ -536,8 +536,9 @@ export function defineWorkspaceUpgradeReingest(
             // record for each repository, the last record, and record-error.
             const maxSlotPolls = pollBudget(
               stepBudget,
-              5 + 2 * planned.repositories.length,
+              7 + 2 * planned.repositories.length,
             )
+            let waitedSince: string | null = null
             for (let poll = 0; ; poll++) {
               const slot = await step.run(
                 { name: `slot:${poll}` },
@@ -554,12 +555,38 @@ export function defineWorkspaceUpgradeReingest(
                   })
                 },
               )
-              if ("turn" in slot) break
+              if ("turn" in slot) {
+                if (waitedSince)
+                  await record("record-turn", {
+                    to: UPGRADE_STATUSES.running,
+                    upgrade: { waitingForSlot: undefined },
+                  })
+                break
+              }
+              if (!waitedSince) {
+                waitedSince = await step.run(
+                  { name: "record-wait" },
+                  async () => {
+                    const since = new Date().toISOString()
+                    await transitionWorkspaceUpgradeRow({
+                      workspaceId,
+                      key,
+                      from: [UPGRADE_STATUSES.running],
+                      to: UPGRADE_STATUSES.running,
+                      ownerRunId: run.id,
+                      upgrade: {
+                        waitingForSlot: { reason: slot.wait, since },
+                      },
+                    })
+                    return since
+                  },
+                )
+              }
               if (poll >= maxSlotPolls)
                 return record("record-no-slot", {
                   to: UPGRADE_STATUSES.failed,
                   failureReason: `${slot.wait} The re-ingestion waited too long for its turn. Start it again.`,
-                  upgrade: { repositories: reports },
+                  upgrade: { repositories: reports, waitingForSlot: undefined },
                 })
               await step.sleep(
                 `wait-slot:${poll}`,

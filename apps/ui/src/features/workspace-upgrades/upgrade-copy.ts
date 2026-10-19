@@ -138,10 +138,30 @@ export function upgradeCanCheck(item: WorkspaceUpgradeItem): boolean {
   )
 }
 
+/** "12 min", "1 h 5 min" or "less than a minute". */
+export function waitedFor(sinceIso: string, now = Date.now()): string {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 60_000))
+  if (minutes < 1) return "less than a minute"
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`
+}
+
+/** The status tag of an item. A run that waits for a sandbox slot says so. */
+export function upgradeStatusTag(
+  item: Pick<WorkspaceUpgradeItem, "status" | "waitingForSlot">,
+) {
+  return item.status === "running" && item.waitingForSlot
+    ? { ...UPGRADE_STATUS_TAG.running, label: "Waiting for a free sandbox" }
+    : UPGRADE_STATUS_TAG[item.status]
+}
+
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
 export function upgradeWaitingCopy(
-  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest">,
+  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest" | "waitingForSlot">,
+  now = Date.now(),
 ): string | null {
+  if (item.status === "running" && item.waitingForSlot)
+    return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctx| checks again every minute and starts the run when its turn comes.`
   if (item.status !== "pr_open") return null
   const pullRequest = item.pullRequest?.number
     ? `pull request #${item.pullRequest.number}`
