@@ -90,6 +90,11 @@ export function BuildkiteConnectionCard({
             : undefined
       }
     >
+      {status?.status === "revoked" ? (
+        <p className="text-sm text-muted-foreground">
+          Buildkite does not accept the saved token. Reconnect with a new token.
+        </p>
+      ) : null}
       {status?.status === "installed" && !status.webhookConfigured ? (
         <p className="text-sm text-muted-foreground">
           Builds sync once a day until you add the webhook.

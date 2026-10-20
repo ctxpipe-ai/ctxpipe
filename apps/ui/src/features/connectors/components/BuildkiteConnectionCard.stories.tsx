@@ -176,6 +176,11 @@ export const RevokedOpensReconnect: Story = {
     await userEvent.click(
       canvas.getByRole("button", { name: "Expand Buildkite" }),
     )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/Buildkite does not accept the saved token/),
+      ).toBeVisible(),
+    )
     const [reconnect] = await canvas.findAllByRole("button", {
       name: /^Reconnect Buildkite/,
     })
