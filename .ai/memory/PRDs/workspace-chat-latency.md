@@ -10,9 +10,10 @@ tool/serve loop.
 
 - **SLO:** On the product UI path (workspace open, compose mounted, then Send),
   a complete useful assistant answer to a typical first question must land in
-  **about 12 seconds** (target) and never later than **20 seconds** (fail
-  budget). This is not a first-token measure. A CTO decision of 2026-10-18
-  ([CTX-848](https://linear.app/ctxpipe/issue/CTX-848)) replaced the first
+  **about 12 seconds** (target) and never later than **30 seconds** (fail
+  budget). This is not a first-token measure. The CTO set this budget on
+  [CTX-848](https://linear.app/ctxpipe/issue/CTX-848) (first 15 seconds, then
+  20 seconds, then 30 seconds on 2026-10-19). It replaced the first
   target of 5 seconds. A later turn on the same conversation keeps the
   budget of 5 seconds (target) and 15 seconds (fail). The example “what’s in this repo?”
   is a stand-in for that class of question. Do not put that wording, or a precomputed inventory, into the OpenCode instructions or the chat prompt. Get the latency from a warm sandbox, not from a special case for one question.

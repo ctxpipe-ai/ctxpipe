@@ -5,6 +5,7 @@ import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import {
   githubInstallationReposHandler,
   workspaceActivityHandler,
+  workspaceDetailHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
@@ -168,8 +169,9 @@ export const Populated: Story = {
 export const SkippedFiles: Story = {
   args: {
     workspace: skippedFilesWorkspaceDetail,
+    onFixWithAgent: fn(),
   },
-  play: async ({ canvasElement }) => {
+  play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Hydrate skipped 2 files")
     await canvas.findByText("Front matter is not valid")
@@ -179,6 +181,38 @@ export const SkippedFiles: Story = {
     expect(
       canvas.getByRole("link", { name: "knowledge/billing/tax.md" }),
     ).toBeVisible()
+    // Only the front matter file offers the agent.
+    expect(
+      canvas.queryByRole("button", {
+        name: "Fix repositories/app-copy.md using agent",
+      }),
+    ).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", {
+        name: "Fix knowledge/billing/tax.md using agent",
+      }),
+    )
+    await expect(args.onFixWithAgent).toHaveBeenCalledWith(
+      "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+    )
+  },
+}
+
+/** A link with the upgrades hash lands on the Upgrades group. */
+export const LandsOnUpgrades: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "#upgrades",
+    } satisfies StoryRouteParams,
+  },
+  play: async ({ canvasElement }) => {
+    await waitFor(() =>
+      expect(
+        canvasElement.querySelector('[data-settings-group="Upgrades"]'),
+      ).toHaveFocus(),
+    )
   },
 }
 
@@ -293,8 +327,17 @@ export const AddRepositories: Story = {
     workspace: emptyLinkedWorkspaceDetail,
   },
   parameters: {
-    // Only an owner or admin sees the repository pickers.
-    msw: { handlers: { role: [activeMemberRoleHandler("owner")] } },
+    // Only an owner or admin sees the repository pickers. The Add
+    // repositories dialog reads the Workspace and its format (2 or higher).
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("owner")],
+        detail: [workspaceDetailHandler(emptyLinkedWorkspaceDetail)],
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
+      },
+    },
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)

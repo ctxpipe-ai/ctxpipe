@@ -14,8 +14,6 @@ type UpgradesResponse = InferResponseType<
  */
 export type WorkspaceUpgradeItem = UpgradesResponse["items"][number]
 
-export type UpgradeEstimate = NonNullable<WorkspaceUpgradeItem["estimate"]>
-
 export type UpgradeStatus = WorkspaceUpgradeItem["status"]
 
 export type WorkspaceUpgrades = Omit<UpgradesResponse, "items"> & {
@@ -35,7 +33,10 @@ type PendingUpgradesResponse = InferResponseType<
 >
 
 /** The pending upgrades of the org, one entry for each Workspace that has one. */
-export type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
+type PendingWorkspaceUpgrades = PendingUpgradesResponse["workspaces"]
+
+/** The hash of the Workspace settings link that lands on the Upgrades group. */
+export const WORKSPACE_UPGRADES_HASH = "upgrades"
 
 /**
  * How long to wait before the next read. A run that prepares the pull
@@ -134,4 +135,39 @@ export async function checkWorkspaceUpgrades(
     ":workspaceSlug"
   ].upgrades.check.$post({ param: { orgSlug, workspaceSlug } })
   return readApiJson(res, { message: "Failed to check the upgrade" })
+}
+
+/**
+ * Always update: ctx| commits `upgrades: automatic` into the format file of
+ * the Workspace repository. This waits until the commit is on the default
+ * branch, so that the pull request of the next start contains the setting.
+ */
+export async function enableAutomaticWorkspaceUpgrades(
+  orgSlug: string,
+  workspaceSlug: string,
+): Promise<void> {
+  const client = await getApiClient()
+  const workspace = client[":orgSlug"].api.v1.workspaces[":workspaceSlug"]
+  const { jobId } = await readApiJson(
+    await workspace.upgrades.automatic.$post({
+      param: { orgSlug, workspaceSlug },
+    }),
+    { message: "Failed to save the setting" },
+  )
+  // A commit takes a few seconds. Stop after about two minutes.
+  for (let attempt = 0; attempt < 120; attempt++) {
+    const job = await readApiJson(
+      await workspace.files.jobs[":jobId"].$get({
+        param: { orgSlug, workspaceSlug, jobId },
+      }),
+      { message: "Failed to save the setting" },
+    )
+    if (job.status === "completed") return
+    if (job.status === "failed")
+      throw new Error(job.failureReason ?? "ctx| could not save the setting.")
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+  }
+  throw new Error(
+    "ctx| is still saving the setting. Start the upgrade in Workspace settings.",
+  )
 }

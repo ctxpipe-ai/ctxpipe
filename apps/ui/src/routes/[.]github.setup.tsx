@@ -20,7 +20,7 @@ import {
   GITHUB_SETUP_RESULT_MESSAGE,
   getActiveGithubPopupFlowState,
 } from "@/lib/popup"
-import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
+import { useGithubSignInEnabled } from "@/lib/useGetAuthConfig"
 
 export const Route = createFileRoute("/.github/setup")({
   ssr: false,
@@ -203,7 +203,7 @@ export function ConnectGithubView({
 
   const parsedErrorWhy =
     error instanceof ApiError ? error.body.why : parseError(error)?.why
-  const { data: authConfig } = useGetAuthConfig()
+  const githubSignIn = useGithubSignInEnabled()
 
   if (parsedErrorWhy === "github_not_linked") {
     return (
@@ -215,11 +215,7 @@ export function ConnectGithubView({
             </span>
           </header>
           <GithubNotLinkedNotice
-            githubSignInEnabled={
-              (
-                authConfig as { providers?: string[] } | undefined
-              )?.providers?.includes("github") ?? true
-            }
+            githubSignInEnabled={githubSignIn ?? true}
             orgSlug={selectedOrganizationSlug}
             linkError={linkError}
           />

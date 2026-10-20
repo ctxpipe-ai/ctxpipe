@@ -82,7 +82,7 @@ async function channelProblem(input: {
  * source stays `ok` and the detail names the others. A channel without the
  * bot, or with a transient failure, counts as usable.
  */
-export async function checkSlackSourceAccess(input: {
+async function checkSlackSourceAccess(input: {
   orgId: string
   connectionId: string
   scope: SlackSourceScope

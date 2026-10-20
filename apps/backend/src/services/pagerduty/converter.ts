@@ -1,13 +1,13 @@
-import slugify from "@sindresorhus/slugify"
+
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
 import { connectorPathSegment } from "../connectors/path-segment.js"
 
 export const PAGERDUTY_MANAGED_ROOT = "pagerduty"
 export const PAGERDUTY_CONFIG_PATH = `${PAGERDUTY_MANAGED_ROOT}/config.yaml`
-export const PAGERDUTY_MAX_ADDITIONAL_ALERT_SUMMARIES = 4
+const PAGERDUTY_MAX_ADDITIONAL_ALERT_SUMMARIES = 4
 
 /** The incident folder of the legacy per-connection mirror. */
-export const PAGERDUTY_LEGACY_INCIDENTS_ROOT = `${PAGERDUTY_MANAGED_ROOT}/incidents/`
+const PAGERDUTY_LEGACY_INCIDENTS_ROOT = `${PAGERDUTY_MANAGED_ROOT}/incidents/`
 
 /**
  * The incident folder of one service in a Workspace source (ADR-034, ADR-050).
@@ -20,7 +20,7 @@ export function pagerdutyServiceIncidentsRoot(serviceId: string): string {
 
 const ROUTING_KEY_PATTERN = /routing[_-]?key/i
 
-export type PagerdutyMirrorFile = {
+type PagerdutyMirrorFile = {
   path: string
   content: string
   encoding?: "utf-8" | "base64"
@@ -75,7 +75,7 @@ export type PagerdutyIncidentForMirror = {
   notes: PagerdutyNoteForMirror[]
 }
 
-export type PagerdutyAlertAssetCandidate = {
+type PagerdutyAlertAssetCandidate = {
   sourceUrl: string
   sourceKey: string
   filename: string
@@ -93,11 +93,6 @@ export function pagerdutyIncidentImageStub(
   return `[image: ${label} — view in PagerDuty](${incidentUrl})`
 }
 
-function stableSlug(title: string, id: string): string {
-  const readable = slugify(title).slice(0, 80) || "incident"
-  return `${readable}--${connectorPathSegment(id)}`
-}
-
 export function pagerdutyIncidentMarkdownPath(
   number: number,
   id: string,
@@ -106,7 +101,7 @@ export function pagerdutyIncidentMarkdownPath(
   return `${root}${number}--${connectorPathSegment(id)}.md`
 }
 
-export function pagerdutyIncidentAssetPrefix(
+function pagerdutyIncidentAssetPrefix(
   number: number,
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
@@ -114,7 +109,7 @@ export function pagerdutyIncidentAssetPrefix(
   return `${root}${number}--${connectorPathSegment(id)}/`
 }
 
-export function pagerdutyIncidentAssetDir(
+function pagerdutyIncidentAssetDir(
   number: number,
   id: string,
   root = PAGERDUTY_LEGACY_INCIDENTS_ROOT,
@@ -371,4 +366,4 @@ export function rewritePagerdutyIncidentImageSrcs(
   return next
 }
 
-export { stableSlug }
+

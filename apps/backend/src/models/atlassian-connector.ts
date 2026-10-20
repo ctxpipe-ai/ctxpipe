@@ -1,5 +1,4 @@
-import { and, desc, eq, inArray, sql } from "drizzle-orm"
-import { requireCurrentOrgId } from "../auth/context.js"
+import { and, desc, eq, sql } from "drizzle-orm"
 import {
   type Db,
   getOrgDb,
@@ -7,22 +6,17 @@ import {
   withOrgDbContext,
 } from "../db/client.js"
 import { withAmbientOrgDb } from "../db/org-sql.js"
-import { accounts, members, organizations } from "../db/schema/auth.js"
+import { accounts, members } from "../db/schema/auth.js"
 import { confluenceSpaces } from "../db/schema/confluenceSpaces.js"
-import { confluenceSyncTargets } from "../db/schema/confluenceSyncTargets.js"
 import { CONNECTION_TYPE_FORGE, connections } from "../db/schema/connections.js"
-import { repositories } from "../db/schema/repositories.js"
-import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import {
   type ForgeConnectionConfig,
   parseForgeConnectionConfig,
   serialiseForgeConnectionConfigForDb,
 } from "../lib/connection-config.js"
 import { generateObjectId } from "../lib/id.js"
-import { confluenceSpaceSelection } from "../services/confluence/config-yaml.js"
 import {
   deleteConnectionDirectory,
-  listConnectionDirectoryByForgeCloudId,
   listConnectionDirectoryByForgeInstallationId,
   loadConnectionViaDirectory,
   upsertConnectionDirectory,
@@ -33,8 +27,6 @@ import {
   forgeConnectionToShape,
   forgeShapeToConfig,
 } from "./connection-rows.js"
-import { listGithubConnectionsForOrg } from "./github-installation.js"
-import { DEFAULT_CHECKOUT_KEY } from "./repositories.js"
 
 /** @deprecated Use `ForgeInstallationShape` — kept as alias for existing imports. */
 export type ForgeInstallation = ForgeInstallationShape
@@ -78,30 +70,6 @@ export async function getAtlassianUserAccessToken(
   return row?.accessToken ?? undefined
 }
 
-/**
- * Forge `cloudId` is per Confluence site; multiple ctxpipe orgs can reference the same site.
- * Callers must scope by {@link orgId} so lifecycle and other flows never pair the wrong tenant.
- */
-export async function getForgeInstallationByCloudId(
-  cloudId: string,
-  orgId: string,
-): Promise<ForgeInstallationShape | undefined> {
-  return withOrgDbContext(orgId, async () => {
-    const [row] = await getOrgDb()
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-          eq(connections.orgId, orgId),
-          eq(forgeConfigCloudIdRef(), cloudId),
-        ),
-      )
-      .limit(1)
-    return row ? forgeConnectionToShape(row) : undefined
-  })
-}
-
 /** Resolve by Forge ecosystem installation id (bare UUID or full ARI). */
 export async function getForgeInstallationByForgeInstallationId(
   installationId: string,
@@ -122,7 +90,7 @@ export async function getForgeInstallationByForgeInstallationId(
 }
 
 /** Must run inside {@link withOrgDbContext} when `orgId` is known. */
-export async function listForgeConnectionsForOrg(
+async function listForgeConnectionsForOrg(
   orgId: string,
 ): Promise<ForgeInstallationShape[]> {
   return withOrgDbContext(orgId, async () => {
@@ -140,25 +108,12 @@ export async function listForgeConnectionsForOrg(
   })
 }
 
-/**
- * @deprecated Prefer `listForgeConnectionsForOrg` or `resolveForgeInstallationForOrg`.
- */
-export async function getForgeInstallationByOrgId(
-  orgId: string,
-): Promise<ForgeInstallationShape | undefined> {
-  const list = await listForgeConnectionsForOrg(orgId)
-  return list[0]
-}
-
-export const MULTIPLE_FORGE_CONNECTIONS_MESSAGE =
-  "Multiple Confluence/Forge connections for this organization; specify connectionId query parameter"
-
-export type ResolveForgeInstallationResult =
+type ResolveForgeInstallationResult =
   | { status: "ok"; installation: ForgeInstallationShape }
   | { status: "none" }
   | { status: "ambiguous" }
 
-export async function resolveForgeInstallationForOrgDetailed(
+async function resolveForgeInstallationForOrgDetailed(
   orgId: string,
   connectionId?: string | null,
 ): Promise<ResolveForgeInstallationResult> {
@@ -258,7 +213,7 @@ export async function resolveForgeInstallationForOrg(
  * The Atlassian account link belongs to the user, not to the draft, so it
  * does not count.
  */
-export function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
+function isEmptyForgeSetupDraft(config: ForgeConnectionConfig): boolean {
   return (
     config.status === "pending" &&
     config.provisionStatus === "idle" &&
@@ -699,25 +654,6 @@ export async function upsertForgeInstallationFromEvent(input: {
   return forgeConnectionToShape(row)
 }
 
-export async function getOrganizationSlugForCloudIdByUser(
-  userId: string,
-  cloudId: string,
-): Promise<string | undefined> {
-  const db = getSystemDb()
-  const directoryRows = await listConnectionDirectoryByForgeCloudId(cloudId)
-  const orgIds = [...new Set(directoryRows.map((row) => row.orgId))]
-  if (orgIds.length === 0) return undefined
-  const [row] = await db
-    .select({ orgSlug: organizations.slug })
-    .from(members)
-    .innerJoin(organizations, eq(organizations.id, members.organizationId))
-    .where(
-      and(eq(members.userId, userId), inArray(members.organizationId, orgIds)),
-    )
-    .limit(1)
-  return row?.orgSlug
-}
-
 export async function listConfluenceSpacesByConnectionId(
   connectionId: string,
 ): Promise<ConfluenceSpaceSelection[]> {
@@ -727,42 +663,6 @@ export async function listConfluenceSpacesByConnectionId(
       .select()
       .from(confluenceSpaces)
       .where(eq(confluenceSpaces.connectionId, connectionId))
-  })
-}
-
-export async function replaceConfluenceSpacesForConnection(input: {
-  connectionId: string
-  spaces: Array<{
-    spaceKey: string
-    spaceName?: string
-    selectedPageIds?: string[] | null
-  }>
-}): Promise<ConfluenceSpaceSelection[]> {
-  return withAmbientOrgDb(async () => {
-    const db = getOrgDb()
-    return db.transaction(async (tx) => {
-      await tx
-        .delete(confluenceSpaces)
-        .where(eq(confluenceSpaces.connectionId, input.connectionId))
-
-      if (input.spaces.length === 0) {
-        return []
-      }
-
-      return tx
-        .insert(confluenceSpaces)
-        .values(
-          input.spaces.map((space) => ({
-            id: generateObjectId("csp"),
-            orgId: requireCurrentOrgId(),
-            connectionId: input.connectionId,
-            spaceKey: space.spaceKey,
-            spaceName: space.spaceName ?? null,
-            selectedPageIds: space.selectedPageIds ?? null,
-          })),
-        )
-        .returning()
-    })
   })
 }
 
@@ -790,219 +690,3 @@ export async function updateConfluenceSpaceSyncState(input: {
   })
 }
 
-type SyncTargetPatchInput = {
-  repositoryId?: string
-  repositoryName?: string
-  gitUrl?: string
-  branch: string
-  enabled: boolean
-}
-
-async function resolveRepositoryIdForConfluenceSync(
-  tx: Db,
-  orgId: string,
-  sync: SyncTargetPatchInput,
-  defaultGithubConnectionId: string | undefined,
-): Promise<{ repositoryId: string }> {
-  if (sync.repositoryId) {
-    const [byId] = await tx
-      .select({ id: repositories.id })
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.id, sync.repositoryId),
-          eq(repositories.orgId, orgId),
-        ),
-      )
-      .limit(1)
-    if (byId) return { repositoryId: byId.id }
-  }
-  const gitUrl = sync.gitUrl
-  const name = sync.repositoryName
-  if (!gitUrl || !name) {
-    throw new Error("Repository not found for organization")
-  }
-
-  const [byUrl] = await tx
-    .select({ id: repositories.id })
-    .from(repositories)
-    .where(and(eq(repositories.orgId, orgId), eq(repositories.gitUrl, gitUrl)))
-    .limit(1)
-  if (byUrl) return { repositoryId: byUrl.id }
-
-  const id = generateObjectId("repo")
-  const checkoutId = generateObjectId("co")
-  const [created] = await tx
-    .insert(repositories)
-    .values({
-      id,
-      orgId,
-      name,
-      gitUrl,
-      githubConnectionId: defaultGithubConnectionId ?? null,
-    })
-    .returning()
-  if (!created) throw new Error("Failed to create repository")
-
-  const [checkout] = await tx
-    .insert(repositoryCheckouts)
-    .values({
-      id: checkoutId,
-      orgId,
-      repositoryId: id,
-      ref: "main",
-      checkoutKey: DEFAULT_CHECKOUT_KEY,
-    })
-    .returning({ id: repositoryCheckouts.id })
-  if (!checkout) {
-    throw new Error("Failed to create repository checkout")
-  }
-
-  return { repositoryId: id }
-}
-
-export class ConfluenceConfigProposalInProgressError extends Error {
-  constructor() {
-    super(
-      "A different Confluence configuration proposal is already in progress",
-    )
-  }
-}
-
-/** PATCH semantics: omit `spaces` or `syncTarget` to leave that part unchanged. */
-export async function patchAtlassianConnectorConfig(input: {
-  orgId: string
-  connectionId: string
-  spaces?: Array<{
-    spaceKey: string
-    spaceName?: string
-    selectedPageIds?: string[] | null
-  }>
-  syncTarget?: SyncTargetPatchInput
-}): Promise<{
-  configProposalEnabled: boolean
-  spaces: ConfluenceSpaceSelection[]
-}> {
-  const defaultGithubConnectionId = (
-    await listGithubConnectionsForOrg(input.orgId)
-  )[0]?.id
-
-  return withOrgDbContext(input.orgId, async (tx) => {
-    const [connection] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .for("update")
-    if (!connection)
-      throw new Error("Forge connection does not belong to organization")
-    let [currentTarget] = await tx
-      .select()
-      .from(confluenceSyncTargets)
-      .where(eq(confluenceSyncTargets.connectionId, input.connectionId))
-    if (input.syncTarget !== undefined) {
-      const { repositoryId } = await resolveRepositoryIdForConfluenceSync(
-        tx,
-        input.orgId,
-        input.syncTarget,
-        defaultGithubConnectionId,
-      )
-
-      const bindingChanged =
-        !currentTarget ||
-        currentTarget.repositoryId !== repositoryId ||
-        currentTarget.branch !== input.syncTarget.branch ||
-        currentTarget.enabled !== input.syncTarget.enabled
-      if (bindingChanged && currentTarget)
-        await tx
-          .update(connections)
-          .set({
-            contentSyncGeneration: sql`${connections.contentSyncGeneration} + 1`,
-          })
-          .where(eq(connections.id, input.connectionId))
-      const [row] = await tx
-        .insert(confluenceSyncTargets)
-        .values({
-          id: generateObjectId("cst"),
-          orgId: input.orgId,
-          connectionId: input.connectionId,
-          repositoryId,
-          branch: input.syncTarget.branch,
-          enabled: input.syncTarget.enabled,
-          setupPhase: "draft",
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-        })
-        .onConflictDoUpdate({
-          target: confluenceSyncTargets.connectionId,
-          set: {
-            repositoryId,
-            branch: input.syncTarget.branch,
-            enabled: input.syncTarget.enabled,
-            ...(bindingChanged
-              ? {
-                  setupPhase: "draft",
-                  pendingConfigPullUrl: null,
-                  pendingConfigPrCreating: false,
-                }
-              : {}),
-            updatedAt: new Date(),
-          },
-        })
-        .returning()
-
-      if (!row) {
-        throw new Error("Failed to save Confluence sync target")
-      }
-      currentTarget = row
-    }
-
-    if (input.spaces !== undefined) {
-      if (currentTarget?.pendingConfigPrCreating) {
-        const existing = await tx
-          .select()
-          .from(confluenceSpaces)
-          .where(eq(confluenceSpaces.connectionId, input.connectionId))
-        const requested = input.spaces.map((space) => ({
-          ...space,
-          selectedPageIds: space.selectedPageIds ?? null,
-        }))
-        if (
-          JSON.stringify(confluenceSpaceSelection(existing)) !==
-          JSON.stringify(confluenceSpaceSelection(requested))
-        )
-          throw new ConfluenceConfigProposalInProgressError()
-      }
-      await tx
-        .delete(confluenceSpaces)
-        .where(eq(confluenceSpaces.connectionId, input.connectionId))
-
-      if (input.spaces.length > 0) {
-        await tx.insert(confluenceSpaces).values(
-          input.spaces.map((space) => ({
-            id: generateObjectId("csp"),
-            orgId: input.orgId,
-            connectionId: input.connectionId,
-            spaceKey: space.spaceKey,
-            spaceName: space.spaceName ?? null,
-            selectedPageIds: space.selectedPageIds ?? null,
-          })),
-        )
-      }
-    }
-
-    const spaces = await tx
-      .select()
-      .from(confluenceSpaces)
-      .where(eq(confluenceSpaces.connectionId, input.connectionId))
-
-    return {
-      spaces,
-      configProposalEnabled: currentTarget?.enabled === true,
-    }
-  })
-}

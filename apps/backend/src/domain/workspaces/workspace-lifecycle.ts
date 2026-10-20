@@ -30,7 +30,7 @@ import {
 
 type WorkspaceLog = { error: (err: Error) => void }
 
-export async function attachOrgRepository(input: {
+async function attachOrgRepository(input: {
   orgId: string
   gitUrl: string
   githubConnectionId?: string | null

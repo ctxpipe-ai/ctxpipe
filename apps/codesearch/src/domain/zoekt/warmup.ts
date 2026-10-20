@@ -8,7 +8,7 @@ export class ZoektWarmupTimeoutError extends Error {
 }
 
 /** Narrow fetch surface so tests can inject `vi.fn()` without `typeof fetch` friction. */
-export type FetchLike = (
+type FetchLike = (
   input: string,
   init?: {
     method?: string
@@ -27,7 +27,7 @@ type ZoektListResponse = {
 }
 
 /** Default under the backend codesearch tool's 10s AbortSignal.timeout. */
-export const ZOEKT_WARMUP_TIMEOUT_MS = 8_000
+const ZOEKT_WARMUP_TIMEOUT_MS = 8_000
 const LIST_FETCH_TIMEOUT_MS = 2_000
 
 export async function listLoadedZoektRepoIds(
@@ -74,7 +74,8 @@ export async function waitUntilZoektReposLoaded(params: {
   const pollIntervalMs = params.pollIntervalMs ?? 100
   const fetchFn = params.fetchFn ?? fetch
   const sleepFn =
-    params.sleepFn ?? ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
+    params.sleepFn ??
+    ((ms) => new Promise((resolve) => setTimeout(resolve, ms)))
 
   const deadline = Date.now() + timeoutMs
   let lastError: unknown

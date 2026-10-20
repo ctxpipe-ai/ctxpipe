@@ -28,8 +28,9 @@ import { userClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
-export type ConnectedApp = Awaited<
+type ConnectedApp = Awaited<
   ReturnType<typeof fetchConnectedApps>
 >[number]
 
@@ -103,6 +104,8 @@ export function ConnectedAppsCard() {
       setRevoking(null)
     },
   })
+
+  useHyperDxScreenError(appsQuery.error ? "connected_apps_load_failed" : null)
 
   const loading = useSkeletonHold(appsQuery.isPending)
   const apps = appsQuery.data ?? []

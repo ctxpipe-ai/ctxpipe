@@ -12,6 +12,8 @@ export type KnowledgeGraphPayload = {
     kind: string
     name: string | null
     summary: string | null
+    /** Workspace file the node came from. */
+    path?: string
   }>
   edges: Array<{
     sourceId: string

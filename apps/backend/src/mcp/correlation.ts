@@ -15,7 +15,9 @@ import {
   applyAttribution,
   contextWithForkedAttributionBag,
 } from "../observability/attribution.js"
+import { getLogger } from "../observability/logger.js"
 import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
+import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
 
 /**
  * Correlation for one MCP tool call (ADR-051 section 9).
@@ -27,16 +29,16 @@ import { MCP_TOOL_ERROR_CODES } from "./framework/tool-errors.js"
  * (`ops/observability/clickhouse/schema/mcp-call-correlation.sql`).
  */
 
-export type CorrelationSource =
+type CorrelationSource =
   | "meta"
   | "header"
   | "baggage"
   | "openai"
   | "codex"
 
-export type CorrelatedId = { id: string; source: CorrelationSource }
+type CorrelatedId = { id: string; source: CorrelationSource }
 
-export type McpCorrelation = {
+type McpCorrelation = {
   conversation?: CorrelatedId
   turn?: CorrelatedId
   /** Client span context from a valid `_meta.traceparent` (a span link only). */
@@ -104,7 +106,7 @@ function first(
  * W3C trace context from `_meta.traceparent`; `undefined` when not valid.
  * The client `tracestate` is not kept: it must not go out on our requests.
  */
-export function clientSpanContext(
+function clientSpanContext(
   traceparent: unknown,
 ): SpanContext | undefined {
   if (typeof traceparent !== "string") return undefined
@@ -180,7 +182,7 @@ function sha256Hex(value: string): string {
  * secret. The inputs are ids with low entropy, so the hash is a pseudonym, not
  * a guarantee that nobody can find the principal.
  */
-export function mcpConnectionKey(input: {
+function mcpConnectionKey(input: {
   principal: string
   client: string
 }): string {
@@ -236,7 +238,7 @@ type ToolFailure = {
   _meta?: Record<string, unknown>
 }
 
-export type McpToolCall = {
+type McpToolCall = {
   callId: string
   connectionKey: string
   correlation: McpCorrelation
@@ -298,6 +300,20 @@ function isUserErrorCode(code: unknown): boolean {
   )
 }
 
+/** The `code` of the machine-readable error of a result, when it has one. */
+function resultErrorCode(result: {
+  isError?: boolean
+  _meta?: Record<string, unknown>
+}): string | undefined {
+  if (!result.isError) return undefined
+  const error = result._meta?.[TOOL_ERROR_META_KEY]
+  const code =
+    typeof error === "object" && error !== null && "code" in error
+      ? error.code
+      : undefined
+  return typeof code === "string" ? code : undefined
+}
+
 async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
   input: {
     kind: "tool" | "resource"
@@ -339,10 +355,23 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
     ? [{ context: correlation.parent }]
     : []
   const callContext = contextWithForkedAttributionBag(context.active())
-  const withMeta = (result: R): R => ({
-    ...result,
-    _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
-  })
+  const withMeta = (result: R): R => {
+    const final = {
+      ...result,
+      _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
+    }
+    // The size of what the client gets, and why a tool call failed.
+    // In a batch, the wide event holds the value of the last call.
+    const bytes = Buffer.byteLength(JSON.stringify(final))
+    trace.getActiveSpan()?.setAttribute("ctxpipe.mcp.result.bytes", bytes)
+    getLogger().set({ "ctxpipe.mcp.result.bytes": bytes })
+    applyAttribution({
+      "ctxpipe.mcp.error.code": resultErrorCode(
+        final as { isError?: boolean; _meta?: Record<string, unknown> },
+      ),
+    })
+    return final
+  }
 
   return trace
     .getTracer("ctxpipe-backend")
@@ -357,11 +386,16 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
         } catch (error) {
           const exception =
             error instanceof Error ? error : new Error(String(error))
-          const userError =
+          const errorData =
             error instanceof McpError &&
             typeof error.data === "object" &&
-            error.data !== null &&
-            isUserErrorCode((error.data as { code?: unknown }).code)
+            error.data !== null
+              ? (error.data as { code?: unknown })
+              : undefined
+          const userError = isUserErrorCode(errorData?.code)
+          if (typeof errorData?.code === "string") {
+            applyAttribution({ "ctxpipe.mcp.error.code": errorData.code })
+          }
           // A bad call is not a server fault, as for a tool call that
           // returns `isError`. Only an internal error marks the span.
           if (!userError) {

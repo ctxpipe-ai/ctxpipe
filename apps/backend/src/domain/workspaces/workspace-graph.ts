@@ -5,7 +5,7 @@ import {
 import { FROM_SOURCE_PREDICATE } from "./graph-relevance.js"
 import type { HydrateUnit, hydrateUnitsToProjectionClaims } from "./hydrate.js"
 
-export type WorkspaceGraphPayload = {
+type WorkspaceGraphPayload = {
   metrics: {
     totalNodes: number
     totalEdges: number
@@ -19,6 +19,7 @@ export type WorkspaceGraphPayload = {
     kind: string
     name: string | null
     summary: string | null
+    path: string
   }>
   edges: Array<{
     sourceId: string
@@ -45,7 +46,7 @@ function unitSummary(body: string): string | null {
 
 export function workspaceGraphNodes(
   units: readonly HydrateUnit[],
-): Array<WorkspaceGraphPayload["nodes"][number] & { path: string }> {
+): WorkspaceGraphPayload["nodes"] {
   return units.map((unit) => ({
     id: unit.servingId,
     path: unit.path,

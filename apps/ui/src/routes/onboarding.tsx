@@ -1,38 +1,28 @@
 import { useQueryClient } from "@tanstack/react-query"
-import {
-  createFileRoute,
-  Navigate,
-  useRouter,
-  useSearch,
-} from "@tanstack/react-router"
+import { createFileRoute, Navigate, useRouter } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { toast } from "sonner"
 import { completeOnboarding } from "@/components/onboarding/complete-onboarding"
-import { OnboardingConnectGithubSlide } from "@/components/onboarding/OnboardingConnectGithubSlide"
 import { OnboardingCreateOrgSlide } from "@/components/onboarding/OnboardingCreateOrgSlide"
 import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { authClient, useListOrganizations, useSession } from "@/lib/auth-client"
+import { onboardingHandOffFlag } from "@/lib/session-flags"
 import { sessionUser } from "@/lib/session-user"
 
 export const Route = createFileRoute("/onboarding")({
   ssr: false,
-  // `github`: the slug of the organization that the user created. The
-  // Connect GitHub slide shows after onboarding is complete, so it lives in
-  // the URL and not in component state.
-  validateSearch: (search: Record<string, unknown>): { github?: string } =>
-    typeof search.github === "string" ? { github: search.github } : {},
   component: OnboardingPageContent,
 })
 
 const FINISH_ERROR = "Could not finish onboarding. Try again."
 
 /**
- * A user with no organization reads How ctx| works, creates one, then can
- * connect GitHub or skip it. A user who joined an organization reads How
- * ctx| works only. Both then open Home, where the Get started guide has the
- * next steps (the first Workspace, and GitHub if the user skipped it).
+ * A user with no organization reads the welcome slide, then creates one. A
+ * user who joined an organization reads the welcome slide only. Both then
+ * open Home, where the Get started guide has the next steps (GitHub and the
+ * first Workspace). Home fades in when its first data is ready.
  */
 export function OnboardingPageContent() {
   const { data: session, isPending } = useSession()
@@ -42,7 +32,6 @@ export function OnboardingPageContent() {
   const [step, setStep] = useState<"how-it-works" | "create-org">(
     "how-it-works",
   )
-  const { github: githubParam } = useSearch({ strict: false })
 
   const [isJoinerLocked, setIsJoinerLocked] = useState<boolean | null>(null)
   const [sceneFailed, setSceneFailed] = useState(false)
@@ -87,18 +76,11 @@ export function OnboardingPageContent() {
   if (!session) return <Navigate to="/.auth/sign-in" replace />
 
   const user = sessionUser(session)
-  // The Connect GitHub slide shows only after onboarding is complete, so a
-  // GitHub flow that leaves the page cannot send the user back here.
-  const githubSlug = user?.onboardingCompletedAt ? githubParam : undefined
-  // Onboarding is complete already, for example when the user comes back
-  // through the browser history. While `finish` runs, it opens Home or the
-  // GitHub slide itself.
-  if (
-    user?.onboardingCompletedAt &&
-    !completing &&
-    organizations?.length &&
-    !githubSlug
-  ) {
+  // Onboarding is complete already, for example when the page mounts again
+  // while `finish` runs, or when the user comes back through the browser
+  // history. Open `/`. The hand-off flag that `finish` set still holds Home
+  // for the fade.
+  if (user?.onboardingCompletedAt && !completing && organizations?.length) {
     return (
       <Navigate
         to="/"
@@ -112,32 +94,18 @@ export function OnboardingPageContent() {
     )
   }
 
-  const openHome = (slug: string) => {
-    void router.navigate({
-      to: "/$orgSlug",
-      params: { orgSlug: slug },
-      replace: true,
-    })
-  }
-
   /**
-   * Finish onboarding for both paths: make the org active, and mark the user
-   * (and, for an owner or admin, the org) complete. Then a joiner opens Home,
-   * and the creator of the organization gets the GitHub slide.
+   * Finish onboarding for both paths: make the org active, mark the user
+   * (and, for an owner or admin, the org) complete, then open Home.
    */
   const finish = async (slug: string) => {
     if (completing) return
     setCompleting(true)
-    // Put the GitHub step in the URL first. The session changes when
-    // onboarding completes, and a page that mounts again then must show the
-    // GitHub slide, not open Home.
-    if (!isJoinerLocked) {
-      await router.navigate({
-        to: "/onboarding",
-        search: { github: slug },
-        replace: true,
-      })
-    }
+    // Before onboarding completes: Home reads the flag when it mounts, also
+    // after this page mounts again and opens `/`. A failed call keeps the
+    // flag, because the page that mounts again can still open Home. Home
+    // clears the flag.
+    onboardingHandOffFlag.set()
     const organization = organizations?.find((org) => org.slug === slug)
     try {
       // The request that creates an organization also makes it active.
@@ -153,7 +121,12 @@ export function OnboardingPageContent() {
       toast.error(FINISH_ERROR)
       return
     }
-    if (isJoinerLocked) openHome(slug)
+    // Home reads the flag and fades in when its first data is ready.
+    void router.navigate({
+      to: "/$orgSlug",
+      params: { orgSlug: slug },
+      replace: true,
+    })
   }
 
   const joinedSlug = organizations?.[0]?.slug
@@ -171,12 +144,7 @@ export function OnboardingPageContent() {
         setSceneFailed(true)
       }}
     >
-      {githubSlug ? (
-        <OnboardingConnectGithubSlide
-          orgSlug={githubSlug}
-          onDone={() => openHome(githubSlug)}
-        />
-      ) : step === "how-it-works" ? (
+      {step === "how-it-works" ? (
         <OnboardingHowItWorksSlide
           actionLabel={isJoinerLocked ? "Get started" : "Next"}
           isPending={completing}

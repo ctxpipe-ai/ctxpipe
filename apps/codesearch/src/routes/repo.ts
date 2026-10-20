@@ -105,7 +105,7 @@ const indexResponseSchema = z
   })
   .openapi("IndexResponse")
 
-export const indexRoute = createRoute({
+const indexRoute = createRoute({
   method: "post",
   path: "/{repoId}/index",
   request: {
@@ -135,7 +135,7 @@ export const indexRoute = createRoute({
   },
 })
 
-export const purgeRepositoryRoute = createRoute({
+const purgeRepositoryRoute = createRoute({
   method: "post",
   path: "/{repoId}/purge",
   request: {
@@ -163,7 +163,7 @@ export const purgeRepositoryRoute = createRoute({
   },
 })
 
-export const listFilesRoute = createRoute({
+const listFilesRoute = createRoute({
   method: "get",
   path: "/{repoId}/files",
   request: {
@@ -218,7 +218,7 @@ const globResponseSchema = z
   })
   .openapi("GlobFilesResponse")
 
-export const listTreeRoute = createRoute({
+const listTreeRoute = createRoute({
   method: "get",
   path: "/{repoId}/tree",
   request: {
@@ -241,7 +241,7 @@ export const listTreeRoute = createRoute({
   },
 })
 
-export const globFilesRoute = createRoute({
+const globFilesRoute = createRoute({
   method: "post",
   path: "/{repoId}/glob",
   request: {
@@ -279,7 +279,7 @@ const resolveRefRequestSchema = z
   })
   .openapi("ResolveRefRequest")
 
-export const resolveRefRoute = createRoute({
+const resolveRefRoute = createRoute({
   method: "post",
   path: "/{repoId}/resolve-ref",
   request: {
@@ -310,7 +310,7 @@ export const resolveRefRoute = createRoute({
   },
 })
 
-export const getFileRoute = createRoute({
+const getFileRoute = createRoute({
   method: "get",
   path: "/{repoId}/files/{path}",
   request: {
@@ -358,7 +358,7 @@ const filesQueryRequestSchema = z
   })
   .openapi("FilesQueryRequest")
 
-export const filesQueryRoute = createRoute({
+const filesQueryRoute = createRoute({
   method: "post",
   path: "/{repoId}/files-query",
   request: {

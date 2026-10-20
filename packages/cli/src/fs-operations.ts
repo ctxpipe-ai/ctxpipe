@@ -18,7 +18,7 @@ export type ApplyOperationResult =
     }
   | { status: "ran" | "manual"; detail: string }
 
-export type ApplyResult = {
+type ApplyResult = {
   status: "ok"
   operations: ApplyOperationResult[]
 }

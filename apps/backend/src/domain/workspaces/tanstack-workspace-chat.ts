@@ -4,7 +4,6 @@ import {
   chat,
   defineChatMiddleware,
   type ModelMessage,
-  modelMessagesToUIMessages,
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
@@ -115,10 +114,8 @@ import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
-  workspaceChatHttpResponse,
   workspaceChatRunStartedChunk,
   workspaceChatSandboxSetupChunk,
-  workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import {
   sandboxCallbackHost,
@@ -137,6 +134,7 @@ import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
+import { loadWorkspaceChatOrientation } from "./workspace-chat-orientation.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
@@ -202,8 +200,6 @@ export type TanstackWorkspaceChatInput = {
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
 }
-
-export { conversationRenameChunk } from "./workspace-chat-agui.js"
 
 /** Counters for contract tests: how often a sandbox was ensured. */
 export const workspaceChatDockerOwnership = {
@@ -566,15 +562,6 @@ async function requestBaseBuild(
   }
 }
 
-export async function runTanstackWorkspaceChat(
-  input: TanstackWorkspaceChatInput,
-): Promise<Response> {
-  return workspaceChatHttpResponse(
-    streamTanstackWorkspaceChat(input),
-    input.wireFormat ?? workspaceChatWireFormat(new Request("http://local")),
-  )
-}
-
 function sandboxEnsureContext(
   input: TanstackWorkspaceChatInput,
   built: Extract<
@@ -692,6 +679,21 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const cloneLabel = `clone:${input.runId ?? randomUUID()}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
   if (!built.ok) return built
+  // Read in parallel with the sandbox setup; the agent gets it as a system
+  // prompt. A failed read only leaves the orientation out.
+  const orientation = loadWorkspaceChatOrientation({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    rootPath: workspaceRootPath(built.revision),
+  }).catch((error: unknown) => {
+    log.warn({
+      step: "workspace-chat-orientation",
+      message: `The Workspace orientation read failed: ${String(error)}`,
+      conversationId: input.conversationId,
+    })
+    return undefined
+  })
+  let orientationPrompt: string | undefined
   let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
@@ -947,37 +949,48 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                 conversationId: input.conversationId,
                 desired: built.revision,
               })
+            orientationPrompt = await orientation
           })
         },
         onConfig(_ctx, config) {
           const rootPath = workspaceRootPath(built.revision)
           // The push refuses a change outside the root folder; this tells the agent first.
-          const rootPrompts = rootPath
-            ? [
-                JSON.stringify({
-                  type: "workspace_root_folder",
-                  rootPath,
-                  instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
-                }),
-              ]
-            : []
-          if (!revisionConflict)
-            return rootPrompts.length
-              ? { systemPrompts: [...config.systemPrompts, ...rootPrompts] }
-              : undefined
-          return {
-            systemPrompts: [
-              ...config.systemPrompts,
-              ...rootPrompts,
-              JSON.stringify({
-                type: "workspace_revision_conflict",
-                effectiveSha: revisionConflict.sha,
-                desiredSha: built.revision.sha,
-                instructions:
-                  "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
-              }),
-            ],
-          }
+          // The orientation follows: it changes only with the revision, so
+          // the prompt cache keeps it across turns.
+          const rootPrompts = [
+            ...(rootPath
+              ? [
+                  JSON.stringify({
+                    type: "workspace_root_folder",
+                    rootPath,
+                    instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
+                  }),
+                ]
+              : []),
+            ...(orientationPrompt ? [orientationPrompt] : []),
+          ]
+          const prompts = [
+            ...rootPrompts,
+            ...(revisionConflict
+              ? [
+                  JSON.stringify({
+                    type: "workspace_revision_conflict",
+                    effectiveSha: revisionConflict.sha,
+                    desiredSha: built.revision.sha,
+                    instructions:
+                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
+                  }),
+                ]
+              : []),
+          ]
+          // TanStack calls onConfig at the start and again before each model
+          // call: add each prompt once.
+          const missing = prompts.filter(
+            (prompt) => !config.systemPrompts.includes(prompt),
+          )
+          return missing.length
+            ? { systemPrompts: [...config.systemPrompts, ...missing] }
+            : undefined
         },
       }),
       defineChatMiddleware({
@@ -1514,10 +1527,4 @@ export async function conversationHasStoredTurns(
   if (persisted.length > 0) return true
   const turns = await loadConversationTurns(conversationId)
   return turns.length > 0
-}
-
-export function conversationUiMessagesFromModelMessages(
-  messages: Parameters<typeof modelMessagesToUIMessages>[0],
-) {
-  return modelMessagesToUIMessages(messages)
 }

@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query"
 import { useEffect } from "react"
 import { githubSetupLinkOptions } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsOptions } from "@/features/connectors/queries/org-connections"
+import { workspaceSourcesOptions } from "@/features/workspace-sources/queries"
 import {
   workspaceHydrateInFlight,
   workspaceHydrateView,
@@ -117,6 +118,14 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
     refetchOnMount: "always",
   })
 
+  // Only for the "Awaiting merge" note of the repositories row, so the guide
+  // does not wait for it.
+  const sourcesQuery = useQuery({
+    ...workspaceSourcesOptions(orgSlug, landing?.slug ?? ""),
+    enabled: isAdmin && landing !== null,
+    refetchOnMount: "always",
+  })
+
   const workspaces = listQuery.data?.items ?? []
   const firstWorkspaceCreatedAt = oldestCreatedAt(workspaces)
   const asked = workspaces.some((item) => item.mostRecentConversationId)
@@ -138,6 +147,9 @@ export function useSetupGuide(orgSlug: string): SetupGuide {
     workspaceCount: workspaces.length,
     landingBuild: landing ? workspaceHydrateView(landing) : null,
     linkedRepositories: (detailQuery.data?.linkedRepositories.length ?? 0) > 0,
+    repositoriesPending: sourcesQuery.data?.pendingChanges.find(
+      (change) => change.provider === "github" && change.action === "add",
+    ),
     asked,
     toolConnected: (connectionsQuery.data ?? []).some(
       (connection) => connection.type !== "github",

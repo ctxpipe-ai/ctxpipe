@@ -11,7 +11,7 @@ export const NOTION_SOURCE_MAX_PAGES = 100
 export const NOTION_SOURCE_MAX_DATABASES = 100
 
 /** A Notion page or data source id, in the dashed lowercase form of the API. */
-export const notionIdSchema = z
+const notionIdSchema = z
   .string()
   .regex(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,

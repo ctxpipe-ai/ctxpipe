@@ -44,7 +44,7 @@ const structuralSearchRequestSchema = z
 
 const structuralSearchMatchSchema = z.record(z.string(), z.unknown())
 
-export const structuralSearchRoute = createRoute({
+const structuralSearchRoute = createRoute({
   method: "post",
   path: "/{repoId}/structural-search",
   request: {

@@ -27,6 +27,7 @@ import { schema } from "../db/schema.js"
 import { isValidSlug } from "../domain/workspaces/slug.js"
 import { generateObjectId } from "../lib/id.js"
 import { log } from "../observability/logger.js"
+import { apiKeyLifecycleEvents } from "./api-key-events.js"
 import { invitationEmailLink } from "./invitation-email-url.js"
 import { MCP_READ_SCOPE, MCP_WRITE_SCOPE } from "./mcp-scopes.js"
 import { resolveOAuthGrantReference } from "./oauth-grants.js"
@@ -326,6 +327,7 @@ export function createBetterAuth() {
     },
     plugins: [
       apiKey(apiKeyPluginConfigurations),
+      apiKeyLifecycleEvents(),
       bearer(),
       jwt({ adapter: { getJwks: jwksForCurrentSecret } }),
       clearUnverifiedSessionCookie(),

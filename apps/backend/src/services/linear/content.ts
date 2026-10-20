@@ -32,7 +32,7 @@ import {
   readTeamProjectPage,
 } from "./read.js"
 
-export type LinearMirrorPageRequest =
+type LinearMirrorPageRequest =
   | { kind: "team-record"; teamId: string }
   | { kind: "team-issues"; teamId: string; after: string | null }
   | { kind: "team-projects"; teamId: string; after: string | null }
@@ -46,13 +46,13 @@ export type LinearMirrorPageRequest =
   | { kind: "document"; documentId: string }
   | { kind: "follow"; follow: LinearFollow; hold: LinearMirrorHold }
 
-export type LinearMirrorHold =
+type LinearMirrorHold =
   | { kind: "issue"; loaded: LoadedIssue }
   | { kind: "project"; loaded: LoadedProject }
   | { kind: "initiative"; loaded: LoadedInitiative }
   | { kind: "document"; loaded: LoadedDocument }
 
-export type LinearMirrorPage = {
+type LinearMirrorPage = {
   files: Array<{ path: string; content: string }>
   nextAfter: string | null
   failures: Array<{ type: string; id: string; message: string }>

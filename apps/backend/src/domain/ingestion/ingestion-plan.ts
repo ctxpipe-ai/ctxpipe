@@ -89,7 +89,7 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
   },
 ]
 
-export const DISCOVER_ROOTS_SKILL = "discover-roots"
+const DISCOVER_ROOTS_SKILL = "discover-roots"
 
 /** The bundle skills of one scope, in run order. An unknown skill is an error. */
 export function plannedIngestSkills(
@@ -115,7 +115,7 @@ export function plannedIngestSkills(
  * of the root path in safe ASCII, for a person who reads the run; the hash
  * of the full root makes it unique.
  */
-export function skillStepRootKey(root: string): string {
+function skillStepRootKey(root: string): string {
   const label = root.replace(/[^A-Za-z0-9._/-]/g, "_").slice(-40)
   const hash = createHash("sha256").update(root).digest("hex").slice(0, 12)
   return `${label}~${hash}`

@@ -1,6 +1,6 @@
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 
-export type TraversalResult = {
+type TraversalResult = {
   nodeIds: string[]
   edgeClaimIds: string[]
   depth: number
@@ -19,7 +19,7 @@ export const EXTENSION_TRAVERSAL_PREDICATES = [
   "OWNS",
 ] as const
 
-export type GraphTraversalOptions = {
+type GraphTraversalOptions = {
   /** Max depth (default 3, clamped to 1-5) */
   maxDepth?: number
   /** Max number of paths to return (default 50) */

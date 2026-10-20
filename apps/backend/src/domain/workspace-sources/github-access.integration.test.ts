@@ -6,7 +6,10 @@ import { HttpResponse, http } from "msw"
 import { BackendPostgres } from "openworkflow/postgres"
 import { beforeAll, expect, it } from "vitest"
 import { withOrgDbContext } from "../../db/client.js"
-import { repositories } from "../../db/schema/repositories.js"
+import {
+  repositories,
+  repositoryIngestionRequests,
+} from "../../db/schema/repositories.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { listLinkedRepositoryPins } from "../../models/workspace-source-state.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
@@ -171,6 +174,22 @@ it(
                 githubConnectionId: null,
               },
             ]),
+          )
+
+          // Code search reads the published org checkout, so the link
+          // starts the first org ingestion of the readable repository. The
+          // repository without access gets none.
+          const requested = await withOrgDbContext(f.org.id, (db) =>
+            db
+              .select({ gitUrl: repositoryIngestionRequests.repositoryUrl })
+              .from(repositoryIngestionRequests)
+              .where(eq(repositoryIngestionRequests.orgId, f.org.id)),
+          )
+          expect(requested.map((row) => row.gitUrl)).toContain(
+            "https://github.com/fixture/visible-service",
+          )
+          expect(requested.map((row) => row.gitUrl)).not.toContain(
+            "https://github.com/fixture/hidden-service",
           )
 
           const tipCheck = await f.runner.runWorkflow(workspaceTipCheck.spec, {

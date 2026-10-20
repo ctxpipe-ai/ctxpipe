@@ -12,7 +12,7 @@ export type ConfluenceClientInput = {
   appSystemToken: string
 }
 
-export type ConfluenceSpace = {
+type ConfluenceSpace = {
   id: string
   key: string
   name: string
@@ -20,7 +20,7 @@ export type ConfluenceSpace = {
   homepageId: string | null
 }
 
-export type ConfluencePage = {
+type ConfluencePage = {
   id: string
   title: string
   spaceId: string
@@ -28,7 +28,7 @@ export type ConfluencePage = {
   parentId: string | null
 }
 
-export type ConfluencePageWithBody = ConfluencePage & {
+type ConfluencePageWithBody = ConfluencePage & {
   bodyStorage: string
 }
 

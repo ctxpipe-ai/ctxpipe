@@ -84,7 +84,7 @@ export type HydrateSkip = {
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
 
 /** One linked repository that the GitHub sources of a revision declare. */
-export type HydrateLinkedRepository = {
+type HydrateLinkedRepository = {
   path: string
   git: string
   /** The branch or tag of the entry; null is the default branch. */
@@ -253,7 +253,7 @@ export function sourcePathOf(entry: unknown): string | null {
 }
 
 /** The source file paths in the `sources` front matter of a unit. */
-export function sourcePathsOf(attributes: Record<string, unknown>): string[] {
+function sourcePathsOf(attributes: Record<string, unknown>): string[] {
   const raw = attributes.sources
   if (!Array.isArray(raw)) return []
   return raw.flatMap((entry) => sourcePathOf(entry) ?? [])

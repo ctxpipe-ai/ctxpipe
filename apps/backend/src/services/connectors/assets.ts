@@ -9,9 +9,9 @@ import type { CommitFile } from "../github/installation-write-client.js"
 export const CONNECTOR_ASSET_MAX_BYTES = 25 * 1024 * 1024
 export const CONNECTOR_ENTITY_MAX_BYTES = 100 * 1024 * 1024
 export const CONNECTOR_ENTITY_MAX_ASSETS = 100
-export const CONNECTOR_ENTITY_MAX_DOWNLOAD_MS = 2 * 60_000
-export const CONNECTOR_SYNC_MAX_ASSET_BYTES = 64 * 1024 * 1024
-export const CONNECTOR_SYNC_MAX_ASSETS = 250
+const CONNECTOR_ENTITY_MAX_DOWNLOAD_MS = 2 * 60_000
+const CONNECTOR_SYNC_MAX_ASSET_BYTES = 64 * 1024 * 1024
+const CONNECTOR_SYNC_MAX_ASSETS = 250
 
 const CONNECTOR_ASSET_MAX_ATTEMPTS = 3
 const CONNECTOR_ASSET_REQUEST_TIMEOUT_MS = 30_000
@@ -126,7 +126,7 @@ export function consumeConnectorAssetTransferBytes(
   return true
 }
 
-export function consumeConnectorAssetCandidate(
+function consumeConnectorAssetCandidate(
   budget: ConnectorAssetBudget,
 ): boolean {
   if (budget.remainingAssets <= 0 || budget.deadlineAt <= Date.now()) {

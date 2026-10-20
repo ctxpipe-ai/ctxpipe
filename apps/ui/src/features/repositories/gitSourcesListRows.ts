@@ -4,7 +4,7 @@ import type {
 } from "./pendingGithubRepos"
 import type { Repository } from "./types"
 
-export type GitSourceListRow =
+type GitSourceListRow =
   | {
       kind: "pending-connected"
       key: string

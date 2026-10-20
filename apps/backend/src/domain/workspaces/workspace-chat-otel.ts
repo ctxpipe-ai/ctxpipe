@@ -17,7 +17,7 @@ import { log } from "../../observability/logger.js"
 import { maskCredentialsDeep } from "./mask-credentials.js"
 import type { WorkspaceChatCompletionUsage } from "./workspace-chat-model-proxy.js"
 
-export type WorkspaceChatGenerationRecord = {
+type WorkspaceChatGenerationRecord = {
   index: number
   ttfbMs: number
   durationMs: number
@@ -26,7 +26,7 @@ export type WorkspaceChatGenerationRecord = {
   text?: string
 }
 
-export type WorkspaceChatToolRecord = {
+type WorkspaceChatToolRecord = {
   name: string
   durationMs: number
   generationIndex: number
@@ -75,7 +75,7 @@ export function workspaceChatTurnId(input: {
 }
 
 /** Who runs the turn, for its attribution and Langfuse trace. */
-export type WorkspaceChatTurnOwner = {
+type WorkspaceChatTurnOwner = {
   orgId?: string
   orgSlug?: string
   workspaceId?: string
@@ -250,7 +250,7 @@ function langfuseContent(value: unknown): string {
 
 export function beginWorkspaceChatProxyGeneration(
   turnId: string,
-  request?: { model?: string; messages?: unknown },
+  request?: { model?: string; messages?: unknown; reasoningEffort?: unknown },
 ): void {
   const state = turns.get(turnId)
   if (!state) return
@@ -281,6 +281,15 @@ export function beginWorkspaceChatProxyGeneration(
       "workspace_chat.turn_id": turnId,
       "workspace_chat.generation.index": state.generations.length,
       ...(request?.model ? { "gen_ai.request.model": request.model } : {}),
+      // The effort sent upstream: traces then show why an answer reasons long.
+      ...(typeof request?.reasoningEffort === "string"
+        ? {
+            "gen_ai.request.reasoning_effort": request.reasoningEffort,
+            "langfuse.observation.model.parameters": JSON.stringify({
+              reasoning_effort: request.reasoningEffort,
+            }),
+          }
+        : {}),
       ...(request?.messages !== undefined
         ? { "langfuse.observation.input": langfuseContent(request.messages) }
         : {}),

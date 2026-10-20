@@ -1,7 +1,7 @@
 import { explorerBlobPath } from "./git-explorer.js"
 import { hostOnlyRefusal } from "./host-only.js"
 
-export type WorkspaceFileJobRequest =
+type WorkspaceFileJobRequest =
   | { op: "save"; path: string; content: string }
   | {
       op: "create"
@@ -45,12 +45,12 @@ export function parseWorkspaceFileJobRequest(body: {
   return null
 }
 
-export type WorkspaceFileJobPlan = {
+type WorkspaceFileJobPlan = {
   mergeFiles: Array<{ path: string; content: string }>
   mergeDeletePaths: string[]
 }
 
-export type WorkspaceFileJobResult =
+type WorkspaceFileJobResult =
   | { ok: true; plan: WorkspaceFileJobPlan }
   | { ok: false; error: string }
 

@@ -85,6 +85,7 @@ const STEPS: GitUpgradeStep[] = [
   {
     format: 1,
     title: "Add notes",
+    description: "A test step.",
     plan: async () => ({
       writes: [{ path: "notes/a.md", content: "A\n" }],
       deletes: [],
@@ -94,6 +95,7 @@ const STEPS: GitUpgradeStep[] = [
   {
     format: 2,
     title: "Keep the readme",
+    description: "A test step.",
     plan: async (tree) => ({
       writes: [
         { path: "README.md", content: (await tree.read("README.md")) ?? "" },
@@ -105,6 +107,7 @@ const STEPS: GitUpgradeStep[] = [
   {
     format: 3,
     title: "Move notes",
+    description: "A test step.",
     plan: async (tree) => {
       const a = await tree.read("notes/a.md")
       if (a === null) return { writes: [], deletes: [], report: [] }
@@ -130,6 +133,7 @@ describe("buildUpgradeCommits", () => {
         {
           format: 1,
           title: "Add notes",
+          description: "A test step.",
           plan: async () => ({
             writes: [{ path: "notes/a.md", content: "A\n" }],
             deletes: [],
@@ -311,6 +315,7 @@ describe("buildUpgradeCommits", () => {
     const move: GitUpgradeStep = {
       format: 1,
       title: "Move the binary file",
+      description: "A test step.",
       plan: async (tree) => {
         const from = (await tree.readBytes("a.bin")) ?? null
         const sha = tree.blobSha("a.bin") ?? tree.blobSha("b/a.bin")
@@ -369,6 +374,7 @@ describe("buildUpgradeCommits", () => {
           {
             format: 1,
             title: "Bad",
+            description: "A test step.",
             plan: async () => ({
               writes: [{ path: WORKSPACE_FORMAT_PATH, content: "format: 9\n" }],
               deletes: [],

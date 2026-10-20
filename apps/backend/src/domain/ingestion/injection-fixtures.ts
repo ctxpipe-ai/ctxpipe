@@ -26,7 +26,7 @@ export const FIXTURE_OTHER_SOURCE_URL =
  * ADR-050).
  */
 export const FIXTURE_SOURCE_PATH = "sources/github/example-org/checkout-api.md"
-export const FIXTURE_OTHER_SOURCE_PATH =
+const FIXTURE_OTHER_SOURCE_PATH =
   "sources/github/example-org/ledger-api.md"
 
 const RLO = "‮"

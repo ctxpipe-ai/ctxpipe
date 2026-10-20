@@ -15,7 +15,7 @@ import type { IngestDestination } from "./ingest-shard-runtime.js"
 import type { IngestionV2Input } from "./ingestion-run.js"
 import { ingestionV2EnabledFor } from "./ingestion-v2-config.js"
 
-export type IngestionV2Resolution =
+type IngestionV2Resolution =
   | {
       skipped:
         | "source_is_workspace"

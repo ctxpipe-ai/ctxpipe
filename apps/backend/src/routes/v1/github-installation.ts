@@ -216,7 +216,7 @@ const GithubConnectionIdQuerySchema = z.object({
   connectionId: z.string().min(1).optional(),
 })
 
-export const getInstallationSetupRoute = createRoute({
+const getInstallationSetupRoute = createRoute({
   method: "get",
   path: "/setup",
   request: {
@@ -247,7 +247,7 @@ export const getInstallationSetupRoute = createRoute({
   },
 })
 
-export const getInstallationRoute = createRoute({
+const getInstallationRoute = createRoute({
   method: "get",
   path: "/",
   request: {
@@ -275,7 +275,7 @@ export const getInstallationRoute = createRoute({
 })
 
 // No write grant: a rebind queues only the system bootstrap commit, not user content.
-export const registerInstallationRoute = createRoute({
+const registerInstallationRoute = createRoute({
   method: "post",
   path: "/",
   request: {
@@ -316,7 +316,7 @@ export const registerInstallationRoute = createRoute({
   },
 })
 
-export const githubConnectorBootstrapRoute = createRoute({
+const githubConnectorBootstrapRoute = createRoute({
   method: "get",
   path: "/connector-bootstrap",
   responses: {
@@ -339,7 +339,7 @@ export const githubConnectorBootstrapRoute = createRoute({
   },
 })
 
-export const createGithubDraftRoute = createRoute({
+const createGithubDraftRoute = createRoute({
   method: "post",
   path: "/draft",
   request: {
@@ -376,7 +376,7 @@ export const createGithubDraftRoute = createRoute({
   },
 })
 
-export const createGithubDraftPlaceholderRoute = createRoute({
+const createGithubDraftPlaceholderRoute = createRoute({
   method: "post",
   path: "/draft/placeholder",
   responses: {
@@ -404,7 +404,7 @@ export const createGithubDraftPlaceholderRoute = createRoute({
   },
 })
 
-export const patchGithubDraftRoute = createRoute({
+const patchGithubDraftRoute = createRoute({
   method: "patch",
   path: "/draft",
   request: {
@@ -456,7 +456,7 @@ const GithubConnectorStatusResponseSchema = z
   })
   .openapi("GithubConnectorStatus")
 
-export const githubConnectorStatusRoute = createRoute({
+const githubConnectorStatusRoute = createRoute({
   method: "get",
   path: "/connector-status",
   request: {
@@ -483,7 +483,7 @@ export const githubConnectorStatusRoute = createRoute({
   },
 })
 
-export const listInstallationReposRoute = createRoute({
+const listInstallationReposRoute = createRoute({
   method: "get",
   path: "/repositories",
   request: {
@@ -519,7 +519,7 @@ export const listInstallationReposRoute = createRoute({
   },
 })
 
-export const updateInstallationOptionsRoute = createRoute({
+const updateInstallationOptionsRoute = createRoute({
   method: "patch",
   path: "/",
   request: {
@@ -564,7 +564,7 @@ export const updateInstallationOptionsRoute = createRoute({
   },
 })
 
-export const deleteInstallationRoute = createRoute({
+const deleteInstallationRoute = createRoute({
   method: "delete",
   path: "/",
   request: {

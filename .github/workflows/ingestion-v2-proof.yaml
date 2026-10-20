@@ -17,6 +17,11 @@ name: Ingestion v2 proof (Docker)
 #                           production key
 #   GH_APP_ID               the GitHub App id of the test org
 #   GH_PRIVATE_KEY          the GitHub App private key, PEM
+#   INGEST_PROOF_REPOS      workflow_dispatch only: the fork URLs of the
+#                           repositories to ingest, separated by spaces,
+#                           commas or new lines, the largest last
+#   INGEST_PROOF_WORKSPACE_REPO  workflow_dispatch only: the URL of the
+#                           Workspace repository, in the same owner
 # Repository variables (optional): MODEL_PROVIDER, MODEL_PROVIDER_URL,
 #   MODEL_FAST_NAME, MODEL_MEDIUM_NAME, MODEL_HIGH_NAME.
 # How to start a run (GitHub runs workflow_dispatch only for a workflow file on
@@ -27,8 +32,10 @@ name: Ingestion v2 proof (Docker)
 #      the largest last), workspace_repo, spend_cap_usd.
 #   3. Push the branch. The push starts one run. Push again to start another.
 # Anyone who can push such a branch can spend the model key, so keep branch
-# protection on proof/*. After this file is on main, workflow_dispatch works
-# with the same inputs.
+# protection on proof/*. The Actions log is public, and the committed file
+# shows the repository names. To keep them private, use workflow_dispatch:
+# it reads the repositories from the two INGEST_PROOF_* secrets, and the
+# log masks them.
 # The GitHub App must be installed on the owner of every repository and of
 # the Workspace repository, with access to all of them.
 
@@ -37,15 +44,9 @@ on:
     branches:
       - "proof/ingestion-v2-*"
   workflow_dispatch:
+    # The repositories come from the INGEST_PROOF_* secrets, not from inputs:
+    # the log shows the value of each input.
     inputs:
-      repos:
-        description: "Fork URLs of the repositories to ingest, separated by spaces, commas or new lines. Put the largest last: the worker-kill test runs in the last one."
-        required: true
-        type: string
-      workspace_repo:
-        description: "URL of an empty or existing repository in the same owner. The run commits the Workspace format file and the source files to its default branch."
-        required: true
-        type: string
       spend_cap_usd:
         description: "Refuse to start when the p90 estimate is over this amount, and stop every run when the model spend plus the reserve of running steps reaches it (USD)."
         required: true
@@ -149,8 +150,8 @@ jobs:
           exit 1
       - name: Read the inputs
         env:
-          INPUT_REPOS: ${{ inputs.repos }}
-          INPUT_WORKSPACE_REPO: ${{ inputs.workspace_repo }}
+          INPUT_REPOS: ${{ secrets.INGEST_PROOF_REPOS }}
+          INPUT_WORKSPACE_REPO: ${{ secrets.INGEST_PROOF_WORKSPACE_REPO }}
           INPUT_SPEND_CAP_USD: ${{ inputs.spend_cap_usd }}
           INPUT_MODE: ${{ inputs.mode }}
           EVENT_NAME: ${{ github.event_name }}
@@ -171,6 +172,19 @@ jobs:
             echo "::error::Fill in repos and workspace_repo"
             exit 1
           }
+          # Mask each repository in each form that a log line can show: the
+          # URL, owner/name, and the name. The owner is not masked.
+          for url in $(printf '%s %s' "$repos" "$workspace_repo" | tr ',' ' '); do
+            full=${url#https://github.com/}
+            full=${full%.git}
+            full=${full%/}
+            # The sandbox and Agent Vault write the lower-case form too.
+            for value in "$url" "https://github.com/$full" "$full" "${full#*/}"; do
+              echo "::add-mask::$value"
+              lower=$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]')
+              [ "$lower" = "$value" ] || echo "::add-mask::$lower"
+            done
+          done
           {
             printf 'REPOS<<PROOF_EOF\n%s\nPROOF_EOF\n' "$repos"
             echo "WORKSPACE_REPO=$workspace_repo"
@@ -188,7 +202,7 @@ jobs:
         continue-on-error: true
         run: |
           docker compose ps -a
-          docker compose logs --no-color --tail 300 worker backend
+          docker compose logs --no-color --tail 300 worker backend agent-vault
       - name: Stop the stack
         if: always()
         continue-on-error: true

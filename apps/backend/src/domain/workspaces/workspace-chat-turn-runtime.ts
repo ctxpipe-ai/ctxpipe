@@ -1,14 +1,14 @@
 import { workspaceAllowsConversationEdits } from "./chat-sandbox-policy.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
-export type WorkspaceChatTurnConversation = {
+type WorkspaceChatTurnConversation = {
   id: string
   orgId: string
   workspaceId: string | null
   lastBranch: string | null
 }
 
-export type WorkspaceChatTurnWorkspace = {
+type WorkspaceChatTurnWorkspace = {
   id: string
   orgId: string
   workspaceRepositoryUrl: string

@@ -100,8 +100,10 @@ export function openWorkspaceConversation(input: {
   orgSlug: string
   workspace: { id: string; slug: string }
   text: string
+  /** The id the composer already prepared a sandbox for. */
+  conversationId?: string
 }): void {
-  const conversationId = newUiConversationId()
+  const conversationId = input.conversationId ?? newUiConversationId()
   seedWorkspaceConversation({
     queryClient: input.queryClient,
     orgSlug: input.orgSlug,

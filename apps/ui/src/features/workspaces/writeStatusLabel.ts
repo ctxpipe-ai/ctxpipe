@@ -1,4 +1,4 @@
-export type WriteStatusTone =
+type WriteStatusTone =
   | "writable"
   | "pull_request"
   | "read_only"

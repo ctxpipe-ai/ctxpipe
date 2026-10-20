@@ -3,13 +3,15 @@ import { createFileRoute, Navigate, useNavigate } from "@tanstack/react-router"
 import { useEffect, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
+import { HomeNoticeToasts } from "@/features/home/HomeNotices"
 import {
   ASK_PROMPT,
   SetupGuideCard,
-  SetupGuideSkeleton,
+  SetupGuideReveal,
 } from "@/features/home/setup-guide/SetupGuide"
 import { useSetupGuide } from "@/features/home/setup-guide/useSetupGuide"
 import {
@@ -17,15 +19,17 @@ import {
   WorkspaceActivity,
 } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
-import { WorkspaceUpgradeAlerts } from "@/features/workspace-upgrades/WorkspaceUpgradeAlert"
 import {
   landingWorkspace,
   workspaceListOptions,
 } from "@/features/workspaces/queries"
 import { WorkspaceCreateModal } from "@/features/workspaces/WorkspaceCreateModal"
 import { useSession } from "@/lib/auth-client"
+import { onboardingHandOffFlag, useSessionFlag } from "@/lib/session-flags"
+import { useRevealOnce } from "@/lib/useRevealOnce"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { useUrgentValue } from "@/lib/useUrgentValue"
+import { cn } from "@/lib/utils"
 
 export const Route = createFileRoute("/$orgSlug/")({
   validateSearch: activitySearch,
@@ -38,6 +42,25 @@ export const Route = createFileRoute("/$orgSlug/")({
 function OrgHomePage() {
   const { orgSlug } = Route.useParams()
   return <OrgHomePageContent orgSlug={orgSlug} />
+}
+
+/**
+ * After onboarding, Home stays hidden until its first data is ready, then
+ * fades in once, so nothing pops in. A slow or failed read does not keep
+ * Home hidden: after `SKELETON_DELAY_MS` Home shows, with its skeletons or
+ * its error.
+ */
+function useFirstDataReveal(hold: boolean, ready: boolean) {
+  // `hold` can turn on after the first render (hydration reads it late), so
+  // keep "data came" apart from "hold".
+  const [done, setDone] = useState(false)
+  if (!done && ready) setDone(true)
+  useEffect(() => {
+    if (!hold || done) return
+    const timer = setTimeout(() => setDone(true), SKELETON_DELAY_MS)
+    return () => clearTimeout(timer)
+  }, [hold, done])
+  return !hold || done
 }
 
 /** Exported for Storybook — same dashboard as org home `/` under `/$orgSlug`. */
@@ -60,6 +83,16 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
   // the first Workspace moves the guide below the composer, and that
   // remounts the guide.
   const [createOpen, setCreateOpen] = useState(false)
+  // Onboarding opened Home: hold it until its first data is ready (the
+  // session, the Workspace list, and the guide signals), then fade it in.
+  // The flag goes after the fade, so a reload does not hold Home again.
+  const fromOnboarding = useSessionFlag(onboardingHandOffFlag)
+  const revealed = useFirstDataReveal(fromOnboarding, guide.status === "ready")
+  // After onboarding, Home fades in as a whole: the guide needs no transition.
+  const guideShown = useRevealOnce(guide.status === "ready", fromOnboarding)
+  useEffect(() => {
+    if (fromOnboarding && revealed) onboardingHandOffFlag.clear()
+  }, [fromOnboarding, revealed])
 
   useEffect(() => {
     if (preferences.selectedOrganizationSlug !== orgSlug) {
@@ -91,16 +124,22 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         setComposerKey((key) => key + 1)
       }
     : undefined
+  // Fix using agent (a hydrate problem toast): the same, in that Workspace.
+  const fixWithAgent = (workspaceId: string, prompt: string) => {
+    writeChatDraft(chatDraftKey(orgSlug, workspaceId), prompt)
+    setSelectedId(workspaceId)
+    setComposerKey((key) => key + 1)
+  }
   const guideCard =
-    guide.status === "ready" ? (
-      <SetupGuideCard
-        orgSlug={orgSlug}
-        guide={guide}
-        onAsk={ask}
-        onCreateWorkspace={() => setCreateOpen(true)}
-      />
-    ) : guide.mayShow ? (
-      <SetupGuideSkeleton collapsed={guide.collapsed} />
+    guide.status === "ready" && guideShown ? (
+      <SetupGuideReveal>
+        <SetupGuideCard
+          orgSlug={orgSlug}
+          guide={guide}
+          onAsk={ask}
+          onCreateWorkspace={() => setCreateOpen(true)}
+        />
+      </SetupGuideReveal>
     ) : null
   const hasWorkspace = sessionPending || listQuery.isPending || selected
   // With no Workspace, the setup guide takes the composer's place. Without
@@ -124,7 +163,11 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     </InlineAlert>
   ) : hasWorkspace ? (
     <>
-      <WorkspaceUpgradeAlerts orgSlug={orgSlug} workspaces={workspaces} />
+      <HomeNoticeToasts
+        orgSlug={orgSlug}
+        workspaces={workspaces}
+        onFixWithAgent={fixWithAgent}
+      />
       {composer}
       {guideCard}
     </>
@@ -149,19 +192,31 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
 
   return (
     <div className="flex min-h-full min-w-0 flex-1 flex-col text-foreground">
-      <div className="mx-auto box-border w-full max-w-2xl p-8">
+      <div
+        aria-busy={!revealed || undefined}
+        className={cn(
+          "mx-auto box-border w-full max-w-2xl p-8",
+          fromOnboarding &&
+            (revealed
+              ? "animate-in fade-in duration-100 ease-out"
+              : "invisible"),
+        )}
+      >
         <div className="space-y-10">
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}
-          <WorkspaceActivity
-            orgSlug={orgSlug}
-            workspaceSlug={
-              sessionPending || listQuery.isPending
-                ? null
-                : (selected?.slug ?? ALL_WORKSPACES)
-            }
-            workspaces={workspaces}
-          />
+          {/* Activity and Recent keep the gap of the other Home blocks. */}
+          <div className="space-y-10 [view-transition-name:home-below]">
+            <WorkspaceActivity
+              orgSlug={orgSlug}
+              workspaceSlug={
+                sessionPending || listQuery.isPending
+                  ? null
+                  : (selected?.slug ?? ALL_WORKSPACES)
+              }
+              workspaces={workspaces}
+            />
+          </div>
         </div>
       </div>
       <WorkspaceCreateModal

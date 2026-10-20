@@ -89,7 +89,7 @@ export function workspaceDetailErrorHandler() {
   )
 }
 
-export const workspaceTouchHandler = http.post(
+const workspaceTouchHandler = http.post(
   ({ request }) =>
     /\/api\/v1\/workspaces\/[^/]+\/touch$/.test(pathnameOf(request)),
   () => new HttpResponse(null, { status: 204 }),
@@ -171,24 +171,13 @@ export function workspaceFileJobHandler(
   )
 }
 
-export function workspaceFilesHandler(
+function workspaceFilesHandler(
   files: WorkspaceFilesResponse = docsWorkspaceFiles,
 ) {
   return http.get(
     ({ request }) =>
       /\/api\/v1\/workspaces\/[^/]+\/files$/.test(pathnameOf(request)),
     () => HttpResponse.json(files),
-  )
-}
-
-export function workspaceFilesLoadingHandler() {
-  return http.get(
-    ({ request }) =>
-      /\/api\/v1\/workspaces\/[^/]+\/files$/.test(pathnameOf(request)),
-    async () => {
-      await delay("infinite")
-      return HttpResponse.json(docsWorkspaceFiles)
-    },
   )
 }
 
@@ -307,21 +296,6 @@ export function conversationGitTreeMissingHandler() {
     ({ request }) =>
       /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
     () => HttpResponse.json({ error: "missing_sandbox" }, { status: 409 }),
-  )
-}
-
-export function conversationGitTreeLivePollHandler(input: {
-  first: WorkspaceGitTreeResponse & { branch?: string }
-  next: WorkspaceGitTreeResponse & { branch?: string }
-}) {
-  let liveHits = 0
-  return http.get(
-    ({ request }) =>
-      /\/api\/v1\/conversations\/[^/]+\/files\/tree$/.test(pathnameOf(request)),
-    () => {
-      liveHits += 1
-      return HttpResponse.json(liveHits === 1 ? input.first : input.next)
-    },
   )
 }
 
@@ -449,52 +423,6 @@ export function conversationFilePutHandler() {
       })
     },
   )
-}
-
-export function conversationPushHandler() {
-  return http.post(
-    ({ request }) =>
-      /\/api\/v1\/conversations\/[^/]+\/push$/.test(pathnameOf(request)),
-    () =>
-      HttpResponse.json({
-        branch: "ctxpipe/chat/conv_1/1",
-        treeUrl: "https://github.com/acme/docs/tree/ctxpipe/chat/conv_1/1",
-      }),
-  )
-}
-
-export function conversationPullRequestHandler(input?: {
-  prState?: "open" | "closed" | "merged"
-  delayMs?: "infinite"
-}) {
-  const payload = {
-    branch: "ctxpipe/chat/conv_1/1",
-    prNumber: 41,
-    pullUrl: "https://github.com/acme/docs/pull/41",
-    prState: input?.prState ?? "open",
-  }
-  return [
-    http.get(
-      ({ request }) =>
-        /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
-          pathnameOf(request),
-        ),
-      async () => {
-        if (input?.delayMs === "infinite") await delay("infinite")
-        return HttpResponse.json(payload)
-      },
-    ),
-    http.post(
-      ({ request }) =>
-        /\/api\/v1\/conversations\/[^/]+\/pull-request$/.test(
-          pathnameOf(request),
-        ),
-      async () => {
-        if (input?.delayMs === "infinite") await delay("infinite")
-        return HttpResponse.json(payload)
-      },
-    ),
-  ]
 }
 
 export function conversationDetailLoadingHandler() {

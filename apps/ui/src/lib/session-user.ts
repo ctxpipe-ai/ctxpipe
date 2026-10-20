@@ -2,7 +2,7 @@
  * The session user fields that the app reads. Better Auth parses date
  * strings, so `onboardingCompletedAt` can be a `Date` on the client.
  */
-export type SessionUser = {
+type SessionUser = {
   id: string
   email?: string | null
   onboardingCompletedAt?: Date | string | null

@@ -16,3 +16,12 @@ export function useGetAuthConfig() {
     staleTime: Number.POSITIVE_INFINITY,
   })
 }
+
+/** Whether GitHub sign-in is on; `undefined` while the config loads. A failed load counts as off. */
+export function useGithubSignInEnabled(): boolean | undefined {
+  const { data, isPending } = useGetAuthConfig()
+  if (isPending) return undefined
+  return (
+    (data as { providers?: string[] } | undefined)?.providers ?? []
+  ).includes("github")
+}

@@ -41,7 +41,7 @@ export type SourcesConversionTree = {
 }
 
 /** The change of the conversion. Each path is relative to the Workspace root folder. */
-export type SourcesConversion = {
+type SourcesConversion = {
   writes: Array<{ path: string; content: string }>
   deletes: string[]
   /** Lines for the pull request body: each input that did not become an active source file. */
@@ -56,7 +56,7 @@ export type SourcesConversion = {
  * `invalid` row. Thus the input stays in git and in the Sources pane, and it
  * does not sync.
  */
-export const UNCONVERTED_SOURCES_FOLDER = `${SOURCE_FILES_FOLDER}/unconverted`
+const UNCONVERTED_SOURCES_FOLDER = `${SOURCE_FILES_FOLDER}/unconverted`
 
 /**
  * Convert `.ctxpipe/sources.yaml` to one Markdown file for each source under

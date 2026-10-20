@@ -6,11 +6,18 @@ import {
   createRouter,
   Outlet,
   RouterProvider,
+  useRouterState,
 } from "@tanstack/react-router"
 import type { ComponentType, ReactElement } from "react"
 
 function storyRouteStub() {
   return null
+}
+
+/** The path, query, and hash where a play arrived. */
+function StoryLocationMarker() {
+  const href = useRouterState({ select: (state) => state.location.href })
+  return <p>Story route: {href}</p>
 }
 
 /** Where to mount the story component in an in-memory router. */
@@ -34,6 +41,8 @@ export type StoryRouteParams =
       workspaceSlug: string
       conversationId?: string
       pane?: string
+      /** The URL hash, without its `#`. */
+      hash?: string
     }
 
 type LoadedStoryRoute = {
@@ -184,7 +193,9 @@ function createStoryRouter(
   const orgWsIndex = createRoute({
     getParentRoute: () => orgWs,
     path: "/",
-    component: storyRouteStub,
+    // A play that leaves a page for a Workspace can see where it arrived.
+    component:
+      spec.pattern === "orgWorkspace" ? storyRouteStub : StoryLocationMarker,
   })
   const orgWsConversation = createRoute({
     getParentRoute: () => orgWs,
@@ -230,6 +241,8 @@ function createStoryRouter(
     spec.pattern === "orgWorkspace" && spec.pane
       ? `?pane=${encodeURIComponent(spec.pane)}`
       : ""
+  const workspaceHash =
+    spec.pattern === "orgWorkspace" && spec.hash ? `#${spec.hash}` : ""
   const initialPath =
     spec.pattern === "orgConnectors"
       ? `/${spec.orgSlug}/connectors${spec.search ?? ""}`
@@ -241,8 +254,8 @@ function createStoryRouter(
             ? `/${spec.orgSlug}/workspaces/new${spec.search ?? ""}`
             : spec.pattern === "orgWorkspace"
               ? spec.conversationId
-                ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}`
-                : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}`
+                ? `/${spec.orgSlug}/ws/${spec.workspaceSlug}/${spec.conversationId}${workspaceSearch}${workspaceHash}`
+                : `/${spec.orgSlug}/ws/${spec.workspaceSlug}${workspaceSearch}${workspaceHash}`
               : `/${spec.orgSlug}${spec.pattern === "orgIndex" ? (spec.search ?? "") : ""}`
   return createRouter({
     routeTree,

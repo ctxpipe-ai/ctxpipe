@@ -413,7 +413,7 @@ export async function captureSemanticHandoff(
   }
 }
 
-export type UnbornPushResult =
+type UnbornPushResult =
   | { kind: "pushed" }
   | { kind: "paused" }
   | { kind: "initialized"; revision: WorkspaceRevision }
@@ -564,7 +564,7 @@ export async function pushUnbornWorkspaceCommit(
 }
 
 /** The job of a ref push: its run, its Workspace, and the Workspace binding it read. */
-export type IngestBrokerJob = {
+type IngestBrokerJob = {
   runId: string
   workspaceId: string
   /** The Workspace generation that the run resolved. A relink changes it. */

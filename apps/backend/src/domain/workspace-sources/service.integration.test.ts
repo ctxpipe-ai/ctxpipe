@@ -1,6 +1,6 @@
 import { eq } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
-import { beforeAll, expect, it } from "vitest"
+import { beforeAll, expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { connections } from "../../db/schema/connections.js"
@@ -8,6 +8,7 @@ import { workspaces } from "../../db/schema/workspaces.js"
 import { replaceWorkspaceSourceRows } from "../../models/workspace-sources.js"
 import { getWorkspaceById } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import {
   type NativeHydrationFixture,
   withNativeHydrationFixture,
@@ -1055,6 +1056,77 @@ it(
 )
 
 it(
+  "refuses an add of the Workspace repository with a 400 before it opens a pull request",
+  { timeout: 60_000 },
+  async () => {
+    const writes: Array<{ method: string; path: string; body: unknown }> = []
+    const opened: unknown[] = []
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        onGithubPullRequest: (body) => {
+          opened.push(body)
+        },
+      },
+      async (f) => {
+        f.server.use(
+          ...repositoryFiles({}),
+          gitDatabase("a".repeat(40), writes),
+          http.get(
+            "https://api.github.com/repos/fixture/hydration-contract/pulls",
+            () => HttpResponse.json([]),
+          ),
+        )
+        const inWorkspace = <T>(
+          run: (
+            workspace: NonNullable<
+              Awaited<ReturnType<typeof getWorkspaceById>>
+            >,
+          ) => Promise<T>,
+        ) =>
+          withOrgIdContext(f.org, async () => {
+            const workspace = await getWorkspaceById(f.workspaceId)
+            if (!workspace) throw new Error("Missing fixture Workspace")
+            return run(workspace)
+          })
+        // GitHub names ignore the letter case, and the stored URL ends in .git.
+        const own = {
+          action: "add" as const,
+          provider: "github" as const,
+          connectionId: f.connectionId,
+          scope: { repository: "Fixture/Hydration-Contract" },
+        }
+        const refused = {
+          status: 400,
+          message: expect.stringContaining(
+            "A Workspace cannot link its own repository",
+          ),
+        }
+
+        await expect(
+          inWorkspace((workspace) =>
+            changeWorkspaceSource({ workspace, change: own }),
+          ),
+        ).rejects.toMatchObject(refused)
+        // One refused add refuses the whole batch.
+        await expect(
+          inWorkspace((workspace) =>
+            addWorkspaceSources({
+              workspace,
+              changes: [{ ...own, scope: { repository: "acme/web" } }, own],
+            }),
+          ),
+        ).rejects.toMatchObject(refused)
+        expect(writes).toEqual([])
+        expect(opened).toEqual([])
+      },
+    )
+  },
+)
+
+it(
   "adds several GitHub repositories in one pull request and lists each as pending",
   { timeout: 60_000 },
   async () => {
@@ -1272,5 +1344,92 @@ it(
         await expect(find("acme/api")).resolves.toBeUndefined()
       },
     )
+  },
+)
+
+it(
+  "adds a plain git source by URL, and refuses a URL that the policy refuses",
+  { timeout: 60_000 },
+  async () => {
+    const gitWrites: Array<{ method: string; path: string; body: unknown }> = []
+    const pullRequests: unknown[] = []
+    // The hosted policy, and the test's own DNS answers: one public host,
+    // one private host.
+    vi.stubEnv("SANDBOX_PROVIDER", "vercel")
+    const restore = usePlainGitNetwork({
+      lookup: async (host) => [
+        {
+          address: host === "git.inside.example" ? "10.0.0.7" : "140.82.112.3",
+        },
+      ],
+    })
+    try {
+      await withNativeHydrationFixture(
+        {
+          github: true,
+          githubWriteView: "writable",
+          writeStatus: "writable",
+          onGithubPullRequest: (body) => {
+            pullRequests.push(body)
+          },
+        },
+        async (f) => {
+          f.server.use(
+            ...repositoryFiles({}),
+            gitDatabase("a".repeat(40), gitWrites),
+            http.get(
+              "https://api.github.com/repos/fixture/hydration-contract/pulls",
+              () => HttpResponse.json([]),
+            ),
+          )
+          const add = (url: string, connectionId: string | null = null) =>
+            withOrgIdContext(f.org, async () => {
+              const workspace = await getWorkspaceById(f.workspaceId)
+              if (!workspace) throw new Error("Missing fixture Workspace")
+              return changeWorkspaceSource({
+                workspace,
+                change: {
+                  action: "add",
+                  provider: "git",
+                  connectionId,
+                  scope: { url },
+                },
+              })
+            })
+
+          await expect(
+            add("https://git.example.org/team/app.git/"),
+          ).resolves.toMatchObject({
+            outcome: "pull_request",
+            path: "sources/git/git.example.org/team-app.md",
+          })
+          expect(pullRequests).toHaveLength(1)
+          // The file keeps the checked URL, and has no connection.
+          const written = JSON.stringify(gitWrites)
+          expect(written).toContain("sources/git/git.example.org/team-app.md")
+          expect(written).toContain(
+            "provider: git\\nurl: https://git.example.org/team/app.git\\n",
+          )
+          expect(written).not.toContain("connection:")
+
+          // The hosted policy: https on port 443 to a public host only.
+          for (const [url, reason] of [
+            ["http://git.example.org/team/app.git", /must use an https:\/\//],
+            ["git@github.com:fastify/fastify.git", /not a URL/],
+            ["ssh://git@github.com/fastify/fastify.git", /https:\/\//],
+            ["https://git.example.org:8443/team/app.git", /default HTTPS port/],
+            ["https://git.inside.example/team/app.git", /no public address/],
+          ] as const)
+            await expect(add(url), url).rejects.toThrow(reason)
+          await expect(
+            add("https://git.example.org/team/other.git", f.connectionId),
+          ).rejects.toThrow(/has no connection/)
+          expect(pullRequests).toHaveLength(1)
+        },
+      )
+    } finally {
+      restore()
+      vi.unstubAllEnvs()
+    }
   },
 )

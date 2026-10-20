@@ -3,7 +3,7 @@ import type { Env } from "../config/env.js"
 import type { NotionConnectionConfig } from "./connection-config.js"
 import { decryptConnectionSecret } from "./connection-secrets.js"
 
-export type NotionOAuthApp = {
+type NotionOAuthApp = {
   clientId: string
   clientSecret: string
 }
@@ -51,7 +51,7 @@ export function notionConnectionHasWebhookSecret(
   return Boolean(stored?.webhookSecretEnc)
 }
 
-export function notionProvisioningToken(clientSecret: string): string {
+function notionProvisioningToken(clientSecret: string): string {
   return createHmac("sha256", clientSecret)
     .update("ctxpipe:notion-webhook-provisioning:v1")
     .digest("base64url")

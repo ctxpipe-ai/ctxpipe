@@ -199,6 +199,9 @@ it("does not read a graph of an earlier projection version, so the revision proj
   await write(rev, units)
   const graph = await readWorkspaceGraph({ ...org, projection: active(rev) })
   expect(graph.nodes).toHaveLength(4)
+  expect(graph.nodes.map((node) => node.path).sort()).toEqual(
+    units.map((u) => u.path).sort(),
+  )
 })
 
 it("creates the FalkorDB node index, and a second run does not fail", async () => {

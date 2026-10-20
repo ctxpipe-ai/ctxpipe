@@ -5,7 +5,7 @@ import type {
 } from "@modelcontextprotocol/sdk/types.js"
 
 /** `DiscoverResult` of the 2026-07-28 revision (`server/discover`). */
-export type ServerDiscoverResult = {
+type ServerDiscoverResult = {
   resultType: "complete"
   supportedVersions: string[]
   capabilities: ServerCapabilities

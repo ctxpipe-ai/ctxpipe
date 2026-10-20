@@ -75,7 +75,7 @@ export const RESERVED_ENTRY_KEYS: ReadonlySet<string> = new Set([
 ])
 
 /** The generic fields of one entry. The other keys are the provider scope. */
-export const sourceEntryBaseSchema = z.object({
+const sourceEntryBaseSchema = z.object({
   id: sourceKeySchema,
   provider: sourceProviderSchema,
   connection: sourceConnectionIdSchema,

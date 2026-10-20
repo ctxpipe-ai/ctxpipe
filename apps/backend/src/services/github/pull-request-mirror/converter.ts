@@ -176,7 +176,7 @@ function parseChecks(value: unknown): GithubPrRequiredCheck[] {
   })
 }
 
-export type ParsedGithubPullRequest = {
+type ParsedGithubPullRequest = {
   id: number
   number: number
   repository: string

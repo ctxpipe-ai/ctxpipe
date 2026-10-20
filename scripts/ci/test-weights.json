@@ -1,5 +1,6 @@
 {
   "backend": {
+    "src/domain/ingestion/ingest-root.contract.test.ts": 150,
     "src/domain/workspaces/confluence-mirror-native.contract.test.ts": 12,
     "src/domain/workspaces/connector-finalization-native.contract.test.ts": 52,
     "src/domain/workspaces/conversation-branch-push-native.contract.test.ts": 206,

@@ -55,6 +55,8 @@ async function workspaceRow(
 export const sourcesConversionStep: GitUpgradeStep = {
   format: 2,
   title: "One file for each source under sources/",
+  description:
+    "Replaces .ctxpipe/sources.yaml with one file for each source under sources/.",
   async plan(tree, ctx) {
     return planSourcesConversion({
       sourcesYaml: await tree.read(SOURCES_FILE_PATH),
@@ -85,6 +87,8 @@ export const sourcesConversionStep: GitUpgradeStep = {
 export const ownershipMigrationStep: GitUpgradeStep = {
   format: 3,
   title: "Ingestion v2 ownership of extracted files",
+  description:
+    "Gives the extracted files under knowledge/ to the new ingestion, and updates AGENTS.md and the knowledge skill.",
   async plan(tree, ctx) {
     const workspace = await workspaceRow(ctx)
     const markdown = await Promise.all(

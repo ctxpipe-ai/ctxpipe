@@ -31,7 +31,7 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
 
-export type { SlackSetupPhase } from "../lib/connection-config.js"
+
 export {
   derivedSlackSetupPhase,
   SLACK_SETUP_PHASES,
@@ -40,7 +40,7 @@ export {
 export type SlackConnection = SlackConnectionShape
 
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
-export type SlackBinding = {
+type SlackBinding = {
   id: string
   orgId: string
   connectionId: string
@@ -51,7 +51,7 @@ export type SlackBinding = {
   updatedAt: Date
 }
 
-export type SlackBindingWithRepo = SlackBinding & {
+type SlackBindingWithRepo = SlackBinding & {
   repositoryName: string
   githubConnectionId: string | null
 }
@@ -140,7 +140,7 @@ export async function getSlackConnectionByConnectionId(
 export const MULTIPLE_SLACK_CONNECTIONS_MESSAGE =
   "Multiple Slack connections for this organization; specify connectionId query parameter"
 
-export const SLACK_TEAM_ALREADY_CONNECTED_MESSAGE =
+const SLACK_TEAM_ALREADY_CONNECTED_MESSAGE =
   "This Slack workspace is already connected to another ctx| organization"
 
 export class SlackTeamAlreadyConnectedError extends Error {
@@ -150,7 +150,7 @@ export class SlackTeamAlreadyConnectedError extends Error {
   }
 }
 
-export type ResolveSlackConnectionResult =
+type ResolveSlackConnectionResult =
   | { status: "ok"; connection: SlackConnection }
   | { status: "none" }
   | { status: "ambiguous" }
@@ -367,7 +367,7 @@ export class SlackRepositoryNotFoundError extends Error {
   }
 }
 
-export type SlackBindRepositoryInput = {
+type SlackBindRepositoryInput = {
   orgId: string
   connectionId: string
   repositoryId?: string
@@ -377,7 +377,7 @@ export type SlackBindRepositoryInput = {
   branch?: string
 }
 
-export type SlackBindRepositoryResult = SlackBinding & {
+type SlackBindRepositoryResult = SlackBinding & {
   setupPhase: SlackSetupPhase
 }
 

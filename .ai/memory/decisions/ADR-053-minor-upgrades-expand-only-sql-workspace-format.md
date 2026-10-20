@@ -26,15 +26,16 @@ All deploy paths run the same migrate command before the new code serves traffic
 
 ### 3. The Workspace format lives in git
 
-- Each Workspace repository holds `.ctxpipe/workspace.yaml` below its root folder. The file holds one integer and no other key:
+- Each Workspace repository holds `.ctxpipe/workspace.yaml` below its root folder. The file holds the format integer, and optionally the upgrade setting of the Workspace (revision 2026-10-19):
 
   ```yaml
   format: 3
+  upgrades: automatic # optional; the default is manual
   ```
 
 - No file is format 0. One strict schema validates the file for the backend and the UI.
 - Git is the source of truth. The database holds only a cache of the format, which hydrate writes for each revision ([ADR-046](ADR-046-workspace-revision-projection-identity.md)). Thus a rebuilt database gets the same format at the next hydrate.
-- The format file is host-only. Only the bootstrap commit and an upgrade pull request write it.
+- The format file is host-only. Only the bootstrap commit and an upgrade pull request write the format. Only the Always update action of an owner or admin writes the `upgrades` setting, with a commit on the default branch. That commit keeps the format of the tree, and an upgrade pull request keeps the setting.
 - The bootstrap commit writes the format file. Bootstrap runs on an empty repository, or on a repository with no ctx| content: no `.ctxpipe/`, no `sources/` and no `repositories/` on the default branch below the Workspace root. It adds one commit on top of the history and keeps the files that are there. A repository with ctx| content keeps its format, and the upgrade pull request changes it.
 - The code declares the newest format that it supports (`CODE_FORMAT`).
   - A format above `CODE_FORMAT` (for example after a rollback) makes the Workspace read-only. Reads continue. No upgrade is offered.
@@ -62,10 +63,11 @@ All deploy paths run the same migrate command before the new code serves traffic
 - The upgrade state comes from git: the format file and the open upgrade pull requests. Database rows only cache it and log the runs. There is no new upgrades table.
 - A scan after each deploy finds the pending upgrades of each Workspace and records them. When the rows are lost, the next scan makes them again.
 
-### 7. An operator starts each upgrade
+### 7. An operator starts each upgrade, or opts in for one Workspace
 
-- Nothing changes a Workspace repository or starts a paid run automatically. This applies to hosted too. There is no setting for automatic approval, and no org-wide approval.
+- By default, nothing changes a Workspace repository or starts a paid run automatically. This applies to hosted too. There is no org-wide approval.
 - An org owner or admin starts each upgrade item of a Workspace in the UI. A merge of the upgrade pull request is a second human approval.
+- Revision 2026-10-19 (a product decision): an owner or admin can choose Always update for one Workspace. ctx| then writes `upgrades: automatic` into the format file of that Workspace, so the setting is in git and visible. The upgrade scan starts each item of that Workspace that waits for an operator. A failed item still waits for a person. A merge of the upgrade pull request is still a human approval. The database stores no setting.
 - Data work that changes no Workspace repository (for example the retirement of old workflows) runs in the migrate command or the worker, with no click.
 
 ## Consequences
@@ -83,7 +85,8 @@ All deploy paths run the same migrate command before the new code serves traffic
 - **A list of applied upgrade ids in the format file:** rejected. An order is enough, and an integer cannot drift.
 - **A new upgrades table:** rejected. Git holds the state; rows are a cache.
 - **A direct commit of an upgrade to the default branch:** rejected. A change to customer content needs review, and the format must land with the files.
-- **Automatic upgrades (for hosted, or with a setting):** rejected. Each repository change and each paid run needs a human decision.
+- **Automatic upgrades for every Workspace (for hosted, or with a deployment setting):** rejected. Each Workspace opts in with its own setting in its own repository (revision 2026-10-19). The first version of this ADR also rejected the per-Workspace setting; the product owner changed that decision.
+- **The upgrade setting in the database:** rejected. Git is the source of truth for a Workspace, and a setting in the repository is visible and reviewable.
 - **Org-wide auto-approval:** rejected. Each Workspace has its own repository and its own review.
 - **Re-ingestion as an optional extra:** rejected. The new ingestion gives much better knowledge, so every upgrade runs it.
 - **A quarantine copy of rows that a migration deletes:** rejected. Rows with no org have no owner, so no one can use them.

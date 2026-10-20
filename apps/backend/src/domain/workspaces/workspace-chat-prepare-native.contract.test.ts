@@ -29,6 +29,7 @@ import {
   streamTanstackWorkspaceChat,
   warmTanstackWorkspaceChat,
 } from "./tanstack-workspace-chat.js"
+import { loadWorkspaceChatOrientation } from "./workspace-chat-orientation.js"
 import { workspaceChatPersistence } from "./workspace-chat-persistence.js"
 import { advanceConversationWorktree } from "./workspace-chat-revision-transition.js"
 import { resolveWorkspaceChatTurnRuntime } from "./workspace-chat-turn-runtime.js"
@@ -1200,6 +1201,53 @@ it(
       expect(JSON.stringify(f.modelRequests)).not.toContain(
         "workspace_revision_conflict",
       )
+    })
+  },
+)
+
+it(
+  "sends the same bounded Workspace orientation with each turn",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      const input = {
+        conversationId: f.conversationId,
+        orgId: f.orgId,
+        orgSlug: f.orgSlug,
+        workspaceId: f.workspaceId,
+        desiredUrl: f.directory,
+        desiredSha: f.sha,
+        defaultBranch: "main",
+        writeStatus: "read_only" as const,
+      }
+      const expected = await loadWorkspaceChatOrientation({
+        orgId: f.orgId,
+        workspaceId: f.workspaceId,
+      })
+      for (const turn of ["first", "second"]) {
+        const events: string[] = []
+        for await (const chunk of streamTanstackWorkspaceChat({
+          ...input,
+          runId: `${f.conversationId}-orientation-${turn}`,
+          prompt: `Orientation ${turn} turn`,
+        }))
+          events.push(chunk.type)
+        expect(events).toContain("RUN_FINISHED")
+      }
+      // The adapter puts the system prompts before the user text of the turn.
+      // Each turn carries the same orientation block, once.
+      const userTexts = f.modelRequests.flatMap((request) =>
+        (request.messages as Array<{ role: string; content: unknown }>)
+          .filter((message) => message.role === "user")
+          .map((message) => JSON.stringify(message.content)),
+      )
+      const block = JSON.stringify(expected).slice(1, -1)
+      for (const turn of ["first", "second"]) {
+        const text = userTexts.find((user) =>
+          user.includes(`Orientation ${turn} turn`),
+        )
+        expect(text?.split(block)).toHaveLength(2)
+      }
     })
   },
 )

@@ -1,6 +1,6 @@
 import { fromMarkdown } from "mdast-util-from-markdown"
 
-export type LinearMarkdownImage = {
+type LinearMarkdownImage = {
   start: number
   end: number
   source: string
@@ -13,7 +13,7 @@ export type LinearMarkdownImage = {
   }
 }
 
-export type LinearMarkdownLinkReference = {
+type LinearMarkdownLinkReference = {
   start: number
   end: number
   source: string

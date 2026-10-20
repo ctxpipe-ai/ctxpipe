@@ -85,7 +85,7 @@ const LIST_CHECKOUTS_DEFINITION: Omit<WorkspaceChatTanstackTool, "execute"> = {
 }
 
 /** The step's tools. Each call must name a bound repository and checkout key. */
-export function ingestTools(
+function ingestTools(
   orgId: string,
   checkouts: ReadonlyArray<BoundCheckout & { checkout: CodeCheckout }>,
 ): WorkspaceChatTanstackTool[] {
@@ -181,9 +181,8 @@ export function ingestTools(
 }
 
 /** Stateless MCP over HTTP for ingest sandboxes: JSON-RPC in, JSON out. */
-export const ingestToolBridgeRoutes = new Hono<AppEnv>().post(
-  INGEST_TOOL_BRIDGE_PATH,
-  async (c) => {
+export const ingestToolBridgeRoutes = new Hono<AppEnv>()
+  .post(INGEST_TOOL_BRIDGE_PATH, async (c) => {
     const token = workspaceChatBearerToken(c.req.header("authorization"))
     const claims = token
       ? await verifyWorkspaceIngestToolsCapability({
@@ -221,5 +220,7 @@ export const ingestToolBridgeRoutes = new Hono<AppEnv>().post(
     )
     const response = await handleBridgeJsonRpc(core, message)
     return response === null ? c.body(null, 202) : c.json(response)
-  },
-)
+  })
+  // The MCP client opens a GET stream. Without this route, the request goes
+  // on to the session routes, and their 401 starts OAuth in the client.
+  .get(INGEST_TOOL_BRIDGE_PATH, (c) => c.text("method not allowed", 405))

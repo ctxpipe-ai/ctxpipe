@@ -1,3 +1,4 @@
+import { gzipSync } from "node:zlib"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { Sandbox } from "@vercel/sandbox"
 import { exportJWK, generateKeyPair, SignJWT } from "jose"
@@ -175,7 +176,7 @@ async function forwarded(
   target: string,
   options: {
     method?: string
-    body?: string
+    body?: string | Uint8Array<ArrayBuffer>
     headers?: Record<string, string>
     sealed?: string
     /** The forwarded path as sent, without URL normalization. */
@@ -242,6 +243,26 @@ describe("the ingest egress proxy route", () => {
         body: "0032want abc\n0000",
       },
     ])
+  })
+
+  it("sends a gzip Git fetch body on with its encoding, as Git sends a large want list (CTX-887)", async () => {
+    // Git gzips a fetch body above 1 KB, for example the lazy fetch of
+    // many blobs in a blobless clone. Without the header, GitHub reads
+    // the gzip bytes as pkt-lines and answers 400.
+    const wants = "0032want abc\n".repeat(100) + "0000"
+    const pack = await forwarded(
+      "https://github.com/acme/context.git/git-upload-pack",
+      {
+        method: "POST",
+        body: new Uint8Array(gzipSync(wants)),
+        headers: {
+          "content-type": "application/x-git-upload-pack-request",
+          "content-encoding": "gzip",
+        },
+      },
+    )
+    expect(pack.status).toBe(200)
+    expect(upstreamHeaders[0]?.get("content-encoding")).toBe("gzip")
   })
 
   it("matches a Git path in any case, as GitHub names have no case; other paths stay exact", async () => {

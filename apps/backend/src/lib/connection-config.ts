@@ -32,12 +32,12 @@ export const githubConnectionConfigStoredSchema = z.object({
   webhookSecretEnc: z.string().min(1).optional(),
 })
 
-export type GithubConnectionConfigStored = z.infer<
+type GithubConnectionConfigStored = z.infer<
   typeof githubConnectionConfigStoredSchema
 >
 
 /** Plaintext slice after decrypt — never persist or return on list APIs. */
-export type GithubAppCredentialsPlaintext = {
+type GithubAppCredentialsPlaintext = {
   githubAppId: string
   appSlug: string
   privateKey: string
@@ -48,13 +48,6 @@ export function parseGithubConnectionStored(
   config: Record<string, unknown>,
 ): GithubConnectionConfigStored {
   return githubConnectionConfigStoredSchema.parse(config)
-}
-
-/** @deprecated Use `parseGithubConnectionStored` */
-export function parseGithubConnectionConfig(
-  config: Record<string, unknown>,
-): GithubConnectionConfigStored {
-  return parseGithubConnectionStored(config)
 }
 
 /** Persisted JSON for `connections.config` when `type === "github"`. */
@@ -87,7 +80,7 @@ export function decodeGithubAppCredentials(
   }
 }
 
-export type GithubConnectionSecretsWrite = {
+type GithubConnectionSecretsWrite = {
   githubAppId: string
   appSlug: string
   privateKey: string
@@ -163,7 +156,7 @@ export type LinearConnectionConfigStored = z.infer<
   typeof linearConnectionConfigStoredSchema
 >
 
-export type LinearConnectionTokens = {
+type LinearConnectionTokens = {
   accessToken: string
   refreshToken: string | null
 }
@@ -195,7 +188,7 @@ export function encodeLinearTokensForDb(
   }
 }
 
-export type LinearOauthAppSecretsWrite = {
+type LinearOauthAppSecretsWrite = {
   oauthClientId: string
   oauthClientSecret?: string
   webhookSecret?: string
@@ -276,7 +269,7 @@ export function decodeLinearTokens(
  * (ADR-050). `tries` counts sync cycles; `countedAt` is the time of the last
  * count, so that a burst of webhook syncs counts one time.
  */
-export const sourceSyncFailuresSchema = z
+const sourceSyncFailuresSchema = z
   .record(
     z.string(),
     z.object({
@@ -286,7 +279,7 @@ export const sourceSyncFailuresSchema = z
     }),
   )
   .default({})
-export type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
+type SourceSyncFailures = z.infer<typeof sourceSyncFailuresSchema>
 
 /**
  * Count one more failed sync cycle of `key` in `failures` (changed in
@@ -466,14 +459,7 @@ export function parseNotionConnectionConfig(
   return notionConnectionConfigSchema.parse(config)
 }
 
-export function tryParseNotionConnectionConfig(
-  config: unknown,
-): NotionConnectionConfig | null {
-  const parsed = notionConnectionConfigSchema.safeParse(config)
-  return parsed.success ? parsed.data : null
-}
-
-export type NotionConnectionTokens = {
+type NotionConnectionTokens = {
   accessToken: string
   refreshToken: string | null
 }
@@ -644,7 +630,7 @@ export const slackConnectionConfigStoredSchema = z
     enabled: c.enabled ?? true,
   }))
 
-export type SlackConnectionConfigStored = z.infer<
+type SlackConnectionConfigStored = z.infer<
   typeof slackConnectionConfigStoredSchema
 >
 
@@ -652,13 +638,6 @@ export function parseSlackConnectionStored(
   config: Record<string, unknown>,
 ): SlackConnectionConfigStored {
   return slackConnectionConfigStoredSchema.parse(config)
-}
-
-export function tryParseSlackConnectionStored(
-  config: unknown,
-): SlackConnectionConfigStored | null {
-  const r = slackConnectionConfigStoredSchema.safeParse(config)
-  return r.success ? r.data : null
 }
 
 /** Persisted JSON for `connections.config` when `type === "slack"`. */
@@ -750,7 +729,7 @@ export type PagerdutyConnectionConfigStored = z.infer<
   typeof pagerdutyConnectionConfigStoredSchema
 >
 
-export type PagerdutyConnectionTokens = {
+type PagerdutyConnectionTokens = {
   accessToken: string
   refreshToken: string | null
 }
@@ -801,14 +780,6 @@ export function encodePagerdutyWebhookSecretForDb(
   return encryptConnectionSecret(secret.trim(), env)
 }
 
-export function decodePagerdutyWebhookSecret(
-  stored: PagerdutyConnectionConfigStored,
-  env: Env,
-): string | undefined {
-  if (!stored.webhookSecretEnc) return undefined
-  return decryptConnectionSecret(stored.webhookSecretEnc, env)
-}
-
 export type PagerdutyOAuthAppCreds = {
   clientId: string
   clientSecret: string
@@ -819,20 +790,6 @@ export function encodePagerdutyOAuthClientSecretForDb(
   env: Env,
 ): string {
   return encryptConnectionSecret(secret.trim(), env)
-}
-
-export function decodePagerdutyOAuthClientSecret(
-  stored: PagerdutyConnectionConfigStored,
-  env: Env,
-): string | undefined {
-  if (!stored.oauthClientSecretEnc) return undefined
-  return decryptConnectionSecret(stored.oauthClientSecretEnc, env)
-}
-
-export function pagerdutyConnectionHasOAuthApp(
-  stored: PagerdutyConnectionConfigStored,
-): boolean {
-  return Boolean(stored.oauthClientId && stored.oauthClientSecretEnc)
 }
 
 export function envHasPagerdutyOAuthApp(env: Env): boolean {

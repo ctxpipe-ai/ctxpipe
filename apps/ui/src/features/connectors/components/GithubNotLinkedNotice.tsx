@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { authClient } from "@/lib/auth-client"
+import { githubLinkErrorMessage } from "@/lib/popup"
 
 /**
  * Attaching an installation through the deployment's GitHub App needs a linked
@@ -55,9 +56,7 @@ export function GithubNotLinkedNotice({
             variant="error"
             title="Could not link your GitHub account"
           >
-            {linkError === "account_already_linked_to_different_user"
-              ? "This GitHub account is linked to another ctx| user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
-              : "Could not link your GitHub account. Try again."}
+            {githubLinkErrorMessage(linkError)}
           </InlineAlert>
         </div>
       ) : null}

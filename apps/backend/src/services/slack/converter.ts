@@ -32,7 +32,7 @@ export type SlackCollectedMedia = {
   mimetype?: string
 }
 
-export type SlackMediaFile = {
+type SlackMediaFile = {
   id?: string
   name?: string
   title?: string
@@ -43,7 +43,7 @@ export type SlackMediaFile = {
   url_private_download?: string
 }
 
-export type SlackMediaMessage = {
+type SlackMediaMessage = {
   ts?: string
   text?: string
   files?: SlackMediaFile[]
@@ -63,16 +63,12 @@ export type SlackMediaMessage = {
   }>
 }
 
-export function getManagedSlackRootPath(): string {
-  return `${MANAGED_ROOT}/`
-}
-
 function titleSlug(title: string): string {
   const s = slugify(title, { lowercase: true })
   return s.length > 0 ? s : "channel"
 }
 
-export type SlackChannelPathInput = {
+type SlackChannelPathInput = {
   channelId: string
   channelName: string
   /** Already-slugified directory segment; display name stays `channelName`. */

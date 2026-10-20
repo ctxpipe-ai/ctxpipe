@@ -9,7 +9,7 @@ import { capturedSourceRevision } from "./source-revision-context.js"
 
 export type FileEntry = { name: string; path: string; type: "file" | "dir" }
 
-export type GlobFilesRequest = {
+type GlobFilesRequest = {
   pattern: string
   path?: string
   onlyFiles?: boolean
@@ -34,7 +34,7 @@ export class CodesearchCheckoutError extends Error {
   }
 }
 
-export type CodesearchAuthExtras = {
+type CodesearchAuthExtras = {
   sha?: string
   legacy?: true
   workspaceId?: string
@@ -109,30 +109,6 @@ async function raiseCodesearchFailure(
     throw new CodesearchCheckoutError(message, res.status)
   }
   throw new Error(message)
-}
-
-/**
- * Lists files and directories at a path. Returns entries with name, path, type.
- */
-export async function listFiles(
-  repositoryId: string,
-  orgId: string,
-  path = "",
-  extras?: CodesearchAuthExtras,
-): Promise<FileEntry[]> {
-  const query = path ? `?path=${encodeURIComponent(path)}` : ""
-  const res = await fetchWithAuth(
-    `${codesearchBaseUrl()}/${repositoryId}/files${query}`,
-    { method: "GET" },
-    repositoryId,
-    orgId,
-    extras,
-  )
-  if (!res.ok) {
-    await raiseCodesearchFailure("listFiles", res)
-  }
-  const data = (await res.json()) as { entries: FileEntry[] }
-  return data.entries
 }
 
 /**

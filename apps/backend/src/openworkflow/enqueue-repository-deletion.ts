@@ -4,7 +4,7 @@ import { markRepositoryUnindexing } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryDeletion } from "./workflows/repository-deletion.js"
 
-export type RepositoryDeletionEnqueueInput = {
+type RepositoryDeletionEnqueueInput = {
   repositoryId: string
   orgId: string
   /** Optional; helps codesearch purge if prepare resumes after the row is gone. */
@@ -12,7 +12,7 @@ export type RepositoryDeletionEnqueueInput = {
   zoektRepoId?: number
 }
 
-export type RepositoryDeletionEnqueueResult = {
+type RepositoryDeletionEnqueueResult = {
   jobId: string
   status: "queued"
 }

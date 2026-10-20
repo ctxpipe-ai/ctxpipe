@@ -31,6 +31,7 @@ import {
   resolveIngestionV2Run,
   withIngestionOrg,
 } from "../../domain/ingestion/ingestion-v2-resolve.js"
+import { ingestPublishTurn } from "../../domain/ingestion/publish-turn.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -61,7 +62,8 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 /*
  * The ingestion v2 parent workflow (ADR-052, T09 and T21):
  *
- *   resolve -> index -> discover-roots -> skill:repository:repository
+ *   publish-turn:<n> -> resolve -> index -> discover-roots
+ *   -> skill:repository:repository
  *   -> shard:<n> (children) -> assemble:<workspaceId>
  *   -> repository-skills (child) -> release
  *   -> publish:<workspaceId> (child) -> delete-refs:<workspaceId>
@@ -194,6 +196,22 @@ export function defineRepositoryIngestionV2Workflow(
       async function ingest(
         attributes: Attributes,
       ): Promise<IngestionV2Output> {
+        // Pin after an earlier run of this source publishes to the same
+        // Workspace (CTX-895), so the two publishes do not race. After about
+        // an hour the run goes on: the merge model then joins the two.
+        if (!input.shadow)
+          for (let poll = 0; poll < 60; poll++) {
+            const turn = await step.run({ name: `publish-turn:${poll}` }, () =>
+              ingestPublishTurn({
+                orgId: input.orgId,
+                runId: run.id,
+                sourceUrl: input.source.url,
+                destinations: input.destinations,
+              }),
+            )
+            if ("turn" in turn) break
+            await step.sleep(`wait-publish-turn:${poll}`, "60 seconds")
+          }
         const resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )

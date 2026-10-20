@@ -6,6 +6,7 @@ import { findRepositoriesByNormalizedGitUrls } from "../../models/repositories.j
 import { recordSourceAccessCheck } from "../../models/workspace-sources.js"
 import { ensureOrgRepositoryForGitUrl } from "../workspaces/ensure-org-repository.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import { startFirstOrgIngestion } from "./first-ingestion.js"
 import { githubSourceScopeRepositories } from "./providers/github.js"
 
 function githubUrl(repositoryName: string): string {
@@ -38,6 +39,12 @@ export async function checkGithubSourceAccess(input: {
       githubConnectionId: input.connectionId,
     })
     if (repository?.coverage === "foreign") missing.push(name)
+    if (repository?.coverage === "covers")
+      await startFirstOrgIngestion({
+        orgId: input.orgId,
+        repository,
+        step: "workspace_sources.github.enqueue_first_ingestion",
+      })
   }
   return missing.length
     ? `ctx| has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`

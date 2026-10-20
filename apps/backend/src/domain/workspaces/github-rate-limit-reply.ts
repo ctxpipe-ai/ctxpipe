@@ -1,4 +1,4 @@
-export type CurlResult = { exitCode: number; stdout: string; stderr: string }
+type CurlResult = { exitCode: number; stdout: string; stderr: string }
 
 /** The command to run in a sandbox: the body, then the HTTP status on its own line. */
 export const GITHUB_RATE_LIMIT_COMMAND =

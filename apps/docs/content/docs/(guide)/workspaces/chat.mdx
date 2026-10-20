@@ -121,6 +121,22 @@ The sandbox never holds a credential that can push to your default branch.
 Model calls, Workspace tools, and pushes to the conversation's branch go
 through ctx|, scoped to that conversation.
 
+## Sandbox limits
+
+An organization runs at most 50 sandboxes at once. Chats, jobs, and base
+builds all count. Ingestion can use at most 40 of them, so chat always keeps 10.
+
+When your organization is at capacity, chat shows "Workspace chat is at
+capacity". Wait a few minutes and try again. A chat sandbox that is idle for 5
+minutes stops, and that frees a slot.
+
+An ingestion that waits for a free sandbox shows "Waiting for a free sandbox".
+It starts when a slot is free. You do not need to start it again.
+
+These limits keep the organization fair to its own work. They are not spend
+limits. ctx| does not cap your spend. If these limits are not enough for your team,
+[contact us](/docs/getting-started/get-in-touch).
+
 ## Know the limits
 
 Chat combines retrieved files, graph claims, and code search. It can still

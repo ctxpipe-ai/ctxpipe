@@ -1,7 +1,7 @@
 import { client } from "@/lib/api"
 import { ApiError, readApiJson } from "@/lib/api-result"
 
-export class PagerdutyOAuthNotConfiguredError extends Error {
+class PagerdutyOAuthNotConfiguredError extends Error {
   constructor() {
     super("PagerDuty OAuth is not configured for this ctxpipe deployment.")
     this.name = "PagerdutyOAuthNotConfiguredError"
@@ -11,10 +11,6 @@ export class PagerdutyOAuthNotConfiguredError extends Error {
 export type PagerdutyService = Awaited<
   ReturnType<typeof searchPagerdutyServices>
 >["items"][number]
-
-export type PagerdutyConnectorStatus = Awaited<
-  ReturnType<typeof fetchPagerdutyConnectorStatus>
->
 
 export const pagerdutyConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>

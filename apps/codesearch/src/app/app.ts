@@ -18,8 +18,6 @@ import { registerSearchRoutes } from "../routes/search.js"
 import { registerStructuralSearchRoutes } from "../routes/structuralSearch.js"
 import type { AppEnv } from "./env.js"
 
-export type { AppEnv } from "./env.js"
-
 export function useObservability(app: OpenAPIHono<AppEnv>, env?: Env) {
   app.use("*", httpInstrumentationMiddleware())
   app.use("*", cors())

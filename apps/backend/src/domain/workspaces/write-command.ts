@@ -18,7 +18,7 @@ import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
 
-export type WorkspaceWriteCommand = {
+type WorkspaceWriteCommand = {
   orgId: string
   workspaceId: string
   jobId: string

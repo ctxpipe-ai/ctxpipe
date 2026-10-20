@@ -29,7 +29,7 @@ import {
 export { INGEST_AGENT_USER }
 
 /** The step output that root packs for the host to read. */
-export const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
+const INGEST_STEP_OUTPUT = `${INGEST_ROOT}/step-output.tar`
 
 type Sandbox = Pick<SandboxHandle, "fs" | "process">
 

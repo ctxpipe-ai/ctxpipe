@@ -165,6 +165,15 @@ export const AddSourcesAfterCreate: Story = {
     const canvas = within(canvasElement)
     await createFromGithub(canvasElement)
     await canvas.findByRole("button", { name: "Add repositories" })
+    // With nothing chosen, "Add repositories" is the one primary button.
+    await waitFor(() => {
+      expect(
+        canvas.getByRole("button", { name: "Add repositories" }),
+      ).toHaveClass("bg-primary")
+      expect(
+        canvas.getByRole("button", { name: "Open Workspace" }),
+      ).not.toHaveClass("bg-primary")
+    })
     await expect(
       canvas.getByText("Add code repositories and tools").closest("li"),
     ).toHaveAttribute("aria-current", "step")

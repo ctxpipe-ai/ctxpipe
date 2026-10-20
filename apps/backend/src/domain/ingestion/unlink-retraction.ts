@@ -53,9 +53,9 @@ const HOST_FIELDS = [
 ] as const
 
 /** A file that the retraction leaves unchanged, and the reason. */
-export type SkippedRetraction = { path: string; reason: string }
+type SkippedRetraction = { path: string; reason: string }
 
-export type UnlinkRetractionPlan = {
+type UnlinkRetractionPlan = {
   files: GitFileChange[]
   deletePaths: string[]
   /** Files that the retraction cannot delete. An operator removes them. */

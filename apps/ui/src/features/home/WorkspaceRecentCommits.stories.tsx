@@ -317,19 +317,29 @@ export const Loading: Story = {
     commits: [],
   },
   render: () => <WorkspaceRecentCommitsSkeleton />,
+  play: async ({ canvasElement }) => {
+    // Three rows with falling opacity: the skeleton does not guess the count.
+    const rows = canvasElement.querySelectorAll("li")
+    expect(rows).toHaveLength(3)
+    expect(Array.from(rows, (row) => getComputedStyle(row).opacity)).toEqual([
+      "0.75",
+      "0.5",
+      "0.25",
+    ])
+  },
 }
 
-/** The skeleton has the same box as one loaded page of ten commits. */
+/** The skeleton has the same box as three loaded commits. */
 export const RecentCommitsSkeletonMatches: Story = {
   tags: ["workspace-golden"],
   args: {
-    commits: pageOfCommits,
+    commits: pageOfCommits.slice(0, 3),
   },
   render: () => (
     <SkeletonMatchFrame
       className="w-xl"
       skeleton={<WorkspaceRecentCommitsSkeleton />}
-      loaded={<WorkspaceRecentCommits commits={pageOfCommits} />}
+      loaded={<WorkspaceRecentCommits commits={pageOfCommits.slice(0, 3)} />}
     />
   ),
   play: async ({ canvasElement }) => {

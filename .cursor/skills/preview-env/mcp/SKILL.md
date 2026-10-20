@@ -65,7 +65,7 @@ disable-model-invocation: true
 8. Open the Workspace in the UI.
 
 **Expect (UI)** the Workspace shows no new conversation in the sidebar list.
-**Expect (backend)** step 1 lists the Workspace with `ready: true`, and detail mode shows its repositories and readiness. Steps 2 to 4 return `structuredContent` and TOON text; each result names the served branch and SHA; the hit `ref` is a unit path, and the `read_file` content has line numbers and matches the file. Step 5 returns the same text as step 3. Step 6 returns refs of the form `<handle>:<path>`. Step 7 returns `isError: true` with code `org_not_found` and no hint of whether the org exists (the API-key error has no Connected apps hint). No call creates a `conversations` row, runs a chat run, or starts a sandbox. The spans carry `ctxpipe.mcp.org.slug_hash` and no query text, path, or handle.
+**Expect (backend)** step 1 lists the Workspace with `ready: true`, and detail mode shows its repositories and readiness. Steps 2 to 4 return `structuredContent` and TOON text; each result names the served branch and SHA; the hit `ref` is a unit path, and the `read_file` result has plain text with no line-number prefix, has `startLine` and `endLine` fields (and `nextStartLine` when the file is paged), and the text matches the file. Step 5 returns the same text as step 3. Step 6 returns refs of the form `<handle>:<path>`. Step 7 returns `isError: true` with code `org_not_found` and no hint of whether the org exists (the API-key error has no Connected apps hint). No call creates a `conversations` row, runs a chat run, or starts a sandbox. The spans carry `ctxpipe.mcp.org.slug_hash` and no query text, path, or handle.
 **Budget** 3 s / 10 s per call (*uncertain*: `search_code` can take longer on a cold index).
 **Evidence** the tool results; the traces of each call.
 
@@ -76,8 +76,8 @@ disable-model-invocation: true
 2. With C's session cookie, `GET /{orgA}/api/v1/workspaces`.
 3. As C, open `{BASE_URL}/{orgA}/` and `{BASE_URL}/{orgA}/ws/{workspace1Slug}` in the browser.
 
-**Expect (UI)** the page reads **You do not have access to this organisation** with **Go to home**; no Workspace name, conversation, or file of org A is shown.
-**Expect (backend)** step 1 returns `org_not_found` for each tool call, and `tools/list` shows no org A data (the URL parameter selects nothing); step 2 is refused (401 or 403, never 200 with data); no row of org A is returned; the trace carries C's org, not A's.
+**Expect (UI)** no data of org A is shown. A user with no Workspace of their own goes to their own `/onboarding`. No specific "no access" page is required. No Workspace name, conversation, or file of org A is shown.
+**Expect (backend)** step 1 returns `org_not_found` for each tool call, and `tools/list` shows no org A data (the URL parameter selects nothing); step 2 is refused (404, 401, or 403, never 200 with data); 404 is the same answer as for an org that does not exist, so it does not disclose the org; no row of org A is returned; the trace carries C's org, not A's.
 **Budget** 3 s / 10 s per request.
 **Evidence** `MCP-6-1.png`; the status codes; traces.
 

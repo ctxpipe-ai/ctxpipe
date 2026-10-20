@@ -9,7 +9,7 @@ import { markSandboxLifecycle } from "./sandbox-lifecycle-timing.js"
 const LEASE_MS = 30_000
 const expiresAt = sql`clock_timestamp() + interval '30 seconds'`
 
-export type SandboxLockAcquired = (receipt: {
+type SandboxLockAcquired = (receipt: {
   key: string
   owner: string
 }) => void | Promise<void>
@@ -34,6 +34,39 @@ export function postgresSandboxLocks(
 }
 
 class SandboxLockBusy extends Error {}
+
+/**
+ * Waiters in this process, by org and key. A release wakes them at once, so
+ * a turn that waits behind a prepare starts as soon as the prepare ends. The
+ * poll stays for a holder in another process and for an expired lease.
+ */
+const waiters = new Map<string, Set<() => void>>()
+
+async function waitForRelease(
+  name: string,
+  ms: number,
+  signal: AbortSignal,
+): Promise<void> {
+  const woken = new AbortController()
+  const wake = () => woken.abort()
+  const set = waiters.get(name) ?? new Set()
+  waiters.set(name, set)
+  set.add(wake)
+  try {
+    await delay(ms, undefined, {
+      signal: AbortSignal.any([signal, woken.signal]),
+    }).catch((error) => {
+      if (!woken.signal.aborted || signal.aborted) throw error
+    })
+  } finally {
+    set.delete(wake)
+    if (!set.size && waiters.get(name) === set) waiters.delete(name)
+  }
+}
+
+function wakeWaiters(name: string): void {
+  for (const wake of waiters.get(name) ?? []) wake()
+}
 
 /**
  * Run `fn` under `key` only if nobody holds it now; otherwise return
@@ -71,6 +104,7 @@ function postgresLocks(
     async withLock(key, fn) {
       assertNotInOrgDbContext()
       const owner = randomUUID()
+      const waitName = `${orgId}:${key}`
       const lost = new AbortController()
       const signal = abortController
         ? AbortSignal.any([lost.signal, abortController.signal])
@@ -105,7 +139,7 @@ function postgresLocks(
           break
         }
         if (!wait) throw new SandboxLockBusy(key)
-        await delay(250, undefined, { signal })
+        await waitForRelease(waitName, 250, signal)
       }
       const holdStarted = Date.now()
       const stopped = new AbortController()
@@ -169,6 +203,7 @@ function postgresLocks(
         await withOrgDbContext(orgId, (db) =>
           db.delete(sandboxLocks).where(owned),
         )
+        wakeWaiters(waitName)
         markSandboxLifecycle("lock-released", {
           key,
           holdMs: Date.now() - holdStarted,

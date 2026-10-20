@@ -16,12 +16,58 @@ export type OrgGuidePreferences = {
   hintsSeen?: string[]
 }
 
-export type UserPreferences = {
+type UserPreferences = {
   selectedOrganizationSlug: string | null
   isSideNavExpanded: boolean | null
   sideNavWidth: number
   /** Keyed by `${userId}:${orgSlug}`. */
   orgGuides: Record<string, OrgGuidePreferences>
+  /**
+   * The Home notices that the user dismissed: upgrade toasts (CTX-894), by
+   * {@link upgradeDismissKey}, and hydrate problem toasts (CTX-915). A changed
+   * notice has a new key, so it shows again. The name stays for stored data.
+   */
+  dismissedUpgrades: string[]
+}
+
+/** The most dismissed upgrade keys that the browser keeps. */
+const DISMISSED_UPGRADES_MAX = 100
+
+/** The key of one state of one upgrade item. */
+export function upgradeDismissKey(item: {
+  orgSlug: string
+  workspaceSlug: string
+  key: string
+  status: string
+}): string {
+  return [item.orgSlug, item.workspaceSlug, item.key, item.status].join("/")
+}
+
+/** Show again the dismissed upgrades in `keys`. */
+export function withoutDismissedUpgrades(
+  preferences: UserPreferences,
+  keys: readonly string[],
+): UserPreferences {
+  return {
+    ...preferences,
+    dismissedUpgrades: preferences.dismissedUpgrades.filter(
+      (key) => !keys.includes(key),
+    ),
+  }
+}
+
+/** Add `key` to the dismissed upgrades; the oldest keys drop out. */
+export function withDismissedUpgrade(
+  preferences: UserPreferences,
+  key: string,
+): UserPreferences {
+  if (preferences.dismissedUpgrades.includes(key)) return preferences
+  return {
+    ...preferences,
+    dismissedUpgrades: [...preferences.dismissedUpgrades, key].slice(
+      -DISMISSED_UPGRADES_MAX,
+    ),
+  }
 }
 
 export function clampSideNavWidth(width: number): number {
@@ -37,6 +83,7 @@ function defaultPreferences(): UserPreferences {
     isSideNavExpanded: true,
     sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
     orgGuides: {},
+    dismissedUpgrades: [],
   }
 }
 
@@ -100,6 +147,11 @@ export function parseUserPreferences(raw: string | null): UserPreferences {
         ? clampSideNavWidth(parsed.sideNavWidth)
         : SIDE_NAV_DEFAULT_WIDTH,
     orgGuides,
+    dismissedUpgrades: Array.isArray(parsed.dismissedUpgrades)
+      ? parsed.dismissedUpgrades
+          .filter((key): key is string => typeof key === "string")
+          .slice(-DISMISSED_UPGRADES_MAX)
+      : [],
   }
 }
 
