@@ -437,7 +437,7 @@ export async function listConversations(input?: {
  * turn ended, or when it started while it still runs. A conversation with no
  * run has no entry.
  */
-export type ConversationLastTurn = {
+type ConversationLastTurn = {
   status: "running" | "interrupted" | "completed" | "failed" | "aborted"
   at: number
 }
