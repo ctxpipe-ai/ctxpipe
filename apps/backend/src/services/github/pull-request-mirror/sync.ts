@@ -20,7 +20,7 @@ import type {
 export const GITHUB_PR_BACKFILL_MAX = 200
 
 /** Closed pull requests per GraphQL page; each page is one durable step. */
-export const GITHUB_PR_PAGE_SIZE = 20
+const GITHUB_PR_PAGE_SIZE = 20
 
 /**
  * GitHub's review decision: only each reviewer's latest APPROVED or

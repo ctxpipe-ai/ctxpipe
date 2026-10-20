@@ -1,6 +1,6 @@
 import type { JobSandboxHandle, JobWorktreeExec } from "./job-worktree.js"
 
-export type TanstackLikeHandle = {
+type TanstackLikeHandle = {
   id?: string
   process: {
     exec: JobWorktreeExec

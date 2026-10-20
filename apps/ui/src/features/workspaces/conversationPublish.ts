@@ -38,7 +38,7 @@ export function conversationGithubTreeHref(
   }
 }
 
-export type ConversationPublishStatus = {
+type ConversationPublishStatus = {
   dirty: boolean
   differsFromDefault: boolean
   unpushed: boolean
@@ -105,7 +105,7 @@ export function conversationCtaPlan(input: {
 }
 
 /** Every error code the Commit+Push and Create PR routes answer. */
-export type PublishErrorCode =
+type PublishErrorCode =
   | "missing_conversation"
   | "missing_workspace"
   | "read_only"

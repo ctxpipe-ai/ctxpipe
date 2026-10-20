@@ -11,7 +11,8 @@ import type { HOST_FIELDS } from "../ingestion/patch-validator.js"
  * these paths. Conversation publish pushes only to the session branch, so it
  * allows them. Each agent write path must call this one function. The
  * Workspace format file `.ctxpipe/workspace.yaml` is in `.ctxpipe/`, so only
- * bootstrap and an upgrade pull request change it.
+ * bootstrap and an upgrade pull request change its format. The Always update
+ * action of an owner or admin changes only its `upgrades` setting.
  */
 const HOST_ONLY_FOLDERS = [".ctxpipe", "sources"] as const
 

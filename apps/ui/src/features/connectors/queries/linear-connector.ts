@@ -20,8 +20,6 @@ export type LinearConnectorStatus = Pick<
   "isInstalled" | "installationStatus" | "workspaceName"
 >
 
-export type LinearOauthApp = Awaited<ReturnType<typeof fetchLinearOauthApp>>
-
 export const linearConnectorKeys = {
   status: (orgSlug: string, connectionId?: string) =>
     ["linear-connector-status", orgSlug, connectionId ?? "default"] as const,

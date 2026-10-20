@@ -33,7 +33,7 @@ const chevron = tv({
   },
 })
 
-export interface DisclosureProps extends AriaDisclosureProps {
+interface DisclosureProps extends AriaDisclosureProps {
   children: React.ReactNode
 }
 
@@ -50,7 +50,7 @@ export function Disclosure({ children, ...props }: DisclosureProps) {
   )
 }
 
-export interface DisclosureHeaderProps {
+interface DisclosureHeaderProps {
   children: React.ReactNode
   /**
    * When set, show this label on the right instead of the expand chevron. The main
@@ -98,7 +98,7 @@ export function DisclosureHeader({
   )
 }
 
-export interface DisclosurePanelProps extends AriaDisclosurePanelProps {
+interface DisclosurePanelProps extends AriaDisclosurePanelProps {
   children: React.ReactNode
 }
 

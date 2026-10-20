@@ -5,7 +5,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
-import { join, resolve as pathResolve } from "node:path"
+import { join } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { resolveRepoRoot } from "./paths.js"
 import { uncommittedMemory } from "./uncommitted.js"
@@ -14,9 +14,9 @@ export { resolveRepoRoot } from "./paths.js"
 
 export type CaptureHost = "cursor" | "claude" | "codex" | "opencode" | "vscode" | "unknown"
 
-export type ClassificationKind = "lesson" | "decision" | "requirement" | "glossary"
+type ClassificationKind = "lesson" | "decision" | "requirement" | "glossary"
 
-export type Classification = {
+type Classification = {
   kind: ClassificationKind
   destination: string
   action: string
@@ -123,11 +123,11 @@ const MEMORY_PATH_RE = /(?:^|[\\/])\.ai[\\/]memory(?:[\\/]|$)/i
 const MAX_TEXT = 2000
 const MAX_EXCERPT = 700
 
-export function memoryRoot(repoRoot: string): string {
+function memoryRoot(repoRoot: string): string {
   return join(repoRoot, ".ai", "memory")
 }
 
-export function eventsRoot(repoRoot: string): string {
+function eventsRoot(repoRoot: string): string {
   return join(memoryRoot(repoRoot), "events")
 }
 
@@ -411,7 +411,7 @@ function isSelfCapture(payload: Record<string, unknown>, text: string): boolean 
   return SELF_CAPTURE_RE.test(blob) || FOLLOWUP_PROMPT_RE.test(blob)
 }
 
-export function isUserPromptEvent(eventType: string): boolean {
+function isUserPromptEvent(eventType: string): boolean {
   return /^(beforeSubmitPrompt|UserPromptSubmit)$/i.test(eventType.trim())
 }
 
@@ -465,7 +465,7 @@ function existingExcerptKeys(repoRoot: string): Set<string> {
   return keys
 }
 
-export type ObserveResult = {
+type ObserveResult = {
   ok: true
   wrote: boolean
   candidateCount: number
@@ -626,7 +626,7 @@ export function observeCapture(opts: {
   return { ok: true, wrote: true, candidateCount, eventId }
 }
 
-export type SummaryCandidate = {
+type SummaryCandidate = {
   candidateId: string
   kind: string
   destination: string
@@ -634,7 +634,7 @@ export type SummaryCandidate = {
   excerpt: string
 }
 
-export type SummaryResult = {
+type SummaryResult = {
   priority: "low" | "medium" | "high"
   message: string
   candidates: SummaryCandidate[]
@@ -1039,9 +1039,4 @@ export function parseHost(value: string | undefined): CaptureHost {
     return v
   }
   return "unknown"
-}
-
-/** Resolve path under repo for tests */
-export function resolveUnderRepo(repoRoot: string, ...parts: string[]): string {
-  return pathResolve(repoRoot, ...parts)
 }

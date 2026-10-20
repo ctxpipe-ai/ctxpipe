@@ -80,7 +80,7 @@ const ListRepositoriesResponseSchema = z
   })
   .openapi("ListRepositoriesResponse")
 
-export const listRepositoriesRoute = createRoute({
+const listRepositoriesRoute = createRoute({
   method: "get",
   path: "/",
   responses: {
@@ -107,7 +107,7 @@ const GetRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("GetRepositoryParams")
 
-export const getRepositoryRoute = createRoute({
+const getRepositoryRoute = createRoute({
   method: "get",
   path: "/{id}",
   request: {
@@ -141,7 +141,7 @@ export const getRepositoryRoute = createRoute({
   },
 })
 
-export const createRepositoryRoute = createRoute({
+const createRepositoryRoute = createRoute({
   method: "post",
   path: "/",
   request: {
@@ -228,7 +228,7 @@ const ReindexRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("ReindexRepositoryParams")
 
-export const deleteRepositoryRoute = createRoute({
+const deleteRepositoryRoute = createRoute({
   method: "delete",
   path: "/{id}",
   request: {
@@ -265,7 +265,7 @@ export const deleteRepositoryRoute = createRoute({
   },
 })
 
-export const reindexRepositoryRoute = createRoute({
+const reindexRepositoryRoute = createRoute({
   method: "post",
   path: "/{id}/reindex",
   request: {

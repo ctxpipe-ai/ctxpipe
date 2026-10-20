@@ -111,7 +111,7 @@ export type RelevanceOptions = {
   validBetween?: { from: Date; to: Date }
 }
 
-export type RelevancePathStep = {
+type RelevancePathStep = {
   /** The stored direction of the edge, also on a reverse step. */
   from: string
   to: string
@@ -120,7 +120,7 @@ export type RelevancePathStep = {
   weight: number
 }
 
-export type RelatedResult = {
+type RelatedResult = {
   id: string
   kind: string | null
   score: number

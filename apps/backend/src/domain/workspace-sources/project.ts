@@ -9,6 +9,7 @@ import {
 } from "../../models/workspace-sources.js"
 import { SOURCE_ADAPTERS, type SourceAdapter } from "./adapter.js"
 import { unconvertedEntryIds } from "./convert-to-files.js"
+import { linkPlainGitSource } from "./first-ingestion.js"
 import { checkGithubSourceAccess } from "./github-access.js"
 import {
   planSourceRows,
@@ -87,11 +88,18 @@ export async function projectWorkspaceSources(input: {
     managedPaths: (entry) =>
       adapters[entry.provider]?.managedPaths(entry.scope) ?? [],
   })
-  return replaceWorkspaceSourceRows({
+  const projected = await replaceWorkspaceSourceRows({
     orgId: input.orgId,
     workspaceId: input.workspaceId,
     revision: input.revision,
     rows,
     movedFrom: unconvertedEntryIds(input.files ?? []),
   })
+  // A plain git source has no connection, so it has no access check. Link
+  // its repository after the rows name it, so that its first ingestion
+  // finds the source path.
+  for (const row of rows)
+    if (row.provider === "git" && row.status === "ok")
+      await linkPlainGitSource({ orgId: input.orgId, scope: row.scope })
+  return projected
 }

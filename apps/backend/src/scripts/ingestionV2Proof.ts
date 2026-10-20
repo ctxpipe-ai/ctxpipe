@@ -462,6 +462,52 @@ async function status(argv: string[]): Promise<void> {
   })
 }
 
+/**
+ * Each finished skill step of the run, for the proof log: its ops, rejects,
+ * partial flag, and model usage. A failed attempt reports no usage, so its
+ * spend is not here. The step name drops its Workspace id.
+ */
+async function steps(argv: string[]): Promise<void> {
+  const runId = flag(argv, "--run-id")
+  const result = await getSystemDb().execute<{
+    shard: number | null
+    step_name: string
+    output: {
+      ops?: number
+      rejects?: number
+      partial?: boolean
+      usage?: { inputTokens?: number; outputTokens?: number; costUsd?: number }
+    }
+  }>(sql`
+    ${runTree(runId)}
+    select (run.input->>'shard')::int as shard, attempt.step_name, attempt.output
+    from tree
+    join openworkflow.workflow_runs run
+      on run.namespace_id = ${openWorkflowNamespaceId()} and run.id = tree.id
+    join openworkflow.step_attempts attempt
+      on attempt.namespace_id = ${openWorkflowNamespaceId()}
+      and attempt.workflow_run_id = run.id
+    where run.workflow_name = 'ingestion-shard'
+      and attempt.step_name like 'skill:%'
+      and attempt.status = 'completed'
+      and jsonb_typeof(attempt.output) = 'object'
+    order by attempt.created_at
+  `)
+  emit(
+    "STEPS",
+    result.rows.map(({ shard, step_name, output }) => ({
+      shard,
+      step: step_name.replace(/:ws_[a-z0-9]+$/, ""),
+      ops: output.ops ?? 0,
+      rejects: output.rejects ?? 0,
+      partial: output.partial === true,
+      inputTokens: output.usage?.inputTokens ?? 0,
+      outputTokens: output.usage?.outputTokens ?? 0,
+      costUsd: output.usage?.costUsd ?? null,
+    })),
+  )
+}
+
 async function cancel(argv: string[]): Promise<void> {
   const runId = flag(argv, "--run-id")
   const tree = await getSystemDb().execute<{ id: string }>(sql`
@@ -480,7 +526,9 @@ try {
   else if (command === "estimate") await estimate(rest)
   else if (command === "status") await status(rest)
   else if (command === "cancel") await cancel(rest)
-  else throw new Error("Use one of: seed, start, estimate, status, cancel")
+  else if (command === "steps") await steps(rest)
+  else
+    throw new Error("Use one of: seed, start, estimate, status, cancel, steps")
 } catch (error) {
   note(error instanceof Error ? (error.stack ?? error.message) : String(error))
   process.exitCode = 1

@@ -354,7 +354,7 @@ export async function listFilesAtSha(
   })
 }
 
-export type GitHubFileBytes =
+type GitHubFileBytes =
   | { kind: "missing" }
   | { kind: "omitted" }
   | { kind: "bytes"; bytes: Buffer }
@@ -415,25 +415,6 @@ export async function getFileContent(
   if (file.kind === "missing") return undefined
   if (file.kind === "omitted") return ""
   return file.bytes.toString("utf8")
-}
-
-export async function githubRefExists(
-  input: BaseInput & { ref: string },
-): Promise<boolean> {
-  try {
-    const context = await getInstallationContext(input)
-    const ref = input.ref.replace(/^refs\//, "")
-    const refName = ref.startsWith("heads/") ? ref : `heads/${ref}`
-    await context.octokit.rest.git.getRef({
-      owner: context.owner,
-      repo: context.repo,
-      ref: refName,
-    })
-    return true
-  } catch (error) {
-    if ((error as { status?: number }).status === 404) return false
-    throw error
-  }
 }
 
 type GitTreeEntry = {
@@ -922,7 +903,7 @@ export async function updatePullRequestText(
   )
 }
 
-export type GithubPullRequestState = "open" | "closed" | "merged"
+type GithubPullRequestState = "open" | "closed" | "merged"
 
 export async function getPullRequestState(
   input: BaseInput & { pullNumber: number },
@@ -976,7 +957,7 @@ function isPullRequestPermissionError(error: unknown): boolean {
   )
 }
 
-export type PullRequestRefusal = {
+type PullRequestRefusal = {
   /** pr_refused: any other 422; githubMessage then says why. */
   refused: "no_pr_access" | "no_changes" | "pr_refused"
   githubStatus?: number

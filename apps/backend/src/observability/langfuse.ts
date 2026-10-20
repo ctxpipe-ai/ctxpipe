@@ -2,7 +2,7 @@ import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
 import { readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
 
-export type LangfuseContextAttrs = {
+type LangfuseContextAttrs = {
   sessionId?: string
   userId?: string
   tags?: string[]

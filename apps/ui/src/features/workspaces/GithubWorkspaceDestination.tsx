@@ -16,7 +16,7 @@ import { cn } from "@/lib/utils"
 import { workspaceListOptions } from "./queries"
 import type { Workspace } from "./types"
 
-export type GithubWorkspaceDestinationProps = {
+type GithubWorkspaceDestinationProps = {
   variant?: "page" | "onboarding"
   status: "loading" | "error" | "ready"
   workspaces: Workspace[]

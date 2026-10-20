@@ -9,8 +9,6 @@ import { getPagerdutyIncident } from "./client.js"
 import type { ParsedPagerdutyRepoConfig } from "./config-yaml.js"
 import {
   type PagerdutyIncidentForMirror,
-  pagerdutyIncidentAssetDir,
-  pagerdutyIncidentMirrorFiles,
   pagerdutyManagedPathsForIncidentId,
 } from "./converter.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
@@ -19,7 +17,7 @@ export type PagerdutyEntityChange = {
   incidentId: string
 }
 
-export type PagerdutyIncrementalChanges = {
+type PagerdutyIncrementalChanges = {
   files: CommitFile[]
   deletePaths: string[]
   failures: Array<{ id: string; message: string }>
@@ -82,4 +80,4 @@ export async function buildPagerdutyIncrementalChanges(input: {
   }
 }
 
-export { pagerdutyIncidentAssetDir, pagerdutyIncidentMirrorFiles }
+

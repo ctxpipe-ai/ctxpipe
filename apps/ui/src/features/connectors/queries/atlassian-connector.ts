@@ -36,7 +36,7 @@ export type OrgAtlassianOauthGet = Awaited<
   ReturnType<typeof fetchOrgAtlassianOauth>
 >
 
-export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
+type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
 
 export async function fetchOrgCapabilities(
   orgSlug: string,
@@ -125,7 +125,7 @@ export async function fetchForgeProvisionStatus(
   })) as ForgeProvisionStatusPayload
 }
 
-export type ForgeProvisionRequestBody = {
+type ForgeProvisionRequestBody = {
   connectionId: string
   confluenceSiteHost: string
   forgeScopedApiToken: string
@@ -187,24 +187,6 @@ export async function cancelAtlassianSetup(
     emptyOn: [409],
     message: "Failed to cancel the Confluence setup",
   })
-}
-
-export async function searchGithubInstallationRepos(
-  orgSlug: string,
-  q: string,
-  githubConnectionId?: string,
-) {
-  const res = await client[
-    ":orgSlug"
-  ].api.v1.github.installation.repositories.$get({
-    param: { orgSlug },
-    query: {
-      q,
-      per_page: "30",
-      ...(githubConnectionId ? { connectionId: githubConnectionId } : {}),
-    },
-  })
-  return readApiJson(res, { message: "Failed to search repositories" })
 }
 
 export async function fetchAtlassianSpaces(

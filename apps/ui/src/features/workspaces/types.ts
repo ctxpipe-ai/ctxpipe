@@ -62,8 +62,6 @@ type WorkspaceFilesRead = InferResponseType<
   200
 >
 
-export type WorkspaceFile = WorkspaceFilesRead["items"][number]
-
 /** The route schema is recursive, so the client type of `children` is loose. */
 export type WorkspaceFileTreeNode = {
   name: string
@@ -102,8 +100,6 @@ export type WorkspaceGitStatusResponse = InferResponseType<
 >
 
 export type WorkspaceGitStatusItem = WorkspaceGitStatusResponse["items"][number]
-
-export type WorkspaceGitStatus = WorkspaceGitStatusItem["status"]
 
 type ConversationGitStatusRead = InferResponseType<
   ConversationRoutes["files"]["status"]["$get"],

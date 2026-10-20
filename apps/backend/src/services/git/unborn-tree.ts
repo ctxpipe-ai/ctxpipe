@@ -9,7 +9,7 @@ import {
   workspaceRepositoryPath,
 } from "./root-folder.js"
 
-export type UnbornGitTree = { tree: string; objects: string }
+type UnbornGitTree = { tree: string; objects: string }
 
 async function withEmptyGitDirectory<T>(
   operation: (directory: string) => Promise<T>,

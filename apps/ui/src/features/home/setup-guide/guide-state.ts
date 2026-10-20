@@ -1,3 +1,4 @@
+import type { PendingSourceChange } from "@/features/workspace-sources/queries"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import type { OrgGuidePreferences } from "@/lib/user-preferences"
 
@@ -22,6 +23,8 @@ export type GuideSignals = {
   landingBuild: WorkspaceHydrateView | null
   /** The landing Workspace has at least one linked code repository. */
   linkedRepositories: boolean
+  /** An open pull request that adds a GitHub source to the landing Workspace. */
+  repositoriesPending?: PendingSourceChange
   /** The user sent a message in a Workspace of this organization. */
   asked: boolean
   /** A connection other than GitHub exists. */
@@ -37,6 +40,8 @@ export type GuideRow = {
   done: boolean
   /** Workspace row only: the build state of the first Workspace. */
   build?: WorkspaceHydrateView
+  /** Repositories row only: the pull request that waits for a merge. */
+  pending?: PendingSourceChange
 }
 
 /** The rows of the guide. Each row counts toward progress. */
@@ -58,7 +63,13 @@ export function guideRows(signals: GuideSignals): GuideRow[] {
   return [
     { id: "github", done: signals.githubLinked },
     workspace,
-    { id: "repositories", done: signals.linkedRepositories },
+    {
+      id: "repositories",
+      done: signals.linkedRepositories,
+      pending: signals.linkedRepositories
+        ? undefined
+        : signals.repositoriesPending,
+    },
     ask,
     { id: "tool", done: signals.toolConnected },
     { id: "invite", done: signals.teamInvited },
@@ -113,7 +124,7 @@ export function isGuideRecent(input: GuideStart): boolean {
  * organization with no Workspace at any age. `workspaceCount` is null when
  * the Workspace list did not load. Then only the recent days open the guide.
  */
-export function isGuideWindowOpen(
+function isGuideWindowOpen(
   input: GuideStart & { workspaceCount: number | null },
 ): boolean {
   return input.workspaceCount === 0 || isGuideRecent(input)

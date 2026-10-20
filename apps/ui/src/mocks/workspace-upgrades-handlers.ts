@@ -15,6 +15,11 @@ export function upgradeItemFixture(
     key: "format-3",
     kind: "format",
     title: "Upgrade to format 3",
+    // The descriptions of the backend registry.
+    description:
+      overrides.kind === "reingest"
+        ? "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money."
+        : "Moves the repository links from repositories/ into .ctxpipe/sources.yaml, and writes the old knowledge that a new ingestion cannot make again into files under knowledge/.",
     status: "awaiting_operator",
     fromFormat: 0,
     targetFormat: 3,
@@ -33,7 +38,9 @@ export function upgradeItemFixture(
     repositories: [],
     blockedReason: null,
     note: null,
+    waitingForSlot: null,
     failureReason: null,
+    failure: null,
     approvedBy: null,
     approvedAt: null,
     updatedAt: "2026-10-16T10:00:00.000Z",
@@ -146,4 +153,37 @@ export function pendingWorkspaceUpgradesHandler(
       })
     },
   )
+}
+
+/**
+ * Always update: `POST /workspaces/:slug/upgrades/automatic` and the read of
+ * its file job, which completes at once. Each call adds its path to
+ * `requests`, so a play can check the order of the calls.
+ */
+export function workspaceUpgradeAutomaticHandlers(
+  options: { requests?: string[] } = {},
+) {
+  return [
+    http.post(
+      ({ request }) =>
+        /\/workspaces\/[^/]+\/upgrades\/automatic$/.test(pathnameOf(request)),
+      ({ request }) => {
+        options.requests?.push(pathnameOf(request))
+        return HttpResponse.json(
+          { queued: true, jobId: "wjob_automatic" },
+          { status: 202 },
+        )
+      },
+    ),
+    http.get(
+      ({ request }) =>
+        /\/workspaces\/[^/]+\/files\/jobs\/wjob_automatic$/.test(
+          pathnameOf(request),
+        ),
+      ({ request }) => {
+        options.requests?.push(pathnameOf(request))
+        return HttpResponse.json({ status: "completed", failureReason: null })
+      },
+    ),
+  ]
 }

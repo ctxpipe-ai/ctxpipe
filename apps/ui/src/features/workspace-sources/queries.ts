@@ -11,7 +11,6 @@ import { pollWhileOk, readApiJson } from "@/lib/api-result"
 
 export type {
   ConnectionUsageResponse,
-  WorkspaceSourceBatchResult,
   WorkspaceSourceChangeResult,
   WorkspaceSourceListResponse,
 }
@@ -24,7 +23,8 @@ export type ConnectionUsageItem = ConnectionUsageResponse["items"][number]
 /** The body of an add or an edit: the front matter and the description of one source file. */
 export type WorkspaceSourceInput = {
   provider: SourceProvider
-  connectionId: string
+  /** Null only for a plain git source, which has no connection. */
+  connectionId: string | null
   scope: Record<string, unknown>
   /** The file body. Absent keeps it on an edit; "" clears it. */
   description?: string

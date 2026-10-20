@@ -10,4 +10,3 @@ export const parsedRepoScopeSchema = z.object({
   ),
 })
 
-export type ParsedRepoScopeWorkflowInput = z.infer<typeof parsedRepoScopeSchema>

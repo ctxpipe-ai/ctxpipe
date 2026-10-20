@@ -26,14 +26,14 @@ import { runGit } from "./run-git.js"
  * assembled ref has its own last segment.
  */
 
-export const INGEST_REF_ROOT = "refs/ctxpipe/ingest/"
+const INGEST_REF_ROOT = "refs/ctxpipe/ingest/"
 
 const SEGMENT = /^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/
 const DAY_MS = 24 * 60 * 60 * 1000
 const STEP_AUTHOR = { name: "ctxpipe", email: "ingest@ctxpipe.ai" }
 const PUSH_ATTEMPTS = 3
 
-export type IngestRefTarget = {
+type IngestRefTarget = {
   runId: string
   workspaceId: string
   shard?: string

@@ -99,7 +99,7 @@ export async function ensureRepositoryRevisionCheckout(input: {
 
 const MAX_INDEXING_ERROR_CHARS = 500
 
-export type RepositoryIndexingStatus = NonNullable<
+type RepositoryIndexingStatus = NonNullable<
   typeof repositories.$inferSelect.indexingStatus
 >
 
@@ -204,15 +204,6 @@ export const listRepositoriesForGithubConnection = async (
   })
 }
 
-export const listRepositoriesForGithubConnectionForOrg = async (
-  orgId: string,
-  githubConnectionId: string,
-): Promise<RepositoryWithSearch[]> => {
-  return withOrgDbContext(orgId, () =>
-    listRepositoriesForGithubConnection(githubConnectionId),
-  )
-}
-
 /** Repositories linked to this GitHub App connection (`github_connection_id`). */
 export async function countRepositoriesForGithubConnection(
   githubConnectionId: string,
@@ -301,7 +292,12 @@ export async function pruneGithubConnectionRepositoriesNotInGitUrls(
 export async function findRepositoriesByNormalizedGitUrls(
   urls: readonly string[],
 ): Promise<
-  Array<{ id: string; gitUrl: string; githubConnectionId: string | null }>
+  Array<{
+    id: string
+    gitUrl: string
+    githubConnectionId: string | null
+    lastIngestedHash: string | null
+  }>
 > {
   if (urls.length === 0) return []
   const wanted = new Set(
@@ -314,6 +310,7 @@ export async function findRepositoriesByNormalizedGitUrls(
         id: repositories.id,
         gitUrl: repositories.gitUrl,
         githubConnectionId: repositories.githubConnectionId,
+        lastIngestedHash: repositories.lastIngestedHash,
       })
       .from(repositories)
       .where(eq(repositories.orgId, requireCurrentOrgId()))
@@ -425,101 +422,6 @@ export const getRepository = async (
     const orgId = requireCurrentOrgId()
     const db = getOrgDb()
     return selectRepositoryWithZoekt(db, orgId, repositoryId)
-  })
-}
-
-/** For worker/ingestion paths: requires org DB context (`withOrgDbContext`). */
-export async function getGithubConnectionIdForRepository(input: {
-  orgId: string
-  repositoryId: string
-}): Promise<string | null> {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    const [row] = await db
-      .select({ githubConnectionId: repositories.githubConnectionId })
-      .from(repositories)
-      .where(
-        and(
-          eq(repositories.id, input.repositoryId),
-          eq(repositories.orgId, input.orgId),
-        ),
-      )
-      .limit(1)
-    return row?.githubConnectionId ?? null
-  })
-}
-
-export async function markRepositoryIndexingPending(input: {
-  repositoryId: string
-  reason: string | null
-}) {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    await db
-      .update(repositories)
-      .set({
-        indexReady: false,
-        indexingStatus: "queued",
-        indexingError: null,
-        indexingFailedAt: null,
-        indexingReason: input.reason,
-        updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(repositories.id, input.repositoryId),
-          repositoryNotUnindexingCondition(),
-        ),
-      )
-  })
-}
-
-export async function markRepositoryIndexingFollowUpPending(input: {
-  repositoryId: string
-}): Promise<void> {
-  return orgSql(async () => {
-    await getOrgDb()
-      .update(repositories)
-      .set({ indexingFollowUpPending: true })
-      .where(eq(repositories.id, input.repositoryId))
-  })
-}
-
-export async function clearRepositoryIndexingFollowUpPending(input: {
-  repositoryId: string
-  ingestedHash: string
-}): Promise<boolean> {
-  return orgSql(async () => {
-    const cleared = await getOrgDb()
-      .update(repositories)
-      .set({ indexingFollowUpPending: false })
-      .where(
-        and(
-          eq(repositories.id, input.repositoryId),
-          eq(repositories.lastIngestedHash, input.ingestedHash),
-          inArray(repositories.indexingStatus, [
-            "ready",
-            "complete_with_issues",
-          ]),
-        ),
-      )
-      .returning({ id: repositories.id })
-    return cleared.length > 0
-  })
-}
-
-export async function hasPendingRepositoryIndexingFollowUp(input: {
-  repositoryId: string
-}): Promise<boolean> {
-  return orgSql(async () => {
-    const [row] = await getOrgDb()
-      .select({
-        indexingFollowUpPending: repositories.indexingFollowUpPending,
-      })
-      .from(repositories)
-      .where(eq(repositories.id, input.repositoryId))
-      .limit(1)
-    return row?.indexingFollowUpPending ?? false
   })
 }
 
@@ -827,30 +729,6 @@ export async function setRepositoryIndexingStep(input: {
   })
 }
 
-/**
- * Clears the three indexing-step columns (sets to null).
- * Prefer calling this explicitly from paths that do not go through
- * markRepositoryIndexingReady / markRepositoryUnindexing.
- *
- * For worker/ingestion paths: requires org DB context (`withOrgDbContext`).
- */
-export async function clearRepositoryIndexingStep(input: {
-  repositoryId: string
-}): Promise<void> {
-  return orgSql(async () => {
-    const db = getOrgDb()
-    await db
-      .update(repositories)
-      .set({
-        indexingStep: null,
-        indexingStepTotal: null,
-        indexingStepKey: null,
-        updatedAt: new Date(),
-      })
-      .where(eq(repositories.id, input.repositoryId))
-  })
-}
-
 /** Match GitHub `full_name` for a specific GitHub connection only.
  *  Assumes caller has established org DB context. */
 export async function findRepositoryByGithubInstallation(
@@ -938,13 +816,6 @@ export async function createOrGetRepository(input: {
     if (result) return result
     throw new Error("Failed to create repository")
   })
-}
-
-export const createRepository = async (input: {
-  name: string
-  gitUrl: string
-}): Promise<RepositoryWithSearch> => {
-  return (await createOrGetRepository(input)).repository
 }
 
 /**

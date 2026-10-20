@@ -7,7 +7,7 @@ import {
 } from "../db/schema/connections.js"
 import type { ConnectionRow } from "./connection-rows.js"
 
-export type ConnectionDirectoryRow = typeof connectionDirectory.$inferSelect
+type ConnectionDirectoryRow = typeof connectionDirectory.$inferSelect
 
 function nonemptyText(value: unknown): string | null {
   if (typeof value === "number" && Number.isFinite(value)) return String(value)
@@ -153,15 +153,6 @@ export async function listConnectionDirectoryByForgeInstallationId(
     .select()
     .from(connectionDirectory)
     .where(eq(connectionDirectory.forgeInstallationId, installationId))
-}
-
-export async function listConnectionDirectoryByForgeCloudId(
-  cloudId: string,
-): Promise<ConnectionDirectoryRow[]> {
-  return getSystemDb()
-    .select()
-    .from(connectionDirectory)
-    .where(eq(connectionDirectory.forgeCloudId, cloudId))
 }
 
 export async function listConnectionDirectoryByType(

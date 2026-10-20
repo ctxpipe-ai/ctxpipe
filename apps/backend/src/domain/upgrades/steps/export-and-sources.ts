@@ -88,7 +88,7 @@ import type {
  *   org does not have any more. No source reads that repository, so step 1
  *   does not export its knowledge.
  */
-export type LegacyKnowledgeOrigin =
+type LegacyKnowledgeOrigin =
   | {
       kind: "kept"
       /** The repository URL, or the group name in the report. */
@@ -100,7 +100,7 @@ export type LegacyKnowledgeOrigin =
   | { kind: "no_repository" }
   | { kind: "deleted_repository" }
 
-export function legacyKnowledgeOrigin(input: {
+function legacyKnowledgeOrigin(input: {
   object: Pick<ExportObjectRow, "deduplicationKey">
   /** True when a Markdown file that stays in the Workspace backs the object. */
   markdownBacked: boolean
@@ -437,6 +437,8 @@ export function exportAndSourcesStep(
   return {
     format: 1,
     title: "Move the sources and keep the old knowledge",
+    description:
+      "Moves the repository links from repositories/ into .ctxpipe/sources.yaml, and writes the old knowledge that a new ingestion cannot make again into files under knowledge/.",
     async plan(tree, ctx) {
       const connectionId = ctx.remote.connectionId
       const sourcesFile = await tree.read(SOURCES_FILE_PATH)

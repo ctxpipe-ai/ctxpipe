@@ -1,4 +1,4 @@
-export type FileTreeNode = {
+type FileTreeNode = {
   name: string
   path: string
   children?: FileTreeNode[]

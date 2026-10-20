@@ -20,7 +20,7 @@ export type ChangedFile = {
   omitted?: ChangedFileOmitted
 }
 
-export type ChangedFileDiff = ChangedFile & {
+type ChangedFileDiff = ChangedFile & {
   oldBody: string | null
   body: string | null
 }
@@ -131,7 +131,7 @@ function publicFile(entry: RawEntry): ChangedFile {
   return file
 }
 
-export async function changedFiles(
+async function changedFiles(
   handle: JobSandboxHandle,
   from: string,
   to: string,

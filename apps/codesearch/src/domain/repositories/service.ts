@@ -4,7 +4,7 @@ import { withOrgDbContext } from "../../db/client.js"
 import { repositories, repositoryCheckouts } from "../../db/schema.js"
 import { DEFAULT_CHECKOUT_KEY } from "./paths.js"
 
-export type AccessibleRepository = {
+type AccessibleRepository = {
   id: string
   orgId: string
   name: string
@@ -12,7 +12,7 @@ export type AccessibleRepository = {
   publishedCheckoutKey?: string
 }
 
-export type IndexableRepository = AccessibleRepository & {
+type IndexableRepository = AccessibleRepository & {
   zoektRepoId: number
 }
 

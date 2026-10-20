@@ -18,7 +18,9 @@ const docker = async (...args: string[]) =>
  * stand-in for `gh`), and serves the bare repository `/srv/repo.git` with
  * `git http-backend` at `/git/*` when Basic auth is `x-access-token:<GIT_TOKEN>`,
  * and at `/public/*` with no auth, over HTTP and over HTTPS on 443 (a public
- * plain git repository, CTX-815).
+ * plain git repository, CTX-815). With `BACKEND_PORT`, port 3000 forwards
+ * each TCP connection to that port on the Docker host (a test backend), as
+ * the backend's `sandbox` address does in Compose.
  */
 const UPSTREAM = `
 const http = require("node:http")
@@ -80,9 +82,15 @@ http.createServer((req, res) => {
   }
   gitBackend(req, res)
 }).listen(8080, "0.0.0.0")
+if (process.env.BACKEND_PORT) require("node:net").createServer((client) => {
+  const backend = require("node:net").connect(Number(process.env.BACKEND_PORT), "host.docker.internal")
+  client.pipe(backend).pipe(client)
+  backend.on("error", () => client.destroy())
+  client.on("error", () => backend.destroy())
+}).listen(3000, "0.0.0.0")
 `
 
-export type AgentVaultFixture = {
+type AgentVaultFixture = {
   access: AgentVaultAccess
   network: string
   /** The network that sandboxes join (internal with `closed`). */
@@ -119,7 +127,12 @@ async function ipOn(container: string, network: string): Promise<string> {
  * not its API.
  */
 export async function withAgentVault<T>(
-  input: { image: string; closed?: boolean },
+  input: {
+    image: string
+    closed?: boolean
+    /** A port of a test backend on the Docker host: the upstream forwards its port 3000 there. */
+    backendPort?: number
+  },
   fn: (fixture: AgentVaultFixture) => Promise<T>,
 ): Promise<T> {
   const id = randomUUID().slice(0, 8)
@@ -201,6 +214,14 @@ export async function withAgentVault<T>(
       `${tls}:/tls:ro`,
       "-e",
       `GIT_TOKEN=${gitToken}`,
+      ...(input.backendPort
+        ? [
+            "--add-host",
+            "host.docker.internal:host-gateway",
+            "-e",
+            `BACKEND_PORT=${input.backendPort}`,
+          ]
+        : []),
       "--entrypoint",
       "sh",
       input.image,
@@ -384,7 +405,7 @@ net.createServer((client) => {
 }
 
 /** The rate limits our deployments set (see docker-compose.yml). */
-export const AGENT_VAULT_RATE_LIMIT_ENV = [
+const AGENT_VAULT_RATE_LIMIT_ENV = [
   "AGENT_VAULT_RATELIMIT_PROXY_RATE=200",
   "AGENT_VAULT_RATELIMIT_PROXY_BURST=2000",
   "AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256",

@@ -9,7 +9,7 @@ import { enqueueWorkspaceUpgradeReingest } from "../../openworkflow/workflows/wo
 import { UPGRADE_STATUSES } from "./registry.js"
 import { isReingestUpgradeKey } from "./reingest.js"
 
-export type StartUpgradeResult =
+type StartUpgradeResult =
   | { kind: "queued"; row: WorkspaceUpgradeRow }
   /** Started before: a run or an open pull request exists. Nothing new starts. */
   | { kind: "existing"; row: WorkspaceUpgradeRow }

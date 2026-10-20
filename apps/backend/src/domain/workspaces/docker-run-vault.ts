@@ -16,7 +16,7 @@ import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
 import { githubCredentialRules } from "./sandbox-credential-rules.js"
 
 /** The `owner/name` of an exact HTTPS GitHub repository URL. */
-export function workspaceChatGithubRepository(url: string): string | undefined {
+function workspaceChatGithubRepository(url: string): string | undefined {
   try {
     const parsed = new URL(url)
     if (

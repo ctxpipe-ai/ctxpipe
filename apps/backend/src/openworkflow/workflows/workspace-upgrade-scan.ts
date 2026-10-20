@@ -4,6 +4,7 @@ import { parseEnv } from "../../config/env.js"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { startAutomaticUpgrades } from "../../domain/upgrades/automatic.js"
 import {
   GIT_UPGRADE_STEPS,
   type GitUpgradeStep,
@@ -39,8 +40,9 @@ export const workspaceUpgradeScanInputSchema = z
  * {@link GIT_UPGRADE_STEPS}; a test gives its own steps under the same name.
  *
  * The scan finds the pending upgrades of each Workspace of one org and
- * records them (ADR-053 section 6). It starts no upgrade: each upgrade waits
- * for a click of an owner or admin. At the end it queues one tip check for
+ * records them (ADR-053 section 6). Each upgrade waits for a click of an
+ * owner or admin, except in a Workspace whose format file has
+ * `upgrades: automatic`: there the scan starts it. At the end it queues one tip check for
  * the org. The tip check probes write access, resumes the write jobs that
  * waited for it (also the jobs that the format gate held), and queues the
  * hydrate of a new commit, which records the format again.
@@ -68,7 +70,7 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
         const org = await getSystemDb().query.organizations.findFirst({
           where: { id: { eq: input.orgId } },
         })
-        if (!org) return { workspaces: [], reingest: [] }
+        if (!org) return { workspaces: [], reingest: [], automatic: [] }
         return withOrgIdContext({ id: org.id, slug: org.slug }, async () => {
           await withOrgDbContext(input.orgId, () =>
             ensureOrgFirstWorkspace(input.orgId),
@@ -81,9 +83,9 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
             return bundle
           }
           const results: Record<
-            "workspaces" | "reingest",
+            "workspaces" | "reingest" | "automatic",
             Array<{ workspaceId: string; kind: string }>
-          > = { workspaces: [], reingest: [] }
+          > = { workspaces: [], reingest: [], automatic: [] }
           for (const workspace of await withOrgDbContext(input.orgId, () =>
             listOrgWorkspaces(input.orgId),
           )) {
@@ -133,6 +135,26 @@ export function defineWorkspaceUpgradeScan(steps: readonly GitUpgradeStep[]) {
                   kind: "error",
                 })
               }
+            }
+            // A Workspace with `upgrades: automatic` starts its waiting items
+            // with no click (CTX-894).
+            try {
+              const started = await startAutomaticUpgrades({
+                orgId: input.orgId,
+                workspace,
+                env,
+              })
+              if (started.length)
+                results.automatic.push({
+                  workspaceId: workspace.id,
+                  kind: started.join(","),
+                })
+            } catch (error) {
+              log.warn({
+                event: "workspace_upgrade_automatic_start_failed",
+                workspaceId: workspace.id,
+                message: error instanceof Error ? error.message : String(error),
+              })
             }
           }
           return results

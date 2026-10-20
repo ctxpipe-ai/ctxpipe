@@ -14,12 +14,12 @@ export const SELF_HOSTED_LINEAR_SETUP_STEPS = [
   ...LINEAR_SETUP_STEPS,
 ] as const
 
-export type LinearOauthAppMeta = {
+type LinearOauthAppMeta = {
   globalLinearOauthConfigured: boolean
   oauthAppSaved: boolean
 }
 
-export type LinearSetupStepId =
+type LinearSetupStepId =
   | (typeof LINEAR_SETUP_STEPS)[number]["id"]
   | "register"
 

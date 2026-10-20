@@ -1,3 +1,4 @@
+import HyperDX from "@hyperdx/browser"
 import { userClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { authClient } from "@/lib/auth-client"
@@ -77,7 +78,19 @@ async function createApiKey(input: {
     })
   }
 
+  HyperDX.addAction("api_key_create", {
+    owner: input.owner.kind,
+    key_id: created.id,
+    ...(input.organizationIds
+      ? { organization_count: new Set(input.organizationIds).size }
+      : {}),
+  })
   return created
+}
+
+/** The user copied the secret of a new key. Records the key id, never the secret. */
+export function recordApiKeyCopied(owner: ApiKeyOwner["kind"], keyId: string) {
+  HyperDX.addAction("api_key_copy", { owner, key_id: keyId })
 }
 
 async function deleteApiKey(
@@ -88,6 +101,10 @@ async function deleteApiKey(
     keyId,
     configId,
     fetchOptions: { throw: true },
+  })
+  HyperDX.addAction("api_key_revoke", {
+    owner: configId === ORG_API_KEY_CONFIG_ID ? "organization" : "personal",
+    key_id: keyId,
   })
 }
 

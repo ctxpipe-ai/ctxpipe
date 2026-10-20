@@ -7,8 +7,11 @@
 # Before any run starts, it refuses when the p90 estimate for all
 # repositories is over the cap. While a run goes, it stops the run when the
 # finished spend plus the reserve of each running model step reaches the cap
-# (`spendGuard` in ingestionV2ProofBudget.ts). After the first step of each
-# shard, it checks that the shard sandbox holds no credential.
+# (`spendGuard` in ingestionV2ProofBudget.ts). It also stops the run after
+# the first model step attempt that failed with no finished model call: the
+# model path is broken, so the other model steps fail the same way. After the
+# first step of each shard, it checks that the shard sandbox holds no
+# credential.
 # It writes one table row for each repository to $GITHUB_STEP_SUMMARY and
 # exits 1 when any repository fails.
 set -euo pipefail
@@ -81,9 +84,11 @@ check_credentials() {
     out=$(docker compose exec -T dind docker --host unix:///var/run/docker.sock exec -i \
       -u ctxpipe-agent -e "FORBIDDEN_SHA256=$forbidden_hashes" "$cid" sh -s \
       <"$credential_check" 2>&1) || true
-    checked_ids="$checked_ids$cid "
-    # Names and counts only: the check prints no value.
+    # Names and counts only: the check prints no value. The start of each
+    # step stops every process of the agent user, also this check, so a
+    # check with no summary runs again at the next poll.
     if printf '%s\n' "$out" | grep -q '^SUMMARY '; then
+      checked_ids="$checked_ids$cid "
       credential_checked=$((credential_checked + 1))
       echo "Credential check, sandbox ${cid:0:12}: $(printf '%s\n' "$out" | grep '^SUMMARY ')"
       if printf '%s\n' "$out" | grep -q '^FINDING '; then
@@ -106,9 +111,27 @@ check_credentials() {
 
 total_spend=0
 failed=0
+step_tables=""
 over_cap() { awk -v a="$1" -v b="$SPEND_CAP_USD" 'BEGIN { exit !(a >= b) }'; }
 # The status of a run, with the spend guard of the whole proof.
 run_state() { proof STATUS status --run-id "$1" --spent-before "$total_spend" --cap "$SPEND_CAP_USD" || true; }
+# The worker log lines of one event of run $2 since $3 (no error text: the
+# events hold only names, codes, and counts).
+worker_events() {
+  docker compose logs --no-color --since "$3" worker 2>/dev/null |
+    grep -aF "\"$1\"" | grep -aF "$2" || true
+}
+# Wait until the running model steps of run $1 end, so that the final spend
+# is real. Sets state.
+drain_run() {
+  local drain_deadline=$(($(date +%s) + 600))
+  while [ "$(date +%s)" -lt "$drain_deadline" ]; do
+    sleep "$poll_seconds"
+    state=$(run_state "$1")
+    [ -n "$state" ] || continue
+    [ "$(jq -r .inFlightModelSteps <<<"$state")" = 0 ] && break
+  done
+}
 
 for ((i = 0; i < count; i++)); do
   url=$(jq -r ".repositories[$i].url" <<<"$seed")
@@ -130,7 +153,9 @@ for ((i = 0; i < count; i++)); do
   run_id=$(proof START start --org-id "$org_id" --repo-url "$url" --sha "$sha" | jq -r .runId)
   [ -n "$run_id" ] || { echo "::error::No run started for $name"; exit 1; }
   started=$(date +%s)
+  since=$(date -u -d "@$started" +%Y-%m-%dT%H:%M:%SZ)
   deadline=$((started + run_timeout_minutes * 60))
+  polls=0
   killed=0
   note=""
   state=""
@@ -151,14 +176,19 @@ for ((i = 0; i < count; i++)); do
       echo "Spend guard: $(jq -r .spendUsd <<<"$state") USD spent in this run, $(jq -r .reservedUsd <<<"$state") USD reserved for $(jq -r .inFlightModelSteps <<<"$state") running model step(s)"
       proof CANCEL cancel --run-id "$run_id" >/dev/null
       note="stopped at the spend cap"
-      # Wait until the running steps end, so that the final spend is real.
-      drain_deadline=$(($(date +%s) + 600))
-      while [ "$(date +%s)" -lt "$drain_deadline" ]; do
-        sleep "$poll_seconds"
-        state=$(run_state "$run_id")
-        [ -n "$state" ] || continue
-        [ "$(jq -r .inFlightModelSteps <<<"$state")" = 0 ] && break
-      done
+      drain_run "$run_id"
+      break
+    fi
+    # Every 30 s: a model step attempt that failed with no finished model
+    # call stops the run (the model path is broken).
+    polls=$((polls + 1))
+    if [ $((polls % 6)) -eq 0 ] &&
+      worker_events ingestion-v2.step-attempt-failed "$run_id" "$since" |
+      grep -aqF '"modelCalls":0'; then
+      echo "::error::A model step failed with no finished model call; the run stops"
+      proof CANCEL cancel --run-id "$run_id" >/dev/null
+      note="stopped: a model step failed with no finished model call"
+      drain_run "$run_id"
       break
     fi
     if [ "$kill_here" -eq 1 ] && [ "$killed" -eq 0 ] &&
@@ -179,10 +209,24 @@ for ((i = 0; i < count; i++)); do
   echo "::endgroup::"
   # The job summary is not in the API, so the log also shows how the run ended.
   echo "Run $run_id ended: $(jq -c '{status, outputStatus, outputReason, error}' <<<"$state")"
-  # Where each failed step attempt failed (the log has no error text).
-  docker compose logs --no-color worker 2>/dev/null |
-    grep -aF '"ingestion-v2.step-attempt-failed"' | grep -aF "$run_id" |
-    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode}' || true
+  # The model proxy status from each new shard sandbox, before its first
+  # model step, and where each failed step attempt failed, with the name and
+  # HTTP status of each OpenCode error (the log has no error text).
+  worker_events ingestion-v2.model-proxy-probe "$run_id" "$since" |
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {probe: "model proxy", shard, status}' || true
+  worker_events ingestion-v2.step-attempt-failed "$run_id" "$since" |
+    jq -Rrc 'sub("^[^{]*"; "") | fromjson? | {ingestStep, attempt, stage, exitCode, errorClass, errorCode, errorKind, modelCalls, modelErrors}' || true
+  # The ops, rejects and model spend of each finished step. A failed attempt
+  # reports no spend.
+  steps=$(proof STEPS steps --run-id "$run_id" || true)
+  if [ -n "$steps" ]; then
+    step_table=$(jq -r '"| Shard | Step | Ops | Rejects | Partial | Input tokens | Output tokens | Cost (USD) |",
+      "| --- | --- | --- | --- | --- | --- | --- | --- |",
+      (.[] | "| \(.shard) | \(.step) | \(.ops) | \(.rejects) | \(.partial) | \(.inputTokens) | \(.outputTokens) | \(.costUsd // (if .inputTokens + .outputTokens == 0 then "-" else "unknown" end)) |")' <<<"$steps")
+    echo "Steps of $name:"
+    echo "$step_table"
+    step_tables="$step_tables"$'\n'"#### Steps of $name"$'\n\n'"$step_table"$'\n'
+  fi
 
   status=$(jq -r .status <<<"$state")
   spend=$(jq -r .spendUsd <<<"$state")
@@ -236,6 +280,7 @@ done
   echo
   echo "$estimate_line"
   echo "Total model spend: $total_spend USD of $SPEND_CAP_USD USD. Spend is the cost of the finished steps; a step with no reported cost counts at the token price."
+  printf '%s\n' "$step_tables"
 } >>"$summary"
 # The job summary is not in the API: print it in the log too.
 [ "$summary" = /dev/stdout ] || cat "$summary"

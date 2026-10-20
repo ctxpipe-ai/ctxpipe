@@ -5,6 +5,7 @@ import { useEffect, useState } from "react"
 import { Toaster } from "sonner"
 import { expect, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
+import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import {
   conversationDetailLoadingHandler,
   conversationGitDiffHandler,
@@ -20,6 +21,7 @@ import {
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 import {
+  upgradeItemFixture,
   upgradesFixture,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
@@ -35,6 +37,7 @@ import {
   failedHydrateWorkspaceDetail,
   hydratingWorkspaceDetail,
   readOnlyWorkspace,
+  skippedFilesWorkspaceDetail,
   waitingForTipWorkspaceDetail,
 } from "./workspace-fixtures"
 
@@ -61,6 +64,7 @@ type Story = StoryObj<typeof meta>
 function workspaceRoute(input?: {
   conversationId?: string
   pane?: string
+  hash?: string
 }): StoryRouteParams {
   return {
     pattern: "orgWorkspace",
@@ -68,6 +72,7 @@ function workspaceRoute(input?: {
     workspaceSlug,
     conversationId: input?.conversationId,
     pane: input?.pane,
+    hash: input?.hash,
   }
 }
 
@@ -899,8 +904,15 @@ export const DiffTriggerPaneClosed: Story = {
   },
   play: async ({ canvasElement }) => {
     const page = within(canvasElement.ownerDocument.body)
-    // The trigger fades in for 100 ms when it mounts, and a re-render can
-    // replace it, so find it again on each try.
+    // The loading conversation also shows the pane triggers in its header.
+    // When the conversation loads, new triggers replace them. A click on a
+    // replaced trigger does nothing, so wait for the loaded conversation
+    // before you find the trigger.
+    await waitFor(
+      () => expect(page.getByText("How is billing structured?")).toBeVisible(),
+      { timeout: 15_000 },
+    )
+    // The trigger fades in for 100 ms when it mounts.
     await waitFor(
       () => expect(page.getByRole("button", { name: "Diff" })).toBeVisible(),
       { timeout: 15_000 },
@@ -1283,6 +1295,86 @@ export const SettingsPane: Story = {
         }),
       },
     },
+  },
+}
+
+/**
+ * A link from Home lands on the Upgrades group. Only the pane's own scroll
+ * area moves: no outer box scrolls, so the pane keeps filling the panel.
+ */
+export const SettingsPaneLandsOnUpgrades: Story = {
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings", hash: "upgrades" }),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const group = await waitFor(() => {
+      const found = canvasElement.querySelector<HTMLElement>(
+        '[data-settings-group="Upgrades"]',
+      )
+      expect(found).toHaveFocus()
+      return found as HTMLElement
+    })
+    await document.fonts.ready
+    const panel = group.closest<HTMLElement>('[role="tabpanel"]')
+    const scroller = group.closest<HTMLElement>("[data-settings-scroll]")
+    if (!panel || !scroller) throw new Error("The settings pane is missing")
+    await waitFor(() => {
+      // The panel has a 1px border.
+      expect(
+        panel.getBoundingClientRect().bottom -
+          scroller.getBoundingClientRect().bottom,
+      ).toBeLessThanOrEqual(2)
+      for (
+        let box = scroller.parentElement;
+        box && box !== canvasElement.ownerDocument.body;
+        box = box.parentElement
+      ) {
+        expect(box.scrollTop).toBe(0)
+      }
+    })
+  },
+}
+
+/** Fix using agent closes the pane and fills the composer of a new conversation. */
+export const FixUsingAgentOpensChat: Story = {
+  parameters: {
+    storyRoute: workspaceRoute({ pane: "settings" }),
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers({ detail: skippedFilesWorkspaceDetail }),
+      },
+    },
+  },
+  beforeEach: () => {
+    const key = chatDraftKey(orgSlug, docsWorkspace.id)
+    writeChatDraft(key, "")
+    return () => writeChatDraft(key, "")
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Fix knowledge/billing/tax.md using agent",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          "What should ctxpipe do in this Workspace?",
+        ),
+      ).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+    expect(canvas.queryByText("Workspace settings")).toBeNull()
   },
 }
 

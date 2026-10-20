@@ -103,7 +103,9 @@ export function WorkspaceActivityHeatmap(props: {
             background: "transparent",
           },
           focusRing: false,
-          margin: { top: 0, right: 0, bottom: 0, left: 28 },
+          // No `bottom`: the chart measures the month labels and keeps them
+          // in its box, so they do not go over the Recent header.
+          margin: { top: 0, right: 0, left: 28 },
         },
         {
           tooltip: {
@@ -137,7 +139,7 @@ export function WorkspaceActivityHeatmap(props: {
           : undefined
       }
       className={cn(
-        "w-full min-w-0 text-xs text-muted-foreground",
+        "h-32 w-full min-w-0 text-xs text-muted-foreground",
         onSelectDate && "cursor-pointer",
       )}
     />

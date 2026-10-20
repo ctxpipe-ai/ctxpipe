@@ -13,7 +13,7 @@ function isNonEmptyRecord(value: Record<string, unknown>): boolean {
 }
 
 /** Map canonical parameters to native Bedrock Converse fields. */
-export function lowerBedrockConverseParams(params: ModelParams | undefined):
+function lowerBedrockConverseParams(params: ModelParams | undefined):
   | {
       maxTokens?: number
       topP?: number

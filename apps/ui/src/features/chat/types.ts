@@ -3,11 +3,6 @@ import type { ApiClient } from "@/lib/api"
 
 export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
 
-export type ChatTextPart = {
-  type: "text"
-  content: string
-}
-
 export type ChatMessage = {
   id: string
   role: "system" | "user" | "assistant"

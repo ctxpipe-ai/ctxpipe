@@ -14,7 +14,6 @@ import {
   decodeLinearTokens,
   decodeNotionTokens,
   decodePagerdutyTokens,
-  decodeSlackBotToken,
   encodeLinearTokensForDb,
   encodeNotionTokensForDb,
   encodePagerdutyTokensForDb,
@@ -531,14 +530,6 @@ export function slackShapeToConfig(
     branch: input.branch,
     enabled: input.enabled,
   })
-}
-
-export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
-  if (row.type !== CONNECTION_TYPE_SLACK) return false
-  const stored = parseSlackConnectionStored(
-    row.config as Record<string, unknown>,
-  )
-  return decodeSlackBotToken(stored, env) != null
 }
 
 export function pagerdutyConnectionToShape(

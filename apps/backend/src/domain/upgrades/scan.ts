@@ -53,7 +53,7 @@ import { formatOneLinkedRepositories } from "./steps/export-and-sources.js"
 
 type ScannedWorkspace = Awaited<ReturnType<typeof listOrgWorkspaces>>[number]
 
-export type WorkspaceUpgradeScanResult =
+type WorkspaceUpgradeScanResult =
   | { kind: "none"; reason: "no_steps" | "unknown_format" | "not_upgradable" }
   | { kind: "current"; format: number }
   | { kind: "pending"; key: string; status: UpgradeStatus }
@@ -77,6 +77,23 @@ export async function currentWorkspaceFormat(
   env: Env,
 ): Promise<number | null> {
   if (workspace.formatVersion !== null) return workspace.formatVersion
+  const read = await readWorkspaceFormatFileAt(orgId, workspace, env)
+  if (!read) return null
+  return read.kind === "format" ? read.format : -1
+}
+
+/**
+ * Read the format file at the projected commit of the Workspace. Null when
+ * the Workspace has no projected commit yet.
+ */
+export async function readWorkspaceFormatFileAt(
+  orgId: string,
+  workspace: Pick<
+    ScannedWorkspace,
+    "desiredSha" | "workspaceRepositoryUrl" | "githubConnectionId" | "rootPath"
+  >,
+  env: Env,
+): Promise<ReturnType<typeof readWorkspaceFormat> | null> {
   if (!workspace.desiredSha) return null
   const token = await resolveRepositoryReadCredential({
     orgId,
@@ -95,10 +112,9 @@ export async function currentWorkspaceFormat(
     ),
     token,
   })
-  const read = readWorkspaceFormat(
+  return readWorkspaceFormat(
     file.kind === "bytes" ? Buffer.from(file.bytes).toString("utf8") : null,
   )
-  return read.kind === "format" ? read.format : -1
 }
 
 /**

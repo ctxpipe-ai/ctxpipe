@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../app/env.js"
+import { recordApiKeyEvent } from "../../auth/api-key-events.js"
 import {
   listPersonalApiKeyOrganizations,
   setPersonalApiKeyOrganizations,
@@ -95,19 +96,48 @@ const NOT_SESSION = "Sign in to manage API keys"
 export const meApiKeysRoutes = new OpenAPIHono<AppEnv>()
   .openapi(listRoute, async (c) => {
     const userId = sessionUserId(c)
-    if (!userId) return c.json({ error: NOT_SESSION }, 403)
-    return c.json({ keys: await listPersonalApiKeyOrganizations(userId) }, 200)
+    if (!userId) {
+      recordApiKeyEvent({
+        step: "api_key.organizations.list",
+        outcome: "not_session",
+        apiKey: {},
+      })
+      return c.json({ error: NOT_SESSION }, 403)
+    }
+    const keys = await listPersonalApiKeyOrganizations(userId)
+    recordApiKeyEvent({
+      step: "api_key.organizations.list",
+      outcome: "success",
+      actorId: userId,
+      apiKey: { count: keys.length },
+    })
+    return c.json({ keys }, 200)
   })
   .openapi(setRoute, async (c) => {
     const userId = sessionUserId(c)
-    if (!userId) return c.json({ error: NOT_SESSION }, 403)
     const { keyId } = c.req.valid("param")
     const { organizationIds } = c.req.valid("json")
+    const record = (outcome: string) =>
+      recordApiKeyEvent({
+        step: "api_key.organizations.set",
+        outcome,
+        actorId: userId,
+        apiKey: {
+          id: keyId,
+          read_only: true,
+          organization_count: new Set(organizationIds).size,
+        },
+      })
+    if (!userId) {
+      record("not_session")
+      return c.json({ error: NOT_SESSION }, 403)
+    }
     const result = await setPersonalApiKeyOrganizations({
       userId,
       keyId,
       organizationIds,
     })
+    record(result === "ok" ? "success" : result)
     if (result === "not_found")
       return c.json({ error: "API key not found" }, 404)
     if (result === "empty")

@@ -11,20 +11,25 @@ import {
   IconUsersPlus,
 } from "@tabler/icons-react"
 import { useNavigate } from "@tanstack/react-router"
-import { type ReactNode, useState } from "react"
+import { type ReactNode, useState, useSyncExternalStore } from "react"
 import {
   Button as RACButton,
   ProgressBar as RACProgressBar,
 } from "react-aria-components"
+import { toast } from "sonner"
 import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Button } from "@/components/ui/Button"
 import { Disclosure, DisclosurePanel } from "@/components/ui/Disclosure"
-import { Skeleton, SkeletonText } from "@/components/ui/Skeleton"
+import { Link as TextLink } from "@/components/ui/Link"
+import { CopyableBlock } from "@/features/connectors/components/github-setup/CopyableBlock"
 import { useGithubConnectFlow } from "@/features/connectors/useGithubConnectFlow"
 import { sectionHeadingClassName } from "@/features/home/WorkspaceActivity"
+import { WorkspaceAddRepositoriesDialog } from "@/features/workspace-sources/GithubSourceRepositories"
+import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources"
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { editorSetupCommand, recordMcpConfigCopied } from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
@@ -85,7 +90,8 @@ type ReadyGuide = Extract<SetupGuide, { status: "ready" }>
  * The "Get started" checklist on Home (CTX-552). Each row reads real data;
  * no click marks a row done. `onAsk` fills and focuses the Home composer.
  * `onCreateWorkspace` opens Add Workspace on Home, so the guide shows the
- * build after the dialog closes.
+ * build after the dialog closes. "Link repositories" opens Add repositories
+ * on Home too, so the row shows "Awaiting merge" after the pull request.
  */
 export function SetupGuideCard(props: {
   orgSlug: string
@@ -99,8 +105,10 @@ export function SetupGuideCard(props: {
   // An empty org slug turns off the flow's queries for a member.
   const github = useGithubConnectFlow({
     orgSlug: guide.role === "admin" ? orgSlug : "",
+    onRegistrationFailed: (message) => toast.error(message),
   })
   const landing = guide.landing
+  const [addRepositoriesOpen, setAddRepositoriesOpen] = useState(false)
   const openWorkspace = (pane: string | undefined) => {
     if (!landing) return
     selectNav({ orgSlug, primary: "workspace", workspaceSlug: landing.slug })
@@ -113,7 +121,7 @@ export function SetupGuideCard(props: {
   const actions: GuideActions = {
     github: {
       label: "Connect GitHub",
-      isPending: github.isSyncing,
+      isPending: github.isPending || github.isSyncing,
       onPress: () => github.start("connect"),
     },
     // Only an owner or admin can pick the repository of a Workspace.
@@ -122,7 +130,10 @@ export function SetupGuideCard(props: {
         ? { label: "Create Workspace", onPress: onCreateWorkspace }
         : { label: "Ask an admin to create a Workspace." },
     repositories: landing
-      ? { label: "Link repositories", onPress: () => openWorkspace("settings") }
+      ? {
+          label: "Link repositories",
+          onPress: () => setAddRepositoriesOpen(true),
+        }
       : undefined,
     ask: onAsk ? { label: "Ask", onPress: onAsk } : undefined,
     tool: {
@@ -163,6 +174,14 @@ export function SetupGuideCard(props: {
         onOpenBuild={() => openWorkspace(undefined)}
       />
       {guide.role === "admin" ? github.SelfHostedWizardModal : null}
+      {landing ? (
+        <WorkspaceAddRepositoriesDialog
+          orgSlug={orgSlug}
+          workspaceSlug={landing.slug}
+          isOpen={addRepositoriesOpen}
+          onOpenChange={setAddRepositoriesOpen}
+        />
+      ) : null}
     </>
   )
 }
@@ -302,6 +321,9 @@ function GuideRows(props: {
                 <p className="mt-0.5 text-sm text-muted-foreground">
                   {copy.body}
                 </p>
+                {row.pending ? (
+                  <AwaitingMergeLink change={row.pending} />
+                ) : null}
                 <ActionButton
                   action={props.actions[row.id]}
                   variant="primary"
@@ -319,6 +341,7 @@ function GuideRows(props: {
             <p className="min-w-0 flex-1 truncate text-sm text-zinc-300">
               {copy.title}
             </p>
+            {row.pending ? <AwaitingMergeLink change={row.pending} /> : null}
             <ActionButton
               action={props.actions[row.id]}
               variant="quiet"
@@ -331,13 +354,65 @@ function GuideRows(props: {
   )
 }
 
+const noSubscribe = () => () => {}
+
+/**
+ * Connects the user's own agents to ctx| (CTX-871). It is not a counted
+ * row: no signal tells that a client uses the MCP server. The command names
+ * the origin of this app, so it also works on a self-hosted deployment or a
+ * preview.
+ */
+export function EditorSetupStep() {
+  // The server holds no public origin (its config names the private backend
+  // URL), so the server and hydration value is `null`. The field stays empty
+  // and Copy stays off until the browser origin replaces it.
+  const origin = useSyncExternalStore(
+    noSubscribe,
+    () => window.location.origin,
+    () => null,
+  )
+  const command = origin ? editorSetupCommand(origin) : ""
+  return (
+    <div className="mt-1 flex items-start gap-3 px-2 py-2">
+      <span className="ctx-node size-7 text-zinc-300 [&>svg]:size-4">
+        <IconTerminal2 stroke={1.5} aria-hidden />
+      </span>
+      <div className="min-w-0 flex-1">
+        <p className="text-sm font-medium text-foreground">
+          Use ctx| from your agents
+        </p>
+        <p className="text-sm text-muted-foreground">
+          Works with Cursor, Claude Code, Codex, and any MCP client.{" "}
+          <TextLink
+            href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
+            target="_blank"
+            rel="noopener noreferrer"
+            variant="secondary"
+          >
+            Setup guide
+          </TextLink>
+        </p>
+        {/* A long command scrolls inside the field, so Copy stays in view. */}
+        <div className="mt-2" title={command || undefined}>
+          <CopyableBlock
+            value={command}
+            copyAriaLabel="Copy setup command"
+            copiedAriaLabel="Setup command copied"
+            copyErrorMessage="Could not copy. Copy the command manually."
+            onCopied={() => recordMcpConfigCopied("setup_command")}
+          />
+        </div>
+      </div>
+    </div>
+  )
+}
+
 function SetupGuidePanel(props: {
   guide: ReadyGuide
   actions: GuideActions
   onOpenBuild: () => void
 }) {
   const { guide, actions } = props
-  const [moreOpen, setMoreOpen] = useState(false)
   const { view } = guide
 
   if (view.kind === "hidden") return null
@@ -433,48 +508,7 @@ function SetupGuidePanel(props: {
             primaryId={view.next}
             onOpenBuild={props.onOpenBuild}
           />
-          <Disclosure isExpanded={moreOpen} onExpandedChange={setMoreOpen}>
-            <RACButton
-              slot="trigger"
-              className={cn(
-                "mt-1 flex w-full items-center gap-1.5 rounded-md px-2 py-2 text-left text-xs text-muted-foreground hover:text-foreground",
-                focusVisibleClassName,
-              )}
-            >
-              <IconChevronRight
-                className={cn(
-                  "size-3.5 transition-transform",
-                  moreOpen && "rotate-90",
-                )}
-                aria-hidden
-              />
-              More
-            </RACButton>
-            <DisclosurePanel>
-              <div className="flex items-center gap-3 px-2 py-2">
-                <span className="ctx-node size-7 text-muted-foreground [&>svg]:size-4">
-                  <IconTerminal2 stroke={1.5} aria-hidden />
-                </span>
-                <div className="min-w-0 flex-1">
-                  <p className="text-sm text-zinc-300">
-                    Use it from your editor
-                  </p>
-                  <p className="text-xs text-muted-foreground">
-                    Add the ctx| MCP server to Cursor or Claude Code.
-                  </p>
-                </div>
-                <Button
-                  variant="quiet"
-                  className="h-7 px-1 text-xs"
-                  href="https://docs.ctxpipe.ai/docs/mcp/mcp-docs"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  Set up
-                </Button>
-              </div>
-            </DisclosurePanel>
-          </Disclosure>
+          <EditorSetupStep />
         </DisclosurePanel>
       </Disclosure>
     </section>
@@ -482,50 +516,11 @@ function SetupGuidePanel(props: {
 }
 
 /**
- * Holds the place of the guide while its signals load. It has the box of the
- * collapsed card, or of the expanded admin card with the first row open.
+ * Names the guide for the view transition that shows it (`useRevealOnce`).
+ * The guide may not show at all, so it holds no space while it loads.
  */
-export function SetupGuideSkeleton(props: { collapsed: boolean }) {
+export function SetupGuideReveal(props: { children: ReactNode }) {
   return (
-    <section
-      aria-busy
-      className="rounded-md bg-zinc-900/60 p-2 ring-1 ring-zinc-800"
-    >
-      <span className="sr-only">Loading the setup guide</span>
-      <div
-        className={cn(
-          "flex items-center gap-x-3 px-2 pt-1",
-          props.collapsed ? "pb-1" : "pb-2",
-        )}
-      >
-        <Skeleton className="h-7 w-48" />
-      </div>
-      {props.collapsed ? null : (
-        // The disclosure panel of the card has `pt-0.5`.
-        <div className="pt-0.5">
-          <ul className="space-y-1">
-            <li className="flex items-start gap-3 rounded-md px-2 py-3">
-              <Skeleton className="size-7 shrink-0" />
-              <div className="min-w-0 flex-1">
-                <div className="pt-1">
-                  <SkeletonText className="text-sm" boneClassName="w-40" />
-                </div>
-                <SkeletonText className="mt-0.5 text-sm" boneClassName="w-72" />
-                <Skeleton className="mt-3 block h-9 w-32" />
-              </div>
-            </li>
-            {[0, 1, 2, 3, 4].map((row) => (
-              <li key={row} className="flex items-center gap-3 px-2 py-2">
-                <Skeleton className="size-7 shrink-0" />
-                <SkeletonText className="flex-1 text-sm" boneClassName="w-48" />
-              </li>
-            ))}
-          </ul>
-          <div className="mt-1 px-2 py-2">
-            <SkeletonText className="text-xs" boneClassName="w-12" />
-          </div>
-        </div>
-      )}
-    </section>
+    <div className="[view-transition-name:home-guide]">{props.children}</div>
   )
 }

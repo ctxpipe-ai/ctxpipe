@@ -29,7 +29,7 @@ import { GitOutputTooLargeError, runGit } from "./run-git.js"
  * paths that a step cites cannot send a signal to that host.
  */
 
-export type SourceTree = {
+type SourceTree = {
   /** Each file path at the SHA. */
   paths(): Promise<string[]>
   /** True when `path` (a file or a folder) exists at the SHA. */

@@ -28,6 +28,7 @@ import {
 import { withIngestStepOutput } from "../../domain/ingestion/ingest-step-output.js"
 import {
   capIngestText,
+  ingestErrorFields,
   logIngestEvent,
   withIngestSpan,
 } from "../../domain/ingestion/ingest-telemetry.js"
@@ -171,7 +172,7 @@ type StepResult = (
     }
   | { partial: true }
 ) & {
-  /** The model usage of the step's attempts, when the runtime reports it (the re-ingestion cost cap reads it). */
+  /** The model usage of the step's attempts, when the runtime reports it (the recorded spend reads it). */
   usage?: IngestStepUsage
 }
 
@@ -634,7 +635,7 @@ async function attemptSkillStep(
           workspaceId: destination.workspaceId,
           ingestStep: ctx.name,
           reason:
-            "The model step reported no usage: the spend of the run is unknown, and the cost cap counts only the known spend",
+            "The model step reported no usage: the spend of the run is unknown, and the recorded spend counts only the known part",
         })
       usage = addIngestUsage(usage, stepUsage)
       stage = "push"
@@ -693,8 +694,8 @@ async function attemptSkillStep(
       const refused = error instanceof IngestRefRefusedError
       reason = refused ? "broker_refused" : "step_failed"
       // The error text can hold source text, so the log has only where the
-      // attempt failed: the stage, the step command and its exit code, or
-      // the time limit.
+      // attempt failed (the stage, the step command and its exit code, or
+      // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
       logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
         ingestionRunId: run.runId,
@@ -704,6 +705,13 @@ async function attemptSkillStep(
         attempt,
         stage: signal.aborted ? "time-limit" : (command?.part ?? stage),
         ...(command ? { exitCode: command.exitCode } : {}),
+        ...(command?.model
+          ? {
+              modelCalls: command.model.calls,
+              modelErrors: command.model.errors,
+            }
+          : {}),
+        ...ingestErrorFields(error),
       })
       span.setAttribute(
         "error.type",
@@ -729,9 +737,12 @@ function addIngestUsage(
   const [a, b] = [cost(total), cost(next)]
   const costUsd = a !== undefined && b !== undefined ? a + b : undefined
   const unknownSteps = (total.unknownSteps ?? 0) + (next.unknownSteps ?? 0)
+  const cacheReadTokens =
+    (total.cacheReadTokens ?? 0) + (next.cacheReadTokens ?? 0)
   return {
     inputTokens: total.inputTokens + next.inputTokens,
     outputTokens: total.outputTokens + next.outputTokens,
+    ...(cacheReadTokens ? { cacheReadTokens } : {}),
     ...(costUsd !== undefined ? { costUsd } : {}),
     ...(unknownSteps ? { unknownSteps } : {}),
   }

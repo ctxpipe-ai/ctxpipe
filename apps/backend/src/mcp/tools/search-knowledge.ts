@@ -40,7 +40,7 @@ const hitSchema = z.object({
  * The claims of a unit on one line: at most five `PREDICATE target` pairs,
  * then the number of the others. Undefined when the unit has no claim.
  */
-export function claimSummary(
+function claimSummary(
   claims: readonly { predicate: string | null; to: string }[],
 ): string | undefined {
   if (claims.length === 0) return undefined

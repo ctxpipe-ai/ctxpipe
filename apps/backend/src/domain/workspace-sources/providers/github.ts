@@ -77,7 +77,7 @@ export function githubScopeRepositories(
   )
 }
 
-export type GithubSourceScope = z.infer<typeof githubScopeSchema>
+type GithubSourceScope = z.infer<typeof githubScopeSchema>
 
 /**
  * The GitHub source scope: the repositories linked to the Workspace. ctx|
@@ -101,12 +101,10 @@ export const githubSourceScope: SourceScopeDefinition = {
  * repository and an optional `ref`. Thus each file holds one pin, and the
  * provenance of a unit is for one repository.
  */
-export const githubFileScopeSchema = z.strictObject({
+const githubFileScopeSchema = z.strictObject({
   repository: repositoryNameSchema,
   ref: refSchema.optional(),
 })
-
-export type GithubFileScope = z.infer<typeof githubFileScopeSchema>
 
 /** The GitHub scope of a source file under `sources/github/`. */
 export const githubFileSourceScope: SourceScopeDefinition = {

@@ -1,7 +1,7 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, http } from "msw"
 import { Toaster } from "sonner"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
   upgradeItemFixture,
@@ -12,7 +12,8 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
-import { UpgradeItemCard, WorkspaceUpgrades } from "./WorkspaceUpgrades"
+import type { WorkspaceUpgradeItem } from "./queries"
+import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const startRequests: string[] = []
 const checkRequests: string[] = []
@@ -210,6 +211,37 @@ export const Running: Story = {
       ).toBeVisible(),
     )
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+  },
+}
+
+/** A re-ingestion that waits for a free sandbox slot (CTX-908). */
+export const WaitingForSandbox: Story = {
+  parameters: withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          kind: "reingest",
+          title: "Ingest the source repositories again",
+          status: "running",
+          waitingForSlot: {
+            reason: "The re-ingestion slots of this instance are full.",
+            since: new Date(Date.now() - 12 * 60_000 - 5_000).toISOString(),
+          },
+        }),
+      ]),
+    ),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () => {
+      expect(
+        await canvas.findByText("Waiting for a free sandbox"),
+      ).toBeVisible()
+      expect(await canvas.findByText(/for 12 min\./)).toBeVisible()
+    })
+    await waitFor(() =>
+      expect(canvas.queryByText("Preparing the pull request")).toBeNull(),
+    )
   },
 }
 
@@ -463,6 +495,104 @@ export const Failed: Story = {
   },
 }
 
+/** A failed re-ingestion item with a classified cause (CTX-895). */
+function failedReingest(failure: NonNullable<WorkspaceUpgradeItem["failure"]>) {
+  return withUpgrades(
+    workspaceUpgradesHandler(
+      upgradesFixture([
+        upgradeItemFixture({
+          key: "reingest-3",
+          kind: "reingest",
+          title: "Fresh re-ingestion of the source repositories",
+          status: "failed",
+          steps: [],
+          failureReason:
+            "The re-ingestion did not finish for acme/ky. Start it again.",
+          failure,
+        }),
+      ]),
+    ),
+  )
+}
+
+const REINGEST_START =
+  "Start again: Fresh re-ingestion of the source repositories"
+
+/** The CTX-895 case: another run published first, and the merge failed. */
+export const FailedPublishConflict: Story = {
+  parameters: failedReingest({
+    code: "publish_conflict",
+    step: "publish",
+    repository: "acme/ky",
+    summary:
+      "The semantic merge failed: The model did not call the structured output tool",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "Failed step: Publish to the Workspace (acme/ky).",
+        ),
+      ).toBeVisible(),
+    )
+    expect(
+      canvas.getByText(
+        "The Workspace changed while ctx| published, and ctx| could not merge the files.",
+      ),
+    ).toBeVisible()
+    expect(
+      canvas.getByText(/^Details: The semantic merge failed/),
+    ).toBeVisible()
+    // The fix is one sentence: no second "start it again".
+    expect(canvas.getAllByText(/start it again/i)).toHaveLength(1)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: REINGEST_START }),
+    )
+    await waitFor(() => expect(startRequests).toHaveLength(1))
+  },
+}
+
+export const FailedSourceAccess: Story = {
+  parameters: failedReingest({
+    code: "source_access",
+    step: "read_source",
+    repository: "acme/ky",
+    summary:
+      "ctx| cannot read the default branch of the repository. Repository not found.",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Reconnect GitHub" })
+    expect(link).toHaveAttribute("href", "/acme/connectors")
+    expect(
+      canvas.getByText("Failed step: Read the source repository (acme/ky)."),
+    ).toBeVisible()
+  },
+}
+
+const fixPrompts = fn()
+
+export const FailedUnknown: Story = {
+  args: { onFixWithAgent: fixPrompts },
+  parameters: failedReingest({
+    code: "unknown",
+    step: "ingest",
+    repository: "acme/ky",
+    summary: "The ingestion run failed: something odd happened",
+  }),
+  play: async ({ canvasElement }) => {
+    fixPrompts.mockClear()
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", { name: "Fix using agent" }),
+    )
+    expect(fixPrompts).toHaveBeenCalledWith(
+      'The upgrade "Fresh re-ingestion of the source repositories" of this Workspace failed at the step "Ingest the source repository (acme/ky)". ctx| recorded: The ingestion run failed: something odd happened Find the cause, and tell me how to fix it.',
+    )
+  },
+}
+
 export const Blocked: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
@@ -564,7 +694,7 @@ async function expectReingestCard(canvasElement: HTMLElement, title: string) {
   )
   await waitFor(() =>
     expect(
-      canvas.getByText(/reads each source repository again/),
+      canvas.getByText(/Ingests each source repository again/),
     ).toBeVisible(),
   )
   expect(canvas.queryByText(/opens one pull request/)).toBeNull()
@@ -737,51 +867,28 @@ export const LoadError: Story = {
 }
 
 /**
- * The slot for the cost estimate of a re-ingestion item (CTX-746). The item
- * list fills it when the API gives an estimate.
+ * The card says what the upgrade does to the Workspace repository. It shows
+ * no cost or time estimate: the range was too wide to help (CTX-894).
  */
-export const EstimateSlot: Story = {
-  render: () => (
-    <ul>
-      <UpgradeItemCard
-        item={upgradeItemFixture({
-          key: "reingest",
-          title: "Ingest the Workspace sources again",
-          steps: [],
-        })}
-        isAdmin
-        onStart={() => {}}
-        estimate={<span>Estimated cost: about 4 USD for 120 files.</span>}
-      />
-    </ul>
-  ),
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await waitFor(async () =>
-      expect(
-        await canvas.findByText("Estimated cost: about 4 USD for 120 files."),
-      ).toBeVisible(),
-    )
-  },
-}
-
-/** The estimate of the item shows in its card when the API gives one. */
-export const EstimateFromItem: Story = {
+export const DescriptionWithoutEstimate: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture([
         upgradeItemFixture({
           key: "reingest",
-          title: "Ingest the Workspace sources again",
+          title: "Fresh re-ingestion of the source repositories",
+          description:
+            "Ingests each source repository again with the new ingestion and publishes the new knowledge files under knowledge/. This uses model calls, so it costs money.",
           steps: [],
           kind: "reingest",
           estimate: {
             repositories: 1,
-            costUsd: { low: 1.2, high: 4.8 },
-            minutes: { low: 10, high: 30 },
+            costUsd: { low: 0.28, high: 3.36 },
+            minutes: { low: 10, high: 92 },
             perRepository: [],
           },
         }),
+        upgradeItemFixture(),
       ]),
     ),
   ),
@@ -790,10 +897,16 @@ export const EstimateFromItem: Story = {
     await waitFor(async () =>
       expect(
         await canvas.findByText(
-          "Estimated cost: $1.20 to $4.80 for 1 repository, about 10 to 30 minutes.",
+          /publishes the new knowledge files under knowledge\//,
         ),
       ).toBeVisible(),
     )
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(/into \.ctxpipe\/sources\.yaml/),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(canvas.queryByText(/Estimated cost/)).toBeNull())
   },
 }
 

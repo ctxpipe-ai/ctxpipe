@@ -9,7 +9,7 @@ import { McpToolError } from "./tool-errors.js"
  * (ADR-051 §4): a knowledge unit path, or `<handle>:<path>` for a file of a
  * linked repository.
  */
-export type ParsedRef =
+type ParsedRef =
   | { kind: "unit"; path: string }
   | { kind: "file"; handle: string; url: string; path: string }
 

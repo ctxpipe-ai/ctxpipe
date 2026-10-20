@@ -1,7 +1,13 @@
 import { execFile } from "node:child_process"
+import { randomUUID } from "node:crypto"
+import { createServer } from "node:http"
+import type { AddressInfo } from "node:net"
 import { promisify } from "node:util"
-import { eq } from "drizzle-orm"
+import { OpenAPIHono } from "@hono/zod-openapi"
+import { and, eq } from "drizzle-orm"
+import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
+import { BackendPostgres } from "openworkflow/postgres"
 import {
   afterAll,
   beforeAll,
@@ -11,6 +17,7 @@ import {
   it,
   vi,
 } from "vitest"
+import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
   closeDb,
@@ -20,16 +27,45 @@ import {
 } from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { generateObjectId } from "../../lib/id.js"
 import { sandboxGitTokenStore } from "../../models/sandbox-git-tokens.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { workspaceChatOpenaiRoutes } from "../../routes/v1/workspace-chat-openai.js"
 import { withAgentVault } from "../../test/agent-vault-fixture.js"
 import { listenWithDockerOutsideMsw } from "../../test/docker-outside-msw.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import {
   type GithubTokenLog,
   githubTokenHandlers,
   insertGithubConnection,
   stubGithubApp,
 } from "../../test/ingest-github.js"
+import {
+  ingestAgentCommand,
+  ingestOpenCodeConfig,
+} from "../ingestion/ingest-opencode.js"
+import {
+  ingestModelRunCommand,
+  parseOpenCodeUsage,
+} from "../ingestion/ingest-opencode-usage.js"
+import { prepareIngestSandbox } from "../ingestion/ingest-prepare.js"
+import { dockerRootExec } from "../ingestion/ingest-root.js"
+import {
+  ingestAgentEnv,
+  probeIngestModelProxy,
+} from "../ingestion/ingest-shard-ops.js"
+import {
+  INGEST_TOOL_BRIDGE_PATH,
+  ingestToolBridgeRoutes,
+} from "../ingestion/ingest-tools.js"
+import {
+  INGESTION_V2_WORKFLOW_NAME,
+  type IngestionV2RunInput,
+} from "../ingestion/ingestion-run.js"
 import { setRunVaultRules } from "./agent-vault.js"
 import { ingestSandboxThreadId } from "./chat-lifecycle.js"
 import { workspaceChatDockerImage } from "./chat-runtime.js"
@@ -39,6 +75,8 @@ import {
   ingestCredentialRules,
   refreshIngestSandboxEgress,
 } from "./ingest-sandbox-egress.js"
+import { workspaceChatCompletionsPath } from "./workspace-chat-model-proxy.js"
+import { mintWorkspaceIngestRunCapability } from "./workspace-chat-run-capability.js"
 
 const exec = promisify(execFile)
 const image = workspaceChatDockerImage()
@@ -119,6 +157,103 @@ async function containerExists(id: string): Promise<boolean> {
 
 const code = (args: string) =>
   `curl -sS -m 20 -o /dev/null -w "%{http_code}" ${args} 2>/dev/null || true`
+
+/** The model provider behind the backend model proxy (msw). */
+const MODEL_PROVIDER_URL = "http://model-provider.test/v1"
+
+/**
+ * The backend's model proxy and ingest tool bridge on a port of this
+ * machine, as Compose serves them to Agent Vault on the `sandbox` network.
+ */
+async function serveBackend(): Promise<{
+  port: number
+  close: () => Promise<void>
+}> {
+  const env = parseEnv({
+    ...process.env,
+    MODEL_PROVIDER: "openai-like",
+    MODEL_PROVIDER_URL,
+    MODEL_PROVIDER_API_KEY: "sk-upstream",
+    MODEL_FAST_NAME: "test/model-fast",
+  })
+  const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
+  app.use("*", async (c, next) => {
+    c.set("env", env)
+    await next()
+  })
+  app.route(
+    "/:orgSlug/api/v1/workspace-chat/openai",
+    new OpenAPIHono<AppEnv>().route("/", workspaceChatOpenaiRoutes),
+  )
+  app.route("/", ingestToolBridgeRoutes)
+  const server = createServer(async (req, res) => {
+    const chunks: Buffer[] = []
+    for await (const chunk of req) chunks.push(chunk as Buffer)
+    const headers = new Headers()
+    for (let i = 0; i < req.rawHeaders.length; i += 2)
+      headers.append(req.rawHeaders[i] ?? "", req.rawHeaders[i + 1] ?? "")
+    const response = await app.fetch(
+      new Request(`http://backend.test${req.url}`, {
+        method: req.method,
+        headers,
+        ...(req.method === "GET" || req.method === "HEAD"
+          ? {}
+          : { body: Buffer.concat(chunks) }),
+      }),
+    )
+    res.writeHead(response.status, Object.fromEntries(response.headers))
+    const reader = response.body?.getReader()
+    for (;;) {
+      const next = await reader?.read()
+      if (!next || next.done) break
+      res.write(next.value)
+    }
+    res.end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, "0.0.0.0", resolve))
+  return {
+    port: (server.address() as AddressInfo).port,
+    close: () => new Promise((resolve) => server.close(() => resolve())),
+  }
+}
+
+/** One streamed answer of an OpenAI-compatible provider, with its usage. */
+function streamedAnswer(): Response {
+  const chunk = (body: object) => `data: ${JSON.stringify(body)}\n\n`
+  const base = {
+    id: "c",
+    object: "chat.completion.chunk",
+    created: 1,
+    model: "test",
+  }
+  return new HttpResponse(
+    [
+      chunk({
+        ...base,
+        choices: [
+          {
+            index: 0,
+            delta: { role: "assistant", content: "done" },
+            finish_reason: null,
+          },
+        ],
+      }),
+      chunk({
+        ...base,
+        choices: [{ index: 0, delta: {}, finish_reason: "stop" }],
+      }),
+      chunk({
+        ...base,
+        choices: [],
+        usage: { prompt_tokens: 100, completion_tokens: 10, total_tokens: 110 },
+      }),
+      "data: [DONE]\n\n",
+    ].join(""),
+    { headers: { "content-type": "text/event-stream" } },
+  )
+}
 
 describe("the Docker ingest sandbox has closed egress", () => {
   it(
@@ -334,6 +469,152 @@ echo`,
         expect(await containerExists(kept.id)).toBe(false)
         expect(log.revoked).toEqual([fixture.gitToken])
       })
+    },
+  )
+
+  it(
+    "an ingest model step reaches the model through Agent Vault and the backend model proxy",
+    { timeout: 480_000 },
+    async () => {
+      const upstreamCalls: string[] = []
+      github.use(
+        http.post(`${MODEL_PROVIDER_URL}/chat/completions`, ({ request }) => {
+          upstreamCalls.push(request.headers.get("authorization") ?? "")
+          return streamedAnswer()
+        }),
+      )
+      const backend = await serveBackend()
+      const workflows = await BackendPostgres.connect(
+        process.env.DATABASE_URL ?? "",
+        { runMigrations: false, namespaceId: openWorkflowNamespaceId() },
+      )
+      const run = await workflows.createWorkflowRun({
+        workflowName: INGESTION_V2_WORKFLOW_NAME,
+        version: null,
+        idempotencyKey: null,
+        config: {},
+        context: null,
+        input: { orgId, shadow: true } satisfies IngestionV2RunInput,
+        parentStepAttemptNamespaceId: null,
+        parentStepAttemptId: null,
+        // Never due: no worker claims it.
+        availableAt: new Date(Date.now() + 365 * 24 * 60 * 60_000),
+        deadlineAt: null,
+      })
+      const lockKey = ingestSandboxThreadId(run.id, 0)
+      const lockOwner = randomUUID()
+      try {
+        // The step holds the shard lock, as `withShardLock` does.
+        await withOrgDbContext(orgId, (db) =>
+          db.insert(sandboxLocks).values({
+            orgId,
+            key: lockKey,
+            owner: lockOwner,
+            expiresAt: new Date(Date.now() + 10 * 60_000),
+          }),
+        )
+        await withAgentVault(
+          { image, closed: true, backendPort: backend.port },
+          async (fixture) => {
+            // The origin of the backend as the sandbox sees it (Compose:
+            // `http://backend.sandbox.ctxpipe.internal:3000`).
+            const origin = `http://${fixture.upstream}:3000`
+            const modelProxyUrl = `${origin}${workspaceChatCompletionsPath(orgId)}`
+            const provider = dockerIngestSandboxProvider({
+              orgId,
+              runId: run.id,
+              shard: 0,
+              image,
+              access: fixture.access,
+              network: fixture.sandboxNetwork,
+              egress: {
+                repositories: [],
+                modelProxyUrl,
+                capability: await mintWorkspaceIngestRunCapability({
+                  authSecret: parseEnv(process.env).AUTH_SECRET,
+                  orgId,
+                  orgSlug: orgId,
+                  runId: run.id,
+                  shard: 0,
+                  step: "skill:repository:decisions",
+                  lockOwner,
+                }),
+                bridge: {
+                  url: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
+                  token: "ctxpipe-no-tools",
+                },
+              },
+            })
+            const handle = await provider.create({})
+            try {
+              const root = dockerRootExec(handle.id)
+              const agentEnv = await ingestAgentEnv(root, { modelProxyUrl })
+              await prepareIngestSandbox(handle, root, {
+                bundle: { name: "ingest-test", skills: [], files: [] },
+                opencodeConfig: ingestOpenCodeConfig({
+                  modelBase: "test/model-medium",
+                  models: ["test/model-fast"],
+                  skills: [],
+                  proxyAddsCredentials: true,
+                  toolBridgeUrl: `${origin}${INGEST_TOOL_BRIDGE_PATH}`,
+                }),
+              })
+              // The probe that prepare logs before the first model step.
+              const probe = await probeIngestModelProxy(root, agentEnv)
+              // The model command of a step, as the agent, with the step's
+              // environment (`runIngestShardStep`). A model path that does
+              // not answer ends here, not at the 10-minute step limit.
+              const result = await root(
+                ingestAgentCommand({
+                  env: agentEnv,
+                  command: ingestModelRunCommand({
+                    prompt: "Say done.",
+                    model: "ctxpipe/test/model-fast",
+                  }),
+                }),
+                { signal: AbortSignal.timeout(240_000) },
+              ).catch((error: unknown) => ({
+                exitCode: -2,
+                stdout: "",
+                stderr: String(error),
+              }))
+              const diagnosis =
+                result.exitCode === 0
+                  ? ""
+                  : (
+                      await root(
+                        `echo "probe ${probe}; exit ${result.exitCode}: ${result.stderr.slice(-400).replace(/["$`\\]/g, "")}"
+echo "== curl models as the agent"
+${ingestAgentCommand({ env: agentEnv, command: `curl -sS -m 20 -w " %{http_code}" "$CTXPIPE_MODEL_PROXY_URL/models" 2>&1` })}
+echo "== opencode log"
+tail -c 6000 /ctxpipe/home/data/opencode/log/*.log 2>&1`,
+                      )
+                    ).stdout
+              expect(probe, diagnosis).toBe("200")
+              expect(result.exitCode, diagnosis).toBe(0)
+              expect(parseOpenCodeUsage(result.stdout), diagnosis).toEqual({
+                inputTokens: 100,
+                outputTokens: 10,
+              })
+              // The backend added the provider key; the sandbox never had it.
+              expect(upstreamCalls, diagnosis).toEqual(["Bearer sk-upstream"])
+            } finally {
+              await provider.destroy({ id: handle.id }).catch(() => undefined)
+            }
+          },
+        )
+      } finally {
+        github.resetHandlers()
+        await withOrgDbContext(orgId, (db) =>
+          db
+            .delete(sandboxLocks)
+            .where(
+              and(eq(sandboxLocks.orgId, orgId), eq(sandboxLocks.key, lockKey)),
+            ),
+        )
+        await workflows.stop()
+        await backend.close()
+      }
     },
   )
 

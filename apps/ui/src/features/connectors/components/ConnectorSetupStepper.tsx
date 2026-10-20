@@ -2,7 +2,7 @@ import { IconCheck } from "@tabler/icons-react"
 
 type StepVisualState = "done" | "current" | "upcoming" | "done_after"
 
-export type ConnectorSetupStepDef = {
+type ConnectorSetupStepDef = {
   readonly id: string
   readonly label: string
 }

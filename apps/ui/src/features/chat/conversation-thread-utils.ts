@@ -10,7 +10,7 @@ export type ToolCallSummary = {
   detail: string | null
 }
 
-export type ToolBucketCounts = {
+type ToolBucketCounts = {
   reads: number
   searches: number
   tools: number

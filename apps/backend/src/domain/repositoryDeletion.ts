@@ -134,7 +134,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
  * a separate graph per org (`selectGraph(orgId)`) so no property filter
  * is needed; `MATCH (n) DETACH DELETE n` wipes the whole tenant graph.
  */
-export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
+async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   try {
     const driver = getGraphClient()
     await driver.executeQuery("MATCH (n) DETACH DELETE n")
@@ -148,7 +148,7 @@ export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   }
 }
 
-export type RepositoryDeletionPrepareResult = {
+type RepositoryDeletionPrepareResult = {
   found: boolean
   name: string | null
   zoektRepoId: number | null
@@ -156,7 +156,7 @@ export type RepositoryDeletionPrepareResult = {
   graphEffects: IngestionRetractionGraphEffects
 }
 
-export type RepositoryPostgresPurgeResult = {
+type RepositoryPostgresPurgeResult = {
   deleted: boolean
   alreadyGone: boolean
   name: string | null
@@ -361,38 +361,6 @@ export async function applyRepositoryDeletionGraphCleanup(params: {
       error: formatUnknownError(e),
     })
   }
-}
-
-/**
- * Full cleanup when the caller already established org DB + graph context.
- *
- * Prefer phased helpers (`purgeRepositoryPostgres` then graph/codesearch
- * outside `withOrgDbContext`) for new code — this helper still runs graph and
- * codesearch after the inner PG transaction, but if the caller wraps the whole
- * call in `withOrgDbContext`, those side effects remain inside the outer txn.
- */
-export async function deleteRepositoryWithCleanup(params: {
-  orgId: string
-  repositoryId: string
-}): Promise<boolean> {
-  const pg = await purgeRepositoryPostgres(params)
-  if (pg.alreadyGone) return false
-
-  await applyRepositoryDeletionGraphCleanup({
-    repositoryId: params.repositoryId,
-    graphEffects: pg.graphEffects,
-  })
-
-  if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {
-    await notifyCodesearchRepositoryDeleted({
-      orgId: params.orgId,
-      repositoryId: params.repositoryId,
-      repoName: pg.name,
-      zoektRepoId: pg.zoektRepoId,
-    })
-  }
-
-  return pg.deleted
 }
 
 /**

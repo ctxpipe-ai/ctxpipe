@@ -16,7 +16,7 @@ import {
 } from "../repositories/paths.js"
 import { SKIP_DIRS } from "./detectLanguages.js"
 
-export type TypeScriptProject = {
+type TypeScriptProject = {
   /** Checkout-relative directory; `""` is the checkout root. */
   dir: string
   config: "tsconfig.json" | "jsconfig.json"
@@ -24,7 +24,7 @@ export type TypeScriptProject = {
   nested: string[]
 }
 
-export type TypeScriptWorkspace = {
+type TypeScriptWorkspace = {
   /** Every project, deepest first, so the checkout root runs last. */
   projects: TypeScriptProject[]
   /** Named `package.json` packages, linked when `monorepo`. */

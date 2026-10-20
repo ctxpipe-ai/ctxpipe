@@ -23,7 +23,7 @@ import {
 import { listBlocksDeep, listNotionPageTree } from "./page-tree.js"
 
 /** File captured by the Notion mirror for its typed workspace write. */
-export type NotionMirrorFile = CommitFile
+type NotionMirrorFile = CommitFile
 
 /**
  * Webhook entity types Notion delivers for live updates. `data_source` is Notion's
@@ -39,13 +39,13 @@ export type NotionEntityChange = {
   action: "upsert" | "delete"
 }
 
-export type NotionIncrementalChanges = {
+type NotionIncrementalChanges = {
   files: NotionMirrorFile[]
   deletePaths: string[]
   failures: Array<{ type: string; id: string; message: string }>
 }
 
-export const NOTION_PARENT_WALK_MAX_DEPTH = 25
+const NOTION_PARENT_WALK_MAX_DEPTH = 25
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error)
@@ -155,7 +155,7 @@ export function parentDatabaseLikeId(page: NotionPage): string | undefined {
   return undefined
 }
 
-export function parentPageId(page: NotionPage): string | undefined {
+function parentPageId(page: NotionPage): string | undefined {
   const parent = page.parent as Record<string, unknown> | undefined
   if (!parent || parent.type !== "page_id") return undefined
   const value = parent.page_id

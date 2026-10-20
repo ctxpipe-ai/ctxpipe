@@ -80,6 +80,20 @@ export function workspaceChatOpenCodeModel(modelBase: string): string {
 }
 
 /**
+ * OpenCode settings that make its first model call of a turn come sooner.
+ * Each turn starts a new OpenCode server, so its start work is on the path
+ * of every answer. The chat reads the repository with tools and needs no
+ * live index of it: no file watcher and no file search index (the glob and
+ * grep tools work without them). Measured with OpenCode 1.18.34 (CTX-848),
+ * these two and `snapshot: false` cut the time from the prompt to the first
+ * model call by about half.
+ */
+export const WORKSPACE_CHAT_OPENCODE_START_ENV = {
+  OPENCODE_EXPERIMENTAL_DISABLE_FILEWATCHER: "1",
+  OPENCODE_DISABLE_FFF: "1",
+} as const
+
+/**
  * The backend variables that an unsandboxed agent process keeps. The agent
  * runs as the backend's OS user, so every other variable, also one added
  * later, could hold a secret.
@@ -112,6 +126,7 @@ const WORKSPACE_CHAT_LOCAL_PROCESS_KEEP_ENV = new Set([
   "XDG_STATE_HOME",
   "XDG_CACHE_HOME",
   "OPENCODE_CONFIG",
+  ...Object.keys(WORKSPACE_CHAT_OPENCODE_START_ENV),
 ])
 
 /**
@@ -204,6 +219,7 @@ export function workspaceChatOpenCodeHomeEnv(
     XDG_STATE_HOME: join(home, "state"),
     XDG_CACHE_HOME: join(home, "cache"),
     OPENCODE_CONFIG: workspaceChatOpenCodeConfigPath(conversationId),
+    ...WORKSPACE_CHAT_OPENCODE_START_ENV,
     PATH: unixLoginPath(),
   }
 }
@@ -237,6 +253,7 @@ export function writeWorkspaceChatOpenCodeConfig(input: {
         XDG_STATE_HOME: `${home}/state`,
         XDG_CACHE_HOME: `${home}/cache`,
         OPENCODE_CONFIG: `${home}/opencode.json`,
+        ...WORKSPACE_CHAT_OPENCODE_START_ENV,
         PATH:
           input.isolation === "vercel"
             ? // The runtime image keeps Node and npm under /vercel/runtimes.
@@ -335,14 +352,12 @@ export function workspaceChatOpenCodeConfig(input: {
     }
   }
   model: string
+  snapshot: false
   permission: {
     task: "deny"
     webfetch: "allow" | "deny"
     websearch: "deny"
-    external_directory: "deny"
-    doom_loop: "deny"
     question: "deny"
-    read: Record<string, "allow" | "deny">
   }
   agent: {
     title: { disable: true }
@@ -363,30 +378,26 @@ export function workspaceChatOpenCodeConfig(input: {
   return {
     $schema: "https://opencode.ai/config.json",
     ...workspaceChatOpenCodeProvider(input),
+    // OpenCode's undo copy of the repository. The chat never uses it; each
+    // turn records its changes with Git (`snapshotConversationTurn`).
+    snapshot: false,
     // Subagents burn TTFT. Web search uses OpenCode's own search service,
     // not ours, so it stays off. A hosted or Docker agent may read web
     // pages: its network is open and holds no credential. An unsandboxed
     // agent shares the backend's network, so web reads stay off.
     //
-    // OpenCode 1.18 sends an "ask" as `permission.asked`. The adapter answers
-    // only the older `permission.updated`, and the UI shows no ask. Thus each
-    // ask waits until the turn is cancelled (CTX-846). Each rule that OpenCode
-    // sets to "ask" by default is "deny" here, so the agent gets a tool error
-    // at once. A path outside the Workspace repository is not part of the
-    // Workspace: the agent cannot show it to the user or push it.
+    // OpenCode's default "ask" rules stay: doom_loop, a path outside the
+    // Workspace repository (external_directory), and a read of a .env file.
+    // The adapter sends each ask to the chat permission handler: hard denies,
+    // then acceptEdits, then the judge. The handler hard-denies a path
+    // outside the repository and a .env read. The question tool waits for an
+    // answer from the user, and a chat turn has no way to send one, so it is
+    // "deny".
     permission: {
       task: "deny",
       webfetch: input.proxyAddsCredentials ? "allow" : "deny",
       websearch: "deny",
-      external_directory: "deny",
-      doom_loop: "deny",
       question: "deny",
-      read: {
-        "*": "allow",
-        "*.env": "deny",
-        "*.env.*": "deny",
-        "*.env.example": "allow",
-      },
     },
     // Title generation is a parallel completion that contends for the same
     // model as the first user turn.

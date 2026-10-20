@@ -29,7 +29,7 @@ import { registerV1Routes } from "../routes/v1/index.js"
 import { registerWebhookRoutes } from "../routes/webhooks.js"
 import type { AppEnv } from "./env.js"
 
-export type { AppEnv } from "./env.js"
+
 
 /**
  * Paths that must not resolve Better Auth sessions (static UI + auth/webhook).

@@ -13,7 +13,7 @@ import {
 
 const SLACK_API = "https://slack.com/api"
 
-export type SlackOAuthAccessResponse = {
+type SlackOAuthAccessResponse = {
   ok: boolean
   error?: string
   access_token?: string
@@ -55,7 +55,7 @@ export class SlackOAuthMissingScopesError extends Error {
   }
 }
 
-export type SlackInstallationVerification = {
+type SlackInstallationVerification = {
   appId: string | null
   storedTeamId: string | null
   storedBotUserId: string | null
@@ -113,7 +113,7 @@ export function assertSlackOAuthConfigured(env: Env): void {
   }
 }
 
-export function slackOAuthRedirectUri(env: Env): string {
+function slackOAuthRedirectUri(env: Env): string {
   if (env.SLACK_REDIRECT_URI) return env.SLACK_REDIRECT_URI
   return `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/connectors/slack/oauth/callback`
 }
@@ -352,7 +352,7 @@ export type SlackApiMessage = {
   }>
 }
 
-export type SlackChannelInfo = {
+type SlackChannelInfo = {
   channelId: string
   name: string
   isPrivate: boolean
@@ -466,7 +466,7 @@ export async function updateSlackMessage(input: {
   }
 }
 
-export const SLACK_THREAD_MAX_MESSAGES = 500
+const SLACK_THREAD_MAX_MESSAGES = 500
 
 /** Bound thread snapshots so a mega-thread cannot exhaust the shared Slack app quota. */
 export function capSlackThreadMessages<T>(
@@ -621,7 +621,7 @@ export async function getSlackPermalink(input: {
 }
 
 /** A channel that a Slack source can select. */
-export type SlackListedChannel = {
+type SlackListedChannel = {
   id: string
   name: string
   isPrivate: boolean

@@ -14,15 +14,26 @@ export function GithubRepoPickerList({
   selectedIds,
   onToggle,
   selectionMode = "multiple",
+  disabledLabels,
   className,
 }: {
   repos: readonly GithubRepoItem[]
   selectedIds: ReadonlySet<number>
   onToggle: (id: number, selected: boolean) => void
-  /** `single` renders radios in one group; `multiple` renders checkboxes. */
-  selectionMode?: "single" | "multiple"
   className?: string
-}) {
+} & (
+  | {
+      /** `multiple` renders checkboxes. */
+      selectionMode?: "multiple"
+      /** Rows that show but cannot be selected, with the reason. */
+      disabledLabels?: ReadonlyMap<number, string>
+    }
+  | {
+      /** `single` renders radios in one group. */
+      selectionMode: "single"
+      disabledLabels?: never
+    }
+)) {
   const parentRef = useRef<HTMLDivElement>(null)
   const virtualizer = useVirtualizer({
     count: repos.length,
@@ -42,10 +53,13 @@ export function GithubRepoPickerList({
         const repo = repos[virtualRow.index]
         if (!repo) return null
         const isSelected = selectedIds.has(repo.id)
+        const disabledLabel = disabledLabels?.get(repo.id)
         const rowClassName = `h-full w-full px-3 ${
           isSelected
             ? "bg-zinc-700/30 hover:bg-zinc-700/40"
-            : "hover:bg-zinc-700/60"
+            : disabledLabel
+              ? ""
+              : "hover:bg-zinc-700/60"
         }`
         return (
           <li
@@ -65,10 +79,16 @@ export function GithubRepoPickerList({
             ) : (
               <Checkbox
                 isSelected={isSelected}
+                isDisabled={disabledLabel != null}
                 onChange={(selected) => onToggle(repo.id, selected)}
                 className={`rounded-md ${rowClassName}`}
               >
                 <span className="min-w-0 truncate">{repo.full_name}</span>
+                {disabledLabel ? (
+                  <span className="ml-auto shrink-0 pl-3 text-xs text-muted-foreground">
+                    {disabledLabel}
+                  </span>
+                ) : null}
               </Checkbox>
             )}
           </li>

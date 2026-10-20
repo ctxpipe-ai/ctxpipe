@@ -14,8 +14,6 @@ import {
   DialogTrigger,
   Group,
   Label,
-  ListBox,
-  ListBoxItem,
   Button as RACButton,
   RangeCalendar,
 } from "react-aria-components"
@@ -397,7 +395,7 @@ const segmentClassName =
  * Picks the date range of the commit list: a preset, or a custom range of
  * UTC days in the React Aria range picker.
  */
-function DateRangeMenu(props: {
+export function DateRangeMenu(props: {
   since: string | undefined
   until: string | undefined
   onRangeChange: (range: { since?: string; until?: string }) => void
@@ -424,49 +422,41 @@ function DateRangeMenu(props: {
       </RACButton>
       <Popover
         placement="bottom end"
-        className="w-64 rounded-md border-zinc-800 bg-zinc-900 p-1"
+        className="rounded-md border-zinc-800 bg-zinc-900 p-1"
       >
         <Dialog aria-label="Date range" className="outline-0">
-          <ListBox
-            aria-label="Date range presets"
-            selectionMode="single"
-            disallowEmptySelection
-            selectedKeys={selected ? [selected] : []}
-            onSelectionChange={(keys) => {
-              const key = keys === "all" ? undefined : [...keys][0]
-              const preset = RANGE_PRESETS.find((item) => item.id === key)
-              props.onRangeChange(
-                preset
-                  ? { since: utcDayBefore(preset.days - 1), until: undefined }
-                  : { since: undefined, until: undefined },
-              )
-              setOpen(false)
-            }}
-            className="outline-0"
-          >
+          <fieldset className="m-0 min-w-0 border-0 p-0">
+            <legend className="sr-only">Date range presets</legend>
             {[{ id: ANY_TIME, label: "Any time" }, ...RANGE_PRESETS].map(
               (item) => (
-                <ListBoxItem
+                <RACButton
                   key={item.id}
-                  id={item.id}
-                  textValue={item.label}
-                  className="flex cursor-default items-center justify-between rounded-md px-2 py-1.5 text-sm text-zinc-300 outline-0 data-[focused]:bg-zinc-800 data-[selected]:text-foreground"
-                >
-                  {({ isSelected }) => (
-                    <>
-                      {item.label}
-                      {isSelected ? (
-                        <IconCheck
-                          aria-hidden
-                          className="size-4 text-teal-400"
-                        />
-                      ) : null}
-                    </>
+                  aria-pressed={item.id === selected}
+                  onPress={() => {
+                    const preset = RANGE_PRESETS.find((p) => p.id === item.id)
+                    props.onRangeChange(
+                      preset
+                        ? {
+                            since: utcDayBefore(preset.days - 1),
+                            until: undefined,
+                          }
+                        : { since: undefined, until: undefined },
+                    )
+                    setOpen(false)
+                  }}
+                  className={cn(
+                    "flex w-full cursor-default items-center justify-between rounded-md px-2 py-1.5 text-left text-sm text-zinc-300 outline-0 hover:bg-zinc-800 aria-pressed:text-foreground",
+                    focusVisibleClassName,
                   )}
-                </ListBoxItem>
+                >
+                  {item.label}
+                  {item.id === selected ? (
+                    <IconCheck aria-hidden className="size-4 text-teal-400" />
+                  ) : null}
+                </RACButton>
               ),
             )}
-          </ListBox>
+          </fieldset>
           <div className="mt-1 border-t border-zinc-800 px-2 pt-2 pb-1">
             <DateRangePicker
               // Uncontrolled, so a half-typed range stays while the user types.
@@ -491,7 +481,7 @@ function DateRangeMenu(props: {
               <Label className="text-xs text-muted-foreground">
                 Custom range
               </Label>
-              <Group className="flex h-8 items-center rounded-md border border-zinc-800 bg-zinc-950 pl-2 text-sm focus-within:border-zinc-600">
+              <Group className="flex items-center gap-1 rounded-md border border-zinc-800 bg-zinc-950 py-1 pl-2 pr-1 text-sm focus-within:border-zinc-600">
                 <DateInput slot="start" className="flex">
                   {(segment) => (
                     <DateSegment
@@ -512,8 +502,9 @@ function DateRangeMenu(props: {
                   )}
                 </DateInput>
                 <RACButton
+                  aria-label="Open calendar"
                   className={cn(
-                    "ml-auto flex size-8 items-center justify-center rounded-md text-muted-foreground hover:text-foreground",
+                    "ml-auto flex shrink-0 items-center justify-center rounded-md border border-zinc-700 bg-zinc-800 p-1 text-zinc-300 hover:bg-zinc-700 hover:text-foreground",
                     focusVisibleClassName,
                   )}
                 >
@@ -522,10 +513,12 @@ function DateRangeMenu(props: {
               </Group>
               <Popover
                 placement="bottom end"
-                className="rounded-md border-zinc-800 bg-zinc-900 p-3"
+                // Light shadow and a lighter border lift it over the menu; the
+                // scroll keeps the last week inside a short window.
+                className="overflow-y-auto rounded-md border-zinc-700 bg-zinc-900 p-3 shadow-md shadow-black/40"
               >
                 <Dialog className="outline-0">
-                  <RangeCalendar className="w-64">
+                  <RangeCalendar>
                     <CalendarHeader />
                     <CalendarGrid className="w-full border-collapse">
                       <CalendarGridHeader />
@@ -533,13 +526,30 @@ function DateRangeMenu(props: {
                         {(date) => (
                           <CalendarCell
                             date={date}
-                            className={cn(
-                              "cursor-default rounded-md py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
-                              "data-[hovered]:bg-zinc-800 data-[outside-month]:text-zinc-600",
-                              "data-[selected]:bg-teal-400/15 data-[selected]:text-foreground",
-                              "data-[selection-start]:bg-teal-400 data-[selection-start]:text-zinc-950 data-[selection-end]:bg-teal-400 data-[selection-end]:text-zinc-950",
-                              focusVisibleClassName,
-                            )}
+                            className={({
+                              isSelected,
+                              isSelectionStart,
+                              isSelectionEnd,
+                            }) =>
+                              cn(
+                                "cursor-default py-1 text-center text-sm text-zinc-300 tabular-nums outline-0",
+                                "data-[outside-month]:text-zinc-600",
+                                // The hover tint must not cover the dark text
+                                // of a start or end cell (it wins on specificity).
+                                !isSelected && "data-[hovered]:bg-zinc-800",
+                                // A range is one connected band: the start has
+                                // its left corners round, the end its right
+                                // corners, and a one-day range keeps all four.
+                                !isSelected && "rounded-md",
+                                isSelected &&
+                                  "bg-teal-400/15 text-foreground rounded-none",
+                                isSelectionStart && "rounded-s-md",
+                                isSelectionEnd && "rounded-e-md",
+                                (isSelectionStart || isSelectionEnd) &&
+                                  "bg-teal-400 text-zinc-950",
+                                focusVisibleClassName,
+                              )
+                            }
                           />
                         )}
                       </CalendarGridBody>

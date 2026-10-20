@@ -9,7 +9,7 @@ import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
 import { Hono } from "hono"
 import { contextStorage } from "hono/context-storage"
-import { beforeAll, describe, expect, it } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
@@ -21,10 +21,18 @@ import {
   runMcpToolCall,
   setMcpOrgSlugHash,
 } from "./correlation.js"
+import { McpToolError } from "./framework/tool-errors.js"
+import { toolFailure, toolSuccess } from "./framework/tool-result.js"
 import { registerWorkspaceFileResource } from "./resources/workspace-file.js"
 import { handleMcpTransportRequest } from "./transport.js"
 
 const spans = recordSpans()
+
+/** The wide events that evlog drained, one for each request. */
+const events: Record<string, unknown>[] = []
+beforeEach(() => {
+  events.length = 0
+})
 
 const clientTraceId = "4bf92f3577b34da6a3ce929d0e0e4736"
 const clientSpanId = "00f067aa0ba902b7"
@@ -56,7 +64,15 @@ function buildApp(
 ) {
   const app = new Hono<AppEnv>()
   app.use(contextStorage())
-  app.use(evlog({ drain: async () => undefined }))
+  app.use(
+    evlog({
+      drain: async (ctx) => {
+        for (const item of Array.isArray(ctx) ? ctx : [ctx]) {
+          events.push(item.event as Record<string, unknown>)
+        }
+      },
+    }),
+  )
   app.use("*", backendOtelMiddleware())
   app.use("*", async (c, next) => {
     c.set("env", {
@@ -408,6 +424,46 @@ describe("MCP call correlation", () => {
   })
 })
 
+describe("MCP tool result facts", () => {
+  it("puts the error code of a tool that returns isError on the tool span and the wide event", async () => {
+    const { result, span } = await callTool(
+      buildApp({ userId: "user_1" }, async () =>
+        toolFailure(new McpToolError("org_not_found", "No such org.")),
+      ),
+    )
+
+    expect(result.isError).toBe(true)
+    expect(span.attributes["ctxpipe.mcp.error.code"]).toBe("org_not_found")
+    expect(events.at(-1)?.["ctxpipe.mcp.error.code"]).toBe("org_not_found")
+    // A bad call is not a server fault: the span stays out of ERROR.
+    expect(span.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("sets no error code on a result that is not an error", async () => {
+    const { span } = await callTool(
+      buildApp({ userId: "user_1" }, async () => toolSuccess({ items: [] })),
+    )
+
+    expect(span.attributes["ctxpipe.mcp.error.code"]).toBeUndefined()
+    expect(events.at(-1)?.["ctxpipe.mcp.error.code"]).toBeUndefined()
+  })
+
+  it("records the size of the result in bytes on the tool span and the wide event", async () => {
+    const { result, span } = await callTool(
+      buildApp({ userId: "user_1" }, async () => ({
+        content: [{ type: "text" as const, text: "x".repeat(2000) }],
+      })),
+    )
+
+    const bytes = span.attributes["ctxpipe.mcp.result.bytes"]
+    expect(bytes).toEqual(expect.any(Number))
+    expect(bytes as number).toBeGreaterThan(2000)
+    // The size is the size of the result that the client gets, call id included.
+    expect(bytes).toBe(Buffer.byteLength(JSON.stringify(result)))
+    expect(events.at(-1)?.["ctxpipe.mcp.result.bytes"]).toBe(bytes)
+  })
+})
+
 describe("MCP resource read correlation", () => {
   async function readResource(app: Hono<AppEnv>, uri: string) {
     const response = await app.request("http://backend.test/mcp", {
@@ -459,6 +515,8 @@ describe("MCP resource read correlation", () => {
     )
     // A user error is not a server fault: the span stays out of ERROR.
     expect(span.status.code).not.toBe(SpanStatusCode.ERROR)
+    // The code of a thrown user error is on the span, as for a tool result.
+    expect(span.attributes["ctxpipe.mcp.error.code"]).toBe("invalid_ref")
   })
 
   it("marks the span as an error only for an internal error, and still returns the call id", async () => {

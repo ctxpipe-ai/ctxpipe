@@ -33,16 +33,13 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.mcp.turn.id",
   "ctxpipe.mcp.turn.source",
   "ctxpipe.mcp.correlation.source",
+  "ctxpipe.mcp.error.code",
+  "ctxpipe.api_key.event",
+  "ctxpipe.api_key.outcome",
+  "ctxpipe.auth.refusal_reason",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]
-
-export type ActorType =
-  | "user"
-  | "org_api_key"
-  | "oauth_client"
-  | "webhook"
-  | "job"
 
 const ATTRIBUTION_BAG = createContextKey("ctxpipe.attribution.bag")
 

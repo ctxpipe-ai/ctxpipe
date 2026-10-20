@@ -105,7 +105,7 @@ export function formatUnknownError(error: unknown): string {
   return [...new Set(parts)].join("; ")
 }
 
-export type WithTransientDbQueryRetryOptions = {
+type WithTransientDbQueryRetryOptions = {
   /** Retries after the first attempt (default 1 → 2 attempts total). */
   retries?: number
   baseDelayMs?: number

@@ -3,7 +3,7 @@ import { and, eq, inArray, sql } from "drizzle-orm"
 import { getSystemDb, withOrgDbContext } from "../../db/client.js"
 import { workspaceSources } from "../../db/schema/workspace_sources.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
-import type { IngestStepUsage } from "../ingestion/ingest-shard-runtime.js"
+import { ingestionRunTree } from "../ingestion/ingest-spend.js"
 import {
   INGEST_SHARD_MAX_ROOTS,
   plannedIngestSkills,
@@ -18,6 +18,7 @@ import {
   sourceRepositoryName,
 } from "../workspace-sources/providers/git.js"
 import { githubSourceScopeRepositories } from "../workspace-sources/providers/github.js"
+import { hostedIngestEgressEnabled } from "../workspaces/ingest-sandbox-egress.js"
 import { lockedSandboxProvider } from "../workspaces/sandbox-provider.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../workspaces/write-status.js"
@@ -42,15 +43,17 @@ export const REINGEST_REQUIRES_FORMAT = 3
 /**
  * The throttle of re-ingestion (ADR-052): one upgrade run of an org at a
  * time, with its repositories one after the other, and a cap of upgrade runs
- * on the instance. The polls back off from `firstPoll`, so a long wait
- * spends few workflow steps.
+ * on the instance. The polls of a repository run back off from `firstPoll`,
+ * so a long run spends few workflow steps. The slot polls stay short
+ * (CTX-898): no event wakes a waiting run when a slot frees, so a long poll
+ * left the slot idle for up to that poll.
  */
 export const REINGEST_THROTTLE = {
   /** Upgrade runs (each one org) that run their repositories at a time on this instance. */
   runsPerInstance: 4,
   firstPollSeconds: 60,
-  /** The longest wait of the upgrade run for its turn. */
-  maxSlotPollSeconds: 15 * 60,
+  /** The longest wait of the upgrade run between two checks of its turn. */
+  maxSlotPollSeconds: 60,
   /** The longest wait of a repository run between two reads of its ingestion run and spend. */
   maxRunPollSeconds: 5 * 60,
 }
@@ -77,28 +80,28 @@ const ESTIMATE = {
   setupMinutes: { low: 3, high: 8 },
   /** Shards that run at the same time (`SHARD_BATCH` of the v2 workflow). */
   parallelShards: 4,
-  /**
-   * USD for one million tokens of the medium tier. The cost cap converts
-   * the reported tokens of a step with it, when the gateway reports no cost.
-   */
-  usdPerMillionTokens: { input: 3, output: 15 },
 } as const
 
+export { ingestionRunSpend } from "../ingestion/ingest-spend.js"
 export { isReingestUpgradeKey, reingestUpgradeKey } from "./keys.js"
 
 /**
- * Why this deployment cannot run an ingest sandbox, or null. Ingest needs a
- * Docker sandbox host now; the hosted Vercel path waits for its egress proxy
- * (`shardSandbox` in `ingest-shard-sandbox.ts`).
+ * Why this deployment cannot run an ingest sandbox, or null. It makes the
+ * same provider choice as ingestion (`ingestIsolation` in
+ * `ingest-shard-sandbox.ts`): Vercel on hosted, Docker on self-host. A Docker
+ * host that does not answer fails the run with its own message
+ * (`dockerHostError`), because only a start of a container proves it.
  */
 export function ingestSandboxUnavailable(
   env: Record<string, string | undefined> = process.env,
 ): string | null {
   const provider = lockedSandboxProvider(env) ?? "docker"
   if (provider === "docker") return null
-  return provider === "unsandboxed"
-    ? "Re-ingestion needs a Docker sandbox host. This deployment runs agents unsandboxed."
-    : `Re-ingestion needs a Docker sandbox host. Ingest does not run on the ${provider} sandbox provider yet.`
+  if (provider === "vercel")
+    return hostedIngestEgressEnabled(env)
+      ? null
+      : "Re-ingestion needs the Vercel sandbox settings. Set VERCEL_TOKEN, VERCEL_TEAM_ID and VERCEL_PROJECT_ID on the backend and the worker."
+  return "Re-ingestion needs a Docker or Vercel sandbox. This deployment runs agents unsandboxed."
 }
 
 export type ReingestRepository = {
@@ -379,16 +382,26 @@ export const REINGEST_REPOSITORY_WORKFLOW_NAME =
  * that ended early frees no slot while its children spend. The answer comes only from the run
  * rows, so two runs cannot both take the same slot, and a run that ended
  * frees its slot.
+ *
+ * An ingestion v2 run of a source repository in `sourceUrls` that can publish
+ * to the Workspace (CTX-895) also makes the run wait. Both runs pin the same
+ * revision, so the later publish finds each file of the run changed on the
+ * default branch, and only the merge model can join them. When the upgrade
+ * waits, its run pins the revision that the other run published.
  */
 export async function reingestSlotTurn(input: {
   orgId: string
   upgradeRunId: string
   runsPerInstance: number
+  workspaceId: string
+  sourceUrls: readonly string[]
 }): Promise<{ turn: true } | { wait: string }> {
+  const sourceUrls = input.sourceUrls.map((url) => url.toLowerCase())
   const result = await getSystemDb().execute<{
     org_head: string | null
     ahead: string
     open_children: string
+    open_ingestions: string
   }>(sql`
     with heads as (
       select distinct on (input->>'orgId') id, input->>'orgId' as org_id, created_at
@@ -408,7 +421,23 @@ export async function reingestSlotTurn(input: {
           and child.workflow_name = ${REINGEST_REPOSITORY_WORKFLOW_NAME}
           and child.status in ('pending', 'running', 'sleeping')
           and child.input->>'orgId' = ${input.orgId}
-          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children
+          and child.input->>'upgradeRunId' <> ${input.upgradeRunId}) as open_children,
+      (select count(*) from openworkflow.workflow_runs ingest
+        where ingest.namespace_id = ${openWorkflowNamespaceId()}
+          and ingest.workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+          and ingest.status in ('pending', 'running', 'sleeping')
+          and ingest.input->>'orgId' = ${input.orgId}
+          and ingest.input->>'shadow' = 'false'
+          and ${
+            sourceUrls.length
+              ? sql`lower(ingest.input->'source'->>'url') in (${sql.join(
+                  sourceUrls.map((url) => sql`${url}`),
+                  sql`, `,
+                )})`
+              : sql`false`
+          }
+          and (ingest.input->'destinations' is null
+            or ingest.input->'destinations' @> ${JSON.stringify([input.workspaceId])}::jsonb)) as open_ingestions
   `)
   const row = result.rows[0]
   if (row?.org_head !== input.upgradeRunId)
@@ -423,65 +452,11 @@ export async function reingestSlotTurn(input: {
     }
   if (Number(row.ahead) >= input.runsPerInstance)
     return { wait: "The re-ingestion slots of this instance are full." }
+  if (Number(row.open_ingestions) > 0)
+    return {
+      wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
+    }
   return { turn: true }
-}
-
-/** USD of one usage report: the gateway cost, else the tokens at the estimate prices. */
-export function ingestUsageUsd(usage: IngestStepUsage): number {
-  if (typeof usage.costUsd === "number") return usage.costUsd
-  const price = ESTIMATE.usdPerMillionTokens
-  return (
-    (usage.inputTokens * price.input + usage.outputTokens * price.output) /
-    1_000_000
-  )
-}
-
-/** The ingestion v2 run `runId` and its child runs (the shards), as a `tree(id)` CTE. */
-function ingestionRunTree(runId: string) {
-  const namespaceId = openWorkflowNamespaceId()
-  return sql`
-    with recursive tree(id) as (
-      select id from openworkflow.workflow_runs
-      where namespace_id = ${namespaceId} and id = ${runId}
-      union
-      select child.id from openworkflow.workflow_runs child
-      join openworkflow.step_attempts parent_step
-        on parent_step.namespace_id = child.parent_step_attempt_namespace_id
-        and parent_step.id = child.parent_step_attempt_id
-      join tree on tree.id = parent_step.workflow_run_id
-      where child.namespace_id = ${namespaceId}
-    )`
-}
-
-/**
- * The model spend in USD of one ingestion v2 run so far: the usage that each
- * finished step of the run and of its child runs reports. `unknown` is true
- * when a model step reported no usage; then `usd` counts only the known part.
- */
-export async function ingestionRunSpend(
-  runId: string,
-): Promise<{ usd: number; unknown: boolean }> {
-  const result = await getSystemDb().execute<{ usage: unknown }>(sql`
-    ${ingestionRunTree(runId)}
-    select attempt.output->'usage' as usage
-    from openworkflow.step_attempts attempt
-    join tree on tree.id = attempt.workflow_run_id
-    where attempt.namespace_id = ${openWorkflowNamespaceId()}
-      and attempt.status = 'completed'
-      and jsonb_typeof(attempt.output->'usage') = 'object'
-  `)
-  let usd = 0
-  let unknown = false
-  for (const { usage } of result.rows) {
-    const value = usage as Partial<IngestStepUsage>
-    usd += ingestUsageUsd({
-      inputTokens: Number(value.inputTokens) || 0,
-      outputTokens: Number(value.outputTokens) || 0,
-      ...(typeof value.costUsd === "number" ? { costUsd: value.costUsd } : {}),
-    })
-    if (Number(value.unknownSteps) > 0) unknown = true
-  }
-  return { usd, unknown }
 }
 
 /** The runs of an ingestion v2 run tree that have not ended, the run first. */

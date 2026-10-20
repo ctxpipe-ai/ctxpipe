@@ -3,7 +3,7 @@ import { relative, resolve, sep } from "node:path"
 import { parse, Reader } from "protobufjs"
 import { hasGitSegment } from "../repositories/paths.js"
 
-export type ScipWireIndex = {
+type ScipWireIndex = {
   documents?: object[]
   externalSymbols?: object[]
 }

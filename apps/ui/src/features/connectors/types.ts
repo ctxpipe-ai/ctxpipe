@@ -11,9 +11,6 @@ export type AtlassianConnectorStatus = Awaited<
   ReturnType<typeof fetchAtlassianConnectorStatus>
 >
 
-export type AtlassianConnectorStatusSpacePreview =
-  AtlassianConnectorStatus["selectedSpaces"][number]
-
 export type ConfluenceSpace = Awaited<
   ReturnType<typeof fetchAtlassianSpaces>
 >[number]

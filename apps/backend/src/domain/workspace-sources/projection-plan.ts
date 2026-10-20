@@ -140,7 +140,7 @@ type ParsedSource =
     }
 
 /** The input of {@link resolveSourceRows}. */
-export type SourceRowsInput = {
+type SourceRowsInput = {
   text: string | null
   /** Every blob under `sources/` at the revision. */
   files?: ReadonlyArray<SourceFileBlob>
@@ -415,19 +415,30 @@ function checkSource(
   if (
     source.origin === "file" &&
     input.workspaceUrl &&
-    sourceRepositoryKeys(entry).includes(repositoryKey(input.workspaceUrl))
+    sourceNamesWorkspaceRepository(entry, input.workspaceUrl)
   )
     return {
       ...base,
       status: "invalid",
-      statusDetail:
-        "The source names the Workspace repository. A Workspace cannot link its own repository.",
+      statusDetail: WORKSPACE_REPOSITORY_SOURCE_DETAIL,
     }
   return { ...base, status: "ok", statusDetail: null }
 }
 
 function repositoryKey(url: string): string {
   return normalizeWorkspaceRepositoryUrl(url).toLowerCase()
+}
+
+/** Why a source that names the Workspace repository is refused. */
+export const WORKSPACE_REPOSITORY_SOURCE_DETAIL =
+  "The source names the Workspace repository. A Workspace cannot link its own repository."
+
+/** True when a source names the repository of the Workspace itself. */
+export function sourceNamesWorkspaceRepository(
+  entry: { provider: string | null; scope: unknown },
+  workspaceUrl: string,
+): boolean {
+  return sourceRepositoryKeys(entry).includes(repositoryKey(workspaceUrl))
 }
 
 function githubRepositoryKeys(entry: { scope: unknown }): string[] {

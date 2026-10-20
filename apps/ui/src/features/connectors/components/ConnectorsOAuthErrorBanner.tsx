@@ -1,4 +1,4 @@
-export type ConnectorsOAuthErrorBannerProps = {
+type ConnectorsOAuthErrorBannerProps = {
   title: string
   description: string
 }

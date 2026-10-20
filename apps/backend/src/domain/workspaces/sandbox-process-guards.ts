@@ -217,7 +217,7 @@ echo "processes left: $(found)" >&2
 exit 1`
 
 /** A free loopback port that the OS assigns. */
-export function osLoopbackPort(): Promise<number> {
+function osLoopbackPort(): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const server = createServer()
     server.once("error", reject)

@@ -2,7 +2,7 @@ import { delay, HttpResponse, http } from "msw"
 import type { LinearScope } from "@/features/connectors/queries/linear-connector"
 
 /** The Linear teams and projects of the story Linear workspace. */
-export const linearStoryScopes: LinearScope[] = [
+const linearStoryScopes: LinearScope[] = [
   {
     externalId: "team-eng",
     type: "team",

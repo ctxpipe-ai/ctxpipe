@@ -22,6 +22,7 @@ import { Route as DotauthDeviceRouteImport } from './routes/[.]auth.device'
 import { Route as DotauthResetPasswordRouteImport } from './routes/[.]auth.reset-password'
 import { Route as DotauthSelectOrganizationRouteImport } from './routes/[.]auth.select-organization'
 import { Route as DotauthSignInRouteImport } from './routes/[.]auth.sign-in'
+import { Route as DotgithubLinkRouteImport } from './routes/[.]github.link'
 import { Route as DotgithubSetupRouteImport } from './routes/[.]github.setup'
 import { Route as DotnotionSetupRouteImport } from './routes/[.]notion.setup'
 import { Route as DotslackSetupRouteImport } from './routes/[.]slack.setup'
@@ -102,6 +103,11 @@ const DotauthSelectOrganizationRoute =
 const DotauthSignInRoute = DotauthSignInRouteImport.update({
   id: '/.auth/sign-in',
   path: '/.auth/sign-in',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DotgithubLinkRoute = DotgithubLinkRouteImport.update({
+  id: '/.github/link',
+  path: '/.github/link',
   getParentRoute: () => rootRouteImport,
 } as any)
 const DotgithubSetupRoute = DotgithubSetupRouteImport.update({
@@ -199,6 +205,7 @@ export interface FileRoutesByFullPath {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -227,6 +234,7 @@ export interface FileRoutesByTo {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -257,6 +265,7 @@ export interface FileRoutesById {
   '/.auth/reset-password': typeof DotauthResetPasswordRoute
   '/.auth/select-organization': typeof DotauthSelectOrganizationRoute
   '/.auth/sign-in': typeof DotauthSignInRoute
+  '/.github/link': typeof DotgithubLinkRoute
   '/.github/setup': typeof DotgithubSetupRoute
   '/.notion/setup': typeof DotnotionSetupRoute
   '/.slack/setup': typeof DotslackSetupRoute
@@ -289,6 +298,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -317,6 +327,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -346,6 +357,7 @@ export interface FileRouteTypes {
     | '/.auth/reset-password'
     | '/.auth/select-organization'
     | '/.auth/sign-in'
+    | '/.github/link'
     | '/.github/setup'
     | '/.notion/setup'
     | '/.slack/setup'
@@ -375,6 +387,7 @@ export interface RootRouteChildren {
   DotauthResetPasswordRoute: typeof DotauthResetPasswordRoute
   DotauthSelectOrganizationRoute: typeof DotauthSelectOrganizationRoute
   DotauthSignInRoute: typeof DotauthSignInRoute
+  DotgithubLinkRoute: typeof DotgithubLinkRoute
   DotgithubSetupRoute: typeof DotgithubSetupRoute
   DotnotionSetupRoute: typeof DotnotionSetupRoute
   DotslackSetupRoute: typeof DotslackSetupRoute
@@ -473,6 +486,13 @@ declare module '@tanstack/react-router' {
       path: '/.auth/sign-in'
       fullPath: '/.auth/sign-in'
       preLoaderRoute: typeof DotauthSignInRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/.github/link': {
+      id: '/.github/link'
+      path: '/.github/link'
+      fullPath: '/.github/link'
+      preLoaderRoute: typeof DotgithubLinkRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/.github/setup': {
@@ -653,6 +673,7 @@ const rootRouteChildren: RootRouteChildren = {
   DotauthResetPasswordRoute: DotauthResetPasswordRoute,
   DotauthSelectOrganizationRoute: DotauthSelectOrganizationRoute,
   DotauthSignInRoute: DotauthSignInRoute,
+  DotgithubLinkRoute: DotgithubLinkRoute,
   DotgithubSetupRoute: DotgithubSetupRoute,
   DotnotionSetupRoute: DotnotionSetupRoute,
   DotslackSetupRoute: DotslackSetupRoute,

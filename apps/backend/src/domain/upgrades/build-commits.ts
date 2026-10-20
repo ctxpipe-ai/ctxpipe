@@ -15,6 +15,7 @@ import {
 } from "../../services/git/write-tree.js"
 import {
   WORKSPACE_FORMAT_PATH,
+  withWorkspaceFormatFields,
   workspaceFormatFile,
 } from "../workspaces/workspace-format.js"
 import {
@@ -26,7 +27,7 @@ import {
   type UpgradeTreeReader,
 } from "./registry.js"
 
-export type UpgradeStepResult = {
+type UpgradeStepResult = {
   format: number
   title: string
   /** The commit of the step, or null when the step changed no file. */
@@ -188,10 +189,19 @@ export async function buildUpgradeCommits(input: {
         notices: change.notices,
       })
   }
-  const formatFile = workspaceFormatFile(input.targetFormat)
   const currentFormatFile = await withTreeReader(pack, (tree) =>
     tree.read(WORKSPACE_FORMAT_PATH),
   )
+  // The new format keeps the upgrade setting of the Workspace (`upgrades`).
+  const formatFile = {
+    path: WORKSPACE_FORMAT_PATH,
+    content:
+      (currentFormatFile === null
+        ? null
+        : withWorkspaceFormatFields(currentFormatFile, {
+            format: input.targetFormat,
+          })) ?? workspaceFormatFile(input.targetFormat).content,
+  }
   // A run on a tree that has the target format (a check of idempotency)
   // makes no format commit.
   if (currentFormatFile !== formatFile.content)

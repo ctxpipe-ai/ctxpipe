@@ -30,7 +30,7 @@ export type SourceEditorTarget =
   | { kind: "edit"; provider: SourceProvider; source: WorkspaceSource }
 
 /** A connection that a source can use, with the name the provider gives. */
-export type SourceConnectionOption = { id: string; displayName: string | null }
+type SourceConnectionOption = { id: string; displayName: string | null }
 
 /**
  * Add or edit one source file of a Workspace. The body is the provider scope

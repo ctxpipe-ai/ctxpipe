@@ -2,7 +2,7 @@ import { queryOptions } from "@tanstack/react-query"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
-export type SavedGithubRepo = {
+type SavedGithubRepo = {
   name: string
   gitUrl: string
 }
@@ -25,7 +25,7 @@ export type GithubRepoSort =
   | "created-asc"
   | "name-asc"
 
-export type SelectedGithubRepo = {
+type SelectedGithubRepo = {
   id?: number
   full_name: string
   name: string
@@ -62,10 +62,15 @@ export function sortGithubRepos(
   })
 }
 
-/** Compare GitHub clone URLs without a trailing `.git` or case differences. */
+/**
+ * Compare GitHub clone URLs without a trailing slash, a trailing `.git`, or
+ * case differences. GitHub names are not case-sensitive, and the stored URL
+ * of a Workspace can be in lowercase.
+ */
 export function githubCloneUrlKey(url: string): string {
   return url
     .trim()
+    .replace(/\/+$/, "")
     .replace(/\.git$/i, "")
     .toLowerCase()
 }
@@ -132,7 +137,7 @@ export async function collectInstallationRepoPages(
   }
 }
 
-export async function fetchGithubInstallationReposPage(
+async function fetchGithubInstallationReposPage(
   orgSlug: string,
   page: number,
   connectionId?: string,
@@ -173,17 +178,6 @@ export async function fetchGithubInstallationReposPage(
     manageUrl: body.manageUrl ?? null,
     totalCount: body.totalCount,
   }
-}
-
-export function selectedCloneUrlKeys(
-  githubRepos: readonly GithubRepoItem[],
-  selectedIds: ReadonlySet<number>,
-): Set<string> {
-  const keys = new Set<string>()
-  for (const repo of githubRepos) {
-    if (selectedIds.has(repo.id)) keys.add(githubCloneUrlKey(repo.clone_url))
-  }
-  return keys
 }
 
 export function countSelectionDelta(args: {
@@ -273,6 +267,12 @@ export function githubInstallationReposOptions(
         ),
         repositorySelection: pages[0]?.repositorySelection ?? "selected",
         manageUrl: pages[0]?.manageUrl ?? null,
+        // One access page for each connection: two installations have two.
+        manageUrls: pages.flatMap((page) =>
+          page.manageUrl
+            ? [{ connectionId: page.connectionId, url: page.manageUrl }]
+            : [],
+        ),
         totalCount: pages.reduce((sum, page) => sum + page.totalCount, 0),
       }
     },

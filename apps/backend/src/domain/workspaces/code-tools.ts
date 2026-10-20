@@ -39,7 +39,7 @@ export type CodeCheckout = { repositoryId: string } & (
 )
 
 /** Runs a Zoekt query on the checkout and gives the raw response. */
-export type CodeCheckoutSearch = (
+type CodeCheckoutSearch = (
   query: string,
   detail: "compact" | "full",
 ) => Promise<Record<string, unknown>>

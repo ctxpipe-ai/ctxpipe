@@ -2,9 +2,16 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { directWriteRoute } from "../../auth/write-grant.js"
+import { enableAutomaticUpgrades } from "../../domain/upgrades/automatic.js"
+import {
+  classifyUpgradeFailure,
+  UPGRADE_FAILURE_CODES,
+  UPGRADE_FAILURE_STEPS,
+} from "../../domain/upgrades/failure.js"
 import {
   GIT_UPGRADE_STEPS,
   pendingUpgradeSteps,
+  REINGEST_DESCRIPTION,
   UPGRADE_BLOCKED_REASONS,
   UPGRADE_STATUSES,
   type UpgradeStatus,
@@ -12,6 +19,7 @@ import {
 import { isReingestUpgradeKey } from "../../domain/upgrades/reingest.js"
 import { startWorkspaceUpgrade } from "../../domain/upgrades/start.js"
 import { CODE_FORMAT } from "../../domain/workspaces/workspace-format.js"
+import { generateObjectId } from "../../lib/id.js"
 import {
   listOrgPendingUpgradeRows,
   listWorkspaceUpgradeRows,
@@ -19,6 +27,7 @@ import {
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceBySlug } from "../../models/workspaces.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
+import { enqueueWorkspaceUpgradeScan } from "../../openworkflow/workflows/workspace-upgrade-scan.js"
 import {
   ErrorResponseSchema,
   WorkspaceSlugParamsSchema,
@@ -55,6 +64,10 @@ const WorkspaceUpgradeItemSchema = z
     }),
     kind: z.enum(["format", "reingest"]),
     title: z.string(),
+    description: z.string().openapi({
+      description:
+        "What the upgrade does to the Workspace repository, in plain words: the files that it adds, moves or rewrites.",
+    }),
     status: UpgradeStatusSchema.openapi({
       description:
         "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctx| prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `blocked`: see `blockedReason` and `note`.",
@@ -110,7 +123,7 @@ const WorkspaceUpgradeItemSchema = z
           }),
           spendUnknown: z.boolean().openapi({
             description:
-              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part, and the cost cap counts only that part.",
+              "True when a model step of the run reported no usage: the spend is unknown, `spendUsd` is only the known part.",
           }),
         }),
       )
@@ -126,7 +139,26 @@ const WorkspaceUpgradeItemSchema = z
           "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
       }),
     note: z.string().nullable(),
+    waitingForSlot: z
+      .object({ reason: z.string(), since: z.string().datetime() })
+      .nullable()
+      .openapi({
+        description:
+          "Only on a re-ingestion that waits for its turn to use a free sandbox slot: why it waits and when the wait began. `null` when it does not wait.",
+      }),
     failureReason: z.string().nullable(),
+    failure: z
+      .object({
+        code: z.enum(UPGRADE_FAILURE_CODES),
+        step: z.enum(UPGRADE_FAILURE_STEPS).nullable(),
+        repository: z.string().nullable(),
+        summary: z.string(),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
+      }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
     }),
@@ -174,6 +206,16 @@ function serializeUpgrade(
     title: reingest
       ? "Fresh re-ingestion of the source repositories"
       : `Upgrade to format ${upgrade.targetFormat}`,
+    description: reingest
+      ? REINGEST_DESCRIPTION
+      : steps
+          .map(
+            (step) =>
+              GIT_UPGRADE_STEPS.find(({ format }) => format === step.format)
+                ?.description,
+          )
+          .filter(Boolean)
+          .join(" "),
     status: row.status,
     fromFormat: upgrade.fromFormat,
     targetFormat: upgrade.targetFormat,
@@ -195,7 +237,13 @@ function serializeUpgrade(
     })),
     blockedReason: upgrade.blockedReason ?? null,
     note: upgrade.note ?? null,
+    waitingForSlot: upgrade.waitingForSlot ?? null,
     failureReason: row.failureReason,
+    failure: classifyUpgradeFailure({
+      status: row.status,
+      failureReason: row.failureReason,
+      repositories: upgrade.repositories,
+    }),
     approvedBy: upgrade.approvedBy ?? null,
     approvedAt: upgrade.approvedAt ?? null,
     updatedAt: row.updatedAt.toISOString(),
@@ -274,7 +322,7 @@ const checkUpgradesRoute = createRoute(
             "application/json": { schema: z.object({ queued: z.boolean() }) },
           },
           description:
-            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts. `queued` is false when a check ran in the last minute: that check still writes its result.",
+            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts, and checks the upgrades of the org again. `queued` is false when a check ran in the last minute: that check still writes its result.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -283,6 +331,46 @@ const checkUpgradesRoute = createRoute(
         404: {
           content: { "application/json": { schema: ErrorResponseSchema } },
           description: "Not found",
+        },
+      },
+    },
+    { orgAdmin: true },
+  ),
+)
+
+const automaticUpgradesRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/{workspaceSlug}/upgrades/automatic",
+      request: { params: WorkspaceSlugParamsSchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                queued: z.literal(true),
+                jobId: z.string().openapi({
+                  description:
+                    "The file job that commits the setting. Read its status at `GET /{workspaceSlug}/files/jobs/{jobId}`.",
+                }),
+              }),
+            },
+          },
+          description:
+            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. Start the current upgrade after the job completes, so that its pull request contains the setting.",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Not found",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "ctx| cannot write to the Workspace repository now",
         },
       },
     },
@@ -317,10 +405,36 @@ const routes = new OpenAPIHono<AppEnv>()
     const workspace = await getWorkspaceBySlug(workspaceSlug)
     if (!workspace) return c.json({ error: "Not found" }, 404)
     // The tip check reads every Workspace of the org. Start one each minute.
+    const minute = Math.floor(Date.now() / 60_000)
     const queued = await enqueueWorkspaceTipCheck(orgId, c.get("log"), {
-      idempotencyKey: `tip-check-on-demand:${orgId}:${Math.floor(Date.now() / 60_000)}`,
+      idempotencyKey: `tip-check-on-demand:${orgId}:${minute}`,
     })
+    // A blocked item can clear without a new tip or release: for example,
+    // this deployment can now run the ingest sandbox. Scan the org again.
+    await enqueueWorkspaceUpgradeScan({ orgId, trigger: `check:${minute}` })
     return c.json({ queued }, 202)
+  })
+  .openapi(automaticUpgradesRoute, async (c) => {
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
+      return c.json({ error: "Unauthorized" }, 401)
+    const { workspaceSlug } = c.req.valid("param")
+    const workspace = await getWorkspaceBySlug(workspaceSlug)
+    if (!workspace) return c.json({ error: "Not found" }, 404)
+    const jobId = generateObjectId("wjob")
+    const admitted = await enableAutomaticUpgrades(
+      { jobId, orgId, workspace },
+      c.get("log"),
+    )
+    if (!admitted.started)
+      return c.json(
+        {
+          error:
+            "ctx| could not save the setting. Refresh the Workspace and try again.",
+        },
+        409,
+      )
+    return c.json({ queued: true as const, jobId }, 202)
   })
   .openapi(startUpgradeRoute, async (c) => {
     const user = c.get("user")
@@ -357,11 +471,13 @@ const routes = new OpenAPIHono<AppEnv>()
  * The Upgrades of a Workspace (ADR-053 section 7). Only an org owner or
  * admin with a session may start one: the admin check reads a Better Auth
  * session, so it refuses an OAuth token, and the write gate refuses an API
- * key. Each upgrade needs its own click; there is no org-wide approval.
+ * key. Each upgrade needs its own click, unless an owner or admin turned on
+ * Always update for the Workspace; there is no org-wide approval.
  */
 const gated = new OpenAPIHono<AppEnv>()
 gated.use("/:workspaceSlug/upgrades/:key/start", requireOrgAdminOrOwner)
 gated.use("/:workspaceSlug/upgrades/check", requireOrgAdminOrOwner)
+gated.use("/:workspaceSlug/upgrades/automatic", requireOrgAdminOrOwner)
 export const workspaceUpgradeRoutes = gated.route("/", routes)
 
 const PendingWorkspaceUpgradesSchema = z
