@@ -1,12 +1,11 @@
 import type { WorkspaceSkippedFile } from "./types"
 
 /** Why hydrate skipped a file, in plain words. */
-export const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> =
-  {
-    malformed: "Front matter is not valid",
-    duplicate_repository:
-      "Repeats a linked repository or the Workspace's own repository",
-  }
+const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
+  malformed: "Front matter is not valid",
+  duplicate_repository:
+    "Repeats a linked repository or the Workspace's own repository",
+}
 
 /**
  * Why hydrate skipped one file, with its cause. A legacy overlay file is not
