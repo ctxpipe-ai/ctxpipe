@@ -6,13 +6,15 @@ description: Connect Plain with a machine-user API key, and sync Help Center art
 The **Plain connector** writes Help Center articles and support threads from
 [Plain](https://www.plain.com) into a [Workspace's](/docs/workspaces) GitHub
 repository. ctx| then indexes them like other knowledge files. Agents can read
-your support documentation and see what customers report.
+your support documentation and see what customers report. A source file in the
+Workspace holds the scope. A pull request adds it, so a person reviews the
+scope before content syncs.
 
 ctx| only reads from Plain. It does not change threads, articles, or
 customers. The one write is a webhook target for thread activity, which ctx|
 adds and removes.
 
-## What ctx| syncs
+## What is mirrored
 
 You select Help Centers, thread labels, or both, for each Workspace.
 
@@ -39,7 +41,35 @@ the link. Other personal data in the text can remain.
 
 - A Plain admin who can add a machine user and an API key.
 - A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can
-  write to.
+  write to. The repository must use format 2 or higher. If it does not, the
+  Workspace shows **Upgrade this Workspace first**. See
+  [Upgrades](/docs/workspaces/settings#upgrades).
+- Permission to merge the pull request that adds the source.
+
+## Where the scope lives
+
+The connection holds the API key only. The scope is in a source file in each
+Workspace, at `sources/plain/<name>.md`. The front matter holds the Help
+Center ids and the label type ids. The body is an optional description of what
+the source is for.
+
+```markdown
+---
+provider: plain
+connection: con_example
+helpCenters: [hc_01EXAMPLE]
+labels: [lt_01EXAMPLE]
+---
+
+Product documentation and bug reports for the support Workspace.
+```
+
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and
+live scope.
+
+A Workspace can have many Plain source files, and each Workspace has its own
+scope.
 
 ## Setup flow
 
@@ -64,13 +94,49 @@ the link. Other personal data in the text can remain.
   </Step>
 
   <Step>
-    ### Add Plain to Workspaces
+    ### Add to Workspaces
 
-    Select the Workspaces, and the Help Centers and labels for each. ctx| adds
-    a source file under `sources/plain/` in each Workspace repository, with a
-    pull request. Merge the pull request to start the sync.
+    The next step is **Add to Workspaces**. Select the Workspaces that sync
+    from Plain. Then select the Help Centers and labels. When you select more
+    than one Workspace, choose **Same scope for each Workspace** or **A
+    different scope for each Workspace**.
+
+    Choose **Add to Workspaces**. You can add the connection to a Workspace
+    later. Expand the connector on **Connectors**. When no Workspace uses the
+    connection, choose **Add to a Workspace**. Otherwise, choose **Manage**.
+  </Step>
+
+  <Step>
+    ### Merge the pull requests
+
+    ctx| opens one pull request for each Workspace. Each pull request adds
+    `sources/plain/<name>.md`. The dialog shows **Merge the pull request** (or
+    **Merge the pull requests**) with a link to each one. Review the selected
+    Help Centers and labels, and the repository audience, then merge.
+
+    After each merge, the dialog shows **Pull request merged**. The source does
+    not sync before the merge.
+  </Step>
+
+  <Step>
+    ### Wait for the first sync
+
+    After GitHub reports the merge, ctx| reads the source file and writes the
+    first Plain files. The Workspace indexes the new files after that. See
+    [Indexing](/docs/connections/ingestion) for the lifecycle.
   </Step>
 </Steps>
+
+## Change what syncs
+
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources). When you remove a
+Help Center or a label from the scope, ctx| deletes its files in a sync
+commit.
+
+To change the Workspaces of the connection, use **Manage** on the connector
+card. **Manage** opens the same **Add to Workspaces** step. It starts from the
+current Workspaces and scopes.
 
 ## Files in the repository
 
@@ -79,9 +145,9 @@ plain/help-centers/<help-center-id>/<slug>--<article-id>.md
 plain/threads/labels/<label-id>/<thread-id>.md
 ```
 
-Do not edit these files. ctx| writes them again on each sync. When an article
-is unpublished, or a thread leaves the newest 100 of its label, ctx| deletes
-its file in the same commit.
+The source owns these folders. Do not edit the files: ctx| writes them again
+on each sync. When an article is unpublished, or a thread leaves the newest
+100 of its label, ctx| deletes its file in the same commit.
 
 ## Keeping content current
 
@@ -90,8 +156,23 @@ its file in the same commit.
   the same window start no more syncs.
 - **Daily sync:** ctx| syncs each connection once a day. Help Center articles
   use this sync, because Plain sends no article events.
-- **Sync now:** an org admin can select **Sync now** in the menu of the
+- **Sync now:** an owner or admin can select **Sync now** in the menu of the
   connector card.
+
+## Verify the complete flow
+
+1. Connect Plain and confirm that the name of the Plain workspace appears on
+   **Connectors**.
+2. Choose **Add to Workspaces**, select a Workspace, and select at least one
+   Help Center or label.
+3. Merge the pull request that adds `sources/plain/<name>.md`.
+4. Confirm that the Workspace repository has files under `plain/`.
+5. Add a note to a thread with a selected label. Confirm that the thread file
+   changes after the 10-minute window.
+6. Confirm that the Workspace index is ready in its **Settings**.
+
+Steps 3 and 4 test the GitHub push webhook and the first sync. Step 5 tests
+the Plain webhook delivery.
 
 ## Troubleshooting
 
@@ -99,6 +180,25 @@ its file in the same commit.
 
 The key does not have every permission in the list. Create a new key on the
 machine user with all of them, and paste it.
+
+### Add to a Workspace shows an error
+
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
+
+### No pull request appears
+
+Confirm that the GitHub App has write access to the Workspace repository. If
+the dialog reports an error, close it and try again.
+
+### The source shows a status other than OK
+
+Read the status and the reason of the row in **Settings**. See
+[Source status](/docs/workspaces/settings#source-status).
+
+When a selected Help Center or label is deleted or archived in Plain, ctx|
+tries it in three sync cycles and keeps its files. Then the source shows
+**Out of access**. Remove the Help Center or the label from the source.
 
 ### The card says that threads sync once a day
 
@@ -114,18 +214,12 @@ Plain refused the saved key, for example because someone deleted it or
 removed a permission. ctx| keeps the files and stops the sync. Select
 **Reconnect Plain** on the card and paste a new key.
 
-### A source shows “Out of access”
-
-A selected Help Center or label was deleted or archived. ctx| tries it in
-three sync cycles and keeps its files. Then it marks the source. Remove it
-from the source.
-
 ### Removing the connector
 
-Removing the connector deletes the webhook target in Plain while the key
-works, then the saved key. The Workspace sources that use it stop syncing.
-Files in GitHub stay. When the key no longer works, delete the target in
-**Settings → Webhooks** in Plain.
+Choose **Remove connector** in the menu of the connector card. See
+[Connection menu](/docs/connections#connection-menu) for what stays in Git.
+ctx| also deletes the webhook target in Plain while the key works. When the
+key no longer works, delete the target in **Settings → Webhooks** in Plain.
 
 ### More than one ctx| target in Plain
 
