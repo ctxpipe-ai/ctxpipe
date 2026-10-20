@@ -222,6 +222,23 @@ describe("API key lifecycle events (Postgres)", () => {
       "ctxpipe.org.id": u().orgId,
     })
 
+    // The revoke client sends only the key id and the config id.
+    events.length = 0
+    const removed = await authPost("/api-key/delete", {
+      keyId: key.id,
+      configId: "organization",
+    })
+    expect(removed.status).toBe(200)
+    expect(eventFor("api_key.delete")).toMatchObject({
+      "ctxpipe.api_key.outcome": "success",
+      "ctxpipe.org.id": u().orgId,
+      "api_key.id": key.id,
+      "api_key.owner": "organization",
+    })
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.org.id": u().orgId,
+    })
+
     events.length = 0
     const personal = await createKey([u().orgId])
     expect(eventFor("api_key.create")["ctxpipe.org.id"]).toBeUndefined()
@@ -247,6 +264,24 @@ describe("API key lifecycle events (Postgres)", () => {
       "ctxpipe.api_key.event": "api_key.create",
       "ctxpipe.api_key.outcome": "failure",
     })
+  })
+
+  it("keeps the org id of a refused org key create as a requested id, not as the org of the event", async () => {
+    const requested = generateObjectId("org")
+    const response = await authPost("/api-key/create", {
+      configId: "organization",
+      organizationId: requested,
+      name: "events-org-refused",
+    })
+    expect(response.status).toBeGreaterThanOrEqual(400)
+
+    const event = eventFor("api_key.create")
+    expect(event).toMatchObject({
+      "ctxpipe.api_key.outcome": "failure",
+      "api_key.requested_org_id": requested,
+    })
+    expect(event["ctxpipe.org.id"]).toBeUndefined()
+    expect(spans.serverSpan()?.attributes["ctxpipe.org.id"]).toBeUndefined()
   })
 
   it("emits api_key.update and api_key.delete with the key id and the actor", async () => {

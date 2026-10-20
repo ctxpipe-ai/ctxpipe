@@ -14,6 +14,7 @@ import { contextStorage } from "../test/hono-test-logger.js"
 import { getAuth } from "./config.js"
 import {
   requireAuth,
+  requireOrgAdminOrOwner,
   withCookieAuth,
   withMcpBearerAuth,
   withNetworkOrgContext,
@@ -101,6 +102,26 @@ describe("API key refusal events (Postgres)", () => {
     // requireAuth refuses one outside /mcp.
     app.use("/api/v1/org/*", withCookieAuth, withOrgApiKeyAuth)
     app.use("/api/v1/*", withCookieAuth, requireAuth)
+    app.use(
+      "/api/v1/orgs/:orgSlug/admin",
+      withCookieAuth,
+      requireAuth,
+      withNetworkOrgContext,
+      requireOrgAdminOrOwner,
+    )
+    app.get("/api/v1/orgs/:orgSlug/admin", (c) => c.json({ ok: true }))
+    // The user is signed in, but the org is not one that the user belongs to.
+    app.use(
+      "/api/v1/other-org/admin",
+      withCookieAuth,
+      requireAuth,
+      async (c, next) => {
+        c.set("orgId", "org_not_a_member")
+        await next()
+      },
+      requireOrgAdminOrOwner,
+    )
+    app.get("/api/v1/other-org/admin", (c) => c.json({ ok: true }))
     app.get("/api/v1/org/things", (c) => c.json({ ok: true }))
     app.get("/api/v1/things", (c) => c.json({ ok: true }))
     app.post("/api/v1/things", (c) => c.json({ ok: true }))
@@ -317,11 +338,23 @@ describe("API key refusal events (Postgres)", () => {
       .set({ enabled: false })
       .where(eq(apikeys.id, disabled.id))
     events.length = 0
-    expect((await mcpBearer(disabled.key)).status).toBe(401)
+    const disabledResponse = await mcpBearer(disabled.key)
+    expect(disabledResponse.status).toBe(401)
     expect(refusalEvent()).toMatchObject({
       "ctxpipe.auth.refusal_reason": "disabled",
       "ctxpipe.api_key.id": disabled.id,
     })
+    // The caller reads the same text as for an unknown token, so the 401
+    // does not say that the key exists.
+    const unknownResponse = await mcpBearer(
+      "ctx_not_a_real_key_0123456789abcdefghijklmnopqrstuvwxyz",
+    )
+    expect(disabledResponse.headers.get("www-authenticate")).toBe(
+      unknownResponse.headers.get("www-authenticate"),
+    )
+    expect(disabledResponse.headers.get("www-authenticate")).toContain(
+      "The access token could not be validated",
+    )
     noSecretAnywhere(disabled.key)
 
     const expired = await newOrgKey()
@@ -424,6 +457,32 @@ describe("API key refusal events (Postgres)", () => {
       ],
     })
     expect(JSON.stringify(events)).not.toContain("no-such-org-slug")
+  })
+
+  it("gives a reason for each 403 of the org admin check", async () => {
+    const allowed = await createApp().request(
+      `http://backend.test/api/v1/orgs/${s().orgSlug}/admin`,
+      { headers: { cookie: s().cookie } },
+    )
+    expect(allowed.status).toBe(200)
+
+    const notAdmin = await createApp().request(
+      "http://backend.test/api/v1/other-org/admin",
+      { headers: { cookie: s().cookie } },
+    )
+    expect(notAdmin.status).toBe(403)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "not_org_admin",
+    })
+
+    const withKey = await createApp().request(
+      `http://backend.test/api/v1/orgs/${s().orgSlug}/admin`,
+      { headers: { "x-api-key": s().personalApiKey } },
+    )
+    expect(withKey.status).toBe(403)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "api_key_not_allowed",
+    })
   })
 
   it("logs no refusal for a valid Bearer key", async () => {

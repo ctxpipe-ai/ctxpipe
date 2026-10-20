@@ -111,7 +111,12 @@ export function applyAttribution(
   const cleaned = sanitizeAttribution(input)
   if (Object.keys(cleaned).length === 0) return cleaned
   trace.getActiveSpan()?.setAttributes(cleaned)
-  getLogger().set(cleaned)
+  try {
+    getLogger().set(cleaned)
+  } catch {
+    // No request logger (a call outside a request): the span and the bag
+    // still get the facts.
+  }
   const bag = attributionBagFromContext(context.active())
   if (bag) {
     for (const [key, value] of Object.entries(cleaned)) {

@@ -53,6 +53,7 @@ import {
 import {
   API_KEY_MUTATION_KEYS,
   type ApiKey,
+  copyToClipboard,
   createOrganizationApiKey,
   createPersonalApiKey,
   deleteOrganizationApiKey,
@@ -717,7 +718,7 @@ function CreatedSecretDialog(props: {
           variant="outline"
           className="rounded-md"
           onPress={() => {
-            void navigator.clipboard.writeText(secret).then(() => {
+            void copyToClipboard(secret).then(() => {
               setCopied(true)
               onCopied()
             }, onCopyFailed)

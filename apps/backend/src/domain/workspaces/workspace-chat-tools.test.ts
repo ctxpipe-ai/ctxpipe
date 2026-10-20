@@ -1,3 +1,4 @@
+import { SpanStatusCode } from "@opentelemetry/api"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -19,6 +20,8 @@ import {
 } from "./code-tools.js"
 import type { PublishedProjection } from "./revision.js"
 import {
+  WORKSPACE_CHAT_TOOLS,
+  withToolCallSpan,
   workspaceChatToolAllowed,
   workspaceChatTools,
 } from "./workspace-chat-tools.js"
@@ -195,7 +198,7 @@ describe("workspace chat tool call spans", () => {
 
   it("records the call id and the size of a result", async () => {
     const result = String(
-      await (await tool("get_file")).execute({
+      await withToolCallSpan(await tool("get_file")).execute({
         repositoryId: "repo_bound",
         path: "OWNERS",
       }),
@@ -212,7 +215,7 @@ describe("workspace chat tool call spans", () => {
   })
 
   it("records the error code of an error result, and no argument", async () => {
-    await (await tool("get_file")).execute({
+    await withToolCallSpan(await tool("get_file")).execute({
       repositoryId: "repo_unrelated",
       path: "SECRET_PATH",
     })
@@ -232,7 +235,7 @@ describe("workspace chat tool call spans", () => {
     )
 
     await expect(
-      (await tool("get_file")).execute({
+      withToolCallSpan(await tool("get_file")).execute({
         repositoryId: "repo_bound",
         path: "OWNERS",
       }),
@@ -241,6 +244,21 @@ describe("workspace chat tool call spans", () => {
     expect(callSpan("get_file")?.attributes["ctxpipe.mcp.error.code"]).toBe(
       "internal",
     )
+  })
+
+  it("covers a failure before the tool runs, such as a context that has no scope", async () => {
+    const listed = WORKSPACE_CHAT_TOOLS.find((item) => item.name === "get_file")
+    if (!listed) throw new Error("missing tool get_file")
+
+    await expect(
+      withToolCallSpan(listed).execute({ repositoryId: "repo_bound" }),
+    ).rejects.toThrow()
+
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "internal",
+    })
+    expect(callSpan("get_file")?.status.code).toBe(SpanStatusCode.ERROR)
   })
 })
 

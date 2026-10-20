@@ -103,10 +103,14 @@ export async function workspaceChatTools(input: {
     graphLookupTool({ expand, sha }),
     graphNeighborsTool({ expand, sha }),
   )
-  return tools.map(withToolCallSpan)
+  return tools
 }
 
-/** Each call runs in a span with the facts of an MCP tool span. */
+/**
+ * Each call runs in a span with the facts of an MCP tool span. A list of
+ * tools gets this once, at the list that the chat engine receives, so a
+ * failure before the tool runs is inside the span too.
+ */
 export function withToolCallSpan(
   tool: WorkspaceChatTanstackTool,
 ): WorkspaceChatTanstackTool {

@@ -152,7 +152,11 @@ function unauthorized(
  * The answer to a refused API key. A key that hit its rate limit on `/mcp`
  * gets 429 with Retry-After: a 401 makes an OAuth client sign in again.
  */
-function apiKeyRefusedResponse(c: Context<AppEnv>, refusal: OrgApiKeyRefusal) {
+function apiKeyRefusedResponse(
+  c: Context<AppEnv>,
+  refusal: OrgApiKeyRefusal,
+  errorDescription = "The API key could not be validated",
+) {
   if (isMcpRequestPath(c.req.path) && refusal.retryAfterSeconds !== undefined) {
     return c.json({ error: "Too Many Requests" }, 429, {
       "Retry-After": String(refusal.retryAfterSeconds),
@@ -161,7 +165,7 @@ function apiKeyRefusedResponse(c: Context<AppEnv>, refusal: OrgApiKeyRefusal) {
   return c.json(
     { error: "Unauthorized" },
     401,
-    wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+    wwwAuthenticateForMcpRoute(c, errorDescription),
   )
 }
 
@@ -671,7 +675,13 @@ async function authenticateBearer(
       // refreshes it after this 401), so only a known key is a key refusal.
       if (apiKeyAuth.refusal.reason !== "invalid") {
         recordApiKeyRefusal(apiKeyAuth.refusal)
-        return apiKeyRefusedResponse(c, apiKeyAuth.refusal)
+        // A Bearer caller gets the text of an unknown token, so the 401 does
+        // not say that the key exists.
+        return apiKeyRefusedResponse(
+          c,
+          apiKeyAuth.refusal,
+          "The access token could not be validated",
+        )
       }
     }
 
@@ -931,7 +941,12 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   const orgId = c.get("orgId")
   // Better Auth gives a personal API key a session with the user's role, so
   // the role check alone would let the key through.
-  if (!user?.id || !orgId || c.get("personalApiKeyId") || c.get("orgApiKey")) {
+  if (!user?.id || !orgId) {
+    applyAttribution({ "ctxpipe.auth.refusal_reason": "not_org_admin" })
+    return c.json({ error: "Forbidden" }, 403)
+  }
+  if (c.get("personalApiKeyId") || c.get("orgApiKey")) {
+    applyAttribution({ "ctxpipe.auth.refusal_reason": "api_key_not_allowed" })
     return c.json({ error: "Forbidden" }, 403)
   }
   if (
@@ -942,6 +957,7 @@ export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   ) {
     return next()
   }
+  applyAttribution({ "ctxpipe.auth.refusal_reason": "not_org_admin" })
   return c.json({ error: "Forbidden" }, 403)
 }
 

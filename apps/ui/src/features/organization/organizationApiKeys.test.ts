@@ -297,6 +297,23 @@ describe("API-key client", () => {
       ])
     })
 
+    it("rejects, and does not throw, when the browser has no Clipboard API", async () => {
+      const { copyToClipboard } = await import("./organizationApiKeys")
+      vi.stubGlobal("navigator", {})
+
+      await expect(copyToClipboard("secret")).rejects.toThrow()
+    })
+
+    it("copies the text with the Clipboard API", async () => {
+      const { copyToClipboard } = await import("./organizationApiKeys")
+      const writeText = vi.fn(async () => {})
+      vi.stubGlobal("navigator", { clipboard: { writeText } })
+
+      await copyToClipboard("secret")
+
+      expect(writeText).toHaveBeenCalledWith("secret")
+    })
+
     it("records api_key_copy with the key id and the owner, and never the secret", async () => {
       const { recordApiKeyCopied } = await import("./organizationApiKeys")
 

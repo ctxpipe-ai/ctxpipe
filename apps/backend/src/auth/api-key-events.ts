@@ -1,5 +1,8 @@
 import type { BetterAuthPlugin } from "better-auth"
 import { createAuthMiddleware } from "better-auth/api"
+import { eq } from "drizzle-orm"
+import { getSystemDb } from "../db/client.js"
+import { apikeys } from "../db/schema/auth.js"
 import {
   applyAttribution,
   sanitizeAttribution,
@@ -63,6 +66,13 @@ export function recordApiKeyEvent(event: {
   else logger.set(fields)
 }
 
+/**
+ * The org of a key that is about to be deleted, by key id. The delete answer
+ * and the deleted row hold no org, so the before hook reads it from the row.
+ * The after hook of the same request takes it out again.
+ */
+const deletedKeyOrgs = new Map<string, string>()
+
 function organizationCount(header: string | null | undefined) {
   if (header == null) return undefined
   return new Set(
@@ -74,15 +84,40 @@ function organizationCount(header: string | null | undefined) {
 }
 
 /**
- * Better Auth after-hook for the API key create, update and delete
- * endpoints (CTX-881). It runs after the hook that writes the org set, so a
- * create that this hook refused shows as a failure, and the id of the key
- * that it deleted is not on the event.
+ * Better Auth hooks for the API key create, update and delete endpoints
+ * (CTX-881). The after hook runs after the hook that writes the org set, so a
+ * create that this hook refused shows as a failure. The before hook of a
+ * delete reads the org of the key from its row, because the delete removes it.
  */
 export function apiKeyLifecycleEvents(): BetterAuthPlugin {
   return {
     id: "api-key-lifecycle-events",
     hooks: {
+      before: [
+        {
+          matcher: (context) => context.path === "/api-key/delete",
+          handler: createAuthMiddleware(async (ctx) => {
+            try {
+              const keyId = (ctx.body as Record<string, unknown> | undefined)
+                ?.keyId
+              if (typeof keyId !== "string") return
+              const [row] = await getSystemDb()
+                .select({
+                  configId: apikeys.configId,
+                  referenceId: apikeys.referenceId,
+                })
+                .from(apikeys)
+                .where(eq(apikeys.id, keyId))
+                .limit(1)
+              if (row && row.configId !== "default") {
+                deletedKeyOrgs.set(keyId, row.referenceId)
+              }
+            } catch {
+              // The event goes without an org; the delete goes on.
+            }
+          }),
+        },
+      ],
       after: [
         {
           matcher: (context) => Boolean(context.path && STEPS[context.path]),
@@ -114,13 +149,25 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
                       : undefined
               const personal =
                 configId === undefined ? undefined : configId === "default"
-              // The delete answer and the deleted row hold no org: a delete
-              // of an organization key has the key id only.
+              // The org of a delete comes from the row, read before the
+              // delete. The org of a create or update is the caller's
+              // `organizationId` only when the call succeeded, which means
+              // that Better Auth checked it. A refused call keeps it as a
+              // requested id and never as the org of the event.
+              const deletedOrg =
+                keyId === undefined ? undefined : deletedKeyOrgs.get(keyId)
+              if (keyId !== undefined) deletedKeyOrgs.delete(keyId)
+              const requestedOrg =
+                typeof body.organizationId === "string"
+                  ? body.organizationId
+                  : undefined
               const orgId =
                 personal === false
-                  ? [result.referenceId, body.organizationId].find(
-                      (value): value is string => typeof value === "string",
-                    )
+                  ? failed
+                    ? deletedOrg
+                    : [deletedOrg, result.referenceId, requestedOrg].find(
+                        (value): value is string => typeof value === "string",
+                      )
                   : undefined
               recordApiKeyEvent({
                 step,
@@ -129,6 +176,8 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
                 orgId,
                 apiKey: {
                   id: keyId,
+                  requested_org_id:
+                    failed && personal === false ? requestedOrg : undefined,
                   owner:
                     personal === undefined
                       ? undefined

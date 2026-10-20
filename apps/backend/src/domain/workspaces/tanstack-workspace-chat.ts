@@ -146,7 +146,10 @@ import {
   type WorkspaceChatRunCapabilityPurpose,
 } from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
-import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
+import {
+  WORKSPACE_CHAT_TOOLS,
+  withToolCallSpan,
+} from "./workspace-chat-tools.js"
 import {
   baseForNewSandbox,
   startingFromBase,
@@ -809,7 +812,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         workspaceId: input.workspaceId,
         sandbox: () => activeSandbox,
       }),
-    ],
+    ].map(withToolCallSpan),
     middleware: [
       workspaceChatOtelMiddleware(),
       defineChatMiddleware({

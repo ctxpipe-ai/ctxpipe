@@ -29,12 +29,7 @@ import { TOOL_ERROR_META_KEY } from "./framework/tool-result.js"
  * (`ops/observability/clickhouse/schema/mcp-call-correlation.sql`).
  */
 
-type CorrelationSource =
-  | "meta"
-  | "header"
-  | "baggage"
-  | "openai"
-  | "codex"
+type CorrelationSource = "meta" | "header" | "baggage" | "openai" | "codex"
 
 type CorrelatedId = { id: string; source: CorrelationSource }
 
@@ -106,9 +101,7 @@ function first(
  * W3C trace context from `_meta.traceparent`; `undefined` when not valid.
  * The client `tracestate` is not kept: it must not go out on our requests.
  */
-function clientSpanContext(
-  traceparent: unknown,
-): SpanContext | undefined {
+function clientSpanContext(traceparent: unknown): SpanContext | undefined {
   if (typeof traceparent !== "string") return undefined
   const match = TRACEPARENT.exec(traceparent.trim())
   if (!match) return undefined
@@ -302,48 +295,15 @@ function bridgeResultErrorCode(result: unknown): string | undefined {
  * Run one tool call of a sandbox tool bridge (workspace chat, ingest) in a
  * `bridge.tool <name>` span with the facts that an `mcp.tool` span has: the
  * tool name, a call id, the size of the result, and an error code (`internal`
- * for a thrown error, else the `error` of the result). The span takes the
- * request attribution of its parent. Do not pass the arguments here.
+ * for a thrown error, else the `error` of the result). It uses the same
+ * implementation as an MCP tool call, so a child span and a log in the tool
+ * carry the tool name and the call id. Do not pass the arguments here.
  */
 export async function runBridgeToolCall<R>(
   toolName: string,
   fn: () => Promise<R>,
 ): Promise<R> {
-  const name = toolName.slice(0, 100)
-  return trace
-    .getTracer("ctxpipe-backend")
-    .startActiveSpan(`bridge.tool ${name}`, async (span) => {
-      span.setAttributes({
-        "ctxpipe.mcp.tool": name,
-        "ctxpipe.mcp.call.id": generateObjectId("call"),
-      })
-      try {
-        const result = await fn()
-        span.setAttribute(
-          "ctxpipe.mcp.result.bytes",
-          Buffer.byteLength(
-            typeof result === "string"
-              ? result
-              : (JSON.stringify(result) ?? ""),
-          ),
-        )
-        const code = bridgeResultErrorCode(result)
-        if (code) span.setAttribute("ctxpipe.mcp.error.code", code)
-        return result
-      } catch (error) {
-        const exception =
-          error instanceof Error ? error : new Error(String(error))
-        span.setAttribute("ctxpipe.mcp.error.code", "internal")
-        span.recordException(exception)
-        span.setStatus({
-          code: SpanStatusCode.ERROR,
-          message: exception.message,
-        })
-        throw error
-      } finally {
-        span.end()
-      }
-    })
+  return runMcpCall<R>({ kind: "bridge", name: toolName }, () => fn())
 }
 
 /** Error codes that report a bad call, not a server fault (ADR-051 section 5). */
@@ -369,19 +329,21 @@ function resultErrorCode(result: {
   return typeof code === "string" ? code : undefined
 }
 
-async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
+async function runMcpCall<R>(
   input: {
-    kind: "tool" | "resource"
+    kind: "tool" | "resource" | "bridge"
     name: string
-    extra: ToolCallExtra
+    /** A bridge call has no MCP client, so it has no `extra`. */
+    extra?: ToolCallExtra
     /** Turns a thrown error into a result. Without it, the error is thrown on. */
     toResult?: (exception: Error) => R
   },
   fn: (call: McpToolCall) => Promise<R>,
 ): Promise<R> {
+  const bridge = input.kind === "bridge"
   const correlation = readMcpCorrelation({
-    meta: input.extra._meta,
-    headers: input.extra.requestInfo?.headers,
+    meta: input.extra?._meta,
+    headers: input.extra?.requestInfo?.headers,
   })
   const { principal, oauthClientId } = currentPrincipal()
   const connectionKey = mcpConnectionKey({
@@ -393,17 +355,22 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
   const callId = generateObjectId("call")
   const name = input.name.slice(0, 100)
   const attributes: AttributionInput = {
-    [input.kind === "tool" ? "ctxpipe.mcp.tool" : "ctxpipe.mcp.resource"]: name,
+    [input.kind === "resource" ? "ctxpipe.mcp.resource" : "ctxpipe.mcp.tool"]:
+      name,
     "ctxpipe.mcp.call.id": callId,
-    "ctxpipe.mcp.connection.key": connectionKey,
-    "ctxpipe.mcp.client.name": correlation.clientName,
-    "ctxpipe.mcp.conversation.id": correlation.conversation?.id,
-    "ctxpipe.mcp.conversation.source": correlation.conversation?.source,
-    "ctxpipe.mcp.turn.id": correlation.turn?.id,
-    "ctxpipe.mcp.turn.source": correlation.turn?.source,
-    "ctxpipe.mcp.correlation.source": correlation.conversation
-      ? "client"
-      : "derived",
+    ...(bridge
+      ? {}
+      : {
+          "ctxpipe.mcp.connection.key": connectionKey,
+          "ctxpipe.mcp.client.name": correlation.clientName,
+          "ctxpipe.mcp.conversation.id": correlation.conversation?.id,
+          "ctxpipe.mcp.conversation.source": correlation.conversation?.source,
+          "ctxpipe.mcp.turn.id": correlation.turn?.id,
+          "ctxpipe.mcp.turn.source": correlation.turn?.source,
+          "ctxpipe.mcp.correlation.source": correlation.conversation
+            ? "client"
+            : "derived",
+        }),
   }
 
   const links: Link[] = correlation.parent
@@ -411,10 +378,28 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
     : []
   const callContext = contextWithForkedAttributionBag(context.active())
   const withMeta = (result: R): R => {
-    const final = {
-      ...result,
-      _meta: { ...result._meta, "ai.ctxpipe/callId": callId },
+    if (bridge) {
+      // The result is the tool's own text. It gets no `_meta`.
+      trace
+        .getActiveSpan()
+        ?.setAttribute(
+          "ctxpipe.mcp.result.bytes",
+          Buffer.byteLength(
+            typeof result === "string"
+              ? result
+              : (JSON.stringify(result) ?? ""),
+          ),
+        )
+      applyAttribution({
+        "ctxpipe.mcp.error.code": bridgeResultErrorCode(result),
+      })
+      return result
     }
+    const mcpResult = result as { _meta?: Record<string, unknown> }
+    const final = {
+      ...mcpResult,
+      _meta: { ...mcpResult._meta, "ai.ctxpipe/callId": callId },
+    } as R
     // The size of what the client gets, and why a tool call failed.
     // In a batch, the wide event holds the value of the last call.
     const bytes = Buffer.byteLength(JSON.stringify(final))
@@ -431,7 +416,7 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
   return trace
     .getTracer("ctxpipe-backend")
     .startActiveSpan(
-      `mcp.${input.kind} ${name}`,
+      bridge ? `bridge.tool ${name}` : `mcp.${input.kind} ${name}`,
       { links },
       callContext,
       async (span) => {
@@ -450,6 +435,8 @@ async function runMcpCall<R extends { _meta?: Record<string, unknown> }>(
           const userError = isUserErrorCode(errorData?.code)
           if (typeof errorData?.code === "string") {
             applyAttribution({ "ctxpipe.mcp.error.code": errorData.code })
+          } else if (bridge) {
+            applyAttribution({ "ctxpipe.mcp.error.code": "internal" })
           }
           // A bad call is not a server fault, as for a tool call that
           // returns `isError`. Only an internal error marks the span.
