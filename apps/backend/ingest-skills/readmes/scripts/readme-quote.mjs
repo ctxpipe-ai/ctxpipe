@@ -357,3 +357,15 @@ export function readmeOverview(raw, readmePath) {
   if (!kept.length) return null
   return { quote: render(kept, readmePath), summary: summaryOf(kept) }
 }
+
+/**
+ * The summary that `readmeOverview` gave for a quote, from the lines of an
+ * Overview section that the skill wrote, or null.
+ */
+export function quoteSummary(lines) {
+  const text = lines
+    .filter((line) => !/^Source: `[^`]*`$/.test(line))
+    .map((line) => line.replace(/^> ?/, ""))
+    .join("\n")
+  return summaryOf(readBlocks(text))
+}

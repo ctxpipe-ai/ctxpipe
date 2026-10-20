@@ -1765,6 +1765,35 @@ describe("readmes skill", () => {
     }
   })
 
+  it("keeps a summary that a person wrote after the skill wrote the Overview", async () => {
+    const first = step(
+      { ...PNPM_SHOP, "apps/api/README.md": "# API\n\nServes orders.\n" },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    first.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    first.run("readmes")
+    const written = first
+      .show((await first.validate("readmes")).tree, "knowledge/services/api.md")
+      .replace(
+        /^summary: .*$/m,
+        'summary: "The order API, written by a person."',
+      )
+
+    const next = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md": "# API\n\nServes orders and refunds.\n",
+      },
+      { "knowledge/services/api.md": written },
+    )
+    expect(next.run("readmes").ops).toHaveLength(1)
+    const result = await next.validate("readmes")
+    expect(result.rejections).toEqual([])
+    const api = next.show(result.tree, "knowledge/services/api.md")
+    expect(frontOf(api).summary).toBe("The order API, written by a person.")
+    expect(api).toContain("> Serves orders and refunds.\n")
+  })
+
   it("stops before a heading that the validator refuses after it decodes a character reference", async () => {
     for (const heading of ["## For &#65;I agents", "## Coding&nbsp;models"]) {
       const s = step(

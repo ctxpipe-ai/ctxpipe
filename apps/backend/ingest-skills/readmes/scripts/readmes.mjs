@@ -30,7 +30,7 @@ import {
   safePath,
   trackedSizes,
 } from "../../discover-roots/scripts/roots-lib.mjs"
-import { readmeOverview } from "./readme-quote.mjs"
+import { quoteSummary, readmeOverview } from "./readme-quote.mjs"
 
 const PACKAGE_KINDS = new Set(["Service", "App", "Library"])
 const OVERVIEW = /^##[ \t]+overview[ \t#]*$/i
@@ -178,13 +178,15 @@ function edit(before, readme) {
   const body = `${head ? `${head}\n\n` : ""}${block}${tail ? `\n${tail}` : ""}`
 
   // Replace a summary only when it is absent, when it is the stub, or when
-  // the skill wrote it. A summary that the script cannot read stays.
+  // it is the summary of the old quote, which the skill wrote. A summary
+  // that a person changed, or that the script cannot read, stays.
   const summaryLine = yaml.split("\n").find((l) => l.startsWith("summary:"))
   const summary = summaryLine ? yamlScalar(summaryLine.slice(8)) : null
   const replaceable =
     summaryLine === undefined ||
     (summary !== null &&
-      (summary === stubSummary(frontValue(yaml, "kind"), repository) || ours))
+      (summary === stubSummary(frontValue(yaml, "kind"), repository) ||
+        (ours && summary === quoteSummary(old.slice(1)))))
   if (overview.summary && summary !== overview.summary && replaceable)
     yaml = withSummary(yaml, overview.summary) ?? yaml
   return `---\n${yaml}---\n${body}`
