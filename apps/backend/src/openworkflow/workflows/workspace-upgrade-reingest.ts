@@ -135,7 +135,7 @@ const runOutputSchema = z
  * One fixed line for the steps that failed after their 3 attempts, with no
  * error text: that text can hold source text. The line names the cause that
  * classifies the failure (CTX-896): a time limit, else a model error, else
- * the sandbox. Null when no step failed so.
+ * no cause (a step of the sandbox or of the push). Null when no step failed so.
  */
 function stepFailureLine(failures: IngestStepFailures = {}): string | null {
   const count =
@@ -144,7 +144,7 @@ function stepFailureLine(failures: IngestStepFailures = {}): string | null {
   const steps = `${count} ingest ${count === 1 ? "step" : "steps"} failed after 3 attempts`
   if (failures.timeLimit) return `${steps}. A step reached its time limit.`
   if (failures.model) return `${steps}. The model returned an error.`
-  return `${steps} in the ingest sandbox.`
+  return `${steps}.`
 }
 
 /**
@@ -312,6 +312,8 @@ const plannedSchema = z.union([
           .nullable(),
         /** The spend of the earlier runs of this upgrade for a repository that is not done. */
         earlierSpendUsd: z.number().optional(),
+        /** An earlier run of this upgrade reported its spend as incomplete. */
+        earlierSpendUnknown: z.boolean().optional(),
       }),
     ),
   }),
@@ -400,6 +402,7 @@ async function planReingest(input: {
       ...(!done && before?.spendUsd
         ? { earlierSpendUsd: before.spendUsd }
         : {}),
+      ...(!done && before?.spendUnknown ? { earlierSpendUnknown: true } : {}),
     })
   }
   return { repositories }
@@ -638,8 +641,13 @@ export function defineWorkspaceUpgradeReingest(
                       spendUsd: r.done.spendUsd,
                       ...(r.done.spendUnknown ? { spendUnknown: true } : {}),
                     }
-                  : r.earlierSpendUsd
-                    ? { spendUsd: r.earlierSpendUsd }
+                  : r.earlierSpendUsd || r.earlierSpendUnknown
+                    ? {
+                        spendUsd: r.earlierSpendUsd ?? 0,
+                        ...(r.earlierSpendUnknown
+                          ? { spendUnknown: true }
+                          : {}),
+                      }
                     : {}),
               }))
             await record("record-plan", {

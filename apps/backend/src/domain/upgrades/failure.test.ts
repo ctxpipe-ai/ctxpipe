@@ -65,11 +65,7 @@ describe("classifyUpgradeFailure", () => {
       "model",
       "ingest",
     ],
-    [
-      ["1 ingest step failed after 3 attempts in the ingest sandbox."],
-      "sandbox",
-      "ingest",
-    ],
+    [["1 ingest step failed after 3 attempts."], "unknown", "ingest"],
     [
       [
         "no_writable_destination",
@@ -80,6 +76,21 @@ describe("classifyUpgradeFailure", () => {
     ],
   ])("classifies %j as %s at %s", (report, code, step) => {
     expect(classifyUpgradeFailure(failed(report))).toMatchObject({ code, step })
+  })
+
+  it("does not classify by a repository name", () => {
+    const input = failed([], "acme/model-sandbox-provider")
+    expect(isTemporaryFailure(input)).toBe(false)
+    expect(classifyUpgradeFailure(input)).toMatchObject({
+      code: "unknown",
+      repository: null,
+    })
+  })
+
+  it("retries steps that failed with no known cause", () => {
+    expect(
+      isTemporaryFailure(failed(["2 ingest steps failed after 3 attempts."])),
+    ).toBe(true)
   })
 
   it("reads a row error with no repository", () => {

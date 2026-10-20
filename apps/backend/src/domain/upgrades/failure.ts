@@ -72,10 +72,11 @@ const RULES: Array<{
     match: /failed after 3 attempts\. the model returned an error/,
     temporary: true,
   },
+  // Steps with no known cause (a step of the sandbox or of the push).
   {
-    code: "sandbox",
+    code: "unknown",
     step: "ingest",
-    match: /failed after 3 attempts in the ingest sandbox/,
+    match: /^\d+ ingest steps? failed after 3 attempts\.$/m,
     temporary: true,
   },
   {
@@ -134,13 +135,23 @@ export function safeFailureSummary(text: string): string {
   return clean.length > 240 ? `${clean.slice(0, 239)}…` : clean
 }
 
-/** The failed repository, the cause text, and the rule that matches it. */
+/**
+ * The failed repository, the cause text, and the rule that matches it. When
+ * a repository ran and did not finish, only its report lines classify the
+ * failure: the row text names the repository, and a name such as
+ * `acme/model-sandbox-provider` must not match a rule. The row text
+ * classifies a failure that no repository caused.
+ */
 function matchFailure(input: FailureInput) {
-  const failed = (input.repositories ?? []).find(
+  const repositories = input.repositories ?? []
+  const failed = repositories.find(
     (r) => r.status !== "done" && r.status !== "pending" && r.report.length,
   )
+  const ran = repositories.some(
+    (r) => r.status !== "done" && r.status !== "pending",
+  )
   const cause = failed?.report.join("\n") ?? input.failureReason ?? ""
-  const text = `${cause}\n${input.failureReason ?? ""}`.toLowerCase()
+  const text = (ran ? (failed?.report.join("\n") ?? "") : cause).toLowerCase()
   return { failed, cause, rule: RULES.find((r) => r.match.test(text)) }
 }
 

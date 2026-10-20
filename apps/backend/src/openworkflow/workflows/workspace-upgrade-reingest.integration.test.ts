@@ -884,7 +884,11 @@ it(
             status: "done",
             spendUsd: 1_000,
           },
-          ...rest,
+          // An earlier run of the second repository reported its spend as
+          // incomplete: a retry does not show a complete-looking spend.
+          ...rest.map((r, index) =>
+            index === 0 ? { ...r, spendUsd: 5, spendUnknown: true } : r,
+          ),
         ],
       },
     })
@@ -905,7 +909,7 @@ it(
       upgrade: {
         repositories: [
           expect.objectContaining({ status: "done", spendUsd: 1_000 }),
-          expect.objectContaining({ status: "done" }),
+          expect.objectContaining({ status: "done", spendUnknown: true }),
         ],
       },
     })
