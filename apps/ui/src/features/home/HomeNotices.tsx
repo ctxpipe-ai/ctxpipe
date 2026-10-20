@@ -165,7 +165,9 @@ function HydrateProblemToast(props: {
           <p className="text-xs text-muted-foreground">
             <span className="font-mono break-all">{first.path}</span>:{" "}
             {skippedReasonCopy[first.reason]}
-            {more > 0 ? `, and ${more} more ${more === 1 ? "file" : "files"}` : ""}
+            {more > 0
+              ? `, and ${more} more ${more === 1 ? "file" : "files"}`
+              : ""}
             . Chat, MCP, search, and the graph do not use{" "}
             {count === 1 ? "it" : "them"}.
           </p>

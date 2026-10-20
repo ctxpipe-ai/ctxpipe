@@ -226,9 +226,7 @@ export const Dismiss: Story = {
       expect(canvas.getByText("Docs upgrade available")).toBeVisible(),
     )
     await waitFor(() =>
-      expect(
-        canvas.queryByRole("button", { name: /Show notices/ }),
-      ).toBeNull(),
+      expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
 }
@@ -256,9 +254,7 @@ export const DismissedCollapseToIcon: Story = {
     await userEvent.click(show)
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     await waitFor(() =>
-      expect(
-        canvas.queryByRole("button", { name: /Show notices/ }),
-      ).toBeNull(),
+      expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
 }
@@ -400,7 +396,9 @@ export const ProblemOnly: Story = {
       ).toBeVisible(),
     )
     await waitFor(() =>
-      expect(within(region).getByText(/Front matter is not valid/)).toBeVisible(),
+      expect(
+        within(region).getByText(/Front matter is not valid/),
+      ).toBeVisible(),
     )
     expect(toastItems(canvasElement)).toHaveLength(1)
     await userEvent.click(
@@ -430,7 +428,9 @@ export const MixedStack: Story = {
   parameters: homeHandlers(
     "owner",
     { docs: [upgradeItemFixture()] },
-    { handbook: [taxFile, { path: "knowledge/legal.md", reason: "malformed" }] },
+    {
+      handbook: [taxFile, { path: "knowledge/legal.md", reason: "malformed" }],
+    },
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -491,9 +491,7 @@ export const CollapsedBothTypes: Story = {
     await userEvent.click(show())
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     await waitFor(() =>
-      expect(
-        canvas.queryByRole("button", { name: /Show notices/ }),
-      ).toBeNull(),
+      expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull(),
     )
   },
 }

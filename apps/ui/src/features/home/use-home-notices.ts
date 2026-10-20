@@ -11,7 +11,7 @@ import type {
 } from "@/features/workspaces/types"
 import { upgradeDismissKey, useUserPreferences } from "@/lib/user-preferences"
 
-export type HomeNotice = { dismissKey: string; workspace: Workspace } & (
+type HomeNotice = { dismissKey: string; workspace: Workspace } & (
   | { kind: "upgrade"; item: WorkspaceUpgradeItem }
   | { kind: "problem"; skippedFiles: WorkspaceSkippedFile[] }
 )
