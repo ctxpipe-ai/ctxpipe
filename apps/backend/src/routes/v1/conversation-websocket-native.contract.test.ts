@@ -285,15 +285,21 @@ it(
       expect(back.chunks.at(-1)?.type).toBe("RUN_FINISHED")
       expect(answerText(back.chunks)).toBe("Native reply completed.")
       expect(answerText(first.chunks)).toBe("")
+      // The persistence `onFinish` stores the transcript, then ends the run
+      // record. Both come after the terminal chunk reaches the run log.
+      await vi.waitFor(
+        async () =>
+          expect(
+            await workspaceChatPersistence().stores.runs.findActiveRun(
+              f.conversationId,
+            ),
+          ).toBeNull(),
+        { timeout: 30_000 },
+      )
       expect(await storedTexts(f.conversationId)).toEqual([
         "Hello socket",
         "Native reply completed.",
       ])
-      expect(
-        await workspaceChatPersistence().stores.runs.findActiveRun(
-          f.conversationId,
-        ),
-      ).toBeNull()
     })
   },
 )
