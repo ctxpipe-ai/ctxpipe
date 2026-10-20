@@ -41,7 +41,30 @@ can remain.
 - A Zendesk user that can read the Help Center and the selected views. To add
   the Help Center webhook, the user must be a Zendesk admin.
 - A [Workspace](/docs/workspaces) whose repository the ctx| GitHub App can
-  write to.
+  write to. The repository must use format 2 or higher. If it does not, the
+  Workspace shows **Upgrade this Workspace first**. See
+  [Upgrades](/docs/workspaces/settings#upgrades).
+- Permission to merge the pull request that adds the source.
+
+## Where the scope lives
+
+The connection holds authorization only. The scope is in a source file in each
+Workspace, at `sources/zendesk/<name>.md`. The front matter holds the Help
+Center category ids, the ticket view ids, or both. The body is an optional
+description of what the source is for.
+
+```markdown
+---
+provider: zendesk
+connection: con_example
+categories: ["360001234567"]
+views: ["900001"]
+---
+```
+
+The scope goes live after the merge. See
+[Workspace settings](/docs/workspaces/settings#sources) for draft scope and live
+scope. Each Workspace has its own scope.
 
 ## Setup flow
 
@@ -72,11 +95,39 @@ can remain.
   <Step>
     ### Add Zendesk to Workspaces
 
-    Select the Workspaces, and the categories and views for each. ctx| adds a
-    source file under `sources/` in each Workspace repository, with a pull
-    request. Merge the pull request to start the sync.
+    The next step is **Add Zendesk to Workspaces**. Select the Workspaces that
+    sync from Zendesk, and the categories and views for each. Type in the
+    filter to find a category or a view. You can select at most 50 categories
+    and 50 views in one source.
+
+    You can add the connection to a Workspace later. Expand the connector on
+    **Connectors**. When no Workspace uses the connection, choose **Add to a
+    Workspace**. Otherwise, choose **Manage**.
+  </Step>
+
+  <Step>
+    ### Merge the pull requests
+
+    ctx| opens one pull request for each Workspace. Each pull request adds
+    `sources/zendesk/<name>.md`. The dialog links to each pull request. Review
+    the selected categories and views and the repository audience, then merge.
+    The source does not sync before the merge.
+  </Step>
+
+  <Step>
+    ### Wait for the first sync
+
+    After GitHub reports the merge, ctx| reads the source file and writes the
+    first Zendesk files. The Workspace indexes the new files after that. See
+    [Indexing](/docs/connections/ingestion) for the lifecycle.
   </Step>
 </Steps>
+
+## Change what syncs
+
+Edit, rename, or remove a source in the **Settings** of the Workspace. See
+[Workspace settings](/docs/workspaces/settings#sources). When you remove a
+category or a view from the scope, ctx| deletes its files in a sync commit.
 
 ## Files in the repository
 
@@ -106,13 +157,25 @@ deletes its file in the same commit.
 
 Zendesk did not let ctx| add the webhook, because the user who connected is
 not a Zendesk admin. Select **Add the webhook** on the card and connect as a
-Zendesk admin, or use the daily sync and **Sync now**.
+Zendesk admin, or use the daily sync and **Sync now**. To add Zendesk to more
+Workspaces without the webhook, select **Add the webhook**, then **Skip to
+Workspaces**.
 
 ### The card shows “Needs reconnect”
 
 Zendesk refused the saved authorization, for example because someone revoked
 it. ctx| keeps the files and stops the sync. Select **Reconnect Zendesk** on
 the card.
+
+### Add to a Workspace shows an error
+
+The dialog shows a message about the format, the write access, or your role.
+See [Add source shows an error](/docs/workspaces/settings#add-source-shows-an-error).
+
+### No pull request appears
+
+Confirm that the GitHub App has write access to the Workspace repository. If
+the dialog reports an error, close it and try again.
 
 ### A source shows “Out of access”
 
@@ -127,3 +190,4 @@ token while the authorization works. Then it deletes the saved tokens. If
 Zendesk is not available, the removal still completes. In that case, make sure
 that the webhook and the authorization are gone in Zendesk Admin Center. The
 Workspace sources that use the connector stop syncing. Files in GitHub stay.
+See [Connection menu](/docs/connections#connection-menu).

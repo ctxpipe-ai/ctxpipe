@@ -11,7 +11,7 @@ const connectorKinds = [
   {
     icon: "book" as const,
     title: "Scoped mirrors",
-    example: "Linear · Notion · Confluence · PagerDuty",
+    example: "Linear · Notion · Confluence · PagerDuty · Zendesk",
     description:
       "Review source scope in Git, then keep selected content current.",
     tone: "violet",
