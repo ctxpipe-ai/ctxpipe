@@ -13,6 +13,7 @@ import {
   vi,
 } from "vitest"
 import { useMswServer } from "../../../test/msw.js"
+import { recordSpans } from "../../../test/spans.js"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import {
@@ -36,6 +37,8 @@ import {
   INGESTION_V2_WORKFLOW_NAME,
   type IngestionV2RunInput,
 } from "./ingestion-run.js"
+
+const spans = recordSpans()
 
 const CODESEARCH = "http://codesearch.ingest-tools.test"
 const AUTH_SECRET = "ingest-tools-test-secret-0123456789abcdef"
@@ -413,6 +416,33 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
       expect(result.text).toContain("checkout_not_in_run")
     }
     expect(seen).toHaveLength(0)
+  })
+
+  it("records the call id, the result size, and the error code of each tool call on a span", async () => {
+    const org = await createOrg()
+    const { token } = await step(org)
+    const at = { repositoryId: org.source, checkoutKey: `rev:${SOURCE_SHA}` }
+
+    const file = await callTool(token, "get_file", { ...at, path: "a.ts" })
+    const fileSpan = spans.spanNamed("bridge.tool get_file")
+    expect(fileSpan?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.call.id": expect.stringMatching(/^call_/),
+      "ctxpipe.mcp.result.bytes": Buffer.byteLength(file.text),
+    })
+    expect(fileSpan?.attributes["ctxpipe.mcp.error.code"]).toBeUndefined()
+
+    spans.reset()
+    await callTool(token, "get_file", {
+      repositoryId: org.source,
+      checkoutKey: `rev:${OTHER_SHA}`,
+      path: "a.ts",
+    })
+    expect(
+      spans.spanNamed("bridge.tool get_file")?.attributes[
+        "ctxpipe.mcp.error.code"
+      ],
+    ).toBe("checkout_not_in_run")
   })
 
   it("answers 401 to a missing token, a changed payload with its old signature, and a model capability", async () => {
