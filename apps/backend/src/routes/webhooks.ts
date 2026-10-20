@@ -7,6 +7,7 @@ import { registerGithubWebhookRoute } from "./webhooks/github/github.js"
 import { registerLinearWebhookRoute } from "./webhooks/linear/linear.js"
 import { registerNotionWebhookRoute } from "./webhooks/notion/notion.js"
 import { registerPagerdutyWebhookRoute } from "./webhooks/pagerduty/pagerduty.js"
+import { registerPlainWebhookRoute } from "./webhooks/plain/plain.js"
 import { registerSlackWebhookRoute } from "./webhooks/slack/slack.js"
 
 export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
@@ -31,6 +32,9 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
     ["/api/v1/webhook/notion/*", 1 * MiB],
     // A PagerDuty V3 event holds one incident summary.
     ["/api/v1/webhook/pagerduty/*", 1 * MiB],
+    // A Plain timeline event can hold a long email, and the route reads none
+    // of it.
+    ["/api/v1/webhook/plain/*", 5 * MiB],
     // Forge reads only the event envelope; token refresh reads only headers.
     ["/api/v1/webhook/atlassian/*", 1 * MiB],
   ] as const)
@@ -47,4 +51,5 @@ export function registerWebhookRoutes(app: OpenAPIHono<AppEnv>) {
   registerLinearWebhookRoute(app)
   registerNotionWebhookRoute(app)
   registerPagerdutyWebhookRoute(app)
+  registerPlainWebhookRoute(app)
 }

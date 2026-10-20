@@ -78,7 +78,7 @@ See [Workspace settings](/docs/workspaces/settings#sources).
 Each connector on **Connectors** has a menu with these items:
 
 - **Sync now** starts a full sync of the connection's Workspace sources. It
-  shows for Confluence, Linear, Notion, and PagerDuty. Only an owner or admin
+  shows for Confluence, Linear, Notion, PagerDuty, and Plain. Only an owner or admin
   sees it, and only when the connection has a source with the status **OK**. A
   second request in the same minute starts no other sync.
 - **Remove connector** removes the authorization. The sources of the connection
@@ -94,6 +94,7 @@ Each connector on **Connectors** has a menu with these items:
 | **Notion** | Scoped mirror | Selected pages and databases | Pages and databases |
 | **Confluence** | Scoped mirror | Selected spaces and pages | Spaces, with all pages or a page list |
 | **PagerDuty** | Scoped mirror | Incidents of the selected services | Services |
+| **Plain** | Scoped mirror | Help Center articles, and the newest threads of selected labels | Help Centers and thread labels |
 | **Slack** | Intent capture | One existing thread at a time | Channels |
 | **Plain git** | Git source | A repository on a git host that ctx\| can read under the URL rule, with no connection | A URL (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)) |
 
@@ -120,6 +121,7 @@ is above its limit.
 | **Linear** | 50 teams and 100 projects |
 | **Notion** | 100 root pages and 100 databases |
 | **PagerDuty** | 100 services |
+| **Plain** | 50 Help Centers and 50 thread labels |
 
 A GitHub source has no limit, because one source file holds one repository.
 The upgrade of an older Workspace splits a longer list into several sources.
@@ -131,7 +133,7 @@ A source file changes only through a pull request that a person merges. The
 pull request is the review of the scope. No agent can add or change a source
 file without that review.
 
-- **Scoped mirrors** (Linear, Notion, Confluence, PagerDuty): after the merge,
+- **Scoped mirrors** (Linear, Notion, Confluence, PagerDuty, Plain): after the merge,
   ctx| writes the generated Markdown under the managed folder of the provider,
   for example `linear/` or `notion/`, in each Workspace repository. ctx|
   indexes it like any other knowledge file. Do not edit these files by hand:
@@ -184,8 +186,9 @@ webhooks of a provider before its connector is available. See
 [Self-host Confluence & Atlassian](/docs/self-hosting/confluence-atlassian),
 [Self-host Slack](/docs/self-hosting/slack),
 [Self-host Linear](/docs/self-hosting/linear),
-[Self-host Notion](/docs/self-hosting/notion), and
-[Self-host PagerDuty](/docs/self-hosting/pagerduty).
+[Self-host Notion](/docs/self-hosting/notion),
+[Self-host PagerDuty](/docs/self-hosting/pagerduty), and
+[Self-host Plain](/docs/self-hosting/plain).
 
 <Cards>
   <Card title="GitHub" href="/docs/connections/source-connectors/github" description="Connect the foundation and link repositories." />
@@ -194,6 +197,7 @@ webhooks of a provider before its connector is available. See
   <Card title="Confluence" href="/docs/connections/source-connectors/confluence" description="Mirror selected spaces and pages." />
   <Card title="Slack" href="/docs/connections/source-connectors/slack" description="Capture threads on demand." />
   <Card title="PagerDuty" href="/docs/connections/source-connectors/pagerduty" description="Mirror incidents of selected services." />
+  <Card title="Plain" href="/docs/connections/source-connectors/plain" description="Sync Help Center articles and support threads." />
   <Card title="Workspace settings" href="/docs/workspaces/settings" description="Edit, rename, and remove sources." />
   <Card title="Indexing" href="/docs/connections/ingestion" description="What happens after content reaches the Workspace." />
 </Cards>
