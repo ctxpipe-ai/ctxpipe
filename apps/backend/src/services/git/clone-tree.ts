@@ -1,5 +1,5 @@
 import { execFile, spawn } from "node:child_process"
-import { mkdtemp, open, readFile, rm } from "node:fs/promises"
+import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -59,12 +59,14 @@ function gitTimeoutError(args: readonly string[], timeout: number) {
 /**
  * Run Git with its standard output in a temporary file, then read the file.
  * The output of these commands grows with the repository, and a buffered
- * standard output has a fixed limit (CTX-933).
+ * standard output has a fixed limit (CTX-933). A file above `maxBytes` is not
+ * read, so a very large history cannot exhaust the memory of the worker.
  */
-async function gitOutput(
+export async function gitOutput(
   args: string[],
   timeout: number,
   input?: string,
+  maxBytes = 512 * 2 ** 20,
 ): Promise<Buffer> {
   const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-git-output-"))
   try {
@@ -114,6 +116,11 @@ async function gitOutput(
     } finally {
       await stdout.close()
     }
+    const { size } = await stat(file)
+    if (size > maxBytes)
+      throw new Error(
+        `The Git repository is too large for ctx| to read in one step: the Git output is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${Math.floor(maxBytes / 2 ** 20)} MiB.`,
+      )
     return await readFile(file)
   } finally {
     await rm(scratch, { recursive: true, force: true })

@@ -496,7 +496,10 @@ export const Failed: Story = {
 }
 
 /** A failed re-ingestion item with a classified cause (CTX-895). */
-function failedReingest(failure: NonNullable<WorkspaceUpgradeItem["failure"]>) {
+function failedReingest(
+  failure: NonNullable<WorkspaceUpgradeItem["failure"]>,
+  autoRetried = false,
+) {
   return withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture([
@@ -509,6 +512,7 @@ function failedReingest(failure: NonNullable<WorkspaceUpgradeItem["failure"]>) {
           failureReason:
             "The re-ingestion did not finish for acme/ky. Start it again.",
           failure,
+          autoRetried,
         }),
       ]),
     ),
@@ -550,6 +554,29 @@ export const FailedPublishConflict: Story = {
       await canvas.findByRole("button", { name: REINGEST_START }),
     )
     await waitFor(() => expect(startRequests).toHaveLength(1))
+  },
+}
+
+/** CTX-896: the automatic retry failed too, so the card says that ctx| started it again once. */
+export const FailedAfterAutoRetry: Story = {
+  parameters: failedReingest(
+    {
+      code: "model",
+      step: "ingest",
+      repository: "acme/ky",
+      summary: "The ingestion run failed: the model provider is overloaded",
+    },
+    true,
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "ctx| already started this upgrade again once by itself.",
+        ),
+      ).toBeVisible(),
+    )
   },
 }
 

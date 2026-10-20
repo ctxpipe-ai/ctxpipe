@@ -2,6 +2,10 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import type { IngestionV2Input } from "../../domain/ingestion/ingestion-run.js"
 import {
+  classifyUpgradeFailure,
+  isTemporaryFailure,
+} from "../../domain/upgrades/failure.js"
+import {
   type ReingestRepositoryReport,
   reingestedNames,
   UPGRADE_STATUSES,
@@ -46,6 +50,7 @@ import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
 
 export const workspaceUpgradeReingestInputSchema = z
@@ -111,6 +116,13 @@ const runOutputSchema = z
           .object({
             workspaceId: z.string(),
             partial: z.number(),
+            stepFailures: z
+              .object({
+                timeLimit: z.number().optional(),
+                model: z.number().optional(),
+                other: z.number().optional(),
+              })
+              .optional(),
             refused: z.string().optional(),
           })
           .passthrough(),
@@ -118,6 +130,22 @@ const runOutputSchema = z
       .optional(),
   })
   .passthrough()
+
+/**
+ * One fixed line for the steps that failed after their 3 attempts, with no
+ * error text: that text can hold source text. The line names the cause that
+ * classifies the failure (CTX-896): a time limit, else a model error, else
+ * no cause (a step of the sandbox or of the push). Null when no step failed so.
+ */
+function stepFailureLine(failures: IngestStepFailures = {}): string | null {
+  const count =
+    (failures.timeLimit ?? 0) + (failures.model ?? 0) + (failures.other ?? 0)
+  if (!count) return null
+  const steps = `${count} ingest ${count === 1 ? "step" : "steps"} failed after 3 attempts`
+  if (failures.timeLimit) return `${steps}. A step reached its time limit.`
+  if (failures.model) return `${steps}. The model returned an error.`
+  return `${steps}.`
+}
 
 /**
  * The report of one finished ingestion v2 run for the Workspace of the
@@ -156,11 +184,18 @@ function runReport(
         "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
       ],
     }
-  if (result.refused !== undefined || result.partial > 0)
+  if (result.refused !== undefined || result.partial > 0) {
+    const failedSteps = stepFailureLine(result.stepFailures)
     return {
       status: "partial",
-      report: result.refused !== undefined ? [result.refused] : reason,
+      report:
+        result.refused !== undefined
+          ? [result.refused]
+          : failedSteps
+            ? [...reason, failedSteps]
+            : reason,
     }
+  }
   return { status: "done", report: [] }
 }
 
@@ -275,6 +310,10 @@ const plannedSchema = z.union([
             spendUnknown: z.boolean(),
           })
           .nullable(),
+        /** The spend of the earlier runs of this upgrade for a repository that is not done. */
+        earlierSpendUsd: z.number().optional(),
+        /** An earlier run of this upgrade reported its spend as incomplete. */
+        earlierSpendUnknown: z.boolean().optional(),
       }),
     ),
   }),
@@ -346,18 +385,24 @@ async function planReingest(input: {
     const sha = tip?.sha ?? null
     if (!sha && !tipError) tipError = "The repository has no default branch."
     const before = earlier.get(source.repository)
+    const done =
+      sha && before?.status === "done" && before.sha === sha
+        ? {
+            runId: before.runId,
+            spendUsd: before.spendUsd ?? 0,
+            spendUnknown: before.spendUnknown === true,
+          }
+        : null
     repositories.push({
       ...source,
       sha,
       tipError,
-      done:
-        sha && before?.status === "done" && before.sha === sha
-          ? {
-              runId: before.runId,
-              spendUsd: before.spendUsd ?? 0,
-              spendUnknown: before.spendUnknown === true,
-            }
-          : null,
+      done,
+      // A run that ctx| or the user starts again adds to the spend.
+      ...(!done && before?.spendUsd
+        ? { earlierSpendUsd: before.spendUsd }
+        : {}),
+      ...(!done && before?.spendUnknown ? { earlierSpendUnknown: true } : {}),
     })
   }
   return { repositories }
@@ -425,51 +470,137 @@ export function defineWorkspaceUpgradeReingest(
             }
           })
           if (!claimed.ok) return { started: false, status: claimed.status }
-          const record = (
-            name: string,
-            fields: Omit<
-              Parameters<typeof transitionWorkspaceUpgradeRow>[0],
-              "workspaceId" | "key" | "from" | "ownerRunId"
-            >,
-          ) =>
-            step.run({ name }, async () => {
-              const before = fields.upgrade?.repositories
-                ? reingestedNames(
-                    (await getWorkspaceUpgradeRow(workspaceId, key))?.upgrade,
-                  )
-                : []
-              const moved = await transitionWorkspaceUpgradeRow({
-                workspaceId,
-                key,
-                from: [UPGRADE_STATUSES.running],
-                ownerRunId: run.id,
-                ...fields,
-              })
-              // A repository that becomes done in this step replaces its
-              // main-era knowledge. Hydrate projects the revision again, so
-              // that the overlay of that repository goes (the publish
-              // hydrate can come first).
-              // Known limit: `before` comes from this step. If the step stops
-              // after the transition and before the enqueue, the retry sees
-              // no new done mark and queues no reproject. Then the main-era
-              // knowledge of that repository stays in the projection until
-              // the next hydrate of the Workspace (a push or a reproject).
-              if (
-                moved &&
-                reingestedNames(moved.upgrade).some(
-                  (name) => !before.includes(name),
-                ) &&
-                (await legacyKnowledgePaths(workspaceId)).size
-              )
-                await enqueueWorkspaceHydrate(
-                  { orgId, workspaceId },
-                  getLogger(),
-                  {
-                    idempotencyKey: (revision) =>
-                      `legacy-overlay:${workspaceId}:${run.id}:${name}:${revision.sha}`,
-                    reproject: true,
-                  },
+          type Fields = Omit<
+            Parameters<typeof transitionWorkspaceUpgradeRow>[0],
+            "workspaceId" | "key" | "from" | "ownerRunId"
+          >
+          const transition = async (name: string, fields: Fields) => {
+            const before = fields.upgrade?.repositories
+              ? reingestedNames(
+                  (await getWorkspaceUpgradeRow(workspaceId, key))?.upgrade,
                 )
+              : []
+            const moved = await transitionWorkspaceUpgradeRow({
+              workspaceId,
+              key,
+              from: [UPGRADE_STATUSES.running],
+              ownerRunId: run.id,
+              ...fields,
+            })
+            // A repository that becomes done in this step replaces its
+            // main-era knowledge. Hydrate projects the revision again, so
+            // that the overlay of that repository goes (the publish
+            // hydrate can come first).
+            // Known limit: `before` comes from this step. If the step stops
+            // after the transition and before the enqueue, the retry sees
+            // no new done mark and queues no reproject. Then the main-era
+            // knowledge of that repository stays in the projection until
+            // the next hydrate of the Workspace (a push or a reproject).
+            if (
+              moved &&
+              reingestedNames(moved.upgrade).some(
+                (name) => !before.includes(name),
+              ) &&
+              (await legacyKnowledgePaths(workspaceId)).size
+            )
+              await enqueueWorkspaceHydrate(
+                { orgId, workspaceId },
+                getLogger(),
+                {
+                  idempotencyKey: (revision) =>
+                    `legacy-overlay:${workspaceId}:${run.id}:${name}:${revision.sha}`,
+                  reproject: true,
+                },
+              )
+            return moved
+          }
+          const record = (name: string, fields: Fields) =>
+            step.run({ name }, async () => {
+              await transition(name, fields)
+              return { started: true, status: fields.to }
+            })
+          /**
+           * Record a failed run. A temporary cause (`isTemporaryFailure`)
+           * gets one automatic retry with no agent (CTX-896): the row goes
+           * back to `queued` with an `autoRetry` record, and one new run
+           * starts. A row that has the record already failed once more, so it
+           * becomes `failed` and the card shows.
+           */
+          const recordFailure = (name: string, fields: Fields) =>
+            step.run({ name }, async () => {
+              const current = await getWorkspaceUpgradeRow(workspaceId, key)
+              const retry = current?.upgrade.autoRetry
+              const enqueueRetry = async (approvedAt: string) => {
+                try {
+                  await enqueueWorkspaceUpgradeReingest({
+                    orgId,
+                    workspaceId,
+                    key,
+                    approvedAt,
+                  })
+                  return { started: true, status: UPGRADE_STATUSES.queued }
+                } catch (error) {
+                  // As a start by the user: no row stays `queued` with no
+                  // run. The retry did not start, so the record goes.
+                  getLogger().error(
+                    error instanceof Error ? error : new Error(String(error)),
+                    {
+                      step: "upgrade-auto-retry",
+                      workspaceId,
+                      key,
+                    },
+                  )
+                  await transitionWorkspaceUpgradeRow({
+                    workspaceId,
+                    key,
+                    from: [UPGRADE_STATUSES.queued],
+                    to: UPGRADE_STATUSES.failed,
+                    autoRetryOf: run.id,
+                    upgrade: { autoRetry: undefined },
+                    failureReason: fields.failureReason,
+                  })
+                  return { started: false, status: UPGRADE_STATUSES.failed }
+                }
+              }
+              // An earlier attempt of this step queued the row, and then
+              // stopped before it queued the run. The key makes a second
+              // queue of the same approval return the same run.
+              if (
+                current?.status === UPGRADE_STATUSES.queued &&
+                retry?.failedRunId === run.id &&
+                current.upgrade.approvedAt
+              )
+                return enqueueRetry(current.upgrade.approvedAt)
+              // Only the reports of this run: the reports on the row can be
+              // of an earlier run.
+              const failure = {
+                status: UPGRADE_STATUSES.failed,
+                failureReason: fields.failureReason ?? null,
+                repositories: fields.upgrade?.repositories,
+              }
+              if (!retry && isTemporaryFailure(failure)) {
+                const approvedAt = new Date().toISOString()
+                const queued = await transition(name, {
+                  ...fields,
+                  to: UPGRADE_STATUSES.queued,
+                  upgrade: {
+                    ...fields.upgrade,
+                    approvedAt,
+                    autoRetry: { failedRunId: run.id },
+                  },
+                  workflowRunId: null,
+                  failureReason: null,
+                })
+                if (!queued) return { started: false, status: null }
+                getLogger().info("upgrade-auto-retry", {
+                  workspaceId,
+                  key,
+                  code: classifyUpgradeFailure(failure)?.code,
+                  failedRunId: run.id,
+                })
+                return enqueueRetry(approvedAt)
+              }
+              await transition(name, fields)
               return { started: true, status: fields.to }
             })
           try {
@@ -510,7 +641,14 @@ export function defineWorkspaceUpgradeReingest(
                       spendUsd: r.done.spendUsd,
                       ...(r.done.spendUnknown ? { spendUnknown: true } : {}),
                     }
-                  : {}),
+                  : r.earlierSpendUsd || r.earlierSpendUnknown
+                    ? {
+                        spendUsd: r.earlierSpendUsd ?? 0,
+                        ...(r.earlierSpendUnknown
+                          ? { spendUnknown: true }
+                          : {}),
+                      }
+                    : {}),
               }))
             await record("record-plan", {
               to: UPGRADE_STATUSES.running,
@@ -570,6 +708,8 @@ export function defineWorkspaceUpgradeReingest(
                 )
               }
               if (poll >= maxSlotPolls)
+                // A long wait is not temporary: a new run waits at the back
+                // of the queue again. So it gets no automatic retry.
                 return record("record-no-slot", {
                   to: UPGRADE_STATUSES.failed,
                   failureReason: `${slot.wait} The re-ingestion waited too long for its turn. Start it again.`,
@@ -627,7 +767,7 @@ export function defineWorkspaceUpgradeReingest(
                       "Spend unknown: a model step reported no usage, so the spend counts only the known part.",
                     ]
                   : result.report,
-                spendUsd: result.spendUsd,
+                spendUsd: (report.spendUsd ?? 0) + result.spendUsd,
                 ...(result.spendUnknown ? { spendUnknown: true } : {}),
               })
               await record(`record-run:${index}`, {
@@ -639,7 +779,7 @@ export function defineWorkspaceUpgradeReingest(
             // is done. A `partial` or `skipped` repository fails the row.
             const failed = reports.filter((r) => r.status !== "done")
             if (failed.length)
-              return record("record-failed", {
+              return recordFailure("record-failed", {
                 to: UPGRADE_STATUSES.failed,
                 failureReason: `The re-ingestion did not finish for ${failed.map((r) => r.repository).join(", ")}. Start it again.`,
                 upgrade: { repositories: reports },
@@ -650,7 +790,7 @@ export function defineWorkspaceUpgradeReingest(
             })
           } catch (error) {
             if (isWorkflowControlSignal(error)) throw error
-            return record("record-error", {
+            return recordFailure("record-error", {
               to: UPGRADE_STATUSES.failed,
               failureReason:
                 error instanceof Error ? error.message : String(error),

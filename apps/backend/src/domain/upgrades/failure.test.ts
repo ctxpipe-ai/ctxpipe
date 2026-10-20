@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { classifyUpgradeFailure, safeFailureSummary } from "./failure.js"
+import {
+  classifyUpgradeFailure,
+  isTemporaryFailure,
+  safeFailureSummary,
+} from "./failure.js"
 
 const failed = (report: string[], repository = "acme/ky") => ({
   status: "failed",
@@ -49,6 +53,27 @@ describe("classifyUpgradeFailure", () => {
       "ingest",
     ],
     [["The ingestion run failed: something odd"], "unknown", "ingest"],
+    [
+      [
+        "2 ingest steps failed after 3 attempts. A step reached its time limit.",
+      ],
+      "timeout",
+      "ingest",
+    ],
+    [
+      ["1 ingest step failed after 3 attempts. The model returned an error."],
+      "model",
+      "ingest",
+    ],
+    [["1 ingest step failed after 3 attempts."], "unknown", "ingest"],
+    [
+      [
+        "no_writable_destination",
+        "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
+      ],
+      "workspace_write_access",
+      "publish",
+    ],
   ])("classifies %j as %s at %s", (report, code, step) => {
     expect(classifyUpgradeFailure(failed(report))).toMatchObject({ code, step })
   })
@@ -70,6 +95,21 @@ describe("classifyUpgradeFailure", () => {
           "Git fetch did not finish in the time that ctx| waits (600 s).",
       }),
     ).toMatchObject({ code: "timeout", step: null })
+  })
+
+  it("does not classify by a repository name", () => {
+    const input = failed([], "acme/model-sandbox-provider")
+    expect(isTemporaryFailure(input)).toBe(false)
+    expect(classifyUpgradeFailure(input)).toMatchObject({
+      code: "unknown",
+      repository: null,
+    })
+  })
+
+  it("retries steps that failed with no known cause", () => {
+    expect(
+      isTemporaryFailure(failed(["2 ingest steps failed after 3 attempts."])),
+    ).toBe(true)
   })
 
   it("reads a row error with no repository", () => {
@@ -114,5 +154,31 @@ describe("safeFailureSummary", () => {
       ),
     ).toBe("fatal: https://github.com/a/b failed token=[hidden]")
     expect(safeFailureSummary("x".repeat(300))).toHaveLength(240)
+  })
+})
+
+describe("isTemporaryFailure", () => {
+  it("retries a step time limit, but not a long wait for a turn or a run", () => {
+    expect(
+      isTemporaryFailure(
+        failed([
+          "1 ingest step failed after 3 attempts. A step reached its time limit.",
+        ]),
+      ),
+    ).toBe(true)
+    expect(
+      isTemporaryFailure(
+        failed([
+          "The ingestion run did not finish in the time that the upgrade waits.",
+        ]),
+      ),
+    ).toBe(false)
+    expect(
+      isTemporaryFailure({
+        status: "failed",
+        failureReason:
+          "Another re-ingestion of this organization runs. The re-ingestion waited too long for its turn. Start it again.",
+      }),
+    ).toBe(false)
   })
 })

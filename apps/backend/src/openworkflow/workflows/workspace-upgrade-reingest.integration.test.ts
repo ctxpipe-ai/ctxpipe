@@ -25,6 +25,7 @@ import {
   workspaceWriteJobs,
 } from "../../db/schema/workspaces.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { classifyUpgradeFailure } from "../../domain/upgrades/failure.js"
 import {
   UPGRADE_STATUSES,
   upgradeJobId,
@@ -109,7 +110,30 @@ contexts.push(
   `acme/context-e-${suffix}`,
   `acme/context-f-${suffix}`,
 )
-const [ready, behind, costly, wide, yamlOnly, overlay] = [
+contexts.push(`acme/context-g-${suffix}`, `acme/context-h-${suffix}`)
+contexts.push(
+  `acme/context-i-${suffix}`,
+  `acme/context-j-${suffix}`,
+  `acme/context-k-${suffix}`,
+)
+const [
+  ready,
+  behind,
+  costly,
+  wide,
+  yamlOnly,
+  overlay,
+  flaky,
+  denied,
+  modelDown,
+  requeued,
+  unqueued,
+] = [
+  generateObjectId("ws"),
+  generateObjectId("ws"),
+  generateObjectId("ws"),
+  generateObjectId("ws"),
+  generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -128,6 +152,11 @@ const sourcesOf = [
   [sourceName, otherSource, costlySources[0] ?? ""],
   [otherSource],
   [sourceName, goneSource],
+  [otherSource],
+  [goneSource],
+  [otherSource],
+  [otherSource],
+  [otherSource],
 ]
 /** The USD that each model step of a Workspace reports. */
 const stepCostUsd = new Map<string, number>()
@@ -154,6 +183,14 @@ function modelFile(repository: string) {
 
 const server = setupServer(
   ...githubTokenHandlers(githubLog, () => "fixture-only-github-token"),
+  // The write check of a hydrate (after a publish): the app can push.
+  http.get("https://api.github.com/repos/:owner/:repo", ({ params }) =>
+    HttpResponse.json({
+      full_name: `${params.owner}/${params.repo}`,
+      default_branch: "main",
+      permissions: { push: true },
+    }),
+  ),
   http.post(MODEL_URL, async ({ request }) => {
     const body = (await request.json()) as {
       workspaceId: string
@@ -313,6 +350,11 @@ beforeAll(async () => {
     wide,
     yamlOnly,
     overlay,
+    flaky,
+    denied,
+    modelDown,
+    requeued,
+    unqueued,
   ].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
@@ -667,7 +709,8 @@ it(
   async () => {
     expect(await row(yamlOnly)).toMatchObject({ status: "awaiting_operator" })
     expect(await start(yamlOnly)).toMatchObject({ kind: "queued" })
-    expect(await settled(yamlOnly)).toMatchObject({
+    const failed = await settled(yamlOnly)
+    expect(failed).toMatchObject({
       status: "failed",
       failureReason: expect.stringContaining(otherSource),
       upgrade: {
@@ -682,6 +725,15 @@ it(
         ],
       },
     })
+    // A Workspace that is not a destination stays so: no automatic retry.
+    expect(failed?.upgrade.autoRetry).toBeUndefined()
+    expect(
+      classifyUpgradeFailure({
+        status: failed?.status ?? "",
+        failureReason: failed?.failureReason ?? null,
+        repositories: failed?.upgrade.repositories,
+      }),
+    ).toMatchObject({ code: "unknown", repository: otherSource })
     expect(await reingestRuns(yamlOnly)).toHaveLength(1)
     expect(modelCalls).not.toContain(yamlOnly)
   },
@@ -832,7 +884,11 @@ it(
             status: "done",
             spendUsd: 1_000,
           },
-          ...rest,
+          // An earlier run of the second repository reported its spend as
+          // incomplete: a retry does not show a complete-looking spend.
+          ...rest.map((r, index) =>
+            index === 0 ? { ...r, spendUsd: 5, spendUnknown: true } : r,
+          ),
         ],
       },
     })
@@ -853,7 +909,7 @@ it(
       upgrade: {
         repositories: [
           expect.objectContaining({ status: "done", spendUsd: 1_000 }),
-          expect.objectContaining({ status: "done" }),
+          expect.objectContaining({ status: "done", spendUnknown: true }),
         ],
       },
     })
@@ -1049,5 +1105,277 @@ it(
         db.delete(objects).where(eq(objects.orgId, org.id)),
       )
     }
+  },
+)
+
+it(
+  "retries once by itself when a run fails for a temporary cause, and completes",
+  { timeout: 420_000 },
+  async () => {
+    // Another publish of the same file lands on the default branch of the
+    // Workspace after the run pinned it and before the run publishes. The
+    // merge needs a model, which this file does not give, so the run fails
+    // with a publish conflict, a temporary cause. The retry pins the new
+    // default branch, so it has nothing to merge.
+    let landed = false
+    server.use(
+      http.post(MODEL_URL, async ({ request }) => {
+        const body = (await request.clone().json()) as { workspaceId: string }
+        if (body.workspaceId !== flaky || landed) return undefined
+        landed = true
+        const work = mkdtempSync(join(folder, "other-publish-"))
+        git(work, "clone", "-q", join(remotes, contexts[6] ?? ""), ".")
+        const other = modelFile(otherSource)
+        mkdirSync(dirname(join(work, other.path)), { recursive: true })
+        writeFileSync(
+          join(work, other.path),
+          "---\nkind: Service\nname: ledger\n---\n# ledger\n\nAn older text.\n",
+        )
+        git(work, "add", "-A")
+        git(work, "commit", "-q", "-m", "Another publish of the same file")
+        git(work, "push", "-q", "origin", "HEAD:main")
+        return undefined
+      }),
+    )
+    expect(await row(flaky)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(flaky)).toMatchObject({ kind: "queued" })
+    const done = await settled(flaky)
+    expect(done).toMatchObject({
+      status: "completed",
+      upgrade: {
+        approvedBy: "user_admin",
+        autoRetry: { failedRunId: expect.any(String) },
+        repositories: [
+          expect.objectContaining({ repository: otherSource, status: "done" }),
+        ],
+      },
+    })
+    // The failed run and the retry each started one ingestion run, and the
+    // retry is a different upgrade run.
+    expect(await reingestRuns(flaky)).toHaveLength(2)
+    expect(done?.upgrade.autoRetry?.failedRunId).not.toBe(done?.workflowRunId)
+  },
+)
+
+it(
+  "fails at once, with no retry, when the cause is not temporary, and a start by the user clears the record",
+  { timeout: 420_000 },
+  async () => {
+    // The source repository has no remote: ctx| cannot read it, which a
+    // second run cannot change.
+    expect(await row(denied)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(denied)).toMatchObject({ kind: "queued" })
+    const failed = await settled(denied)
+    expect(failed).toMatchObject({
+      status: "failed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({ repository: goneSource, status: "failed" }),
+        ],
+      },
+    })
+    expect(failed?.upgrade.autoRetry).toBeUndefined()
+    expect(
+      classifyUpgradeFailure({
+        status: failed?.status ?? "",
+        failureReason: failed?.failureReason ?? null,
+        repositories: failed?.upgrade.repositories,
+      }),
+    ).toMatchObject({ code: "source_access", repository: goneSource })
+    expect(await reingestRuns(denied)).toEqual([])
+
+    // A start by the user removes the record of an earlier automatic retry.
+    await setRow(denied, {
+      to: "failed",
+      failureReason: "The re-ingestion did not finish.",
+      upgrade: {
+        autoRetry: { failedRunId: "run_earlier" },
+      },
+    })
+    expect(await row(denied)).toMatchObject({
+      upgrade: { autoRetry: { failedRunId: "run_earlier" } },
+    })
+    const queued = await start(denied)
+    expect(queued).toMatchObject({ kind: "queued" })
+    expect(
+      (await row(denied))?.upgrade.autoRetry,
+      "the start by the user removes the record",
+    ).toBeUndefined()
+    expect(await settled(denied)).toMatchObject({ status: "failed" })
+  },
+)
+
+/**
+ * A model provider that is down for each model call of the Workspace while
+ * the first upgrade run owns the row. `onFirstCall` runs once, at the first
+ * call, with that run.
+ */
+function modelDownForFirstRun(
+  workspaceId: string,
+  onFirstCall?: (upgradeRunId: string) => Promise<void>,
+) {
+  let firstRun: string | null = null
+  server.use(
+    http.post(MODEL_URL, async ({ request }) => {
+      const body = (await request.clone().json()) as { workspaceId: string }
+      if (body.workspaceId !== workspaceId) return undefined
+      const owner = (await row(workspaceId))?.workflowRunId ?? ""
+      if (firstRun === null) {
+        firstRun = owner
+        await onFirstCall?.(owner)
+      }
+      if (owner !== firstRun) return undefined
+      return HttpResponse.json({ error: "overloaded" }, { status: 503 })
+    }),
+  )
+}
+
+/** The step failures of each ingestion v2 run of the Workspace, oldest first. */
+async function stepFailuresOfRuns(workspaceId: string) {
+  const result = await getSystemDb().execute<{
+    output: { workspaces?: Array<{ stepFailures?: object }> } | null
+  }>(sql`
+    select output from openworkflow.workflow_runs
+    where namespace_id = ${openWorkflowNamespaceId()}
+      and workflow_name = 'repository-ingestion-v2'
+      and idempotency_key like ${`upgrade-reingest:${org.id}:${workspaceId}%`}
+    order by created_at
+  `)
+  return result.rows.map((r) => r.output?.workspaces?.[0]?.stepFailures)
+}
+
+it(
+  "starts the run again by itself, once, when a model step fails after its attempts, and completes",
+  { timeout: 420_000 },
+  async () => {
+    // The model provider is down for the first run only, as an outage that
+    // ends.
+    modelDownForFirstRun(modelDown)
+    expect(await row(modelDown)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(modelDown)).toMatchObject({ kind: "queued" })
+    const done = await settled(modelDown)
+    expect(done).toMatchObject({
+      status: "completed",
+      upgrade: {
+        autoRetry: { failedRunId: expect.any(String) },
+        repositories: [
+          expect.objectContaining({ repository: otherSource, status: "done" }),
+        ],
+      },
+    })
+    expect(done?.upgrade.autoRetry?.failedRunId).not.toBe(done?.workflowRunId)
+    // The first ingestion run counted the failed model step. The retry had
+    // no failed step.
+    expect(await stepFailuresOfRuns(modelDown)).toEqual([
+      { model: expect.any(Number) },
+      undefined,
+    ])
+  },
+)
+
+it(
+  "queues the retry run when an earlier attempt of the failure step queued the row but not the run",
+  { timeout: 420_000 },
+  async () => {
+    // At the first model call, the row is as an attempt of the failure step
+    // left it when it stopped before the enqueue: queued again after this
+    // run, with the approval of the retry, and no retry run.
+    const approvedAt = "2026-01-02T03:04:05.000Z"
+    modelDownForFirstRun(requeued, (upgradeRunId) =>
+      setRow(requeued, {
+        to: "queued",
+        upgrade: { approvedAt, autoRetry: { failedRunId: upgradeRunId } },
+      }),
+    )
+    expect(await row(requeued)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(requeued)).toMatchObject({ kind: "queued" })
+    // A failure step that did not take the re-entry path leaves the row
+    // `queued` with no run, so it does not complete.
+    const done = await settled(requeued)
+    expect(done).toMatchObject({
+      status: "completed",
+      upgrade: { approvedAt, autoRetry: { failedRunId: expect.any(String) } },
+    })
+    expect(done?.upgrade.autoRetry?.failedRunId).not.toBe(done?.workflowRunId)
+    expect(await reingestRuns(requeued)).toHaveLength(2)
+  },
+)
+
+it(
+  "fails the row, and keeps no queued row, when ctx| cannot queue the retry",
+  { timeout: 420_000 },
+  async () => {
+    server.use(
+      http.post(MODEL_URL, async ({ request }) => {
+        const body = (await request.clone().json()) as { workspaceId: string }
+        if (body.workspaceId !== unqueued) return undefined
+        return HttpResponse.json({ error: "overloaded" }, { status: 503 })
+      }),
+    )
+    // Postgres refuses the second upgrade run of the Workspace: the retry.
+    // A sequence is not transactional, so the count stays.
+    const { Pool } = await import("pg")
+    const { ownerUrlForMigrate } = await import("../../db/owner-migrate-url.js")
+    const owner = new Pool({
+      connectionString: ownerUrlForMigrate(process.env.DATABASE_URL ?? ""),
+    })
+    const fault = `ctx896_fault_${suffix}`
+    await owner.query(`
+      create sequence public.${fault}_seq;
+      create function public.${fault}() returns trigger
+      language plpgsql as $$
+      begin
+        if new.workflow_name = 'workspace-upgrade-reingest'
+          and new.input->>'workspaceId' = '${unqueued}'
+          and nextval('public.${fault}_seq') = 2 then
+          raise exception 'The workflow queue is unavailable';
+        end if;
+        return new;
+      end $$;
+      create trigger ${fault} before insert on openworkflow.workflow_runs
+        for each row execute function public.${fault}();
+    `)
+    let failed: Awaited<ReturnType<typeof row>> | undefined
+    try {
+      expect(await row(unqueued)).toMatchObject({
+        status: "awaiting_operator",
+      })
+      expect(await start(unqueued)).toMatchObject({ kind: "queued" })
+      failed = await settled(unqueued)
+    } finally {
+      await owner.query(`
+        drop trigger ${fault} on openworkflow.workflow_runs;
+        drop function public.${fault}();
+        drop sequence public.${fault}_seq;
+      `)
+      await owner.end()
+    }
+    expect(failed).toMatchObject({
+      status: "failed",
+      failureReason: expect.stringContaining(otherSource),
+      upgrade: {
+        repositories: [
+          expect.objectContaining({
+            repository: otherSource,
+            status: "partial",
+            report: expect.arrayContaining([
+              expect.stringMatching(
+                /^\d+ ingest steps? failed after 3 attempts\. The model returned an error\.$/,
+              ),
+            ]),
+          }),
+        ],
+      },
+    })
+    // The retry did not start, so the card does not say that it did.
+    expect(failed?.upgrade.autoRetry).toBeUndefined()
+    expect(
+      classifyUpgradeFailure({
+        status: failed?.status ?? "",
+        failureReason: failed?.failureReason ?? null,
+        repositories: failed?.upgrade.repositories,
+      }),
+    ).toMatchObject({ code: "model", repository: otherSource })
+    expect(await reingestRuns(unqueued)).toHaveLength(1)
   },
 )

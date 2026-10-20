@@ -442,7 +442,7 @@ export async function reingestSlotTurn(input: {
   const row = result.rows[0]
   if (row?.org_head !== input.upgradeRunId)
     return {
-      wait: "A re-ingestion of another Workspace of this organization runs.",
+      wait: "Another re-ingestion of this organization runs.",
     }
   // A repository run of an upgrade run that ended (failed or canceled) can
   // still spend. Its slot stays taken until that run ends too.

@@ -153,6 +153,8 @@ export async function transitionWorkspaceUpgradeRow(input: {
   failureReason?: string | null
   /** Only change a row that this workflow run owns. */
   ownerRunId?: string
+  /** Only change a row that ctx| queued again by itself after this failed run (CTX-896). */
+  autoRetryOf?: string
 }): Promise<WorkspaceUpgradeRow | null> {
   return orgSql(async () => {
     const id = upgradeJobId(input.workspaceId, input.key)
@@ -172,6 +174,11 @@ export async function transitionWorkspaceUpgradeRow(input: {
     if (
       input.ownerRunId !== undefined &&
       current.workflowRunId !== input.ownerRunId
+    )
+      return null
+    if (
+      input.autoRetryOf !== undefined &&
+      current.upgrade.autoRetry?.failedRunId !== input.autoRetryOf
     )
       return null
     const upgrade = { ...current.upgrade, ...input.upgrade }
