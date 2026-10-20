@@ -50,7 +50,7 @@ export function explorerBlobFromContent(
   return explorerBlobFromBytes(Buffer.from(content, "utf8"))
 }
 
-const EXPLORER_GIT_STATUSES = [
+export const EXPLORER_GIT_STATUSES = [
   "added",
   "deleted",
   "ignored",
