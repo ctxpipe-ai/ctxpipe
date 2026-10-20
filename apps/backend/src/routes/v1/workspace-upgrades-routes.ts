@@ -13,6 +13,7 @@ import {
   pendingUpgradeSteps,
   REINGEST_DESCRIPTION,
   UPGRADE_BLOCKED_REASONS,
+  UPGRADE_RUN_STAGES,
   UPGRADE_STATUSES,
   type UpgradeStatus,
 } from "../../domain/upgrades/registry.js"
@@ -166,6 +167,24 @@ const WorkspaceUpgradeItemSchema = z
       description:
         "True when a run of this upgrade failed for a temporary cause, and ctx| started it again by itself, once. The user did not start that second run. A start by the user sets it to false.",
     }),
+    runStage: z
+      .object({
+        name: z.enum(UPGRADE_RUN_STAGES),
+        since: z.string().datetime(),
+      })
+      .nullable()
+      .openapi({
+        description:
+          "Only on a git upgrade while `status` is `running`: the stage of the run and when it began. The stages in order: `read` (ctx| reads the Workspace repository), `build` (ctx| makes the upgrade commits), `push` (ctx| pushes the upgrade branch), `open` (ctx| opens the pull request). `null` before the first stage, on a re-ingestion, and when the status is not `running`.",
+      }),
+    mergedAt: z.string().datetime().nullable().openapi({
+      description:
+        "Only on a git upgrade with an open pull request: when ctx| first saw that the pull request merged. After that, ctx| reads the new format of the repository, and a scan completes the upgrade.",
+    }),
+    checkedAt: z.string().datetime().nullable().openapi({
+      description:
+        "When the last scan checked this upgrade: the scan that Check again, a pull request webhook or a release starts. `null` before the first check of this version.",
+    }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
     }),
@@ -252,6 +271,12 @@ function serializeUpgrade(
       repositories: upgrade.repositories,
     }),
     autoRetried: upgrade.autoRetry !== undefined,
+    runStage:
+      row.status === UPGRADE_STATUSES.running && upgrade.stage
+        ? upgrade.stage
+        : null,
+    mergedAt: upgrade.mergedAt ?? null,
+    checkedAt: upgrade.checkedAt ?? null,
     approvedBy: upgrade.approvedBy ?? null,
     approvedAt: upgrade.approvedAt ?? null,
     updatedAt: row.updatedAt.toISOString(),

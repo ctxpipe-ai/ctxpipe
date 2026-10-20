@@ -3,6 +3,7 @@ import { mkdtemp, open, readFile, rm, stat } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
+import { trace } from "@opentelemetry/api"
 import {
   workspaceRelativePath,
   workspaceRepositoryPath,
@@ -256,6 +257,19 @@ function isSafeGitPath(path: string): boolean {
   return parts.every((part) => part !== "" && part !== "." && part !== "..")
 }
 
+/** Time one git call in a span, so a trace shows which fetch is slow. */
+function timedGit<T>(name: string, work: () => Promise<T>): Promise<T> {
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(name, async (span) => {
+      try {
+        return await work()
+      } finally {
+        span.end()
+      }
+    })
+}
+
 async function withFetchedGitSha<T>(
   input: {
     url: string
@@ -286,37 +300,51 @@ async function withFetchedGitSha<T>(
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
-    if (input.treesOnly) {
-      const config = ["-C", dir, "config"]
+    const config = ["-C", dir, "config"]
+    const markPartial = async () => {
       await gitExec([...config, "remote.origin.promisor", "true"], {
         timeout: 15_000,
       })
       await gitExec(
         [...config, "remote.origin.partialclonefilter", "blob:none"],
-        {
-          timeout: 15_000,
-        },
+        { timeout: 15_000 },
       )
     }
+    if (input.treesOnly) await markPartial()
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
-    await gitExec(
-      [
-        "-C",
-        dir,
-        "fetch",
-        ...filter,
-        ...(input.includeIntroducingCommits ? [] : ["--depth", "1"]),
-        "origin",
-        input.sha,
-      ],
-      {
-        // The full history of a large repository takes much longer than
-        // its newest commit.
-        timeout: input.includeIntroducingCommits ? 10 * 60_000 : 60_000,
-        env,
-      },
+    await timedGit("git.fetch-tip", () =>
+      gitExec(
+        ["-C", dir, "fetch", ...filter, "--depth", "1", "origin", input.sha],
+        {
+          timeout: 60_000,
+          env,
+        },
+      ),
     )
+    if (input.includeIntroducingCommits) {
+      // The history walk reads commits and trees only. It needs no old blob,
+      // and the blobs of a large history are most of its bytes. The tip
+      // blobs came with the fetch above, so the walk adds only the rest.
+      if (!input.treesOnly) await markPartial()
+      await timedGit("git.fetch-history", () =>
+        gitExec(
+          [
+            "-C",
+            dir,
+            "fetch",
+            "--no-tags",
+            "--filter=blob:none",
+            "--unshallow",
+            "origin",
+            input.sha,
+          ],
+          // The full history of a large repository takes much longer than
+          // its newest commit.
+          { timeout: 10 * 60_000, env },
+        ),
+      )
+    }
     return await read(dir, async (shas) => {
       if (!input.treesOnly || shas.length === 0) return
       // One fetch for all the blobs, not one lazy fetch for each blob.

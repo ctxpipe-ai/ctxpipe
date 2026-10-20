@@ -184,6 +184,8 @@ export async function transitionWorkspaceUpgradeRow(input: {
     const upgrade = { ...current.upgrade, ...input.upgrade }
     for (const [key, value] of Object.entries(upgrade))
       if (value === undefined) delete upgrade[key as keyof typeof upgrade]
+    // The stage of a run lives only while the row runs.
+    if (input.to !== UPGRADE_STATUSES.running) delete upgrade.stage
     // A repository that a re-ingestion did stays done, also when the new
     // reports of a later run do not say so.
     const reingested = reingestedNames(current.upgrade, input.upgrade)

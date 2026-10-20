@@ -216,6 +216,14 @@ export function upgradeRelease(
 }
 
 /**
+ * The stages of a git upgrade run, in order. The user sees them as the
+ * progress of "Preparing the pull request".
+ */
+export const UPGRADE_RUN_STAGES = ["read", "build", "push", "open"] as const
+
+export type UpgradeRunStage = (typeof UPGRADE_RUN_STAGES)[number]
+
+/**
  * The typed payload of an upgrade row (`workspace_write_jobs.payload.upgrade`).
  * The row is a cache of git and a run log: the scan makes it again from the
  * format file and the open pull requests.
@@ -235,6 +243,16 @@ export type WorkspaceUpgradePayload = {
   blockedReason?: UpgradeBlockedReason
   /** A note for the operator, for example why a pull request closed. */
   note?: string
+  /**
+   * Only on a git upgrade while its run prepares the pull request: the
+   * stage of the run and when it began. The model removes it when the row
+   * leaves `running`.
+   */
+  stage?: { name: UpgradeRunStage; since: string }
+  /** Only on a git upgrade: when the scan saw the merge of its pull request. */
+  mergedAt?: string
+  /** When the last scan checked this upgrade (Check again, a webhook or a release). */
+  checkedAt?: string
   /** The commits and reports of the last run, in step order. */
   steps?: Array<{
     format: number

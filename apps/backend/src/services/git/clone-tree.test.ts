@@ -141,6 +141,59 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     },
   )
 
+  it("reads the introducing commits from a remote that filters blobs", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-history-filter-"))
+    const git = async (...args: string[]) =>
+      (await execFileAsync("git", ["-C", dir as string, ...args])).stdout.trim()
+    const commit = (message: string, date: string) =>
+      execFileAsync(
+        "git",
+        [
+          "-C",
+          dir as string,
+          "-c",
+          "user.name=Contract",
+          "-c",
+          "user.email=contract@example.test",
+          "commit",
+          "-m",
+          message,
+        ],
+        { env: { ...process.env, GIT_COMMITTER_DATE: date } },
+      )
+    await git("init", "-b", "main")
+    // The remote of the product (GitHub) allows a filter and a blob by SHA.
+    await git("config", "uploadpack.allowFilter", "true")
+    await git("config", "uploadpack.allowAnySHA1InWant", "true")
+    await writeFile(join(dir, "old.md"), "# Old\n")
+    await git("add", ".")
+    await commit("Add old", "2024-01-01T00:00:00Z")
+    await writeFile(join(dir, "old.md"), "# Old, changed\n")
+    await writeFile(join(dir, "new.md"), "# New\n")
+    await git("add", ".")
+    await commit("Change old, add new", "2024-02-01T00:00:00Z")
+    const sha = await git("rev-parse", "HEAD")
+    const files = await listMarkdownFilesAtGitSha({
+      url: dir,
+      sha,
+      includeIntroducingCommits: true,
+    })
+    expect(files).toEqual([
+      {
+        path: "new.md",
+        content: "# New\n",
+        introducingCommitTimestamp: "2024-02-01T00:00:00.000Z",
+        lastCommitTimestamp: "2024-02-01T00:00:00.000Z",
+      },
+      {
+        path: "old.md",
+        content: "# Old, changed\n",
+        introducingCommitTimestamp: "2024-01-01T00:00:00.000Z",
+        lastCommitTimestamp: "2024-02-01T00:00:00.000Z",
+      },
+    ])
+  })
+
   it("names the Markdown paths that a commit deleted, relative to the root", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-deleted-paths-"))
     const git = async (...args: string[]) =>
