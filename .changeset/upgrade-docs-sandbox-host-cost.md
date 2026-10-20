@@ -8,6 +8,10 @@ The default size (`size: "small"`) is one `t4g.medium` instance. It costs about 
 
 The first `cdk deploy` adds the host. It replaces nothing that holds data.
 
+Before you upgrade, set the GitHub App repository permissions to `Read and write` for `Contents` and `Pull requests`. Accept the changes for each installation.
+
+There are no new required props. Run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`.
+
 The migrate task now runs the single migrate entry point. This entry point makes `ctxpipe_app` ready, applies the expand-only SQL, and runs the backfills.
 
 Before you upgrade, take a database snapshot. To roll back, restore the previous package version and the owner `DATABASE_URL` secret. See the Upgrades page.
