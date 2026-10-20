@@ -5,7 +5,7 @@ import type {
 } from "@/features/connectors/queries/plain-connector"
 
 /** The Help Centers and labels that the story connection can read. */
-export const PLAIN_STORY_CATALOG: {
+const PLAIN_STORY_CATALOG: {
   helpCenters: PlainCatalogItem[]
   labels: PlainCatalogItem[]
 } = {

@@ -1,7 +1,7 @@
 import { Button } from "react-aria-components"
 import { PlainMark } from "./PlainMark"
 
-export type AddPlainConnectorButtonProps = {
+type AddPlainConnectorButtonProps = {
   onStart: () => void
 }
 

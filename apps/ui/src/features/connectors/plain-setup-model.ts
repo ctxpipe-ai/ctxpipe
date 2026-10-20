@@ -12,7 +12,7 @@ export const PLAIN_SETUP_STEPS = [
   { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 
-export type PlainSetupStep = (typeof PLAIN_SETUP_STEPS)[number]["id"] | "done"
+type PlainSetupStep = (typeof PLAIN_SETUP_STEPS)[number]["id"] | "done"
 
 export function getPlainSetupStep(
   status: SetupStatus | undefined,
