@@ -360,7 +360,42 @@ export const DeleteConfirm: Story = {
       expect(canvas.queryByRole("link", { name: "Auth claims" })).toBeNull(),
     )
     expect(canvas.getByRole("link", { name: "Repo layout" })).toBeVisible()
+    // Focus moves to the next chat, not to the page body.
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Repo layout" })).toHaveFocus(),
+    )
     expect(requests).toEqual(["DELETE /acme/api/v1/conversations/conv_2"])
+  },
+}
+
+/** Deleting a chat that has one after it moves focus to the next chat. */
+export const DeleteFirstFocusesNext: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  args: { currentConversationId: "conv_2" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Repo layout", "Delete")
+    await userEvent.click(
+      await body.findByRole("button", { name: "Delete chat" }),
+    )
+    await waitFor(() =>
+      expect(canvas.queryByRole("link", { name: "Repo layout" })).toBeNull(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Auth claims" })).toHaveFocus(),
+    )
   },
 }
 
@@ -456,6 +491,9 @@ export const DeleteRefusedWhileTurnRuns: Story = {
       expect(alert).toHaveTextContent("A turn is still running in this chat"),
     )
     expect(alert).toHaveTextContent("select Stop")
+    // A retry fails the same way, so only Dismiss shows.
+    expect(canvas.queryByRole("button", { name: "Try again" })).toBeNull()
+    expect(canvas.getByRole("button", { name: "Dismiss" })).toBeVisible()
     expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
   },
 }

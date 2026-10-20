@@ -1,6 +1,7 @@
 import { useMutation } from "@tanstack/react-query"
 import { useRef, useState } from "react"
 import { Input, TextField } from "react-aria-components"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 import { renameConversation } from "./queries"
 
@@ -79,7 +80,8 @@ export function ConversationNameInput(props: {
             }
           }}
           className={cn(
-            "max-w-full rounded-sm bg-transparent font-[inherit] text-[length:inherit] leading-[inherit] text-foreground outline-none ring-1 ring-teal-500/60 focus-visible:ring-teal-500",
+            "max-w-full rounded-sm bg-transparent font-[inherit] text-[length:inherit] leading-[inherit] text-foreground ring-1 ring-teal-500/60",
+            focusVisibleClassName,
             props.className,
           )}
         />

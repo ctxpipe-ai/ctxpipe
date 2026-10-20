@@ -72,8 +72,13 @@ export function WorkspaceConversationRow(props: {
   // Enter and Escape in the name input return focus to the chat link.
   const restoreFocus = useRef(false)
   const linkRef = useRef<HTMLAnchorElement>(null)
+  const renameRowRef = useRef<HTMLLIElement>(null)
   useEffect(() => {
-    if (!isRenaming && restoreFocus.current) {
+    if (isRenaming) {
+      // The menu returns focus to its button when it closes. That button is
+      // gone once the row edits, so this focus is the last one.
+      renameRowRef.current?.querySelector("input")?.focus()
+    } else if (restoreFocus.current) {
       restoreFocus.current = false
       linkRef.current?.focus()
     }
@@ -82,6 +87,22 @@ export function WorkspaceConversationRow(props: {
   const remove = useMutation({
     mutationFn: () => deleteConversation(orgSlug, item.id),
     onSuccess: async () => {
+      // The row unmounts, so move focus to a neighbor first: the next chat, or
+      // the previous one when this was the last. The open chat is different:
+      // the Workspace start page takes focus in its composer.
+      if (!active) {
+        const row = linkRef.current?.closest("li")
+        for (const neighbor of [
+          row?.nextElementSibling,
+          row?.previousElementSibling,
+        ]) {
+          const link = neighbor?.querySelector("a")
+          if (link) {
+            link.focus()
+            break
+          }
+        }
+      }
       queryClient.setQueryData<InfiniteData<ConversationPage>>(
         listKey,
         (data) =>
@@ -138,7 +159,10 @@ export function WorkspaceConversationRow(props: {
 
   if (isRenaming) {
     return (
-      <li className="relative mx-1.5 flex h-8 items-center pr-1 pl-8 text-sm">
+      <li
+        ref={renameRowRef}
+        className="relative mx-1.5 flex h-8 items-center pr-1 pl-8 text-sm"
+      >
         <ConversationNameInput
           orgSlug={orgSlug}
           conversationId={item.id}
@@ -224,9 +248,7 @@ export function WorkspaceConversationRow(props: {
         <Menu
           aria-label={`Actions for ${item.name}`}
           onAction={(key) => {
-            // The menu returns focus to its button when it closes. Start the
-            // edit after that, or the name input loses focus at once.
-            if (key === "rename") setTimeout(() => setIsRenaming(true), 0)
+            if (key === "rename") setIsRenaming(true)
             if (key === "delete") setIsConfirmingDelete(true)
           }}
         >
@@ -259,16 +281,20 @@ export function WorkspaceConversationRow(props: {
             title="The chat was not deleted"
             actions={
               <>
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onPress={() => {
-                    remove.reset()
-                    remove.mutate()
-                  }}
-                >
-                  Try again
-                </Button>
+                {/* A retry of a refused delete fails the same way. */}
+                {remove.error instanceof ApiError &&
+                remove.error.status === 409 ? null : (
+                  <Button
+                    size="sm"
+                    variant="outline"
+                    onPress={() => {
+                      remove.reset()
+                      remove.mutate()
+                    }}
+                  >
+                    Try again
+                  </Button>
+                )}
                 <Button size="sm" variant="quiet" onPress={remove.reset}>
                   Dismiss
                 </Button>

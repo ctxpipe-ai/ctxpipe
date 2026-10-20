@@ -12,6 +12,7 @@ import { withOrgIdContext } from "../../auth/withAuth.js"
 import { getSystemDb, initDb, withOrgDbContext } from "../../db/client.js"
 import { chatRuns } from "../../db/schema/chat-persistence.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
 import { generateObjectId } from "../../lib/id.js"
 import {
   contextStorage,
@@ -26,6 +27,7 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
   let other: SeededOrg
   const ownId = generateObjectId("conv")
   const runningId = generateObjectId("conv")
+  const startingId = generateObjectId("conv")
   const otherOrgId = generateObjectId("conv")
   const otherMemberId = generateObjectId("conv")
 
@@ -47,6 +49,14 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
           orgId: caller.orgId,
           userId: caller.userId,
           name: "Running conversation",
+          source: "ui",
+          lastMessageAt: now,
+        },
+        {
+          id: startingId,
+          orgId: caller.orgId,
+          userId: caller.userId,
+          name: "Starting conversation",
           source: "ui",
           lastMessageAt: now,
         },
@@ -153,6 +163,18 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
     expect(res.status).toBe(409)
     expect(await res.json()).toEqual({ error: "turn_running" })
     expect(await exists(caller.orgId, runningId)).toBe(true)
+  })
+
+  it("refuses with 409 while a starting turn holds the chat lock, and keeps the conversation", async () => {
+    // A turn takes this lock before it inserts its running row.
+    const res = await postgresSandboxLocks(caller.orgId).withLock(
+      `chat-thread:${startingId}`,
+      () => remove(startingId),
+    )
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "turn_running" })
+    expect(await exists(caller.orgId, startingId)).toBe(true)
   })
 
   it("deletes a conversation of the caller in the caller's org", async () => {
