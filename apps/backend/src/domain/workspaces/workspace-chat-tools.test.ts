@@ -19,6 +19,7 @@ import {
   SCIP_GRAPH_TOOL_NAMES,
 } from "./code-tools.js"
 import type { PublishedProjection } from "./revision.js"
+import { workspaceChatEngineTools } from "./workspace-chat-engine-tools.js"
 import {
   WORKSPACE_CHAT_TOOLS,
   withToolCallSpan,
@@ -259,6 +260,36 @@ describe("workspace chat tool call spans", () => {
       "ctxpipe.mcp.error.code": "internal",
     })
     expect(callSpan("get_file")?.status.code).toBe(SpanStatusCode.ERROR)
+  })
+
+  it("wraps every tool of the list that the chat engine receives, the branch push tool too", async () => {
+    const engineTools = workspaceChatEngineTools({
+      conversationId: "conv_spans",
+      orgId: "org_spans",
+      orgSlug: "spans",
+      workspaceId: "ws_spans",
+      sandbox: () => undefined,
+    })
+    const named = (name: string) => {
+      const found = engineTools.find((item) => item.name === name)
+      if (!found) throw new Error(`missing tool ${name}`)
+      return found
+    }
+
+    await expect(
+      named("push_conversation_branch").execute({}),
+    ).resolves.toEqual({ pushed: false, reason: "sandbox_not_ready" })
+    await expect(
+      named("get_file").execute({ repositoryId: "repo_bound" }),
+    ).rejects.toThrow()
+
+    expect(callSpan("push_conversation_branch")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "push_conversation_branch",
+    })
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "internal",
+    })
   })
 })
 

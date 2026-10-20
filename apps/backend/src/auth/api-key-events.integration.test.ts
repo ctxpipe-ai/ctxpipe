@@ -319,6 +319,107 @@ describe("API key lifecycle events (Postgres)", () => {
     })
   })
 
+  it("takes the org of a delete event from the row of the key, never from the request body", async () => {
+    const created = await authPost("/api-key/create", {
+      configId: "organization",
+      organizationId: u().orgId,
+      name: "events-org-foreign-body",
+    })
+    const key = (await created.json()) as { id: string }
+    events.length = 0
+
+    const removed = await authPost("/api-key/delete", {
+      keyId: key.id,
+      configId: "organization",
+      organizationId: orgB.id,
+    })
+
+    expect(removed.status).toBe(200)
+    const event = eventFor("api_key.delete")
+    expect(event).toMatchObject({
+      "ctxpipe.api_key.outcome": "success",
+      "ctxpipe.org.id": u().orgId,
+    })
+    expect(JSON.stringify(events)).not.toContain(orgB.id)
+  })
+
+  it("keeps the delete org request-local when an unauthenticated delete of the same key runs at the same time", async () => {
+    const created = await authPost("/api-key/create", {
+      configId: "organization",
+      organizationId: u().orgId,
+      name: "events-org-parallel",
+    })
+    const key = (await created.json()) as { id: string }
+    events.length = 0
+
+    const body = JSON.stringify({
+      keyId: key.id,
+      configId: "organization",
+      organizationId: orgB.id,
+    })
+    const [refused, removed] = await Promise.all([
+      createApp().request(`${BASE}/.auth/api/v1/auth/api-key/delete`, {
+        method: "POST",
+        headers: { origin: BASE, "content-type": "application/json" },
+        body,
+      }),
+      authPost("/api-key/delete", JSON.parse(body)),
+    ])
+
+    expect(refused.status).toBe(401)
+    expect(removed.status).toBe(200)
+    const outcomes = events.filter(
+      (event) => event["ctxpipe.api_key.event"] === "api_key.delete",
+    )
+    expect(outcomes).toHaveLength(2)
+    for (const event of outcomes) {
+      expect([u().orgId, undefined]).toContain(event["ctxpipe.org.id"])
+      expect(event["ctxpipe.org.id"]).not.toBe(orgB.id)
+    }
+    const success = outcomes.find(
+      (event) => event["ctxpipe.api_key.outcome"] === "success",
+    )
+    expect(success?.["ctxpipe.org.id"]).toBe(u().orgId)
+    const failure = outcomes.find(
+      (event) => event["ctxpipe.api_key.outcome"] === "failure",
+    )
+    expect(failure?.["ctxpipe.org.id"]).toBeUndefined()
+  })
+
+  it("records the row's org of a refused delete as the target org, not as the org of the event", async () => {
+    const created = await authPost("/api-key/create", {
+      configId: "organization",
+      organizationId: u().orgId,
+      name: "events-org-refused-delete",
+    })
+    const key = (await created.json()) as { id: string }
+    events.length = 0
+
+    const refused = await createApp().request(
+      `${BASE}/.auth/api/v1/auth/api-key/delete`,
+      {
+        method: "POST",
+        headers: { origin: BASE, "content-type": "application/json" },
+        body: JSON.stringify({ keyId: key.id, configId: "organization" }),
+      },
+    )
+
+    expect(refused.status).toBe(401)
+    const event = eventFor("api_key.delete")
+    expect(event).toMatchObject({
+      "ctxpipe.api_key.outcome": "failure",
+      "api_key.target_org_id": u().orgId,
+    })
+    expect(event["ctxpipe.org.id"]).toBeUndefined()
+    expect(spans.serverSpan()?.attributes["ctxpipe.org.id"]).toBeUndefined()
+
+    const removed = await authPost("/api-key/delete", {
+      keyId: key.id,
+      configId: "organization",
+    })
+    expect(removed.status).toBe(200)
+  })
+
   it("emits api_key.organizations.list and api_key.organizations.set on the org set routes", async () => {
     const created = await createKey([u().orgId])
     events.length = 0

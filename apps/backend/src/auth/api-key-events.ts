@@ -67,11 +67,14 @@ export function recordApiKeyEvent(event: {
 }
 
 /**
- * The org of a key that is about to be deleted, by key id. The delete answer
- * and the deleted row hold no org, so the before hook reads it from the row.
- * The after hook of the same request takes it out again.
+ * The org of a key that is about to be deleted. The delete answer and the
+ * deleted row hold no org, so the before hook reads it from the row. The key
+ * of this map is the Better Auth call context. Each call has its own, and the
+ * before and the after hook of that call both see it. Two calls for the same
+ * key therefore never share an entry, and the entry goes away with the call,
+ * also when the endpoint throws an error that is not an APIError.
  */
-const deletedKeyOrgs = new Map<string, string>()
+const deletedKeyOrgs = new WeakMap<object, string>()
 
 function organizationCount(header: string | null | undefined) {
   if (header == null) return undefined
@@ -110,7 +113,7 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
                 .where(eq(apikeys.id, keyId))
                 .limit(1)
               if (row && row.configId !== "default") {
-                deletedKeyOrgs.set(keyId, row.referenceId)
+                deletedKeyOrgs.set(ctx.context, row.referenceId)
               }
             } catch {
               // The event goes without an org; the delete goes on.
@@ -150,25 +153,28 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
               const personal =
                 configId === undefined ? undefined : configId === "default"
               // The org of a delete comes from the row, read before the
-              // delete. The org of a create or update is the caller's
-              // `organizationId` only when the call succeeded, which means
-              // that Better Auth checked it. A refused call keeps it as a
-              // requested id and never as the org of the event.
-              const deletedOrg =
-                keyId === undefined ? undefined : deletedKeyOrgs.get(keyId)
-              if (keyId !== undefined) deletedKeyOrgs.delete(keyId)
+              // delete, and never from the request body. The org of a create
+              // or update is the caller's `organizationId` only when the call
+              // succeeded, which means that Better Auth checked it. A refused
+              // call keeps it as a requested id and never as the org of the
+              // event. A refused delete records the org of the row as the
+              // target org only.
+              const rowOrg =
+                step === "api_key.delete"
+                  ? deletedKeyOrgs.get(ctx.context)
+                  : undefined
               const requestedOrg =
                 typeof body.organizationId === "string"
                   ? body.organizationId
                   : undefined
               const orgId =
-                personal === false
-                  ? failed
-                    ? deletedOrg
-                    : [deletedOrg, result.referenceId, requestedOrg].find(
+                failed || personal !== false
+                  ? undefined
+                  : step === "api_key.delete"
+                    ? rowOrg
+                    : [result.referenceId, requestedOrg].find(
                         (value): value is string => typeof value === "string",
                       )
-                  : undefined
               recordApiKeyEvent({
                 step,
                 outcome: failed ? "failure" : "success",
@@ -178,6 +184,7 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
                   id: keyId,
                   requested_org_id:
                     failed && personal === false ? requestedOrg : undefined,
+                  target_org_id: failed ? rowOrg : undefined,
                   owner:
                     personal === undefined
                       ? undefined

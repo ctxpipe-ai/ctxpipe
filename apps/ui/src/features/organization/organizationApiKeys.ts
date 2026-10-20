@@ -99,7 +99,6 @@ async function createApiKey(input: {
   return created
 }
 
-/** The user copied the secret of a new key. Records the key id, never the secret. */
 /**
  * Copy text with the Clipboard API. `navigator.clipboard` is missing on plain
  * http (a self-host), so the call can throw before it returns a promise. This
@@ -109,6 +108,7 @@ export function copyToClipboard(text: string): Promise<void> {
   return Promise.resolve().then(() => navigator.clipboard.writeText(text))
 }
 
+/** The user copied the secret of a new key. Records the key id, never the secret. */
 export function recordApiKeyCopied(owner: ApiKeyOwner["kind"], keyId: string) {
   HyperDX.addAction("api_key_copy", { owner, key_id: keyId })
 }
