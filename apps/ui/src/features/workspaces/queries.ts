@@ -582,7 +582,6 @@ async function fetchConversationGitStatus(
     param: { orgSlug, conversationId },
   })
   if (res.status === 409) return readConversationFilesBlocked(res)
-  // TODO: the route types the file status as a string, so the body is cast.
   return (await readApiJson(res, {
     message: "Failed to load conversation git status",
   })) as ConversationGitStatusResponse
@@ -617,7 +616,6 @@ async function putConversationFile(
     param: { orgSlug, conversationId },
     json: input,
   })
-  // TODO: the route types the file status as a string, so the body is cast.
   return (await readApiJson(res, {
     message: "Failed to save conversation file",
   })) as ConversationFileWriteResponse
