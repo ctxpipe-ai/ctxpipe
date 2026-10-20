@@ -36,9 +36,10 @@ reason to expose other services.
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
 The backend refuses a webhook body above its limit with `413`: 25 MiB for
-GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, and
-Atlassian. If your proxy has a lower body limit, set it to at least 25 MiB
-for `/api/v1/webhook/github` and 5 MiB for `/api/v1/webhook/linear`.
+GitHub, 5 MiB for Linear and Buildkite, and 1 MiB for Slack, Notion,
+PagerDuty, and Atlassian. If your proxy has a lower body limit, set it to at
+least 25 MiB for `/api/v1/webhook/github` and 5 MiB for
+`/api/v1/webhook/linear` and `/api/v1/webhook/buildkite/*`.
 
 Telemetry export is outbound only. There is no collector to expose. Set
 `OTEL_EXPORTER_OTLP_*` to your own endpoint when you want traces, logs, or
@@ -60,6 +61,7 @@ Register callback and webhook URLs against your public origin.
 | Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
 | PagerDuty OAuth | `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` |
 | PagerDuty webhook | `{AUTH_BASE_URL}/api/v1/webhook/pagerduty` |
+| Buildkite webhook | `{AUTH_BASE_URL}/api/v1/webhook/buildkite/<connectionId>` |
 | MCP | `{AUTH_BASE_URL}/mcp` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -159,4 +161,5 @@ Before inviting users:
   <Card title="Linear" href="/docs/self-hosting/linear" description="Linear OAuth, signed webhooks, and end-to-end verification." />
   <Card title="Notion" href="/docs/self-hosting/notion" description="Notion OAuth, webhook signing, and end-to-end verification." />
   <Card title="PagerDuty" href="/docs/self-hosting/pagerduty" description="PagerDuty OAuth, automatic webhooks, and end-to-end verification." />
+  <Card title="Buildkite" href="/docs/self-hosting/buildkite" description="API access token, the webhook of each connection, and end-to-end verification." />
 </Cards>

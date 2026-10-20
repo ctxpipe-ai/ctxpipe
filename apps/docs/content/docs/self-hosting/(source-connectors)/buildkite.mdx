@@ -31,7 +31,7 @@ token:
 {AUTH_BASE_URL}/api/v1/webhook/buildkite/{connectionId}
 ```
 
-The setup and the connector card show the full URL. ctxpipe verifies the
+The webhook step of the setup shows the full URL. ctxpipe verifies the
 `X-Buildkite-Signature` HMAC-SHA256 of the timestamp and the raw request body,
 and refuses a signature older than five minutes. A webhook that sends the plain
 `X-Buildkite-Token` is refused. A failed enqueue returns `503`. The next event
