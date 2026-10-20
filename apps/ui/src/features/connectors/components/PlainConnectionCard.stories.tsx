@@ -120,6 +120,9 @@ export const RevokedOpensReconnect: Story = {
     await expect(await canvas.findByText("Needs reconnect")).toBeInTheDocument()
     onOpenSetup.mockClear()
     await userEvent.click(canvas.getByRole("button", { name: "Expand Plain" }))
+    await expect(
+      canvas.getByText(/Plain does not accept the saved key/),
+    ).toBeVisible()
     const [reconnect] = await canvas.findAllByRole("button", {
       name: /^Reconnect Plain/,
     })

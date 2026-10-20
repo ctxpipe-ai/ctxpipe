@@ -5,7 +5,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { PlainMark } from "@/features/connectors/components/PlainMark"
 import {
   fetchPlainCatalog,
@@ -16,6 +20,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 type Option = { id: string; name: string }
 
@@ -62,6 +67,7 @@ export function PlainScopeEditor(props: SourceScopeEditorProps) {
     queryFn: () => fetchPlainCatalog(orgSlug, connectionId),
     retry: retryQuery,
   })
+  const loading = useSkeletonHold(catalogQuery.isPending)
   const needle = filter.trim().toLowerCase()
   const update = (next: { helpCenters: string[]; labels: string[] }) => {
     setHelpCenters(next.helpCenters)
@@ -120,15 +126,18 @@ export function PlainScopeEditor(props: SourceScopeEditorProps) {
         onChange={setFilter}
       />
       <div className="max-h-[min(320px,calc(var(--visual-viewport-height)*0.45))] min-h-0 overflow-auto rounded-md border border-border p-3">
-        {catalogQuery.isPending ? (
+        {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">
               Loading Plain Help Centers and labels
             </span>
             {[0, 1, 2].map((row) => (
               <div key={row} className="flex h-5 items-center gap-2">
-                <Skeleton className="size-4 shrink-0" />
-                <SkeletonLine className="h-3.5 w-48" />
+                <Skeleton className="size-4.5 shrink-0" />
+                <SkeletonText
+                  className="min-w-0 flex-1 text-sm"
+                  boneClassName="h-3.5 w-48"
+                />
               </div>
             ))}
           </div>
@@ -166,6 +175,10 @@ export function PlainScopeEditor(props: SourceScopeEditorProps) {
           Select at least one Help Center or label.
         </p>
       ) : null}
+      <ScopeLimitAlert
+        schema={plainSourceScopeSchema}
+        scope={{ helpCenters, labels }}
+      />
     </section>
   )
 }

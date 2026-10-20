@@ -89,6 +89,12 @@ export function PlainConnectionCard({
             : undefined
       }
     >
+      {status?.status === "revoked" ? (
+        <p className="text-sm text-muted-foreground">
+          Plain does not accept the saved key. Reconnect Plain and paste a new
+          key.
+        </p>
+      ) : null}
       {status?.status === "installed" && !status.webhookConfigured ? (
         <p className="text-sm text-muted-foreground">
           Threads sync once a day: Plain did not accept the webhook. Reconnect
