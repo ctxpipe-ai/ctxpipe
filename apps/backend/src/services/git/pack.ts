@@ -5,6 +5,7 @@ import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
+import { log } from "../../observability/logger.js"
 import { gitRemoteEnvironment } from "./clone-tree.js"
 import { withGitProcessSlot } from "./process-slot.js"
 
@@ -19,6 +20,16 @@ const running = new Map<
   string,
   Set<{ kill: () => void; done: Promise<void> }>
 >()
+
+/**
+ * Temporary directories whose clean-up has started. A read that was in the
+ * slot queue must not start Git in such a directory: the kill of a sibling
+ * gives it a slot while the removal runs.
+ */
+const closing = new Set<string>()
+
+/** Native Git calls that have not settled, also the calls in the slot queue. */
+const pending = new Map<string, Set<Promise<void>>>()
 
 /**
  * Native pack and shallow boundary; no filesystem locator or credential is
@@ -64,7 +75,22 @@ export async function nativeGit(
   input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
 ): Promise<Buffer> {
-  return withGitProcessSlot(() => startNativeGit(directory, args, input, env))
+  const call = withGitProcessSlot(() =>
+    startNativeGit(directory, args, input, env),
+  )
+  const settled = call.then(
+    () => undefined,
+    () => undefined,
+  )
+  const calls = pending.get(directory) ?? new Set()
+  calls.add(settled)
+  pending.set(directory, calls)
+  void settled.then(() => {
+    calls.delete(settled)
+    if (!calls.size && pending.get(directory) === calls)
+      pending.delete(directory)
+  })
+  return call
 }
 
 async function startNativeGit(
@@ -73,6 +99,8 @@ async function startNativeGit(
   input?: Uint8Array | string | { file: string },
   env?: NodeJS.ProcessEnv,
 ): Promise<Buffer> {
+  if (closing.has(directory))
+    throw new Error("The temporary Git directory is closed")
   const result = execute(
     "git",
     [
@@ -221,18 +249,31 @@ export async function withGitDirectory<T>(
     }
     return await operation(directory)
   } finally {
-    // A Git process that the operation left running (a rejected sibling of a
-    // parallel read) must exit before the removal; it could write meanwhile.
-    const left = [...(running.get(directory) ?? [])]
-    for (const child of left) child.kill()
-    await Promise.all(left.map((child) => child.done))
-    // Second layer only: the cause is handled above.
-    await rm(directory, {
-      recursive: true,
-      force: true,
-      maxRetries: 3,
-      retryDelay: 50,
-    })
+    // No Git process starts in the directory from here. A process that the
+    // operation left running (a rejected sibling of a parallel read) must
+    // exit before the removal; it could write meanwhile.
+    closing.add(directory)
+    try {
+      const left = [...(running.get(directory) ?? [])]
+      for (const child of left) child.kill()
+      // A queued call gets a slot and rejects at once because of `closing`.
+      await Promise.all([...(pending.get(directory) ?? [])])
+      // Second layer only: the cause is handled above.
+      await rm(directory, {
+        recursive: true,
+        force: true,
+        maxRetries: 3,
+        retryDelay: 50,
+      })
+    } catch (error) {
+      // A failed removal must not hide the error of the operation.
+      log.warn({
+        step: "git.temporary_directory_cleanup",
+        message: error instanceof Error ? error.message : String(error),
+      })
+    } finally {
+      closing.delete(directory)
+    }
   }
 }
 

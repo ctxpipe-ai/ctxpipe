@@ -5,6 +5,7 @@ import {
   mkdtemp,
   readFile,
   rm,
+  stat,
   writeFile,
 } from "node:fs/promises"
 import { tmpdir } from "node:os"
@@ -12,7 +13,7 @@ import { join } from "node:path"
 import { promisify } from "node:util"
 import { afterEach, expect, it, vi } from "vitest"
 import { gitOutput } from "./clone-tree.js"
-import { nativeGit } from "./pack.js"
+import { nativeGit, withGitDirectory } from "./pack.js"
 import { isTemporarySpawnError, withGitProcessSlot } from "./process-slot.js"
 
 const execFileAsync = promisify(execFile)
@@ -94,6 +95,62 @@ it("never runs more than eight Git processes at one time", async () => {
     await rm(scratch, { recursive: true, force: true })
   }
 })
+
+it("starts no queued Git process after a failed operation and removes its directory", async () => {
+  const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-git-close-"))
+  try {
+    const realGit = (
+      await execFileAsync("sh", ["-c", "command -v git"])
+    ).stdout.trim()
+    // A `git` before the real one on PATH: each read records its start and
+    // stays until a kill stops it.
+    const bin = join(scratch, "bin")
+    const log = join(scratch, "log")
+    await mkdir(bin)
+    await writeFile(log, "")
+    await writeFile(
+      join(bin, "git"),
+      [
+        "#!/bin/sh",
+        'case "$*" in *cat-file*)',
+        `  echo start >> "${log}"`,
+        // No pipe of the read stays open in `sleep` after the kill.
+        "  sleep 30 </dev/null >/dev/null 2>&1",
+        "esac",
+        `exec "${realGit}" "$@"`,
+      ].join("\n"),
+    )
+    await chmod(join(bin, "git"), 0o755)
+    vi.stubEnv("PATH", `${bin}:${process.env.PATH}`)
+    const starts = async () =>
+      (await readFile(log, "utf8")).split("\n").filter(Boolean).length
+
+    let used = ""
+    let startsAtFailure = 0
+    const failure = new Error("the original read failure")
+    const run = withGitDirectory("a".repeat(40), async (directory) => {
+      used = directory
+      // More reads than slots; one of them fails when all slots are busy.
+      const reads = Array.from({ length: 20 }, () =>
+        nativeGit(directory, ["cat-file", "-t", "HEAD"]),
+      )
+      const failed = (async () => {
+        while ((await starts()) < 8)
+          await new Promise((resolve) => setTimeout(resolve, 20))
+        startsAtFailure = await starts()
+        throw failure
+      })()
+      return Promise.all([...reads, failed])
+    })
+
+    await expect(run).rejects.toBe(failure)
+    expect(startsAtFailure).toBe(8)
+    expect(await starts()).toBe(8)
+    await expect(stat(used)).rejects.toMatchObject({ code: "ENOENT" })
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}, 20_000)
 
 it("starts Git again when the operating system refuses the process for a short time", async () => {
   let starts = 0
