@@ -150,6 +150,9 @@ function HydrateProblemToast(props: {
   const count = skippedFiles.length
   const more = count - 1
   const fixable = skippedFiles.filter(skippedFileFixable)
+  // Hydrate lists files of Git first, so the first skip can hide the cause of
+  // a legacy overlay file. Name that cause too.
+  const overlay = skippedFiles.find((file) => file.source === "legacy-overlay")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconAlertTriangle
@@ -171,6 +174,12 @@ function HydrateProblemToast(props: {
               : ""}
             . Chat, MCP, search, and the graph do not use{" "}
             {count === 1 ? "it" : "them"}.
+          </p>
+        ) : null}
+        {overlay && overlay !== first ? (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-mono break-all">{overlay.path}</span>:{" "}
+            {skippedFileCopy(overlay)}
           </p>
         ) : null}
       </div>

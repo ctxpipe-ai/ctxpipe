@@ -426,14 +426,15 @@ export const ProblemOnly: Story = {
 
 /**
  * A skipped legacy overlay file is knowledge from the database, so no edit
- * of the Workspace repository fixes it. The toast names that cause. The
+ * of the Workspace repository fixes it. Hydrate lists the files of Git first,
+ * so the front toast names the file of Git and also the overlay cause. The
  * agent gets only the file of Git.
  */
 export const ProblemLegacyOverlayAndFile: Story = {
   parameters: homeHandlers(
     "owner",
     {},
-    { handbook: [legacyOverlaySkippedFile, taxFile] },
+    { handbook: [taxFile, legacyOverlaySkippedFile] },
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
@@ -443,6 +444,11 @@ export const ProblemLegacyOverlayAndFile: Story = {
     await waitFor(() =>
       expect(
         within(region).getByText("Handbook: hydrate skipped 2 files"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(/Front matter is not valid, and 1 more file/),
       ).toBeVisible(),
     )
     await waitFor(() =>

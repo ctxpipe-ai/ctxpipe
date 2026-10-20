@@ -171,15 +171,22 @@ function SkippedFilesNotice(props: {
               className="flex min-w-0 items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <Link
-                  onPress={() => props.onOpenFile(file.path)}
-                  className={cn(
-                    "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
-                    focusVisibleClassName,
-                  )}
-                >
-                  {file.path}
-                </Link>
+                {/* A legacy overlay path is not in Git, so the Files pane cannot open it. */}
+                {file.source === "legacy-overlay" ? (
+                  <span className="block truncate font-mono text-xs text-amber-50">
+                    {file.path}
+                  </span>
+                ) : (
+                  <Link
+                    onPress={() => props.onOpenFile(file.path)}
+                    className={cn(
+                      "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
+                      focusVisibleClassName,
+                    )}
+                  >
+                    {file.path}
+                  </Link>
+                )}
                 <p className="text-xs text-amber-100/70">
                   {skippedFileCopy(file)}
                 </p>

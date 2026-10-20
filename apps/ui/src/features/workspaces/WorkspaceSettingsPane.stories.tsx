@@ -191,9 +191,11 @@ export const SkippedFiles: Story = {
     await canvas.findByText(
       "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here.",
     )
+    // Its path is not in Git, so it is plain text: the Files pane would show "File not found".
+    expect(canvas.getByText("knowledge/apis/imported.md")).toBeVisible()
     expect(
-      canvas.getByRole("link", { name: "knowledge/apis/imported.md" }),
-    ).toBeVisible()
+      canvas.queryByRole("link", { name: "knowledge/apis/imported.md" }),
+    ).toBeNull()
     expect(
       canvas.queryByRole("button", {
         name: "Fix knowledge/apis/imported.md using agent",
