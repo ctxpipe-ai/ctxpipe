@@ -613,8 +613,8 @@ const tooManySources = {
 } as const
 
 /**
- * A cause that stays until the user changes the Workspace: the card shows the
- * cause and the fix, and no Start again, because a new run fails the same way.
+ * The admin removes sources first. The card shows the cause and the fix, then
+ * Start again for the admin.
  */
 export const FailedTooManySources: Story = {
   parameters: failedReingest(tooManySources),
@@ -627,8 +627,16 @@ export const FailedTooManySources: Story = {
         ),
       ).toBeVisible(),
     )
-    expect(canvas.getByText(/Remove some source repositories/)).toBeVisible()
-    expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+    expect(
+      canvas.getByText(
+        "Remove some source repositories from the Workspace, then start it again.",
+      ),
+    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: REINGEST_START }),
+      ).toBeVisible(),
+    )
     expect(startRequests).toHaveLength(0)
   },
 }

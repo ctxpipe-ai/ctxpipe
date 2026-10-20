@@ -18,17 +18,12 @@ describe("upgradeFailureAllowsStartAgain", () => {
       "timeout",
       "source_access",
       "workspace_write_access",
+      "too_many_sources",
       "unknown",
     ] as const)
       expect(upgradeFailureAllowsStartAgain({ failure: failure(code) })).toBe(
         true,
       )
-  })
-
-  it("offers no Start again for a cause that stays until the Workspace changes", () => {
-    expect(
-      upgradeFailureAllowsStartAgain({ failure: failure("too_many_sources") }),
-    ).toBe(false)
   })
 
   it("offers Start again for a failed item with no class", () => {

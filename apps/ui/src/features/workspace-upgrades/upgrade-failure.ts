@@ -12,14 +12,14 @@ const STEP_LABEL: Record<NonNullable<UpgradeFailure["step"]>, string> = {
 
 /**
  * The fix for one failure class. `link`: a page where the user can do the
- * fix. `agent`: the card offers "Fix using agent". `startAgain: false`: the
- * cause stays until the user changes the Workspace, so a new run fails the
- * same way and the card offers no Start again. Else Start again is the fix.
+ * fix. `agent`: the card offers "Fix using agent". `startAgain: false`: a new
+ * run cannot pass until the user changes the Workspace, so the card offers no
+ * Start again. Else Start again is the fix.
  */
 type FailureCopy = {
   reason: string
   action: string
-  startAgain?: false
+  startAgain?: boolean
   link?: "connectors"
   linkLabel?: string
   agent?: true
@@ -64,8 +64,8 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
     reason:
       "The Workspace has more source repositories than one re-ingestion handles.",
     action:
-      "Remove some source repositories from the Workspace. A new run of this upgrade fails again while the Workspace has this many.",
-    startAgain: false,
+      "Remove some source repositories from the Workspace, then start it again.",
+    startAgain: true,
   },
   repository_too_large: {
     reason:
