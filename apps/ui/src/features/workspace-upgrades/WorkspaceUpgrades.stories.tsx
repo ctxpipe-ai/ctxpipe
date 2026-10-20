@@ -570,11 +570,13 @@ export const FailedAfterAutoRetry: Story = {
   ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText(
-        "ctx| already retried this upgrade once, with no change from you.",
-      ),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByText(
+          "ctx| already retried this upgrade once, with no change from you.",
+        ),
+      ).toBeVisible(),
+    )
   },
 }
 
