@@ -2,6 +2,10 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import type { IngestionV2Input } from "../../domain/ingestion/ingestion-run.js"
 import {
+  classifyUpgradeFailure,
+  isTemporaryFailure,
+} from "../../domain/upgrades/failure.js"
+import {
   type ReingestRepositoryReport,
   reingestedNames,
   UPGRADE_STATUSES,
@@ -425,51 +429,109 @@ export function defineWorkspaceUpgradeReingest(
             }
           })
           if (!claimed.ok) return { started: false, status: claimed.status }
-          const record = (
-            name: string,
-            fields: Omit<
-              Parameters<typeof transitionWorkspaceUpgradeRow>[0],
-              "workspaceId" | "key" | "from" | "ownerRunId"
-            >,
-          ) =>
-            step.run({ name }, async () => {
-              const before = fields.upgrade?.repositories
-                ? reingestedNames(
-                    (await getWorkspaceUpgradeRow(workspaceId, key))?.upgrade,
-                  )
-                : []
-              const moved = await transitionWorkspaceUpgradeRow({
-                workspaceId,
-                key,
-                from: [UPGRADE_STATUSES.running],
-                ownerRunId: run.id,
-                ...fields,
-              })
-              // A repository that becomes done in this step replaces its
-              // main-era knowledge. Hydrate projects the revision again, so
-              // that the overlay of that repository goes (the publish
-              // hydrate can come first).
-              // Known limit: `before` comes from this step. If the step stops
-              // after the transition and before the enqueue, the retry sees
-              // no new done mark and queues no reproject. Then the main-era
-              // knowledge of that repository stays in the projection until
-              // the next hydrate of the Workspace (a push or a reproject).
-              if (
-                moved &&
-                reingestedNames(moved.upgrade).some(
-                  (name) => !before.includes(name),
-                ) &&
-                (await legacyKnowledgePaths(workspaceId)).size
-              )
-                await enqueueWorkspaceHydrate(
-                  { orgId, workspaceId },
-                  getLogger(),
-                  {
-                    idempotencyKey: (revision) =>
-                      `legacy-overlay:${workspaceId}:${run.id}:${name}:${revision.sha}`,
-                    reproject: true,
-                  },
+          type Fields = Omit<
+            Parameters<typeof transitionWorkspaceUpgradeRow>[0],
+            "workspaceId" | "key" | "from" | "ownerRunId"
+          >
+          const transition = async (name: string, fields: Fields) => {
+            const before = fields.upgrade?.repositories
+              ? reingestedNames(
+                  (await getWorkspaceUpgradeRow(workspaceId, key))?.upgrade,
                 )
+              : []
+            const moved = await transitionWorkspaceUpgradeRow({
+              workspaceId,
+              key,
+              from: [UPGRADE_STATUSES.running],
+              ownerRunId: run.id,
+              ...fields,
+            })
+            // A repository that becomes done in this step replaces its
+            // main-era knowledge. Hydrate projects the revision again, so
+            // that the overlay of that repository goes (the publish
+            // hydrate can come first).
+            // Known limit: `before` comes from this step. If the step stops
+            // after the transition and before the enqueue, the retry sees
+            // no new done mark and queues no reproject. Then the main-era
+            // knowledge of that repository stays in the projection until
+            // the next hydrate of the Workspace (a push or a reproject).
+            if (
+              moved &&
+              reingestedNames(moved.upgrade).some(
+                (name) => !before.includes(name),
+              ) &&
+              (await legacyKnowledgePaths(workspaceId)).size
+            )
+              await enqueueWorkspaceHydrate(
+                { orgId, workspaceId },
+                getLogger(),
+                {
+                  idempotencyKey: (revision) =>
+                    `legacy-overlay:${workspaceId}:${run.id}:${name}:${revision.sha}`,
+                  reproject: true,
+                },
+              )
+            return moved
+          }
+          const record = (name: string, fields: Fields) =>
+            step.run({ name }, async () => {
+              await transition(name, fields)
+              return { started: true, status: fields.to }
+            })
+          /**
+           * Record a failed run. A temporary cause (`isTemporaryFailure`)
+           * gets one automatic retry with no agent (CTX-896): the row goes
+           * back to `queued` with an `autoRetry` record, and one new run
+           * starts. A row that has the record already failed once more, so it
+           * becomes `failed` and the card shows.
+           */
+          const recordFailure = (name: string, fields: Fields) =>
+            step.run({ name }, async () => {
+              const current = await getWorkspaceUpgradeRow(workspaceId, key)
+              const retry = current?.upgrade.autoRetry
+              const enqueueRetry = async (approvedAt: string) => {
+                await enqueueWorkspaceUpgradeReingest({
+                  orgId,
+                  workspaceId,
+                  key,
+                  approvedAt,
+                })
+                return { started: true, status: UPGRADE_STATUSES.queued }
+              }
+              // An earlier attempt of this step queued the row, and then
+              // stopped before it queued the run. The key makes a second
+              // queue of the same approval return the same run.
+              if (
+                current?.status === UPGRADE_STATUSES.queued &&
+                retry?.failedRunId === run.id &&
+                current.upgrade.approvedAt
+              )
+                return enqueueRetry(current.upgrade.approvedAt)
+              const failure = retry
+                ? null
+                : classifyUpgradeFailure({
+                    status: UPGRADE_STATUSES.failed,
+                    failureReason: fields.failureReason ?? null,
+                    repositories:
+                      fields.upgrade?.repositories ??
+                      current?.upgrade.repositories,
+                  })
+              if (failure && isTemporaryFailure(failure.code)) {
+                const at = new Date().toISOString()
+                const queued = await transition(name, {
+                  ...fields,
+                  to: UPGRADE_STATUSES.queued,
+                  upgrade: {
+                    ...fields.upgrade,
+                    approvedAt: at,
+                    autoRetry: { failedRunId: run.id, code: failure.code, at },
+                  },
+                  workflowRunId: null,
+                  failureReason: null,
+                })
+                if (queued) return enqueueRetry(at)
+              }
+              await transition(name, fields)
               return { started: true, status: fields.to }
             })
           try {
@@ -570,7 +632,7 @@ export function defineWorkspaceUpgradeReingest(
                 )
               }
               if (poll >= maxSlotPolls)
-                return record("record-no-slot", {
+                return recordFailure("record-no-slot", {
                   to: UPGRADE_STATUSES.failed,
                   failureReason: `${slot.wait} The re-ingestion waited too long for its turn. Start it again.`,
                   upgrade: { repositories: reports, waitingForSlot: undefined },
@@ -639,7 +701,7 @@ export function defineWorkspaceUpgradeReingest(
             // is done. A `partial` or `skipped` repository fails the row.
             const failed = reports.filter((r) => r.status !== "done")
             if (failed.length)
-              return record("record-failed", {
+              return recordFailure("record-failed", {
                 to: UPGRADE_STATUSES.failed,
                 failureReason: `The re-ingestion did not finish for ${failed.map((r) => r.repository).join(", ")}. Start it again.`,
                 upgrade: { repositories: reports },
@@ -650,7 +712,7 @@ export function defineWorkspaceUpgradeReingest(
             })
           } catch (error) {
             if (isWorkflowControlSignal(error)) throw error
-            return record("record-error", {
+            return recordFailure("record-error", {
               to: UPGRADE_STATUSES.failed,
               failureReason:
                 error instanceof Error ? error.message : String(error),

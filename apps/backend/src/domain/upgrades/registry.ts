@@ -1,5 +1,6 @@
 import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
+import type { UpgradeFailureCode } from "./failure.js"
 import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
 
@@ -260,6 +261,12 @@ export type WorkspaceUpgradePayload = {
    * why, and when the wait began. The run clears it when its turn comes.
    */
   waitingForSlot?: { reason: string; since: string }
+  /**
+   * Only on a re-ingestion that ctx| started again by itself, once, after a
+   * run failed for a temporary cause (CTX-896): the failed run, its class, and
+   * when ctx| queued the new run. A start by the user removes it.
+   */
+  autoRetry?: { failedRunId: string; code: UpgradeFailureCode; at: string }
 }
 
 /** A range from the p50 to the p90 value. */

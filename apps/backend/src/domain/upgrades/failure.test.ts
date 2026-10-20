@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest"
-import { classifyUpgradeFailure, safeFailureSummary } from "./failure.js"
+import {
+  classifyUpgradeFailure,
+  isTemporaryFailure,
+  safeFailureSummary,
+} from "./failure.js"
 
 const failed = (report: string[], repository = "acme/ky") => ({
   status: "failed",
@@ -95,5 +99,20 @@ describe("safeFailureSummary", () => {
       ),
     ).toBe("fatal: https://github.com/a/b failed token=[hidden]")
     expect(safeFailureSummary("x".repeat(300))).toHaveLength(240)
+  })
+})
+
+describe("isTemporaryFailure", () => {
+  it.each([
+    ["publish_conflict", true],
+    ["model", true],
+    ["sandbox", true],
+    ["timeout", true],
+    ["source_access", false],
+    ["workspace_write_access", false],
+    ["too_many_sources", false],
+    ["unknown", false],
+  ] as const)("%s is %s", (code, temporary) => {
+    expect(isTemporaryFailure(code)).toBe(temporary)
   })
 })

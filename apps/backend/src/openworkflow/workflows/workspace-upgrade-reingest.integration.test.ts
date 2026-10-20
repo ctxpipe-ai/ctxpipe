@@ -25,6 +25,7 @@ import {
   workspaceWriteJobs,
 } from "../../db/schema/workspaces.js"
 import { readIngestSkillBundle } from "../../domain/ingestion/skill-bundle.js"
+import { classifyUpgradeFailure } from "../../domain/upgrades/failure.js"
 import {
   UPGRADE_STATUSES,
   upgradeJobId,
@@ -109,7 +110,10 @@ contexts.push(
   `acme/context-e-${suffix}`,
   `acme/context-f-${suffix}`,
 )
-const [ready, behind, costly, wide, yamlOnly, overlay] = [
+contexts.push(`acme/context-g-${suffix}`, `acme/context-h-${suffix}`)
+const [ready, behind, costly, wide, yamlOnly, overlay, flaky, denied] = [
+  generateObjectId("ws"),
+  generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
   generateObjectId("ws"),
@@ -128,6 +132,8 @@ const sourcesOf = [
   [sourceName, otherSource, costlySources[0] ?? ""],
   [otherSource],
   [sourceName, goneSource],
+  [otherSource],
+  [goneSource],
 ]
 /** The USD that each model step of a Workspace reports. */
 const stepCostUsd = new Map<string, number>()
@@ -313,6 +319,8 @@ beforeAll(async () => {
     wide,
     yamlOnly,
     overlay,
+    flaky,
+    denied,
   ].entries()) {
     await withOrgDbContext(org.id, (db) =>
       db.insert(workspaces).values({
@@ -667,7 +675,8 @@ it(
   async () => {
     expect(await row(yamlOnly)).toMatchObject({ status: "awaiting_operator" })
     expect(await start(yamlOnly)).toMatchObject({ kind: "queued" })
-    expect(await settled(yamlOnly)).toMatchObject({
+    const failed = await settled(yamlOnly)
+    expect(failed).toMatchObject({
       status: "failed",
       failureReason: expect.stringContaining(otherSource),
       upgrade: {
@@ -680,9 +689,26 @@ it(
             ]),
           }),
         ],
+        // The class is a publish conflict, which is temporary: ctx|
+        // retried once. The second run failed the same way, so the row is
+        // failed and the card shows with its data.
+        autoRetry: {
+          failedRunId: expect.any(String),
+          code: "publish_conflict",
+        },
       },
     })
-    expect(await reingestRuns(yamlOnly)).toHaveLength(1)
+    expect(failed?.upgrade.autoRetry?.failedRunId).not.toBe(
+      failed?.workflowRunId,
+    )
+    expect(
+      classifyUpgradeFailure({
+        status: failed?.status ?? "",
+        failureReason: failed?.failureReason ?? null,
+        repositories: failed?.upgrade.repositories,
+      }),
+    ).toMatchObject({ code: "publish_conflict", repository: otherSource })
+    expect(await reingestRuns(yamlOnly)).toHaveLength(2)
     expect(modelCalls).not.toContain(yamlOnly)
   },
 )
@@ -1049,5 +1075,109 @@ it(
         db.delete(objects).where(eq(objects.orgId, org.id)),
       )
     }
+  },
+)
+
+it(
+  "retries once by itself when a run fails for a temporary cause, and completes",
+  { timeout: 420_000 },
+  async () => {
+    // Another publish of the same file lands on the default branch of the
+    // Workspace after the run pinned it and before the run publishes. The
+    // merge needs a model, which this file does not give, so the run fails
+    // with a publish conflict, a temporary cause. The retry pins the new
+    // default branch, so it has nothing to merge.
+    let landed = false
+    server.use(
+      http.post(MODEL_URL, async ({ request }) => {
+        const body = (await request.clone().json()) as { workspaceId: string }
+        if (body.workspaceId !== flaky || landed) return undefined
+        landed = true
+        const work = mkdtempSync(join(folder, "other-publish-"))
+        git(work, "clone", "-q", join(remotes, contexts[6] ?? ""), ".")
+        const other = modelFile(otherSource)
+        mkdirSync(dirname(join(work, other.path)), { recursive: true })
+        writeFileSync(
+          join(work, other.path),
+          "---\nkind: Service\nname: ledger\n---\n# ledger\n\nAn older text.\n",
+        )
+        git(work, "add", "-A")
+        git(work, "commit", "-q", "-m", "Another publish of the same file")
+        git(work, "push", "-q", "origin", "HEAD:main")
+        return undefined
+      }),
+    )
+    expect(await row(flaky)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(flaky)).toMatchObject({ kind: "queued" })
+    const done = await settled(flaky)
+    expect(done).toMatchObject({
+      status: "completed",
+      upgrade: {
+        approvedBy: "user_admin",
+        autoRetry: {
+          failedRunId: expect.any(String),
+          code: "publish_conflict",
+        },
+        repositories: [
+          expect.objectContaining({ repository: otherSource, status: "done" }),
+        ],
+      },
+    })
+    // The failed run and the retry each started one ingestion run, and the
+    // retry is a different upgrade run.
+    expect(await reingestRuns(flaky)).toHaveLength(2)
+    expect(done?.upgrade.autoRetry?.failedRunId).not.toBe(done?.workflowRunId)
+  },
+)
+
+it(
+  "fails at once, with no retry, when the cause is not temporary, and a start by the user clears the record",
+  { timeout: 420_000 },
+  async () => {
+    // The source repository has no remote: ctx| cannot read it, which a
+    // second run cannot change.
+    expect(await row(denied)).toMatchObject({ status: "awaiting_operator" })
+    expect(await start(denied)).toMatchObject({ kind: "queued" })
+    const failed = await settled(denied)
+    expect(failed).toMatchObject({
+      status: "failed",
+      upgrade: {
+        repositories: [
+          expect.objectContaining({ repository: goneSource, status: "failed" }),
+        ],
+      },
+    })
+    expect(failed?.upgrade.autoRetry).toBeUndefined()
+    expect(
+      classifyUpgradeFailure({
+        status: failed?.status ?? "",
+        failureReason: failed?.failureReason ?? null,
+        repositories: failed?.upgrade.repositories,
+      }),
+    ).toMatchObject({ code: "source_access", repository: goneSource })
+    expect(await reingestRuns(denied)).toEqual([])
+
+    // A start by the user removes the record of an earlier automatic retry.
+    await setRow(denied, {
+      to: "failed",
+      failureReason: "The re-ingestion did not finish.",
+      upgrade: {
+        autoRetry: {
+          failedRunId: "run_earlier",
+          code: "model",
+          at: new Date().toISOString(),
+        },
+      },
+    })
+    expect(await row(denied)).toMatchObject({
+      upgrade: { autoRetry: { failedRunId: "run_earlier" } },
+    })
+    const queued = await start(denied)
+    expect(queued).toMatchObject({ kind: "queued" })
+    expect(
+      (await row(denied))?.upgrade.autoRetry,
+      "the start by the user removes the record",
+    ).toBeUndefined()
+    expect(await settled(denied)).toMatchObject({ status: "failed" })
   },
 )

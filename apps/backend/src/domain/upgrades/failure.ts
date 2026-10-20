@@ -15,7 +15,22 @@ export const UPGRADE_FAILURE_CODES = [
   "unknown",
 ] as const
 
-type UpgradeFailureCode = (typeof UPGRADE_FAILURE_CODES)[number]
+export type UpgradeFailureCode = (typeof UPGRADE_FAILURE_CODES)[number]
+
+/**
+ * The classes that a second run can pass without a change by the user (CTX-896):
+ * a merge that lost a race, a model or provider error, a sandbox error, and a
+ * wait that ran out. The other classes need a user action, so the card shows
+ * at once.
+ */
+export function isTemporaryFailure(code: UpgradeFailureCode): boolean {
+  return (
+    code === "publish_conflict" ||
+    code === "model" ||
+    code === "sandbox" ||
+    code === "timeout"
+  )
+}
 
 /** The step that failed. `null`: ctx| cannot tell. */
 export const UPGRADE_FAILURE_STEPS = [

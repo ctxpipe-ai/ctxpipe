@@ -159,6 +159,10 @@ const WorkspaceUpgradeItemSchema = z
         description:
           "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
       }),
+    autoRetried: z.boolean().openapi({
+      description:
+        "True when a run of this upgrade failed for a temporary cause, and ctx| started it again by itself, once. The user did not start that second run. A start by the user sets it to false.",
+    }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
     }),
@@ -244,6 +248,7 @@ function serializeUpgrade(
       failureReason: row.failureReason,
       repositories: upgrade.repositories,
     }),
+    autoRetried: upgrade.autoRetry !== undefined,
     approvedBy: upgrade.approvedBy ?? null,
     approvedAt: upgrade.approvedAt ?? null,
     updatedAt: row.updatedAt.toISOString(),
