@@ -13,6 +13,7 @@ import { AddToWorkspacesStep } from "@/features/workspace-sources/AddToWorkspace
 import { PullRequestsToMerge } from "@/features/workspace-sources/PullRequestsToMerge"
 import type { OpenedPullRequest } from "@/features/workspace-sources/useAddToWorkspaces"
 import { retryQuery } from "@/lib/api-result"
+import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
 import { orgConnectionsKeys } from "../queries/org-connections"
 import {
   fetchZendeskConnectorStatus,
@@ -185,6 +186,12 @@ export function ZendeskSetupDialog({
           connectionId={connectionId}
           status={status}
           error={oauthError}
+          onSkip={
+            // A connected account can go on without the webhook.
+            status.status === "installed"
+              ? () => setReconnecting(false)
+              : undefined
+          }
         />
       )
     if (step === "workspaces")
@@ -342,7 +349,10 @@ function RegisterStep(props: {
         </li>
         <li>
           Add this redirect URL:
-          <CopyableUrl url={props.status.redirectUri} label="redirect URL" />
+          <CopyableUrl
+            url={displayOAuthCallbackUrl(props.status.redirectUri)}
+            label="redirect URL"
+          />
         </li>
         <li>
           Save the client, then paste its unique identifier and its secret here.
@@ -383,6 +393,8 @@ function ConnectStep(props: {
   connectionId: string
   status: ZendeskConnectorStatus
   error: string | null
+  /** Go to the Workspaces step without a new authorization. */
+  onSkip?: () => void
 }) {
   const connect = useMutation({
     mutationFn: () => fetchZendeskOAuthStart(props.orgSlug, props.connectionId),
@@ -415,14 +427,25 @@ function ConnectStep(props: {
       {connect.isError ? (
         <InlineAlert variant="error">{connect.error.message}</InlineAlert>
       ) : null}
-      <Button
-        variant="primary"
-        className="rounded-md"
-        isPending={connect.isPending}
-        onPress={() => connect.mutate()}
-      >
-        Connect Zendesk
-      </Button>
+      <div className="flex flex-wrap gap-2">
+        <Button
+          variant="primary"
+          className="rounded-md"
+          isPending={connect.isPending}
+          onPress={() => connect.mutate()}
+        >
+          Connect Zendesk
+        </Button>
+        {props.onSkip ? (
+          <Button
+            variant="secondary"
+            className="rounded-md"
+            onPress={props.onSkip}
+          >
+            Skip to Workspaces
+          </Button>
+        ) : null}
+      </div>
     </div>
   )
 }

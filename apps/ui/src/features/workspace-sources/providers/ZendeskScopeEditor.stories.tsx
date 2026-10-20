@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { ZENDESK_SOURCE_MAX_ITEMS } from "backend/domain/workspace-sources/providers/zendesk"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -166,6 +167,34 @@ export const LoadError: Story = {
     const canvas = within(canvasElement.ownerDocument.body)
     await waitFor(() =>
       expect(canvas.getByText(/Reconnect Zendesk/)).toBeVisible(),
+    )
+  },
+}
+
+export const OverTheViewLimit: Story = {
+  args: {
+    // A full selection: one more view goes above the cap.
+    initialScope: {
+      views: Array.from({ length: ZENDESK_SOURCE_MAX_ITEMS }, (_, i) =>
+        String(800000 + i),
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    const limit = `Select at most ${ZENDESK_SOURCE_MAX_ITEMS} Zendesk views.`
+    const bugs = await canvas.findByRole("checkbox", { name: "Bugs" })
+    await expect(canvas.queryByText(limit)).not.toBeInTheDocument()
+    await userEvent.click(bugs)
+    await waitFor(() => expect(canvas.getByText(limit)).toBeVisible())
+    await expect(canvas.getByText("Not ready")).toBeVisible()
+    // One view less is in the cap again, and the scope is ready.
+    await userEvent.click(canvas.getByRole("checkbox", { name: "Bugs" }))
+    await waitFor(() =>
+      expect(canvas.getByText(/^\{"views":\["800000",/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.queryByText(limit)).not.toBeInTheDocument(),
     )
   },
 }

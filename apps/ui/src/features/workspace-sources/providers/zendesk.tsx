@@ -5,7 +5,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonLine,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { ZendeskMark } from "@/features/connectors/components/ZendeskMark"
 import {
   fetchZendeskCatalog,
@@ -16,6 +20,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 type Option = { id: string; name: string }
 
@@ -62,14 +67,17 @@ export function ZendeskScopeEditor(props: SourceScopeEditorProps) {
     queryFn: () => fetchZendeskCatalog(orgSlug, connectionId),
     retry: retryQuery,
   })
+  const loading = useSkeletonHold(catalogQuery.isPending)
   const needle = filter.trim().toLowerCase()
+  // The scope leaves out an empty list.
+  const scopeOf = (next: { categories: string[]; views: string[] }) => ({
+    ...(next.categories.length ? { categories: next.categories } : {}),
+    ...(next.views.length ? { views: next.views } : {}),
+  })
   const update = (next: { categories: string[]; views: string[] }) => {
     setCategories(next.categories)
     setViews(next.views)
-    const parsed = zendeskSourceScopeSchema.safeParse({
-      ...(next.categories.length ? { categories: next.categories } : {}),
-      ...(next.views.length ? { views: next.views } : {}),
-    })
+    const parsed = zendeskSourceScopeSchema.safeParse(scopeOf(next))
     onChange(parsed.success ? parsed.data : null)
   }
   // Keep the order of the selection, then add new picks at the end.
@@ -125,7 +133,7 @@ export function ZendeskScopeEditor(props: SourceScopeEditorProps) {
         onChange={setFilter}
       />
       <div className="max-h-[min(320px,calc(var(--visual-viewport-height)*0.45))] min-h-0 overflow-auto rounded-md border border-border p-3">
-        {catalogQuery.isPending ? (
+        {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">
               Loading Zendesk categories and views
@@ -171,6 +179,10 @@ export function ZendeskScopeEditor(props: SourceScopeEditorProps) {
           Select at least one category or view.
         </p>
       ) : null}
+      <ScopeLimitAlert
+        schema={zendeskSourceScopeSchema}
+        scope={scopeOf({ categories, views })}
+      />
     </section>
   )
 }

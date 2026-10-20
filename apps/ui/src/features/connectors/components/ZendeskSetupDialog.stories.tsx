@@ -118,10 +118,9 @@ export const AccountThenOAuthClient: Story = {
         body.getByRole("heading", { name: "Register an OAuth client" }),
       ).toBeVisible(),
     )
+    // A dev build shows the callback on the Storybook origin.
     await expect(
-      body.getByText(
-        "https://app.example.com/api/v1/integrations/zendesk/callback",
-      ),
+      body.getByText(/\/api\/v1\/integrations\/zendesk\/callback$/),
     ).toBeVisible()
     await expect(calls).toEqual([
       {
@@ -303,6 +302,9 @@ export const ReconnectToAddTheWebhook: Story = {
           zendeskStatusHandler(
             zendeskStoryStatus({ webhookConfigured: false }),
           ),
+          workspaceListHandler([docsWorkspace]),
+          zendeskCatalogHandler,
+          connectionUsageHandler([]),
         ],
       },
     },
@@ -312,6 +314,16 @@ export const ReconnectToAddTheWebhook: Story = {
     await visible(await body.findByRole("heading", { name: "Connect Zendesk" }))
     await expect(
       body.getByText(/Connect again as a Zendesk admin/),
+    ).toBeVisible()
+    // A user who is not a Zendesk admin can go on without the webhook.
+    await userEvent.click(
+      body.getByRole("button", { name: "Skip to Workspaces" }),
+    )
+    await visible(
+      await body.findByRole("heading", { name: "Add Zendesk to Workspaces" }),
+    )
+    await expect(
+      body.getByText(/Zendesk did not let ctx\| add the Help Center webhook/),
     ).toBeVisible()
   },
 }
