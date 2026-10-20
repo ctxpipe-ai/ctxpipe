@@ -63,6 +63,13 @@ export function WorkspaceConversationList(props: {
         ? lastPage.pageInfo.endCursor
         : undefined,
     initialPageParam: undefined as string | undefined,
+    // Refresh the status dots while a chat works, and stop when none does.
+    refetchInterval: (current) =>
+      current.state.data?.pages.some((page) =>
+        page.items.some((item) => item.lastTurn?.status === "running"),
+      )
+        ? 3000
+        : false,
   })
 
   const loading = useSkeletonHold(query.isPending)

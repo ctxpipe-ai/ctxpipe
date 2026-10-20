@@ -18,9 +18,19 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { Modal } from "@/components/ui/Modal"
+import type { ConversationListItem } from "@/features/chat/types"
 import { ApiError } from "@/lib/api-result"
+import {
+  useUserPreferences,
+  withSeenConversation,
+} from "@/lib/user-preferences"
 import { ConversationNameInput } from "./ConversationNameInput"
+import { ConversationStatusDot } from "./ConversationStatusDot"
 import { conversationShortLabel } from "./conversationLabel"
+import {
+  conversationStatus,
+  conversationStatusLabel,
+} from "./conversationStatus"
 import type { workspaceSearch } from "./pane"
 import { deleteConversation, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
@@ -45,7 +55,7 @@ function deleteErrorText(error: Error): string {
 export function WorkspaceConversationRow(props: {
   orgSlug: string
   workspace: Workspace
-  item: { id: string; name: string }
+  item: Pick<ConversationListItem, "id" | "name" | "lastTurn">
   active: boolean
   navExpanded: boolean
   href: string
@@ -67,6 +77,22 @@ export function WorkspaceConversationRow(props: {
   const router = useRouter()
   const queryClient = useQueryClient()
   const listKey = workspaceKeys.conversations(orgSlug, workspace.id)
+  const [preferences, updatePreferences] = useUserPreferences()
+  // Opening a chat marks it read, and so does a turn that ends in the open chat.
+  const lastTurn = item.lastTurn ?? null
+  useEffect(() => {
+    if (active) {
+      updatePreferences((prev) =>
+        withSeenConversation(prev, item.id, lastTurn?.at ?? 0),
+      )
+    }
+  }, [active, item.id, lastTurn?.at, updatePreferences])
+  const status = conversationStatus(
+    lastTurn,
+    preferences.seenConversations[item.id],
+  )
+  const statusLabel = conversationStatusLabel(status, lastTurn)
+  const statusId = `conversation-status-${item.id}`
   const [isRenaming, setIsRenaming] = useState(false)
   const [isConfirmingDelete, setIsConfirmingDelete] = useState(false)
   // Enter and Escape in the name input return focus to the chat link.
@@ -204,9 +230,20 @@ export function WorkspaceConversationRow(props: {
           }}
           aria-current={active ? "page" : undefined}
           aria-label={item.name}
+          aria-describedby={statusId}
           className={sideNavRowClassName({ active })}
         >
           <span className="relative flex size-8 shrink-0 items-center justify-center">
+            {/* The dot sits in the gutter. The rail shows it as a badge on the initials. */}
+            <ConversationStatusDot
+              id={statusId}
+              status={status}
+              label={statusLabel}
+              className={[
+                "absolute",
+                navExpanded ? "inset-0" : "top-0.5 right-0.5 max-md:inset-0",
+              ].join(" ")}
+            />
             <span
               className={[
                 "text-xs font-normal tracking-tight",
