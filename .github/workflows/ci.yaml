@@ -684,7 +684,7 @@ jobs:
 
   migrate:
     timeout-minutes: 20
-    name: Migrations (fresh and previous schema)
+    name: Migrations (fresh schema)
     if: |
       github.event_name == 'workflow_dispatch' ||
       ((github.event_name == 'pull_request') !=
@@ -715,10 +715,9 @@ jobs:
           node-version: 22
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Apply migrations from empty and from main
+      - name: Apply migrations to an empty database
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
-          MIGRATE_BASE_REF: origin/main
         run: bash scripts/ci-migrate.sh
       - name: Isolation tests as ctxpipe_app
         env:

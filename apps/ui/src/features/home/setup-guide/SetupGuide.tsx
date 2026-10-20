@@ -29,7 +29,11 @@ import { AwaitingMergeLink } from "@/features/workspace-sources/WorkspaceSources
 import type { WorkspaceHydrateView } from "@/features/workspaces/projection"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
-import { editorSetupCommand, recordMcpConfigCopied } from "./editor-setup"
+import {
+  editorSetupCommand,
+  recordMcpConfigCopied,
+  recordMcpConfigCopyFailed,
+} from "./editor-setup"
 import type { GuideRow, GuideRowId } from "./guide-state"
 import type { SetupGuide } from "./useSetupGuide"
 
@@ -400,6 +404,7 @@ export function EditorSetupStep() {
             copiedAriaLabel="Setup command copied"
             copyErrorMessage="Could not copy. Copy the command manually."
             onCopied={() => recordMcpConfigCopied("setup_command")}
+            onCopyFailed={() => recordMcpConfigCopyFailed("setup_command")}
           />
         </div>
       </div>

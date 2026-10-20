@@ -51,7 +51,6 @@ import {
   workspaceChatRuntimeConfig,
 } from "./chat-runtime.js"
 import { originUrlWithoutCredentials } from "./clone-credentials.js"
-import { conversationBranchPushTool } from "./conversation-branch-push.js"
 import {
   conversationTurnFiles,
   pruneConversationTurnSnapshots,
@@ -118,6 +117,7 @@ import {
   workspaceChatCallbackMiddleware,
   workspaceChatToolBridgePath,
 } from "./workspace-chat-callback.js"
+import { workspaceChatEngineTools } from "./workspace-chat-engine-tools.js"
 import { workspaceChatCompletionsBaseUrl } from "./workspace-chat-model-proxy.js"
 import {
   WORKSPACE_CHAT_FIREWALL_PLACEHOLDER,
@@ -146,7 +146,6 @@ import {
   type WorkspaceChatRunCapabilityPurpose,
 } from "./workspace-chat-run-capability.js"
 import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
-import { WORKSPACE_CHAT_TOOLS } from "./workspace-chat-tools.js"
 import {
   baseForNewSandbox,
   startingFromBase,
@@ -800,16 +799,13 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
       ? messagesForOpenCodeChat(input.messages, input.prompt)
       : []) as Array<ModelMessage | UIMessage>,
     abortController,
-    tools: [
-      ...WORKSPACE_CHAT_TOOLS,
-      conversationBranchPushTool({
-        conversationId: input.conversationId,
-        orgId: input.orgId,
-        orgSlug: session.orgSlug,
-        workspaceId: input.workspaceId,
-        sandbox: () => activeSandbox,
-      }),
-    ],
+    tools: workspaceChatEngineTools({
+      conversationId: input.conversationId,
+      orgId: input.orgId,
+      orgSlug: session.orgSlug,
+      workspaceId: input.workspaceId,
+      sandbox: () => activeSandbox,
+    }),
     middleware: [
       workspaceChatOtelMiddleware(),
       defineChatMiddleware({

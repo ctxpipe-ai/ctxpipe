@@ -130,6 +130,87 @@ describe("API-key client", () => {
     })
   })
 
+  describe("HyperDX failures", () => {
+    const failure = () =>
+      new Response(JSON.stringify({ message: "Forbidden" }), {
+        status: 403,
+        headers: { "content-type": "application/json" },
+      })
+
+    /** Runs one key action as the card does: a mutation of the query client. */
+    async function failedMutation(
+      key: readonly string[],
+      run: () => Promise<unknown>,
+    ) {
+      const { createHyperDxQueryClient } = await import(
+        "@/lib/hyperdxQueryErrors"
+      )
+      const client = createHyperDxQueryClient()
+      const mutation = client.getMutationCache().build(client, {
+        mutationKey: key,
+        retry: 0,
+        mutationFn: run,
+      })
+      await expect(mutation.execute(undefined)).rejects.toBeDefined()
+    }
+
+    it("sends a failed create, revoke or org set to HyperDX with the name of the action", async () => {
+      const {
+        API_KEY_MUTATION_KEYS,
+        createOrganizationApiKey,
+        deletePersonalApiKey,
+        setPersonalApiKeyOrganizations,
+      } = await import("./organizationApiKeys")
+      const recordException = vi
+        .spyOn(HyperDX, "recordException")
+        .mockImplementation(() => {})
+      fetchMock.mockImplementation(async () => failure())
+
+      await failedMutation(API_KEY_MUTATION_KEYS.create, () =>
+        createOrganizationApiKey({
+          organizationId: "org_acme",
+          name: "ci",
+          expiresIn: null,
+        }),
+      )
+      await failedMutation(API_KEY_MUTATION_KEYS.revoke, () =>
+        deletePersonalApiKey("key_personal"),
+      )
+      await failedMutation(API_KEY_MUTATION_KEYS.organizations, () =>
+        setPersonalApiKeyOrganizations({
+          keyId: "key_personal",
+          organizationIds: ["org_a"],
+        }),
+      )
+
+      expect(
+        recordException.mock.calls.map((call) => call[1]?.["ctxpipe.ui.key"]),
+      ).toEqual(["api-key-create", "api-key-revoke", "api-key-organizations"])
+      for (const call of recordException.mock.calls) {
+        expect(call[1]).toMatchObject({ "ctxpipe.ui.source": "mutation" })
+      }
+      recordException.mockRestore()
+    })
+
+    it("sends a refused copy of a new key to HyperDX with the key id, and never the secret", async () => {
+      const { recordApiKeyCopyFailed } = await import("./organizationApiKeys")
+      const recordException = vi
+        .spyOn(HyperDX, "recordException")
+        .mockImplementation(() => {})
+
+      recordApiKeyCopyFailed("personal", "key_personal")
+
+      expect(recordException).toHaveBeenCalledTimes(1)
+      expect(recordException.mock.calls[0]?.[1]).toEqual({
+        owner: "personal",
+        key_id: "key_personal",
+        "ctxpipe.ui.source": "action",
+        "ctxpipe.ui.action": "api_key_copy",
+      })
+      recordException.mockRestore()
+    })
+  })
+
   describe("HyperDX actions", () => {
     it("counts each organization of the set once", async () => {
       const { createPersonalApiKey } = await import("./organizationApiKeys")
@@ -214,6 +295,23 @@ describe("API-key client", () => {
         ["api_key_revoke", { owner: "personal", key_id: "key_personal" }],
         ["api_key_revoke", { owner: "organization", key_id: "key_org" }],
       ])
+    })
+
+    it("rejects, and does not throw, when the browser has no Clipboard API", async () => {
+      const { copyToClipboard } = await import("./organizationApiKeys")
+      vi.stubGlobal("navigator", {})
+
+      await expect(copyToClipboard("secret")).rejects.toThrow()
+    })
+
+    it("copies the text with the Clipboard API", async () => {
+      const { copyToClipboard } = await import("./organizationApiKeys")
+      const writeText = vi.fn(async () => {})
+      vi.stubGlobal("navigator", { clipboard: { writeText } })
+
+      await copyToClipboard("secret")
+
+      expect(writeText).toHaveBeenCalledWith("secret")
     })
 
     it("records api_key_copy with the key id and the owner, and never the secret", async () => {

@@ -68,6 +68,21 @@ export function recordHyperDxScreenError(
   })
 }
 
+/**
+ * A user action that failed without a failing request (a copy that the
+ * browser refused). Pass ids and names only: never the value the user copied.
+ */
+export function recordHyperDxActionError(
+  action: string,
+  attributes: Record<string, string> = {},
+): void {
+  HyperDX.recordException(new Error(`UI action failed: ${action}`), {
+    ...attributes,
+    "ctxpipe.ui.source": "action",
+    "ctxpipe.ui.action": action,
+  })
+}
+
 export function setHyperDxGlobalAttributes(
   attributes: HyperDxSessionIdentity,
 ): void {

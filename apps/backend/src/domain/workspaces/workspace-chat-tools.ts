@@ -2,6 +2,7 @@ import type { ToolExecutionContext } from "@tanstack/ai"
 import { z } from "zod"
 import { withOrgDbContext } from "../../db/client.js"
 import { toToon } from "../../lib/agentToolRuntime.js"
+import { runBridgeToolCall } from "../../mcp/correlation.js"
 import {
   getWorkspaceProjectionSnapshot,
   type WorkspaceProjectionSnapshot,
@@ -103,6 +104,21 @@ export async function workspaceChatTools(input: {
     graphNeighborsTool({ expand, sha }),
   )
   return tools
+}
+
+/**
+ * Each call runs in a span with the facts of an MCP tool span. A list of
+ * tools gets this once, at the list that the chat engine receives, so a
+ * failure before the tool runs is inside the span too.
+ */
+export function withToolCallSpan(
+  tool: WorkspaceChatTanstackTool,
+): WorkspaceChatTanstackTool {
+  return {
+    ...tool,
+    execute: (args, execution) =>
+      runBridgeToolCall(tool.name, () => tool.execute(args, execution)),
+  }
 }
 
 function hybridSearchTool(input: {

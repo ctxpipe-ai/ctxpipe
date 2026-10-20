@@ -1,3 +1,4 @@
+import { SpanStatusCode } from "@opentelemetry/api"
 import { HttpResponse, http } from "msw"
 import { setupServer } from "msw/node"
 import {
@@ -10,6 +11,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { recordSpans } from "../../../test/spans.js"
 import type { WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import {
   EXPLORER_INPUT_SCHEMAS,
@@ -17,10 +19,15 @@ import {
   SCIP_GRAPH_TOOL_NAMES,
 } from "./code-tools.js"
 import type { PublishedProjection } from "./revision.js"
+import { workspaceChatEngineTools } from "./workspace-chat-engine-tools.js"
 import {
+  WORKSPACE_CHAT_TOOLS,
+  withToolCallSpan,
   workspaceChatToolAllowed,
   workspaceChatTools,
 } from "./workspace-chat-tools.js"
+
+const spans = recordSpans()
 
 const CODESEARCH = "http://codesearch.chat-tools.test"
 const SHA = "d".repeat(40)
@@ -184,6 +191,105 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     )
     expect(result).toContain("repository_not_in_workspace")
     expect(seen).toHaveLength(0)
+  })
+})
+
+describe("workspace chat tool call spans", () => {
+  const callSpan = (name: string) => spans.spanNamed(`bridge.tool ${name}`)
+
+  it("records the call id and the size of a result", async () => {
+    const result = String(
+      await withToolCallSpan(await tool("get_file")).execute({
+        repositoryId: "repo_bound",
+        path: "OWNERS",
+      }),
+    )
+
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.call.id": expect.stringMatching(/^call_/),
+      "ctxpipe.mcp.result.bytes": Buffer.byteLength(result),
+    })
+    expect(callSpan("get_file")?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      undefined,
+    )
+  })
+
+  it("records the error code of an error result, and no argument", async () => {
+    await withToolCallSpan(await tool("get_file")).execute({
+      repositoryId: "repo_unrelated",
+      path: "SECRET_PATH",
+    })
+
+    const span = callSpan("get_file")
+    expect(span?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "repository_not_in_workspace",
+    )
+    expect(JSON.stringify(span?.attributes)).not.toContain("SECRET_PATH")
+  })
+
+  it("records an internal error of a tool that throws", async () => {
+    server.use(
+      http.post(`${CODESEARCH}/:repositoryId/files-query`, () =>
+        HttpResponse.error(),
+      ),
+    )
+
+    await expect(
+      withToolCallSpan(await tool("get_file")).execute({
+        repositoryId: "repo_bound",
+        path: "OWNERS",
+      }),
+    ).rejects.toThrow()
+
+    expect(callSpan("get_file")?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "internal",
+    )
+  })
+
+  it("covers a failure before the tool runs, such as a context that has no scope", async () => {
+    const listed = WORKSPACE_CHAT_TOOLS.find((item) => item.name === "get_file")
+    if (!listed) throw new Error("missing tool get_file")
+
+    await expect(
+      withToolCallSpan(listed).execute({ repositoryId: "repo_bound" }),
+    ).rejects.toThrow()
+
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "internal",
+    })
+    expect(callSpan("get_file")?.status.code).toBe(SpanStatusCode.ERROR)
+  })
+
+  it("wraps every tool of the list that the chat engine receives, the branch push tool too", async () => {
+    const engineTools = workspaceChatEngineTools({
+      conversationId: "conv_spans",
+      orgId: "org_spans",
+      orgSlug: "spans",
+      workspaceId: "ws_spans",
+      sandbox: () => undefined,
+    })
+    const named = (name: string) => {
+      const found = engineTools.find((item) => item.name === name)
+      if (!found) throw new Error(`missing tool ${name}`)
+      return found
+    }
+
+    await expect(
+      named("push_conversation_branch").execute({}),
+    ).resolves.toEqual({ pushed: false, reason: "sandbox_not_ready" })
+    await expect(
+      named("get_file").execute({ repositoryId: "repo_bound" }),
+    ).rejects.toThrow()
+
+    expect(callSpan("push_conversation_branch")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "push_conversation_branch",
+    })
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.error.code": "internal",
+    })
   })
 })
 
