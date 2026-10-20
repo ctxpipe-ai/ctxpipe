@@ -9,7 +9,7 @@ const meta = {
   component: OnboardingHowItWorksSlide,
   decorators: [
     (Story) => (
-      <div className="max-w-2xl rounded-md border border-border bg-zinc-950 p-8 text-center">
+      <div className="max-w-3xl rounded-md border border-border bg-zinc-950 p-8 text-center">
         <Story />
       </div>
     ),
@@ -33,21 +33,21 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 const STEP_TITLES = [
-  "Your team's knowledge, in git",
-  "Kept current",
-  "Ready for your agents",
+  "Link your code and tools. ctx| keeps them current as Markdown in your git.",
+  "Review every change, and edit the files like any git repository.",
+  "Point every agent at the same facts over MCP.",
 ]
+
+const WELCOME_TITLE = "Welcome to ctx|"
 
 /** The rows of the slide, top to bottom: the title, three steps, the action. */
 function slideRows(canvasElement: HTMLElement) {
   const canvas = within(canvasElement)
-  const welcome = canvas.getByRole("heading", { name: "Welcome to ctx|" })
+  const welcome = canvas.getByRole("heading", { name: WELCOME_TITLE })
   const steps = STEP_TITLES.map(
     (title) => canvas.getByText(title).closest("li") as HTMLElement,
   )
-  const action = canvas.getByText(
-    "Turn ctx| off, and your knowledge stays in your repository.",
-  ).parentElement as HTMLElement
+  const action = canvas.getByRole("button").parentElement as HTMLElement
   return [welcome.parentElement as HTMLElement, ...steps, action]
 }
 
@@ -56,11 +56,13 @@ export const NewOrganization: Story = {
     const canvas = within(canvasElement)
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { level: 1, name: "Welcome to ctx|" }),
+        canvas.getByRole("heading", { level: 1, name: WELCOME_TITLE }),
       ).toBeVisible(),
     )
-    expect(canvas.getByText("Here's how it works.")).toBeVisible()
-    // One heading: the title. The subtitle is plain text.
+    expect(
+      canvas.getByText("Context management for your software factory."),
+    ).toBeVisible()
+    // One heading: the title. The subtitle and the step labels are plain text.
     expect(canvas.getAllByRole("heading")).toHaveLength(1)
     for (const title of STEP_TITLES)
       await waitFor(() => expect(canvas.getByText(title)).toBeVisible())
@@ -77,7 +79,7 @@ export const NewOrganization: Story = {
 export const RowsFadeInInOrder: Story = {
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
-      name: "Welcome to ctx|",
+      name: WELCOME_TITLE,
     })
     const rows = slideRows(canvasElement)
     const delays = rows.map((row) => {
@@ -103,7 +105,7 @@ export const RowsWithReducedMotion: Story = {
   tags: ["reduced-motion"],
   play: async ({ canvasElement }) => {
     await within(canvasElement).findByRole("heading", {
-      name: "Welcome to ctx|",
+      name: WELCOME_TITLE,
     })
     for (const row of slideRows(canvasElement)) {
       expect(

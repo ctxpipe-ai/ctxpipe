@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { expect, fn, within } from "storybook/test"
+import { OnboardingHowItWorksSlide } from "@/components/onboarding/OnboardingHowItWorksSlide"
 import { OnboardingPageShell } from "@/components/onboarding/OnboardingPageShell"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 
@@ -45,5 +46,13 @@ export const Default: Story = {
 export const SceneFailed: Story = {
   args: {
     sceneFailed: true,
+  },
+}
+
+/** The welcome slide on the page, as a new user sees it. */
+export const WithWelcomeSlide: Story = {
+  args: {
+    sceneFailed: false,
+    children: <OnboardingHowItWorksSlide actionLabel="Next" onNext={fn()} />,
   },
 }

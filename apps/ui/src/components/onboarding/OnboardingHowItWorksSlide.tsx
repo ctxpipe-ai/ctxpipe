@@ -1,6 +1,5 @@
 "use client"
 
-import { IconFolderCode, IconRefresh, IconRobot } from "@tabler/icons-react"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
 
@@ -20,23 +19,24 @@ type OnboardingHowItWorksSlideProps = {
 const rowFadeClassName =
   "animate-in fade-in slide-in-from-bottom-1 fill-mode-backwards duration-100 ease-out"
 
+/** The three steps of the user: connect the sources, curate the knowledge, serve it to agents. */
 const steps = [
   {
-    icon: IconFolderCode,
-    title: "Your team's knowledge, in git",
-    body: "One repository of Markdown files. ctx| can create it for you.",
+    number: "01",
+    label: "Connect",
+    body: "Link your code and tools. ctx| keeps them current as Markdown in your git.",
     delay: "delay-30",
   },
   {
-    icon: IconRefresh,
-    title: "Kept current",
-    body: "Connectors copy Linear, Slack, Notion and merged pull requests into it. Each change is a commit that you can review.",
+    number: "02",
+    label: "Curate",
+    body: "Review every change, and edit the files like any git repository.",
     delay: "delay-60",
   },
   {
-    icon: IconRobot,
-    title: "Ready for your agents",
-    body: "Ask questions, edit files and open pull requests here or from the agent in your editor.",
+    number: "03",
+    label: "Serve",
+    body: "Point every agent at the same facts over MCP.",
     delay: "delay-90",
   },
 ]
@@ -52,47 +52,36 @@ export function OnboardingHowItWorksSlide({
         <h1 className="text-3xl font-semibold text-zinc-100 sm:text-4xl">
           Welcome to ctx|
         </h1>
-        <p className="mt-3 text-lg text-zinc-400">Here's how it works.</p>
+        <p className="mt-3 text-lg text-zinc-400">
+          Context management for your software factory.
+        </p>
       </div>
-      <ul className="mx-auto mt-10 max-w-xl space-y-5 text-left">
+      <ol className="mt-10 grid divide-y divide-border rounded-md border border-border bg-zinc-950/90 text-left sm:grid-cols-3 sm:divide-x sm:divide-y-0">
         {steps.map((step) => (
           <li
-            key={step.title}
-            className={cn(
-              "flex items-start gap-4",
-              rowFadeClassName,
-              step.delay,
-            )}
+            key={step.number}
+            className={cn("flex flex-col p-5", rowFadeClassName, step.delay)}
           >
-            <span className="ctx-node size-10 bg-zinc-950/70 text-teal-400 [&>svg]:size-5">
-              <step.icon stroke={1.5} aria-hidden />
-            </span>
-            <div className="min-w-0">
-              <p className="text-base font-medium text-zinc-100">
-                {step.title}
-              </p>
-              <p className="mt-1 text-pretty text-sm text-zinc-400">
-                {step.body}
-              </p>
-            </div>
+            <p className="ctx-label">
+              <span className="text-teal-400">{step.number}</span> ·{" "}
+              {step.label}
+            </p>
+            <p className="mt-3 text-pretty text-base text-zinc-200">
+              {step.body}
+            </p>
           </li>
         ))}
-      </ul>
-      <div className={cn(rowFadeClassName, "delay-120")}>
-        <p className="mx-auto mt-8 text-xs text-zinc-500">
-          Turn ctx| off, and your knowledge stays in your repository.
-        </p>
-        <div className="mt-8">
-          {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
-          <button
-            type="button"
-            disabled={isPending}
-            className={`${focusVisibleClassName} inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
-            onClick={() => onNext()}
-          >
-            {actionLabel}
-          </button>
-        </div>
+      </ol>
+      <div className={cn(rowFadeClassName, "mt-10 delay-120")}>
+        {/* A native button: the double-click guard (ignoreRepeatClick) needs click events. */}
+        <button
+          type="button"
+          disabled={isPending}
+          className={`${focusVisibleClassName} inline-flex h-11 items-center justify-center rounded-md border border-border bg-zinc-100 px-6 text-sm font-medium text-zinc-950 transition-colors hover:bg-zinc-200 disabled:opacity-50`}
+          onClick={() => onNext()}
+        >
+          {actionLabel}
+        </button>
       </div>
     </>
   )
