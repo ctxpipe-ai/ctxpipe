@@ -12,6 +12,7 @@
 import {
   findExisting,
   scriptStep,
+  stubSummary,
   writeStep,
 } from "../../bin/knowledge-lib.mjs"
 
@@ -39,7 +40,7 @@ writeStep(
       create: {
         kind: "Repository",
         name: repository,
-        summary: `The source repository ${repository}.`,
+        summary: stubSummary("Repository", repository),
         intro: `A script wrote this file for the source repository \`${repository}\` and its code roots.`,
       },
     },

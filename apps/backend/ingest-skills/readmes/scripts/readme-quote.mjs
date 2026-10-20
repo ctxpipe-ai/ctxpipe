@@ -1,85 +1,80 @@
-// The README quote of the readmes skill: the opening text of a README as a
+// The README quote of the readmes skill: the first text of a README as a
 // bounded quote for an `## Overview` section, and a one-paragraph summary.
 // The host patch validator (apps/backend/src/domain/ingestion/patch-validator.ts)
-// checks the result: no raw HTML, links only to the source repository, and
-// no heading that addresses agents or models.
+// checks the result: no raw HTML, no heading that addresses agents or
+// models, and a Source line for each quoted text.
 //
 // - Badges, images, HTML blocks, inline HTML, and HTML comments go.
-// - A relative link goes to the file in the source repository on GitHub, or
-//   becomes plain text for another host. A link to another repository, a
-//   bare URL, and an anchor in the README become plain text or go.
+// - Each link becomes its text, and each bare URL goes.
 // - Fenced code stays as it is, outside the block quote, so that its text
 //   is not read as prose.
+// - Each block quote and each fenced block has a `Source:` line after it.
 // - The quote stops at a block boundary under MAX_QUOTE characters, and
-//   before a heading that names agents or models.
+//   before a heading that the validator refuses. A first paragraph that is
+//   longer stops at a sentence.
 
-import { posix } from "node:path"
+import {
+  DENIED_HEADINGS,
+  INJECTION_PHRASES,
+} from "../../bin/guard-patterns.mjs"
 
 const MAX_QUOTE = 4000
 const MAX_SUMMARY = 300
-/** A heading about agents or models: the quote stops before it. */
-const AGENT_HEADING =
-  /\b(?:ai|llms?|agents?|assistants?|prompts?|claude|chatgpt|gpt|copilot|cursor|gemini)\b/i
 /** Characters that the validator refuses: control, zero-width, and direction characters. */
 const UNSAFE =
   // biome-ignore lint/suspicious/noControlCharactersInRegex: the script removes control characters
   /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F؜​-‏‪-‮⁠⁦-⁩﻿]/g
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 const HEADING = /^ {0,3}(#{1,6})[ \t]+(.*?)(?:[ \t]+#+)?[ \t]*$/
+/** The line under a setext heading: `=` for level 1, `-` for level 2. */
+const SETEXT = /^ {0,3}(=+|-+)[ \t]*$/
+/** A first line that starts a list, a table, or a block quote, not a heading. */
+const NOT_HEADING = /^\s*(?:[-*+]|\d+[.)]|\||>)\s?/
 const HTML_BLOCK = /^ {0,3}(?:<\/?[A-Za-z][A-Za-z0-9-]*(?:[\s/>]|$)|<[!?])/
 const REFERENCE = /^ {0,3}\[[^\]]+\]:/
-/** A placeholder for a code span or a finished link: NUL never stays in the text. */
+/** A placeholder for a code span or a link text: NUL never stays in the text. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: NUL marks a placeholder
 const HOLD = /\u0000(\d+)\u0000/g
 
-/** `host/owner/repository` in lower case, as the validator compares links. */
-function repositoryKey(url) {
-  try {
-    const parsed = new URL(url)
-    const [owner, name] = parsed.pathname.split("/").filter(Boolean)
-    if (!owner || !name) return null
-    return `${parsed.host}/${owner}/${name.replace(/\.git$/i, "")}`.toLowerCase()
-  } catch {
-    return null
+/**
+ * The index after the `)` of a link target that starts at `from`, or -1.
+ * Parentheses in the target nest, as in `[a](https://x.example/x_(y))`.
+ */
+function targetEnd(text, from) {
+  let depth = 0
+  for (let i = from; i < text.length; i++) {
+    const c = text[i]
+    if (c === "\\") i++
+    else if (c === "(") depth++
+    else if (c === ")") {
+      if (depth === 0) return i + 1
+      depth--
+    }
   }
+  return -1
 }
 
-/** The target of a kept link, or null when the link becomes plain text. */
-function linkTarget(target, { readmePath, sourceUrl }) {
-  if (target === "" || target.startsWith("#") || target.startsWith("//"))
-    return null
-  if (/^[a-z][a-z0-9+.-]*:/i.test(target)) {
-    if (!/^https?:/i.test(target)) return null
-    const key = repositoryKey(target)
-    return key && key === repositoryKey(sourceUrl) ? target : null
+/**
+ * Text with each inline link `[label](target)` replaced by `label(text)`, and
+ * each inline image `![alt](target)` removed. An image in a link (a badge)
+ * goes in a second pass, when its link has an empty label.
+ */
+function withoutTargets(text, label) {
+  let out = text
+  for (let pass = 0; pass < 2; pass++) {
+    const start = /(!?)\[([^[\]]*)\]\(/g
+    let next = ""
+    let at = 0
+    for (let match = start.exec(out); match; match = start.exec(out)) {
+      const end = targetEnd(out, start.lastIndex)
+      if (end === -1) continue
+      next += out.slice(at, match.index) + (match[1] ? "" : label(match[2]))
+      at = end
+      start.lastIndex = end
+    }
+    out = next + out.slice(at)
   }
-  let host
-  try {
-    host = new URL(sourceUrl).hostname.toLowerCase()
-  } catch {
-    return null
-  }
-  // Only GitHub has a known URL for a file of the repository.
-  if (host !== "github.com") return null
-  const hash = target.indexOf("#")
-  const fragment = hash === -1 ? "" : target.slice(hash)
-  let path = (hash === -1 ? target : target.slice(0, hash)).split("?")[0]
-  try {
-    path = decodeURIComponent(path)
-  } catch {
-    return null
-  }
-  const joined = path.startsWith("/")
-    ? posix.normalize(path.slice(1) || ".")
-    : posix.normalize(posix.join(posix.dirname(readmePath), path))
-  if (joined === ".." || joined.startsWith("../")) return null
-  const base = sourceUrl.replace(/\/+$/, "").replace(/\.git$/i, "")
-  const clean = joined.replace(/\/$/, "")
-  const file =
-    clean === "." || clean === ""
-      ? base
-      : `${base}/blob/HEAD/${clean.split("/").map(encodeURIComponent).join("/")}`
-  return /^#[\w.-]+$/.test(fragment) ? `${file}${fragment}` : file
+  return out
 }
 
 /** Text with HTML and each URL removed: for link text and for prose. */
@@ -97,32 +92,19 @@ function scrub(text) {
     .replace(/[ \t]*(?<![\w/:])\/\/[a-z0-9.-]+\.[a-z]{2,}\S*/gi, "")
 }
 
-/** One line of prose with badges, images, HTML, and foreign links removed. */
-function cleanLine(line, context) {
+/** One line of prose with badges, images, HTML, link targets, and URLs removed. */
+function cleanLine(line) {
   const held = []
   const hold = (text) => `\u0000${held.push(text) - 1}\u0000`
+  const label = (text) =>
+    hold(scrub(text.replace(HOLD, (_, n) => held[Number(n)])).trim())
   let text = line.replace(/(`+)(?!`)([\s\S]*?[^`])\1(?!`)/g, (span) =>
     hold(span),
   )
-  text = text
-    // A badge is an image in a link; an image alone goes too.
-    .replace(/\[!\[[^\]]*\]\([^)]*\)\]\([^)]*\)/g, "")
-    .replace(/\[!\[[^\]]*\]\[[^\]]*\]\]\[[^\]]*\]/g, "")
-    .replace(/!\[[^\]]*\]\([^)]*\)/g, "")
+  text = withoutTargets(text, label)
+    // A reference image goes; a reference link becomes its text.
     .replace(/!\[[^\]]*\]\[[^\]]*\]/g, "")
-    .replace(
-      /\[([^\]]*)\]\(\s*<?([^)\s>]*)>?(?:\s+(?:"[^"]*"|'[^']*'))?\s*\)/g,
-      (_, label, target) => {
-        const words = scrub(
-          label.replace(HOLD, (_, n) => held[Number(n)]),
-        ).trim()
-        const url = words ? linkTarget(target, context) : null
-        return hold(url ? `[${words}](${url})` : words)
-      },
-    )
-    .replace(/\[([^\]]+)\]\[[^\]]*\]/g, (_, label) =>
-      hold(scrub(label.replace(HOLD, (_, n) => held[Number(n)]))),
-    )
+    .replace(/\[([^\]]*)\]\[[^\]]*\]/g, (_, text) => label(text))
   text = scrub(text)
     .replace(/(\S)[ \t]{2,}(?=\S)/g, "$1 ")
     .trimEnd()
@@ -182,26 +164,39 @@ function readBlocks(text) {
       i < lines.length &&
       lines[i].trim() !== "" &&
       (prose.length === 0 || !startsBlock(lines[i]))
-    )
+    ) {
+      // A paragraph with a `===` or `---` line under it is a setext heading.
+      const setext = SETEXT.exec(lines[i])?.[1]
+      if (prose.length && setext && !NOT_HEADING.test(prose[0])) {
+        i++
+        out.push({
+          type: "heading",
+          level: setext[0] === "=" ? 1 : 2,
+          text: prose.map((l) => l.trim()).join(" "),
+        })
+        prose.length = 0
+        break
+      }
       prose.push(lines[i++])
-    out.push({ type: "text", lines: prose })
+    }
+    if (prose.length) out.push({ type: "text", lines: prose })
   }
   return out
 }
 
 /** The blocks with their text cleaned; a block with no words left goes. */
-function cleanBlocks(blocks, context) {
+function cleanBlocks(blocks) {
   const words = (text) => /[\p{L}\p{N}]/u.test(text)
   const out = []
   for (const block of blocks) {
     if (block.type === "code") out.push(block)
     else if (block.type === "heading") {
-      const text = cleanLine(block.text, context).trim()
+      const text = cleanLine(block.text).trim()
       if (words(text)) out.push({ ...block, text })
     } else {
       const lines = block.lines
         .filter((line) => !REFERENCE.test(line))
-        .map((line) => cleanLine(line, context))
+        .map(cleanLine)
         .filter((line) => line.trim() !== "")
       if (lines.some(words)) out.push({ type: "text", lines })
     }
@@ -209,14 +204,18 @@ function cleanBlocks(blocks, context) {
   return out
 }
 
-/** Markdown of the quote: prose and headings in block quotes, code as it is. */
-function render(blocks) {
+/**
+ * Markdown of the quote: prose and headings in block quotes, code as it is.
+ * A `Source:` line follows each block quote and each fenced block, so that
+ * the validator finds the source of each quoted text (ADR-052 section 5).
+ */
+function render(blocks, readmePath) {
   const parts = []
   let quote = null
   for (const block of blocks) {
     if (block.type === "code") {
       quote = null
-      parts.push(block.lines.join("\n"))
+      parts.push(block.lines)
       continue
     }
     const lines =
@@ -231,24 +230,45 @@ function render(blocks) {
     }
   }
   return parts
-    .map((part) => (Array.isArray(part) ? part.join("\n") : part))
+    .map((part) => `${part.join("\n")}\n\nSource: \`${readmePath}\``)
     .join("\n\n")
 }
 
-/** One paragraph as plain text for the summary, or null. */
+/** A heading that the validator refuses, also with its emphasis marks removed. */
+const deniedHeading = (text) =>
+  [text, text.replace(/[*_~`]/g, "")].some((t) =>
+    DENIED_HEADINGS.some((pattern) => pattern.test(t)),
+  )
+
+/**
+ * The longest start of a text block that ends at a sentence and for which
+ * `fits` is true, or null.
+ */
+function cutAtSentence(block, fits) {
+  const text = block.lines.join("\n")
+  const ends = [...text.matchAll(/[.!?](?=\s)/g)].map((m) => m.index + 1)
+  for (const end of ends.reverse()) {
+    const cut = { type: "text", lines: text.slice(0, end).split("\n") }
+    if (fits(cut)) return cut
+  }
+  return null
+}
+
+/**
+ * One paragraph as plain text for the summary, or null. A paragraph that
+ * the validator reads as an instruction gives null: the validator scans the
+ * front matter with no quote rule.
+ */
 function summaryOf(blocks) {
   const prose = blocks.find(
     (block) =>
       block.type === "text" &&
-      !/^\s*(?:[-*+]|\d+[.)]|\||>)\s?/.test(block.lines[0]) &&
+      !NOT_HEADING.test(block.lines[0]) &&
       !/^( {4}|\t)/.test(block.lines[0]),
   )
   if (!prose) return null
-  const text = prose.lines
-    .join(" ")
-    .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
-    .replace(/\s+/g, " ")
-    .trim()
+  const text = prose.lines.join(" ").replace(/\s+/g, " ").trim()
+  if (INJECTION_PHRASES.some((pattern) => pattern.test(text))) return null
   if (text.length <= MAX_SUMMARY) return text
   const head = text.slice(0, MAX_SUMMARY)
   const sentence = head.lastIndexOf(". ")
@@ -259,23 +279,34 @@ function summaryOf(blocks) {
 
 /**
  * The quote and the summary of one README, or null when no text is left.
- * `readmePath` is the path of the README in the source repository, and
- * `sourceUrl` the URL of the source repository.
+ * `readmePath` is the path of the README in the source repository: the
+ * quote gives it in its `Source:` lines.
  */
-export function readmeOverview(raw, { readmePath, sourceUrl }) {
+export function readmeOverview(raw, readmePath) {
   let text = raw.replace(/\r\n?/g, "\n").replace(UNSAFE, "")
   const front = /^---\n[\s\S]{0,4096}?\n---(?:\n|$)/.exec(text)
   if (front) text = text.slice(front[0].length)
-  const context = { readmePath, sourceUrl }
-  const blocks = cleanBlocks(readBlocks(text), context)
+  const blocks = cleanBlocks(readBlocks(text))
   if (blocks[0]?.type === "heading" && blocks[0].level === 1) blocks.shift()
   const kept = []
+  const fits = (block) =>
+    render([...kept, block], readmePath).length <= MAX_QUOTE
   for (const block of blocks) {
-    if (block.type === "heading" && AGENT_HEADING.test(block.text)) break
-    if (render([...kept, block]).length > MAX_QUOTE) break
-    kept.push(block)
+    if (block.type === "heading" && deniedHeading(block.text)) break
+    if (fits(block)) {
+      kept.push(block)
+      continue
+    }
+    // A long first paragraph stops at a sentence, so that the README gives
+    // a quote.
+    const cut =
+      block.type === "text" && !kept.some((b) => b.type === "text")
+        ? cutAtSentence(block, fits)
+        : null
+    if (cut) kept.push(cut)
+    break
   }
   while (kept.at(-1)?.type === "heading") kept.pop()
   if (!kept.length) return null
-  return { quote: render(kept), summary: summaryOf(kept) }
+  return { quote: render(kept, readmePath), summary: summaryOf(kept) }
 }

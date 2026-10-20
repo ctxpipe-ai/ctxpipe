@@ -13,7 +13,7 @@
         "required": ["op", "path"],
         "properties": {
           "op": {
-            "enum": ["create", "update", "delete"]
+            "const": "update"
           },
           "path": {
             "type": "string"

@@ -173,10 +173,27 @@ function sourceFile(step, path, sourcePath) {
   return { path, kind: frontValue(yaml, "kind") }
 }
 
+/** The front matter of a text: { yaml, length } with the length of the block and its fences, or null. */
+export function frontBlock(text) {
+  const match = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
+  return match ? { yaml: match[1], length: match[0].length } : null
+}
+
 export function frontMatter(text) {
-  return (
-    /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
-  )
+  return frontBlock(text)?.yaml ?? null
+}
+
+/** The summaries that `classify-kind` and `repository` write for a new file. */
+const STUB_SUMMARIES = {
+  App: (repository) => `An app in the ${repository} repository.`,
+  Library: (repository) => `A library in the ${repository} repository.`,
+  Service: (repository) => `A service in the ${repository} repository.`,
+  Repository: (repository) => `The source repository ${repository}.`,
+}
+
+/** The stub summary of a new file of `kind` (App, Library, Service, or Repository). */
+export function stubSummary(kind, repository) {
+  return STUB_SUMMARIES[kind]?.(repository) ?? null
 }
 
 const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
@@ -347,20 +364,21 @@ function stripYamlComment(text) {
 
 /**
  * A character that JS trims as space or treats as a line end, but YAML does
- * not: the script refuses it in a claim target, so it never decodes a value
+ * not: the script refuses it in a scalar, so it never decodes a value
  * shorter or longer than the validator does.
  */
-const UNSAFE_TARGET_CHAR =
+const UNSAFE_SCALAR_CHAR =
   /[\p{Cc}\u00a0\u1680\u2000-\u200b\u2028\u2029\u202f\u205f\u3000\ufeff]/u
 
 /**
- * The value of a YAML `to:` scalar on one line: double quoted, single quoted,
- * or plain. Null for any value that this function cannot decode in full (a
- * block scalar, a flow value, an anchor, a tag, an unknown escape, a quote
- * that does not close on the line, a space or line-end character that YAML
- * does not treat as JS does). A caller never treats null as a match.
+ * The value of a YAML scalar on one line (a claim `to:`, a `summary:`):
+ * double quoted, single quoted, or plain, with a comment removed. Null for
+ * any value that this function cannot decode in full (a block scalar, a flow
+ * value, an anchor, a tag, an unknown escape, a quote that does not close on
+ * the line, a space or line-end character that YAML does not treat as JS
+ * does). A caller never treats null as a match.
  */
-function claimTarget(raw) {
+export function yamlScalar(raw) {
   // Only an ASCII space or tab is YAML white space.
   const text = trimYamlWhitespace(raw)
   let value = null
@@ -374,7 +392,7 @@ function claimTarget(raw) {
     const plain = trimYamlWhitespace(stripYamlComment(text))
     value = plain.includes(": ") || plain.endsWith(":") ? null : plain
   }
-  return value === null || UNSAFE_TARGET_CHAR.test(value) ? null : value
+  return value === null || UNSAFE_SCALAR_CHAR.test(value) ? null : value
 }
 
 /** A value that is a flow collection other than an empty one, or a quote that does not close on its line. */
@@ -467,7 +485,7 @@ export function existingClaims(yaml) {
       return true
     }
     if (item[key] !== undefined) return false
-    const parsed = key === "to" ? claimTarget(value) : claimPredicate(value)
+    const parsed = key === "to" ? yamlScalar(value) : claimPredicate(value)
     if (parsed === null) return false
     // A deeper next line continues the value: a folded scalar.
     if (next && next.indent > keyColumn) return false

@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 // readmes: a repository-wide step on the assembled ref, after the other
-// steps. For each root with a README, it quotes the opening text of the
+// steps. For each root with a README, it quotes the first text of the
 // README into an `## Overview` section of the root's package file, and it
 // replaces the stub summary of that file. The README at the top of the
 // repository goes to the repository unit when no root is the repository top.
@@ -12,46 +12,45 @@
 // node readmes.mjs --root /ctxpipe --source /ctxpipe/source/<handle> \
 //   --source-url <url> --source-path <path> --roots <root-to-file map>
 
-import { execFileSync } from "node:child_process"
 import { posix } from "node:path"
 import {
   baseText,
+  frontBlock,
   frontList,
   frontMatter,
   frontValue,
   scriptStep,
+  stubSummary,
   writeEdits,
+  yamlScalar,
 } from "../../bin/knowledge-lib.mjs"
 import {
+  isReadme,
   readTracked,
   safePath,
-  trackedFiles,
+  trackedSizes,
 } from "../../discover-roots/scripts/roots-lib.mjs"
 import { readmeOverview } from "./readme-quote.mjs"
 
 const PACKAGE_KINDS = new Set(["Service", "App", "Library"])
-const README = /^readme(?:\.(?:md|markdown))?$/i
-/** The summaries that classify-kind and repository write. */
-const STUB =
-  /^(?:(?:A service|An app|A library) in the \S+ repository|The source repository \S+)\.$/
 const OVERVIEW = /^##[ \t]+overview[ \t#]*$/i
 const SOURCE_LINE = /^Source: `([^`\s]+)`$/
 const FENCE = /^ {0,3}(`{3,}|~{3,})/
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"
 const HUMAN_CLOSE = "<!-- /ctxpipe:human -->"
 
-const { step, source, sourceUrl, sourcePath, roots, index, skipped } =
+const { step, source, sourcePath, repository, roots, index, skipped } =
   scriptStep()
 
-// The README of each folder: README.md first, then other names in order.
+// The README of each folder, from the tracked regular files: README.md
+// first, then the first other name in path order.
 const readmes = new Map()
-const rank = (path) => [posix.basename(path) === "README.md" ? 0 : 1, path]
-for (const path of trackedFiles(source)) {
-  if (!README.test(posix.basename(path))) continue
+for (const { path } of trackedSizes(source)) {
+  if (!isReadme(path)) continue
   const dir = posix.dirname(path)
   const known = readmes.get(dir)
-  const [a, b] = [rank(path), known ? rank(known) : null]
-  if (!b || a[0] < b[0] || (a[0] === b[0] && a[1] < b[1]))
+  const better = posix.basename(path) === "README.md" || path < known
+  if (!known || (posix.basename(known) !== "README.md" && better))
     readmes.set(dir, path)
 }
 
@@ -64,48 +63,25 @@ const indexed = index
   )
   .sort((a, b) => (a.path < b.path ? -1 : 1))
 
-// A root whose steps changed nothing in this run has no file in the map:
-// the host `root` of a package file of this source finds it.
-let byRoot = null
-function packageFileAt(root) {
-  if (!byRoot) {
-    byRoot = new Map()
-    for (const entry of indexed.filter((e) => PACKAGE_KINDS.has(e.kind))) {
-      const yaml = frontMatter(baseText(step, entry.path) ?? "")
-      const at = yaml && frontValue(yaml, "root")
-      if (at && !byRoot.has(at)) byRoot.set(at, entry.path)
-    }
-  }
-  return byRoot.get(root) ?? null
+// The package file of each root: the file of this source whose host `root`
+// is the root. A root whose steps changed nothing in this run still has it.
+const byRoot = new Map()
+for (const entry of indexed.filter((e) => PACKAGE_KINDS.has(e.kind))) {
+  const yaml = frontMatter(baseText(step, entry.path) ?? "")
+  const at = yaml && frontValue(yaml, "root")
+  if (at && !byRoot.has(at)) byRoot.set(at, entry.path)
 }
 
 const targets = new Map()
 for (const root of roots) {
   const readme = readmes.get(root.path)
-  if (!readme) continue
-  const target =
-    root.files.find((f) => PACKAGE_KINDS.has(f.kind))?.path ??
-    packageFileAt(root.path)
-  if (target && !targets.has(target)) targets.set(target, readme)
+  const target = byRoot.get(root.path)
+  if (readme && target && !targets.has(target)) targets.set(target, readme)
 }
 const top = readmes.get(".")
 const unit = indexed.find((e) => e.kind === "Repository")?.path
 if (top && unit && !roots.some((r) => r.path === ".") && !targets.has(unit))
   targets.set(unit, top)
-
-// Only a regular file is read: a symbolic link has the target as its text.
-const regular = new Set()
-if (targets.size)
-  for (const entry of execFileSync(
-    "git",
-    ["-C", source, "ls-files", "-s", "-z", "--", ...new Set(targets.values())],
-    { maxBuffer: 16 * 1024 * 1024 },
-  )
-    .toString("utf8")
-    .split("\0")) {
-    const [meta, path] = entry.split("\t")
-    if (path && /^100(?:644|755) /.test(meta)) regular.add(path)
-  }
 
 /**
  * The structure of a body: each heading of level 1 or 2 and each start of a
@@ -153,21 +129,6 @@ function overviewSection(marks, length) {
   return { start: marks[at].at, end: marks[at + 1]?.at ?? length }
 }
 
-/** A YAML scalar on one line, decoded; null when the script cannot read it. */
-function scalar(raw) {
-  const text = raw.trim()
-  if (text.startsWith('"')) {
-    try {
-      return JSON.parse(text)
-    } catch {
-      return null
-    }
-  }
-  if (text.startsWith("'"))
-    return /^'((?:[^']|'')*)'$/.exec(text)?.[1].replaceAll("''", "'") ?? null
-  return /^[|>]/.test(text) ? null : text
-}
-
 /** Front matter with a new summary, or null when its form is not one line. */
 function withSummary(yaml, summary) {
   const lines = yaml.replace(/\n$/, "").split("\n")
@@ -182,9 +143,9 @@ function withSummary(yaml, summary) {
 
 function edit(before, readme) {
   if (before === null) return { skip: "The file is not in the context" }
-  const front = /^---[ \t]*\n((?:.*\n)*?)---[ \t]*(?:\n|$)/.exec(before)
+  const front = frontBlock(before)
   if (!front) return { skip: "The file has no front matter" }
-  let yaml = front[1]
+  let yaml = front.yaml
   const sources = frontList(yaml, "sources")
   if (
     frontValue(yaml, "generated_by") !== "ctxpipe-extract" ||
@@ -192,21 +153,18 @@ function edit(before, readme) {
     sources[0] !== sourcePath
   )
     return { skip: "The source does not own the file alone" }
-  if (!regular.has(readme) || !safePath(readme) || /[\s`]/.test(readme))
-    return { skip: "The README is not a regular file with a safe path" }
-  const overview = readmeOverview(readTracked(source, readme), {
-    readmePath: readme,
-    sourceUrl,
-  })
+  if (!safePath(readme) || /[\s`]/.test(readme))
+    return {
+      skip: "The README path has characters that the script does not quote",
+    }
+  const overview = readmeOverview(readTracked(source, readme), readme)
   if (!overview) return { skip: "The README has no text that the skill quotes" }
 
-  const lines = before.slice(front[0].length).split("\n")
+  const lines = before.slice(front.length).split("\n")
   const marks = outline(lines)
   const section = overviewSection(marks, lines.length)
   const old = section ? lines.slice(section.start, section.end) : []
-  const ours = old.some((l) =>
-    README.test(posix.basename(SOURCE_LINE.exec(l)?.[1] ?? "")),
-  )
+  const ours = old.some((l) => isReadme(SOURCE_LINE.exec(l)?.[1] ?? ""))
   if (section && !ours)
     return {
       skip: "The file has an Overview section that the skill did not write",
@@ -216,16 +174,18 @@ function edit(before, readme) {
   const end = section?.end ?? start
   const head = lines.slice(0, start).join("\n").trimEnd()
   const tail = lines.slice(end).join("\n").replace(/^\n+/, "")
-  const block = `## Overview\n\n${overview.quote}\n\nSource: \`${readme}\`\n`
+  const block = `## Overview\n\n${overview.quote}\n`
   const body = `${head ? `${head}\n\n` : ""}${block}${tail ? `\n${tail}` : ""}`
 
+  // Replace a summary only when it is absent, when it is the stub, or when
+  // the skill wrote it. A summary that the script cannot read stays.
   const summaryLine = yaml.split("\n").find((l) => l.startsWith("summary:"))
-  const summary = summaryLine ? scalar(summaryLine.slice(8)) : null
-  if (
-    overview.summary &&
-    summary !== overview.summary &&
-    (summary === null || STUB.test(summary) || ours)
-  )
+  const summary = summaryLine ? yamlScalar(summaryLine.slice(8)) : null
+  const replaceable =
+    summaryLine === undefined ||
+    (summary !== null &&
+      (summary === stubSummary(frontValue(yaml, "kind"), repository) || ours))
+  if (overview.summary && summary !== overview.summary && replaceable)
     yaml = withSummary(yaml, overview.summary) ?? yaml
   return `---\n${yaml}---\n${body}`
 }

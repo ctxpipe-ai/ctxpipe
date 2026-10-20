@@ -14,11 +14,14 @@
 // The source repository is hostile: the script lists tracked regular files
 // only, skips symbolic links and unsafe paths, and never reads a file.
 
-import { execFileSync } from "node:child_process"
 import { readFileSync } from "node:fs"
 import { posix } from "node:path"
 import { pathToFileURL } from "node:url"
-import { safePath } from "../../discover-roots/scripts/roots-lib.mjs"
+import {
+  isReadme,
+  safePath,
+  trackedSizes,
+} from "../../discover-roots/scripts/roots-lib.mjs"
 
 const MAX_DOCUMENTS = 150
 const READ_LIMIT = 64 * 1024
@@ -85,27 +88,8 @@ export function documentClass(path, readmeFolders) {
     return "adr"
   if (/lessons[-_ ]?learned/i.test(name) && /\.md$/i.test(name))
     return "lessons"
-  if (/^readme\.md$/i.test(name) && readmeFolders.has(posix.dirname(path)))
-    return "readme"
+  if (isReadme(path) && readmeFolders.has(posix.dirname(path))) return "readme"
   return null
-}
-
-/** Tracked regular files with sizes: [{ path, bytes }]. */
-function trackedSizes(source) {
-  const out = execFileSync(
-    "git",
-    ["-C", source, "ls-tree", "-r", "-l", "-z", "HEAD"],
-    { maxBuffer: 256 * 1024 * 1024 },
-  ).toString("utf8")
-  const files = []
-  for (const record of out.split("\0")) {
-    if (!record) continue
-    const tab = record.indexOf("\t")
-    const [mode, type, , size] = record.slice(0, tab).trim().split(/\s+/)
-    if (type === "blob" && mode !== "120000")
-      files.push({ path: record.slice(tab + 1), bytes: Number(size) || 0 })
-  }
-  return files
 }
 
 /**
