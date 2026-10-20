@@ -216,9 +216,12 @@ function nativeSocket(
     },
     readyState: 1,
     send(data: string) {
-      const frame = JSON.parse(data) as StreamChunk | { chunk: StreamChunk }
-      if ("type" in frame && frame.type === "ping") return
-      const chunk = "chunk" in frame ? frame.chunk : frame
+      const frame = JSON.parse(data) as
+        | StreamChunk
+        | { chunk: StreamChunk }
+        | { type: "ping" }
+      if (!("chunk" in frame) && frame.type === "ping") return
+      const chunk = "chunk" in frame ? frame.chunk : (frame as StreamChunk)
       chunks.push(chunk)
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") end()
     },
