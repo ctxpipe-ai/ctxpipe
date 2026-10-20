@@ -1,12 +1,27 @@
 import type { WorkspaceSkippedFile } from "./types"
 
 /** Why hydrate skipped a file, in plain words. */
-export const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> =
-  {
-    malformed: "Front matter is not valid",
-    duplicate_repository:
-      "Repeats a linked repository or the Workspace's own repository",
-  }
+const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
+  malformed: "Front matter is not valid",
+  duplicate_repository:
+    "Repeats a linked repository or the Workspace's own repository",
+}
+
+/**
+ * Why hydrate skipped one file, with its cause. A legacy overlay file is not
+ * in Git: ctx| builds it from its database, so no edit of the Workspace
+ * repository fixes it.
+ */
+export function skippedFileCopy(file: WorkspaceSkippedFile): string {
+  return file.source === "legacy-overlay"
+    ? "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here."
+    : skippedReasonCopy[file.reason]
+}
+
+/** Only front matter in a file of Git is for the agent to fix. */
+export function skippedFileFixable(file: WorkspaceSkippedFile): boolean {
+  return file.reason === "malformed" && file.source !== "legacy-overlay"
+}
 
 /**
  * The chat prompt that asks the agent to fix skipped files. Only front
@@ -17,9 +32,9 @@ export function skippedFilesFixPrompt(
 ): string {
   const [only] = files
   if (only && files.length === 1)
-    return `Hydrate skipped ${only.path}: ${skippedReasonCopy[only.reason]}. Fix the front matter of this file so that it is valid, then open the change.`
+    return `Hydrate skipped ${only.path}: ${skippedFileCopy(only)}. Fix the front matter of this file so that it is valid, then open the change.`
   const list = files
-    .map((file) => `${file.path} (${skippedReasonCopy[file.reason]})`)
+    .map((file) => `${file.path} (${skippedFileCopy(file)})`)
     .join(", ")
   return `Hydrate skipped these files: ${list}. Fix the front matter of each file so that it is valid, then open the change.`
 }

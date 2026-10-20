@@ -28,7 +28,11 @@ import {
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import { StatusTag } from "./StatusTag"
-import { skippedFilesFixPrompt, skippedReasonCopy } from "./skipped-files"
+import {
+  skippedFileCopy,
+  skippedFileFixable,
+  skippedFilesFixPrompt,
+} from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
@@ -155,8 +159,10 @@ function SkippedFilesNotice(props: {
         title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
       >
         <p>
-          Chat, MCP, search, and the graph do not use these files. Fix each file
-          and push the change to the default branch.
+          Chat, MCP, search, and the graph do not use these files.
+          {props.files.some((file) => file.source !== "legacy-overlay")
+            ? " Fix each file that is in Git and push the change to the default branch."
+            : ""}
         </p>
         <ul className="mt-3 flex flex-col gap-2">
           {props.files.map((file) => (
@@ -165,21 +171,28 @@ function SkippedFilesNotice(props: {
               className="flex min-w-0 items-center justify-between gap-3"
             >
               <div className="min-w-0">
-                <Link
-                  onPress={() => props.onOpenFile(file.path)}
-                  className={cn(
-                    "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
-                    focusVisibleClassName,
-                  )}
-                >
-                  {file.path}
-                </Link>
+                {/* A legacy overlay path is not in Git, so the Files pane cannot open it. */}
+                {file.source === "legacy-overlay" ? (
+                  <span className="block truncate font-mono text-xs text-amber-50">
+                    {file.path}
+                  </span>
+                ) : (
+                  <Link
+                    onPress={() => props.onOpenFile(file.path)}
+                    className={cn(
+                      "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
+                      focusVisibleClassName,
+                    )}
+                  >
+                    {file.path}
+                  </Link>
+                )}
                 <p className="text-xs text-amber-100/70">
-                  {skippedReasonCopy[file.reason]}
+                  {skippedFileCopy(file)}
                 </p>
               </div>
-              {/* Only front matter is for the agent to fix. */}
-              {onFixWithAgent && file.reason === "malformed" ? (
+              {/* Only front matter in a file of Git is for the agent to fix. */}
+              {onFixWithAgent && skippedFileFixable(file) ? (
                 <Button
                   variant="secondary"
                   className="shrink-0"

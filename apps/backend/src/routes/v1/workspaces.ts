@@ -57,6 +57,10 @@ const WorkspaceSkippedFileSchema = z
       description:
         "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked.",
     }),
+    source: z.literal("legacy-overlay").optional().openapi({
+      description:
+        "`legacy-overlay`: the file is not in Git. ctx| builds it from its database for knowledge from before Workspaces, so an edit of the Workspace repository cannot fix it.",
+    }),
   })
   .openapi("WorkspaceSkippedFile")
 

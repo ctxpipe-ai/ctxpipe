@@ -1,6 +1,7 @@
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { sourceRepositoryName } from "../workspace-sources/providers/git.js"
 import { assignImportedRepository } from "./dest-workspace-first.js"
+import type { HydrateSkip } from "./hydrate.js"
 import { linkedRepositoryUrlSchema } from "./linked-repository-url.js"
 import {
   type ExportClaimRow,
@@ -31,6 +32,21 @@ export function legacyKnowledgeOverlayScope(
 ): "all" | "sources" | null {
   if (format < 0 || format > CODE_FORMAT) return null
   return format < INGESTION_V2_PUBLISH_FORMAT ? "all" : "sources"
+}
+
+/**
+ * Marks each skip of an overlay file. That file is not in Git, so an edit of
+ * the Workspace repository cannot fix it, and the UI says so.
+ */
+export function markLegacyOverlaySkips(
+  skipped: readonly HydrateSkip[],
+  legacyPaths: ReadonlySet<string>,
+): HydrateSkip[] {
+  return skipped.map((skip) =>
+    legacyPaths.has(skip.path)
+      ? { ...skip, source: "legacy-overlay" as const }
+      : skip,
+  )
 }
 
 export async function legacyKnowledgeOverlay(input: {

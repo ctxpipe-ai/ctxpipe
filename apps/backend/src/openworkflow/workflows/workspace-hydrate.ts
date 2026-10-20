@@ -25,6 +25,7 @@ import { planHydrateWrites } from "../../domain/workspaces/hydrate-write-planner
 import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
+  markLegacyOverlaySkips,
 } from "../../domain/workspaces/legacy-knowledge-overlay.js"
 import { upgradeLinkedRepositories } from "../../domain/workspaces/migration-export.js"
 import { nativeRenameRewriteFiles } from "../../domain/workspaces/native-rename-rewrite.js"
@@ -526,7 +527,7 @@ export function defineWorkspaceHydrateWorkflow() {
                 })
               : []
           const legacyPaths = new Set(legacyFiles.map((file) => file.path))
-          const parsed = pending.postgres
+          const hydrated = pending.postgres
             ? hydrateKnowledgeTree({
                 workspaceId: workspace.id,
                 workspaceUrl: revision.remote.url,
@@ -538,6 +539,10 @@ export function defineWorkspaceHydrateWorkflow() {
                 confluenceSiteHosts: new Set(confluenceSiteHosts),
               })
             : { units: snapshot.units, linked: [], skipped: [] }
+          const parsed = {
+            ...hydrated,
+            skipped: markLegacyOverlaySkips(hydrated.skipped, legacyPaths),
+          }
           if (legacyPaths.size)
             for (const unit of parsed.units)
               if (legacyPaths.has(unit.path)) unit.source = LEGACY_UNIT_SOURCE

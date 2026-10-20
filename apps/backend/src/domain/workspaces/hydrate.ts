@@ -79,6 +79,11 @@ export const HYDRATE_SKIP_REASONS = [
 export type HydrateSkip = {
   path: string
   reason: (typeof HYDRATE_SKIP_REASONS)[number]
+  /**
+   * `legacy-overlay`: the file is not in Git. It is a read-only file that
+   * hydrate builds from the database for knowledge from before Workspaces.
+   */
+  source?: "legacy-overlay"
 }
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g

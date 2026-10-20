@@ -13,8 +13,9 @@ import {
 } from "@/features/workspace-upgrades/queries"
 import { upgradeStartedMessage } from "@/features/workspace-upgrades/upgrade-copy"
 import {
+  skippedFileCopy,
+  skippedFileFixable,
   skippedFilesFixPrompt,
-  skippedReasonCopy,
 } from "@/features/workspaces/skipped-files"
 import type {
   Workspace,
@@ -148,7 +149,10 @@ function HydrateProblemToast(props: {
   const [first] = skippedFiles
   const count = skippedFiles.length
   const more = count - 1
-  const fixable = skippedFiles.filter((file) => file.reason === "malformed")
+  const fixable = skippedFiles.filter(skippedFileFixable)
+  // Hydrate lists files of Git first, so the first skip can hide the cause of
+  // a legacy overlay file. Name that cause too.
+  const overlay = skippedFiles.find((file) => file.source === "legacy-overlay")
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconAlertTriangle
@@ -164,12 +168,18 @@ function HydrateProblemToast(props: {
         {first ? (
           <p className="text-xs text-muted-foreground">
             <span className="font-mono break-all">{first.path}</span>:{" "}
-            {skippedReasonCopy[first.reason]}
+            {skippedFileCopy(first)}
             {more > 0
               ? `, and ${more} more ${more === 1 ? "file" : "files"}`
               : ""}
             . Chat, MCP, search, and the graph do not use{" "}
             {count === 1 ? "it" : "them"}.
+          </p>
+        ) : null}
+        {overlay && overlay !== first ? (
+          <p className="text-xs text-muted-foreground">
+            <span className="font-mono break-all">{overlay.path}</span>:{" "}
+            {skippedFileCopy(overlay)}
           </p>
         ) : null}
       </div>
