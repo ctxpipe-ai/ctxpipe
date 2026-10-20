@@ -4,14 +4,7 @@ import {
   type WorkspaceUpgradeItem,
 } from "@/features/workspace-upgrades/queries"
 import { upgradeCanStart } from "@/features/workspace-upgrades/upgrade-copy"
-import {
-  workspaceDetailOptions,
-  workspaceGitTreeOptions,
-} from "@/features/workspaces/queries"
-import {
-  skippedFilesInTree,
-  workspaceTreeSha,
-} from "@/features/workspaces/skipped-files"
+import { workspaceDetailOptions } from "@/features/workspaces/queries"
 import type {
   Workspace,
   WorkspaceSkippedFile,
@@ -20,12 +13,7 @@ import { upgradeDismissKey, useUserPreferences } from "@/lib/user-preferences"
 
 type HomeNotice = { dismissKey: string; workspace: Workspace } & (
   | { kind: "upgrade"; item: WorkspaceUpgradeItem }
-  | {
-      kind: "problem"
-      skippedFiles: WorkspaceSkippedFile[]
-      /** The paths that the chat checkout holds and that the agent can fix. */
-      fixable: ReadonlySet<string>
-    }
+  | { kind: "problem"; skippedFiles: WorkspaceSkippedFile[] }
 )
 
 /**
@@ -43,34 +31,15 @@ export function useHomeNotices(orgSlug: string, workspaces: Workspace[]) {
       workspaceDetailOptions(orgSlug, workspace.slug),
     ),
   })
-  // A skipped file counts only when the current tree of the default branch
-  // holds it, so this reads that tree for each Workspace with skipped files.
-  const trees = useQueries({
-    queries: workspaces.map((workspace, index) => {
-      const detail = details[index]?.data
-      return {
-        ...workspaceGitTreeOptions(
-          orgSlug,
-          workspace.slug,
-          workspaceTreeSha(detail ?? workspace),
-        ),
-        enabled: (detail?.skippedFiles?.length ?? 0) > 0,
-      }
-    }),
-  })
   const [preferences, updatePreferences] = useUserPreferences()
   const problems: HomeNotice[] = workspaces.flatMap((workspace, index) => {
-    const { files: skippedFiles, fixable } = skippedFilesInTree(
-      details[index]?.data?.skippedFiles ?? [],
-      trees[index]?.data?.paths,
-    )
+    const skippedFiles = details[index]?.data?.skippedFiles ?? []
     if (skippedFiles.length === 0) return []
     return [
       {
         kind: "problem",
         workspace,
         skippedFiles,
-        fixable,
         dismissKey: [
           orgSlug,
           workspace.slug,

@@ -14,6 +14,7 @@ import type {
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
   WorkspaceGraphPayload,
+  WorkspaceSkippedFile,
 } from "./types"
 
 function activityDaysThrough(
@@ -204,9 +205,17 @@ export const emptyLinkedWorkspaceDetail: WorkspaceDetail = {
   linkedRepositories: [],
 }
 
+/** A read-only file that hydrate builds from the database, not from Git. */
+export const legacyOverlaySkippedFile: WorkspaceSkippedFile = {
+  path: "knowledge/apis/imported.md",
+  reason: "malformed",
+  source: "legacy-overlay",
+}
+
 export const skippedFilesWorkspaceDetail: WorkspaceDetail = {
   ...docsWorkspaceDetail,
   skippedFiles: [
+    legacyOverlaySkippedFile,
     { path: "knowledge/billing/tax.md", reason: "malformed" },
     { path: "repositories/app-copy.md", reason: "duplicate_repository" },
   ],
@@ -898,16 +907,6 @@ const docsKnowledgePaths = Object.keys(docsWorkspaceGitBlobs).filter((path) =>
 export const docsWorkspaceGitTree: WorkspaceGitTreeResponse = {
   sha: docsWorkspace.activeProjectionSha ?? "abc123def456",
   paths: Object.keys(docsWorkspaceGitBlobs).sort(),
-}
-
-/** The default branch tree that holds each file of `skippedFilesWorkspaceDetail`. */
-export const skippedFilesGitTree: WorkspaceGitTreeResponse = {
-  ...docsWorkspaceGitTree,
-  paths: [
-    ...docsWorkspaceGitTree.paths,
-    "knowledge/legal.md",
-    "repositories/app-copy.md",
-  ].sort(),
 }
 
 export const docsWorkspaceGitStatus: WorkspaceGitStatusResponse = {

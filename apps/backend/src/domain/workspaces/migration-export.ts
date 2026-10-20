@@ -261,9 +261,7 @@ function mergeExistingImportedMarkdown(
   },
   claimIdentity?: (claim: ImportedMarkdownClaim) => string,
 ): string {
-  const metadata = parseSimpleFrontMatter(
-    importedFrontMatter({ ...input, body: input.body ?? "" }),
-  ).attributes
+  const metadata = importedAttributes(input)
   const header = original.match(
     /^(\uFEFF?---[ \t]*\r?\n(?:[\s\S]*?\r?\n)?---[ \t]*)(?=\r?\n|$)/,
   )?.[0]
@@ -325,15 +323,18 @@ function mergeExistingImportedMarkdown(
   })
 }
 
-function importedFrontMatter(input: {
+type ImportedAttributesInput = {
   importKey?: string | null
   kind?: string | null
   confidence?: number | null
   generatedBy?: string | null
   source?: string | null
-  body: string
   claims?: ReadonlyArray<ImportedMarkdownClaim>
-}): string {
+}
+
+function importedAttributes(
+  input: ImportedAttributesInput,
+): Record<string, unknown> {
   const attributes: Record<string, unknown> = {}
   if (input.importKey) attributes.import_key = input.importKey
   if (input.kind) attributes.kind = input.kind
@@ -354,10 +355,26 @@ function importedFrontMatter(input: {
       ...(claim.source ? { source: claim.source } : {}),
     }))
   }
-  // The yaml library quotes every value that needs it, so the file always parses.
+  return attributes
+}
+
+function importedFrontMatter(
+  input: ImportedAttributesInput & { body: string },
+): string {
+  const attributes = importedAttributes(input)
+  // The yaml library quotes every value that needs it, so the file always
+  // parses. Quoted scalars (no block scalars) keep a trailing space and a
+  // whitespace-only line, which `parseSimpleFrontMatter` would trim.
   const header =
     Object.keys(attributes).length > 0
-      ? ["---", stringifyYaml(attributes, { lineWidth: 0 }).trimEnd(), "---"]
+      ? [
+          "---",
+          stringifyYaml(attributes, {
+            lineWidth: 0,
+            blockQuote: false,
+          }).trimEnd(),
+          "---",
+        ]
       : ["---", "---"]
   return [...header, "", input.body.trim(), ""].join("\n")
 }

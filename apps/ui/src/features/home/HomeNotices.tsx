@@ -13,8 +13,9 @@ import {
 } from "@/features/workspace-upgrades/queries"
 import { upgradeStartedMessage } from "@/features/workspace-upgrades/upgrade-copy"
 import {
+  skippedFileCopy,
+  skippedFileFixable,
   skippedFilesFixPrompt,
-  skippedReasonCopy,
 } from "@/features/workspaces/skipped-files"
 import type {
   Workspace,
@@ -140,8 +141,6 @@ function HydrateProblemToast(props: {
   orgSlug: string
   workspace: Pick<Workspace, "id" | "slug" | "displayName">
   skippedFiles: WorkspaceSkippedFile[]
-  /** The paths that the chat checkout holds and that the agent can fix. */
-  fixablePaths: ReadonlySet<string>
   onFixWithAgent: (workspaceId: string, prompt: string) => void
   onDismiss: () => void
 }) {
@@ -150,9 +149,7 @@ function HydrateProblemToast(props: {
   const [first] = skippedFiles
   const count = skippedFiles.length
   const more = count - 1
-  const fixable = skippedFiles.filter((file) =>
-    props.fixablePaths.has(file.path),
-  )
+  const fixable = skippedFiles.filter(skippedFileFixable)
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconAlertTriangle
@@ -168,7 +165,7 @@ function HydrateProblemToast(props: {
         {first ? (
           <p className="text-xs text-muted-foreground">
             <span className="font-mono break-all">{first.path}</span>:{" "}
-            {skippedReasonCopy[first.reason]}
+            {skippedFileCopy(first)}
             {more > 0
               ? `, and ${more} more ${more === 1 ? "file" : "files"}`
               : ""}
@@ -248,7 +245,6 @@ export function HomeNoticeToasts(props: {
             orgSlug={orgSlug}
             workspace={notice.workspace}
             skippedFiles={notice.skippedFiles}
-            fixablePaths={notice.fixable}
             onFixWithAgent={onFixWithAgent}
             onDismiss={onDismiss}
           />

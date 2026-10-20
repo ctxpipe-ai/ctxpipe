@@ -1,5 +1,5 @@
 import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
-import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQueryClient } from "@tanstack/react-query"
 import { useLocation, useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Heading, Link } from "react-aria-components"
@@ -24,18 +24,16 @@ import {
   deleteWorkspace,
   forgetDeletedWorkspace,
   updateWorkspace,
-  workspaceGitTreeOptions,
   workspaceKeys,
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import { StatusTag } from "./StatusTag"
 import {
+  skippedFileCopy,
+  skippedFileFixable,
   skippedFilesFixPrompt,
-  skippedFilesInTree,
-  skippedReasonCopy,
-  workspaceTreeSha,
 } from "./skipped-files"
-import type { WorkspaceDetail } from "./types"
+import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
@@ -148,27 +146,12 @@ function SettingsGroup(props: {
 }
 
 function SkippedFilesNotice(props: {
-  orgSlug: string
-  workspace: WorkspaceDetail
+  files: WorkspaceSkippedFile[]
   onOpenFile: (path: string) => void
   onFixWithAgent?: (prompt: string) => void
 }) {
-  const { onFixWithAgent, workspace } = props
-  // Only a file of the current tree of the default branch is in the chat
-  // checkout. A record from an older projection can name another file.
-  const tree = useQuery(
-    workspaceGitTreeOptions(
-      props.orgSlug,
-      workspace.slug,
-      workspaceTreeSha(workspace),
-    ),
-  )
-  const { files, fixable, checked } = skippedFilesInTree(
-    workspace.skippedFiles ?? [],
-    tree.data?.paths,
-  )
-  const count = files.length
-  if (count === 0) return null
+  const { onFixWithAgent } = props
+  const count = props.files.length
   return (
     <div className="mt-4 max-w-lg">
       <InlineAlert
@@ -176,11 +159,13 @@ function SkippedFilesNotice(props: {
         title={`Hydrate skipped ${count} ${count === 1 ? "file" : "files"}`}
       >
         <p>
-          Chat, MCP, search, and the graph do not use these files. Fix each file
-          and push the change to the default branch.
+          Chat, MCP, search, and the graph do not use these files.
+          {props.files.some((file) => file.source !== "legacy-overlay")
+            ? " Fix each file that is in Git and push the change to the default branch."
+            : ""}
         </p>
         <ul className="mt-3 flex flex-col gap-2">
-          {files.map((file) => (
+          {props.files.map((file) => (
             <li
               key={file.path}
               className="flex min-w-0 items-center justify-between gap-3"
@@ -196,17 +181,11 @@ function SkippedFilesNotice(props: {
                   {file.path}
                 </Link>
                 <p className="text-xs text-amber-100/70">
-                  {skippedReasonCopy[file.reason]}
+                  {skippedFileCopy(file)}
                 </p>
-                {checked ? null : (
-                  <p className="text-xs text-amber-100/70">
-                    ctx| cannot read the default branch to check this file yet.
-                    Open the file to see if it exists, or try again in a moment.
-                  </p>
-                )}
               </div>
-              {/* Only front matter is for the agent to fix. */}
-              {onFixWithAgent && fixable.has(file.path) ? (
+              {/* Only front matter in a file of Git is for the agent to fix. */}
+              {onFixWithAgent && skippedFileFixable(file) ? (
                 <Button
                   variant="secondary"
                   className="shrink-0"
@@ -411,8 +390,7 @@ export function WorkspaceSettingsPane(props: {
 
         {workspace.skippedFiles?.length ? (
           <SkippedFilesNotice
-            orgSlug={orgSlug}
-            workspace={workspace}
+            files={workspace.skippedFiles}
             onOpenFile={props.onOpenFile}
             {...(props.onFixWithAgent
               ? { onFixWithAgent: props.onFixWithAgent }

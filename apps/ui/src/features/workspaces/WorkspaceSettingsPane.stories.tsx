@@ -6,7 +6,6 @@ import {
   githubInstallationReposHandler,
   workspaceActivityHandler,
   workspaceDetailHandler,
-  workspaceGitTreeHandler,
   workspaceListHandler,
 } from "@/mocks/workspace-handlers"
 import {
@@ -33,7 +32,6 @@ import {
   projectionLagWorkspaceDetail,
   readOnlyWorkspaceDetail,
   rootFolderWorkspaceDetail,
-  skippedFilesGitTree,
   skippedFilesWorkspaceDetail,
 } from "./workspace-fixtures"
 
@@ -168,17 +166,20 @@ export const Populated: Story = {
   },
 }
 
+/**
+ * Hydrate lists every skipped file. A file that is only a legacy overlay
+ * (knowledge from before Workspaces, built from the database) shows its
+ * cause and no fix button, because no edit of the Workspace repository
+ * changes it.
+ */
 export const SkippedFiles: Story = {
   args: {
     workspace: skippedFilesWorkspaceDetail,
     onFixWithAgent: fn(),
   },
-  parameters: {
-    msw: { handlers: { tree: [workspaceGitTreeHandler(skippedFilesGitTree)] } },
-  },
   play: async ({ args, canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate skipped 2 files")
+    await canvas.findByText("Hydrate skipped 3 files")
     await canvas.findByText("Front matter is not valid")
     await canvas.findByText(
       "Repeats a linked repository or the Workspace's own repository",
@@ -186,83 +187,32 @@ export const SkippedFiles: Story = {
     expect(
       canvas.getByRole("link", { name: "knowledge/billing/tax.md" }),
     ).toBeVisible()
-    // Only the front matter file offers the agent.
+    // A legacy overlay file is not in Git: the row names the cause and has no fix.
+    await canvas.findByText(
+      "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here.",
+    )
+    expect(
+      canvas.getByRole("link", { name: "knowledge/apis/imported.md" }),
+    ).toBeVisible()
+    expect(
+      canvas.queryByRole("button", {
+        name: "Fix knowledge/apis/imported.md using agent",
+      }),
+    ).toBeNull()
+    // Only the front matter file of Git offers the agent.
     expect(
       canvas.queryByRole("button", {
         name: "Fix repositories/app-copy.md using agent",
       }),
     ).toBeNull()
-    // The agent button waits for the tree of the default branch.
     await userEvent.click(
-      await canvas.findByRole("button", {
+      canvas.getByRole("button", {
         name: "Fix knowledge/billing/tax.md using agent",
       }),
     )
     await expect(args.onFixWithAgent).toHaveBeenCalledWith(
       "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
     )
-  },
-}
-
-/**
- * A skipped file that the current tree of the default branch does not hold
- * is a stale record. The list leaves it out, so "Fix using agent" never
- * asks for a file that the chat checkout lacks.
- */
-export const SkippedFileNotInTree: Story = {
-  args: {
-    workspace: {
-      ...skippedFilesWorkspaceDetail,
-      skippedFiles: [
-        { path: "knowledge/apis/imported.md", reason: "malformed" },
-        { path: "knowledge/billing/tax.md", reason: "malformed" },
-      ],
-    },
-    onFixWithAgent: fn(),
-  },
-  parameters: {
-    msw: { handlers: { tree: [workspaceGitTreeHandler(skippedFilesGitTree)] } },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate skipped 1 file")
-    await canvas.findByRole("button", {
-      name: "Fix knowledge/billing/tax.md using agent",
-    })
-    expect(canvas.queryByText("knowledge/apis/imported.md")).toBeNull()
-    expect(
-      canvas.queryByRole("button", {
-        name: "Fix knowledge/apis/imported.md using agent",
-      }),
-    ).toBeNull()
-  },
-}
-
-/**
- * When the tree cannot be read, nothing says that the chat checkout holds the
- * file. The row says why there is no fix button and what to do next.
- */
-export const SkippedFilesTreeUnavailable: Story = {
-  args: {
-    workspace: skippedFilesWorkspaceDetail,
-    onFixWithAgent: fn(),
-  },
-  parameters: {
-    msw: {
-      handlers: {
-        tree: [
-          http.get(/\/api\/v1\/workspaces\/[^/]+\/files\/tree$/, () =>
-            HttpResponse.json({ error: "not indexed" }, { status: 409 }),
-          ),
-        ],
-      },
-    },
-  },
-  play: async ({ canvasElement }) => {
-    const canvas = within(canvasElement)
-    await canvas.findByText("Hydrate skipped 2 files")
-    await canvas.findAllByText(/cannot read the default branch to check/)
-    expect(canvas.queryByRole("button", { name: /using agent/ })).toBeNull()
   },
 }
 

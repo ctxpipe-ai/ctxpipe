@@ -1,32 +1,37 @@
 import { describe, expect, it } from "vitest"
-import { skippedFilesInTree } from "./skipped-files"
+import {
+  skippedFileCopy,
+  skippedFileFixable,
+  skippedFilesFixPrompt,
+} from "./skipped-files"
 
-const files = [
-  { path: "knowledge/apis/imported.md", reason: "malformed" as const },
-  { path: "knowledge/billing/tax.md", reason: "malformed" as const },
-  { path: "repositories/app.md", reason: "duplicate_repository" as const },
-]
+const legacy = {
+  path: "knowledge/apis/imported.md",
+  reason: "malformed" as const,
+  source: "legacy-overlay" as const,
+}
+const gitFile = {
+  path: "knowledge/billing/tax.md",
+  reason: "malformed" as const,
+}
 
-describe("skippedFilesInTree", () => {
-  it("keeps only files of the tree, and offers the agent for front matter only", () => {
-    const result = skippedFilesInTree(files, [
-      "knowledge/billing/tax.md",
-      "repositories/app.md",
-    ])
-    expect(result.files.map((file) => file.path)).toEqual([
-      "knowledge/billing/tax.md",
-      "repositories/app.md",
-    ])
-    expect([...result.fixable]).toEqual(["knowledge/billing/tax.md"])
-    expect(result.checked).toBe(true)
+describe("skipped files", () => {
+  it("names the cause of a legacy overlay file, and offers no fix for it", () => {
+    expect(skippedFileCopy(legacy)).toBe(
+      "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here.",
+    )
+    expect(skippedFileFixable(legacy)).toBe(false)
   })
 
-  it("lists every file with no fix when the tree is unknown", () => {
-    for (const tree of [undefined, []]) {
-      const result = skippedFilesInTree(files, tree)
-      expect(result.files).toEqual(files)
-      expect(result.fixable.size).toBe(0)
-      expect(result.checked).toBe(false)
-    }
+  it("offers the agent for the front matter of a file of Git only", () => {
+    expect(skippedFileCopy(gitFile)).toBe("Front matter is not valid")
+    expect(skippedFileFixable(gitFile)).toBe(true)
+    expect(
+      skippedFileFixable({
+        path: "repositories/app.md",
+        reason: "duplicate_repository",
+      }),
+    ).toBe(false)
+    expect(skippedFilesFixPrompt([gitFile])).toContain(gitFile.path)
   })
 })

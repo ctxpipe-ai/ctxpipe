@@ -1,8 +1,10 @@
 import { describe, expect, it } from "vitest"
+import { hydrateKnowledgeTree } from "./hydrate.js"
 import { parseSimpleFrontMatter } from "./layout.js"
 import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
+  markLegacyOverlaySkips,
 } from "./legacy-knowledge-overlay.js"
 import type { ExportObjectRow } from "./migration-export.js"
 
@@ -160,5 +162,32 @@ describe("legacyKnowledgeOverlay", () => {
     const parsed = parseSimpleFrontMatter(file?.content ?? "")
     expect(parsed.malformed).toBe(false)
     expect(parsed.attributes.import_key).toBe("api:repo_tools:v1:")
+  })
+
+  it("marks a skipped overlay file, and no skipped file of git", () => {
+    const overlayFile = {
+      path: "knowledge/apis/imported.md",
+      content: "---\nimport_key: [broken\n---\n\nBody\n",
+    }
+    const gitFile = {
+      path: "knowledge/billing/tax.md",
+      content: "---\nkind: [broken\n---\n\nBody\n",
+    }
+    const { skipped } = hydrateKnowledgeTree({
+      workspaceId: "ws_first",
+      files: [overlayFile, gitFile],
+    })
+    expect(skipped.map((skip) => skip.path).sort()).toEqual([
+      overlayFile.path,
+      gitFile.path,
+    ])
+    expect(
+      markLegacyOverlaySkips(skipped, new Set([overlayFile.path])).sort(
+        (a, b) => a.path.localeCompare(b.path),
+      ),
+    ).toEqual([
+      { path: overlayFile.path, reason: "malformed", source: "legacy-overlay" },
+      { path: gitFile.path, reason: "malformed" },
+    ])
   })
 })

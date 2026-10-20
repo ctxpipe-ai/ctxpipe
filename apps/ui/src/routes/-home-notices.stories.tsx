@@ -5,7 +5,7 @@ import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
-  skippedFilesGitTree,
+  legacyOverlaySkippedFile,
 } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -87,10 +87,7 @@ function homeHandlers(
               skippedFiles: skippedFiles[slug] ?? [],
             })
           }),
-          ...workspaceShellHandlers({
-            workspaces: [docsWorkspace, handbook],
-            gitTree: skippedFilesGitTree,
-          }),
+          ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
           pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
           ...workspaceUpgradeAutomaticHandlers({ requests }),
@@ -405,9 +402,8 @@ export const ProblemOnly: Story = {
       ).toBeVisible(),
     )
     expect(toastItems(canvasElement)).toHaveLength(1)
-    // The agent button waits for the tree of the default branch.
     await userEvent.click(
-      await within(region).findByRole("button", {
+      within(region).getByRole("button", {
         name: "Fix using agent: Handbook, skipped files",
       }),
     )
@@ -425,6 +421,73 @@ export const ProblemOnly: Story = {
     )
     // The problem stays until hydrate reads the file.
     expect(canvas.getByText("Handbook: hydrate skipped 1 file")).toBeVisible()
+  },
+}
+
+/**
+ * A skipped legacy overlay file is knowledge from the database, so no edit
+ * of the Workspace repository fixes it. The toast names that cause. The
+ * agent gets only the file of Git.
+ */
+export const ProblemLegacyOverlayAndFile: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [legacyOverlaySkippedFile, taxFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(
+        within(region).getByText("Handbook: hydrate skipped 2 files"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(
+          /Knowledge from before Workspaces\. ctx\| shows it from its database/,
+        ),
+      ).toBeVisible(),
+    )
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Fix using agent: Handbook, skipped files",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
+      ).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+  },
+}
+
+/** Only a legacy overlay file: no fix exists, so the toast opens settings. */
+export const ProblemLegacyOverlayOnly: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [legacyOverlaySkippedFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await within(region).findByText("Handbook: hydrate skipped 1 file")
+    expect(
+      within(region).queryByRole("button", { name: /Fix using agent/ }),
+    ).toBeNull()
+    expect(
+      within(region).getByRole("button", { name: "Open settings: Handbook" }),
+    ).toBeVisible()
   },
 }
 
