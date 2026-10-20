@@ -27,3 +27,21 @@ describe("upgrade polling", () => {
     expect(upgradePollInterval(undefined)).toBe(false)
   })
 })
+
+describe("upgrade polling after a format change (CTX-944)", () => {
+  const blockedForFormat = upgradeItemFixture({
+    kind: "reingest",
+    status: "blocked",
+    blockedReason: "needs_format",
+    targetFormat: 3,
+  })
+
+  it("polls every 3 s while the scan has not caught up with the new format", () => {
+    expect(upgradePollInterval([blockedForFormat], 3)).toBe(3_000)
+  })
+
+  it("does not poll a block that is current", () => {
+    expect(upgradePollInterval([blockedForFormat], 2)).toBe(false)
+    expect(upgradePollInterval([blockedForFormat])).toBe(false)
+  })
+})

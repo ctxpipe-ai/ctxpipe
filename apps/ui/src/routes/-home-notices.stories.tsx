@@ -143,9 +143,13 @@ export const SingleToast: Story = {
     )
     await waitFor(() =>
       expect(
-        within(region).getByText(/into \.ctxpipe\/sources\.yaml/),
+        within(region).getByText(
+          "ctx| opens a pull request for format 3. Nothing changes until you merge it.",
+        ),
       ).toBeVisible(),
     )
+    // One short line: the full description stays in Workspace settings.
+    expect(within(region).queryByText(/sources\.yaml/)).toBeNull()
     for (const name of ["Update once", "Always update", "Dismiss"])
       await waitFor(() =>
         expect(
@@ -159,6 +163,47 @@ export const SingleToast: Story = {
     // One read for the org, and no read for each Workspace.
     expect(answered).not.toHaveLength(0)
     expect(perWorkspaceReads).toEqual([])
+  },
+}
+
+/**
+ * CTX-939. The toast is a title and one short line, so it does not cover the
+ * composer. When the toast goes, it leaves no gap: the composer moves back up
+ * by the height of the toast.
+ */
+export const ToastTakesNoSpaceAfterItGoes: Story = {
+  parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    const composerTop = () =>
+      canvas
+        .getByRole("button", { name: "Select workspace" })
+        .getBoundingClientRect().top
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade available")).toBeVisible(),
+    )
+    const toast = region.getBoundingClientRect()
+    // The toast ends above the composer, and its text is short.
+    expect(toast.bottom).toBeLessThanOrEqual(composerTop())
+    expect(region.textContent?.split(/\s+/).length ?? 0).toBeLessThan(40)
+    const before = composerTop()
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Dismiss: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
+    )
+    // The view transition ends, and the layout holds no gap.
+    await waitFor(() =>
+      expect(composerTop()).toBeLessThanOrEqual(before - toast.height),
+    )
   },
 }
 
@@ -461,7 +506,9 @@ export const StackOfThree: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/publishes the new knowledge files/),
+        canvas.getByText(
+          "ctx| reads each source repository again. This uses model calls.",
+        ),
       ).toBeVisible(),
     )
     await waitFor(() =>

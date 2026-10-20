@@ -3,12 +3,13 @@ import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
   upgradeBlockedCopy,
-  upgradeBlockedNextStep,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeIsCheckingFormat,
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
+  upgradeStatusTag,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
 
@@ -91,6 +92,16 @@ describe("upgrade copy", () => {
     expect(blocked("reingest", "needs_format").title).toBe(
       "Apply the format upgrade first",
     )
+    // One action, also when the server note names two: the note is not used.
+    expect(
+      blocked(
+        "reingest",
+        "needs_format",
+        "Re-ingestion needs format 3. Merge the format upgrade first.",
+      ).body,
+    ).toBe(
+      "Re-ingestion needs format 3. Merge the format upgrade pull request, then press Check again.",
+    )
     expect(blocked("reingest", "sandbox_unavailable").body).toMatch(
       /no ingest sandbox/,
     )
@@ -136,9 +147,45 @@ describe("upgrade copy", () => {
       status: "blocked",
       blockedReason: "needs_format",
     } as WorkspaceUpgradeItem
-    expect(upgradeBlockedNextStep(blocked)).toMatch(/press Check again/)
     expect(upgradeCanCheck(blocked)).toBe(true)
     expect(upgradeCanCheck(item("pr_open"))).toBe(true)
     expect(upgradeCanCheck(item("awaiting_operator"))).toBe(false)
+  })
+})
+
+describe("a re-ingestion that waits for the scan after the format changed (CTX-944)", () => {
+  const blockedForFormat = {
+    kind: "reingest",
+    status: "blocked",
+    blockedReason: "needs_format",
+    targetFormat: 3,
+    waitingForSlot: null,
+  } as const
+
+  it("is checking when the Workspace has the format that the item needs", () => {
+    expect(upgradeIsCheckingFormat(blockedForFormat, 3)).toBe(true)
+    expect(upgradeIsCheckingFormat(blockedForFormat, 4)).toBe(true)
+    expect(upgradeStatusTag(blockedForFormat, 3).label).toBe(
+      "Checking the new format",
+    )
+  })
+
+  it("stays blocked while the format is lower, unread or not valid", () => {
+    expect(upgradeIsCheckingFormat(blockedForFormat, 2)).toBe(false)
+    expect(upgradeIsCheckingFormat(blockedForFormat, null)).toBe(false)
+    expect(upgradeIsCheckingFormat(blockedForFormat, -1)).toBe(false)
+    expect(upgradeStatusTag(blockedForFormat, 2).label).toBe("Blocked")
+  })
+
+  it("does not change a block for another reason or another kind", () => {
+    expect(
+      upgradeIsCheckingFormat(
+        { ...blockedForFormat, blockedReason: "write_access" },
+        3,
+      ),
+    ).toBe(false)
+    expect(
+      upgradeIsCheckingFormat({ ...blockedForFormat, kind: "format" }, 3),
+    ).toBe(false)
   })
 })

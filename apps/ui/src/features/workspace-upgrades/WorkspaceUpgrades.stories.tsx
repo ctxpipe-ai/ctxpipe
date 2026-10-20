@@ -768,8 +768,12 @@ export const BlockedWithoutReason: Story = {
   },
 }
 
-/** A blocked re-ingestion item, with no note from the server. */
-function blockedReingest(blockedReason: string) {
+/**
+ * A blocked re-ingestion item, with no note from the server. The Workspace is
+ * on format 2, so the block is current. `formatVersion` 3 would be the state
+ * between the hydrate and the scan (see ReingestChecksNewFormat).
+ */
+function blockedReingest(blockedReason: string, formatVersion = 2) {
   return withUpgrades(
     workspaceUpgradesHandler(
       upgradesFixture(
@@ -783,7 +787,7 @@ function blockedReingest(blockedReason: string) {
             blockedReason,
           }),
         ],
-        { formatVersion: 3 },
+        { formatVersion },
       ),
     ),
   )
@@ -827,12 +831,15 @@ export const ReingestNeedsFormat: Story = {
       "Apply the format upgrade first",
     )
     await waitFor(() =>
-      expect(canvas.getByText(/needs a newer repository format/)).toBeVisible(),
+      expect(canvas.getByText(/Re-ingestion needs format 3/)).toBeVisible(),
     )
   },
 }
 
-/** A blocked re-ingestion names its next step, and an admin can check again. */
+/**
+ * The block is short and has one action. The server note names two actions,
+ * so the card does not show it.
+ */
 export const ReingestBlockedNextStep: Story = {
   parameters: blockedReingest("needs_format"),
   play: async ({ canvasElement }) => {
@@ -842,11 +849,73 @@ export const ReingestBlockedNextStep: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.getByText(/Next step: merge the format upgrade pull request/),
+        canvas.getByText(
+          "Re-ingestion needs format 3. Merge the format upgrade pull request, then press Check again.",
+        ),
       ).toBeVisible(),
     )
+    expect(canvas.queryByText(/Next step/)).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: /^Check again/ }))
     await waitFor(() => expect(checkRequests).toHaveLength(1))
+  },
+}
+
+/**
+ * CTX-944. The hydrate read the new format, and the scan has not yet changed
+ * the re-ingestion. The page shows one state: the item says that ctx| checks
+ * the new format, and it has no blocked warning. The page reads the items
+ * again by itself, so the item becomes ready to start with no refresh.
+ */
+export const ReingestChecksNewFormat: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("owner"),
+          workspaceUpgradesHandler(() =>
+            upgradesFixture(
+              [
+                upgradeItemFixture({
+                  key: "reingest-bundle",
+                  kind: "reingest",
+                  title: "Fresh re-ingestion of the source repositories",
+                  steps: [],
+                  status: state.checked ? "awaiting_operator" : "blocked",
+                  blockedReason: state.checked ? null : "needs_format",
+                  note: state.checked
+                    ? null
+                    : "Re-ingestion needs format 3. Merge the format upgrade first.",
+                }),
+              ],
+              { formatVersion: 3 },
+            ),
+          ),
+          workspaceUpgradeStartHandler({ requests: startRequests }),
+          workspaceUpgradeCheckHandler({ requests: checkRequests }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Checking the new format")).toBeVisible(),
+    )
+    expect(canvas.getByText(/ctx\| is checking the new format/)).toBeVisible()
+    expect(canvas.getByText(/It is up to date\./)).toBeVisible()
+    expect(canvas.queryByText("Apply the format upgrade first")).toBeNull()
+    expect(canvas.queryByText(/Merge the format upgrade/)).toBeNull()
+    // The scan finishes. The page reads again, with no refresh.
+    state.checked = true
+    await waitFor(
+      async () =>
+        expect(
+          await canvas.findByRole("button", { name: /^Start/ }),
+        ).toBeVisible(),
+      { timeout: 8_000 },
+    )
+    expect(canvas.queryByText("Checking the new format")).toBeNull()
+    expect(canvas.getByText("Ready to start")).toBeVisible()
   },
 }
 
