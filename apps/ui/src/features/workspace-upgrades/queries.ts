@@ -2,6 +2,7 @@ import { queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+import { upgradeIsCheckingFormat } from "./upgrade-copy"
 
 type UpgradesResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspaces"][":workspaceSlug"]["upgrades"]["$get"],
@@ -43,13 +44,24 @@ export const WORKSPACE_UPGRADES_HASH = "upgrades"
  * request changes fast (3 s). An open pull request changes when someone
  * merges it on GitHub (15 s). An item that waits for a click changes when a
  * scan starts it (Always update) or when the user starts it elsewhere (15 s).
+ * A re-ingestion that is still blocked for the format, while the Workspace
+ * has the new format, waits for the scan after the hydrate (3 s, CTX-944).
  * Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
-  items: readonly Pick<WorkspaceUpgradeItem, "status">[] | undefined,
+  items:
+    | readonly Pick<
+        WorkspaceUpgradeItem,
+        "kind" | "status" | "blockedReason" | "targetFormat"
+      >[]
+    | undefined,
+  formatVersion?: number | null,
 ): number | false {
   const statuses = items?.map((item) => item.status) ?? []
-  if (statuses.some((status) => status === "queued" || status === "running"))
+  if (
+    statuses.some((status) => status === "queued" || status === "running") ||
+    items?.some((item) => upgradeIsCheckingFormat(item, formatVersion))
+  )
     return 3_000
   if (statuses.includes("pr_open") || statuses.includes("awaiting_operator"))
     return 15_000
@@ -62,7 +74,10 @@ export function upgradesRefetchInterval(query: {
 }): number | false {
   return query.state.status === "error"
     ? false
-    : upgradePollInterval(query.state.data?.items)
+    : upgradePollInterval(
+        query.state.data?.items,
+        query.state.data?.formatVersion,
+      )
 }
 
 export function workspaceUpgradesOptions(

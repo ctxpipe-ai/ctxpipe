@@ -107,14 +107,17 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     return <Navigate to="/.auth/sign-in" replace />
   }
 
+  // Named for the view transition that moves it when the notices come or go.
   const composer = (
-    <HomeComposer
-      orgSlug={orgSlug}
-      workspaces={workspaces}
-      selected={selected}
-      onSelectWorkspace={setSelectedId}
-      inputKey={composerKey}
-    />
+    <div className="[view-transition-name:home-composer]">
+      <HomeComposer
+        orgSlug={orgSlug}
+        workspaces={workspaces}
+        selected={selected}
+        onSelectWorkspace={setSelectedId}
+        inputKey={composerKey}
+      />
+    </div>
   )
   // Ask: store the prompt as the draft of the current Workspace, then mount
   // a new text box, which reads that draft and takes focus.
