@@ -96,7 +96,7 @@ async function readItem(
 }
 
 /**
- * The Plain adapter of the Workspace sources sync (ADR-055). Each sync reads
+ * The Plain adapter of the Workspace sources sync (ADR-056). Each sync reads
  * each selected Help Center (its published articles) and each selected
  * label (its newest threads), and writes them under `plain/`. An item that
  * left a Help Center or a label goes away in the same commit.

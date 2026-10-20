@@ -2,7 +2,7 @@ import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /**
- * The permissions of the machine-user API key (ADR-055): read the content,
+ * The permissions of the machine-user API key (ADR-056): read the content,
  * and create and delete the one webhook target of the connection. The
  * backend checks them at connect; the setup lists them.
  */
@@ -43,7 +43,7 @@ const uniqueIds = (what: string) =>
 
 export const plainSourceScopeSchema = z
   .object({
-    /** Help Centers whose published articles sync (ADR-055). */
+    /** Help Centers whose published articles sync (ADR-056). */
     helpCenters: uniqueIds("Help Center").optional(),
     /** Label types whose newest threads sync, with their messages. */
     labels: uniqueIds("label").optional(),

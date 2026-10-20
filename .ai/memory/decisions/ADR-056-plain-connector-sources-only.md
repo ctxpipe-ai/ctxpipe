@@ -1,4 +1,4 @@
-# ADR-055: Plain connector, Workspace sources only
+# ADR-056: Plain connector, Workspace sources only
 
 **Status:** Proposed (the connectors area owner accepts or changes it in the pull request review; the security owner signs off the thread data handling) | **Date:** 2026-10-14 | **Tags:** connectors, plain, webhooks, git, workspace-sources, personal-data
 

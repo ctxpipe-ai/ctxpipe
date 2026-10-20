@@ -24,7 +24,7 @@ function sameToken(given: string, expected: string): boolean {
 /**
  * ctx| creates one Plain webhook target for each connection, so the URL
  * names the connection and the route checks that connection's token
- * (ADR-055). The target sends only timeline events, so each delivery is
+ * (ADR-056). The target sends only timeline events, so each delivery is
  * thread activity; the body is not read.
  */
 async function handlePlainWebhook(c: Context<AppEnv>) {

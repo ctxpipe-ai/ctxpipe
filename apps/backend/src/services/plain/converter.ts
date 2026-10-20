@@ -37,7 +37,7 @@ export type PlainThreadForMirror = {
 }
 
 /**
- * The folders that one scope item owns in a Workspace (ADR-055). The sources
+ * The folders that one scope item owns in a Workspace (ADR-056). The sources
  * sync gives ownership by path prefix, so each item has its own folder.
  */
 export function plainHelpCenterRoot(helpCenterId: string): string {
@@ -141,7 +141,7 @@ function withHttpsUrlsOnly(text: string): string {
 }
 
 /**
- * Thread text without contact details or private URLs (ADR-055). Messages
+ * Thread text without contact details or private URLs (ADR-056). Messages
  * and titles are free text from customers: email signatures carry
  * addresses and phone numbers. Other personal data can remain.
  */

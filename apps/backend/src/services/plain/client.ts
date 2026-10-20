@@ -287,7 +287,7 @@ export async function listPlainLabelTypes(
 }
 
 const articleNode = z.object({
-  // The id is a path segment of the file (ADR-055).
+  // The id is a path segment of the file (ADR-056).
   id: plainIdSchema,
   title: z.string(),
   slug: z.string(),
@@ -363,7 +363,7 @@ const actorSchema = z
   )
 
 const threadNode = z.object({
-  // The id is a path segment of the file (ADR-055).
+  // The id is a path segment of the file (ADR-056).
   id: plainIdSchema,
   // The ref and the status go into headings: a short token, no other text.
   ref: z.string().regex(/^[A-Za-z0-9_-]{1,32}$/, "Use a Plain thread ref"),

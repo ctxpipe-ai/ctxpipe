@@ -172,7 +172,7 @@ async function replaceWebhookTarget(input: {
 }
 
 /**
- * Org-admin routes of the Plain connector (ADR-055). The connection holds
+ * Org-admin routes of the Plain connector (ADR-056). The connection holds
  * a machine-user API key; each Workspace selects its Help Centers and
  * labels in its sources.
  */

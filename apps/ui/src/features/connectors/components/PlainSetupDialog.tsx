@@ -50,7 +50,7 @@ type PlainSetupDialogProps = {
 
 /**
  * Connect Plain with a machine-user API key, then add Plain to Workspaces
- * (ADR-050, ADR-055). ctx| creates the webhook target for live updates.
+ * (ADR-050, ADR-056). ctx| creates the webhook target for live updates.
  */
 export function PlainSetupDialog({
   orgSlug,

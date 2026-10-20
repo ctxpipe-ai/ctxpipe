@@ -4,7 +4,7 @@ type SetupStatus = {
 }
 
 /**
- * A connection holds auth only (ADR-050, ADR-055): paste a machine-user API
+ * A connection holds auth only (ADR-050, ADR-056): paste a machine-user API
  * key, then add Plain to Workspaces. ctx| creates the webhook target.
  */
 export const PLAIN_SETUP_STEPS = [
