@@ -9,13 +9,10 @@ const BUILDKITE_API = "https://api.buildkite.com/v2"
 const BUILDKITE_GRAPHQL = "https://graphql.buildkite.com/v1"
 
 /** The REST scopes that the API access token must have (ADR-054). */
-export const BUILDKITE_REQUIRED_SCOPES = [
-  "read_pipelines",
-  "read_builds",
-] as const
+const BUILDKITE_REQUIRED_SCOPES = ["read_pipelines", "read_builds"] as const
 
 /** The number of finished builds that a source keeps for each pipeline. */
-export const BUILDKITE_BUILDS_PER_PIPELINE = 25
+const BUILDKITE_BUILDS_PER_PIPELINE = 25
 
 /**
  * The most bytes of one Buildkite answer. A page of 25 builds with hundreds

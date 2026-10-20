@@ -1,7 +1,7 @@
 import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { GitFileChange } from "../git/file-change.js"
 
-export const BUILDKITE_MANAGED_ROOT = "buildkite"
+const BUILDKITE_MANAGED_ROOT = "buildkite"
 
 export type BuildkitePipelineForMirror = {
   id: string

@@ -1,7 +1,7 @@
 import { Button } from "react-aria-components"
 import { BuildkiteMark } from "./BuildkiteMark"
 
-export type AddBuildkiteConnectorButtonProps = {
+type AddBuildkiteConnectorButtonProps = {
   onStart: () => void
 }
 

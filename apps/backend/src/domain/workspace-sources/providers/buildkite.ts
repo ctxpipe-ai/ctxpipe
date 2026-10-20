@@ -5,7 +5,7 @@ import type { SourceScopeDefinition } from "./scope.js"
  * A Buildkite pipeline slug, for example `web-app`. The slug is also a path
  * segment, so it holds only lower-case letters, digits, `-`, and `_`.
  */
-export const buildkitePipelineSlugSchema = z
+const buildkitePipelineSlugSchema = z
   .string()
   .regex(
     /^[a-z0-9][a-z0-9_-]{0,99}$/,

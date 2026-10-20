@@ -5,7 +5,7 @@ import type {
 } from "@/features/connectors/queries/buildkite-connector"
 
 /** The pipelines that the story connection can read. */
-export const BUILDKITE_STORY_PIPELINES: BuildkitePipeline[] = [
+const BUILDKITE_STORY_PIPELINES: BuildkitePipeline[] = [
   { slug: "web-app", name: "Web App" },
   { slug: "api", name: "API" },
   { slug: "deploy-production", name: "Deploy production" },

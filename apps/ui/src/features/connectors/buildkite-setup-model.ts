@@ -13,9 +13,7 @@ export const BUILDKITE_SETUP_STEPS = [
   { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 
-export type BuildkiteSetupStep =
-  | (typeof BUILDKITE_SETUP_STEPS)[number]["id"]
-  | "done"
+type BuildkiteSetupStep = (typeof BUILDKITE_SETUP_STEPS)[number]["id"] | "done"
 
 export function getBuildkiteSetupStep(
   status: SetupStatus | undefined,
