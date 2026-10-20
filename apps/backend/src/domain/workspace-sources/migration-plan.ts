@@ -82,7 +82,7 @@ export const SOURCE_MIGRATION_HOOKS: Partial<
   slack: slackSourceMigrationHook,
 }
 
-export type MigrationWorkspace = {
+type MigrationWorkspace = {
   id: string
   workspaceRepositoryUrl: string
   githubConnectionId: string | null

@@ -317,7 +317,7 @@ function mergeOpenCodeInstructions(
   }
 }
 
-export function buildCursorHooksOperation({
+function buildCursorHooksOperation({
   path,
   context,
 }: {
@@ -334,7 +334,7 @@ export function buildCursorHooksOperation({
   }
 }
 
-export function buildClaudeCaptureHooksOperation({
+function buildClaudeCaptureHooksOperation({
   path,
   context = createOperationContext(),
 }: {

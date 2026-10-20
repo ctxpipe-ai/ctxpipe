@@ -19,7 +19,7 @@ export function getZendeskSetupSteps(deploymentOAuthClient: boolean) {
   ] as const
 }
 
-export type ZendeskSetupStep =
+type ZendeskSetupStep =
   | "account"
   | "register"
   | "connect"

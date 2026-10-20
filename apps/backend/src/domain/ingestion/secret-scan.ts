@@ -10,7 +10,7 @@
  * check the bound without a clock.
  */
 
-export type SecretFinding = { line: number; reason: string }
+type SecretFinding = { line: number; reason: string }
 export type WorkMeter = { work: number }
 
 const HUMAN_OPEN = "<!-- ctxpipe:human -->"

@@ -171,7 +171,7 @@ alwaysApply: true
 
 ${AI_MEMORY_RULE_BODY}`
 
-export function captureSkill(name: string, description: string, body: string): string {
+function captureSkill(name: string, description: string, body: string): string {
   return `---
 name: ${name}
 description: ${description}
@@ -305,7 +305,7 @@ ${LIFECYCLE_CLOSE}
 `,
 )
 
-export const GITIGNORE_EVENTS_BLOCK = `
+const GITIGNORE_EVENTS_BLOCK = `
 # ctxpipe local memory candidate inbox (ADR-024)
 .ai/memory/events/**
 !.ai/memory/events/.gitkeep

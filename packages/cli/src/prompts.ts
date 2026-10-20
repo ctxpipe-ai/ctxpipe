@@ -35,7 +35,7 @@ type Choice<T extends string> = {
   description?: string
 }
 
-export type InitPromptState = {
+type InitPromptState = {
   org: string | null
   baseUrl: string
   agents: string[]
@@ -46,7 +46,7 @@ export type InitPromptState = {
   memory?: boolean | undefined
 }
 
-export type InitPromptAnswers = {
+type InitPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   agents?: Client[]
@@ -54,28 +54,28 @@ export type InitPromptAnswers = {
   auth?: McpAuthMode
 }
 
-export type McpPromptState = {
+type McpPromptState = {
   org: string | null
   clients: string[]
   scope: string | null
   auth: string | null
 }
 
-export type McpPromptAnswers = {
+type McpPromptAnswers = {
   org?: string
   scope?: "repo" | "user" | "both"
   clients?: Client[]
   auth?: McpAuthMode
 }
 
-export type MemoryInitPromptState = {
+type MemoryInitPromptState = {
   org: string | null
   baseUrl: string
   agents: Client[]
   scope: string | null
 }
 
-export type MemoryInitPromptAnswers = {
+type MemoryInitPromptAnswers = {
   org?: string | null
   scope?: "repo" | "user" | "both"
   agents?: Client[]
@@ -484,7 +484,7 @@ async function promptText({
   return String(promptValue(answer)).trim()
 }
 
-export function detectDefaultOrgSlug(): string | undefined {
+function detectDefaultOrgSlug(): string | undefined {
   const existing = readJsonObject(
     resolve(process.cwd(), ".ctxpipe", "config.json"),
   )

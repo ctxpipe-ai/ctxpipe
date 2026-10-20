@@ -9,7 +9,7 @@ import {
 } from "../codeIngestion/codesearchClient.js"
 import type { ExplorerGitFile } from "./git-explorer.js"
 
-export type WorkspaceCheckoutRead = {
+type WorkspaceCheckoutRead = {
   workspaceId: string
   repositoryId: string
   sha: string

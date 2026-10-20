@@ -11,7 +11,7 @@ import { checkSourcePath } from "./source-file.js"
 import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
 import { SOURCES_FILE_PATH } from "./sources-file.js"
 
-export type DeclaredGithubRepository = {
+type DeclaredGithubRepository = {
   gitUrl: string
   ref: string | null
   connectionId: string

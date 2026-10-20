@@ -1,7 +1,7 @@
 import { Button } from "react-aria-components"
 import { ZendeskMark } from "./ZendeskMark"
 
-export type AddZendeskConnectorButtonProps = {
+type AddZendeskConnectorButtonProps = {
   onStart: () => void
 }
 

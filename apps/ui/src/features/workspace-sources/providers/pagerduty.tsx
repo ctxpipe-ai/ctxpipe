@@ -27,7 +27,7 @@ import type {
 import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** The selected service ids of a source scope. A bad scope starts empty. */
-export function pagerdutyScopeToServiceIds(
+function pagerdutyScopeToServiceIds(
   scope: Record<string, unknown>,
 ): string[] {
   const parsed = pagerdutySourceScopeSchema.safeParse(scope)
@@ -35,7 +35,7 @@ export function pagerdutyScopeToServiceIds(
 }
 
 /** The source scope of a selection, or null when it is not complete. */
-export function pagerdutyServiceIdsToScope(
+function pagerdutyServiceIdsToScope(
   ids: readonly string[],
 ): PagerdutySourceScope | null {
   const parsed = pagerdutySourceScopeSchema.safeParse({ services: [...ids] })

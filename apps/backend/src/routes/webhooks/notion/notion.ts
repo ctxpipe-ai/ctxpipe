@@ -42,7 +42,7 @@ const notionWebhookPayloadSchema = z.object({
  * delete action; every other lifecycle event (created/updated/moved/undeleted/…)
  * re-mirrors the affected resource.
  */
-export function notionEntityTargetForEvent(input: {
+function notionEntityTargetForEvent(input: {
   type: string | undefined
   entity: { id: string; type: string } | undefined
 }): NotionEntityChange | undefined {

@@ -928,7 +928,8 @@ async function publishWhenNoTurnRuns<T>(input: {
   }
 }
 
-async function getReadableConversation(
+/** The conversation if the current user can read it; the chat transcript rule. */
+export async function getReadableConversation(
   conversationId: string,
   input: { workspaceId?: string; orgId?: string | null; headers: Headers },
 ) {

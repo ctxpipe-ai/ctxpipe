@@ -34,7 +34,6 @@ import type {
   WorkspaceActivityResponse,
   WorkspaceDetail,
   WorkspaceFileJobRequest,
-  WorkspaceFilesResponse,
   WorkspaceGitBlobResponse,
   WorkspaceGitStatusResponse,
   WorkspaceGitTreeResponse,
@@ -111,7 +110,7 @@ export async function fetchWorkspaces(
   })
 }
 
-export async function fetchConversation(
+async function fetchConversation(
   orgSlug: string,
   conversationId: string,
   workspaceId?: string,
@@ -162,11 +161,15 @@ export function workspaceChatPrepareOptions(
       return null
     },
     staleTime: Number.POSITIVE_INFINITY,
+    // The composer prepares before the session mounts and observes this
+    // query. Keep the result in between, so the session does not prepare
+    // again.
+    gcTime: Number.POSITIVE_INFINITY,
     retry: false,
   })
 }
 
-export async function prepareWorkspaceChat(
+async function prepareWorkspaceChat(
   orgSlug: string,
   conversationId: string,
   workspaceId: string,
@@ -200,23 +203,6 @@ export async function prepareWorkspaceChat(
   }
 }
 
-export async function fetchWorkspaceFiles(
-  orgSlug: string,
-  workspaceSlug: string,
-): Promise<WorkspaceFilesResponse> {
-  const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.workspaces[
-    ":workspaceSlug"
-  ].files.$get({
-    param: { orgSlug, workspaceSlug },
-  })
-  const data = await readApiJson(res, {
-    message: "Failed to load Workspace files",
-  })
-  // The recursive schema leaves the type of `children` loose.
-  return { ...data, tree: data.tree as WorkspaceFilesResponse["tree"] }
-}
-
 export async function fetchWorkspaceGitTree(
   orgSlug: string,
   workspaceSlug: string,
@@ -234,7 +220,7 @@ export async function fetchWorkspaceGitTree(
   })
 }
 
-export async function fetchWorkspaceGitBlob(
+async function fetchWorkspaceGitBlob(
   orgSlug: string,
   workspaceSlug: string,
   path: string,
@@ -253,7 +239,7 @@ export async function fetchWorkspaceGitBlob(
   })
 }
 
-export async function fetchWorkspaceGitStatus(
+async function fetchWorkspaceGitStatus(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceGitStatusResponse> {
@@ -268,25 +254,8 @@ export async function fetchWorkspaceGitStatus(
   })
 }
 
-export async function enqueueWorkspaceFileJob(
-  orgSlug: string,
-  workspaceSlug: string,
-  input: WorkspaceFileJobRequest,
-): Promise<{ jobId: string }> {
-  const client = await getApiClient()
-  const res = await client[":orgSlug"].api.v1.workspaces[
-    ":workspaceSlug"
-  ].files.jobs.$post({
-    param: { orgSlug, workspaceSlug },
-    json: input,
-  })
-  return readApiJson(res, {
-    message: "Failed to save file changes",
-  })
-}
-
 /** The graph route answers `building` while the graph of the active revision builds. */
-export type WorkspaceGraphRead = WorkspaceGraphPayload | { building: true }
+type WorkspaceGraphRead = WorkspaceGraphPayload | { building: true }
 
 export function workspaceGraphBuilding(
   read: WorkspaceGraphRead | undefined,
@@ -294,7 +263,7 @@ export function workspaceGraphBuilding(
   return Boolean(read && "building" in read)
 }
 
-export async function fetchWorkspaceGraph(
+async function fetchWorkspaceGraph(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceGraphRead> {
@@ -309,7 +278,7 @@ export async function fetchWorkspaceGraph(
   })
 }
 
-export async function fetchWorkspace(
+async function fetchWorkspace(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<WorkspaceDetail | null> {
@@ -363,13 +332,6 @@ export function workspaceConversationOptions(
   })
 }
 
-export function workspaceFilesOptions(orgSlug: string, workspaceSlug: string) {
-  return queryOptions({
-    queryKey: workspaceKeys.files(orgSlug, workspaceSlug),
-    queryFn: () => fetchWorkspaceFiles(orgSlug, workspaceSlug),
-  })
-}
-
 export function workspaceGitTreeOptions(
   orgSlug: string,
   workspaceSlug: string,
@@ -414,7 +376,7 @@ export function workspaceGraphOptions(orgSlug: string, workspaceSlug: string) {
   })
 }
 
-export async function fetchWorkspaceActivity(
+async function fetchWorkspaceActivity(
   orgSlug: string,
   workspaceSlug: string,
   date: string | null = null,
@@ -457,7 +419,7 @@ export type ActivityCommitFilters = {
 }
 
 /** The page size of the Home commit list. */
-export const ACTIVITY_COMMITS_PAGE_SIZE = 10
+const ACTIVITY_COMMITS_PAGE_SIZE = 10
 
 /**
  * The recent commits of one workspace, or (`workspaceSlug: null`) of every
@@ -576,7 +538,7 @@ async function readConversationFilesBlocked(
   return { blocked: true, busy: body.error === "turn_running" }
 }
 
-export async function fetchConversationGitTree(
+async function fetchConversationGitTree(
   orgSlug: string,
   conversationId: string,
 ): Promise<ConversationGitTreeResponse | ConversationFilesBlocked> {
@@ -590,7 +552,7 @@ export async function fetchConversationGitTree(
   return readApiJson(res, { message: "Failed to load conversation files" })
 }
 
-export async function fetchConversationGitBlob(
+async function fetchConversationGitBlob(
   orgSlug: string,
   conversationId: string,
   path: string,
@@ -609,7 +571,7 @@ export async function fetchConversationGitBlob(
   })
 }
 
-export async function fetchConversationGitStatus(
+async function fetchConversationGitStatus(
   orgSlug: string,
   conversationId: string,
 ): Promise<ConversationGitStatusResponse | ConversationFilesBlocked> {
@@ -620,13 +582,12 @@ export async function fetchConversationGitStatus(
     param: { orgSlug, conversationId },
   })
   if (res.status === 409) return readConversationFilesBlocked(res)
-  // TODO: the route types the file status as a string, so the body is cast.
   return (await readApiJson(res, {
     message: "Failed to load conversation git status",
   })) as ConversationGitStatusResponse
 }
 
-export async function fetchConversationGitDiff(
+async function fetchConversationGitDiff(
   orgSlug: string,
   conversationId: string,
   turn?: string,
@@ -643,7 +604,7 @@ export async function fetchConversationGitDiff(
   return readApiJson(res, { message: "Failed to load conversation diff" })
 }
 
-export async function putConversationFile(
+async function putConversationFile(
   orgSlug: string,
   conversationId: string,
   input: ConversationFileMutation,
@@ -655,7 +616,6 @@ export async function putConversationFile(
     param: { orgSlug, conversationId },
     json: input,
   })
-  // TODO: the route types the file status as a string, so the body is cast.
   return (await readApiJson(res, {
     message: "Failed to save conversation file",
   })) as ConversationFileWriteResponse
@@ -861,7 +821,7 @@ export async function pushConversationBranch(
   return readApiJson(res, { message: "Failed to push conversation branch" })
 }
 
-export async function fetchConversationPullRequest(
+async function fetchConversationPullRequest(
   orgSlug: string,
   conversationId: string,
 ): Promise<ConversationPullRequestResponse | null> {
@@ -1007,7 +967,7 @@ export function conversationGitDiffOptions(
   })
 }
 
-export async function fetchConversationTurnChanges(
+async function fetchConversationTurnChanges(
   orgSlug: string,
   conversationId: string,
 ): Promise<ConversationTurnChangesResponse> {

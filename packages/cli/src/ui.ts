@@ -36,7 +36,7 @@ export function printWizardHeader(): void {
   log.message(`${muted("Connect your agents to")} ${brandName()}`)
 }
 
-export function renderPixelLogo(): string {
+function renderPixelLogo(): string {
   const markLines = PIXEL_MARK.split("\n").filter((line) => line.length > 0)
   const pipeLines = PIXEL_PIPE.split("\n").filter((line) => line.length > 0)
   const width = Math.max(...markLines.map((line) => line.length))
@@ -48,7 +48,7 @@ export function renderPixelLogo(): string {
   }).join("\n")
 }
 
-export function brand(value: string): string {
+function brand(value: string): string {
   return chalk.bold.white(value)
 }
 
@@ -60,15 +60,11 @@ export function muted(value: string): string {
   return chalk.dim(value)
 }
 
-export function stepLabel(value: string): string {
-  return `${teal("◆")} ${chalk.bold.white(value)}`
-}
-
-export function successText(value: string): string {
+function successText(value: string): string {
   return chalk.green(value)
 }
 
-export function warnText(value: string): string {
+function warnText(value: string): string {
   return chalk.yellow(value)
 }
 

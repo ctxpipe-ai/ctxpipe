@@ -299,6 +299,35 @@ export const Populated: Story = {
   },
 }
 
+/**
+ * Activity and Recent have the same 40 px gap as the other Home blocks. The
+ * view-transition wrapper around them must not remove it.
+ */
+export const ActivityAndRecentKeepTheirGap: Story = {
+  render: () => <OrgHomePageContent orgSlug="acme" />,
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const activity = (
+      await canvas.findByText("Activity", {}, { timeout: 15_000 })
+    ).closest("section")
+    const recent = (await canvas.findByText("Recent")).closest("section")
+    if (!activity || !recent) throw new Error("No Activity or Recent section")
+    await document.fonts.ready
+    const gap =
+      recent.getBoundingClientRect().top -
+      activity.getBoundingClientRect().bottom
+    expect(gap).toBeGreaterThanOrEqual(39.5)
+  },
+  parameters: {
+    storyRoute: homeRoute,
+    msw: {
+      handlers: {
+        page: workspaceShellHandlers(),
+      },
+    },
+  },
+}
+
 export const ActivityLoading: Story = {
   tags: ["workspace-golden"],
   render: () => <OrgHomePageContent orgSlug="acme" />,

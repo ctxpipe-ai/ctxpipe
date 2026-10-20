@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest"
 import {
   parseUserPreferences,
   SIDE_NAV_DEFAULT_WIDTH,
+  upgradeDismissKey,
+  withDismissedUpgrade,
 } from "./user-preferences"
 
 describe("parseUserPreferences", () => {
@@ -11,6 +13,7 @@ describe("parseUserPreferences", () => {
       isSideNavExpanded: true,
       sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
       orgGuides: {},
+      dismissedUpgrades: [],
     }
     expect(parseUserPreferences(null)).toEqual(defaults)
     expect(parseUserPreferences("{not json")).toEqual(defaults)
@@ -64,5 +67,43 @@ describe("parseUserPreferences", () => {
       "user_1:acme": { hintsSeen: ["panes"] },
     })
     expect(parseUserPreferences('{"orgGuides":[1]}').orgGuides).toEqual({})
+  })
+})
+
+describe("dismissed upgrades", () => {
+  const key = upgradeDismissKey({
+    orgSlug: "acme",
+    workspaceSlug: "docs",
+    key: "format-3",
+    status: "awaiting_operator",
+  })
+
+  it("names the item and its state, so a changed item shows again", () => {
+    expect(key).toBe("acme/docs/format-3/awaiting_operator")
+    expect(
+      upgradeDismissKey({
+        orgSlug: "acme",
+        workspaceSlug: "docs",
+        key: "format-3",
+        status: "failed",
+      }),
+    ).not.toBe(key)
+  })
+
+  it("keeps each key one time, and keeps only the strings of a stored value", () => {
+    const once = withDismissedUpgrade(parseUserPreferences(null), key)
+    expect(withDismissedUpgrade(once, key).dismissedUpgrades).toEqual([key])
+    expect(
+      parseUserPreferences(JSON.stringify({ dismissedUpgrades: [key, 3] }))
+        .dismissedUpgrades,
+    ).toEqual([key])
+  })
+
+  it("drops the oldest key after 100 keys", () => {
+    let preferences = parseUserPreferences(null)
+    for (let index = 0; index < 101; index++)
+      preferences = withDismissedUpgrade(preferences, `key-${index}`)
+    expect(preferences.dismissedUpgrades).toHaveLength(100)
+    expect(preferences.dismissedUpgrades[0]).toBe("key-1")
   })
 })

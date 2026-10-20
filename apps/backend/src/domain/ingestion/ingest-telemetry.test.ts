@@ -8,6 +8,7 @@ import { LangfuseContextSpanProcessor } from "../../observability/langfuseContex
 import {
   capIngestText,
   INGEST_TELEMETRY_TEXT_MAX,
+  ingestErrorFields,
   startIngestModelCall,
   withIngestRunSpan,
   withIngestSpan,
@@ -135,5 +136,41 @@ describe("workflow control telemetry", () => {
           .map((s) => [s.attributes, s.status, s.events]),
       ),
     ).not.toContain("private sentinel")
+  })
+})
+
+describe("the fields of a failed ingest step in a log", () => {
+  it("names the error class, a system error code, and a known message start", () => {
+    const reset = Object.assign(new Error("aborted"), { code: "ECONNRESET" })
+    expect(ingestErrorFields(reset)).toEqual({
+      errorClass: "Error",
+      errorCode: "ECONNRESET",
+      errorKind: "aborted",
+    })
+    expect(
+      ingestErrorFields(
+        new Error(
+          "Ingest root command failed (exit -1): fatal: private sentinel",
+        ),
+      ),
+    ).toEqual({
+      errorClass: "Error",
+      errorKind: "Ingest root command failed (exit -1)",
+    })
+    expect(ingestErrorFields(new TypeError("x"))).toEqual({
+      errorClass: "TypeError",
+    })
+  })
+  it("keeps an unknown message, an error name, and a free-form code out", () => {
+    const error = Object.assign(new Error("private sentinel"), {
+      name: "private sentinel",
+      code: "private sentinel",
+    })
+    expect(JSON.stringify(ingestErrorFields(error))).not.toContain(
+      "private sentinel",
+    )
+    expect(JSON.stringify(ingestErrorFields("private sentinel"))).not.toContain(
+      "private sentinel",
+    )
   })
 })

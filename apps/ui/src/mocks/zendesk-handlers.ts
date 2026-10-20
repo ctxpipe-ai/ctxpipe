@@ -5,7 +5,7 @@ import type {
 } from "@/features/connectors/queries/zendesk-connector"
 
 /** The categories and views that the story connection can read. */
-export const ZENDESK_STORY_CATALOG: ZendeskCatalog = {
+const ZENDESK_STORY_CATALOG: ZendeskCatalog = {
   categories: [
     { id: "360001", name: "Accounts" },
     { id: "360002", name: "Billing" },

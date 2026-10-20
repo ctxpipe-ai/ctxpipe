@@ -36,7 +36,7 @@ export type OrgAtlassianOauthGet = Awaited<
   ReturnType<typeof fetchOrgAtlassianOauth>
 >
 
-export type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
+type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
 
 export async function fetchOrgCapabilities(
   orgSlug: string,
@@ -46,7 +46,6 @@ export async function fetchOrgCapabilities(
     param: { orgSlug },
     query: { connectionId },
   })
-  // TODO: the capabilities route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to load org capabilities",
   })) as OrgCapabilities
@@ -119,13 +118,12 @@ export async function fetchForgeProvisionStatus(
     param: { orgSlug },
     query: { connectionId },
   })
-  // TODO: the provision-status route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to load Forge provision status",
   })) as ForgeProvisionStatusPayload
 }
 
-export type ForgeProvisionRequestBody = {
+type ForgeProvisionRequestBody = {
   connectionId: string
   confluenceSiteHost: string
   forgeScopedApiToken: string
@@ -143,7 +141,6 @@ export async function postForgeProvision(
     param: { orgSlug },
     json: body,
   })
-  // TODO: the provision route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to start Forge provisioning",
   })) as { accepted: true; workflowName?: string }
@@ -187,24 +184,6 @@ export async function cancelAtlassianSetup(
     emptyOn: [409],
     message: "Failed to cancel the Confluence setup",
   })
-}
-
-export async function searchGithubInstallationRepos(
-  orgSlug: string,
-  q: string,
-  githubConnectionId?: string,
-) {
-  const res = await client[
-    ":orgSlug"
-  ].api.v1.github.installation.repositories.$get({
-    param: { orgSlug },
-    query: {
-      q,
-      per_page: "30",
-      ...(githubConnectionId ? { connectionId: githubConnectionId } : {}),
-    },
-  })
-  return readApiJson(res, { message: "Failed to search repositories" })
 }
 
 export async function fetchAtlassianSpaces(

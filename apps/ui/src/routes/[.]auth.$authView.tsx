@@ -11,13 +11,18 @@ import {
   betterAuthAuthViewClassNames,
   betterAuthEmailPlaceholder,
 } from "@/features/auth/betterAuthShellClassNames"
+import { InviteAcceptErrorNotice } from "@/features/auth/InviteAcceptErrorNotice"
 import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import {
   decideInviteAccept,
   inviteSignInHref,
   inviteSignOutHref,
 } from "@/features/auth/invite-accept-decision"
-import { apiFetch, readApiJson } from "@/lib/api-result"
+import {
+  type InviteAcceptError,
+  inviteAcceptError,
+} from "@/features/auth/invite-accept-error"
+import { apiFetch, readApiJson, retryQuery } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
@@ -39,17 +44,6 @@ type InviteAcceptSignUpProps = {
   redirectTo?: string
 }
 
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "object" && error != null) {
-    const maybeMessage = (error as { message?: unknown }).message
-    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
-      return maybeMessage
-    }
-  }
-  return "Request failed. Please try again."
-}
-
 function AuthStatusMessage({ message }: { message: string }) {
   return (
     <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 text-center">
@@ -59,7 +53,7 @@ function AuthStatusMessage({ message }: { message: string }) {
   )
 }
 
-function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
+export function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const { data: session, isPending: sessionPending } = useSession()
   const params = useMemo(
     () =>
@@ -74,13 +68,22 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       : `${window.location.pathname}${window.location.search}`
   const invitationId = props.invitationId ?? params.get("invitationId") ?? ""
   const redirectTo =
-    props.redirectTo ?? params.get("redirectTo") ?? "/onboarding"
+    typeof window === "undefined"
+      ? "/onboarding"
+      : safeAuthRedirectPath(
+          props.redirectTo ?? params.get("redirectTo"),
+          "/onboarding",
+          window.location.origin,
+        )
   const invitationEmailFromUrl =
     props.invitationEmail ?? params.get("email") ?? null
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  // A form input problem, shown under the form.
   const [error, setError] = useState<string | null>(null)
+  // A failed sign-up or accept, shown in place of the form with a next step.
+  const [failure, setFailure] = useState<InviteAcceptError | null>(null)
   // Set when sign-up needs the address verified first: there is no session
   // until they click the emailed link, which returns here to finish joining.
   const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
@@ -103,6 +106,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       }
     },
     enabled: invitationId.length > 0,
+    retry: retryQuery,
   })
 
   const acceptInviteMutation = useMutation({
@@ -137,7 +141,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         () => window.location.assign(redirectTo),
       )
     },
-    onError: (err) => setError(extractErrorMessage(err)),
+    onError: (err) => setFailure(inviteAcceptError(err)),
   })
 
   const sessionEmail =
@@ -164,9 +168,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     void acceptInvitationThenRedirect(
       () => acceptInviteMutation.mutateAsync(invitationId),
       () => window.location.assign(redirectTo),
-    ).catch((err) => {
-      setError(extractErrorMessage(err))
-    })
+    ).catch((err) => setFailure(inviteAcceptError(err)))
   }, [
     session,
     sessionPending,
@@ -188,20 +190,24 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       />
     )
   }
-  if (decision.kind === "unknown" && session) {
-    if (invitationEmailQuery.error) {
-      return (
-        <p className="text-sm text-red-400">
-          {invitationEmailQuery.error instanceof Error
-            ? invitationEmailQuery.error.message
-            : "Invitation not found or expired"}
-        </p>
-      )
-    }
-    return <AuthStatusMessage message="Loading invitation…" />
+  const failureShown =
+    failure ??
+    (invitationEmailQuery.error
+      ? inviteAcceptError(invitationEmailQuery.error)
+      : null)
+  if (failureShown) {
+    return (
+      <InviteAcceptErrorNotice
+        error={failureShown}
+        invitationId={invitationId}
+        invitationEmail={invitationEmail}
+        sessionEmail={sessionEmail}
+        onRetry={() => window.location.reload()}
+      />
+    )
   }
-  if (session && error) {
-    return <p className="text-sm text-red-400">{error}</p>
+  if (decision.kind === "unknown" && session) {
+    return <AuthStatusMessage message="Loading invitation…" />
   }
   if (verifyEmailFor) {
     return (
@@ -239,18 +245,8 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     )
   }
 
-  if (invitationEmailQuery.isPending) {
+  if (invitationEmailQuery.isPending || !invitationEmailQuery.data) {
     return <PageBodySkeleton label="Loading invitation" />
-  }
-
-  if (invitationEmailQuery.error || !invitationEmailQuery.data) {
-    return (
-      <p className="text-sm text-red-400">
-        {invitationEmailQuery.error instanceof Error
-          ? invitationEmailQuery.error.message
-          : "Invitation not found or expired"}
-      </p>
-    )
   }
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -260,8 +256,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       setError("Enter your name.")
       return
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.")
+    // Better Auth's default length limits: 8 to 128 characters.
+    if (password.length < 8 || password.length > 128) {
+      setError("Use a password of 8 to 128 characters.")
       return
     }
     if (password !== confirmPassword) {
@@ -395,6 +392,7 @@ function SignOutView() {
     return safeAuthRedirectPath(
       new URLSearchParams(window.location.search).get("redirectTo"),
       "/.auth/sign-in",
+      window.location.origin,
     )
   }, [])
 
@@ -444,10 +442,7 @@ function AuthViewRoute() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(
-          window.location.pathname,
-          window.location.search,
-        )
+      : getAuthContinuationProps(window.location.origin, window.location.search)
 
   const inviteFromRedirect =
     authView === "sign-up" && continuation?.redirectTo

@@ -72,7 +72,7 @@ import {
 } from "./workspace-format.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "./write-status.js"
 
-export type ConversationSandboxBinding = {
+type ConversationSandboxBinding = {
   githubConnectionId?: string | null
   defaultBranch?: string | null
   desiredGeneration?: number | null
@@ -80,7 +80,7 @@ export type ConversationSandboxBinding = {
   desiredSha?: string | null
 }
 
-export function planCapturedConversationPublication(input: {
+function planCapturedConversationPublication(input: {
   revision: WorkspaceRevision
   writeStatus: string
   readOnlyReason?: string | null

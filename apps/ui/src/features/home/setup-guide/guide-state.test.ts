@@ -59,6 +59,27 @@ describe("guideRows", () => {
     expect(all.find((row) => row.id === "workspace")?.build).toBeUndefined()
   })
 
+  it("gives the repositories row its open pull request until a repository links", () => {
+    const pending = {
+      path: "sources/github/acme/api.md",
+      provider: "github" as const,
+      action: "add" as const,
+      pullRequestUrl: "https://github.com/acme/docs/pull/9",
+      createdAt: "2026-10-18T00:00:00.000Z",
+    }
+    const row = (signals: Partial<GuideSignals>) =>
+      guideRows({ ...noSignals, ...signals }).find(
+        (item) => item.id === "repositories",
+      )
+    expect(row({ repositoriesPending: pending })).toMatchObject({
+      done: false,
+      pending,
+    })
+    expect(
+      row({ repositoriesPending: pending, linkedRepositories: true })?.pending,
+    ).toBeUndefined()
+  })
+
   it("gives the Workspace row the build state of the first Workspace", () => {
     const build = (signals: Partial<GuideSignals>) =>
       guideRows({ ...noSignals, ...signals }).find(

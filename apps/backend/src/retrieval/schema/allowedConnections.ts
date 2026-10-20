@@ -202,7 +202,7 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
     "a Decision replaces an earlier Decision; an Issue replaces the Issue that duplicates it",
 }
 
-export type AllowedConnections = {
+type AllowedConnections = {
   core: typeof CORE_ALLOWED_CONNECTIONS
   extension: typeof EXTENSION_ALLOWED_CONNECTIONS
 }
@@ -269,9 +269,3 @@ export function isValidGraphEdgeType(predicate: string): boolean {
   return GRAPH_EDGE_TYPES.has(predicate)
 }
 
-/**
- * Returns true if the kind is a valid graph node kind.
- */
-export function isValidGraphNodeKind(kind: string): boolean {
-  return GRAPH_NODE_KINDS.has(kind)
-}

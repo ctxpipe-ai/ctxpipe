@@ -128,7 +128,7 @@ export type LoadedProject = {
   actors: LinearActorFragment[]
 }
 
-export type LoadedTeam = {
+type LoadedTeam = {
   id: string
   name: string
   key: string
@@ -194,7 +194,7 @@ export type LinearFollow = {
   after: string
 }
 
-export type LinearFollowPage =
+type LinearFollowPage =
   | {
       connection: "issue-comments"
       comments: LinearIssueForMirror["comments"]

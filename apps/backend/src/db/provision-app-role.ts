@@ -183,7 +183,7 @@ async function stripAppRoleRights(
 }
 
 /** Fix text for each deploy path when the app role is missing and has no password. */
-export function appRoleMissingMessage(roleName: string): string {
+function appRoleMissingMessage(roleName: string): string {
   return [
     `[migrate] The role ${roleName} does not exist and DATABASE_APP_PASSWORD is not set. Migrate stopped before it changed the database.`,
     "Do one of these steps, then run migrate again:",

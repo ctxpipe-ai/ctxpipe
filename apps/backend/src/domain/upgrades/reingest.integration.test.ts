@@ -31,6 +31,7 @@ import {
 } from "../../routes/v1/workspace-upgrades-routes.js"
 import { workspaceHttpApp } from "../../test/workspace-http-fixture.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "../ingestion/ingestion-run.js"
+import { ingestPublishTurn } from "../ingestion/publish-turn.js"
 import { ingestionRunState, reingestSlotTurn } from "./reingest.js"
 import { startWorkspaceUpgrade } from "./start.js"
 import { stopOrphanedReingestRuns } from "./stop-orphans.js"
@@ -121,7 +122,13 @@ describe("re-ingestion throttle", () => {
     const [first = "", second = ""] = [runs.a1, runs.a2].sort()
     const [other, third] = [runs.other, runs.third]
     const turn = (orgId: string, upgradeRunId: string, runsPerInstance = 4) =>
-      reingestSlotTurn({ orgId, upgradeRunId, runsPerInstance })
+      reingestSlotTurn({
+        orgId,
+        upgradeRunId,
+        runsPerInstance,
+        workspaceId: generateObjectId("ws"),
+        sourceUrls: [],
+      })
 
     for (let ask = 0; ask < 3; ask++) {
       expect(await turn(orgA, first)).toEqual({ turn: true })
@@ -147,6 +154,121 @@ describe("re-ingestion throttle", () => {
   })
 })
 
+describe("an ingestion run of a source of the Workspace", () => {
+  it("makes the upgrade wait until that run ends, so the re-ingestion pins what it published", async () => {
+    const orgId = generateObjectId("org")
+    const workspaceId = generateObjectId("ws")
+    const url = "https://github.com/acme/ky"
+    const ingestionSpec = {
+      name: INGESTION_V2_WORKFLOW_NAME,
+      schema: z.object({ orgId: z.string() }).passthrough(),
+    }
+    // No worker runs ingestion v2 here: each queued run stays active.
+    const ingestion = async (extra: Record<string, unknown>) => {
+      const handle = await runner.runWorkflow(ingestionSpec, {
+        orgId,
+        shadow: false,
+        source: {
+          kind: "github",
+          url,
+          githubConnectionId: generateObjectId("con"),
+        },
+        sha: "a".repeat(40),
+        authorTime: new Date().toISOString(),
+        ...extra,
+      })
+      queued.push(handle.workflowRun.id)
+      return handle.workflowRun.id
+    }
+    const upgradeRunId = await upgradeRun(orgId)
+    const turn = () =>
+      reingestSlotTurn({
+        orgId,
+        upgradeRunId,
+        runsPerInstance: 4,
+        workspaceId,
+        sourceUrls: ["https://github.com/Acme/Ky"],
+      })
+
+    // A shadow run and a run for another Workspace publish nothing here.
+    await ingestion({ shadow: true })
+    await ingestion({ destinations: [generateObjectId("ws")] })
+    expect(await turn()).toEqual({ turn: true })
+
+    // A re-index of the source can publish to each Workspace of it.
+    const reindex = await ingestion({})
+    expect(await turn()).toEqual({
+      wait: "An ingestion run of a source repository of this Workspace has not ended. The re-ingestion starts after it.",
+    })
+    await runner.cancelWorkflowRun(reindex)
+    expect(await turn()).toEqual({ turn: true })
+
+    const named = await ingestion({ destinations: [workspaceId] })
+    expect(await turn()).toHaveProperty("wait")
+    await runner.cancelWorkflowRun(named)
+    expect(await turn()).toEqual({ turn: true })
+  })
+})
+
+describe("a push during a re-ingestion", () => {
+  it("makes the later ingestion run of the source pin after the earlier run publishes", async () => {
+    const orgId = generateObjectId("org")
+    const workspaceId = generateObjectId("ws")
+    const url = "https://github.com/acme/ky"
+    const ingestionSpec = {
+      name: INGESTION_V2_WORKFLOW_NAME,
+      schema: z.object({ orgId: z.string() }).passthrough(),
+    }
+    // No worker runs ingestion v2 here: each queued run stays active.
+    let at = Date.now()
+    const ingestion = async (extra: Record<string, unknown>) => {
+      const handle = await runner.runWorkflow(ingestionSpec, {
+        orgId,
+        shadow: false,
+        source: {
+          kind: "github",
+          url,
+          githubConnectionId: generateObjectId("con"),
+        },
+        sha: "a".repeat(40),
+        authorTime: new Date().toISOString(),
+        ...extra,
+      })
+      queued.push(handle.workflowRun.id)
+      await startedAt(handle.workflowRun.id, new Date(at++))
+      return handle.workflowRun.id
+    }
+    const turn = (
+      runId: string,
+      destinations?: string[],
+      sourceUrl = "https://github.com/Acme/Ky",
+    ) => ingestPublishTurn({ orgId, runId, sourceUrl, destinations })
+
+    // The re-ingestion's run publishes to its Workspace. A run of the same
+    // source for another Workspace does not race with it.
+    const reingest = await ingestion({ destinations: [workspaceId] })
+    const otherWorkspace = generateObjectId("ws")
+    const elsewhere = await ingestion({ destinations: [otherWorkspace] })
+    expect(await turn(reingest, [workspaceId])).toEqual({ turn: true })
+    expect(await turn(elsewhere, [otherWorkspace])).toEqual({ turn: true })
+
+    // A push then starts a run of the source for each of its Workspaces.
+    const push = await ingestion({})
+    expect(await turn(push)).toEqual({
+      wait: "An earlier ingestion run of this source publishes to the same Workspace. This run starts after it.",
+    })
+    // A run of another source does not wait.
+    expect(
+      await turn(push, undefined, "https://github.com/acme/other"),
+    ).toEqual({ turn: true })
+    await runner.cancelWorkflowRun(reingest)
+    expect(await turn(push)).toHaveProperty("wait")
+    await runner.cancelWorkflowRun(elsewhere)
+    expect(await turn(push)).toEqual({ turn: true })
+    await runner.cancelWorkflowRun(push)
+  })
+})
+
 describe("step budget", () => {
   it(
     "ends a repository run that waits for a long ingestion run inside its step budget",
@@ -160,9 +282,10 @@ describe("step budget", () => {
       runner.implementWorkflow(repository.spec, repository.fn)
       const worker = runner.newWorker({ concurrency: 2 })
       await worker.start()
+      const orgId = generateObjectId("org")
       try {
         const handle = await runner.runWorkflow(repository.spec, {
-          orgId: generateObjectId("org"),
+          orgId,
           workspaceId: generateObjectId("ws"),
           upgradeRunId: generateObjectId("run"),
           repository: "acme/slow",
@@ -170,12 +293,10 @@ describe("step budget", () => {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          capUsd: null,
         })
         const result = await handle.result({ timeoutMs: 60_000 })
         expect(result).toMatchObject({
           status: "failed",
-          capped: false,
           report: [
             "The ingestion run did not finish in the time that the upgrade waits.",
           ],
@@ -192,6 +313,7 @@ describe("step budget", () => {
         select id from openworkflow.workflow_runs
         where namespace_id = ${openWorkflowNamespaceId()}
           and workflow_name = ${INGESTION_V2_WORKFLOW_NAME}
+          and input->>'orgId' = ${orgId}
       `)
         expect(ingestion.rows).toHaveLength(1)
         expect(
@@ -243,7 +365,6 @@ async function orphanedRepositoryRun(orgId: string) {
           githubConnectionId: generateObjectId("con"),
           sha: "0".repeat(40),
           authorTime: new Date().toISOString(),
-          capUsd: null,
         },
         { name: "repository:0" },
       ),
@@ -309,6 +430,8 @@ describe("a parent run that ends before its repository runs", () => {
             orgId,
             upgradeRunId: next,
             runsPerInstance: 4,
+            workspaceId: generateObjectId("ws"),
+            sourceUrls: [],
           }),
         ).toEqual({
           wait: "A repository run of an earlier re-ingestion of this organization has not ended.",
@@ -325,6 +448,8 @@ describe("a parent run that ends before its repository runs", () => {
             orgId,
             upgradeRunId: next,
             runsPerInstance: 4,
+            workspaceId: generateObjectId("ws"),
+            sourceUrls: [],
           }),
         ).toEqual({ turn: true })
       } finally {

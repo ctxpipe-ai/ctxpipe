@@ -2,7 +2,6 @@ import type { QueryClient } from "@tanstack/react-query"
 import { landingPane } from "./pane"
 import { workspaceProjectionReady } from "./projection"
 import {
-  conversationGitTreeOptions,
   workspaceConversationOptions,
   workspaceDetailOptions,
   workspaceGitBlobOptions,
@@ -80,30 +79,3 @@ export function prefetchWorkspaceRouteData(
   void ensureWorkspaceRouteData(input)
 }
 
-/** Client in-page nav: start the conversation fetch without gating the route. */
-export function prefetchWorkspaceConversation(
-  queryClient: QueryClient,
-  orgSlug: string,
-  workspaceSlug: string,
-  conversationId: string,
-) {
-  const workspace = queryClient.getQueryData(
-    workspaceDetailOptions(orgSlug, workspaceSlug).queryKey,
-  )
-  if (!workspace) {
-    prefetchWorkspaceRouteData({
-      queryClient,
-      orgSlug,
-      workspaceSlug,
-      conversationId,
-      warmLandingPane: true,
-    })
-    return
-  }
-  void queryClient.prefetchQuery(
-    workspaceConversationOptions(orgSlug, conversationId, workspace.id),
-  )
-  void queryClient.prefetchQuery(
-    conversationGitTreeOptions(orgSlug, conversationId),
-  )
-}

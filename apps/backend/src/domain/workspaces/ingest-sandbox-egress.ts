@@ -51,11 +51,11 @@ import {
 } from "./vercel-sandbox-provider.js"
 
 /**
- * False until the T12 live check proves the hosted egress proxy (T03b,
- * `ingestNetworkPolicy` and `ingestEgressProxy`) on Vercel. Until then,
- * `vercelIngestSandboxProvider` refuses to start.
+ * True since the live check proved the hosted egress proxy (T03b,
+ * `ingestNetworkPolicy` and `ingestEgressProxy`) on a real Vercel sandbox.
+ * When it is false, `vercelIngestSandboxProvider` refuses to start.
  */
-export const VERCEL_INGEST_EGRESS_PROVEN = false
+export const VERCEL_INGEST_EGRESS_PROVEN = true
 
 /**
  * Whether hosted ingest egress is on: the egress route is mounted and ingest
@@ -109,7 +109,7 @@ function githubIngestRepositories(
 }
 
 /** The plain git repositories of a shard, each once. */
-export function plainGitIngestRepositories(
+function plainGitIngestRepositories(
   repositories: readonly IngestRepository[],
 ): PlainGitRepository[] {
   const found = new Map<string, PlainGitRepository>()
@@ -313,6 +313,35 @@ echo closed`,
 }
 
 /**
+ * The error of a Docker call, with an action for the operator when the
+ * Docker host does not answer (no socket, a refused or timed-out connection).
+ * Other errors stay as they are.
+ */
+export function dockerHostError(error: unknown): unknown {
+  const { code, syscall } = (error ?? {}) as {
+    code?: unknown
+    syscall?: unknown
+  }
+  const down =
+    (syscall === "connect" || syscall === "getaddrinfo") &&
+    typeof code === "string" &&
+    [
+      "ECONNREFUSED",
+      "ENOENT",
+      "EACCES",
+      "EHOSTUNREACH",
+      "ETIMEDOUT",
+      "ENOTFOUND",
+    ].includes(code)
+  return down
+    ? new Error(
+        "Cannot start the Docker sandbox host. Check that your deployment has Docker available.",
+        { cause: error },
+      )
+    : error
+}
+
+/**
  * The Docker provider of one ingest shard. `create` opens the shard's vault
  * with `unmatchedHosts: "deny"`: the proxy forwards only the rules of
  * {@link ingestCredentialRules} and refuses each other request. The
@@ -373,10 +402,11 @@ export function dockerIngestSandboxProvider(input: {
           rules: ingestCredentialRules(egress, git, { fetchSource: true }),
           unmatchedHosts: "deny",
         })
-        handle = await docker.create({
-          ...createInput,
-          env: { ...createInput.env, ...vault.env },
-        })
+        handle = await docker
+          .create({ ...createInput, env: { ...createInput.env, ...vault.env } })
+          .catch((error: unknown) => {
+            throw dockerHostError(error)
+          })
         if (input.network) {
           const daemon = new Docker({ timeout: 30_000 })
           await daemon
@@ -487,32 +517,51 @@ export function ingestNetworkPolicy(input: {
 }): NetworkPolicy {
   if (!input.sandboxName) return "deny-all"
   const plainGit = input.step?.fetchSource ? (input.plainGit ?? []) : []
-  const forwardURL = ingestEgressForwardUrl(
-    {
-      sandbox: input.sandboxName,
-      // Each update seals a new scope; one shard runs at most this long.
-      exp: Date.now() + INGEST_SHARD_LIMIT_MS,
-      backendHost: input.backendHost,
-      git: input.git,
-      ...(plainGit.length ? { plainGit } : {}),
-      ...(input.step ? { step: input.step } : {}),
-    },
+  // Each update seals a new scope; one shard runs at most this long.
+  const base = {
+    sandbox: input.sandboxName,
+    exp: Date.now() + INGEST_SHARD_LIMIT_MS,
+    backendHost: input.backendHost,
+  }
+  // Each host gets only its own part of the scope: the Git hosts the Git
+  // fetch, the backend host the step's credentials. Vercel answers 500 to
+  // a policy whose forward URLs are too long together (CTX-887).
+  const gitURL = ingestEgressForwardUrl(
+    { ...base, git: input.git, ...(plainGit.length ? { plainGit } : {}) },
     input.secret,
   )
+  const backendURL = ingestEgressForwardUrl(
+    { ...base, git: [], ...(input.step ? { step: input.step } : {}) },
+    input.secret,
+  )
+  const forwardURLs = gitURL.length * (1 + plainGit.length) + backendURL.length
+  if (forwardURLs > INGEST_POLICY_MAX_FORWARD_URL_LENGTH)
+    throw new Error(
+      `The ingest firewall policy has ${forwardURLs} characters of forward URLs; the Vercel API refuses more than about ${INGEST_POLICY_MAX_FORWARD_URL_LENGTH}`,
+    )
   return {
     allow: {
-      "github.com": [{ forwardURL }],
+      "github.com": [{ forwardURL: gitURL }],
       // During the source fetch, each plain git host goes to the egress
       // proxy too, which allows only Git fetch of the shard's repository
       // paths on it.
       ...Object.fromEntries(
-        plainGit.map((repository) => [repository.host, [{ forwardURL }]]),
+        plainGit.map((repository) => [
+          repository.host,
+          [{ forwardURL: gitURL }],
+        ]),
       ),
-      [input.backendHost]: [{ forwardURL }],
+      [input.backendHost]: [{ forwardURL: backendURL }],
     },
     subnets: { deny: PRIVATE_SUBNETS },
   }
 }
+
+/**
+ * The forward URLs of one policy, all together. The Vercel API accepted
+ * 4,000 characters and answered 500 to 4,096 (a probe on 2026-10-19).
+ */
+export const INGEST_POLICY_MAX_FORWARD_URL_LENGTH = 3_600
 
 /**
  * The shard's hosted GitHub tokens, recorded under the shard's thread

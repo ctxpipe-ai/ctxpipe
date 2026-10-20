@@ -57,18 +57,6 @@ export type { NotionSetupPhase } from "../lib/connection-config.js"
 
 export type NotionConnection = NotionConnectionShape
 
-/**
- * Notion scope entry. Scope now lives in git (`notion/config.yaml`), not in
- * Postgres, so this is a plain shape rather than a table row inference.
- */
-export interface NotionResource {
-  externalId: string
-  type: "page" | "database"
-  title: string
-  url: string | null
-  parentExternalId: string | null
-}
-
 /** Sync binding projected from `connections.config` (+ timestamps from the connection row). */
 export type NotionBinding = {
   id: string
@@ -134,7 +122,7 @@ function mergeNotionStoredConfig(
 }
 
 /** Pure rebind rules for the Notion sync binding stored on `connections.config`. */
-export function planNotionSyncBindingUpdate(input: {
+function planNotionSyncBindingUpdate(input: {
   existing: NotionBinding | undefined
   repositoryId: string
   branch: string
@@ -246,7 +234,7 @@ async function notionConnectionRowToShape(
   await migrateLegacyNotionTokensOnRead(db, row, env)
   return shape
 }
-export async function listNotionConnectionsForOrg(
+async function listNotionConnectionsForOrg(
   orgId: string,
   env: Env,
 ): Promise<NotionConnection[]> {
@@ -477,7 +465,7 @@ export async function persistNotionWebhookSecret(input: {
 export const MULTIPLE_NOTION_CONNECTIONS_MESSAGE =
   "Multiple Notion connections for this organization; specify connectionId query parameter"
 
-export type ResolveNotionConnectionResult =
+type ResolveNotionConnectionResult =
   | { status: "ok"; connection: NotionConnection }
   | { status: "none" }
   | { status: "ambiguous" }
@@ -502,19 +490,6 @@ export async function resolveNotionConnectionForOrgDetailed(
     return { status: "ok", connection }
   }
   return { status: "ambiguous" }
-}
-
-export async function resolveNotionConnectionForOrg(
-  orgId: string,
-  env: Env,
-  connectionId?: string | null,
-): Promise<NotionConnection | undefined> {
-  const r = await resolveNotionConnectionForOrgDetailed(
-    orgId,
-    env,
-    connectionId,
-  )
-  return r.status === "ok" ? r.connection : undefined
 }
 
 export async function upsertNotionConnectionFromOAuth(input: {
@@ -777,7 +752,7 @@ export async function refreshNotionConnectionTokensWithLock(input: {
   })
 }
 
-export type NotionWebhookCandidate = {
+type NotionWebhookCandidate = {
   connection: NotionConnection
   stored: NotionConnectionConfig
 }
@@ -841,14 +816,6 @@ export async function deleteNotionConnectionById(
   })
   if (removed) await deleteConnectionDirectory(connectionId)
   return removed
-}
-
-export async function getNotionBindingByConnectionId(
-  connectionId: string,
-): Promise<NotionBinding | undefined> {
-  const row = await loadConnectionViaDirectory(connectionId)
-  if (row?.type !== CONNECTION_TYPE_NOTION) return undefined
-  return bindingFromConnectionRow(row)
 }
 
 export async function getNotionBindingWithRepoByConnectionId(

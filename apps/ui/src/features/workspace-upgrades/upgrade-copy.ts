@@ -1,8 +1,4 @@
-import type {
-  UpgradeEstimate,
-  UpgradeStatus,
-  WorkspaceUpgradeItem,
-} from "./queries"
+import type { UpgradeStatus, WorkspaceUpgradeItem } from "./queries"
 
 /** An item that still needs work. Only `completed` is done. */
 export function upgradeIsPending(item: WorkspaceUpgradeItem): boolean {
@@ -41,7 +37,7 @@ export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"
 }
 
-export const UPGRADE_STATUS_TAG: Record<
+const UPGRADE_STATUS_TAG: Record<
   UpgradeStatus,
   { label: string; className: string; pulse?: boolean }
 > = {
@@ -142,10 +138,31 @@ export function upgradeCanCheck(item: WorkspaceUpgradeItem): boolean {
   )
 }
 
+/** "12 min", "1 h 5 min" or "less than a minute". */
+function waitedFor(sinceIso: string, now = Date.now()): string {
+  const minutes = Math.max(0, Math.floor((now - Date.parse(sinceIso)) / 60_000))
+  if (minutes < 1) return "less than a minute"
+  if (minutes < 60) return `${minutes} min`
+  return `${Math.floor(minutes / 60)} h ${minutes % 60} min`
+}
+
+/** The status tag of an item. A run that waits for a sandbox slot says so. */
+export function upgradeStatusTag(
+  item: Pick<WorkspaceUpgradeItem, "status" | "waitingForSlot">,
+) {
+  return item.status === "running" && item.waitingForSlot
+    ? { ...UPGRADE_STATUS_TAG.running, label: "Waiting for a free sandbox" }
+    : UPGRADE_STATUS_TAG[item.status]
+}
+
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
 export function upgradeWaitingCopy(
-  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest">,
+  item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest"> &
+    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot">>,
+  now = Date.now(),
 ): string | null {
+  if (item.status === "running" && item.waitingForSlot)
+    return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctx| checks again every minute and starts the run when its turn comes.`
   if (item.status !== "pr_open") return null
   const pullRequest = item.pullRequest?.number
     ? `pull request #${item.pullRequest.number}`
@@ -173,16 +190,6 @@ export function upgradeStartedMessage(item: { kind: string }): string {
     : "The upgrade is queued. ctx| prepares a pull request."
 }
 
-/** The estimate of a re-ingestion, from the p50 to the p90 value. */
-export function formatUpgradeEstimate(estimate: UpgradeEstimate): string {
-  const usd = (value: number) => `$${value.toFixed(2)}`
-  const repositories =
-    estimate.repositories === 1
-      ? "1 repository"
-      : `${estimate.repositories} repositories`
-  return `Estimated cost: ${usd(estimate.costUsd.low)} to ${usd(estimate.costUsd.high)} for ${repositories}, about ${estimate.minutes.low} to ${estimate.minutes.high} minutes.`
-}
-
 /** The health line: the format of the repository against the format ctx| reads. */
 export function formatHealthLine(
   formatVersion: number | null,
@@ -196,30 +203,6 @@ export function formatHealthLine(
   if (formatVersion === codeFormat)
     return `The repository uses format ${formatVersion}. It is up to date.`
   return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}.`
-}
-
-/**
- * The lines of the home alert. Each line comes from a status that is present
- * in the pending items. `isAdmin` is `null` while the role loads.
- */
-export function upgradeAlertLines(
-  pending: WorkspaceUpgradeItem[],
-  isAdmin: boolean | null,
-): string[] {
-  const has = (...statuses: UpgradeStatus[]) =>
-    pending.some((item) => statuses.includes(item.status))
-  const lines: string[] = []
-  if (has("awaiting_operator", "failed"))
-    lines.push(
-      isAdmin === false
-        ? "Ask an admin to start it."
-        : "An owner or admin must start it.",
-    )
-  if (has("queued", "running")) lines.push("An upgrade is running.")
-  if (has("pr_open")) lines.push("Review and merge the upgrade pull request.")
-  for (const item of pending)
-    if (item.status === "blocked") lines.push(upgradeBlockedCopy(item).body)
-  return lines
 }
 
 /** The text of the next action for a member. */

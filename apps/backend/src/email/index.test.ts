@@ -106,3 +106,12 @@ it("logs a refusal and throws an error, and neither names the recipient", async 
   expect(records.some((record) => record.step === "email.sent")).toBe(false)
   expect(JSON.stringify(records)).not.toContain("invitee")
 })
+
+it("sends from the display name ctxpipe and the configured address", async () => {
+  await sendEmail("invitee@example.com", "Invitation", template)
+
+  expect(smtp.mails[0]?.body).toMatch(
+    /^From: "?ctxpipe"? <noreply@example\.com>\r?$/m,
+  )
+  expect(smtp.mails[0]?.body).not.toMatch(/^Reply-To:/im)
+})

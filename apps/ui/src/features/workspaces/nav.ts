@@ -1,4 +1,4 @@
-export type WorkspaceTitleAction = "compose" | "toggle" | "resume"
+type WorkspaceTitleAction = "compose" | "toggle" | "resume"
 
 export function workspaceTitleAction(input: {
   workspaceCount: number

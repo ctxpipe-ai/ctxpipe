@@ -9,6 +9,8 @@ type CopyableBlockProps = {
   copiedAriaLabel: string
   copyAriaLabel: string
   copyErrorMessage?: string
+  /** Runs once for each copy that worked. */
+  onCopied?: () => void
   variant?: "default" | "secret"
   revealAriaLabel?: string
   hideAriaLabel?: string
@@ -19,6 +21,7 @@ export function CopyableBlock({
   copiedAriaLabel,
   copyAriaLabel,
   copyErrorMessage = "Could not copy — copy the URL manually.",
+  onCopied,
   variant = "default",
   revealAriaLabel = "Show value",
   hideAriaLabel = "Hide value",
@@ -30,6 +33,7 @@ export function CopyableBlock({
     try {
       await navigator.clipboard.writeText(value)
       setCopyState("copied")
+      onCopied?.()
       window.setTimeout(() => setCopyState("idle"), 2000)
     } catch {
       setCopyState("error")

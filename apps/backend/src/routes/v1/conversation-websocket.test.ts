@@ -1,3 +1,4 @@
+import { EventType, memoryStream } from "@tanstack/ai"
 import { describe, expect, it, vi } from "vitest"
 import {
   bunSocketToWebSocketLike,
@@ -63,7 +64,15 @@ describe("workspace chat websocket resume", () => {
     ).toBe(false)
   })
 
-  it("replays the durability log instead of starting onRun", () => {
+  it("replays the durability log instead of starting onRun", async () => {
+    await memoryStream({ runId: "org_1/user_1/conv_1/run_1" }).append([
+      {
+        type: EventType.RUN_STARTED,
+        threadId: "conv_1",
+        runId: "run_1",
+        timestamp: 0,
+      },
+    ])
     const resume = vi.fn()
     const stream = vi.fn()
     const onRun = vi.fn()
@@ -77,11 +86,12 @@ describe("workspace chat websocket resume", () => {
         new Request(
           "http://localhost:3000/acme/api/v1/conversations/conv_1?runId=run_1&offset=-1",
         ),
+        { orgId: "org_1", userId: "user_1", conversationId: "conv_1" },
         onRun,
         { resume, stream },
       ),
     ).toBe("resume")
-    expect(resume).toHaveBeenCalledTimes(1)
+    await vi.waitFor(() => expect(resume).toHaveBeenCalledTimes(1))
     expect(stream).not.toHaveBeenCalled()
     expect(onRun).not.toHaveBeenCalled()
   })
@@ -98,6 +108,7 @@ describe("workspace chat websocket resume", () => {
       startConversationChatSocket(
         socket,
         new Request("http://localhost:3000/acme/api/v1/conversations/conv_1"),
+        { orgId: "org_1", userId: "user_1", conversationId: "conv_1" },
         onRun,
         { resume, stream },
       ),

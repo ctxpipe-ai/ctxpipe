@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/Button"
 import { FloatingPanel } from "./FloatingPanel"
 
 /** Product guide: Using the app → Knowledge graph */
-export const KNOWLEDGE_GRAPH_DOCS_URL =
+const KNOWLEDGE_GRAPH_DOCS_URL =
   "https://docs.ctxpipe.ai/docs/using-the-app/knowledge-graph"
 
 type KnowledgeGraphIntroCalloutProps = {

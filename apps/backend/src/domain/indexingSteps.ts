@@ -24,7 +24,7 @@ export type BaseStepKey = (typeof BASE_STEP_KEYS)[number]
 export type IndexingStepKey = BaseStepKey | `scip:${string}`
 
 /** Badge word shown in the UI status pill. */
-export type BadgeWord =
+type BadgeWord =
   | "queued"
   | "resolving"
   | "cloning"
@@ -78,7 +78,7 @@ export function buildIndexingChecklist(
   return result
 }
 
-export interface IndexingStepResolution {
+interface IndexingStepResolution {
   /** 1-based step index (position in the checklist). */
   step: number
   /** Total steps for this run. */

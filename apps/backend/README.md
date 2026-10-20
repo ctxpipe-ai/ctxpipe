@@ -18,7 +18,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 - API contracts: `@hono/zod-openapi` + Zod
 - Auth: Better Auth
 - DB: PostgreSQL + Drizzle ORM
-- Orchestration: OpenWorkflow + LangGraph
+- Orchestration: OpenWorkflow
 - Testing: Vitest
 
 ## API & endpoints
@@ -119,6 +119,10 @@ The GitHub App must be subscribed to `push` webhook events on connected reposito
 
 For **local development**, GitHub cannot deliver webhooks to `localhost`; use an HTTPS tunnel (for example Cloudflare Tunnel, ngrok, or Tailscale Funnel), register the forwarded URL with your GitHub App, and ensure it reaches `POST …/api/v1/webhook/github`.
 
+## Contract tests
+
+Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI` pointing to disposable development services. The lane checks PostgreSQL, a writable FalkorDB graph, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. CI provisions PostgreSQL and a pinned FalkorDB image. Native graph contracts create scoped ACL users and delete their own tenant graphs, so their FalkorDB test connection needs ACL administration permissions.
+
 ## Scripts (this package)
 
 | Script | Description |
@@ -141,7 +145,6 @@ For **local development**, GitHub cannot deliver webhooks to `localhost`; use an
 - `src/mcp` – MCP tools and server integration
 - `src/db` – schema and database access
 - `src/openworkflow` – ingestion and sync workflows
-- `src/graphs` – LangGraph pipelines
 
 ## Licence
 

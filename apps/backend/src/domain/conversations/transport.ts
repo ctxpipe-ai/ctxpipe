@@ -27,7 +27,7 @@ export type ConversationChatRequest = {
   runId?: string
 }
 
-export type StreamInput = {
+type StreamInput = {
   conversationId: string
   checkpointNamespace: string
   prompt: string
@@ -138,7 +138,7 @@ export function workspaceChatStreamResponse(
   )
 }
 
-export const CONVERSATION_UI_MESSAGES_TIMEOUT_MS = 5_000
+const CONVERSATION_UI_MESSAGES_TIMEOUT_MS = 5_000
 
 export class ConversationUiMessagesTimeoutError extends Error {
   readonly conversationId: string
@@ -169,7 +169,7 @@ export async function withConversationLoadDeadline<T>(
   }
 }
 
-export async function loadConversationUiMessages(input: {
+async function loadConversationUiMessages(input: {
   conversationId: string
   checkpointNamespace: string
   workspaceId?: string | null
@@ -203,7 +203,7 @@ export async function loadConversationUiMessagesBounded(input: {
   )
 }
 
-export function textFromMessagePart(part: unknown): string {
+function textFromMessagePart(part: unknown): string {
   if (!part || typeof part !== "object") return ""
   const record = part as { type?: unknown; content?: unknown; text?: unknown }
   if (record.type !== "text") return ""
@@ -216,7 +216,7 @@ export function textFromMessagePart(part: unknown): string {
   return ""
 }
 
-export function toPromptFromIncomingMessage(message: {
+function toPromptFromIncomingMessage(message: {
   content?: unknown
   parts?: unknown[]
 }): string {

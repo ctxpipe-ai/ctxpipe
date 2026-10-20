@@ -17,7 +17,7 @@ import { isWorkflowControlSignal } from "./isSleepSignal.js"
 import { scheduleEnsureWorkerRunning } from "./railway-wake.js"
 import { repositoryIngestionOrchestrator } from "./workflows/repository-ingestion-orchestrator.js"
 
-export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
+type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
   afterRequestId?: string
   /**
    * Ignore the last ingested commit: codesearch runs in full mode and the
@@ -29,7 +29,7 @@ export type RepositoryIngestionEnqueueInput = RepositoryIngestionIntent & {
   githubConnectionId?: string | null
 }
 
-export type ConnectorRepositoryIngestionInput = Omit<
+type ConnectorRepositoryIngestionInput = Omit<
   RepositoryIngestionEnqueueInput,
   "githubConnectionId"
 >
@@ -85,9 +85,6 @@ export async function enqueueRepositoryIngestionWorkflow(
   return { workflowRunId }
 }
 
-/** Parent callbacks await durable admission, while OpenWorkflow owns subsequent execution. */
-export const runRepositoryIngestionWorkflow = enqueueRepositoryIngestionWorkflow
-
 /**
  * Claim indexing, then start repository-ingestion-orchestrator as a durable
  * child via `step.runWorkflow` so the parent parks and frees its concurrency
@@ -97,7 +94,7 @@ export const runRepositoryIngestionWorkflow = enqueueRepositoryIngestionWorkflow
  * Connector syncs that must recover an uncheckpointed Git write should use
  * {@link runConnectorRepositoryIngestionWorkflow}.
  */
-export async function claimAndRunRepositoryIngestionChild(
+async function claimAndRunRepositoryIngestionChild(
   step: RepositoryIngestionChildStep,
   input: RepositoryIngestionEnqueueInput,
   log: { error: (err: Error) => void },

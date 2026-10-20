@@ -1,6 +1,6 @@
 import { IconAlertCircle, IconGitBranch, IconPencil } from "@tabler/icons-react"
 import { useMutation, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
+import { useLocation, useNavigate } from "@tanstack/react-router"
 import { type ReactNode, useEffect, useRef, useState } from "react"
 import { Heading, Link } from "react-aria-components"
 import { toast } from "sonner"
@@ -14,6 +14,7 @@ import {
   githubWebUrl,
 } from "@/features/repositories/github-web-url"
 import { WorkspaceSources } from "@/features/workspace-sources/WorkspaceSources"
+import { WORKSPACE_UPGRADES_HASH } from "@/features/workspace-upgrades/queries"
 import { WorkspaceUpgrades } from "@/features/workspace-upgrades/WorkspaceUpgrades"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
@@ -27,6 +28,7 @@ import {
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import { StatusTag } from "./StatusTag"
+import { skippedFilesFixPrompt, skippedReasonCopy } from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
@@ -91,25 +93,60 @@ function hydrateTag(status: string): {
 }
 
 /** One settings group: a hairline, a mono eyebrow, then the content. */
-function SettingsGroup(props: { eyebrow: string; children: ReactNode }) {
+function SettingsGroup(props: {
+  eyebrow: string
+  children: ReactNode
+  /** A link can land on the group: it gets the focus and scrolls into view. */
+  landing?: boolean
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    const section = ref.current
+    if (!props.landing || !section) return
+    // Scroll only the pane's own scroll area. `scrollIntoView` and a plain
+    // `focus` also scroll the outer boxes, which shifts the whole pane.
+    const scroller = section.closest<HTMLElement>("[data-settings-scroll]")
+    const toStart = () => {
+      if (!scroller) return
+      scroller.scrollTop +=
+        section.getBoundingClientRect().top -
+        scroller.getBoundingClientRect().top
+    }
+    section.focus({ preventScroll: true })
+    toStart()
+    // The groups above grow when their data loads. Keep this group in view
+    // until the user scrolls, or for a few seconds.
+    const keep = new ResizeObserver(toStart)
+    if (section.parentElement) keep.observe(section.parentElement)
+    const stop = () => keep.disconnect()
+    const timer = setTimeout(stop, 3000)
+    const events = ["wheel", "touchstart", "keydown"] as const
+    for (const event of events) window.addEventListener(event, stop)
+    return () => {
+      stop()
+      clearTimeout(timer)
+      for (const event of events) window.removeEventListener(event, stop)
+    }
+  }, [props.landing])
   return (
-    <div className="border-t border-white/[0.06] pt-4">
+    <div
+      ref={ref}
+      data-settings-group={props.eyebrow}
+      tabIndex={props.landing === undefined ? undefined : -1}
+      className="border-t border-white/[0.06] pt-4 outline-none"
+    >
       <p className="ctx-label text-muted-foreground">{props.eyebrow}</p>
       <div className="mt-6">{props.children}</div>
     </div>
   )
 }
 
-const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
-  malformed: "Front matter is not valid",
-  duplicate_repository:
-    "Repeats a linked repository or the Workspace's own repository",
-}
-
 function SkippedFilesNotice(props: {
   files: WorkspaceSkippedFile[]
   onOpenFile: (path: string) => void
+  onFixWithAgent?: (prompt: string) => void
 }) {
+  const { onFixWithAgent } = props
   const count = props.files.length
   return (
     <div className="mt-4 max-w-lg">
@@ -123,19 +160,35 @@ function SkippedFilesNotice(props: {
         </p>
         <ul className="mt-3 flex flex-col gap-2">
           {props.files.map((file) => (
-            <li key={file.path} className="min-w-0">
-              <Link
-                onPress={() => props.onOpenFile(file.path)}
-                className={cn(
-                  "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
-                  focusVisibleClassName,
-                )}
-              >
-                {file.path}
-              </Link>
-              <p className="text-xs text-amber-100/70">
-                {skippedReasonCopy[file.reason]}
-              </p>
+            <li
+              key={file.path}
+              className="flex min-w-0 items-center justify-between gap-3"
+            >
+              <div className="min-w-0">
+                <Link
+                  onPress={() => props.onOpenFile(file.path)}
+                  className={cn(
+                    "block cursor-pointer truncate rounded-md font-mono text-xs text-amber-50 underline decoration-amber-200/40 underline-offset-2 hover:decoration-amber-50",
+                    focusVisibleClassName,
+                  )}
+                >
+                  {file.path}
+                </Link>
+                <p className="text-xs text-amber-100/70">
+                  {skippedReasonCopy[file.reason]}
+                </p>
+              </div>
+              {/* Only front matter is for the agent to fix. */}
+              {onFixWithAgent && file.reason === "malformed" ? (
+                <Button
+                  variant="secondary"
+                  className="shrink-0"
+                  aria-label={`Fix ${file.path} using agent`}
+                  onPress={() => onFixWithAgent(skippedFilesFixPrompt([file]))}
+                >
+                  Fix using agent
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>
@@ -149,8 +202,11 @@ export function WorkspaceSettingsPane(props: {
   workspace: WorkspaceDetail
   /** Opens a Workspace file in the Files pane. */
   onOpenFile: (path: string) => void
+  /** Opens the Workspace chat with this prompt in the composer. */
+  onFixWithAgent?: (prompt: string) => void
 }) {
   const { orgSlug, workspace } = props
+  const hash = useLocation({ select: (location) => location.hash })
   const navigate = useNavigate()
   const queryClient = useQueryClient()
   const [displayName, setDisplayName] = useState(workspace.displayName)
@@ -299,7 +355,10 @@ export function WorkspaceSettingsPane(props: {
 
   return (
     // The pane is a container: the groups take columns when it is wide.
-    <div className="@container min-h-0 flex-1 overflow-auto">
+    <div
+      data-settings-scroll
+      className="@container min-h-0 flex-1 overflow-auto"
+    >
       <div className="mx-auto max-w-5xl px-6 py-4">
         <div className="flex items-start justify-between gap-4">
           <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
@@ -327,6 +386,9 @@ export function WorkspaceSettingsPane(props: {
           <SkippedFilesNotice
             files={workspace.skippedFiles}
             onOpenFile={props.onOpenFile}
+            {...(props.onFixWithAgent
+              ? { onFixWithAgent: props.onFixWithAgent }
+              : {})}
           />
         ) : null}
         {writeLabel.tone === "pull_request" ? (
@@ -516,14 +578,19 @@ export function WorkspaceSettingsPane(props: {
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
-              workspaceRepositoryUrl={workspace.workspaceRepositoryUrl}
             />
           </SettingsGroup>
 
-          <SettingsGroup eyebrow="Upgrades">
+          <SettingsGroup
+            eyebrow="Upgrades"
+            landing={hash === WORKSPACE_UPGRADES_HASH}
+          >
             <WorkspaceUpgrades
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
+              {...(props.onFixWithAgent
+                ? { onFixWithAgent: props.onFixWithAgent }
+                : {})}
             />
           </SettingsGroup>
 

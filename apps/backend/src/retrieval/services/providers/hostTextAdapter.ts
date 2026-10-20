@@ -17,7 +17,7 @@ export const STRUCTURED_OUTPUT_TOOL = "structured_output"
  * One provider request. With a schema, the provider forces the structured
  * output tool and `text` holds the JSON arguments of that tool call.
  */
-export type HostRequest = (
+type HostRequest = (
   options: TextOptions,
   schema?: JSONSchema,
 ) => Promise<{ text: string; usage?: TokenUsage }>

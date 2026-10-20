@@ -47,6 +47,8 @@ jobs:
           cache: pnpm
       - run: pnpm install --frozen-lockfile
       - run: pnpm lint
+      - name: Reject unused files, exports and dependencies
+        run: pnpm knip
       - run: node scripts/ci/check-workflow-credentials.mjs
       - run: node scripts/ci/check-secret-jobs.mjs
       - name: Fetch Gate 0 classification pin

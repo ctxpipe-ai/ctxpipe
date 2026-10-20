@@ -152,6 +152,26 @@ describe("dockerRootExec with a step limit", () => {
   )
 
   it(
+    "waits for a root command that writes no output for more than two minutes",
+    { timeout: 240_000 },
+    async () => {
+      // A model step sends `opencode run` through `grep`, so the exec can
+      // write nothing for minutes. A Docker client timeout of 120 s ended
+      // each model step of the CTX-630 proof runs after 120 s.
+      const provider = dockerSandbox({ image: "alpine:3.22" })
+      const handle = await provider.create({
+        id: `ingest-silent-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+      })
+      try {
+        const result = await dockerRootExec(handle.id)("sleep 125; echo done")
+        expect(result).toMatchObject({ exitCode: 0, stdout: "done\n" })
+      } finally {
+        await provider.destroy({ id: handle.id })
+      }
+    },
+  )
+
+  it(
     "does not count a zombie of the agent user whose parent never reaps it",
     { timeout: 180_000 },
     async () => {

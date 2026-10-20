@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { HttpResponse, http, type RequestHandler } from "msw"
-import { expect, userEvent, waitFor, within } from "storybook/test"
+import { delay, HttpResponse, http, type RequestHandler } from "msw"
+import { expect, fn, userEvent, waitFor, within } from "storybook/test"
 import { responseGate } from "@/components/ui/skeletonMatchStory"
 import { githubConnectorBootstrapHandler } from "@/features/connectors/mocks/github-bootstrap-msw"
 import type { Workspace, WorkspaceDetail } from "@/features/workspaces/types"
@@ -12,8 +12,10 @@ import {
   emptyLinkedWorkspaceDetail,
   failedHydrateWorkspace,
   hydratingWorkspace,
+  readOnlyWorkspaceDetail,
   waitingForTipWorkspace,
 } from "@/features/workspaces/workspace-fixtures"
+import { onboardingHandOffFlag } from "@/lib/session-flags"
 import {
   authConfigHandler,
   githubInstallationLinkedHandler,
@@ -242,6 +244,64 @@ export const GuideAdminNewOrg: Story = {
   },
 }
 
+/**
+ * The step that connects the agents of the user is one of the main steps,
+ * not under "More". Its copy button copies the setup command for this
+ * origin. Storybook does not run on the hosted origin, so the command has
+ * `--base-url`.
+ */
+export const GuideEditorStepCopiesCommand: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(guide.getByText("Use ctx| from your agents")).toBeVisible(),
+    )
+    expect(
+      guide.getByText(/Works with Cursor, Claude Code, Codex/),
+    ).toBeVisible()
+    expect(
+      guide.queryByRole("button", { name: "More" }),
+    ).not.toBeInTheDocument()
+    const origin = window.location.origin
+    const command = `npx ctxpipe init --base-url ${origin}`
+    expect(guide.getByText(command)).toBeVisible()
+    expect(guide.getByTitle(command)).toBeInTheDocument()
+    expect(guide.queryByText(`${origin}/mcp`)).not.toBeInTheDocument()
+    expect(guide.queryByText(/MCP server URL/)).not.toBeInTheDocument()
+    expect(guide.getByRole("link", { name: "Setup guide" })).toHaveAttribute(
+      "href",
+      "https://docs.ctxpipe.ai/docs/mcp/mcp-docs",
+    )
+
+    const writeText = fn(async (_text: string) => {})
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    })
+    await userEvent.click(
+      guide.getByRole("button", { name: "Copy setup command" }),
+    )
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith(command))
+    await waitFor(() =>
+      expect(
+        guide.getByRole("button", { name: "Setup command copied" }),
+      ).toBeVisible(),
+    )
+  },
+}
+
 /** GitHub is connected and the first Workspace still builds. */
 export const GuideAdminWorkspaceBuilding: Story = {
   parameters: {
@@ -338,6 +398,60 @@ export const GuideAdminWorkspaceBuildFailed: Story = {
   },
 }
 
+/**
+ * The state of the Add Workspace overlay and modal, for the message of a
+ * failed wait (CTX-873). The ancestors of the dialog are the React Aria modal
+ * and its overlay. `donePresses` counts the clicks on Done that reached the
+ * button. `data-exiting` shows that Done reached `onDone`, because only a
+ * close sets it.
+ */
+function describeExit(
+  dialogElement: HTMLElement,
+  donePresses: number,
+  doc: Document,
+) {
+  const chain: HTMLElement[] = []
+  for (
+    let node: HTMLElement | null = dialogElement;
+    node && node !== doc.body;
+    node = node.parentElement
+  ) {
+    chain.push(node)
+  }
+  const elements = chain.map((node) => {
+    const style = getComputedStyle(node)
+    return {
+      tag: node.tagName.toLowerCase(),
+      role: node.getAttribute("role"),
+      inDom: node.isConnected,
+      exiting: node.getAttribute("data-exiting"),
+      entering: node.getAttribute("data-entering"),
+      animationName: style.animationName,
+      animationPlayState: style.animationPlayState,
+      animations: node.getAnimations().map((animation) => ({
+        name: "animationName" in animation ? animation.animationName : null,
+        state: animation.playState,
+        currentTime: animation.currentTime,
+      })),
+    }
+  })
+  return JSON.stringify(
+    {
+      donePresses,
+      dialogInDom: dialogElement.isConnected,
+      documentAnimations: doc.getAnimations().map((animation) => ({
+        target:
+          (animation.effect as KeyframeEffect | null)?.target?.tagName ?? null,
+        state: animation.playState,
+        currentTime: animation.currentTime,
+      })),
+      elements,
+    },
+    null,
+    2,
+  )
+}
+
 const createState = { created: false }
 const workspacesPath = ({ request }: { request: Request }) =>
   /\/api\/v1\/workspaces$/.test(new URL(request.url).pathname)
@@ -406,12 +520,46 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
     // Step 2 has settled when its sources show. Before that, the card above
     // Done still changes height, and a click can land on a button that moves.
     await dialog.findByRole("button", { name: "Add repositories" })
-    await userEvent.click(dialog.getByRole("button", { name: "Done" }))
-    await waitFor(() =>
-      expect(
-        body.queryByRole("dialog", { name: "Add Workspace" }),
-      ).not.toBeInTheDocument(),
-    )
+    const dialogElement = body.getByRole("dialog", { name: "Add Workspace" })
+    const doc = canvasElement.ownerDocument
+    let donePresses = 0
+    const countDone = (event: Event) => {
+      if (
+        event.target instanceof Element &&
+        event.target.closest("button")?.textContent === "Done" &&
+        dialogElement.contains(event.target)
+      ) {
+        donePresses += 1
+      }
+    }
+    doc.addEventListener("click", countDone, true)
+    try {
+      await userEvent.click(dialog.getByRole("button", { name: "Done" }))
+      // The create call has invalidated the list, so the guide behind the
+      // modal shows the finished step. Then only the exit animation is left.
+      const settled = await findGuide(canvasElement)
+      await waitFor(() =>
+        expect(settled.getByText("2 of 6 done")).toBeVisible(),
+      )
+      try {
+        // The slow step is the CSS exit animation of the modal and overlay:
+        // React Aria unmounts them when `animation.finished` resolves.
+        await waitFor(
+          () =>
+            expect(
+              body.queryByRole("dialog", { name: "Add Workspace" }),
+            ).not.toBeInTheDocument(),
+          { timeout: 3000 },
+        )
+      } catch (error) {
+        throw new Error(
+          `Add Workspace did not leave 3 s after Done. The slow step is the exit animation of the modal and overlay. State: ${describeExit(dialogElement, donePresses, doc)}`,
+          { cause: error },
+        )
+      }
+    } finally {
+      doc.removeEventListener("click", countDone, true)
+    }
     // Home stays, and the guide shows the build of the new Workspace.
     const after = await findGuide(canvasElement)
     await waitFor(() => expect(after.getByText("2 of 6 done")).toBeVisible())
@@ -420,6 +568,303 @@ export const GuideAdminCreatesWorkspaceOnHome: Story = {
         after.getByText("Reading the Workspace repository."),
       ).toBeVisible(),
     )
+  },
+}
+
+const linkState = { opened: false }
+const sourcesPath = ({ request }: { request: Request }) =>
+  /\/api\/v1\/workspaces\/[^/]+\/sources$/.test(new URL(request.url).pathname)
+/**
+ * "Link repositories" opens Add repositories on Home, with focus in the
+ * dialog. After the pull request, the row shows "Awaiting merge" (CTX-864).
+ */
+export const GuideAdminLinksRepositoriesOnHome: Story = {
+  beforeEach: () => {
+    linkState.opened = false
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          ...adminGuide({
+            github: githubInstallationLinkedHandler,
+            connectors: orgConnectionsHandler([
+              { id: "con_gh", type: "github", displayName: "acme" },
+            ]),
+            detail: emptyLinkedWorkspaceDetail,
+          }),
+          http.get(sourcesPath, () =>
+            HttpResponse.json(
+              workspaceSourceList(
+                linkState.opened
+                  ? {
+                      pendingChanges: [
+                        {
+                          path: "sources/github/acme/api.md",
+                          provider: "github",
+                          action: "add",
+                          pullRequestUrl: "https://github.com/acme/docs/pull/9",
+                          createdAt: "2026-10-18T00:00:00.000Z",
+                        },
+                      ],
+                    }
+                  : {},
+              ),
+            ),
+          ),
+          http.post(sourcesPath, () => {
+            linkState.opened = true
+            return HttpResponse.json({
+              outcome: "pull_request",
+              path: "sources/github/acme/api.md",
+              pullRequestUrl: "https://github.com/acme/docs/pull/9",
+            })
+          }),
+          githubInstallationReposHandler([
+            {
+              name: "api",
+              clone_url: "https://github.com/acme/api.git",
+              full_name: "acme/api",
+            },
+          ]),
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          orgActivityHandler(),
+          ...workspaceShellHandlers({
+            workspaces: [quietWorkspace],
+            detail: emptyLinkedWorkspaceDetail,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+    await userEvent.click(
+      guide.getByRole("button", { name: "Link repositories" }),
+    )
+    const body = within(canvasElement.ownerDocument.body)
+    const dialog = await body.findByRole("dialog", { name: "Add repositories" })
+    // Focus goes into the dialog, not to the composer.
+    await waitFor(() =>
+      expect(dialog.contains(canvasElement.ownerDocument.activeElement)).toBe(
+        true,
+      ),
+    )
+    await userEvent.click(
+      await within(dialog).findByRole("checkbox", { name: "acme/api" }),
+    )
+    await userEvent.click(
+      within(dialog).getByRole("button", { name: "Open a pull request" }),
+    )
+    await waitFor(() =>
+      expect(
+        body.queryByRole("dialog", { name: "Add repositories" }),
+      ).not.toBeInTheDocument(),
+    )
+    // Home stays, and the row shows the pull request that waits.
+    const after = await findGuide(canvasElement)
+    await waitFor(() =>
+      expect(
+        after.getByRole("link", { name: /^Awaiting merge/ }),
+      ).toHaveAttribute("href", "https://github.com/acme/docs/pull/9"),
+    )
+    await expect(after.getByText("2 of 6 done")).toBeVisible()
+  },
+}
+
+/**
+ * The handlers of a Home guide whose Workspace cannot take repositories. The
+ * list of GitHub repositories answers too, so a missing gate would show it.
+ */
+function repositoriesGateHandlers(input: {
+  detail: WorkspaceDetail
+  canEdit: boolean
+  formatVersion: number
+  /** False: the org has no GitHub connection. */
+  connected?: boolean
+}) {
+  return [
+    ...adminGuide({
+      github: githubInstallationLinkedHandler,
+      connectors: orgConnectionsHandler(
+        input.connected === false
+          ? []
+          : [{ id: "con_gh", type: "github", displayName: "acme" }],
+      ),
+      detail: input.detail,
+    }),
+    http.get(sourcesPath, () =>
+      HttpResponse.json(workspaceSourceList({ canEdit: input.canEdit })),
+    ),
+    workspaceUpgradesHandler(
+      upgradesFixture([], { formatVersion: input.formatVersion }),
+    ),
+    githubInstallationReposHandler([
+      {
+        name: "api",
+        clone_url: "https://github.com/acme/api.git",
+        full_name: "acme/api",
+      },
+    ]),
+    orgActivityHandler(),
+    ...workspaceShellHandlers({
+      workspaces: [quietWorkspace],
+      detail: input.detail,
+    }),
+  ]
+}
+
+async function openLinkRepositories(canvasElement: HTMLElement) {
+  const guide = await findGuide(canvasElement)
+  await waitFor(() => expect(guide.getByText("2 of 6 done")).toBeVisible())
+  await userEvent.click(
+    guide.getByRole("button", { name: "Link repositories" }),
+  )
+  return within(
+    await within(canvasElement.ownerDocument.body).findByRole("dialog", {
+      name: "Add repositories",
+    }),
+  )
+}
+
+/**
+ * A read-only Workspace: the dialog gives the reason and the next step, and
+ * it offers no list and no pull request (CTX-865).
+ */
+export const GuideRepositoriesReadOnlyShowsReason: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: readOnlyWorkspaceDetail,
+          canEdit: false,
+          formatVersion: 3,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText("The GitHub App cannot write to this repository.")
+    await dialog.findByRole("button", { name: "Open Workspace settings" })
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: "acme/api" }),
+      ).not.toBeInTheDocument(),
+    )
+    await expect(
+      dialog.queryByRole("button", { name: "Open a pull request" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * A Workspace below format 2: the dialog says to upgrade first and offers the
+ * way to the upgrades, as Add Workspace step 2 does (CTX-865).
+ */
+export const GuideRepositoriesNeedUpgradeFirst: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: emptyLinkedWorkspaceDetail,
+          canEdit: true,
+          formatVersion: 1,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText(
+      "Upgrade this Workspace before you add repositories",
+    )
+    await dialog.findByRole("button", { name: "Review upgrades" })
+    await waitFor(() =>
+      expect(
+        dialog.queryByRole("checkbox", { name: "acme/api" }),
+      ).not.toBeInTheDocument(),
+    )
+    await expect(
+      dialog.queryByRole("button", { name: "Open a pull request" }),
+    ).not.toBeInTheDocument()
+  },
+}
+
+/** No GitHub connection yet: the dialog links to the Connectors page. */
+export const GuideRepositoriesWithoutConnectionLinksToConnectors: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: repositoriesGateHandlers({
+          detail: emptyLinkedWorkspaceDetail,
+          canEdit: true,
+          formatVersion: 3,
+          connected: false,
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByRole("link", {
+      name: "Connect GitHub on the Connectors page first.",
+    })
+    await waitFor(() =>
+      expect(
+        dialog.getByRole("link", {
+          name: "Connect GitHub on the Connectors page first.",
+        }),
+      ).toHaveAttribute("href", "/acme/connectors"),
+    )
+  },
+}
+
+let connectionReads = 0
+
+/** The connections load fails: the dialog shows Retry, not "connect first". */
+export const GuideRepositoriesConnectionsFailedShowsRetry: Story = {
+  beforeEach: () => {
+    connectionReads = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(1),
+        page: [
+          // The guide reads the list first and gets no connection. The
+          // dialog reads it again and the read fails.
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            () => {
+              connectionReads += 1
+              return connectionReads === 1
+                ? HttpResponse.json({ items: [] })
+                : HttpResponse.json({ error: "failed" }, { status: 500 })
+            },
+          ),
+          ...repositoriesGateHandlers({
+            detail: emptyLinkedWorkspaceDetail,
+            canEdit: true,
+            formatVersion: 3,
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const dialog = await openLinkRepositories(canvasElement)
+    await dialog.findByText("Could not load the Workspace")
+    await dialog.findByRole("button", { name: "Retry" })
+    await expect(
+      dialog.queryByText("Connect GitHub on the Connectors page first."),
+    ).not.toBeInTheDocument()
   },
 }
 
@@ -588,13 +1033,13 @@ export const GuideSignalFailureKeepsHome: Story = {
   },
 }
 
-const expandedGate = responseGate()
+const loadingGate = responseGate()
 /**
- * While a signal loads, a skeleton holds the place of the expanded card, and
- * the loaded card has the same box.
+ * The guide may not show, so it holds no space while a signal loads. When the
+ * signals are ready, it appears in a view transition that moves the blocks
+ * below with transforms, never with height.
  */
-export const GuideSkeletonMatchesExpanded: Story = {
-  tags: ["workspace-golden"],
+export const GuideReservesNoSpaceWhileLoading: Story = {
   parameters: {
     msw: {
       handlers: {
@@ -604,7 +1049,7 @@ export const GuideSkeletonMatchesExpanded: Story = {
             ({ request }) =>
               new URL(request.url).pathname.endsWith("/api/v1/connectors"),
             async () => {
-              await expandedGate.wait()
+              await loadingGate.wait()
               return HttpResponse.json({ items: [] })
             },
           ),
@@ -615,56 +1060,150 @@ export const GuideSkeletonMatchesExpanded: Story = {
     },
   },
   play: async ({ canvasElement }) => {
-    await expectGuideSkeletonMatches(canvasElement, expandedGate)
+    const canvas = within(canvasElement)
+    await canvas.findByText("Loading activity")
+    expect(canvas.queryByText("Loading the setup guide")).toBeNull()
+    expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
+    await loadingGate.release()
+    const guide = await findGuide(canvasElement)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
   },
 }
 
-const collapsedGate = responseGate()
-/** After the first question the skeleton has the box of the collapsed card. */
-export const GuideSkeletonMatchesCollapsed: Story = {
+/** The activity read of Home never answers, as for a slow unrelated read. */
+const activityNeverAnswers = http.get(
+  ({ request }) => /\/api\/v1\/activity$/.test(new URL(request.url).pathname),
+  async () => {
+    await delay("infinite")
+    return HttpResponse.json({ items: [] })
+  },
+)
+
+const handOffGate = responseGate()
+/**
+ * Onboarding opened Home (CTX-868). While a guide signal loads, Home stays
+ * hidden: nothing pops in. When the first data (the Workspace list and the
+ * guide signals) is ready, Home fades in one time. A read that Home does not need for that, here
+ * the activity, does not keep Home hidden. Then the flag is gone, so a
+ * reload does not hide Home again.
+ */
+export const FadesInAfterOnboarding: Story = {
+  beforeEach: () => onboardingHandOffFlag.set(),
   parameters: {
     msw: {
       handlers: {
-        defaults: sessionDefaults(1),
-        page: homeHandlers(
-          [
-            http.get(
-              ({ request }) =>
-                new URL(request.url).pathname.endsWith("/api/v1/connectors"),
-              async () => {
-                await collapsedGate.wait()
-                return HttpResponse.json({ items: [] })
-              },
-            ),
-            ...adminGuide({ detail: docsWorkspaceDetail }),
-          ],
-          [docsWorkspace],
-        ),
+        defaults: sessionDefaults(0),
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            async () => {
+              await handOffGate.wait()
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          activityNeverAnswers,
+        ],
       },
     },
   },
   play: async ({ canvasElement }) => {
-    await expectGuideSkeletonMatches(canvasElement, collapsedGate)
+    const canvas = within(canvasElement)
+    await document.fonts.ready
+    // The page is hidden while the signal loads: it is not visible, and a
+    // control on it cannot take focus.
+    const hidden = canvasElement.querySelector(".max-w-2xl")
+    if (!hidden) throw new Error("Home has no body")
+    await waitFor(() =>
+      expect(getComputedStyle(hidden).visibility).toBe("hidden"),
+    )
+    await handOffGate.release()
+    const released = performance.now()
+    const guide = await findGuide(canvasElement)
+    // The activity read is still open. Home did not wait for it: a wait for
+    // it would last until the cap of 1 s.
+    expect(performance.now() - released).toBeLessThan(500)
+    await waitFor(() => expect(guide.getByText("0 of 6 done")).toBeVisible())
+    const loaded = canvas.getByRole("region", { name: "Get started" })
+    const body = loaded.closest(".max-w-2xl")
+    if (!body) throw new Error("Home has no body")
+    expect(getComputedStyle(body).animationName).toBe("enter")
+    expect(body).not.toHaveAttribute("aria-busy")
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
   },
 }
 
-async function expectGuideSkeletonMatches(
-  canvasElement: HTMLElement,
-  gate: ReturnType<typeof responseGate>,
-) {
-  const canvas = within(canvasElement)
-  const skeleton = await canvas.findByText("Loading the setup guide")
-  const box = (element: Element) => {
-    const { width, height } = element.getBoundingClientRect()
-    return { width: Math.round(width), height: Math.round(height) }
-  }
-  const section = skeleton.closest("section")
-  if (!section) throw new Error("The skeleton has no section")
-  const skeletonBox = box(section)
-  expect(skeletonBox.height).toBeGreaterThan(0)
-  await gate.release()
-  const loaded = await canvas.findByRole("region", { name: "Get started" })
-  expect(box(loaded)).toEqual(skeletonBox)
+/**
+ * A guide read is slow: Home does not stay hidden for ever. After 1 s it
+ * shows, without the guide, and the flag is gone.
+ */
+export const HandOffShowsHomeWhenDataIsSlow: Story = {
+  beforeEach: () => onboardingHandOffFlag.set(),
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(0),
+        page: [
+          http.get(
+            ({ request }) =>
+              new URL(request.url).pathname.endsWith("/api/v1/connectors"),
+            async () => {
+              await delay("infinite")
+              return HttpResponse.json({ items: [] })
+            },
+          ),
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = canvasElement.querySelector(".max-w-2xl")
+    if (!body) throw new Error("Home has no body")
+    await waitFor(
+      () => expect(getComputedStyle(body).visibility).toBe("visible"),
+      {
+        timeout: 5000,
+      },
+    )
+    expect(canvas.queryByRole("region", { name: "Get started" })).toBeNull()
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
+  },
+}
+
+/**
+ * The Workspace list read fails: Home does not stay blank. It shows its
+ * normal error with Retry, and the flag is gone.
+ */
+export const HandOffShowsHomeWhenReadFails: Story = {
+  beforeEach: () => onboardingHandOffFlag.set(),
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: sessionDefaults(0),
+        page: [
+          ...adminGuide({}),
+          failed("/api/v1/workspaces"),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const alert = await canvas.findByRole("alert", {}, { timeout: 5000 })
+    await waitFor(() =>
+      expect(
+        within(alert).getByText("Could not load Workspaces"),
+      ).toBeVisible(),
+    )
+    await waitFor(() => expect(onboardingHandOffFlag.isSet()).toBe(false))
+  },
 }
 
 /** A failed role query hides the guide. Home still works. */
@@ -822,5 +1361,58 @@ export const GuideMemberNoWorkspace: Story = {
         guide.queryByRole("button", { name: "Create Workspace" }),
       ).not.toBeInTheDocument(),
     )
+  },
+}
+
+const openPopup = fn()
+/**
+ * With GitHub sign-in on, Connect GitHub opens one popup that starts on the
+ * link page, with the App install (and the flow nonce) as `next`. The user
+ * does not come back to a second Connect GitHub.
+ */
+export const GuideConnectGithubOpensLinkPopup: Story = {
+  beforeEach: () => {
+    openPopup.mockClear()
+    const open = window.open
+    // A popup that stays open, so the page does not fall back to a redirect.
+    window.open = ((...args: Parameters<typeof window.open>) => {
+      openPopup(...args)
+      return { closed: false, focus: () => {} } as unknown as Window
+    }) as typeof window.open
+    return () => {
+      window.open = open
+    }
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        defaults: [
+          http.get("*/.auth/api/config", () =>
+            HttpResponse.json({ providers: ["github"] }),
+          ),
+          ...sessionDefaults(1).slice(1),
+        ],
+        page: [
+          ...adminGuide({}),
+          workspaceListHandler([]),
+          orgActivityHandler(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const guide = await findGuide(canvasElement)
+    const connect = guide.getByRole("button", { name: "Connect GitHub" })
+    // A pending button ignores a press until the flow knows its config.
+    await waitFor(() => expect(connect).not.toHaveAttribute("data-pending"))
+    await userEvent.click(connect)
+    await waitFor(() => expect(openPopup).toHaveBeenCalledTimes(1))
+    const url = new URL(String(openPopup.mock.calls[0]?.[0]), "http://app.test")
+    await expect(url.pathname).toBe("/.github/link")
+    const next = new URL(url.searchParams.get("next") ?? "")
+    await expect(`${next.origin}${next.pathname}`).toBe(
+      "https://github.com/apps/ctxpipe-agent/installations/new",
+    )
+    await expect(next.searchParams.get("state")).toBeTruthy()
   },
 }

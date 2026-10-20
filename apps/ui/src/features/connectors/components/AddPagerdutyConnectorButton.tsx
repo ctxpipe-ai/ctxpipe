@@ -5,7 +5,7 @@ import { orgConnectionsKeys } from "../queries/org-connections"
 import { startPagerdutySetup } from "../queries/pagerduty-connector"
 import { PagerdutyMark } from "./PagerdutyMark"
 
-export type AddPagerdutyConnectorButtonProps = {
+type AddPagerdutyConnectorButtonProps = {
   orgSlug: string
   onStart: (args: { connectionId?: string }) => void
 }

@@ -6,7 +6,7 @@ export type HyperDxSessionIdentity = {
   teamName: string
 }
 
-export type HyperDxGlobalAttributes = {
+type HyperDxGlobalAttributes = {
   "enduser.id": string
   "ctxpipe.org.id": string
   "ctxpipe.org.slug": string
@@ -30,7 +30,7 @@ export function hyperdxGlobalAttributes(input: {
   }
 }
 
-export type HyperDxPageViewAttributes = {
+type HyperDxPageViewAttributes = {
   "url.path": string
   route: string
 }

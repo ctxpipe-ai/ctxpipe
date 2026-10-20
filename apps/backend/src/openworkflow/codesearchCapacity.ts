@@ -5,9 +5,9 @@
  * this table (see ADR-027).
  */
 
-export type CodesearchSizeClass = "small" | "medium" | "large"
+type CodesearchSizeClass = "small" | "medium" | "large"
 
-export type CodesearchCapacity = {
+type CodesearchCapacity = {
   readonly size: CodesearchSizeClass
   readonly memoryMiB: number
   readonly indexerConcurrency: number
@@ -17,7 +17,7 @@ export type CodesearchCapacity = {
 
 export const DEFAULT_OPENWORKFLOW_CONCURRENCY = 4
 export const DEFAULT_INDEXER_CONCURRENCY = 2
-export const DEFAULT_INDEX_PIPELINE_CONCURRENCY = 2
+const DEFAULT_INDEX_PIPELINE_CONCURRENCY = 2
 
 const MIN_WORKER_CONCURRENCY = 2
 const MAX_WORKER_CONCURRENCY = 64

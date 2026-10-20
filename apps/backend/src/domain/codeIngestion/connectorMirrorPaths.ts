@@ -9,7 +9,7 @@ export const CONNECTOR_MIRROR_ROOTS = [
   "zendesk",
 ] as const
 
-export type ConnectorMirrorRoot = (typeof CONNECTOR_MIRROR_ROOTS)[number]
+type ConnectorMirrorRoot = (typeof CONNECTOR_MIRROR_ROOTS)[number]
 
 /** The connector root of a warehouse path (`linear/…` → `linear`), else null. */
 export function connectorMirrorRoot(path: string): ConnectorMirrorRoot | null {

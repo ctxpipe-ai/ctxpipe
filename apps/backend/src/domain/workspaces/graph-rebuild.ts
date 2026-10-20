@@ -24,7 +24,7 @@ type GraphOrg = { orgId: string; orgSlug: string }
  * from PostgreSQL. The graph phase goes back to pending. Only the first caller
  * for each loss starts the run.
  */
-export async function rebuildLostWorkspaceGraph(
+async function rebuildLostWorkspaceGraph(
   input: GraphOrg & { revision: WorkspaceRevision },
 ): Promise<void> {
   const { orgId, revision } = input

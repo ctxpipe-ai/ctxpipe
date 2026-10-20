@@ -2,7 +2,7 @@ import { createHmac, timingSafeEqual } from "node:crypto"
 
 const MAX_EVENT_AGE_MS = 15 * 60 * 1000
 
-export function pagerdutySignatureHeaderValues(header: string): string[] {
+function pagerdutySignatureHeaderValues(header: string): string[] {
   return header
     .split(",")
     .map((part) => part.trim())

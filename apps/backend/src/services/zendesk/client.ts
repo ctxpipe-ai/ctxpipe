@@ -9,7 +9,7 @@ import {
 import { ZendeskAuthorizationRevokedError } from "./oauth.js"
 
 /** A source keeps this many of the most recently updated tickets of a view. */
-export const ZENDESK_TICKETS_PER_VIEW = 100
+const ZENDESK_TICKETS_PER_VIEW = 100
 
 /**
  * The most bytes of one Zendesk answer. A page of 100 tickets or 100

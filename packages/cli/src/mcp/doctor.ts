@@ -1,6 +1,6 @@
-export type McpDoctorCheckStatus = "pass" | "warn" | "fail"
+type McpDoctorCheckStatus = "pass" | "warn" | "fail"
 
-export type McpDoctorCheck = {
+type McpDoctorCheck = {
   id:
     | "target"
     | "backend-status"
@@ -12,7 +12,7 @@ export type McpDoctorCheck = {
   summary: string
 }
 
-export type McpDoctorResult = {
+type McpDoctorResult = {
   status: "ready-for-oauth" | "ready-for-api-key" | "warning" | "failed"
   target: string
   checks: McpDoctorCheck[]
@@ -24,7 +24,7 @@ type FetchLike = (
   init?: RequestInit,
 ) => Promise<Response>
 
-export type DiagnoseMcpEndpointOptions = {
+type DiagnoseMcpEndpointOptions = {
   url: string
   timeoutMs?: number
   fetch?: FetchLike

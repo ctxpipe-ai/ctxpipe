@@ -40,10 +40,6 @@ export function tryGetOrgDb(): OrgDb | undefined {
   return orgDbStorage.getStore()?.db
 }
 
-export function tryGetOrgDbOrgId(): string | undefined {
-  return orgDbStorage.getStore()?.orgId
-}
-
 export function getOrgDb(): OrgDb {
   const stored = orgDbStorage.getStore()
   if (stored) return stored.db

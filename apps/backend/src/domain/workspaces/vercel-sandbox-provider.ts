@@ -175,7 +175,7 @@ export type HostedTurnCredentials = {
  * match (when the rule has a path) that sets the credential and pins the
  * `Host` header.
  */
-export function hostRules(
+function hostRules(
   rules: SandboxCredentialRule[],
 ): Record<string, NetworkPolicyRule[]> {
   const allow: Record<string, NetworkPolicyRule[]> = {}
@@ -354,8 +354,9 @@ export function conversationFirewall(
       } catch (error) {
         const state = firewalls.get(sandboxName)
         if (state) state.turn = undefined
+        // The SDK message gives only the status code; add the API's reason.
         throw new Error(
-          `Setting the sandbox firewall for this turn failed: ${String(error)}`,
+          `Setting the sandbox firewall for this turn failed: ${String(error)}${error instanceof APIError ? `: ${error.text ?? ""}` : ""}`,
         )
       }
     },
@@ -398,7 +399,7 @@ function revokeLater(
   }, GIT_TOKEN_REVOKE_GRACE_MS).unref?.()
 }
 
-export type ConversationSandboxAccess = {
+type ConversationSandboxAccess = {
   /** Mints a fresh read token for the Workspace (never a cached one). */
   mintGitToken: () => Promise<string>
   /**

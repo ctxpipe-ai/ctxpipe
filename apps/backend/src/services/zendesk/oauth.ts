@@ -13,7 +13,7 @@ import { readBoundedJson } from "../connectors/bounded-json.js"
  * The scopes that ctx| asks for (ADR-054): read Help Center, tickets,
  * views, and users, and manage the one webhook that ctx| creates.
  */
-export const ZENDESK_OAUTH_SCOPES = [
+const ZENDESK_OAUTH_SCOPES = [
   "hc:read",
   "tickets:read",
   "ticket_views:read",
@@ -45,7 +45,7 @@ const stateSchema = z.object({
   userId: z.string().min(1),
   connectionId: z.string().min(1),
 })
-export type ZendeskOAuthState = z.infer<typeof stateSchema>
+type ZendeskOAuthState = z.infer<typeof stateSchema>
 
 const sign = (payload: string, secret: string) =>
   createHmac("sha256", secret).update(payload).digest("base64url")
@@ -164,7 +164,7 @@ export function zendeskAuthorizeUrl(input: {
   return url.toString()
 }
 
-export type ZendeskTokens = {
+type ZendeskTokens = {
   accessToken: string
   refreshToken: string | null
   accessTokenExpiresAt: string | null

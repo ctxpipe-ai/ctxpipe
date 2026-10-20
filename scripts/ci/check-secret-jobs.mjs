@@ -103,10 +103,14 @@ const exceptions = new Map(
     // spend-capped CI key, not the production key.
     "mcp-evals.yaml:evals": ["MODEL_PROVIDER_API_KEY"],
     // Ingests real repositories with a real model and the preview GitHub App.
+    // INGEST_PROOF_* hold the private test repository URLs, no credential:
+    // a secret keeps them out of the public log.
     "ingestion-v2-proof.yaml:proof": [
       "MODEL_PROVIDER_API_KEY",
       "GH_APP_ID",
       "GH_PRIVATE_KEY",
+      "INGEST_PROOF_REPOS",
+      "INGEST_PROOF_WORKSPACE_REPO",
     ],
   }),
 )

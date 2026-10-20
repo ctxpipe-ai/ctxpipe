@@ -236,7 +236,7 @@ export async function getLinearConnectionByConnectionId(
 export const MULTIPLE_LINEAR_CONNECTIONS_MESSAGE =
   "Multiple Linear connections for this organization; specify connectionId query parameter"
 
-export type ResolveLinearConnectionResult =
+type ResolveLinearConnectionResult =
   | { status: "ok"; connection: LinearConnection }
   | { status: "none" }
   | { status: "ambiguous" }
@@ -281,7 +281,7 @@ export function isEmptyLinearSetupDraft(
   )
 }
 
-export type UpsertLinearDraftResult =
+type UpsertLinearDraftResult =
   | { status: "ok"; connection: LinearConnection }
   | { status: "ambiguous" }
 
@@ -915,14 +915,6 @@ export async function withLinearBindingSnapshot<T>(
   return result
 }
 
-export async function getLinearBindingByConnectionId(
-  connectionId: string,
-): Promise<LinearBinding | undefined> {
-  const row = await loadConnectionViaDirectory(connectionId)
-  if (row?.type !== CONNECTION_TYPE_LINEAR) return undefined
-  return row ? bindingFromConnectionRow(row) : undefined
-}
-
 export async function listLinearBindingsWithRepoByRepositoryId(
   orgId: string,
   repositoryId: string,
@@ -1170,50 +1162,6 @@ export async function patchLinearConnectorConfig(input: {
       supersededConfigRepositoryId,
     }
   })
-}
-
-export async function updateLinearBindingPrState(input: {
-  connectionId: string
-  pendingConfigPullUrl: string | null
-  pendingConfigPrCreating: boolean
-  setupPhase: LinearSetupPhase
-}): Promise<void> {
-  const directoryRow = await getConnectionDirectoryByConnectionId(
-    input.connectionId,
-  )
-  if (!directoryRow) return
-  const updated = await withOrgDbContext(directoryRow.orgId, async (tx) => {
-    await tx.execute(
-      sql`select pg_advisory_xact_lock(hashtextextended(${input.connectionId}, 0))`,
-    )
-    const [row] = await tx
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, input.connectionId),
-          eq(connections.type, CONNECTION_TYPE_LINEAR),
-        ),
-      )
-      .limit(1)
-    if (!row) return
-    const [result] = await tx
-      .update(connections)
-      .set({
-        config: mergeLinearStoredConfig(row, {
-          pendingConfigPullUrl: input.pendingConfigPullUrl,
-          pendingConfigPrCreating: input.pendingConfigPrCreating,
-          setupPhase: input.setupPhase,
-        }),
-        updatedAt: new Date(),
-      })
-      .where(eq(connections.id, input.connectionId))
-      .returning()
-    if (!result)
-      throw new Error("Linear connection was removed during PR state update")
-    return result
-  })
-  if (updated) await upsertConnectionDirectory(updated)
 }
 
 export async function transitionLinearBindingState(input: {

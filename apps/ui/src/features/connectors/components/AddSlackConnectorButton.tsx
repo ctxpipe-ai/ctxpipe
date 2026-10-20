@@ -2,7 +2,7 @@
 
 import { IconBrandSlack } from "@tabler/icons-react"
 
-export type AddSlackConnectorButtonProps = {
+type AddSlackConnectorButtonProps = {
   orgSlug: string
   /** Open the setup dialog from the parent page so it outlives the catalog modal. */
   onOpenSetup: () => void

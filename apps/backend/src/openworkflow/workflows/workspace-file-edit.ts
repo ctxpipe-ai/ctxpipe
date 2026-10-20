@@ -7,6 +7,11 @@ import {
   workspaceRevisionSchema,
 } from "../../domain/workspaces/revision.js"
 import {
+  readWorkspaceFormat,
+  WORKSPACE_FORMAT_PATH,
+  withWorkspaceFormatFields,
+} from "../../domain/workspaces/workspace-format.js"
+import {
   attemptWorkspaceCommit,
   captureSemanticHandoff,
   publishWorkspaceWriteRevision,
@@ -98,9 +103,13 @@ export const workspaceFileEdit = defineWorkflow(
           }),
         )
         // Planning refuses host-only paths too, but a job queued or paused
-        // before that check can still resume here (CTX-722).
+        // before that check can still resume here (CTX-722). The one host
+        // write is the upgrade setting in the format file (Always update):
+        // the transform below keeps the format of the tree.
         const refusal = hostOnlyRefusal([
-          ...input.files.map((file) => file.path),
+          ...input.files
+            .map((file) => file.path)
+            .filter((path) => path !== WORKSPACE_FORMAT_PATH),
           ...input.deletePaths,
         ])
         if (refusal) {
@@ -145,8 +154,27 @@ export const workspaceFileEdit = defineWorkflow(
                   await readGitFiles(acquired.pack, (path) => named.has(path))
                 ).map((file) => [file.path, file.content]),
               )
+              // The format file changes only in its upgrade setting: a merged
+              // upgrade pull request can have changed the format after the
+              // job was queued.
+              const files = input.files.map((file) => {
+                if (file.path !== WORKSPACE_FORMAT_PATH) return file
+                const requested = readWorkspaceFormat(file.content)
+                const content =
+                  requested.kind === "format"
+                    ? withWorkspaceFormatFields(
+                        existing.get(file.path) ?? null,
+                        { upgrades: requested.upgrades },
+                      )
+                    : null
+                if (content === null)
+                  throw new Error(
+                    `${WORKSPACE_FORMAT_PATH} is not valid. ctx| cannot change its upgrade setting.`,
+                  )
+                return { path: file.path, content }
+              })
               return {
-                files: input.files.filter(
+                files: files.filter(
                   (file) => existing.get(file.path) !== file.content,
                 ),
                 deletePaths: input.deletePaths.filter((path) =>

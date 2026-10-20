@@ -11,7 +11,7 @@ import { isEmptyLinearSetupDraft } from "./linear-connector.js"
 import { isEmptyNotionSetupDraft } from "./notion-connector.js"
 import { isEmptyPagerdutySetupDraft } from "./pagerduty-connector.js"
 
-export type OrgConnectionListItem = {
+type OrgConnectionListItem = {
   id: string
   type: ConnectionType
   /** The account, site, or workspace name that the provider gives. */
@@ -31,7 +31,7 @@ const DISPLAY_NAME_KEYS: Record<ConnectionType, readonly string[]> = {
 }
 
 /** Read only the non-secret name keys of a connection config. */
-export function connectionDisplayName(
+function connectionDisplayName(
   type: ConnectionType,
   config: unknown,
 ): string | null {

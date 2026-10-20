@@ -4,7 +4,6 @@ import {
   chat,
   defineChatMiddleware,
   type ModelMessage,
-  modelMessagesToUIMessages,
   type StreamChunk,
   type UIMessage,
 } from "@tanstack/ai"
@@ -70,11 +69,7 @@ import { openDockerRunVault } from "./docker-run-vault.js"
 import { hostedSandboxAccess } from "./hosted-sandbox-access.js"
 import { adaptTanstackHandle, SANDBOX_GIT_GUARD } from "./job-sandbox.js"
 import type { JobSandboxHandle } from "./job-worktree.js"
-import {
-  createDeltaMasker,
-  maskCredentials,
-  maskCredentialsDeep,
-} from "./mask-credentials.js"
+import { createChunkMasker, maskCredentials } from "./mask-credentials.js"
 import { type WorkspaceRevision, workspaceRevisionSchema } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import { recordedRunGitToken, revokeRunGitTokens } from "./run-git-tokens.js"
@@ -115,10 +110,8 @@ import { sandboxAgentImage } from "./workspace-base-providers.js"
 import {
   conversationRenameChunk,
   type WorkspaceChatWireFormat,
-  workspaceChatHttpResponse,
   workspaceChatRunStartedChunk,
   workspaceChatSandboxSetupChunk,
-  workspaceChatWireFormat,
 } from "./workspace-chat-agui.js"
 import {
   sandboxCallbackHost,
@@ -137,6 +130,7 @@ import {
   messagesForOpenCodeChat,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
+import { loadWorkspaceChatOrientation } from "./workspace-chat-orientation.js"
 import {
   beginWorkspaceChatTurn,
   finishWorkspaceChatTurn,
@@ -202,8 +196,6 @@ export type TanstackWorkspaceChatInput = {
   resolveRuntime?: () => Promise<Partial<TanstackWorkspaceChatInput>>
   wireFormat?: WorkspaceChatWireFormat
 }
-
-export { conversationRenameChunk } from "./workspace-chat-agui.js"
 
 /** Counters for contract tests: how often a sandbox was ensured. */
 export const workspaceChatDockerOwnership = {
@@ -380,64 +372,6 @@ export async function* streamTanstackWorkspaceChat(
   }
 }
 
-type TextDeltaChunk = Extract<
-  StreamChunk,
-  { type: "TEXT_MESSAGE_CONTENT" | "REASONING_MESSAGE_CONTENT" }
->
-
-/**
- * Masks credentials in a run's chunks. Text and reasoning arrive in small
- * deltas, so a credential can cross two of them: each message holds back a
- * tail until its end, the end of the run, or a run error.
- */
-function credentialMaskedChunks() {
-  const open = new Map<
-    string,
-    { masker: ReturnType<typeof createDeltaMasker>; last: TextDeltaChunk }
-  >()
-  const textChunk = (last: TextDeltaChunk, delta: string): StreamChunk => {
-    // The accumulated `content` is not sent; only the delta is.
-    const { content: _content, ...rest } = last as TextDeltaChunk & {
-      content?: string
-    }
-    return { ...rest, delta } as StreamChunk
-  }
-  const flush = (messageId?: string): StreamChunk[] => {
-    const ids = messageId === undefined ? [...open.keys()] : [messageId]
-    return ids.flatMap((id) => {
-      const entry = open.get(id)
-      open.delete(id)
-      const delta = entry?.masker.flush()
-      return entry && delta ? [textChunk(entry.last, delta)] : []
-    })
-  }
-  return (chunk: StreamChunk): StreamChunk[] => {
-    if (
-      chunk.type === "TEXT_MESSAGE_CONTENT" ||
-      chunk.type === "REASONING_MESSAGE_CONTENT"
-    ) {
-      const key = `${chunk.type}:${chunk.messageId}`
-      const entry = open.get(key) ?? {
-        masker: createDeltaMasker(),
-        last: chunk,
-      }
-      entry.last = chunk
-      open.set(key, entry)
-      const delta = entry.masker.push(chunk.delta)
-      return delta ? [textChunk(chunk, delta)] : []
-    }
-    const flushed =
-      chunk.type === "TEXT_MESSAGE_END"
-        ? flush(`TEXT_MESSAGE_CONTENT:${chunk.messageId}`)
-        : chunk.type === "REASONING_MESSAGE_END"
-          ? flush(`REASONING_MESSAGE_CONTENT:${chunk.messageId}`)
-          : chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR"
-            ? flush()
-            : []
-    return [...flushed, maskCredentialsDeep(chunk)]
-  }
-}
-
 async function* streamTanstackWorkspaceChatBody(
   input: TanstackWorkspaceChatInput,
   turnId: string,
@@ -457,7 +391,7 @@ async function* streamTanstackWorkspaceChatBody(
   let titleStarted = false
   let titleName: string | null = null
   yield workspaceChatSandboxSetupChunk("ready")
-  const masked = credentialMaskedChunks()
+  const masked = createChunkMasker()
   for await (const chunk of prepared.stream) {
     const typed = chunk as StreamChunk
     if (typed.type === "RUN_STARTED") {
@@ -484,8 +418,9 @@ async function* streamTanstackWorkspaceChatBody(
     )
       markWorkspaceChatFirstShownToken(turnId)
     // Tool arguments, tool output and model text can repeat a credential.
-    yield* masked(typed)
+    yield* masked.push(typed)
   }
+  yield* masked.end()
 }
 
 /** Conversations that have a title call in flight in this process. */
@@ -564,15 +499,6 @@ async function requestBaseBuild(
       workspaceId,
     })
   }
-}
-
-export async function runTanstackWorkspaceChat(
-  input: TanstackWorkspaceChatInput,
-): Promise<Response> {
-  return workspaceChatHttpResponse(
-    streamTanstackWorkspaceChat(input),
-    input.wireFormat ?? workspaceChatWireFormat(new Request("http://local")),
-  )
 }
 
 function sandboxEnsureContext(
@@ -692,6 +618,21 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
   const cloneLabel = `clone:${input.runId ?? randomUUID()}`
   const built = await buildWorkspaceChatSandbox(input, cloneLabel)
   if (!built.ok) return built
+  // Read in parallel with the sandbox setup; the agent gets it as a system
+  // prompt. A failed read only leaves the orientation out.
+  const orientation = loadWorkspaceChatOrientation({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    rootPath: workspaceRootPath(built.revision),
+  }).catch((error: unknown) => {
+    log.warn({
+      step: "workspace-chat-orientation",
+      message: `The Workspace orientation read failed: ${String(error)}`,
+      conversationId: input.conversationId,
+    })
+    return undefined
+  })
+  let orientationPrompt: string | undefined
   let activeSandbox: SandboxHandle | undefined
   const runtime = workspaceChatRuntimeConfig({
     writeStatus: input.writeStatus,
@@ -947,37 +888,48 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
                 conversationId: input.conversationId,
                 desired: built.revision,
               })
+            orientationPrompt = await orientation
           })
         },
         onConfig(_ctx, config) {
           const rootPath = workspaceRootPath(built.revision)
           // The push refuses a change outside the root folder; this tells the agent first.
-          const rootPrompts = rootPath
-            ? [
-                JSON.stringify({
-                  type: "workspace_root_folder",
-                  rootPath,
-                  instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
-                }),
-              ]
-            : []
-          if (!revisionConflict)
-            return rootPrompts.length
-              ? { systemPrompts: [...config.systemPrompts, ...rootPrompts] }
-              : undefined
-          return {
-            systemPrompts: [
-              ...config.systemPrompts,
-              ...rootPrompts,
-              JSON.stringify({
-                type: "workspace_revision_conflict",
-                effectiveSha: revisionConflict.sha,
-                desiredSha: built.revision.sha,
-                instructions:
-                  "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
-              }),
-            ],
-          }
+          // The orientation follows: it changes only with the revision, so
+          // the prompt cache keeps it across turns.
+          const rootPrompts = [
+            ...(rootPath
+              ? [
+                  JSON.stringify({
+                    type: "workspace_root_folder",
+                    rootPath,
+                    instructions: `The Workspace is the folder ${rootPath}/ of this repository. Read and change files only below it. Do not change, add, or delete a file outside it: ctx| refuses to push such a commit.`,
+                  }),
+                ]
+              : []),
+            ...(orientationPrompt ? [orientationPrompt] : []),
+          ]
+          const prompts = [
+            ...rootPrompts,
+            ...(revisionConflict
+              ? [
+                  JSON.stringify({
+                    type: "workspace_revision_conflict",
+                    effectiveSha: revisionConflict.sha,
+                    desiredSha: built.revision.sha,
+                    instructions:
+                      "Keep the current branch. Publishing is blocked until it is rebased onto desiredSha. Inspect Git status and saved stashes before repairing. An interrupted update is recorded at .git/ctxpipe-revision-transition; after recovering its saved edits and resolving the rebase, remove that marker so the next turn can move to the new commit. Never discard saved edits without the user's request.",
+                  }),
+                ]
+              : []),
+          ]
+          // TanStack calls onConfig at the start and again before each model
+          // call: add each prompt once.
+          const missing = prompts.filter(
+            (prompt) => !config.systemPrompts.includes(prompt),
+          )
+          return missing.length
+            ? { systemPrompts: [...config.systemPrompts, ...missing] }
+            : undefined
         },
       }),
       defineChatMiddleware({
@@ -1514,10 +1466,4 @@ export async function conversationHasStoredTurns(
   if (persisted.length > 0) return true
   const turns = await loadConversationTurns(conversationId)
   return turns.length > 0
-}
-
-export function conversationUiMessagesFromModelMessages(
-  messages: Parameters<typeof modelMessagesToUIMessages>[0],
-) {
-  return modelMessagesToUIMessages(messages)
 }

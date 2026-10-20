@@ -5,7 +5,7 @@ import type {
   ConversationTurnChanges,
 } from "./types"
 
-export type ChangedFolder = {
+type ChangedFolder = {
   folder: string
   additions: number
   deletions: number

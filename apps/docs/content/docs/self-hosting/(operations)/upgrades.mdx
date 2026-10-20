@@ -192,24 +192,20 @@ Workspace already holds.
 
 - **Needs format 3.** The item is blocked until the Workspace is at format 3.
   Merge the git upgrade first.
-- **Estimate.** Before you click, the item shows the cost and time, from the
-  p50 to the p90 value. For example, "Estimated cost: $1.20 to $4.80 for 2
-  repositories, about 10 to 30 minutes." A repository with an earlier
-  ingestion v2 run uses that run. Other repositories use a default range.
 - **Throttle.** One re-ingestion of an organization runs at a time. Its
   repositories run one after the other. An instance runs at most four
   re-ingestions at once. A run that waits for its turn stays queued and
-  starts when a slot is free.
-- **Cost cap.** ctx| stops the run when its model spend passes 2 times the
-  p90 estimate. The item then shows **Failed** with the reason `cost_cap`,
-  and the repositories that did not start are marked as not started. When a
-  runtime reports no usage for a model step, the report shows "Spend
-  unknown". The spend and the cap then count only the known part.
+  starts when a slot is free. See
+  [sandbox limits](/docs/workspaces/chat#sandbox-limits).
+- **Spend.** ctx| records the model spend of each repository run, and
+  does not cap it. A run does all of its steps. Use the limits of your
+  model provider key to control spend. When a runtime reports no usage for
+  a model step, the report shows "Spend unknown". The spend then counts
+  only the known part.
 - **Restart and resume.** A run that a restart of the worker interrupts
   continues. If a run stops with no result, a new click on **Start again**
   makes a new run. A repository that an earlier run finished at the same
-  commit is not paid for again, and its spend does not count against the
-  cap of the new run.
+  commit is not paid for again.
 
 An organization with GitHub data but no Workspace is a new user. It creates
 its Workspace in normal onboarding, and its repositories get a fresh

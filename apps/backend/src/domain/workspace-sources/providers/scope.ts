@@ -29,18 +29,3 @@ export type SourceScopeDefinition<
   summarize(scope: S): string
 }
 
-/**
- * A placeholder scope until the provider agent defines its shape (phase 2).
- * It accepts any object and keeps every key.
- */
-export function placeholderScope(
-  connectionType: NonNullable<SourceScopeDefinition["connectionType"]>,
-  label: string,
-): SourceScopeDefinition {
-  return {
-    connectionType,
-    label,
-    schema: z.looseObject({}),
-    summarize: () => label,
-  }
-}

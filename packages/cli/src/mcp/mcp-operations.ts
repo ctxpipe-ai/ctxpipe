@@ -468,7 +468,7 @@ export function buildClientOperations({
   }
 }
 
-export function writeMcpServersOperation({
+function writeMcpServersOperation({
   path,
   url,
   label,
@@ -502,7 +502,7 @@ export function writeMcpServersOperation({
   }
 }
 
-export function writeOpenCodeOperation({
+function writeOpenCodeOperation({
   path,
   url,
   cwd,
@@ -536,7 +536,7 @@ export function writeOpenCodeOperation({
   }
 }
 
-export function writeVsCodeOperation({
+function writeVsCodeOperation({
   path,
   url,
   cwd,
