@@ -87,6 +87,9 @@ const INGEST_SKILLS: readonly IngestSkillPlan[] = [
     run: "model",
     tier: "medium",
   },
+  // `readmes` runs last: its updates count against the run cap, so it does
+  // not take ops from the steps before it.
+  { name: "readmes", scope: "repository", run: "script" },
 ]
 
 const DISCOVER_ROOTS_SKILL = "discover-roots"
