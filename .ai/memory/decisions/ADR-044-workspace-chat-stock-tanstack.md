@@ -17,6 +17,7 @@ Workspace chat runs OpenCode inside a per-conversation sandbox. A homemade attac
 ## Consequences
 
 - Persistence, streaming and resume behave as upstream documents; fixes go upstream or into our wiring, not into vendored package code.
+- A turn lives longer than its socket. `toWebSocketStream` stops each turn of a closed socket, so our wiring keeps the close from it until the turn has closed its run log. Only an abort frame (the Stop control) stops a turn, from any socket of the same user in the same conversation. The question and a running run record are stored before the sandbox setup, so a reload attaches to the turn or shows its answer.
 - One patch remains, on `@tanstack/ai-opencode` 0.4.14. It has three parts:
   - Ticket 01 scope (`process/server.js`, `stream/translate.js`): it classifies streamed parts by message role, waits for the event stream before prompting and for the assistant's final update before finishing, and bounds dispose. It is accepted until an upstream PR merges, raised after the production launch.
   - Ticket 15 scope (`adapters/text.js`, one hunk): the adapter `finally` block gives each teardown step (session dispose, server dispose, tool bridge close) at most 1 s, and logs a step that fails. The engine holds `RUN_FINISHED` until this generator returns, so our code cannot do this. The user accepted this hunk on 2026-10-06, as this ADR requires. Upstream issue: https://github.com/TanStack/ai/issues/1638.

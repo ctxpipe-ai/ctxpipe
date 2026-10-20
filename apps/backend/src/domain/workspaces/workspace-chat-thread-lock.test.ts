@@ -1,6 +1,7 @@
 import {
   chat,
   chatParamsFromRequestBody,
+  defineChatMiddleware,
   type ModelMessage,
   type StreamChunk,
   type UIMessage,
@@ -15,7 +16,10 @@ import {
   openCodeExtractableUserText,
   openCodeTrailingUserMiddleware,
 } from "./workspace-chat-opencode-messages.js"
-import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
+import {
+  workspaceChatPendingTurn,
+  workspaceChatThreadLock,
+} from "./workspace-chat-thread-lock.js"
 
 const STALE = "Conversation changed during another send; reload before retrying"
 
@@ -244,4 +248,60 @@ it("rejects a send whose history does not hold the stored questions", async () =
       { id: "u2", role: "user", content: "Next" },
     ]),
   ).toEqual([])
+})
+
+// This test uses the real `withPersistence`, so it also fails when the
+// private `getPendingTurn` export moves or changes shape.
+it("stores the question and a running run before the sandbox setup, and keeps the question when a stop ends the setup", async () => {
+  const persistence = memoryPersistence()
+  const stop = new AbortController()
+  let setupStarted!: () => void
+  const inSetup = new Promise<void>((resolve) => {
+    setupStarted = resolve
+  })
+  // The sandbox setup is the slow step; a stop during it fails the setup.
+  const sandboxSetup = defineChatMiddleware({
+    name: "sandbox-setup",
+    setup: () =>
+      new Promise<void>((_, reject) => {
+        setupStarted()
+        stop.signal.addEventListener("abort", () =>
+          reject(new DOMException("The operation was aborted", "AbortError")),
+        )
+      }),
+  })
+  const run = (async () => {
+    for await (const _ of chat({
+      adapter: new ScriptedModel([]),
+      threadId: "thread",
+      runId: "run-1",
+      messages: [{ id: "user-1", role: "user", content: "First question" }],
+      abortController: stop,
+      middleware: [
+        workspaceChatThreadLock({
+          locks: new InMemoryLockStore(),
+          loadThread: (id) => persistence.stores.messages.loadThread(id),
+        }),
+        withPersistence(persistence),
+        workspaceChatPendingTurn(persistence.stores.runs),
+        sandboxSetup,
+      ],
+    }) as AsyncIterable<StreamChunk>);
+  })()
+  await Promise.race([inSetup, run])
+
+  // A reload during the setup shows the question and attaches to the run.
+  const questions = async () =>
+    (await persistence.stores.messages.loadThread("thread")).map(
+      (message) => message.id,
+    )
+  expect(await questions()).toEqual(["user-1"])
+  expect((await persistence.stores.runs.findActiveRun("thread"))?.runId).toBe(
+    "run-1",
+  )
+
+  stop.abort()
+  await run.catch(() => undefined)
+  expect(await questions()).toEqual(["user-1"])
+  expect(await persistence.stores.runs.findActiveRun("thread")).toBeNull()
 })

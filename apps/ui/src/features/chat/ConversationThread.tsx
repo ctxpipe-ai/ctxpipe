@@ -18,6 +18,7 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
+import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import {
   type ActivityChipKind,
@@ -300,6 +301,11 @@ export function ConversationThread(props: {
   renderAfterMessage?: (messageId: string) => ReactNode
   /** Opens a workspace file from a file path in an answer. */
   onOpenFile?: (path: string) => void
+  /**
+   * Set when the last turn stopped before its first answer. The thread then
+   * shows that the turn stopped, with a Retry action.
+   */
+  onRetryStoppedTurn?: () => void
 }) {
   const { messages, error, status, waitLabel, contentClassName } = props
   const turns = groupAssistantTurns(messages)
@@ -377,6 +383,27 @@ export function ConversationThread(props: {
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
+        {props.onRetryStoppedTurn ? (
+          <div className="px-4 pb-2">
+            <div className={cn("mx-auto", chatColumnClassName)}>
+              <InlineAlert
+                variant="warning"
+                title="The agent stopped before it answered"
+                actions={
+                  <Button
+                    variant="secondary"
+                    size="sm"
+                    onPress={props.onRetryStoppedTurn}
+                  >
+                    Retry
+                  </Button>
+                }
+              >
+                Your question is saved. Retry to send it to the agent again.
+              </InlineAlert>
+            </div>
+          </div>
+        ) : null}
         {error ? (
           <div className="px-4 pb-2">
             <div className={cn("mx-auto", chatColumnClassName)}>

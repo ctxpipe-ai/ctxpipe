@@ -337,22 +337,12 @@ it.each([false, true])(
     const result = JSON.parse(stdout.trim().split("\n").at(-1) ?? "")
     expect(result).toEqual({
       ...(activeDisconnect
-        ? {
-            disconnectedBeforeTerminal: true,
-            abortedTerminal: true,
-            retryMadeOneModelCall: true,
-          }
+        ? { disconnectedBeforeTerminal: true, finishedAfterDisconnect: true }
         : {}),
       replayMatches: true,
       oneTerminal: true,
       noReplayModelCall: true,
-      freshTranscript: activeDisconnect
-        ? [
-            "First socket question",
-            "Question after disconnect",
-            "Native reply completed.",
-          ]
-        : ["First socket question", "Native reply completed."],
+      freshTranscript: ["First socket question", "Native reply completed."],
     })
   },
 )

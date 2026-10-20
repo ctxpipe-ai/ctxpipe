@@ -145,7 +145,10 @@ import {
   mintWorkspaceChatRunCapability,
   type WorkspaceChatRunCapabilityPurpose,
 } from "./workspace-chat-run-capability.js"
-import { workspaceChatThreadLock } from "./workspace-chat-thread-lock.js"
+import {
+  workspaceChatPendingTurn,
+  workspaceChatThreadLock,
+} from "./workspace-chat-thread-lock.js"
 import {
   baseForNewSandbox,
   startingFromBase,
@@ -851,6 +854,7 @@ async function startWorkspaceChat(input: TanstackWorkspaceChatInput): Promise<
         onAbort: revokeTurnGitTokens,
       }),
       withPersistence(persistence, { snapshotStreaming: true }),
+      workspaceChatPendingTurn(persistence.stores.runs),
       withSandbox(definition, {
         instances: built.instances,
         locks: postgresSandboxLocks(

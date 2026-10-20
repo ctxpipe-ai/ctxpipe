@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -131,8 +132,15 @@ export function WorkspaceChatSession(props: {
     setHeaderTitle(title)
   }, [title])
 
+  // The conversation whose transcript load from the server has ended.
+  const [hydratedConversation, setHydratedConversation] = useState<
+    string | null
+  >(null)
   const connection = useMemo(
-    () => workspaceChatWebSocket(orgSlug, conversationId),
+    () =>
+      workspaceChatWebSocket(orgSlug, conversationId, {
+        onHydrated: () => setHydratedConversation(conversationId),
+      }),
     [orgSlug, conversationId],
   )
   const revivedInitialMessages = useMemo(
@@ -143,7 +151,11 @@ export function WorkspaceChatSession(props: {
     [initialMessages],
   )
 
-  useEffect(() => {
+  // A layout effect closes the sockets before every cleanup of `useChat`.
+  // The cleanup of `useChat` aborts the turn's signal, and the adapter sends an
+  // abort frame on a socket that is open. Thus leaving the conversation sends
+  // none, and the turn continues on the server. Only Stop sends one.
+  useLayoutEffect(() => {
     connection.warm()
     return () => {
       connection.dispose()
@@ -192,7 +204,16 @@ export function WorkspaceChatSession(props: {
     })
   }
 
-  const { messages, sendMessage, status, error, isLoading, stop } = useChat({
+  const {
+    messages,
+    sendMessage,
+    reload,
+    status,
+    error,
+    isLoading,
+    stop,
+    runId,
+  } = useChat({
     threadId: conversationId,
     connection,
     persistence: true,
@@ -280,6 +301,36 @@ export function WorkspaceChatSession(props: {
     }
   }
 
+  // A turn continues on the server when its socket closes, so Stop also
+  // tells the server, for a turn that this view attached to again.
+  const handleStop = () => {
+    if (runId) connection.stopRun(runId)
+    stop()
+  }
+
+  // The last turn has the question but no answer: it stopped before the
+  // first answer. A turn that still runs shows as running after the load.
+  const turnStopped =
+    hydratedConversation === conversationId &&
+    status === "ready" &&
+    !isLoading &&
+    !error &&
+    !sendError &&
+    messages.at(-1)?.role === "user"
+
+  const retryStoppedTurn = async () => {
+    setSandboxPhase("starting")
+    setSendError(null)
+    try {
+      await reload()
+    } catch (error) {
+      setSandboxPhase("idle")
+      setSendError(
+        error instanceof Error ? error : new Error("Failed to send message"),
+      )
+    }
+  }
+
   // A new conversation's first message waits in the query cache. The
   // session takes it once and sends it on this chat, so the first turn
   // streams live.
@@ -353,6 +404,9 @@ export function WorkspaceChatSession(props: {
         error={error ?? sendError}
         status={status}
         waitLabel={workspaceChatWaitLabel(sandboxPhase)}
+        onRetryStoppedTurn={
+          turnStopped ? () => void retryStoppedTurn() : undefined
+        }
         renderAfterMessage={(messageId) => {
           const after = [
             ...(placed.turns.get(messageId)?.map((changes) => (
@@ -386,7 +440,7 @@ export function WorkspaceChatSession(props: {
         layout="thread"
         sendMessage={handleSendMessage}
         status={status}
-        onStop={stop}
+        onStop={handleStop}
         isDisabled={isLoading}
         draftSeed={draftSeed}
         draftKey={chatDraftKey(orgSlug, workspace.id, conversationId)}
