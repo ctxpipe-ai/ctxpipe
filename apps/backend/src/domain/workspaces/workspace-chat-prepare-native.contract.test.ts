@@ -7,6 +7,7 @@ import { expect, it, vi } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { conversations } from "../../db/schema/conversations.js"
+import { sandboxLocks } from "../../db/schema/sandbox-locks.js"
 import { workspaces } from "../../db/schema/workspaces.js"
 import {
   getWorkspaceById,
@@ -331,6 +332,17 @@ it.each(["conversation", "workspace"] as const)(
       )
       await entered
       const preparing = warmTanstackWorkspaceChat(input)
+      // The turn holds the chat lock before it waits on the native key.
+      await vi.waitFor(async () =>
+        expect(
+          await withOrgDbContext(f.orgId, (db) =>
+            db
+              .select({ key: sandboxLocks.key })
+              .from(sandboxLocks)
+              .where(eq(sandboxLocks.key, `chat-thread:${f.conversationId}`)),
+          ),
+        ).toHaveLength(1),
+      )
       // The native key barrier prevents provider creation while DELETE races.
       const deleting =
         scope === "conversation"
@@ -349,6 +361,14 @@ it.each(["conversation", "workspace"] as const)(
       }
       await holding
       const [prepared, deleted] = await Promise.all([preparing, deleting])
+      if (scope === "conversation") {
+        // The preparing turn holds the chat lock, so the delete is refused
+        // and the conversation keeps its new sandbox.
+        expect(deleted.status).toBe(409)
+        expect(prepared.ok).toBe(true)
+        expect((await warmTanstackWorkspaceChat(input)).ok).toBe(true)
+        return
+      }
       expect(deleted.status).toBe(204)
       expect(
         await withOrgDbContext(f.orgId, () =>

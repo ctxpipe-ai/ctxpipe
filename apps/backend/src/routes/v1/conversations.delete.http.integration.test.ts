@@ -169,7 +169,7 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
     // A turn takes this lock before it inserts its running row.
     const res = await postgresSandboxLocks(caller.orgId).withLock(
       `chat-thread:${startingId}`,
-      () => remove(startingId),
+      async () => remove(startingId),
     )
 
     expect(res.status).toBe(409)
