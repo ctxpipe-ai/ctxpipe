@@ -24,7 +24,10 @@ import {
 } from "../../domain/workspaces/conversation-publish.js"
 import { cleanTitle } from "../../domain/workspaces/conversation-title.js"
 import { sameWorkspaceBinding } from "../../domain/workspaces/revision.js"
-import { postgresSandboxLocks } from "../../domain/workspaces/sandbox-lock-store.js"
+import {
+  postgresSandboxLocks,
+  withSandboxLockIfFree,
+} from "../../domain/workspaces/sandbox-lock-store.js"
 import {
   conversationHasStoredTurns,
   warmTanstackWorkspaceChat,
@@ -290,6 +293,11 @@ const deleteConversationRoute = createRoute({
     404: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn runs in the conversation (stop it or wait, then delete)",
     },
   },
 })
@@ -1170,27 +1178,46 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const existing = await getConversation(conversationId)
     if (!existing) return c.json({ error: "Not found" }, 404)
+    // A turn keeps running after its user leaves the chat. Deleting under it
+    // would destroy the sandbox the turn uses, so the user stops it first.
+    const turnRunning = () =>
+      workspaceChatPersistence().stores.runs.findActiveRun(conversationId)
+    if (await turnRunning()) return c.json({ error: "turn_running" }, 409)
     const log = getLogger()
     log.set({
       conversationId,
       workspaceId: existing.workspaceId ?? null,
       sandbox: "chat",
     })
-    log.info("destroy chat sandbox after conversation delete")
-    const deleted = existing.workspaceId
-      ? await withDestroyedConversationSandboxes(
-          {
-            conversationId,
-            orgId: existing.orgId,
-            workspaceId: existing.workspaceId,
-          },
-          () => deleteConversation(conversationId),
-        )
-      : await deleteConversation(conversationId)
-    if (!deleted) return c.json({ error: "Not found" }, 404)
-    if (!existing.workspaceId) {
-      await destroySandboxesForConversation(conversationId)
-    }
+    // A turn takes this lock before it inserts its running row. Holding it
+    // here makes a starting turn win or lose against the delete, never both.
+    const outcome = await withSandboxLockIfFree(
+      existing.orgId,
+      `chat-thread:${conversationId}`,
+      async () => {
+        if (await turnRunning()) return "turn_running" as const
+        log.info("destroy chat sandbox after conversation delete")
+        const deleted = existing.workspaceId
+          ? await withDestroyedConversationSandboxes(
+              {
+                conversationId,
+                orgId: existing.orgId,
+                workspaceId: existing.workspaceId,
+              },
+              () => deleteConversation(conversationId),
+            )
+          : await deleteConversation(conversationId)
+        if (!deleted) return "not_found" as const
+        if (!existing.workspaceId) {
+          await destroySandboxesForConversation(conversationId)
+        }
+        return "deleted" as const
+      },
+    )
+    if (outcome.busy || outcome.value === "turn_running")
+      return c.json({ error: "turn_running" }, 409)
+    if (outcome.value === "not_found")
+      return c.json({ error: "Not found" }, 404)
 
     return c.body(null, 204)
   })
