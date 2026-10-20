@@ -63,4 +63,4 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted |
 | [ADR-056](ADR-056-plain-connector-sources-only.md) | Plain connector, Workspace sources only | Proposed |
 
-Numbers 035 and 036 are unused. Open pull requests hold ADR-054 and ADR-055. The next new ADR is 057.
+Numbers 035 and 036 are unused. Open pull requests hold ADR-054 (Buildkite) and ADR-055 (Zendesk). The next new ADR is 057.
