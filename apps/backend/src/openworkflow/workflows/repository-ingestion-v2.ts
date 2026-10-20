@@ -46,11 +46,13 @@ import { getLogger } from "../../observability/logger.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { cleanUpUnlessParked, settledChildren } from "../isSleepSignal.js"
 import {
+  addStepFailures,
   type IngestionRoot,
   type IngestionShardInput,
   type IngestionShardOutput,
   type IngestionShardWorkspace,
   type IngestionV2Deps,
+  type IngestStepFailures,
   ingestionShard,
   productionIngestionV2Deps,
   runSkillPages,
@@ -117,6 +119,8 @@ export type IngestionV2Output =
         ops: number
         rejects: number
         partial: number
+        /** The steps that failed after their retries, by cause (CTX-896). */
+        stepFailures?: IngestStepFailures
         refused?: string
         /** The commit on the default branch; null for no change. */
         published?: string | null
@@ -541,6 +545,10 @@ export function defineRepositoryIngestionV2Workflow(
               parts.reduce((sum, p) => sum + p.partial, 0) +
               (firstPart?.partial ?? 0) +
               ("refused" in assembled ? 1 : 0),
+            stepFailures: addStepFailures(
+              ...parts.map((p) => p.stepFailures),
+              firstPart?.stepFailures,
+            ),
             ...("refused" in assembled ? { refused: assembled.refused } : {}),
           })
         }
@@ -572,6 +580,10 @@ export function defineRepositoryIngestionV2Workflow(
             entry.ops = done.ops
             entry.rejects += done.rejects
             entry.partial += done.partial
+            entry.stepFailures = addStepFailures(
+              entry.stepFailures,
+              done.stepFailures,
+            )
           }
         }
 
