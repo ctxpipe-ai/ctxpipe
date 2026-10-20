@@ -27,12 +27,13 @@ import {
   workspaceUpgradesOptions,
 } from "./queries"
 import {
+  CHECKING_FORMAT_COPY,
   formatHealthLine,
   MEMBER_ASK_ADMIN,
   upgradeBlockedCopy,
-  upgradeBlockedNextStep,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeIsCheckingFormat,
   upgradeIsPending,
   upgradeNotices,
   upgradeStatusTag,
@@ -54,6 +55,8 @@ import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
  */
 function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
+  /** The format that ctx| read last: a re-ingestion that needs it can be stale. */
+  formatVersion: number | null
   isAdmin: boolean | null
   onStart: () => void
   onCheck?: () => void
@@ -65,8 +68,10 @@ function UpgradeItemCard(props: {
   onFixWithAgent?: (prompt: string) => void
 }) {
   const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
-  const waiting = upgradeWaitingCopy(item)
-  const blockedNextStep = upgradeBlockedNextStep(item)
+  const checkingFormat = upgradeIsCheckingFormat(item, props.formatVersion)
+  const waiting = checkingFormat
+    ? CHECKING_FORMAT_COPY
+    : upgradeWaitingCopy(item)
   const notices = upgradeNotices(item)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
@@ -83,7 +88,7 @@ function UpgradeItemCard(props: {
               : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
-        <StatusTag {...upgradeStatusTag(item)} />
+        <StatusTag {...upgradeStatusTag(item, props.formatVersion)} />
       </div>
 
       {item.steps.length > 0 ? (
@@ -172,11 +177,10 @@ function UpgradeItemCard(props: {
         </Disclosure>
       ) : null}
 
-      {item.status === "blocked" ? (
+      {checkingFormat ? null : item.status === "blocked" ? (
         <div className="mt-3">
           <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
             <p>{upgradeBlockedCopy(item).body}</p>
-            {blockedNextStep ? <p className="mt-1">{blockedNextStep}</p> : null}
           </InlineAlert>
         </div>
       ) : item.note ? (
@@ -303,6 +307,7 @@ function UpgradeFailureAlert(props: {
 
 function UpgradeItemRow(props: {
   item: WorkspaceUpgradeItem
+  formatVersion: number | null
   orgSlug: string
   workspaceSlug: string
   isAdmin: boolean | null
@@ -333,6 +338,7 @@ function UpgradeItemRow(props: {
   return (
     <UpgradeItemCard
       item={item}
+      formatVersion={props.formatVersion}
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
       isChecking={checkMutation.isPending}
@@ -419,6 +425,7 @@ export function WorkspaceUpgrades(props: {
                   <UpgradeItemRow
                     key={item.key}
                     item={item}
+                    formatVersion={data.formatVersion}
                     orgSlug={orgSlug}
                     workspaceSlug={workspaceSlug}
                     isAdmin={isAdmin}
@@ -443,6 +450,7 @@ export function WorkspaceUpgrades(props: {
                       <UpgradeItemRow
                         key={item.key}
                         item={item}
+                        formatVersion={data.formatVersion}
                         orgSlug={orgSlug}
                         workspaceSlug={workspaceSlug}
                         isAdmin={isAdmin}
