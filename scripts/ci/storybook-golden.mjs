@@ -250,9 +250,6 @@ try {
     )
     const result = await page
       .waitForFunction(() => window.__CTXPIPE_GOLDEN__?.result, null, {
-        // The default polling uses requestAnimationFrame. Use a timer, so a
-        // page that does not render still reports its result.
-        polling: 250,
         timeout: 120_000,
       })
       .then((handle) => handle.jsonValue())
