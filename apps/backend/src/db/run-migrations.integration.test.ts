@@ -1,5 +1,10 @@
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { describeMigrateError } from "./describe-migrate-error.js"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 import { provisionAppRole } from "./provision-app-role.js"
 import { runMigrations } from "./run-migrations.js"
@@ -155,38 +160,182 @@ describe("runMigrations", () => {
     })
   })
 
-  it("fails with a clear message when a lock holds a migration statement", async () => {
-    const lockDatabase = `${database}_lock`
-    const lockRole = `${roleName}_lock`
-    await admin.query(`CREATE DATABASE "${lockDatabase}"`)
-    const lockUrl = new URL(databaseUrl)
-    lockUrl.pathname = `/${lockDatabase}`
-    const holder = new pg.Client({ connectionString: lockUrl.toString() })
-    await holder.connect()
+  /** A fresh database and a role of its own, so that each run starts from nothing. */
+  async function withFreshDatabase(
+    name: string,
+    run: (url: string, lockRole: string) => Promise<void>,
+  ): Promise<void> {
+    const freshDatabase = `${database}_${name}`
+    const freshRole = `${roleName}_${name}`
+    await admin.query(`CREATE DATABASE "${freshDatabase}"`)
+    const url = new URL(databaseUrl)
+    url.pathname = `/${freshDatabase}`
     try {
-      // Drizzle reads this table first, so a lock on it stops the run at once.
-      await holder.query(`CREATE SCHEMA "drizzle"`)
-      await holder.query(
-        `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+      await run(url.toString(), freshRole)
+    } finally {
+      await admin.query(
+        `DROP DATABASE IF EXISTS "${freshDatabase}" WITH (FORCE)`,
       )
-      await holder.query("BEGIN")
-      await holder.query(
-        `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
-      )
-      await expect(
-        runMigrations({
-          connectionString: lockUrl.toString(),
+      await admin.query(`DROP ROLE IF EXISTS "${freshRole}"`)
+    }
+  }
+
+  /** Hold ACCESS EXCLUSIVE on the table Drizzle reads first, in an open transaction. */
+  async function holdDrizzleLock(url: string): Promise<pg.Client> {
+    const holder = new pg.Client({ connectionString: url })
+    await holder.connect()
+    await holder.query(`CREATE SCHEMA "drizzle"`)
+    await holder.query(
+      `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+    )
+    await holder.query("BEGIN")
+    await holder.query(
+      `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
+    )
+    return holder
+  }
+
+  it("fails with a clear message and the Postgres cause when a lock holds the migration on every try", async () => {
+    await withFreshDatabase("lock", async (url, lockRole) => {
+      const holder = await holdDrizzleLock(url)
+      try {
+        const error = await runMigrations({
+          connectionString: url,
           appRolePassword: password,
           roleName: lockRole,
-          lockTimeoutMs: 500,
-        }),
-      ).rejects.toThrow(/waited more than 500 ms for a database lock/)
+          drizzleLockRetry: {
+            lockTimeoutMs: 200,
+            tries: 2,
+            baseDelayMs: 50,
+            maxDelayMs: 50,
+          },
+        }).catch((caught: unknown) => caught)
+        expect((error as Error).message).toMatch(
+          /waited more than 200 ms for a database lock on each of 2 tries[\s\S]*End that session/,
+        )
+        expect(describeMigrateError(error)).toMatch(
+          /Caused by: [\s\S]*SQLSTATE 55P03/,
+        )
+      } finally {
+        await holder.end()
+      }
+    })
+  })
+
+  it("rolls back the migration on a lock timeout, retries, and applies it once when the lock goes away", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "migrations-retry-"))
+    cpSync(
+      fileURLToPath(new URL("../../migrations", import.meta.url)),
+      folder,
+      {
+        recursive: true,
+      },
+    )
+    // The first statement changes something. The second needs a lock on an app table.
+    mkdirSync(join(folder, "29991231000000_retry_probe"))
+    writeFileSync(
+      join(folder, "29991231000000_retry_probe", "migration.sql"),
+      `CREATE TABLE "retry_probe" ("id" integer);--> statement-breakpoint\nALTER TABLE "organizations" ADD COLUMN "retry_probe" text;`,
+    )
+    try {
+      await withFreshDatabase("retry", async (url, lockRole) => {
+        // The applied prefix: every real migration, none of the probe.
+        await runMigrations({
+          connectionString: url,
+          appRolePassword: password,
+          roleName: lockRole,
+        })
+        const reader = new pg.Client({ connectionString: url })
+        await reader.connect()
+        const holder = new pg.Client({ connectionString: url })
+        await holder.connect()
+        try {
+          const journalRows = async () =>
+            Number(
+              (
+                await reader.query(
+                  `SELECT count(*) AS n FROM "drizzle"."__drizzle_migrations"`,
+                )
+              ).rows[0]?.n,
+            )
+          const probeTable = async () =>
+            (
+              await reader.query(
+                `SELECT to_regclass('public.retry_probe') AS t`,
+              )
+            ).rows[0]?.t
+          const before = await journalRows()
+          await holder.query("BEGIN")
+          await holder.query(`LOCK TABLE "organizations" IN ACCESS SHARE MODE`)
+
+          const retries: number[] = []
+          await runMigrations({
+            connectionString: url,
+            appRolePassword: undefined,
+            roleName: lockRole,
+            migrationsFolder: folder,
+            drizzleLockRetry: {
+              lockTimeoutMs: 200,
+              tries: 10,
+              baseDelayMs: 50,
+              maxDelayMs: 50,
+              // The first try timed out and rolled back. Look, then free the lock.
+              onRetry: async ({ attempt }) => {
+                retries.push(attempt)
+                if (attempt !== 1) return
+                expect(await probeTable()).toBeNull()
+                expect(await journalRows()).toBe(before)
+                await holder.query("ROLLBACK")
+              },
+            },
+          })
+
+          expect(retries).toEqual([1])
+          expect(await probeTable()).not.toBeNull()
+          expect(await journalRows()).toBe(before + 1)
+          const column = await reader.query(
+            `SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'retry_probe'`,
+          )
+          expect(column.rowCount).toBe(1)
+        } finally {
+          await holder.end()
+          await reader.end()
+        }
+      })
     } finally {
-      await holder.end()
-      await admin.query(
-        `DROP DATABASE IF EXISTS "${lockDatabase}" WITH (FORCE)`,
-      )
-      await admin.query(`DROP ROLE IF EXISTS "${lockRole}"`)
+      rmSync(folder, { recursive: true, force: true })
     }
+  })
+
+  it("does not retry an error that is not a lock timeout, and names the cause", async () => {
+    await withFreshDatabase("nolock", async (url, lockRole) => {
+      const setup = new pg.Client({ connectionString: url })
+      await setup.connect()
+      try {
+        // A migrations table without the columns Drizzle reads: error 42703.
+        await setup.query(`CREATE SCHEMA "drizzle"`)
+        await setup.query(
+          `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key)`,
+        )
+      } finally {
+        await setup.end()
+      }
+      const started = Date.now()
+      const error = await runMigrations({
+        connectionString: url,
+        appRolePassword: password,
+        roleName: lockRole,
+        drizzleLockRetry: {
+          lockTimeoutMs: 200,
+          tries: 10,
+          baseDelayMs: 60_000,
+          maxDelayMs: 60_000,
+        },
+      }).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(Error)
+      // A retry would wait 60 s first.
+      expect(Date.now() - started).toBeLessThan(30_000)
+      expect(describeMigrateError(error)).toMatch(/SQLSTATE 42703/)
+    })
   })
 })
