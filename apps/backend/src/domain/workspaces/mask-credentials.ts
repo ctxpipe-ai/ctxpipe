@@ -1,3 +1,5 @@
+import type { StreamChunk } from "@tanstack/ai"
+
 const MASK = "[masked]"
 
 /**
@@ -93,6 +95,74 @@ export function createDeltaMasker() {
       const sent = pending
       pending = ""
       return maskCredentials(sent)
+    },
+  }
+}
+
+type TextDeltaChunk = Extract<
+  StreamChunk,
+  { type: "TEXT_MESSAGE_CONTENT" | "REASONING_MESSAGE_CONTENT" }
+>
+
+/**
+ * Masks credentials in a run's chunks. Text and reasoning arrive in small
+ * deltas, so a credential can cross two of them: each message holds back a
+ * tail until its end, the end of the run, a run error, or the end of the
+ * stream.
+ */
+export function createChunkMasker() {
+  const open = new Map<
+    string,
+    { masker: ReturnType<typeof createDeltaMasker>; last: TextDeltaChunk }
+  >()
+  const textChunk = (last: TextDeltaChunk, delta: string): StreamChunk => {
+    // The accumulated `content` is not sent; only the delta is.
+    const { content: _content, ...rest } = last as TextDeltaChunk & {
+      content?: string
+    }
+    return { ...rest, delta } as StreamChunk
+  }
+  const flush = (messageId?: string): StreamChunk[] => {
+    const ids = messageId === undefined ? [...open.keys()] : [messageId]
+    return ids.flatMap((id) => {
+      const entry = open.get(id)
+      open.delete(id)
+      const delta = entry?.masker.flush()
+      return entry && delta ? [textChunk(entry.last, delta)] : []
+    })
+  }
+  return {
+    push(chunk: StreamChunk): StreamChunk[] {
+      if (
+        chunk.type === "TEXT_MESSAGE_CONTENT" ||
+        chunk.type === "REASONING_MESSAGE_CONTENT"
+      ) {
+        const key = `${chunk.type}:${chunk.messageId}`
+        const entry = open.get(key) ?? {
+          masker: createDeltaMasker(),
+          last: chunk,
+        }
+        entry.last = chunk
+        open.set(key, entry)
+        const delta = entry.masker.push(chunk.delta)
+        return delta ? [textChunk(chunk, delta)] : []
+      }
+      const flushed =
+        chunk.type === "TEXT_MESSAGE_END"
+          ? flush(`TEXT_MESSAGE_CONTENT:${chunk.messageId}`)
+          : chunk.type === "REASONING_MESSAGE_END"
+            ? flush(`REASONING_MESSAGE_CONTENT:${chunk.messageId}`)
+            : chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR"
+              ? flush()
+              : []
+      return [...flushed, maskCredentialsDeep(chunk)]
+    },
+    /**
+     * Sends the text that is still held. A cancelled run can end with no
+     * message end and no run end, and the held text must not be lost.
+     */
+    end(): StreamChunk[] {
+      return flush()
     },
   }
 }
