@@ -5,6 +5,7 @@ import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
+  legacyOverlaySkippedFile,
 } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -575,6 +576,79 @@ export const ProblemOnly: Story = {
     )
     // The problem stays until hydrate reads the file.
     expect(canvas.getByText("Handbook: hydrate skipped 1 file")).toBeVisible()
+  },
+}
+
+/**
+ * A skipped legacy overlay file is knowledge from the database, so no edit
+ * of the Workspace repository fixes it. Hydrate lists the files of Git first,
+ * so the front toast names the file of Git and also the overlay cause. The
+ * agent gets only the file of Git.
+ */
+export const ProblemLegacyOverlayAndFile: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [taxFile, legacyOverlaySkippedFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(
+        within(region).getByText("Handbook: hydrate skipped 2 files"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(/Front matter is not valid, and 1 more file/),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(
+        within(region).getByText(
+          /Knowledge from before Workspaces\. ctx\| shows it from its database/,
+        ),
+      ).toBeVisible(),
+    )
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Fix using agent: Handbook, skipped files",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByPlaceholderText(
+          /what should ctxpipe do in this workspace/i,
+        ),
+      ).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+  },
+}
+
+/** Only a legacy overlay file: no fix exists, so the toast opens settings. */
+export const ProblemLegacyOverlayOnly: Story = {
+  parameters: homeHandlers(
+    "owner",
+    {},
+    { handbook: [legacyOverlaySkippedFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await within(region).findByText("Handbook: hydrate skipped 1 file")
+    expect(
+      within(region).queryByRole("button", { name: /Fix using agent/ }),
+    ).toBeNull()
+    expect(
+      within(region).getByRole("button", { name: "Open settings: Handbook" }),
+    ).toBeVisible()
   },
 }
 

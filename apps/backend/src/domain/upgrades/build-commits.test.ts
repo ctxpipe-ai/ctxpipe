@@ -1,4 +1,5 @@
 import { execFileSync } from "node:child_process"
+import { randomBytes } from "node:crypto"
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { dirname, join } from "node:path"
@@ -123,6 +124,56 @@ const STEPS: GitUpgradeStep[] = [
 ]
 
 describe("buildUpgradeCommits", () => {
+  it("upgrades a Workspace whose Git pack is larger than a buffered Git output allows (CTX-933)", async () => {
+    // Random bytes do not compress: the pack is larger than the 64 MiB that
+    // the buffered `pack-objects --stdout` output allowed.
+    const large = randomBytes(65 * 1024 * 1024)
+    const base = await fixturePack({
+      "README.md": "# Readme\n",
+      "old.md": "x\n",
+      "assets/large.bin": large,
+    })
+    const built = await buildUpgradeCommits({
+      pack: base,
+      steps: STEPS,
+      fromFormat: 0,
+      targetFormat: 3,
+      ctx: {
+        orgId: "org_test",
+        workspaceId: "ws_test",
+        baseSha: base.sha,
+        remote: REMOTE,
+      },
+      createdAt: "2026-10-16T00:00:00.000Z",
+    })
+    expect(Buffer.from(built.pack.objects, "base64").length).toBeGreaterThan(
+      64 * 1024 * 1024,
+    )
+    const head = await withGitDirectory(
+      built.pack.sha,
+      async (directory) => {
+        const git = (...args: string[]) =>
+          execFileSync("git", args, { cwd: directory, encoding: "utf8" }).trim()
+        return {
+          subjects: git("log", "--format=%s", built.pack.sha).split("\n"),
+          large: git("rev-parse", `${built.pack.sha}:assets/large.bin`),
+        }
+      },
+      built.pack,
+    )
+    expect(head.subjects).toEqual([
+      "ctx| upgrade: set the Workspace format to 3",
+      "ctx| upgrade to format 3: Move notes",
+      "ctx| upgrade to format 1: Add notes",
+      "Base",
+    ])
+    expect(head.large).toBe(
+      execFileSync("git", ["hash-object", "--stdin"], { input: large })
+        .toString()
+        .trim(),
+    )
+  })
+
   it("keeps the notices of each step, each one time, apart from the report", async () => {
     const base = await fixturePack({ "README.md": "# Readme\n" })
     const action = { kind: "action" as const, text: "Fix the sources file." }

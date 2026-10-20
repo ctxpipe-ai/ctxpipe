@@ -1,6 +1,6 @@
 import { execFile } from "node:child_process"
 import { createReadStream } from "node:fs"
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import { mkdtemp, readFile, rm, stat, writeFile } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
@@ -122,23 +122,58 @@ export async function nativeGit(
   return (await result).stdout
 }
 
+/**
+ * Pack the objects of `revs` (`git pack-objects --revs` input lines) as
+ * base64. Git writes the pack to a file, not to standard output: the size of
+ * the pack grows with the size of the repository, and a buffered standard
+ * output has a fixed limit (CTX-933).
+ */
+export async function packGitObjects(
+  directory: string,
+  revs: readonly string[],
+): Promise<string> {
+  const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-pack-"))
+  try {
+    const name = (
+      await nativeGit(
+        directory,
+        ["pack-objects", "--revs", "-q", join(scratch, "pack")],
+        `${revs.join("\n")}\n`,
+      )
+    )
+      .toString()
+      .trim()
+    if (!/^[0-9a-f]{40,64}$/.test(name))
+      throw new Error("Git did not name the pack that it wrote")
+    const file = join(scratch, `pack-${name}.pack`)
+    // A pack travels as one base64 string. A Workspace write workflow keeps
+    // that string in the output of a durable step, a Postgres jsonb value of
+    // at most about 256 MiB. 190 MiB of pack is about 253 MiB of base64.
+    const maxBytes = 190 * 2 ** 20
+    const { size } = await stat(file)
+    if (size > maxBytes)
+      throw new Error(
+        `The Git repository is too large for ctx| to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
+      )
+    return (await readFile(file)).toString("base64")
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
 export async function captureGitPack(
   directory: string,
   sha: string,
   additionalShas: readonly string[] = [],
 ): Promise<GitPack> {
-  const objects = await nativeGit(
-    directory,
-    ["pack-objects", "--stdout", "--revs"],
-    `${[sha, ...additionalShas].join("\n")}\n`,
-  )
+  const objects = await packGitObjects(directory, [sha, ...additionalShas])
   const shallow = await readFile(join(directory, ".git/shallow"), "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return ""
       throw error
     },
   )
-  return { sha, objects: objects.toString("base64"), shallow }
+  return { sha, objects, shallow }
 }
 
 export async function withGitDirectory<T>(

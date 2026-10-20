@@ -1,5 +1,10 @@
 import type { GitFileChange } from "./file-change.js"
-import { type GitPack, nativeGit, withGitDirectory } from "./pack.js"
+import {
+  type GitPack,
+  nativeGit,
+  packGitObjects,
+  withGitDirectory,
+} from "./pack.js"
 import { workspaceRelativePath } from "./root-folder.js"
 import {
   commitGitTree,
@@ -124,14 +129,10 @@ export async function mergeGitFiles(input: {
           throw new Error("Native merge conflict has no file paths")
       }
       if (!paths.length && !conflicts.length) return null
-      const objects = await nativeGit(
-        directory,
-        ["pack-objects", "--stdout", "--revs"],
-        `${input.pack.sha}\n${tree}\n`,
-      )
+      const objects = await packGitObjects(directory, [input.pack.sha, tree])
       return {
         staged: {
-          pack: { ...input.pack, objects: objects.toString("base64") },
+          pack: { ...input.pack, objects },
           tree,
         },
         paths: [

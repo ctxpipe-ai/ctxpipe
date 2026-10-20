@@ -42,6 +42,16 @@ export async function runMigrations(options: {
   // also stop the long backfills.
   const poolWithLockTimeout = (timeoutMs: number) => {
     const created = new Pool({ connectionString: options.connectionString })
+    // `pool.end()` returns before each idle connection has closed. When the
+    // server ends such a connection (FATAL 57P01), the pool emits "error",
+    // and with no listener that error stops the process.
+    created.on("error", (error) => {
+      log.warn({
+        step: "migrate",
+        message: "[migrate] the server closed an idle database connection",
+        error: error.message,
+      })
+    })
     created.on("connect", (client) => {
       client.query(`SET lock_timeout = ${Math.trunc(timeoutMs)}`).catch(() => {
         // The next query on this client shows a broken connection.
