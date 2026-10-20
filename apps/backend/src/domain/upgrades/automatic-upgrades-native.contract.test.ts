@@ -1,10 +1,13 @@
+import { sql } from "drizzle-orm"
 import { HttpResponse, http } from "msw"
 import { expect, it } from "vitest"
 import { withOrgIdContext } from "../../auth/withAuth.js"
+import { getSystemDb } from "../../db/client.js"
 import { getWorkspaceUpgradeRow } from "../../models/workspace-upgrades.js"
 import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
+import { readIngestSkillBundle } from "../ingestion/skill-bundle.js"
 import {
   readWorkspaceFormat,
   WORKSPACE_FORMAT_PATH,
@@ -13,7 +16,12 @@ import {
   AUTOMATIC_UPGRADE_APPROVER,
   enableAutomaticUpgrades,
 } from "./automatic.js"
-import { type GitUpgradeStep, upgradeBranch } from "./registry.js"
+import {
+  GIT_UPGRADE_STEPS,
+  type GitUpgradeStep,
+  upgradeBranch,
+  upgradeRelease,
+} from "./registry.js"
 
 /** Test steps: only step 3 changes a file. */
 const STEPS: GitUpgradeStep[] = [1, 2].map((format) => ({
@@ -173,6 +181,113 @@ it(
               show(`refs/heads/${BRANCH}`, WORKSPACE_FORMAT_PATH),
             ),
           ).toEqual({ kind: "format", format: 3, upgrades: "automatic" })
+        } finally {
+          await worker.stop()
+          await backend.stop()
+        }
+      },
+    )
+  },
+)
+
+it(
+  "a scan that cannot be queued after the setting commit does not change the file job",
+  { timeout: 150_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      {
+        github: true,
+        githubWriteView: "writable",
+        writeStatus: "writable",
+        format: 2,
+        files: [{ path: "README.md", body: "# Readme\n" }],
+      },
+      async (f) => {
+        await f.publish()
+        const { BackendPostgres } = await import("openworkflow/postgres")
+        const { OpenWorkflow } = await import("openworkflow")
+        const { workspaceFileEdit } = await import(
+          "../../openworkflow/workflows/workspace-file-edit.js"
+        )
+        const backend = await BackendPostgres.connect(f.databaseUrl, {
+          namespaceId: openWorkflowNamespaceId(),
+          runMigrations: false,
+        })
+        const runner = new OpenWorkflow({ backend })
+        runner.implementWorkflow(workspaceFileEdit.spec, workspaceFileEdit.fn)
+        const worker = runner.newWorker({ concurrency: 1 })
+        const jobId = `wjob_${f.id}_automatic`
+        // A run of another version holds the key of the scan that the write
+        // queues, so the enqueue is refused, as it is after a deploy.
+        const release = upgradeRelease(
+          GIT_UPGRADE_STEPS,
+          (await readIngestSkillBundle()).name,
+        )
+        await getSystemDb().execute(sql`
+          insert into openworkflow.workflow_runs
+            (namespace_id, id, workflow_name, version, status, idempotency_key, config, input, attempts, created_at, updated_at)
+          values (
+            ${openWorkflowNamespaceId()}, ${`run_scan_${f.id}`}, 'workspace-upgrade-scan', 'another-version', 'completed',
+            ${`upgrade-scan:${f.org.id}:${release}:setting:${jobId}`}, '{}'::jsonb, ${JSON.stringify({ orgId: f.org.id })}::jsonb, 1, now(), now())`)
+        try {
+          await worker.start()
+          expect(
+            await withOrgIdContext(f.org, () =>
+              enableAutomaticUpgrades(
+                {
+                  jobId,
+                  orgId: f.org.id,
+                  workspace: { id: f.workspaceId, formatVersion: 2 },
+                },
+                {
+                  error: (error) => {
+                    throw error
+                  },
+                },
+              ),
+            ),
+          ).toEqual({ started: true })
+          // The setting is saved and the job is done, although no scan queued.
+          await expect
+            .poll(
+              async () =>
+                withOrgIdContext(
+                  f.org,
+                  async () => (await reconcileWorkspaceWriteJob(jobId))?.status,
+                ),
+              { timeout: 60_000 },
+            )
+            .toBe("completed")
+          // The run of the write ends well too: the refused enqueue is logged.
+          await expect
+            .poll(
+              async () =>
+                (
+                  await getSystemDb().execute<{ status: string }>(sql`
+                    select status from openworkflow.workflow_runs
+                    where namespace_id = ${openWorkflowNamespaceId()}
+                      and workflow_name = 'workspace-write-ui-file-edit'
+                      and input->>'jobId' = ${jobId}`)
+                ).rows[0]?.status,
+              { timeout: 60_000 },
+            )
+            .toBe("completed")
+          const tip = f.git(
+            "--git-dir",
+            f.remote,
+            "rev-parse",
+            "refs/heads/main",
+          )
+          expect(
+            readWorkspaceFormat(
+              f.git(
+                "--git-dir",
+                f.remote,
+                "show",
+                `${tip}:${WORKSPACE_FORMAT_PATH}`,
+              ),
+            ),
+          ).toEqual({ kind: "format", format: 2, upgrades: "automatic" })
         } finally {
           await worker.stop()
           await backend.stop()
