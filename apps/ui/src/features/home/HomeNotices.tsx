@@ -140,6 +140,8 @@ function HydrateProblemToast(props: {
   orgSlug: string
   workspace: Pick<Workspace, "id" | "slug" | "displayName">
   skippedFiles: WorkspaceSkippedFile[]
+  /** The paths that the chat checkout holds and that the agent can fix. */
+  fixablePaths: ReadonlySet<string>
   onFixWithAgent: (workspaceId: string, prompt: string) => void
   onDismiss: () => void
 }) {
@@ -148,7 +150,9 @@ function HydrateProblemToast(props: {
   const [first] = skippedFiles
   const count = skippedFiles.length
   const more = count - 1
-  const fixable = skippedFiles.filter((file) => file.reason === "malformed")
+  const fixable = skippedFiles.filter((file) =>
+    props.fixablePaths.has(file.path),
+  )
   return (
     <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
       <IconAlertTriangle
@@ -244,6 +248,7 @@ export function HomeNoticeToasts(props: {
             orgSlug={orgSlug}
             workspace={notice.workspace}
             skippedFiles={notice.skippedFiles}
+            fixablePaths={notice.fixable}
             onFixWithAgent={onFixWithAgent}
             onDismiss={onDismiss}
           />

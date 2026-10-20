@@ -5,6 +5,7 @@ import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
 import {
   docsWorkspace,
   docsWorkspaceDetail,
+  skippedFilesGitTree,
 } from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
@@ -86,7 +87,10 @@ function homeHandlers(
               skippedFiles: skippedFiles[slug] ?? [],
             })
           }),
-          ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
+          ...workspaceShellHandlers({
+            workspaces: [docsWorkspace, handbook],
+            gitTree: skippedFilesGitTree,
+          }),
           pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
           ...workspaceUpgradeAutomaticHandlers({ requests }),
@@ -401,8 +405,9 @@ export const ProblemOnly: Story = {
       ).toBeVisible(),
     )
     expect(toastItems(canvasElement)).toHaveLength(1)
+    // The agent button waits for the tree of the default branch.
     await userEvent.click(
-      within(region).getByRole("button", {
+      await within(region).findByRole("button", {
         name: "Fix using agent: Handbook, skipped files",
       }),
     )

@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest"
+import { parseSimpleFrontMatter } from "./layout.js"
 import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
@@ -139,5 +140,24 @@ describe("legacyKnowledgeOverlay", () => {
     ])
     expect(withGit.map((file) => file.path)).not.toContain(taken.path)
     expect(await overlay([], [...source.objects].reverse())).toEqual(first)
+  })
+
+  it("writes front matter that hydrate reads, also for an untitled object whose key ends with a colon", async () => {
+    const files = await overlay(
+      [],
+      [
+        {
+          id: "obj_untitled",
+          kind: "API",
+          deduplicationKey: "api:repo_tools:v1:",
+          payload: { summary: "Has no title." },
+        },
+      ],
+    )
+    expect(files).toHaveLength(1)
+    const [file] = files
+    const parsed = parseSimpleFrontMatter(file?.content ?? "")
+    expect(parsed.malformed).toBe(false)
+    expect(parsed.attributes.import_key).toBe("api:repo_tools:v1:")
   })
 })

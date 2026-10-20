@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto"
-import { isAlias, isMap, isSeq } from "yaml"
+import { isAlias, isMap, isSeq, stringify as stringifyYaml } from "yaml"
 import { SourceChangeError } from "../workspace-sources/edit.js"
 import { linkGithubRepositories } from "../workspace-sources/github-links.js"
 import { githubSourceRepositories } from "../workspace-sources/github-sources.js"
@@ -334,56 +334,37 @@ function importedFrontMatter(input: {
   body: string
   claims?: ReadonlyArray<ImportedMarkdownClaim>
 }): string {
-  const lines = ["---"]
-  if (input.importKey) lines.push(`import_key: ${yamlScalar(input.importKey)}`)
-  if (input.kind) lines.push(`kind: ${yamlScalar(input.kind)}`)
+  const attributes: Record<string, unknown> = {}
+  if (input.importKey) attributes.import_key = input.importKey
+  if (input.kind) attributes.kind = input.kind
   if (input.confidence != null) {
-    lines.push(`confidence: ${formatYamlNumber(input.confidence)}`)
+    attributes.confidence = clampedConfidence(input.confidence)
   }
-  if (input.generatedBy) {
-    lines.push(`generated_by: ${yamlScalar(input.generatedBy)}`)
-  }
-  if (input.source) lines.push(`source: ${yamlScalar(input.source)}`)
+  if (input.generatedBy) attributes.generated_by = input.generatedBy
+  if (input.source) attributes.source = input.source
   if (input.claims && input.claims.length > 0) {
-    lines.push("claims:")
-    for (const claim of input.claims) {
-      lines.push(`  - to: ${yamlScalar(claim.to)}`)
-      lines.push(`    predicate: ${yamlScalar(claim.predicate)}`)
-      if (claim.confidence != null) {
-        lines.push(`    confidence: ${formatYamlNumber(claim.confidence)}`)
-      }
-      if (claim.validFrom) {
-        lines.push(`    valid_from: ${yamlScalar(claim.validFrom)}`)
-      }
-      if (claim.validTo)
-        lines.push(`    valid_to: ${yamlScalar(claim.validTo)}`)
-      if (claim.source) lines.push(`    source: ${yamlScalar(claim.source)}`)
-    }
+    attributes.claims = input.claims.map((claim) => ({
+      to: claim.to,
+      predicate: claim.predicate,
+      ...(claim.confidence != null
+        ? { confidence: clampedConfidence(claim.confidence) }
+        : {}),
+      ...(claim.validFrom ? { valid_from: claim.validFrom } : {}),
+      ...(claim.validTo ? { valid_to: claim.validTo } : {}),
+      ...(claim.source ? { source: claim.source } : {}),
+    }))
   }
-  lines.push("---", "", input.body.trim(), "")
-  return lines.join("\n")
+  // The yaml library quotes every value that needs it, so the file always parses.
+  const header =
+    Object.keys(attributes).length > 0
+      ? ["---", stringifyYaml(attributes, { lineWidth: 0 }).trimEnd(), "---"]
+      : ["---", "---"]
+  return [...header, "", input.body.trim(), ""].join("\n")
 }
 
-function yamlScalar(value: string): string {
-  if (
-    value === "" ||
-    value !== value.trim() ||
-    /[\r\n]/.test(value) ||
-    /^[#&*!|>'"%@`{}[\],]/.test(value) ||
-    /: /.test(value) ||
-    value.includes("#") ||
-    /^https?:\/\//i.test(value) ||
-    value.startsWith("git@")
-  ) {
-    return JSON.stringify(value)
-  }
-  return value
-}
-
-function formatYamlNumber(value: number): string {
-  if (!Number.isFinite(value)) return "0"
-  const clamped = Math.min(1, Math.max(0, value))
-  return String(Number(clamped.toFixed(6)))
+function clampedConfidence(value: number): number {
+  if (!Number.isFinite(value)) return 0
+  return Number(Math.min(1, Math.max(0, value)).toFixed(6))
 }
 
 const DEDUP_REPO_PREFIX = /^[^:]+:([^:]+):/
@@ -438,10 +419,7 @@ export function objectPathFromPayload(payload: unknown): string | null {
   return path || null
 }
 
-function objectBodyFromPayload(
-  payload: unknown,
-  title?: string,
-): string {
+function objectBodyFromPayload(payload: unknown, title?: string): string {
   const heading = title ?? objectTitleFromPayload(payload)
   const sections: string[] = []
   const summary = objectSummaryFromPayload(payload)

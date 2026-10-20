@@ -900,6 +900,16 @@ export const docsWorkspaceGitTree: WorkspaceGitTreeResponse = {
   paths: Object.keys(docsWorkspaceGitBlobs).sort(),
 }
 
+/** The default branch tree that holds each file of `skippedFilesWorkspaceDetail`. */
+export const skippedFilesGitTree: WorkspaceGitTreeResponse = {
+  ...docsWorkspaceGitTree,
+  paths: [
+    ...docsWorkspaceGitTree.paths,
+    "knowledge/legal.md",
+    "repositories/app-copy.md",
+  ].sort(),
+}
+
 export const docsWorkspaceGitStatus: WorkspaceGitStatusResponse = {
   sha: docsWorkspaceGitTree.sha,
   source: "sandbox",

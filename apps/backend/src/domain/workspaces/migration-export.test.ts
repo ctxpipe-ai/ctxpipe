@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { parse } from "yaml"
+import { parseSimpleFrontMatter } from "./layout.js"
 import {
   importedObjectMarkdown,
   importKeyForExportedObject,
@@ -289,6 +290,76 @@ describe("migration export", () => {
     expect(md).not.toContain("obj_")
   })
 
+  it("writes front matter that parseSimpleFrontMatter reads back unchanged", () => {
+    const risky = [
+      "Ends with a colon:",
+      "- starts like a list item",
+      "? starts like a mapping key",
+      ":starts with a colon",
+      "# starts like a comment",
+      "has # inside",
+      "say \"hi\" and 'bye'",
+      "line one\nline two",
+      "yes",
+      "no",
+      "null",
+      "123",
+      "1e3",
+      "2026-01-01",
+      "key: value",
+      "[a, b]",
+      "{a: b}",
+      "*alias",
+      "&anchor",
+      "%directive",
+      "@at",
+      "--- not a document end",
+      "https://example.com/a?b=c",
+      "git@github.com:acme/app.git",
+      " padded ",
+      "tab\there",
+      "trailing backslash\\",
+      "x".repeat(200),
+    ]
+    for (const value of risky) {
+      const md = importedObjectMarkdown({
+        title: "Risky",
+        body: "Body.",
+        importKey: value,
+        kind: value,
+        generatedBy: value,
+        source: value,
+        claims: [
+          {
+            to: value,
+            predicate: value,
+            validFrom: value,
+            validTo: value,
+            source: value,
+          },
+        ],
+      })
+      const parsed = parseSimpleFrontMatter(md)
+      expect(parsed.malformed, value).toBe(false)
+      expect(parsed.attributes, value).toEqual({
+        import_key: value,
+        kind: value,
+        generated_by: value,
+        source: value,
+        claims: [
+          {
+            to: value,
+            predicate: value,
+            valid_from: value,
+            valid_to: value,
+            source: value,
+          },
+        ],
+      })
+      expect(parsed.body.trim(), value).toBe("# Risky\n\nBody.")
+    }
+  })
+
   it("serializes claim windows as UTC instants", () => {
     expect(isoDate(new Date("2026-01-01T12:30:00.000Z"))).toBe(
       "2026-01-01T12:30:00.000Z",
@@ -437,7 +508,7 @@ describe("migration export", () => {
       "](../instructions/local-memory-initialization.md)",
     )
     expect(service?.content).toContain(
-      'source: "https://github.com/acme/app.git#README.md"',
+      "source: https://github.com/acme/app.git#README.md",
     )
     expect(service?.content).not.toContain("evd:repo_app")
     expect(instruction?.content).toContain("kind: InstructionUnit")
