@@ -106,14 +106,11 @@ type ConversationGitStatusRead = InferResponseType<
   200
 >
 
-/** `items`: the route types the file status as a string; the sandbox sends the known values. */
-export type ConversationGitStatusResponse = Omit<
-  WithOptional<
-    ConversationGitStatusRead,
-    "sha" | "desiredSha" | "stale" | "worktreeVersion"
-  >,
-  "items"
-> & { items: WorkspaceGitStatusItem[] }
+/** The sandbox status read; the cached copies of it omit some fields. */
+export type ConversationGitStatusResponse = WithOptional<
+  ConversationGitStatusRead,
+  "sha" | "desiredSha" | "stale" | "worktreeVersion"
+>
 
 /** A diff read. `gone`: the turn's snapshots are no longer in the sandbox (410). */
 type ConversationGitDiffRead = InferResponseType<

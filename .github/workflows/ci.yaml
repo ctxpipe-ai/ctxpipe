@@ -731,12 +731,13 @@ jobs:
           DATABASE_URL=postgresql://ctxpipe_app:ctxpipe@localhost:5432/ctxpipe_migrate_fresh \
             pnpm exec vitest run src/db/rls-isolation.test.ts
 
-  upgrade-from-main:
-    # The minor upgrade promise (CTX-748): a main database, migrated and
-    # seeded by main, upgrades with the one migrate entry point; its
-    # Workspace upgrade waits for an admin and lands in one pull request; and
-    # main's code still reads the database after the upgrade (rollback).
-    name: Upgrade from main
+  upgrade-from-previous-release:
+    # The minor upgrade promise (CTX-748): a database of the previous release,
+    # migrated and seeded by that release, upgrades with the one migrate entry
+    # point; its Workspace upgrade waits for an admin and lands in one pull
+    # request; and the code of the previous release still reads the database
+    # after the upgrade (rollback).
+    name: Upgrade from the previous release
     timeout-minutes: 15
     if: |
       github.event_name == 'workflow_dispatch' ||
@@ -771,10 +772,15 @@ jobs:
       - uses: oven-sh/setup-bun@v2
         with:
           bun-version: 1.4.2
-      - name: Checkout of main with its dependencies
+      - name: Checkout of the previous release with its dependencies
+        env:
+          # The release that operators run now, not main. Main holds the new
+          # code. Move this to the newest release tag when the next release
+          # changes the upgrade path.
+          PREVIOUS_RELEASE_REF: "@ctxpipe/aws-cdk@3.2.0"
         run: |
-          git worktree add --detach "$RUNNER_TEMP/main" origin/main
-          cd "$RUNNER_TEMP/main"
+          git worktree add --detach "$RUNNER_TEMP/previous-release" "$PREVIOUS_RELEASE_REF"
+          cd "$RUNNER_TEMP/previous-release"
           pnpm install --frozen-lockfile --filter "@ctxpipe/backend..."
       - name: Restore native revision index tools
         id: zoekt
@@ -804,14 +810,14 @@ jobs:
             done
           fi
           echo "$RUNNER_TEMP/ctxpipe-zoekt" >> "$GITHUB_PATH"
-      - name: Upgrade a main database and Workspace, then read it with main
+      - name: Upgrade a database of the previous release and Workspace, then read it with the previous release
         env:
           DATABASE_URL: postgresql://ctxpipe:ctxpipe@localhost:5432/postgres
           DATABASE_APP_PASSWORD: ctxpipe
           GRAPH_DB_URI: redis://127.0.0.1:6379
           AUTH_SECRET: ci-auth-secret-must-be-at-least-32-chars
         working-directory: apps/backend
-        run: MAIN_TREE="$RUNNER_TEMP/main" pnpm test:upgrade-from-main
+        run: RELEASE_TREE="$RUNNER_TEMP/previous-release" pnpm test:upgrade-from-release
       - name: FalkorDB diagnostics
         if: failure()
         continue-on-error: true
