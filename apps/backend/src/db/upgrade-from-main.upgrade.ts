@@ -166,11 +166,7 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
 
 /** Run a script with main's code from the main checkout, as main runs: as the owner role. */
 async function runWithMain(body: string): Promise<unknown> {
-  const script = join(
-    releaseTree,
-    "apps/backend",
-    `.upgrade-main-${suffix}.mts`,
-  )
+  const script = join(releaseTree, "apps/backend", `.upgrade-main-${suffix}.mts`)
   writeFileSync(
     script,
     `const { initDb, closeDb } = await import("./src/db/client.ts")
