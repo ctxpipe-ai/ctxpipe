@@ -1,5 +1,7 @@
 import pg from "pg"
-import { afterAll, beforeAll, describe, expect, it } from "vitest"
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest"
+import { log } from "../observability/logger.js"
+import { describeMigrateError } from "./describe-migrate-error.js"
 import { ownerUrlForMigrate } from "./owner-migrate-url.js"
 import { provisionAppRole } from "./provision-app-role.js"
 import { runMigrations } from "./run-migrations.js"
@@ -155,38 +157,148 @@ describe("runMigrations", () => {
     })
   })
 
-  it("fails with a clear message when a lock holds a migration statement", async () => {
-    const lockDatabase = `${database}_lock`
-    const lockRole = `${roleName}_lock`
-    await admin.query(`CREATE DATABASE "${lockDatabase}"`)
-    const lockUrl = new URL(databaseUrl)
-    lockUrl.pathname = `/${lockDatabase}`
-    const holder = new pg.Client({ connectionString: lockUrl.toString() })
-    await holder.connect()
+  /** A fresh database and a role of its own, so that each run starts from nothing. */
+  async function withFreshDatabase(
+    name: string,
+    run: (url: string, lockRole: string) => Promise<void>,
+  ): Promise<void> {
+    const freshDatabase = `${database}_${name}`
+    const freshRole = `${roleName}_${name}`
+    await admin.query(`CREATE DATABASE "${freshDatabase}"`)
+    const url = new URL(databaseUrl)
+    url.pathname = `/${freshDatabase}`
     try {
-      // Drizzle reads this table first, so a lock on it stops the run at once.
-      await holder.query(`CREATE SCHEMA "drizzle"`)
-      await holder.query(
-        `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+      await run(url.toString(), freshRole)
+    } finally {
+      await admin.query(
+        `DROP DATABASE IF EXISTS "${freshDatabase}" WITH (FORCE)`,
       )
-      await holder.query("BEGIN")
-      await holder.query(
-        `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
-      )
-      await expect(
-        runMigrations({
-          connectionString: lockUrl.toString(),
+      await admin.query(`DROP ROLE IF EXISTS "${freshRole}"`)
+    }
+  }
+
+  /** Hold ACCESS EXCLUSIVE on the table Drizzle reads first, in an open transaction. */
+  async function holdDrizzleLock(url: string): Promise<pg.Client> {
+    const holder = new pg.Client({ connectionString: url })
+    await holder.connect()
+    await holder.query(`CREATE SCHEMA "drizzle"`)
+    await holder.query(
+      `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key, hash text not null, created_at bigint)`,
+    )
+    await holder.query("BEGIN")
+    await holder.query(
+      `LOCK TABLE "drizzle"."__drizzle_migrations" IN ACCESS EXCLUSIVE MODE`,
+    )
+    return holder
+  }
+
+  it("fails with a clear message and the Postgres cause when a lock holds the migration on every try", async () => {
+    await withFreshDatabase("lock", async (url, lockRole) => {
+      const holder = await holdDrizzleLock(url)
+      try {
+        const error = await runMigrations({
+          connectionString: url,
           appRolePassword: password,
           roleName: lockRole,
-          lockTimeoutMs: 500,
-        }),
-      ).rejects.toThrow(/waited more than 500 ms for a database lock/)
-    } finally {
-      await holder.end()
-      await admin.query(
-        `DROP DATABASE IF EXISTS "${lockDatabase}" WITH (FORCE)`,
+          drizzleLockRetry: {
+            lockTimeoutMs: 200,
+            tries: 2,
+            baseDelayMs: 50,
+            maxDelayMs: 50,
+          },
+        }).catch((caught: unknown) => caught)
+        expect((error as Error).message).toMatch(
+          /waited more than 200 ms for a database lock on each of 2 tries[\s\S]*End that session/,
+        )
+        expect(describeMigrateError(error)).toMatch(
+          /Caused by: [\s\S]*SQLSTATE 55P03/,
+        )
+      } finally {
+        await holder.end()
+      }
+    })
+  })
+
+  it("retries the migration on a lock timeout and succeeds when the lock goes away", async () => {
+    const warn = vi.spyOn(log, "warn")
+    await withFreshDatabase("retry", async (url, lockRole) => {
+      const holder = await holdDrizzleLock(url)
+      // Longer than two lock timeouts, so that at least two tries roll back.
+      setTimeout(() => void holder.end(), 1_000)
+      const started = Date.now()
+      try {
+        await runMigrations({
+          connectionString: url,
+          appRolePassword: password,
+          roleName: lockRole,
+          drizzleLockRetry: {
+            lockTimeoutMs: 200,
+            tries: 10,
+            baseDelayMs: 100,
+            maxDelayMs: 200,
+          },
+        })
+      } finally {
+        await holder.end().catch(() => {})
+      }
+      expect(Date.now() - started).toBeGreaterThanOrEqual(900)
+      const retries = warn.mock.calls.filter(
+        ([event]) =>
+          (event as { step?: string }).step === "migrate" &&
+          (event as { attempt?: number }).attempt !== undefined,
       )
-      await admin.query(`DROP ROLE IF EXISTS "${lockRole}"`)
-    }
+      expect(retries.length).toBeGreaterThanOrEqual(2)
+      expect(retries[0]?.[0]).toMatchObject({ attempt: 1, waitMs: 100 })
+      expect(retries[1]?.[0]).toMatchObject({ attempt: 2, waitMs: 200 })
+      const check = new pg.Client({ connectionString: url })
+      await check.connect()
+      try {
+        const found = await check.query(
+          `SELECT to_regclass('public.organizations') AS found`,
+        )
+        expect(found.rows[0]?.found).not.toBeNull()
+      } finally {
+        await check.end()
+      }
+    })
+    warn.mockRestore()
+  })
+
+  it("does not retry an error that is not a lock timeout, and names the cause", async () => {
+    const warn = vi.spyOn(log, "warn")
+    await withFreshDatabase("nolock", async (url, lockRole) => {
+      const setup = new pg.Client({ connectionString: url })
+      await setup.connect()
+      try {
+        // A migrations table without the columns Drizzle reads: error 42703.
+        await setup.query(`CREATE SCHEMA "drizzle"`)
+        await setup.query(
+          `CREATE TABLE "drizzle"."__drizzle_migrations" (id serial primary key)`,
+        )
+      } finally {
+        await setup.end()
+      }
+      const started = Date.now()
+      const error = await runMigrations({
+        connectionString: url,
+        appRolePassword: password,
+        roleName: lockRole,
+        drizzleLockRetry: {
+          lockTimeoutMs: 200,
+          tries: 10,
+          baseDelayMs: 60_000,
+          maxDelayMs: 60_000,
+        },
+      }).catch((caught: unknown) => caught)
+      expect(error).toBeInstanceOf(Error)
+      expect(Date.now() - started).toBeLessThan(30_000)
+      expect(describeMigrateError(error)).toMatch(/SQLSTATE 42703/)
+      expect(
+        warn.mock.calls.filter(
+          ([event]) => (event as { attempt?: number }).attempt !== undefined,
+        ),
+      ).toHaveLength(0)
+    })
+    warn.mockRestore()
   })
 })
