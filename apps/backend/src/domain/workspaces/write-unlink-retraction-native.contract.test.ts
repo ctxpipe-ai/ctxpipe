@@ -657,7 +657,8 @@ it(
         // The rest of the retraction is done, and the old file is not touched.
         expectRetraction({ git, show, from: merged })
         expect(show("knowledge/patterns/billing.md")).toBe(oldFile.trimEnd())
-        expect(await results()).toEqual([
+        // The job row turns completed before the workflow run stores its output.
+        await expect.poll(results, { timeout: 30_000 }).toEqual([
           expect.objectContaining({
             committed: true,
             skipped: [

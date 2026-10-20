@@ -66,10 +66,13 @@ export class SecretsConstruct extends Construct {
 
           exports.handler = async (event) => {
             const properties = event.ResourceProperties;
+            // Create picks the stable id. Update and Delete must echo the id CloudFormation
+            // holds, or the provider framework rejects the change (a cancelled create has a
+            // generated id, so a fixed id on Delete breaks the rollback).
             const physicalId =
-              properties.WriterPhysicalId ||
-              event.PhysicalResourceId ||
-              "database-url-writer";
+              event.RequestType === "Create"
+                ? properties.WriterPhysicalId
+                : event.PhysicalResourceId;
             if (event.RequestType === "Delete") {
               return { PhysicalResourceId: physicalId };
             }
