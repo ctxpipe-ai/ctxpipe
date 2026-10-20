@@ -3,6 +3,7 @@ import {
   type SourceProvider,
 } from "backend/domain/workspace-sources/sources-file"
 import type { ComponentType } from "react"
+import { buildkiteSourceUi } from "./providers/buildkite"
 import { confluenceSourceUi } from "./providers/confluence"
 import { gitSourceUi } from "./providers/git"
 import { githubSourceUi } from "./providers/github"
@@ -51,6 +52,7 @@ export const SOURCE_PROVIDER_UI: Record<SourceProvider, SourceProviderUi> = {
   notion: notionSourceUi,
   slack: slackSourceUi,
   pagerduty: pagerdutySourceUi,
+  buildkite: buildkiteSourceUi,
   git: gitSourceUi,
 }
 

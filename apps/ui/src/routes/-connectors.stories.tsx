@@ -1,6 +1,10 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
+import {
+  buildkiteStatusHandler,
+  buildkiteStoryStatus,
+} from "@/mocks/buildkite-handlers"
 import { workspaceListHandler } from "@/mocks/workspace-handlers"
 import { connectionUsageHandler } from "@/mocks/workspace-sources-handlers"
 import { orgPageDecorators } from "../../.storybook/decorators/entry-page-decorators"
@@ -540,5 +544,52 @@ export const ReopensConfluenceWizardAfterAccountLink: Story = {
         ],
       },
     },
+  },
+}
+
+/** A Buildkite row shows its own card, and the catalog opens its setup. */
+export const BuildkiteFromCatalog: Story = {
+  render: pageRender,
+  parameters: pageHandlers([
+    http.get(
+      ({ request }) =>
+        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+      () =>
+        HttpResponse.json({
+          items: [
+            {
+              id: "conn_buildkite_1",
+              type: "buildkite",
+              displayName: "acme",
+              createdAt: "2025-01-01T00:00:00.000Z",
+              updatedAt: "2025-01-02T00:00:00.000Z",
+            },
+          ],
+        }),
+    ),
+    buildkiteStatusHandler(buildkiteStoryStatus({ webhookConfigured: true })),
+    // The org shell lists the Workspaces.
+    workspaceListHandler([]),
+  ]),
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await waitFor(() =>
+      expect(
+        body.getByRole("button", { name: "Buildkite connector actions" }),
+      ).toBeVisible(),
+    )
+    await expect(body.queryByText("GitHub")).toBeNull()
+    await userEvent.click(body.getByRole("button", { name: "Add connection" }))
+    await userEvent.click(
+      await body.findByRole("button", {
+        name: /^Buildkite Sync the latest builds/,
+      }),
+    )
+    const setup = await body.findByRole("heading", {
+      name: "Set up Buildkite connector",
+    })
+    // The modal fades in; wait until the setup is visible.
+    await waitFor(() => expect(setup).toBeVisible())
+    await expect(body.getByLabelText("Organization slug")).toHaveValue("")
   },
 }
