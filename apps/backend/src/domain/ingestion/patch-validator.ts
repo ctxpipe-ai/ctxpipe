@@ -110,7 +110,7 @@ export type PatchStepInput = {
   rootPath?: string
 }
 
-/** The 12 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
+/** The 13 allowlist folders and their kinds. Patterns are not extracted (ADR-052). */
 const FOLDER_KINDS: ReadonlyMap<string, string> = new Map(
   Object.entries(KNOWLEDGE_KIND_FOLDERS)
     .filter(([kind]) => kind !== "Pattern")
@@ -139,6 +139,12 @@ export const HOST_FIELDS = [
   "skill",
   "bundle",
 ] as const
+/**
+ * A GitHub Actions workflow file of the source: GitHub runs only the files
+ * directly in `.github/workflows/`. Hydrate joins a merged pull request that
+ * changes it to the Workflow file (`PullRequest CHANGED Workflow`).
+ */
+const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/
 const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
@@ -213,6 +219,8 @@ const FrontMatterSchema = z
         "A file has at most 200 claims",
       )
       .optional(),
+    /** The workflow file that a Workflow file describes, and no other kind. */
+    workflow_file: z.string().optional(),
     generated_by: z.string().optional(),
     sources: z.array(z.string()).optional(),
     root: z.string().optional(),
@@ -992,6 +1000,23 @@ async function checkFullWrite(
       return { rule: "front_matter", reason: `Only the host sets ${field}` }
   }
 
+  if (attributes.kind !== "Workflow" && attributes.workflow_file !== undefined)
+    return {
+      rule: "front_matter",
+      reason: "Only a Workflow file has workflow_file",
+    }
+  if (
+    attributes.kind === "Workflow" &&
+    !(
+      WORKFLOW_FILE.test(attributes.workflow_file ?? "") &&
+      (await context.evidenceExists(attributes.workflow_file ?? ""))
+    )
+  )
+    return {
+      rule: "front_matter",
+      reason: "workflow_file must name a workflow file of the source",
+    }
+
   const human = humanSectionProblem(front, before)
   if (human) return human
 
@@ -1063,6 +1088,9 @@ async function checkFullWrite(
     ...(attributes.summary === undefined
       ? {}
       : { summary: attributes.summary }),
+    ...(attributes.workflow_file === undefined
+      ? {}
+      : { workflow_file: attributes.workflow_file }),
     ...(outClaims.length ? { claims: outClaims } : {}),
     generated_by: GENERATED_BY,
     sources: [context.sourcePath],

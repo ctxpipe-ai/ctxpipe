@@ -127,7 +127,7 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "PullRequest", predicate: "MODIFIED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "REMOVED", objectKind: "File" },
   { subjectKind: "PullRequest", predicate: "RENAMED", objectKind: "File" },
-  ...[...PACKAGE_KINDS, "Repository"].map((objectKind) => ({
+  ...[...PACKAGE_KINDS, "Repository", "Workflow"].map((objectKind) => ({
     subjectKind: "PullRequest",
     predicate: "CHANGED",
     objectKind,
@@ -143,6 +143,13 @@ export const EXTENSION_ALLOWED_CONNECTIONS: Array<{
   { subjectKind: "Issue", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Thread", predicate: "MENTIONS", objectKind: "File" },
   { subjectKind: "Decision", predicate: "MENTIONS", objectKind: "File" },
+  // a GitHub Actions workflow names the root of a package in a path filter
+  // or a working directory (ingestion v2 `workflows` skill)
+  ...PACKAGE_KINDS.map((objectKind) => ({
+    subjectKind: "Workflow",
+    predicate: "MENTIONS",
+    objectKind,
+  })),
   { subjectKind: "Decision", predicate: "SUPERSEDES", objectKind: "Decision" },
   { subjectKind: "Issue", predicate: "SUPERSEDES", objectKind: "Issue" },
   // ownership
@@ -190,12 +197,13 @@ export const PREDICATE_DESCRIPTIONS: Record<string, string> = {
   RENAMED:
     "change event: the PullRequest renamed a file to this File (valid_from = merge date)",
   CHANGED:
-    "change event: the merged PullRequest changed this Service, App, Library or Repository (valid_from = merge date)",
+    "change event: the merged PullRequest changed this Service, App, Library or Repository, or the file of this Workflow (valid_from = merge date)",
   REFERENCES:
     "explicit cross-tool link by URL or identifier: Issue and PullRequest reference each other; an Issue references a related Issue; a Thread references a PullRequest, Issue or Decision",
   RESOLVES:
     "a merged PullRequest closes this Issue: the head branch names it, or a closing keyword (fixes, closes, resolves, completes) comes directly before it (valid_from = merge date)",
-  MENTIONS: "lexical mention of a File in an Issue, Thread or Decision",
+  MENTIONS:
+    "lexical mention of a File in an Issue, Thread or Decision; a Workflow names the root of this Service, App or Library in a path filter or working directory",
   OWNS: "ownership: a Team owns a Service, App or Library (CODEOWNERS) or an Issue (tracker team)",
   INFLUENCES: "a Decision (ADR) shapes this Service",
   SUPERSEDES:
@@ -268,4 +276,3 @@ export function getGraphNodeKinds(): string[] {
 export function isValidGraphEdgeType(predicate: string): boolean {
   return GRAPH_EDGE_TYPES.has(predicate)
 }
-
