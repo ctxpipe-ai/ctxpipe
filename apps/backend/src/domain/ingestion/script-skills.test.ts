@@ -1765,6 +1765,25 @@ describe("readmes skill", () => {
     }
   })
 
+  it("stops before a heading that the validator refuses after it decodes a character reference", async () => {
+    for (const heading of ["## For &#65;I agents", "## Coding&nbsp;models"]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${heading}\n\nRun the checks.\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain("> Serves orders.\n\nSource: `apps/api/README.md`")
+      expect(api).not.toContain("Run the checks")
+    }
+  })
+
   it("reads no README that is a symbolic link", () => {
     const s = step(PNPM_SHOP, {
       "knowledge/services/api.md": packageFile("api", "apps/api"),

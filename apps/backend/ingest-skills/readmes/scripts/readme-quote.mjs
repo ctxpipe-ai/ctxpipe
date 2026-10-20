@@ -274,8 +274,13 @@ function trueToSource(blocks, source) {
   })
 }
 
-/** A heading that the validator refuses, also with its emphasis marks removed. */
+/**
+ * A heading that the validator refuses, also with its emphasis marks
+ * removed. The validator decodes character references (`&#65;`, `&nbsp;`),
+ * so a heading with a reference also stops the quote.
+ */
 const deniedHeading = (text) =>
+  /&(?:#\d+|#x[\da-f]+|[a-z][a-z\d]*);/i.test(text) ||
   [text, text.replace(/[*_~`]/g, "")].some((t) =>
     DENIED_HEADINGS.some((pattern) => pattern.test(t)),
   )
