@@ -1,4 +1,5 @@
 ---
+"@ctxpipe/aws-cdk": patch
 ---
 
-The migrate task retries on a database lock timeout and prints the Postgres cause when it fails.
+Migrate waits at most 5 s for a database lock and tries again, so a deploy no longer fails while the old services run. A failed migrate names the Postgres statement and table.
