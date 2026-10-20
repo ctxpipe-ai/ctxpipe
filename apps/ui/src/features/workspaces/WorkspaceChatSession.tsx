@@ -6,6 +6,7 @@ import {
   type ReactNode,
   useEffect,
   useEffectEvent,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -150,7 +151,11 @@ export function WorkspaceChatSession(props: {
     [initialMessages],
   )
 
-  useEffect(() => {
+  // A layout effect closes the sockets before every cleanup of `useChat`.
+  // The cleanup of `useChat` aborts the turn's signal, and the adapter sends an
+  // abort frame on a socket that is open. Thus leaving the conversation sends
+  // none, and the turn continues on the server. Only Stop sends one.
+  useLayoutEffect(() => {
     connection.warm()
     return () => {
       connection.dispose()

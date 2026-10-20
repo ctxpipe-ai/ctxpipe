@@ -146,25 +146,45 @@ async function* registeredTurn(
  * turn of another user cannot add chunks to that run log. Any other run
  * fails as an unknown run.
  *
- * A turn continues when its socket closes. Only an abort frame (the Stop
- * control) stops it, from the socket that started it or from a later socket
- * of the same user in the same conversation.
+ * A turn continues when its socket closes. An abort frame (the Stop control)
+ * stops it, from the socket that started it or from a later socket of the
+ * same user in the same conversation. A turn also stops after `maxTurnMs`, so
+ * a hung turn does not keep its lock, sandbox lease and tokens.
+ *
+ * A join to a run that no turn of this process runs calls `endLostRun`
+ * before the socket closes. A deploy or a crash can leave such a run marked
+ * as running.
  */
 export function startConversationChatSocket(
   socket: WebSocketLike,
   request: Request,
   scope: { orgId: string; userId: string; conversationId: string },
   onRun: ConversationChatSocketRun,
-  transport: {
-    resume: typeof resumeWebSocketStream
-    stream: typeof toWebSocketStream
-  } = {
+  options: {
+    endLostRun?: (runId: string) => Promise<void>
+    maxTurnMs?: number
+    transport?: {
+      resume: typeof resumeWebSocketStream
+      stream: typeof toWebSocketStream
+    }
+  } = {},
+) {
+  const transport = options.transport ?? {
     resume: resumeWebSocketStream,
     stream: toWebSocketStream,
-  },
-) {
+  }
+  // Well above a long agent turn.
+  const maxTurnMs = options.maxTurnMs ?? 2 * 60 * 60_000
   const runLog = (runId: string) =>
     `${scope.orgId}/${scope.userId}/${scope.conversationId}/${runId}`
+  // A turn of any user in this conversation. The run log of another user
+  // has a different key, so it is not in this socket's run log.
+  const runsInThisProcess = (runId: string) =>
+    [...runningTurns.keys()].some(
+      (key) =>
+        key.startsWith(`${scope.orgId}/`) &&
+        key.endsWith(`/${scope.conversationId}/${runId}`),
+    )
   socket.addEventListener("message", (event) => {
     const runId = abortFrameRunId(event.data)
     if (runId) runningTurns.get(runLog(runId))?.abort()
@@ -182,9 +202,19 @@ export function startConversationChatSocket(
     // When the socket closes before the first chunk, nothing removes that
     // entry. Thus close a run with no data before the read, with the same
     // close that the read gives.
-    void adapter.snapshot().then((entries) => {
-      if (entries.length === 0) socket.close(1011, "resume failed")
-      else transport.resume(socket, { adapter })
+    void adapter.snapshot().then(async (entries) => {
+      if (entries.length > 0) {
+        transport.resume(socket, { adapter })
+        return
+      }
+      if (options.endLostRun && !runsInThisProcess(runId)) {
+        try {
+          await options.endLostRun(runId)
+        } catch {
+          // The socket closes as for an unknown run. A later join tries again.
+        }
+      }
+      socket.close(1011, "resume failed")
     })
     return "resume" as const
   }
@@ -196,7 +226,14 @@ export function startConversationChatSocket(
       return registeredTurn(
         runLog(ctx.runId),
         stop,
-        onRun({ ...ctx, signal: AbortSignal.any([ctx.signal, stop.signal]) }),
+        onRun({
+          ...ctx,
+          signal: AbortSignal.any([
+            ctx.signal,
+            stop.signal,
+            AbortSignal.timeout(maxTurnMs),
+          ]),
+        }),
       )
     },
   })

@@ -250,6 +250,8 @@ it("rejects a send whose history does not hold the stored questions", async () =
   ).toEqual([])
 })
 
+// This test uses the real `withPersistence`, so it also fails when the
+// private `getPendingTurn` export moves or changes shape.
 it("stores the question and a running run before the sandbox setup, and keeps the question when a stop ends the setup", async () => {
   const persistence = memoryPersistence()
   const stop = new AbortController()

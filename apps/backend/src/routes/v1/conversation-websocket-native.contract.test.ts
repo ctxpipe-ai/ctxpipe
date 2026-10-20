@@ -378,3 +378,32 @@ it(
     )
   },
 )
+
+it(
+  "ends a running run that no turn runs when a socket joins it, so a push is not blocked",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeChatFixture(async (f) => {
+      // A deploy or a crash stopped the process during the turn: the run
+      // record says running, and this process has no turn for it.
+      const runId = `run-${f.conversationId}`
+      const runs = workspaceChatPersistence({
+        threadId: f.conversationId,
+      }).stores.runs
+      await runs.createOrResume({
+        runId,
+        threadId: f.conversationId,
+        startedAt: Date.now(),
+      })
+
+      await nativeSocket(f, `?runId=${runId}&offset=-1`).ended
+
+      expect(
+        await workspaceChatPersistence().stores.runs.findActiveRun(
+          f.conversationId,
+        ),
+      ).toBeNull()
+      expect((await runs.get(runId))?.status).toBe("aborted")
+    })
+  },
+)

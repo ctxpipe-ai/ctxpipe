@@ -1,4 +1,6 @@
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
+// No public API stores the question before setup. The pending-turn test fails
+// if this export moves or changes shape.
 import { getPendingTurn } from "@tanstack/ai/adapter-internals"
 import type { LockStore } from "@tanstack/ai/locks"
 import type { RunStore } from "@tanstack/ai-persistence"

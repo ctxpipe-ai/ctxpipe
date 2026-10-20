@@ -89,7 +89,7 @@ describe("workspace chat websocket resume", () => {
         ),
         { orgId: "org_1", userId: "user_1", conversationId: "conv_1" },
         onRun,
-        { resume, stream },
+        { transport: { resume, stream } },
       ),
     ).toBe("resume")
     await vi.waitFor(() => expect(resume).toHaveBeenCalledTimes(1))
@@ -111,7 +111,7 @@ describe("workspace chat websocket resume", () => {
         new Request("http://localhost:3000/acme/api/v1/conversations/conv_1"),
         { orgId: "org_1", userId: "user_1", conversationId: "conv_1" },
         onRun,
-        { resume, stream },
+        { transport: { resume, stream } },
       ),
     ).toBe("run")
     expect(stream).toHaveBeenCalledTimes(1)
@@ -151,13 +151,15 @@ describe("workspace chat turn lifetime", () => {
     onRun: Parameters<typeof startConversationChatSocket>[3],
     query = "",
     socketScope = scope,
+    options: Parameters<typeof startConversationChatSocket>[4] = {},
   ) {
     const frames: Array<{ chunk?: StreamChunk }> = []
+    const close = vi.fn()
     const socket = bunSocketToWebSocketLike({
       send: (data) => {
         frames.push(JSON.parse(data))
       },
-      close: vi.fn(),
+      close,
     })
     startConversationChatSocket(
       socket,
@@ -166,16 +168,18 @@ describe("workspace chat turn lifetime", () => {
       ),
       socketScope,
       onRun,
+      options,
     )
     const types = () => frames.map((frame) => frame.chunk?.type)
-    return { socket, types }
+    return { socket, types, close }
   }
 
   function startTurn(
     onRun: Parameters<typeof startConversationChatSocket>[3],
     runId: string,
+    options: Parameters<typeof startConversationChatSocket>[4] = {},
   ) {
-    const opened = openSocket(onRun)
+    const opened = openSocket(onRun, "", scope, options)
     opened.socket.dispatchMessage(
       JSON.stringify({
         threadId: "conv_1",
@@ -246,5 +250,53 @@ describe("workspace chat turn lifetime", () => {
       stop,
     )
     expect(turn.signals[0]?.aborted).toBe(true)
+  })
+
+  it("stops a turn at its time limit", async () => {
+    const runId = `run_${randomUUID()}`
+    const turn = scriptedTurn()
+    const first = startTurn(turn.onRun, runId, { maxTurnMs: 20 })
+    await vi.waitFor(() => expect(first.types()).toContain("RUN_STARTED"))
+    first.socket.dispatchClose()
+
+    await vi.waitFor(() => expect(turn.signals[0]?.aborted).toBe(true))
+  })
+
+  it("ends a run that no turn in this process runs when a socket joins it", async () => {
+    const runId = `run_${randomUUID()}`
+    const endLostRun = vi.fn(async () => {})
+    const join = openSocket(
+      scriptedTurn().onRun,
+      `?runId=${runId}&offset=-1`,
+      scope,
+      { endLostRun },
+    )
+
+    await vi.waitFor(() =>
+      expect(join.close).toHaveBeenCalledWith(1011, "resume failed"),
+    )
+    expect(endLostRun).toHaveBeenCalledWith(runId)
+  })
+
+  it("does not end a run that another user's turn runs", async () => {
+    const runId = `run_${randomUUID()}`
+    const turn = scriptedTurn()
+    const first = startTurn(turn.onRun, runId)
+    await vi.waitFor(() => expect(first.types()).toContain("RUN_STARTED"))
+    const endLostRun = vi.fn(async () => {})
+
+    // The run log of the other user has no entries, but the turn runs.
+    const join = openSocket(
+      turn.onRun,
+      `?runId=${runId}&offset=-1`,
+      { ...scope, userId: "user_2" },
+      { endLostRun },
+    )
+
+    await vi.waitFor(() =>
+      expect(join.close).toHaveBeenCalledWith(1011, "resume failed"),
+    )
+    expect(endLostRun).not.toHaveBeenCalled()
+    turn.answer()
   })
 })
