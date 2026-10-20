@@ -28,6 +28,7 @@ import {
 } from "./queries"
 import { normalizeRootFolder, rootFolderError } from "./rootFolder"
 import { StatusTag } from "./StatusTag"
+import { skippedFilesFixPrompt, skippedReasonCopy } from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
 import {
   type WorkspaceRepositoryChoice,
@@ -140,17 +141,6 @@ function SettingsGroup(props: {
   )
 }
 
-const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
-  malformed: "Front matter is not valid",
-  duplicate_repository:
-    "Repeats a linked repository or the Workspace's own repository",
-}
-
-/** The chat prompt that asks the agent to fix one skipped file. */
-function skippedFileFixPrompt(file: WorkspaceSkippedFile): string {
-  return `Hydrate skipped ${file.path}: ${skippedReasonCopy[file.reason]}. Fix the front matter of this file so that it is valid, then open the change.`
-}
-
 function SkippedFilesNotice(props: {
   files: WorkspaceSkippedFile[]
   onOpenFile: (path: string) => void
@@ -194,7 +184,7 @@ function SkippedFilesNotice(props: {
                   variant="secondary"
                   className="shrink-0"
                   aria-label={`Fix ${file.path} using agent`}
-                  onPress={() => onFixWithAgent(skippedFileFixPrompt(file))}
+                  onPress={() => onFixWithAgent(skippedFilesFixPrompt([file]))}
                 >
                   Fix using agent
                 </Button>

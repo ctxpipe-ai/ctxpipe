@@ -23,8 +23,9 @@ type UserPreferences = {
   /** Keyed by `${userId}:${orgSlug}`. */
   orgGuides: Record<string, OrgGuidePreferences>
   /**
-   * The upgrade toasts that the user dismissed on Home (CTX-894), by
-   * {@link upgradeDismissKey}. A changed item has a new key, so it shows again.
+   * The Home notices that the user dismissed: upgrade toasts (CTX-894), by
+   * {@link upgradeDismissKey}, and hydrate problem toasts (CTX-915). A changed
+   * notice has a new key, so it shows again. The name stays for stored data.
    */
   dismissedUpgrades: string[]
 }

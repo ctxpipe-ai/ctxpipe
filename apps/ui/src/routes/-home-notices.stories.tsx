@@ -1,7 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
 import { expect, userEvent, waitFor, within } from "storybook/test"
-import { docsWorkspace } from "@/features/workspaces/workspace-fixtures"
+import type { WorkspaceSkippedFile } from "@/features/workspaces/types"
+import {
+  docsWorkspace,
+  docsWorkspaceDetail,
+} from "@/features/workspaces/workspace-fixtures"
 import { workspaceShellHandlers } from "@/mocks/workspace-handlers"
 import { activeMemberRoleHandler } from "@/mocks/workspace-sources-handlers"
 import {
@@ -26,7 +30,7 @@ const perWorkspaceReads: string[] = []
 const requests: string[] = []
 
 const meta = {
-  title: "Pages/Home/Upgrades",
+  title: "Pages/Home/Notices",
   decorators: orgPageDecorators,
   render: () => <OrgHomePageContent orgSlug="acme" />,
   beforeEach: () => {
@@ -61,12 +65,27 @@ const reingest = upgradeItemFixture({
 function homeHandlers(
   role: string,
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
+  skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
 ) {
   return {
     msw: {
       handlers: {
         page: [
           activeMemberRoleHandler(role),
+          // The detail of each Workspace, with its skipped files.
+          http.get(/\/api\/v1\/workspaces\/([^/]+)$/, ({ request }) => {
+            const slug = new URL(request.url).pathname.split("/").pop() ?? ""
+            const workspace = [docsWorkspace, handbook].find(
+              (entry) => entry.slug === slug,
+            )
+            if (!workspace)
+              return HttpResponse.json({ error: "not found" }, { status: 404 })
+            return HttpResponse.json({
+              ...docsWorkspaceDetail,
+              ...workspace,
+              skippedFiles: skippedFiles[slug] ?? [],
+            })
+          }),
           ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
           pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
@@ -90,7 +109,7 @@ const threeItems = {
 /** The toasts of the stack, front first. */
 function toastItems(canvasElement: HTMLElement) {
   const region = within(canvasElement).getByRole("region", {
-    name: "Workspace upgrades",
+    name: "Workspace notices",
   })
   return within(region).getAllByRole("listitem")
 }
@@ -111,7 +130,7 @@ export const SingleToast: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
-      name: "Workspace upgrades",
+      name: "Workspace notices",
     })
     await waitFor(() =>
       expect(within(region).getByText("Docs upgrade available")).toBeVisible(),
@@ -190,25 +209,25 @@ export const Dismiss: Story = {
     )
     await waitFor(() =>
       expect(
-        canvas.queryByRole("region", { name: "Workspace upgrades" }),
+        canvas.queryByRole("region", { name: "Workspace notices" }),
       ).toBeNull(),
     )
     expect(requests).toEqual([])
     expect(window.localStorage.getItem("ctxpipe:userPreferences")).toContain(
       "acme/docs/format-3/awaiting_operator",
     )
-    // The dismissed toast collapses to one icon button, with no count badge.
+    // The dismissed toast collapses to the upgrade icon with its count.
     const show = await canvas.findByRole("button", {
-      name: "Show upgrades (1)",
+      name: "Show notices: 1 upgrade",
     })
-    expect(show.textContent).toBe("")
+    expect(show.textContent).toBe("1")
     await userEvent.click(show)
     await waitFor(() =>
       expect(canvas.getByText("Docs upgrade available")).toBeVisible(),
     )
     await waitFor(() =>
       expect(
-        canvas.queryByRole("button", { name: /Show upgrades/ }),
+        canvas.queryByRole("button", { name: /Show notices/ }),
       ).toBeNull(),
     )
   },
@@ -219,16 +238,16 @@ export const DismissedCollapseToIcon: Story = {
   parameters: homeHandlers("owner", threeItems),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("region", { name: "Workspace upgrades" })
+    await canvas.findByRole("region", { name: "Workspace notices" })
     // No toast is dismissed yet, so there is no icon.
-    expect(canvas.queryByRole("button", { name: /Show upgrades/ })).toBeNull()
+    expect(canvas.queryByRole("button", { name: /Show notices/ })).toBeNull()
     for (const name of [
       "Dismiss: Docs, Upgrade to format 3",
       "Dismiss: Docs, Fresh re-ingestion of the source repositories",
     ])
       await userEvent.click(await canvas.findByRole("button", { name }))
     const show = await canvas.findByRole("button", {
-      name: "Show upgrades (2)",
+      name: "Show notices: 2 upgrades",
     })
     await waitFor(() => expect(show).toBeVisible())
     expect(show.textContent).toBe("2")
@@ -238,7 +257,7 @@ export const DismissedCollapseToIcon: Story = {
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     await waitFor(() =>
       expect(
-        canvas.queryByRole("button", { name: /Show upgrades/ }),
+        canvas.queryByRole("button", { name: /Show notices/ }),
       ).toBeNull(),
     )
   },
@@ -252,7 +271,7 @@ export const StackOfThree: Story = {
   parameters: homeHandlers("owner", threeItems),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("region", { name: "Workspace upgrades" })
+    await canvas.findByRole("region", { name: "Workspace notices" })
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     await waitFor(() => expect(frontTitle(canvasElement)).toBeVisible())
     // Closed: the toasts behind the front one hide their text.
@@ -303,7 +322,7 @@ export const MemberView: Story = {
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     const region = await canvas.findByRole("region", {
-      name: "Workspace upgrades",
+      name: "Workspace notices",
     })
     await waitFor(() =>
       expect(
@@ -322,7 +341,7 @@ export const ReducedMotion: Story = {
   parameters: homeHandlers("owner", threeItems),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("region", { name: "Workspace upgrades" })
+    await canvas.findByRole("region", { name: "Workspace notices" })
     await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
     for (const item of toastItems(canvasElement))
       expect(
@@ -353,7 +372,127 @@ export const NoToastWhenNothingToStart: Story = {
     await waitFor(() => expect(answered).not.toHaveLength(0))
     await waitFor(() =>
       expect(
-        canvas.queryByRole("region", { name: "Workspace upgrades" }),
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
+    )
+  },
+}
+
+const taxFile: WorkspaceSkippedFile = {
+  path: "knowledge/billing/tax.md",
+  reason: "malformed",
+}
+
+/**
+ * A hydrate problem shows as a warning toast, with no upgrade. Fix using
+ * agent puts the fix prompt into the composer of that Workspace.
+ */
+export const ProblemOnly: Story = {
+  parameters: homeHandlers("owner", {}, { handbook: [taxFile] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(
+        within(region).getByText("Handbook: hydrate skipped 1 file"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(within(region).getByText(/Front matter is not valid/)).toBeVisible(),
+    )
+    expect(toastItems(canvasElement)).toHaveLength(1)
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Fix using agent: Handbook, skipped files",
+      }),
+    )
+    const composer = () =>
+      canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i)
+    await waitFor(() =>
+      expect(composer()).toHaveValue(
+        "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
+      ),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Select workspace" }),
+      ).toHaveTextContent("Handbook"),
+    )
+    // The problem stays until hydrate reads the file.
+    expect(canvas.getByText("Handbook: hydrate skipped 1 file")).toBeVisible()
+  },
+}
+
+/** A problem and an upgrade in one stack: the problem is in front. */
+export const MixedStack: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture()] },
+    { handbook: [taxFile, { path: "knowledge/legal.md", reason: "malformed" }] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("region", { name: "Workspace notices" })
+    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(2))
+    const [front] = toastItems(canvasElement)
+    if (!front) throw new Error("No toast")
+    await waitFor(() =>
+      expect(
+        within(front).getByText("Handbook: hydrate skipped 2 files"),
+      ).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText(/and 1 more file/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("Docs upgrade available")).not.toBeVisible(),
+    )
+    await userEvent.hover(canvas.getByText("Handbook: hydrate skipped 2 files"))
+    await waitFor(() =>
+      expect(canvas.getByText("Docs upgrade available")).toBeVisible(),
+    )
+  },
+}
+
+/**
+ * Dismissed notices of both types collapse to one button with an icon and
+ * a count for each type. A press shows the stack again.
+ */
+export const CollapsedBothTypes: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture(), reingest] },
+    { handbook: [taxFile] },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("region", { name: "Workspace notices" })
+    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    for (const name of [
+      "Dismiss: Handbook, skipped files",
+      "Dismiss: Docs, Upgrade to format 3",
+      "Dismiss: Docs, Fresh re-ingestion of the source repositories",
+    ])
+      await userEvent.click(await canvas.findByRole("button", { name }))
+    const show = () =>
+      canvas.getByRole("button", {
+        name: "Show notices: 2 upgrades, 1 problem",
+      })
+    await waitFor(() => expect(show()).toBeVisible())
+    expect(show().textContent).toBe("21")
+    expect(show().querySelectorAll("svg")).toHaveLength(2)
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("region", { name: "Workspace notices" }),
+      ).toBeNull(),
+    )
+    await userEvent.click(show())
+    await waitFor(() => expect(toastItems(canvasElement)).toHaveLength(3))
+    await waitFor(() =>
+      expect(
+        canvas.queryByRole("button", { name: /Show notices/ }),
       ).toBeNull(),
     )
   },

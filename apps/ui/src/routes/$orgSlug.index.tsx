@@ -7,6 +7,7 @@ import { SKELETON_DELAY_MS } from "@/components/ui/Skeleton"
 import { chatDraftKey, writeChatDraft } from "@/features/chat/chat-draft"
 import { activitySearch } from "@/features/home/activity-search"
 import { HomeComposer } from "@/features/home/HomeComposer"
+import { HomeNoticeToasts } from "@/features/home/HomeNotices"
 import {
   ASK_PROMPT,
   SetupGuideCard,
@@ -18,7 +19,6 @@ import {
   WorkspaceActivity,
 } from "@/features/home/WorkspaceActivity"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
-import { WorkspaceUpgradeToasts } from "@/features/workspace-upgrades/WorkspaceUpgradeToasts"
 import {
   landingWorkspace,
   workspaceListOptions,
@@ -124,6 +124,12 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
         setComposerKey((key) => key + 1)
       }
     : undefined
+  // Fix using agent (a hydrate problem toast): the same, in that Workspace.
+  const fixWithAgent = (workspaceId: string, prompt: string) => {
+    writeChatDraft(chatDraftKey(orgSlug, workspaceId), prompt)
+    setSelectedId(workspaceId)
+    setComposerKey((key) => key + 1)
+  }
   const guideCard =
     guide.status === "ready" && guideShown ? (
       <SetupGuideReveal>
@@ -157,7 +163,11 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
     </InlineAlert>
   ) : hasWorkspace ? (
     <>
-      <WorkspaceUpgradeToasts orgSlug={orgSlug} workspaces={workspaces} />
+      <HomeNoticeToasts
+        orgSlug={orgSlug}
+        workspaces={workspaces}
+        onFixWithAgent={fixWithAgent}
+      />
       {composer}
       {guideCard}
     </>

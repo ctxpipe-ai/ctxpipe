@@ -6,13 +6,13 @@ import { useSelectNav } from "@/components/ShellLayoutContext"
 import { Menu, MenuItem, MenuTrigger } from "@/components/ui/Menu"
 import { chatDraftKey } from "@/features/chat/chat-draft"
 import { MessageInputBox } from "@/features/chat/MessageInputBox"
-import { ShowUpgradesButton } from "@/features/workspace-upgrades/WorkspaceUpgradeToasts"
 import { workspaceDetailOptions } from "@/features/workspaces/queries"
 import { openWorkspaceConversation } from "@/features/workspaces/start-workspace-conversation-ui"
 import type { Workspace } from "@/features/workspaces/types"
 import { workspaceSuggestions } from "@/features/workspaces/workspace-suggestions"
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { ShowNoticesButton } from "./HomeNotices"
 
 export function HomeComposer(props: {
   orgSlug: string
@@ -78,7 +78,7 @@ export function HomeComposer(props: {
             ))}
           </Menu>
         </MenuTrigger>
-        <ShowUpgradesButton orgSlug={orgSlug} workspaces={workspaces} />
+        <ShowNoticesButton orgSlug={orgSlug} workspaces={workspaces} />
       </div>
       <div className="mt-3">
         <MessageInputBox
