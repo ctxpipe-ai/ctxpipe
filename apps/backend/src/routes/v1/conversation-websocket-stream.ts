@@ -1,6 +1,8 @@
 import {
   memoryStream,
   resumeWebSocketStream,
+  type StreamChunk,
+  type StreamDurability,
   toWebSocketStream,
   type WebSocketLike,
 } from "@tanstack/ai"
@@ -44,11 +46,109 @@ type ConversationChatSocketRun = Parameters<
 >[2]["onRun"]
 
 /**
+ * The turns that run in this process, by run log key. A turn continues when
+ * the socket that started it closes, so the Stop of a turn can come on a
+ * later socket of the same user in the same conversation.
+ */
+const runningTurns = new Map<string, AbortController>()
+
+function abortFrameRunId(data: unknown): string | undefined {
+  if (typeof data !== "string") return undefined
+  try {
+    const frame = JSON.parse(data) as { type?: unknown; runId?: unknown }
+    return frame.type === "abort" && typeof frame.runId === "string"
+      ? frame.runId
+      : undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Give `toWebSocketStream` a socket that keeps the close of the browser
+ * socket until each turn has closed its run log. `toWebSocketStream` stops
+ * every turn of a closed socket, but a turn must continue when the user
+ * leaves the conversation. The turn writes its run log for a later attach,
+ * and its chunks go to no socket.
+ */
+function closeAfterTurns(socket: WebSocketLike) {
+  const closeHandlers: Array<() => void> = []
+  let open = true
+  let turns = 0
+  const release = () => {
+    if (open || turns > 0) return
+    for (const handler of closeHandlers.splice(0)) handler()
+  }
+  const closed = () => {
+    open = false
+    release()
+  }
+  socket.addEventListener("close", closed)
+  socket.addEventListener("error", closed)
+  const kept: WebSocketLike = {
+    send: (data) => {
+      if (open) socket.send(data)
+    },
+    close: (code, reason) => socket.close(code, reason),
+    addEventListener: ((
+      type: "message" | "close" | "error",
+      handler: (event: { data: unknown }) => void,
+    ) => {
+      if (type === "message") socket.addEventListener("message", handler)
+      // An error also closes the socket, and the close stops the rest.
+      else if (type === "close") closeHandlers.push(handler as () => void)
+    }) as WebSocketLike["addEventListener"],
+  }
+  return {
+    socket: kept,
+    /** Count a turn until its run log closes. */
+    track<TOffset extends string>(
+      log: StreamDurability<TOffset>,
+    ): StreamDurability<TOffset> {
+      turns += 1
+      return {
+        ...log,
+        close: async () => {
+          try {
+            await log.close()
+          } finally {
+            turns -= 1
+            // The turn leaves `toWebSocketStream` after its log closes.
+            setTimeout(release, 0)
+          }
+        },
+      }
+    },
+  }
+}
+
+/**
+ * Register a turn while it runs, so that an abort frame on any socket of
+ * this user in this conversation stops it.
+ */
+async function* registeredTurn(
+  key: string,
+  stop: AbortController,
+  turn: AsyncIterable<StreamChunk>,
+): AsyncGenerator<StreamChunk> {
+  runningTurns.set(key, stop)
+  try {
+    yield* turn
+  } finally {
+    if (runningTurns.get(key) === stop) runningTurns.delete(key)
+  }
+}
+
+/**
  * Start a turn or a resume on a chat socket. The run log key holds the
  * organization, the user, and the conversation of the socket. Thus a resume
  * finds only a run that the same user started in that conversation, and a
  * turn of another user cannot add chunks to that run log. Any other run
  * fails as an unknown run.
+ *
+ * A turn continues when its socket closes. Only an abort frame (the Stop
+ * control) stops it, from the socket that started it or from a later socket
+ * of the same user in the same conversation.
  */
 export function startConversationChatSocket(
   socket: WebSocketLike,
@@ -65,6 +165,10 @@ export function startConversationChatSocket(
 ) {
   const runLog = (runId: string) =>
     `${scope.orgId}/${scope.userId}/${scope.conversationId}/${runId}`
+  socket.addEventListener("message", (event) => {
+    const runId = abortFrameRunId(event.data)
+    if (runId) runningTurns.get(runLog(runId))?.abort()
+  })
   const query = new URL(request.url).searchParams
   const offset = query.get("offset")
   if (offset !== null) {
@@ -84,9 +188,17 @@ export function startConversationChatSocket(
     })
     return "resume" as const
   }
-  transport.stream(socket, request, {
-    durability: (ctx) => memoryStream({ runId: runLog(ctx.runId) }),
-    onRun,
+  const kept = closeAfterTurns(socket)
+  transport.stream(kept.socket, request, {
+    durability: (ctx) => kept.track(memoryStream({ runId: runLog(ctx.runId) })),
+    onRun: (ctx) => {
+      const stop = new AbortController()
+      return registeredTurn(
+        runLog(ctx.runId),
+        stop,
+        onRun({ ...ctx, signal: AbortSignal.any([ctx.signal, stop.signal]) }),
+      )
+    },
   })
   return "run" as const
 }

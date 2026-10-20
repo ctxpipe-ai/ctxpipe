@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { userEvent, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   conversationAguiTextEvents,
   installAguiWebSocket,
@@ -296,5 +296,85 @@ export const SendError: Story = {
     )
     await userEvent.click(canvas.getByRole("button", { name: /send/i }))
     await waitFor(() => canvas.getByRole("alert"), { timeout: SEND_WAIT_MS })
+  },
+}
+
+const stoppedQuestion = {
+  id: "msg_user_stopped",
+  role: "user" as const,
+  parts: [
+    { type: "text" as const, content: "Why did hydrate skip ledger.md?" },
+  ],
+  createdAt: new Date("2026-08-16T09:30:00.000Z"),
+}
+
+/** The socket of the story that retries a stopped turn. */
+let retrySocket: ReturnType<typeof installAguiWebSocket> | undefined
+
+/**
+ * The turn stopped before the first model round: the transcript holds only
+ * the question, and no run is active. The thread shows the question and that
+ * the turn stopped. Retry sends the question again.
+ */
+export const StoppedBeforeFirstAnswer: Story = {
+  args: threadArgs([stoppedQuestion], "Skipped file"),
+  beforeEach: () => {
+    retrySocket = installAguiWebSocket((threadId, runId) =>
+      conversationAguiTextEvents({
+        threadId,
+        runId,
+        messageId: "msg_retry_answer",
+        text: "Hydrate skipped ledger.md because it is larger than the limit.",
+      }),
+    )
+    return retrySocket.restore
+  },
+  parameters: {
+    storyRoute: threadRoute,
+    msw: {
+      handlers: {
+        page: [
+          http.get(/\/api\/v1\/conversations\/conv_1\/chat$/, () =>
+            HttpResponse.json({
+              messages: [stoppedQuestion],
+              activeRun: null,
+              interrupts: null,
+            }),
+          ),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await expect(
+      await canvas.findByText("Why did hydrate skip ledger.md?"),
+    ).toBeVisible()
+    const title = await canvas.findByText(
+      "The agent stopped before it answered",
+      undefined,
+      { timeout: SEND_WAIT_MS },
+    )
+    const stopped = title.closest<HTMLElement>('[role="alert"]')
+    if (!stopped) throw new Error("The stopped turn is not an alert")
+    await expect(stopped).toBeVisible()
+
+    await userEvent.click(
+      within(stopped).getByRole("button", { name: "Retry" }),
+    )
+
+    await canvas.findByText(/larger than the limit/, undefined, {
+      timeout: SEND_WAIT_MS,
+    })
+    await expect(
+      canvas.queryByText("The agent stopped before it answered"),
+    ).toBeNull()
+    const frame = retrySocket?.runFrames.at(-1) as {
+      messages?: Array<{ id?: string }>
+    }
+    await expect(frame?.messages?.map((message) => message.id)).toEqual([
+      "msg_user_stopped",
+    ])
   },
 }

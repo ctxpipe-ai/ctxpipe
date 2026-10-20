@@ -1,5 +1,7 @@
 import { defineChatMiddleware, type ModelMessage } from "@tanstack/ai"
+import { getPendingTurn } from "@tanstack/ai/adapter-internals"
 import type { LockStore } from "@tanstack/ai/locks"
+import type { RunStore } from "@tanstack/ai-persistence"
 
 class ConversationChangedError extends Error {
   constructor() {
@@ -24,6 +26,7 @@ function questionIds(messages: ReadonlyArray<ModelMessage>): string[] {
  * Hold the conversation's lock for the whole run, so two sends to one
  * conversation never interleave across replicas. A queued send whose history
  * no longer matches the saved transcript is rejected instead of overwriting it.
+ * The check runs when the lock is held, before any middleware stores the turn.
  * Place before `withPersistence`.
  */
 export function workspaceChatThreadLock(input: {
@@ -32,7 +35,6 @@ export function workspaceChatThreadLock(input: {
 }) {
   let release: (() => void) | undefined
   let held: Promise<void> | undefined
-  let validated = false
 
   const settle = async () => {
     const pending = held
@@ -77,18 +79,36 @@ export function workspaceChatThreadLock(input: {
       )
       held.catch(failed)
       await acquired
-    },
-    async onConfig(ctx, config) {
-      if (validated) return
-      validated = true
-      if (config.messages.length === 0) return
+      if (ctx.messages.length === 0) return
       const stored = questionIds(await input.loadThread(ctx.threadId))
-      const sent = questionIds(config.messages as ModelMessage[])
+      const sent = questionIds(ctx.messages)
       if (stored.some((id, index) => id !== sent[index]))
         throw new ConversationChangedError()
     },
     onFinish: settle,
     onError: settle,
     onAbort: settle,
+  })
+}
+
+/**
+ * Store the question and a running run record before the sandbox setup, which
+ * can take a minute. Chat persistence stores the turn only after every setup.
+ * Thus a reload during the setup shows the question and attaches to the run,
+ * and a turn that stops during the setup keeps the question. Place after the
+ * thread lock and `withPersistence`, and before `withSandbox`.
+ */
+export function workspaceChatPendingTurn(runs: RunStore) {
+  return defineChatMiddleware({
+    name: "workspace-chat-pending-turn",
+    async setup(ctx) {
+      await runs.createOrResume({
+        runId: ctx.runId,
+        threadId: ctx.threadId,
+        startedAt: Date.now(),
+      })
+      // `withPersistence` gives this capability, but does not declare it.
+      await getPendingTurn(ctx).snapshot()
+    },
   })
 }

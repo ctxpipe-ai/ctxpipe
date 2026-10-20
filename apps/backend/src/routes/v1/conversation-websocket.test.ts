@@ -1,4 +1,5 @@
-import { EventType, memoryStream } from "@tanstack/ai"
+import { randomUUID } from "node:crypto"
+import { EventType, memoryStream, type StreamChunk } from "@tanstack/ai"
 import { describe, expect, it, vi } from "vitest"
 import {
   bunSocketToWebSocketLike,
@@ -115,5 +116,135 @@ describe("workspace chat websocket resume", () => {
     ).toBe("run")
     expect(stream).toHaveBeenCalledTimes(1)
     expect(resume).not.toHaveBeenCalled()
+  })
+})
+
+describe("workspace chat turn lifetime", () => {
+  const scope = { orgId: "org_1", userId: "user_1", conversationId: "conv_1" }
+
+  /** A turn that waits for the answer, as a model call does. */
+  function scriptedTurn() {
+    let answer!: () => void
+    const answered = new Promise<void>((resolve) => {
+      answer = resolve
+    })
+    const signals: AbortSignal[] = []
+    const onRun = async function* (ctx: {
+      threadId: string
+      runId: string
+      signal: AbortSignal
+    }) {
+      signals.push(ctx.signal)
+      const run = { threadId: ctx.threadId, runId: ctx.runId, timestamp: 0 }
+      yield { type: EventType.RUN_STARTED, ...run } as StreamChunk
+      const stopped = new Promise<void>((resolve) =>
+        ctx.signal.addEventListener("abort", () => resolve(), { once: true }),
+      )
+      await Promise.race([answered, stopped])
+      if (ctx.signal.aborted) return
+      yield { type: EventType.RUN_FINISHED, ...run } as StreamChunk
+    }
+    return { onRun, answer, signals }
+  }
+
+  function openSocket(
+    onRun: Parameters<typeof startConversationChatSocket>[3],
+    query = "",
+    socketScope = scope,
+  ) {
+    const frames: Array<{ chunk?: StreamChunk }> = []
+    const socket = bunSocketToWebSocketLike({
+      send: (data) => {
+        frames.push(JSON.parse(data))
+      },
+      close: vi.fn(),
+    })
+    startConversationChatSocket(
+      socket,
+      new Request(
+        `http://localhost:3000/acme/api/v1/conversations/conv_1${query}`,
+      ),
+      socketScope,
+      onRun,
+    )
+    const types = () => frames.map((frame) => frame.chunk?.type)
+    return { socket, types }
+  }
+
+  function startTurn(
+    onRun: Parameters<typeof startConversationChatSocket>[3],
+    runId: string,
+  ) {
+    const opened = openSocket(onRun)
+    opened.socket.dispatchMessage(
+      JSON.stringify({
+        threadId: "conv_1",
+        runId,
+        messages: [{ id: "user-1", role: "user", content: "Hello" }],
+        tools: [],
+        context: [],
+        state: {},
+        forwardedProps: {},
+      }),
+    )
+    return opened
+  }
+
+  it("keeps a turn running when the browser closes its socket", async () => {
+    const runId = `run_${randomUUID()}`
+    const turn = scriptedTurn()
+    const first = startTurn(turn.onRun, runId)
+    await vi.waitFor(() => expect(first.types()).toContain("RUN_STARTED"))
+
+    first.socket.dispatchClose()
+    turn.answer()
+
+    // The turn ends in its run log, and a later socket attaches to the end.
+    const log = memoryStream({ runId: `org_1/user_1/conv_1/${runId}` })
+    await vi.waitFor(async () =>
+      expect((await log.snapshot()).map((entry) => entry.chunk.type)).toContain(
+        "RUN_FINISHED",
+      ),
+    )
+    expect(turn.signals[0]?.aborted).toBe(false)
+    expect(first.types()).not.toContain("RUN_FINISHED")
+    const attached = openSocket(turn.onRun, `?runId=${runId}&offset=-1`)
+    await vi.waitFor(() =>
+      expect(attached.types()).toEqual(
+        expect.arrayContaining(["RUN_STARTED", "RUN_FINISHED"]),
+      ),
+    )
+  })
+
+  it("stops a turn from the socket that started it", async () => {
+    const runId = `run_${randomUUID()}`
+    const turn = scriptedTurn()
+    const first = startTurn(turn.onRun, runId)
+    await vi.waitFor(() => expect(first.types()).toContain("RUN_STARTED"))
+
+    first.socket.dispatchMessage(JSON.stringify({ type: "abort", runId }))
+
+    expect(turn.signals[0]?.aborted).toBe(true)
+  })
+
+  it("stops a turn whose socket closed from a later socket of the same user", async () => {
+    const runId = `run_${randomUUID()}`
+    const turn = scriptedTurn()
+    const first = startTurn(turn.onRun, runId)
+    await vi.waitFor(() => expect(first.types()).toContain("RUN_STARTED"))
+    first.socket.dispatchClose()
+    const stop = JSON.stringify({ type: "abort", runId })
+
+    // Another user of the organization cannot stop the turn.
+    openSocket(turn.onRun, `?runId=${runId}&offset=-1`, {
+      ...scope,
+      userId: "user_2",
+    }).socket.dispatchMessage(stop)
+    expect(turn.signals[0]?.aborted).toBe(false)
+
+    openSocket(turn.onRun, `?runId=${runId}&offset=-1`).socket.dispatchMessage(
+      stop,
+    )
+    expect(turn.signals[0]?.aborted).toBe(true)
   })
 })
