@@ -32,6 +32,18 @@ export function upgradeNotices(
   ]
 }
 
+/**
+ * The one short line of the Home toast. The full description stays in
+ * Workspace settings, Upgrades (CTX-939).
+ */
+export function upgradeToastLine(
+  item: Pick<WorkspaceUpgradeItem, "kind" | "targetFormat">,
+): string {
+  return item.kind === "reingest"
+    ? "ctx| reads each source repository again. This uses model calls."
+    : `ctx| opens a pull request for format ${item.targetFormat}. Nothing changes until you merge it.`
+}
+
 /** The owner or admin can press Start on these. */
 export function upgradeCanStart(item: WorkspaceUpgradeItem): boolean {
   return item.status === "awaiting_operator" || item.status === "failed"
@@ -98,7 +110,7 @@ const UPGRADE_BLOCKED_COPY: Record<
     },
     needs_format: {
       title: "Apply the format upgrade first",
-      body: "The re-ingestion needs a newer repository format. Start the format upgrade and merge its pull request.",
+      body: "Re-ingestion needs a newer format. Finish the format upgrade, then press Check again.",
     },
     sandbox_unavailable: {
       title: "This deployment cannot run the re-ingestion",
@@ -111,13 +123,24 @@ const UPGRADE_BLOCKED_COPY: Record<
   },
 }
 
-/** The title and the reason of a blocked item. */
+/** The title and the short reason of a blocked item. */
 export function upgradeBlockedCopy(
-  item: Pick<WorkspaceUpgradeItem, "kind" | "blockedReason" | "note">,
+  item: Pick<
+    WorkspaceUpgradeItem,
+    "kind" | "blockedReason" | "note" | "targetFormat"
+  >,
 ): BlockedCopy {
   const copy = item.blockedReason
     ? UPGRADE_BLOCKED_COPY[item.kind]?.[item.blockedReason]
     : undefined
+  // The note of this reason can name two actions. The format upgrade card
+  // names the real cause and its fix (merge the pull request, or give write
+  // access), so this item says one action.
+  if (item.blockedReason === "needs_format" && copy)
+    return {
+      title: copy.title,
+      body: `Re-ingestion needs format ${item.targetFormat}. Finish the format upgrade, then press Check again.`,
+    }
   return {
     title:
       copy?.title ??
@@ -148,13 +171,23 @@ function waitedFor(sinceIso: string, now = Date.now()): string {
 
 /** The status tag of an item. A run that waits for a sandbox slot says so. */
 export function upgradeStatusTag(
-  item: Pick<WorkspaceUpgradeItem, "status" | "waitingForSlot"> &
-    Partial<Pick<WorkspaceUpgradeItem, "mergedAt" | "kind">>,
+  item: Pick<
+    WorkspaceUpgradeItem,
+    "kind" | "status" | "blockedReason" | "targetFormat" | "waitingForSlot"
+  > &
+    Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>,
+  formatVersion?: number | null,
 ) {
   if (item.status === "pr_open" && item.mergedAt)
     return {
       label: "Merged. Reading the new format",
       className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      pulse: true,
+    }
+  if (upgradeIsCheckingFormat(item, formatVersion))
+    return {
+      label: "Checking the new format",
+      className: "border-border bg-zinc-800 text-muted-foreground",
       pulse: true,
     }
   // A re-ingestion opens no pull request while it runs.
@@ -185,18 +218,31 @@ export function upgradeWaitingCopy(
   return `ctx| waits for you to merge ${pullRequest} on GitHub. After the merge, ctx| reads the new format of the repository. This takes a few minutes. This page updates by itself.`
 }
 
-/** The next step of a re-ingestion that waits for the format upgrade. Null for other items. */
-export function upgradeBlockedNextStep(
-  item: Pick<WorkspaceUpgradeItem, "kind" | "status" | "blockedReason">,
-): string | null {
-  if (
-    item.kind !== "reingest" ||
-    item.status !== "blocked" ||
-    item.blockedReason !== "needs_format"
+/**
+ * A re-ingestion that the server still records as blocked for the format,
+ * while the Workspace already has the format that it needs. The hydrate
+ * writes the new format first. The upgrade scan runs after the hydrate and
+ * writes the item. Until then, the item is stale: ctx| is checking.
+ */
+export function upgradeIsCheckingFormat(
+  item: Pick<
+    WorkspaceUpgradeItem,
+    "kind" | "status" | "blockedReason" | "targetFormat"
+  >,
+  formatVersion: number | null | undefined,
+): boolean {
+  return (
+    item.kind === "reingest" &&
+    item.status === "blocked" &&
+    item.blockedReason === "needs_format" &&
+    typeof formatVersion === "number" &&
+    formatVersion >= item.targetFormat
   )
-    return null
-  return "Next step: merge the format upgrade pull request. After the merge, ctx| reads the new format and this item becomes ready to start. If you merged it already, press Check again."
 }
+
+/** The line of an item that waits for the scan to read the new format. */
+export const CHECKING_FORMAT_COPY =
+  "ctx| is checking the new format of the repository. This takes a minute. This page updates by itself."
 
 /** The toast after the start of an item. A re-ingestion opens no pull request on start. */
 export function upgradeStartedMessage(item: { kind: string }): string {

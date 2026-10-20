@@ -20,6 +20,7 @@ import {
 } from "@/components/ui/Skeleton"
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
+import { useCheckingFormatExpired } from "./checking-format-clock"
 import {
   checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
@@ -29,12 +30,13 @@ import {
 } from "./queries"
 import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import {
+  CHECKING_FORMAT_COPY,
   formatHealthLine,
   MEMBER_ASK_ADMIN,
   upgradeBlockedCopy,
-  upgradeBlockedNextStep,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeIsCheckingFormat,
   upgradeIsPending,
   upgradeNotices,
   upgradeStatusTag,
@@ -66,12 +68,21 @@ function UpgradeItemCard(props: {
   isChecking?: boolean
   /** The org of the item: the failure card links to its connectors. */
   orgSlug?: string
+  workspaceSlug?: string
   /** Opens the chat with this prompt ("Fix using agent"). */
   onFixWithAgent?: (prompt: string) => void
 }) {
   const { item, isAdmin, onStart, onCheck, isStarting, isChecking } = props
-  const waiting = upgradeWaitingCopy(item)
-  const blockedNextStep = upgradeBlockedNextStep(item)
+  // After a minute, the checking state ends and the blocked line comes back.
+  const formatChecking = upgradeIsCheckingFormat(item, props.formatVersion)
+  const checkingExpired = useCheckingFormatExpired(
+    `${props.orgSlug}/${props.workspaceSlug}/${item.key}`,
+    formatChecking,
+  )
+  const checkingFormat = formatChecking && !checkingExpired
+  const waiting = checkingFormat
+    ? CHECKING_FORMAT_COPY
+    : upgradeWaitingCopy(item)
   const notices = upgradeNotices(item)
   const progress = upgradeProgress(item)
   const checkResult = upgradeCheckResult(item, props.formatVersion)
@@ -90,7 +101,12 @@ function UpgradeItemCard(props: {
               : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
-        <StatusTag {...upgradeStatusTag(item)} />
+        <StatusTag
+          {...upgradeStatusTag(
+            item,
+            checkingExpired ? null : props.formatVersion,
+          )}
+        />
       </div>
 
       {item.steps.length > 0 ? (
@@ -183,11 +199,10 @@ function UpgradeItemCard(props: {
         </Disclosure>
       ) : null}
 
-      {item.status === "blocked" ? (
+      {checkingFormat ? null : item.status === "blocked" ? (
         <div className="mt-3">
           <InlineAlert variant="warning" title={upgradeBlockedCopy(item).title}>
             <p>{upgradeBlockedCopy(item).body}</p>
-            {blockedNextStep ? <p className="mt-1">{blockedNextStep}</p> : null}
           </InlineAlert>
         </div>
       ) : item.note ? (
@@ -256,7 +271,9 @@ function UpgradeItemCard(props: {
           >
             {item.status === "failed" ? "Start again" : "Start"}
           </Button>
-        ) : upgradeCanStart(item) && isAdmin === false ? (
+        ) : (upgradeCanStart(item) ||
+            (item.status === "blocked" && upgradeCanCheck(item))) &&
+          isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
       </div>
@@ -378,6 +395,7 @@ function UpgradeItemRow(props: {
       onStart={() => startMutation.mutate()}
       onCheck={() => checkMutation.mutate()}
       orgSlug={orgSlug}
+      workspaceSlug={workspaceSlug}
       {...(props.onFixWithAgent
         ? { onFixWithAgent: props.onFixWithAgent }
         : {})}

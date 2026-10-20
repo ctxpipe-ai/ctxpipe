@@ -46,36 +46,42 @@ function useHeights(list: RefObject<HTMLOListElement | null>, key: string) {
 }
 
 /**
- * A stack of toasts in a reserved slot of the page flow (CTX-894). The slot
- * keeps the height of one toast, with or without a toast, so nothing moves
- * when a toast shows. The front toast shows in full; the others are edges
- * behind it. Hover or focus in the stack
- * opens it, so each toast shows in full above the front one and Tab reaches
- * each control. Only transforms and opacity move (DESIGN.md Motion), and the
+ * A stack of toasts in the page flow (CTX-894, CTX-939). The stack is as high
+ * as the front toast, so it never covers the block below it, and it holds no
+ * space when it has no toast. The caller shows and hides it in a view
+ * transition, so the blocks below move with transforms (DESIGN.md Motion).
+ * The front toast shows in full; the others are edges behind it. Hover or
+ * focus in the stack opens it, so each toast shows in full above the front
+ * one and Tab reaches each control. Only transforms and opacity move, and the
  * reduced-motion rule stops them.
  */
 export function ToastStack(props: {
   label: string
-  /** The class names of the slot: they set its height. */
-  slotClassName?: string
+  /** The class names of the stack: the caller names it for a view transition. */
+  className?: string
   toasts: ReadonlyArray<{ id: string; content: ReactNode }>
 }) {
-  const { label, toasts, slotClassName } = props
+  const { label, toasts, className } = props
   const list = useRef<HTMLOListElement>(null)
   // The pointer opens the stack; focus opens it with `:focus-within`.
   const [hovered, setHovered] = useState(false)
   const heights = useHeights(list, toasts.map((toast) => toast.id).join("\n"))
-  if (toasts.length === 0) return <div aria-hidden className={slotClassName} />
+  if (toasts.length === 0) return null
   const frontHeight = heights[toasts[0]?.id ?? ""] ?? 0
   let offset = 0
   return (
-    <section aria-label={label} className={cn("relative z-40", slotClassName)}>
+    <section
+      aria-label={label}
+      className={cn("relative z-40", className)}
+      // The edges behind the front toast need room under it.
+      style={{ paddingBottom: (Math.min(toasts.length, VISIBLE) - 1) * PEEK }}
+    >
       <ol
         ref={list}
         data-open={hovered || undefined}
         onPointerEnter={() => setHovered(true)}
         onPointerLeave={() => setHovered(false)}
-        className="group/stack absolute inset-x-0 top-0"
+        className="group/stack relative"
       >
         {toasts.map((toast, index) => {
           const openY = offset

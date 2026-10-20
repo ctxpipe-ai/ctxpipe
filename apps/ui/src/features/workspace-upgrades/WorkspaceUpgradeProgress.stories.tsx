@@ -11,6 +11,7 @@ import {
 } from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../.storybook/decorators/with-story-route"
+import { checkingFormatExpired } from "./checking-format-clock"
 import { WorkspaceUpgrades } from "./WorkspaceUpgrades"
 
 const checkRequests: string[] = []
@@ -333,3 +334,70 @@ export const CheckAgainFails: Story = {
     )
   },
 }
+
+const checkingScope = "acme/docs/reingest-bundle"
+
+const checkingFormatItem = upgradeItemFixture({
+  key: "reingest-bundle",
+  kind: "reingest",
+  title: "Fresh re-ingestion of the source repositories",
+  steps: [],
+  status: "blocked",
+  blockedReason: "needs_format",
+  note: "Re-ingestion needs format 3. Merge the format upgrade first.",
+})
+
+/**
+ * The scan after the hydrate never rewrites the item. This client saw the
+ * checking state 59.5 s ago, so it ends within a second: the blocked line
+ * comes back with the right control (CTX-949).
+ */
+function checkingFormatTimesOut(role: "owner" | "member"): Story {
+  return {
+    parameters: withUpgrades(
+      upgradesFixture([checkingFormatItem], { formatVersion: 3 }),
+      role,
+    ),
+    beforeEach: () => {
+      checkingFormatExpired(checkingScope, false)
+      checkingFormatExpired(checkingScope, true, Date.now() - 59_500)
+      return () => {
+        checkingFormatExpired(checkingScope, false)
+      }
+    },
+    play: async ({ canvasElement }) => {
+      const canvas = within(canvasElement)
+      await waitFor(
+        async () =>
+          expect(
+            await canvas.findByText("Apply the format upgrade first"),
+          ).toBeVisible(),
+        { timeout: 8_000 },
+      )
+      expect(
+        canvas.getByText(
+          "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
+        ),
+      ).toBeVisible()
+      expect(canvas.queryByText("Checking the new format")).toBeNull()
+      expect(canvas.queryByText(/This page updates by itself/)).toBeNull()
+      expect(canvas.getByText("Blocked")).toBeVisible()
+      if (role === "owner")
+        expect(
+          canvas.getByRole("button", { name: /^Check again/ }),
+        ).toBeVisible()
+      else {
+        expect(canvas.getByText("Ask an admin")).toBeVisible()
+        expect(
+          canvas.queryByRole("button", { name: /^Check again/ }),
+        ).toBeNull()
+      }
+    },
+  }
+}
+
+export const CheckingFormatTimesOutAdmin: Story =
+  checkingFormatTimesOut("owner")
+
+export const CheckingFormatTimesOutMember: Story =
+  checkingFormatTimesOut("member")

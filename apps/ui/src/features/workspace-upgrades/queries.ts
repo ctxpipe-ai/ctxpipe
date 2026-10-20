@@ -2,6 +2,8 @@ import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
+import { checkingFormatExpired } from "./checking-format-clock"
+import { upgradeIsCheckingFormat } from "./upgrade-copy"
 
 type UpgradesResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspaces"][":workspaceSlug"]["upgrades"]["$get"],
@@ -44,18 +46,36 @@ export const WORKSPACE_UPGRADES_HASH = "upgrades"
  * when the hydrate and the scan end (3 s). An open pull request changes when
  * someone merges it on GitHub (15 s). An item that waits for a click changes when a
  * scan starts it (Always update) or when the user starts it elsewhere (15 s).
+ * A re-ingestion that is still blocked for the format, while the Workspace
+ * has the new format, waits for the scan after the hydrate (3 s, CTX-944).
  * Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
   items:
-    | readonly (Pick<WorkspaceUpgradeItem, "status"> &
+    | readonly (Pick<
+        WorkspaceUpgradeItem,
+        "key" | "kind" | "status" | "blockedReason" | "targetFormat"
+      > &
         Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>)[]
     | undefined,
+  formatVersion?: number | null,
+  /** `<org>/<workspace>`: names the items for the one-minute limit of the checking state. */
+  scope = "",
 ): number | false {
   const statuses = items?.map((item) => item.status) ?? []
+  // A checking state that lasts more than a minute does not keep the poll
+  // fast (CTX-949). `map` visits every item, so each one keeps its own clock.
+  const checking = (items ?? [])
+    .map((item) => {
+      const is = upgradeIsCheckingFormat(item, formatVersion)
+      const expired = checkingFormatExpired(`${scope}/${item.key}`, is)
+      return is && !expired
+    })
+    .some(Boolean)
   if (
     statuses.some((status) => status === "queued" || status === "running") ||
-    items?.some((item) => item.status === "pr_open" && item.mergedAt)
+    items?.some((item) => item.status === "pr_open" && item.mergedAt) ||
+    checking
   )
     return 3_000
   if (statuses.includes("pr_open") || statuses.includes("awaiting_operator"))
@@ -65,11 +85,16 @@ export function upgradePollInterval(
 
 /** The refetch interval of the upgrades read: no poll after an error. */
 export function upgradesRefetchInterval(query: {
+  queryKey?: readonly unknown[]
   state: { status: string; data: WorkspaceUpgrades | undefined }
 }): number | false {
   return query.state.status === "error"
     ? false
-    : upgradePollInterval(query.state.data?.items)
+    : upgradePollInterval(
+        query.state.data?.items,
+        query.state.data?.formatVersion,
+        query.queryKey?.slice(1, 3).join("/"),
+      )
 }
 
 export function workspaceUpgradesOptions(

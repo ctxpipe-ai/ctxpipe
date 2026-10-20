@@ -1,7 +1,7 @@
 import { IconAlertTriangle, IconCircleArrowUp } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
@@ -13,7 +13,10 @@ import {
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
 } from "@/features/workspace-upgrades/queries"
-import { MEMBER_ASK_ADMIN } from "@/features/workspace-upgrades/upgrade-copy"
+import {
+  MEMBER_ASK_ADMIN,
+  upgradeToastLine,
+} from "@/features/workspace-upgrades/upgrade-copy"
 import {
   upgradeFailedItemPrompt,
   upgradeFailureCopy,
@@ -34,6 +37,7 @@ import {
   withDismissedUpgrade,
   withoutDismissedUpgrades,
 } from "@/lib/user-preferences"
+import { useViewTransitionValue } from "@/lib/useViewTransitionValue"
 import { cn } from "@/lib/utils"
 import { useHomeNotices } from "./use-home-notices"
 
@@ -42,6 +46,10 @@ import { useHomeNotices } from "./use-home-notices"
  * once, Always update and Dismiss. A member gets no button. `isAdmin` is
  * `null` while the role loads: the toast then shows neither the buttons nor
  * the member line.
+ *
+ * The toast has a title and one short line. The full description stays in
+ * Workspace settings, Upgrades, which keeps the item and its state after the
+ * toast goes.
  *
  * Always update answers at once. The server saves the setting and then
  * starts the upgrade, also when the user leaves Home. The toast follows the
@@ -101,7 +109,7 @@ function UpgradeToast(props: {
               ? `ctx| could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or open Upgrades.`
               : jobStatus === "completed"
                 ? "ctx| saved the setting. The upgrade starts in a moment."
-                : item.description}
+                : upgradeToastLine(item)}
         </p>
         {isAdmin === false ? (
           <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
@@ -347,7 +355,16 @@ export function HomeNoticeToasts(props: {
   const { orgSlug, workspaces, onFixWithAgent } = props
   const isAdmin = useIsOrgAdmin(orgSlug)
   const { shown, updatePreferences } = useHomeNotices(orgSlug, workspaces)
-  const toasts = shown.map((notice) => {
+  // The stack holds no space without a notice. It comes and goes in a view
+  // transition, so the composer moves with a transform and does not jump
+  // (CTX-939). The last notices stay on screen until the transition ends.
+  const visible = useViewTransitionValue(shown.length > 0)
+  const last = useRef(shown)
+  useEffect(() => {
+    if (shown.length > 0) last.current = shown
+  }, [shown])
+  const notices = visible ? (shown.length > 0 ? shown : last.current) : []
+  const toasts = notices.map((notice) => {
     const onDismiss = () =>
       updatePreferences((previous) =>
         withDismissedUpgrade(previous, notice.dismissKey),
@@ -385,7 +402,7 @@ export function HomeNoticeToasts(props: {
   return (
     <ToastStack
       label="Workspace notices"
-      slotClassName="h-53 sm:h-28"
+      className="[view-transition-name:home-notices]"
       toasts={toasts}
     />
   )

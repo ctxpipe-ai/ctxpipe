@@ -1,11 +1,12 @@
 import { describe, expect, it } from "vitest"
+import { upgradeItemFixture } from "@/mocks/workspace-upgrades-handlers"
 import type { WorkspaceUpgradeItem } from "./queries"
 import {
   formatHealthLine,
   upgradeBlockedCopy,
-  upgradeBlockedNextStep,
   upgradeCanCheck,
   upgradeCanStart,
+  upgradeIsCheckingFormat,
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
@@ -81,7 +82,7 @@ describe("upgrade copy", () => {
       kind: WorkspaceUpgradeItem["kind"],
       blockedReason: string | null,
       note: string | null = null,
-    ) => upgradeBlockedCopy({ kind, blockedReason, note })
+    ) => upgradeBlockedCopy({ kind, blockedReason, note, targetFormat: 3 })
     expect(blocked("format", "write_access").title).toBe(
       "ctx| cannot open the upgrade pull request",
     )
@@ -91,6 +92,16 @@ describe("upgrade copy", () => {
     expect(blocked("reingest", "write_access").body).not.toMatch(/pull request/)
     expect(blocked("reingest", "needs_format").title).toBe(
       "Apply the format upgrade first",
+    )
+    // One action, also when the server note names two: the note is not used.
+    expect(
+      blocked(
+        "reingest",
+        "needs_format",
+        "Re-ingestion needs format 3. Merge the format upgrade first.",
+      ).body,
+    ).toBe(
+      "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
     )
     expect(blocked("reingest", "sandbox_unavailable").body).toMatch(
       /no ingest sandbox/,
@@ -137,27 +148,23 @@ describe("upgrade copy", () => {
       status: "blocked",
       blockedReason: "needs_format",
     } as WorkspaceUpgradeItem
-    expect(upgradeBlockedNextStep(blocked)).toMatch(/press Check again/)
     expect(upgradeCanCheck(blocked)).toBe(true)
     expect(upgradeCanCheck(item("pr_open"))).toBe(true)
     expect(upgradeCanCheck(item("awaiting_operator"))).toBe(false)
   })
 
   it("tags a merged pull request and a running re-ingestion for what they do", () => {
-    const base = { waitingForSlot: null }
+    const tag = (overrides: Partial<WorkspaceUpgradeItem>) =>
+      upgradeStatusTag(upgradeItemFixture(overrides)).label
     expect(
-      upgradeStatusTag({
-        ...base,
-        status: "pr_open",
-        mergedAt: "2026-10-20T11:00:00.000Z",
-      }).label,
+      tag({ status: "pr_open", mergedAt: "2026-10-20T11:00:00.000Z" }),
     ).toBe("Merged. Reading the new format")
-    expect(
-      upgradeStatusTag({ ...base, status: "running", kind: "reingest" }).label,
-    ).toBe("Re-ingesting the sources")
-    expect(
-      upgradeStatusTag({ ...base, status: "running", kind: "format" }).label,
-    ).toBe("Preparing the pull request")
+    expect(tag({ status: "running", kind: "reingest" })).toBe(
+      "Re-ingesting the sources",
+    )
+    expect(tag({ status: "running", kind: "format" })).toBe(
+      "Preparing the pull request",
+    )
   })
 
   it("gives no wait line for a merged pull request: its progress block says what ctx| does", () => {
@@ -168,5 +175,54 @@ describe("upgrade copy", () => {
         mergedAt: "2026-10-20T11:00:00.000Z",
       }),
     ).toBeNull()
+  })
+})
+
+describe("a re-ingestion that waits for the scan after the format changed (CTX-944)", () => {
+  const blockedForFormat = {
+    kind: "reingest",
+    status: "blocked",
+    blockedReason: "needs_format",
+    targetFormat: 3,
+    waitingForSlot: null,
+  } as const
+
+  it("is checking when the Workspace has the format that the item needs", () => {
+    expect(upgradeIsCheckingFormat(blockedForFormat, 3)).toBe(true)
+    expect(upgradeIsCheckingFormat(blockedForFormat, 4)).toBe(true)
+    expect(upgradeStatusTag(blockedForFormat, 3).label).toBe(
+      "Checking the new format",
+    )
+  })
+
+  it("stays blocked while the format is lower, unread or not valid", () => {
+    expect(upgradeIsCheckingFormat(blockedForFormat, 2)).toBe(false)
+    expect(upgradeIsCheckingFormat(blockedForFormat, null)).toBe(false)
+    expect(upgradeIsCheckingFormat(blockedForFormat, -1)).toBe(false)
+    expect(upgradeStatusTag(blockedForFormat, 2).label).toBe("Blocked")
+  })
+
+  it("does not change a block for another reason or another kind", () => {
+    expect(
+      upgradeIsCheckingFormat(
+        { ...blockedForFormat, blockedReason: "write_access" },
+        3,
+      ),
+    ).toBe(false)
+    expect(
+      upgradeIsCheckingFormat({ ...blockedForFormat, kind: "format" }, 3),
+    ).toBe(false)
+  })
+
+  it("names the target format in the needs-format line", () => {
+    const blocked = (targetFormat: number) =>
+      upgradeBlockedCopy({
+        kind: "reingest",
+        blockedReason: "needs_format",
+        note: "Merge the format upgrade first, or give write access.",
+        targetFormat,
+      })
+    expect(blocked(3).body).toContain("needs format 3.")
+    expect(blocked(4).body).toContain("needs format 4.")
   })
 })
