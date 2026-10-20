@@ -81,5 +81,30 @@ signature older than five minutes. All traffic stays on your deployment.
    article file appears after the 10-minute window. An edit of a published
    article may not send an event; **Sync now** gets it.
 
+## Troubleshooting
+
+### “Save the Zendesk OAuth client of this deployment first”
+
+The connection has no OAuth client, and the deployment has no
+`ZENDESK_CLIENT_ID` and `ZENDESK_CLIENT_SECRET`. Finish **Register an OAuth
+client** in the setup, or set both variables on the backend and the worker and
+restart.
+
+### “Zendesk did not complete the authorization”
+
+Zendesk refused the code exchange. Make sure that the client is of the
+**Confidential** kind, that the saved identifier and secret are correct, and
+that the redirect URL is exactly
+`{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback`, with the same scheme,
+host, and path.
+
+### Article events never arrive
+
+If the card shows **Add the webhook**, Zendesk did not let ctx| add the
+webhook. Connect again as a Zendesk admin. Otherwise, make sure that Zendesk
+can reach `{AUTH_BASE_URL}/api/v1/webhook/zendesk/{connectionId}`. ctxpipe
+refuses a signature that is not correct or older than five minutes with `401`.
+A failed enqueue returns `503`. A later event or the daily sync gets the change.
+
 See [Zendesk connector](/docs/connections/source-connectors/zendesk) for the
 files, the sync, and product troubleshooting.
