@@ -307,9 +307,19 @@ That deploy:
 
 ### Aurora PostgreSQL minor version
 
-The construct pins Aurora PostgreSQL 16.13, the AWS default 16.x minor. Automatic minor version upgrades stay on. When the pinned version changes, CloudFormation upgrades the cluster in place. It does not replace the cluster.
+The construct pins Aurora PostgreSQL 16.13. This is the version for new clusters. It is also the target when CloudFormation upgrades an existing cluster in place. It does not replace the cluster. The pin does not stop automatic minor version upgrades. Those stay on, so AWS can move a cluster to a newer 16.x minor.
 
-CloudFormation cannot move a cluster to a lower minor version. If you upgraded your cluster by hand to a newer 16.x minor, the deploy fails with `Cannot upgrade aurora-postgresql from 16.x to 16.13` and rolls back. Nothing changes. To keep your minor, set it on the cluster in your CDK app, then deploy again:
+CloudFormation cannot move a cluster to a lower minor version. If your cluster is on 16.14 or later, the deploy fails with `Cannot upgrade aurora-postgresql from 16.x to 16.13` and rolls back. Nothing changes. This can happen after an automatic minor upgrade. You do not need to change anything by hand.
+
+Before your first deploy of this version, read the cluster version:
+
+```bash
+aws rds describe-db-clusters \
+  --query "DBClusters[?Engine=='aurora-postgresql'].[DBClusterIdentifier,EngineVersion]" \
+  --output table
+```
+
+If the version is 16.13 or lower, deploy as usual. If it is higher, set that version on the cluster in your CDK app, then deploy:
 
 ```ts
 import * as rds from "aws-cdk-lib/aws-rds";
@@ -317,7 +327,7 @@ import * as rds from "aws-cdk-lib/aws-rds";
 const ctxpipe = new CtxPipe(stack, "CtxPipe", { /* ... */ });
 const cluster = ctxpipe.node.findChild("DataPlane").node.findChild("Database")
   .node.defaultChild as rds.CfnDBCluster;
-cluster.engineVersion = "16.15"; // the version that `aws rds describe-db-clusters` shows
+cluster.engineVersion = "16.15"; // the EngineVersion that `aws rds describe-db-clusters` shows
 ```
 
 

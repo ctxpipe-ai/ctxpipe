@@ -27,9 +27,11 @@ export class DataPlaneConstruct extends Construct {
 
     const dbCluster = new rds.DatabaseCluster(this, "Database", {
       engine: rds.DatabaseClusterEngine.auroraPostgres({
-        // AWS retires old minors, and CloudFormation cannot move a cluster to a
-        // lower minor. Pin the AWS default 16.x minor, so that automatic minor
-        // upgrades keep clusters at or below this version. Never change the major.
+        // The version for new clusters, and the target when CloudFormation
+        // upgrades an existing cluster. It does not cap automatic minor upgrades.
+        // CloudFormation cannot move a cluster to a lower minor, so a cluster
+        // already on a newer 16.x minor needs its version set in the CDK app (see
+        // README). Never change the major.
         version: rds.AuroraPostgresEngineVersion.VER_16_13,
       }),
       credentials: rds.Credentials.fromSecret(dbCredentialsSecret),
