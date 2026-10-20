@@ -172,11 +172,17 @@ const playInitScript = () => {
     channel.on("storyRenderPhaseChanged", (info) => {
       const phase = info?.newPhase ?? info?.phase
       if (phase === "played") record({ ok: true, phase })
+      // Storybook names the phase before it emits the error of a play that
+      // threw. Wait a moment, so that error comes first.
       if (phase === "errored")
-        record({
-          ok: false,
-          error: `The story ended in the errored phase. Unhandled errors: ${unhandled.join(" | ") || "none seen"}`,
-        })
+        setTimeout(
+          () =>
+            record({
+              ok: false,
+              error: `The story ended in the errored phase. Unhandled errors: ${unhandled.join(" | ") || "none seen"}`,
+            }),
+          50,
+        )
     })
   }
   hook()

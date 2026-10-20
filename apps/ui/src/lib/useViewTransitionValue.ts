@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react"
-import { flushSync } from "react-dom"
+import { updateInViewTransition } from "./updateInViewTransition"
 
 /**
  * Returns `value`, but a change runs inside a view transition, so the
@@ -12,18 +12,7 @@ export function useViewTransitionValue(value: boolean): boolean {
   const [shown, setShown] = useState(value)
   useEffect(() => {
     if (value === shown) return
-    const animate =
-      typeof document.startViewTransition === "function" &&
-      !window.matchMedia("(prefers-reduced-motion: reduce)").matches
-    if (animate) {
-      const transition = document.startViewTransition(() =>
-        flushSync(() => setShown(value)),
-      )
-      // A second transition skips this one. The change still happens.
-      transition.ready.catch(() => {})
-    } else {
-      setShown(value)
-    }
+    updateInViewTransition(() => setShown(value))
   }, [value, shown])
   return shown
 }
