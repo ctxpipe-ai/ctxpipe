@@ -13,6 +13,7 @@ export const UPGRADE_FAILURE_CODES = [
   "timeout",
   "too_many_sources",
   "repository_too_large",
+  "server_busy",
   "unknown",
 ] as const
 
@@ -78,6 +79,14 @@ const RULES: Array<{
     code: "unknown",
     step: "ingest",
     match: /^\d+ ingest steps? failed after 3 attempts\.$/m,
+    temporary: true,
+  },
+  // The operating system refused a new process after the Git helpers
+  // retried the start (CTX-952): too many processes, or too little memory.
+  {
+    code: "server_busy",
+    step: null,
+    match: /spawn \S+ (?:eagain|enomem|emfile|enfile)\b/,
     temporary: true,
   },
   {

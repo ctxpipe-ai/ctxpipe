@@ -6,6 +6,7 @@ import { join } from "node:path"
 import { pipeline } from "node:stream/promises"
 import { promisify } from "node:util"
 import { gitRemoteEnvironment } from "./clone-tree.js"
+import { withGitProcessSlot } from "./process-slot.js"
 
 const execute = promisify(execFile)
 
@@ -58,6 +59,15 @@ export async function packRootTree(
 }
 
 export async function nativeGit(
+  directory: string,
+  args: string[],
+  input?: Uint8Array | string | { file: string },
+  env?: NodeJS.ProcessEnv,
+): Promise<Buffer> {
+  return withGitProcessSlot(() => startNativeGit(directory, args, input, env))
+}
+
+async function startNativeGit(
   directory: string,
   args: string[],
   input?: Uint8Array | string | { file: string },
@@ -116,8 +126,16 @@ export async function nativeGit(
         throw error
       },
     )
-    return (await Promise.all([result, streamed]))[0].stdout
+    try {
+      return (await Promise.all([result, streamed]))[0].stdout
+    } finally {
+      // A failed input stream kills Git; its slot stays taken until it exits.
+      await entry.done
+    }
   }
+  // Git can exit before it reads all of its input, and a process that did not
+  // start has no reader; the exit status gives the result, not the pipe.
+  result.child.stdin?.on("error", () => {})
   if (input !== undefined) result.child.stdin?.end(input)
   return (await result).stdout
 }

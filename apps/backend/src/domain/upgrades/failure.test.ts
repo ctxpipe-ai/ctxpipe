@@ -87,6 +87,20 @@ describe("classifyUpgradeFailure", () => {
     ).toMatchObject({ code: "repository_too_large", step: null })
   })
 
+  it.each([
+    "spawn git EAGAIN",
+    "spawn git ENOMEM",
+    "spawn git EMFILE",
+  ])("names a refused Git process start as a temporary known cause: %s", (failureReason) => {
+    const failure = { status: "failed", failureReason }
+    expect(classifyUpgradeFailure(failure)).toMatchObject({
+      code: "server_busy",
+      step: null,
+      summary: failureReason,
+    })
+    expect(isTemporaryFailure(failure)).toBe(true)
+  })
+
   it("names a Git command that took too long as a timeout", () => {
     expect(
       classifyUpgradeFailure({
