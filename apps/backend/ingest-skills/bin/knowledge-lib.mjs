@@ -173,7 +173,7 @@ function sourceFile(step, path, sourcePath) {
   return { path, kind: frontValue(yaml, "kind") }
 }
 
-function frontMatter(text) {
+export function frontMatter(text) {
   return (
     /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)?.[1] ?? null
   )
@@ -182,13 +182,13 @@ function frontMatter(text) {
 const unquote = (text) => text.trim().replace(/^(["'])(.*)\1$/, "$2")
 
 /** A top-level scalar of a front matter block, or null. */
-function frontValue(yaml, key) {
+export function frontValue(yaml, key) {
   const line = yaml.split("\n").find((l) => l.startsWith(`${key}:`))
   return line ? unquote(line.slice(key.length + 1)) || null : null
 }
 
 /** A top-level list of a front matter block, in block or flow form. */
-function frontList(yaml, key) {
+export function frontList(yaml, key) {
   const lines = yaml.split("\n")
   const at = lines.findIndex((l) => l.startsWith(`${key}:`))
   if (at === -1) return []
@@ -248,7 +248,7 @@ export function findExisting(index, kind, names) {
 }
 
 /** Text of `path` at the step's base commit, or null. */
-function baseText(step, path) {
+export function baseText(step, path) {
   const blob = baseBlob(step, path)
   return blob ? blobContent(step, blob).toString("utf8") : null
 }
@@ -623,45 +623,59 @@ export function writeStep(step, plans, skipped = [], options = {}) {
         related: [...same.related, ...plan.related],
       })
   }
-  let changed = 0
-  let more = false
-  const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
-  for (const plan of sorted) {
-    const claims = [
-      ...new Map(
-        plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
-      ).values(),
-    ]
-    const related = [...new Set(plan.related)].sort()
-    const before = baseText(step, plan.path)
-    const name =
-      before === null ? null : frontValue(frontMatter(before) ?? "", "name")
-    if (
-      plan.expectName &&
-      before !== null &&
-      (plan.exactName
-        ? name?.toLowerCase() !== plan.expectName.toLowerCase()
-        : nameKey(name) !== nameKey(plan.expectName))
-    ) {
-      skipped.push({
-        path: plan.path,
-        reason: "A file with another name has this path",
-      })
-      continue
-    }
-    if (before === null && !plan.create) {
-      skipped.push({
-        path: plan.path,
-        reason: "The file is not in the context",
-      })
-      continue
-    }
-    const text =
-      before === null
+  const edits = [...byPath.values()].map((plan) => ({
+    path: plan.path,
+    edit: (before) => {
+      const claims = [
+        ...new Map(
+          plan.claims.map((c) => [`${c.to} ${c.predicate}`, c]),
+        ).values(),
+      ]
+      const related = [...new Set(plan.related)].sort()
+      const name =
+        before === null ? null : frontValue(frontMatter(before) ?? "", "name")
+      if (
+        plan.expectName &&
+        before !== null &&
+        (plan.exactName
+          ? name?.toLowerCase() !== plan.expectName.toLowerCase()
+          : nameKey(name) !== nameKey(plan.expectName))
+      )
+        return { skip: "A file with another name has this path" }
+      if (before === null && !plan.create)
+        return { skip: "The file is not in the context" }
+      return before === null
         ? newFile({ ...plan.create, claims, related })
         : mergeFile(before, { claims, related })
+    },
+  }))
+  return writeEdits(step, edits, skipped, options)
+}
+
+/**
+ * Write the files of `edits` to the staged tree and write patch.json. An
+ * edit is { path, edit(before) }: `before` is the text at the base commit,
+ * or null for a new file. `edit` returns the new text, or { skip } with a
+ * reason. A text that is the same as `before` is not written. The caller
+ * makes sure that each change is one that the validator accepts for the
+ * file (an additive change, or any change to a file that the source owns
+ * alone).
+ *
+ * The edits run in path order. A step writes at most MAX_STEP_OPS files.
+ * `more` is true when an edit waits for the next page: the host runs the
+ * skill again on the new base until `more` is false. `options.more` adds a
+ * page that the caller knows of. patch.json holds `more` for the host.
+ * Prints and returns { ops, skipped, more }.
+ */
+export function writeEdits(step, edits, skipped = [], options = {}) {
+  let changed = 0
+  let more = false
+  const sorted = [...edits].sort((a, b) => (a.path < b.path ? -1 : 1))
+  for (const { path, edit } of sorted) {
+    const before = baseText(step, path)
+    const text = edit(before)
     if (typeof text !== "string") {
-      skipped.push({ path: plan.path, reason: text.skip })
+      skipped.push({ path, reason: text.skip })
       continue
     }
     if (text === before) continue
@@ -669,7 +683,7 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       more = true
       break
     }
-    const file = stagedFile(step, plan.path)
+    const file = stagedFile(step, path)
     ensureParent(file)
     writeFileSync(file, text)
     changed++
