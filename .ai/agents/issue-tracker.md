@@ -1,6 +1,6 @@
 # Issue tracker: Linear
 
-Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Linear: team **CTX**, project **Product development**. Use the `linear-server` MCP tools. Write each issue id as a link: `https://linear.app/ctxpipe/issue/<ID>`.
+Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Linear: team **CTX**, project **ctxpipe**. Use the `linear-server` MCP tools. Write each issue id as a link: `https://linear.app/ctxpipe/issue/<ID>`.
 
 ## Conventions
 
@@ -31,7 +31,7 @@ Issues, plans, and specs (you may know a spec as a PRD) for this repo live in Li
 
 ## When a skill says "publish to the issue tracker"
 
-Create a Linear issue in team CTX, project Product development, with the matching milestone and parent. For a spec or a plan, create a Linear document in the project and link it from the epic.
+Create a Linear issue in team CTX, project ctxpipe, with the matching milestone and parent. For a spec or a plan, create a Linear document in the project and link it from the epic.
 
 ## When a skill says "fetch the relevant ticket"
 
