@@ -348,17 +348,19 @@ export const StoppedBeforeFirstAnswer: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Why did hydrate skip ledger.md?"),
-    ).toBeVisible()
-    const title = await canvas.findByText(
-      "The agent stopped before it answered",
-      undefined,
+    await waitFor(() =>
+      expect(canvas.getByText("Why did hydrate skip ledger.md?")).toBeVisible(),
+    )
+    const stopped = await waitFor(
+      () => {
+        const alert = canvas
+          .getByText("The agent stopped before it answered")
+          .closest<HTMLElement>('[role="alert"]')
+        expect(alert).toBeVisible()
+        return alert as HTMLElement
+      },
       { timeout: SEND_WAIT_MS },
     )
-    const stopped = title.closest<HTMLElement>('[role="alert"]')
-    if (!stopped) throw new Error("The stopped turn is not an alert")
-    await expect(stopped).toBeVisible()
 
     await userEvent.click(
       within(stopped).getByRole("button", { name: "Retry" }),
