@@ -21,5 +21,6 @@ export default meta
 type Story = StoryObj<typeof meta>
 
 export const EmptyState: Story = {
-  render: () => <ConnectorsEmptyState onAddConnection={() => {}} />,
+  args: { onAddConnection: () => {} },
+  render: (args) => <ConnectorsEmptyState {...args} />,
 }
