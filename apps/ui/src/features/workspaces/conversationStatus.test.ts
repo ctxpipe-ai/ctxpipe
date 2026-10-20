@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import {
   conversationStatus,
   conversationStatusLabel,
+  isLiveRun,
 } from "./conversationStatus"
 
 describe("conversationStatus", () => {
@@ -11,9 +12,20 @@ describe("conversationStatus", () => {
   })
 
   it("is working while the newest turn runs", () => {
-    expect(conversationStatus({ status: "running", at: 10 }, 99)).toBe(
+    expect(conversationStatus({ status: "running", at: 10 }, 99, 20)).toBe(
       "working",
     )
+  })
+
+  it("stops working once a running turn passes the backend turn limit", () => {
+    const limit = 2 * 60 * 60_000
+    const turn = { status: "running", at: 1000 } as const
+    expect(conversationStatus(turn, undefined, 1000 + limit)).toBe("working")
+    expect(isLiveRun(turn, 1000 + limit)).toBe(true)
+    expect(conversationStatus(turn, undefined, 1000 + limit + 1)).toBe(
+      "attention",
+    )
+    expect(isLiveRun(turn, 1000 + limit + 1)).toBe(false)
   })
 
   it("needs attention when the newest turn failed, stopped, or waits", () => {

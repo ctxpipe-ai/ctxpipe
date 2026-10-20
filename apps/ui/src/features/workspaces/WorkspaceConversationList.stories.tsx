@@ -550,7 +550,7 @@ export const StatusDots: Story = {
             statusChats({
               "Idle chat": { status: "completed", at: 100 },
               "Unread chat": { status: "completed", at: 200 },
-              "Working chat": { status: "running", at: 300 },
+              "Working chat": { status: "running", at: Date.now() },
               "Failed chat": { status: "failed", at: 400 },
               "Stopped chat": { status: "aborted", at: 500 },
               "Waiting chat": { status: "interrupted", at: 600 },
@@ -595,6 +595,40 @@ export const StatusDots: Story = {
   },
 }
 
+/** A running row older than the backend turn limit is lost: orange, no spinner. */
+export const StaleRunningChat: Story = {
+  args: { currentConversationId: undefined },
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          conversationsListHandler(
+            statusChats({
+              "Lost chat": {
+                status: "running",
+                at: Date.now() - 3 * 60 * 60_000,
+              },
+            }),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Lost chat" })
+    await waitFor(() =>
+      expect(link).toHaveAccessibleDescription(
+        "Needs attention. The turn stopped before it finished.",
+      ),
+    )
+    expect(canvasElement.querySelector("[data-status]")).toHaveAttribute(
+      "data-status",
+      "attention",
+    )
+  },
+}
+
 /** The rail has no room for names, so each dot is a badge on the initials. */
 export const StatusDotsCollapsed: Story = {
   args: { navExpanded: false, currentConversationId: undefined },
@@ -606,7 +640,7 @@ export const StatusDotsCollapsed: Story = {
           conversationsListHandler(
             statusChats({
               "Unread chat": { status: "completed", at: 200 },
-              "Working chat": { status: "running", at: 300 },
+              "Working chat": { status: "running", at: Date.now() },
               "Failed chat": { status: "failed", at: 400 },
             }),
           ),
@@ -673,7 +707,7 @@ export const WorkingThenUnreadThenRead: Story = {
               finishRequests.count += 1
               const lastTurn: ConversationLastTurn =
                 finishRequests.count < 2
-                  ? { status: "running", at: 1000 }
+                  ? { status: "running", at: Date.now() }
                   : { status: "completed", at: 2000 }
               return HttpResponse.json({
                 items: statusChats({ "Billing questions": lastTurn }),
@@ -733,7 +767,7 @@ export const WorkingThenNeedsAttention: Story = {
               failRequests.count += 1
               const lastTurn: ConversationLastTurn =
                 failRequests.count < 2
-                  ? { status: "running", at: 1000 }
+                  ? { status: "running", at: Date.now() }
                   : { status: "failed", at: 2000 }
               return HttpResponse.json({
                 items: statusChats({ "Billing questions": lastTurn }),
