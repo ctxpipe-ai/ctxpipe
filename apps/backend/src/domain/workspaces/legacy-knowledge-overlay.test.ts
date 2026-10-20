@@ -4,6 +4,7 @@ import {
   legacyKnowledgeOverlay,
   legacyKnowledgeOverlayScope,
 } from "./legacy-knowledge-overlay.js"
+import type { ExportObjectRow } from "./migration-export.js"
 
 const source = {
   firstWorkspaceId: "ws_first",
@@ -60,7 +61,7 @@ const source = {
 
 function overlay(
   files: Array<{ path: string; content: string }>,
-  objects = source.objects,
+  objects: readonly ExportObjectRow[] = source.objects,
   options: {
     deletedPaths?: ReadonlySet<string>
     onlyRepositoryUrls?: ReadonlySet<string>
