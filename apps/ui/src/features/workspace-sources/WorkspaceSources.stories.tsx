@@ -1226,6 +1226,31 @@ export const LoadFailed: Story = {
   },
 }
 
+/**
+ * The upgrades read fails: the page cannot tell whether the Workspace may take
+ * a source, so it shows the error with Retry, not "No sources yet" and Add.
+ */
+export const UpgradesLoadFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        upgrades: [workspaceUpgradesHandler("error")],
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Could not load the sources of this Workspace.")
+    await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+    await expect(canvas.queryByText(/No sources yet/)).toBeNull()
+    await expect(canvas.queryByText("Add connection")).toBeNull()
+    await expect(
+      canvas.queryByRole("button", { name: "Add repositories" }),
+    ).toBeNull()
+  },
+}
+
 export const ReadOnlyHidesChanges: Story = {
   tags: ["workspace-golden"],
   parameters: {

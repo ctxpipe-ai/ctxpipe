@@ -12,12 +12,14 @@ const STEP_LABEL: Record<NonNullable<UpgradeFailure["step"]>, string> = {
 
 /**
  * The fix for one failure class. `link`: a page where the user can do the
- * fix. `agent`: the card offers "Fix using agent". Else Start again is the
- * fix.
+ * fix. `agent`: the card offers "Fix using agent". `startAgain: false`: the
+ * cause stays until the user changes the Workspace, so a new run fails the
+ * same way and the card offers no Start again. Else Start again is the fix.
  */
 type FailureCopy = {
   reason: string
   action: string
+  startAgain?: false
   link?: "connectors"
   linkLabel?: string
   agent?: true
@@ -61,7 +63,9 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   too_many_sources: {
     reason:
       "The Workspace has more source repositories than one re-ingestion handles.",
-    action: "Remove some source repositories, then start it again.",
+    action:
+      "Remove some source repositories from the Workspace. A new run of this upgrade fails again while the Workspace has this many.",
+    startAgain: false,
   },
   unknown: {
     reason: "ctx| does not know the cause of this failure.",
@@ -80,6 +84,13 @@ export function upgradeFailureCopy(failure: UpgradeFailure) {
       ? `${step}${failure.repository ? ` (${failure.repository})` : ""}`
       : null,
   }
+}
+
+/** A new run can pass: false when the cause stays until the user changes the Workspace. */
+export function upgradeFailureAllowsStartAgain(
+  item: Pick<WorkspaceUpgradeItem, "failure">,
+): boolean {
+  return !item.failure || upgradeFailureCopy(item.failure).startAgain !== false
 }
 
 /** The chat prompt of "Fix using agent" for a failed upgrade. */

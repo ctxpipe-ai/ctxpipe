@@ -464,6 +464,9 @@ export function WorkspaceSources(props: {
   const needsUpgrade = upgradesQuery.data
     ? workspaceNeedsFormatUpgrade(upgradesQuery.data)
     : false
+  // Without the answer of the upgrades read, the page cannot tell whether the
+  // Workspace may take a source: it fails like a failed sources read.
+  const loadFailed = sourcesQuery.isError || upgradesQuery.isError
   const loading = useSkeletonHold(
     sourcesQuery.isPending || upgradesQuery.isPending,
   )
@@ -502,7 +505,7 @@ export function WorkspaceSources(props: {
       linkedRepositories,
     }) && !needsUpgrade
   const data = sourcesQuery.data
-  const canEdit = (data?.canEdit ?? false) && !needsUpgrade
+  const canEdit = (data?.canEdit ?? false) && !needsUpgrade && !loadFailed
   const items = data?.items ?? []
   const githubRepositories = useMemo(
     () =>
@@ -543,7 +546,7 @@ export function WorkspaceSources(props: {
         <div className="min-w-0">
           {loading ? (
             <SkeletonText className="text-sm" boneClassName="h-3.5 w-48" />
-          ) : data && !isEmpty ? (
+          ) : data && !isEmpty && !loadFailed ? (
             <p className="text-sm font-medium text-foreground">
               {connectorsSummary(
                 items,
@@ -559,7 +562,7 @@ export function WorkspaceSources(props: {
             </p>
           )}
         </div>
-        {data && !isEmpty && !sourcesQuery.isError && !needsUpgrade ? (
+        {data && !isEmpty && !loadFailed && !needsUpgrade ? (
           <Link
             href={`/${orgSlug}/connectors`}
             className={cn(
@@ -574,14 +577,17 @@ export function WorkspaceSources(props: {
 
       {loading ? (
         <SourcesSkeleton />
-      ) : sourcesQuery.isError ? (
+      ) : loadFailed ? (
         <div className="mt-4">
           <InlineAlert
             variant="error"
             actions={
               <Button
                 variant="secondary"
-                onPress={() => sourcesQuery.refetch()}
+                onPress={() => {
+                  if (sourcesQuery.isError) void sourcesQuery.refetch()
+                  if (upgradesQuery.isError) void upgradesQuery.refetch()
+                }}
               >
                 Retry
               </Button>

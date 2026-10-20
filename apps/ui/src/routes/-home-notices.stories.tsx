@@ -71,6 +71,8 @@ function homeHandlers(
   return {
     msw: {
       handlers: {
+        // The global default answers "no pending upgrade"; this key replaces it.
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler(items, answered)],
         page: [
           activeMemberRoleHandler(role),
           // The detail of each Workspace, with its skipped files.
@@ -88,7 +90,6 @@ function homeHandlers(
             })
           }),
           ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
-          pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
           ...workspaceUpgradeAutomaticHandlers({
             requests,
@@ -477,9 +478,7 @@ export const MemberView: Story = {
       name: "Workspace notices",
     })
     await waitFor(() =>
-      expect(
-        within(region).getAllByText("An owner or admin can start it.")[0],
-      ).toBeVisible(),
+      expect(within(region).getAllByText("Ask an admin")[0]).toBeVisible(),
     )
     await waitFor(() =>
       expect(within(region).queryAllByRole("button")).toHaveLength(0),

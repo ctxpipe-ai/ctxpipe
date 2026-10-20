@@ -351,13 +351,22 @@ function statusFailed(pathnameSuffix: string, connectionId: string) {
   )
 }
 
-function pageHandlers(handlers: ReturnType<typeof http.get>[]) {
+function pageHandlers(
+  handlers: ReturnType<typeof http.get>[],
+  pendingUpgrades?: ReturnType<typeof pendingWorkspaceUpgradesHandler>,
+) {
   return {
     storyRoute: {
       pattern: "orgConnectors",
       orgSlug,
     } satisfies StoryRouteParams,
-    msw: { handlers: { page: handlers } },
+    msw: {
+      handlers: {
+        page: handlers,
+        // The global default answers "no pending upgrade"; this key replaces it.
+        ...(pendingUpgrades ? { pendingUpgrades: [pendingUpgrades] } : {}),
+      },
+    },
   }
 }
 
@@ -403,20 +412,22 @@ export const Full: Story = {
  */
 export const NeedsFormatUpgrade: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    connectorsListHandler(),
-    atlassianStatusHandler(atlassianStatusComplete),
-    orgAtlassianOauthHandler,
-    notionStatusHandler(notionStatusComplete),
-    githubInstallationHandler(githubInstallationComplete),
-    linearStatusHandler(linearStatusComplete),
-    slackStatusHandler(slackStatusComplete),
-    pagerdutyStatusHandler(pagerdutyStatusComplete),
-    connectionUsageHandler([]),
-    workspaceListHandler([docsWorkspace]),
-    activeMemberRoleHandler("owner"),
+  parameters: pageHandlers(
+    [
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      orgAtlassianOauthHandler,
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("owner"),
+    ],
     pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-  ]),
+  ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")
@@ -429,19 +440,54 @@ export const NeedsFormatUpgrade: Story = {
   },
 }
 
+/**
+ * The Workspace is below the newest format and the scan wrote no upgrade row
+ * yet. The read still lists it with its format, so the page blocks the start.
+ */
+export const NeedsFormatUpgradeNoRowYet: Story = {
+  render: pageRender,
+  parameters: pageHandlers(
+    [
+      connectorsListHandler(),
+      atlassianStatusHandler(atlassianStatusComplete),
+      orgAtlassianOauthHandler,
+      notionStatusHandler(notionStatusComplete),
+      githubInstallationHandler(githubInstallationComplete),
+      linearStatusHandler(linearStatusComplete),
+      slackStatusHandler(slackStatusComplete),
+      pagerdutyStatusHandler(pagerdutyStatusComplete),
+      connectionUsageHandler([]),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("owner"),
+    ],
+    pendingWorkspaceUpgradesHandler({}, undefined, {
+      formats: { docs: 0 },
+    }),
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Upgrade a Workspace before you add a source")
+    await expect(
+      canvas.getByRole("button", { name: "Add connection" }),
+    ).toBeDisabled()
+  },
+}
+
 /** With no connection yet, the empty state offers no start either. */
 export const NeedsFormatUpgradeNoConnections: Story = {
   render: pageRender,
-  parameters: pageHandlers([
-    http.get(
-      ({ request }) =>
-        new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
-      () => HttpResponse.json({ items: [] }),
-    ),
-    workspaceListHandler([docsWorkspace]),
-    activeMemberRoleHandler("member"),
+  parameters: pageHandlers(
+    [
+      http.get(
+        ({ request }) =>
+          new URL(request.url).pathname === `/${orgSlug}/api/v1/connectors`,
+        () => HttpResponse.json({ items: [] }),
+      ),
+      workspaceListHandler([docsWorkspace]),
+      activeMemberRoleHandler("member"),
+    ],
     pendingWorkspaceUpgradesHandler({ docs: [upgradeItemFixture()] }),
-  ]),
+  ),
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
     await canvas.findByText("Upgrade a Workspace before you add a source")

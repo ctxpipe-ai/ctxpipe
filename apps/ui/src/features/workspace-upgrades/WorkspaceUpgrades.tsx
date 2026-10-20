@@ -40,6 +40,7 @@ import {
 } from "./upgrade-copy"
 import {
   type UpgradeFailure,
+  upgradeFailureAllowsStartAgain,
   upgradeFailureCopy,
   upgradeFailurePrompt,
 } from "./upgrade-failure"
@@ -229,7 +230,9 @@ function UpgradeItemCard(props: {
           >
             Check again
           </Button>
-        ) : upgradeCanStart(item) && isAdmin === true ? (
+        ) : upgradeCanStart(item) &&
+          isAdmin === true &&
+          upgradeFailureAllowsStartAgain(item) ? (
           <Button
             variant="primary"
             isPending={isStarting}

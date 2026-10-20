@@ -171,13 +171,15 @@ export const OneWorkspaceNeedsUpgrade: Story = {
   parameters: {
     msw: {
       handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({
+            [docsWorkspace.slug]: [upgradeItemFixture()],
+          }),
+        ],
         page: [
           docsAndHandbook,
           linearAvailableScopesHandler(),
           activeMemberRoleHandler("owner"),
-          pendingWorkspaceUpgradesHandler({
-            [docsWorkspace.slug]: [upgradeItemFixture()],
-          }),
         ],
       },
     },
@@ -213,16 +215,18 @@ export const AllWorkspacesNeedUpgrade: Story = {
   parameters: {
     msw: {
       handlers: {
-        page: [
-          docsAndHandbook,
-          linearAvailableScopesHandler(),
-          activeMemberRoleHandler("member"),
+        pendingUpgrades: [
           pendingWorkspaceUpgradesHandler({
             [docsWorkspace.slug]: [upgradeItemFixture()],
             [readOnlyWorkspace.slug]: [
               upgradeItemFixture({ status: "failed" }),
             ],
           }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("member"),
         ],
       },
     },
@@ -236,5 +240,102 @@ export const AllWorkspacesNeedUpgrade: Story = {
       ).toBeDisabled()
     await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
     await expect(canvas.getByText("Not ready")).toBeVisible()
+  },
+}
+
+/**
+ * A Workspace below the newest format that has no upgrade item yet (the scan
+ * did not record one): the read still lists it with its format, so its row is
+ * off and links to its upgrade, and the other Workspace stays usable.
+ */
+export const BelowFormatWithNoUpgradeRowYet: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({}, undefined, {
+            formats: { [docsWorkspace.slug]: 1 },
+          }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByRole("checkbox", { name: docsWorkspace.displayName })
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: docsWorkspace.displayName }),
+      ).toBeDisabled(),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("checkbox", { name: readOnlyWorkspace.displayName }),
+      ).toBeEnabled(),
+    )
+    await expect(
+      canvas.getByRole("link", { name: "Open Upgrades" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+  },
+}
+
+/**
+ * The read of the pending upgrades loads for a long time: the step shows its
+ * skeleton and no row, because it cannot tell which Workspace the server
+ * refuses.
+ */
+export const NoRowsWhileFormatCheckLoads: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          http.get(/\/workspace-upgrades\/pending$/, () => delay("infinite")),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Loading Workspaces")
+    await expect(canvas.queryAllByRole("checkbox")).toHaveLength(0)
+  },
+}
+
+/** The read fails: the rows stay off, and the step says why, with Retry. */
+export const FormatCheckFailed: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        pendingUpgrades: [
+          pendingWorkspaceUpgradesHandler({}, undefined, { answer: "error" }),
+        ],
+        page: [
+          docsAndHandbook,
+          linearAvailableScopesHandler(),
+          activeMemberRoleHandler("owner"),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText(
+      /Could not check which Workspaces need the format upgrade/,
+    )
+    await expect(canvas.getByRole("button", { name: "Retry" })).toBeVisible()
+    for (const workspace of [docsWorkspace, readOnlyWorkspace])
+      await expect(
+        canvas.getByRole("checkbox", { name: workspace.displayName }),
+      ).toBeDisabled()
   },
 }

@@ -595,6 +595,72 @@ export const FailedSourceAccess: Story = {
     expect(
       canvas.getByText("Failed step: Read the source repository (acme/ky)."),
     ).toBeVisible()
+    // The user fixes the access, then starts it again.
+    expect(
+      await canvas.findByRole("button", { name: REINGEST_START }),
+    ).toBeVisible()
+  },
+}
+
+const tooManySources = {
+  code: "too_many_sources",
+  step: "plan",
+  repository: null,
+  summary:
+    "The Workspace has 40 source repositories. One re-ingestion run handles at most 25.",
+} as const
+
+/**
+ * A cause that stays until the user changes the Workspace: the card shows the
+ * cause and the fix, and no Start again, because a new run fails the same way.
+ */
+export const FailedTooManySources: Story = {
+  parameters: failedReingest(tooManySources),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "The Workspace has more source repositories than one re-ingestion handles.",
+        ),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText(/Remove some source repositories/)).toBeVisible()
+    expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
+    expect(startRequests).toHaveLength(0)
+  },
+}
+
+/** A member of the org keeps "Ask an admin" for that failure. */
+export const FailedTooManySourcesMember: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          activeMemberRoleHandler("member"),
+          workspaceUpgradesHandler(
+            upgradesFixture([
+              upgradeItemFixture({
+                key: "reingest-3",
+                kind: "reingest",
+                title: "Fresh re-ingestion of the source repositories",
+                status: "failed",
+                steps: [],
+                failureReason: "One re-ingestion run handles at most 25.",
+                failure: tooManySources,
+              }),
+            ]),
+          ),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(await canvas.findByText("Ask an admin")).toBeVisible(),
+    )
+    expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
 }
 

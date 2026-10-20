@@ -13,6 +13,7 @@ import {
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
 } from "@/features/workspace-upgrades/queries"
+import { MEMBER_ASK_ADMIN } from "@/features/workspace-upgrades/upgrade-copy"
 import {
   upgradeFailedItemPrompt,
   upgradeFailureCopy,
@@ -102,9 +103,7 @@ function UpgradeToast(props: {
                 : item.description}
         </p>
         {isAdmin === false ? (
-          <p className="text-xs text-muted-foreground">
-            An owner or admin can start it.
-          </p>
+          <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
       </div>
       {isAdmin === true ? (
