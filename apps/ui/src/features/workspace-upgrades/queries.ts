@@ -161,7 +161,7 @@ export async function startWorkspaceUpgrade(
 }
 
 /** Starts the tip check now: ctx| reads the default branch of the Workspace repository. */
-export async function checkWorkspaceUpgrades(
+async function checkWorkspaceUpgrades(
   orgSlug: string,
   workspaceSlug: string,
 ): Promise<{ queued: boolean }> {
