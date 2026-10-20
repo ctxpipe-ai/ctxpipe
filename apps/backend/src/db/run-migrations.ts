@@ -47,6 +47,17 @@ export async function runMigrations(options: {
         // The next query on this client shows a broken connection.
       })
     })
+    // `pool.end()` resolves before each idle client has closed. When the
+    // server ends such a client (for example, a forced DROP DATABASE), the
+    // pool sends an "error" event. With no listener, that event is an
+    // unhandled error. A query error still comes back to its caller.
+    created.on("error", (error) => {
+      log.warn({
+        step: "migrate",
+        message: "[migrate] an idle database connection closed",
+        error: error.message,
+      })
+    })
     return created
   }
   const pool = poolWithLockTimeout(lockTimeoutMs)
