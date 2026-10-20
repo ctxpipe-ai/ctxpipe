@@ -596,9 +596,11 @@ export const FailedSourceAccess: Story = {
       canvas.getByText("Failed step: Read the source repository (acme/ky)."),
     ).toBeVisible()
     // The user fixes the access, then starts it again.
-    expect(
-      await canvas.findByRole("button", { name: REINGEST_START }),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: REINGEST_START }),
+      ).toBeVisible(),
+    )
   },
 }
 
