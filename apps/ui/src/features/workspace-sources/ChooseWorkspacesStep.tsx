@@ -3,12 +3,16 @@ import type { SourceProvider } from "backend/domain/workspace-sources/sources-fi
 import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
+import { Link as TextLink } from "@/components/ui/Link"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 import {
   Skeleton,
   SkeletonText,
   useSkeletonHold,
 } from "@/components/ui/Skeleton"
+import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
+import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
+import { useWorkspaceFormatGate } from "@/features/workspace-upgrades/use-workspace-format-gate"
 import { workspaceListOptions } from "@/features/workspaces/queries"
 import {
   type ChooseWorkspacesValue,
@@ -35,6 +39,12 @@ export function ChooseWorkspacesStep(props: {
   const listQuery = useQuery(workspaceListOptions(orgSlug))
   const loading = useSkeletonHold(listQuery.isPending)
   const workspaces = listQuery.data?.items ?? []
+  // A Workspace below the newest format refuses a source (CTX-935): the row
+  // is off and links to its upgrade, so the save cannot fail.
+  const gate = useWorkspaceFormatGate(orgSlug)
+  const blocked = workspaces.filter((workspace) =>
+    gate.needsUpgrade(workspace.slug),
+  )
   const { ScopeEditor } = SOURCE_PROVIDER_UI[provider]
   const selected = workspaces.filter((workspace) =>
     value.workspaceSlugs.includes(workspace.slug),
@@ -67,19 +77,47 @@ export function ChooseWorkspacesStep(props: {
           There are no Workspaces yet. Create a Workspace first.
         </p>
       ) : (
-        <CheckboxGroup
-          label="Workspaces"
-          value={value.workspaceSlugs}
-          onChange={(workspaceSlugs) =>
-            onChange(selectWorkspaces(value, workspaceSlugs))
-          }
-        >
-          {workspaces.map((workspace) => (
-            <Checkbox key={workspace.id} value={workspace.slug}>
-              {workspace.displayName}
-            </Checkbox>
-          ))}
-        </CheckboxGroup>
+        <>
+          {blocked.length === workspaces.length ? (
+            <FormatUpgradeWorkspacesNotice
+              orgSlug={orgSlug}
+              workspaces={blocked}
+            />
+          ) : null}
+          <CheckboxGroup
+            label="Workspaces"
+            value={value.workspaceSlugs}
+            onChange={(workspaceSlugs) =>
+              onChange(selectWorkspaces(value, workspaceSlugs))
+            }
+          >
+            {workspaces.map((workspace) =>
+              gate.needsUpgrade(workspace.slug) ? (
+                <div
+                  key={workspace.id}
+                  className="flex flex-wrap items-center gap-x-3 gap-y-1"
+                >
+                  <Checkbox value={workspace.slug} isDisabled>
+                    {workspace.displayName}
+                  </Checkbox>
+                  <span className="text-xs text-muted-foreground">
+                    Needs the format upgrade first.{" "}
+                    <TextLink
+                      href={workspaceUpgradesHref(orgSlug, workspace.slug)}
+                      variant="secondary"
+                    >
+                      Open Upgrades
+                    </TextLink>
+                  </span>
+                </div>
+              ) : (
+                <Checkbox key={workspace.id} value={workspace.slug}>
+                  {workspace.displayName}
+                </Checkbox>
+              ),
+            )}
+          </CheckboxGroup>
+        </>
       )}
 
       {selected.length > 1 ? (

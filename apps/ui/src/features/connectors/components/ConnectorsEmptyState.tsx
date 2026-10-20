@@ -3,10 +3,13 @@ import { Button } from "@/components/ui/Button"
 
 type ConnectorsEmptyStateProps = {
   onAddConnection: () => void
+  /** True when the page says why no connection can start now. */
+  isDisabled?: boolean
 }
 
 export function ConnectorsEmptyState({
   onAddConnection,
+  isDisabled,
 }: ConnectorsEmptyStateProps) {
   return (
     <div className="flex min-h-[40vh] flex-col items-center justify-center text-center">
@@ -28,6 +31,7 @@ export function ConnectorsEmptyState({
         <Button
           variant="outline"
           className="rounded-md"
+          isDisabled={isDisabled}
           onPress={onAddConnection}
         >
           Add connection

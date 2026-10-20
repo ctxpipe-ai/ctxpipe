@@ -12,6 +12,7 @@ import {
   useGithubEmptyAction,
   WorkspaceSources,
 } from "@/features/workspace-sources/WorkspaceSources"
+import { workspaceNeedsFormatUpgrade } from "@/features/workspace-upgrades/format-gate"
 import {
   upgradesRefetchInterval,
   workspaceUpgradesOptions,
@@ -38,10 +39,7 @@ import {
  * The card is one skeleton chain, so a skeleton in the card can hand over to
  * the next one (see `SkeletonChain`).
  */
-function WorkspaceCreateFrame(props: {
-  step: 0 | 1
-  children: ReactNode
-}) {
+function WorkspaceCreateFrame(props: { step: 0 | 1; children: ReactNode }) {
   const steps = [
     { id: "repository", label: "Choose the Workspace repository" },
     { id: "sources", label: "Add code repositories and tools" },
@@ -368,9 +366,7 @@ function AddSourcesStep(props: {
           {formatHealthLine(formatVersion, codeFormat)}
         </InlineAlert>
       )
-    // Copy of SOURCE_FILES_FORMAT in apps/backend/src/domain/workspaces/workspace-format.ts.
-    const sourceFilesFormat = 2
-    if (formatVersion < sourceFilesFormat)
+    if (workspaceNeedsFormatUpgrade({ items: [], formatVersion, codeFormat }))
       return (
         <InlineAlert
           variant="warning"
@@ -390,7 +386,7 @@ function AddSourcesStep(props: {
             </Button>
           }
         >
-          Sources need repository format 2 or higher. An owner or admin starts
+          Sources need the newest repository format. An owner or admin starts
           the upgrade. It opens a pull request. Merge it, then add sources.
         </InlineAlert>
       )

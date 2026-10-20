@@ -157,11 +157,15 @@ export function pendingWorkspaceUpgradesHandler(
 
 /**
  * Always update: `POST /workspaces/:slug/upgrades/automatic` and the read of
- * its file job, which completes at once. Each call adds its path to
- * `requests`, so a play can check the order of the calls.
+ * its file job. The job completes at once, or answers `job` (for example
+ * `running` for a slow save, or `failed` with its cause). Each call adds its
+ * path to `requests`, so a play can check the calls.
  */
 export function workspaceUpgradeAutomaticHandlers(
-  options: { requests?: string[] } = {},
+  options: {
+    requests?: string[]
+    job?: { status: string; failureReason: string | null }
+  } = {},
 ) {
   return [
     http.post(
@@ -182,7 +186,9 @@ export function workspaceUpgradeAutomaticHandlers(
         ),
       ({ request }) => {
         options.requests?.push(pathnameOf(request))
-        return HttpResponse.json({ status: "completed", failureReason: null })
+        return HttpResponse.json(
+          options.job ?? { status: "completed", failureReason: null },
+        )
       },
     ),
   ]

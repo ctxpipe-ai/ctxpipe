@@ -16,6 +16,7 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 import {
+  activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
   workspaceSourcesHandler,
@@ -298,6 +299,63 @@ export const Compose: Story = {
         page: workspaceShellHandlers(),
       },
     },
+  },
+}
+
+/**
+ * A Workspace below the newest format (CTX-932): the banner stands at the top
+ * of the page where the user works, with the next step. It is not only in
+ * Settings.
+ */
+export const ComposeNeedsFormatUpgrade: Story = {
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          activeMemberRoleHandler("owner"),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("This Workspace needs the format upgrade")
+    await canvas.findByRole("button", { name: "Start the upgrade" })
+    await expect(
+      canvas.getByRole("link", { name: "Open Upgrades" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    // The chat stays usable below the banner.
+    await expect(
+      canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i),
+    ).toBeVisible()
+  },
+}
+
+/** The banner also stands above an open conversation. */
+export const ConversationNeedsFormatUpgrade: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([upgradeItemFixture()])),
+          activeMemberRoleHandler("member"),
+          ...workspaceShellHandlers(),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("This Workspace needs the format upgrade")
+    await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
+    await expect(
+      canvas.queryByRole("button", { name: "Start the upgrade" }),
+    ).toBeNull()
   },
 }
 

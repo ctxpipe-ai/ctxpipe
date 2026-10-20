@@ -41,7 +41,9 @@ export const WORKSPACE_UPGRADES_HASH = "upgrades"
 /**
  * How long to wait before the next read. A run that prepares the pull
  * request changes fast (3 s). An open pull request changes when someone
- * merges it on GitHub (15 s). Nothing else changes by itself: no polling.
+ * merges it on GitHub (15 s). An item that waits for a click changes when a
+ * scan starts it (Always update) or when the user starts it elsewhere (15 s).
+ * Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
   items: readonly Pick<WorkspaceUpgradeItem, "status">[] | undefined,
@@ -49,7 +51,8 @@ export function upgradePollInterval(
   const statuses = items?.map((item) => item.status) ?? []
   if (statuses.some((status) => status === "queued" || status === "running"))
     return 3_000
-  if (statuses.includes("pr_open")) return 15_000
+  if (statuses.includes("pr_open") || statuses.includes("awaiting_operator"))
+    return 15_000
   return false
 }
 
@@ -139,35 +142,49 @@ export async function checkWorkspaceUpgrades(
 
 /**
  * Always update: ctx| commits `upgrades: automatic` into the format file of
- * the Workspace repository. This waits until the commit is on the default
- * branch, so that the pull request of the next start contains the setting.
+ * the Workspace repository. The reply comes at once with the id of the file
+ * job. The server starts the waiting upgrades when the commit is done, so the
+ * browser sends no second request and does not wait for the commit.
  */
 export async function enableAutomaticWorkspaceUpgrades(
   orgSlug: string,
   workspaceSlug: string,
-): Promise<void> {
+): Promise<{ jobId: string }> {
   const client = await getApiClient()
-  const workspace = client[":orgSlug"].api.v1.workspaces[":workspaceSlug"]
-  const { jobId } = await readApiJson(
-    await workspace.upgrades.automatic.$post({
-      param: { orgSlug, workspaceSlug },
-    }),
+  return readApiJson(
+    await client[":orgSlug"].api.v1.workspaces[
+      ":workspaceSlug"
+    ].upgrades.automatic.$post({ param: { orgSlug, workspaceSlug } }),
     { message: "Failed to save the setting" },
   )
-  // A commit takes a few seconds. Stop after about two minutes.
-  for (let attempt = 0; attempt < 120; attempt++) {
-    const job = await readApiJson(
-      await workspace.files.jobs[":jobId"].$get({
-        param: { orgSlug, workspaceSlug, jobId },
-      }),
-      { message: "Failed to save the setting" },
-    )
-    if (job.status === "completed") return
-    if (job.status === "failed")
-      throw new Error(job.failureReason ?? "ctx| could not save the setting.")
-    await new Promise((resolve) => setTimeout(resolve, 1_000))
-  }
-  throw new Error(
-    "ctx| is still saving the setting. Start the upgrade in Workspace settings.",
-  )
+}
+
+/**
+ * The file job of Always update, read every 2 s until it is done. A job whose
+ * run ended with an error comes back `failed` with the cause, so the poll
+ * ends. The read is progress only: the server does not need it.
+ */
+export function automaticUpgradesJobOptions(
+  orgSlug: string,
+  workspaceSlug: string,
+  jobId: string,
+) {
+  return queryOptions({
+    queryKey: ["workspace-upgrades", orgSlug, workspaceSlug, "job", jobId],
+    queryFn: async () => {
+      const client = await getApiClient()
+      return readApiJson(
+        await client[":orgSlug"].api.v1.workspaces[":workspaceSlug"].files.jobs[
+          ":jobId"
+        ].$get({ param: { orgSlug, workspaceSlug, jobId } }),
+        { message: "Failed to read the setting" },
+      )
+    },
+    refetchInterval: (query) =>
+      query.state.status === "error" ||
+      query.state.data?.status === "completed" ||
+      query.state.data?.status === "failed"
+        ? false
+        : 2_000,
+  })
 }

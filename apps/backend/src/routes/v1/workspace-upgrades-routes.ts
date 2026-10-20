@@ -352,13 +352,13 @@ const automaticUpgradesRoute = createRoute(
                 queued: z.literal(true),
                 jobId: z.string().openapi({
                   description:
-                    "The file job that commits the setting. Read its status at `GET /{workspaceSlug}/files/jobs/{jobId}`.",
+                    "The file job that commits the setting. Read its status at `GET /{workspaceSlug}/files/jobs/{jobId}`. A job whose run ended with an error is `failed`, with the cause in `failureReason`.",
                 }),
               }),
             },
           },
           description:
-            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. Start the current upgrade after the job completes, so that its pull request contains the setting.",
+            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctx| starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },

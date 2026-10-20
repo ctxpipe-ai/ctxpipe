@@ -62,7 +62,9 @@ const meta = {
           workspaceSourcesHandler(workspaceSourceList()),
           orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
         ],
-        upgrades: [workspaceUpgradesHandler(upgradesFixture([]))],
+        upgrades: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+        ],
       },
     },
   },

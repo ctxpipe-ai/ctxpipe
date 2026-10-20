@@ -121,6 +121,23 @@ export const workspaceFileEdit = defineWorkflow(
           )
           throw new Error(refusal)
         }
+        // Always update writes only the format file. When that write is done,
+        // a scan starts the waiting upgrades of the org with no click, also
+        // after the user left the page that asked for it. The scan workflow
+        // imports the write path, so the import is late.
+        const scanAfterSetting = async () => {
+          if (!input.files.some((file) => file.path === WORKSPACE_FORMAT_PATH))
+            return
+          await step.run({ name: "enqueue-upgrade-scan" }, async () => {
+            const { enqueueWorkspaceUpgradeScan } = await import(
+              "./workspace-upgrade-scan.js"
+            )
+            await enqueueWorkspaceUpgradeScan({
+              orgId: input.orgId,
+              trigger: `setting:${input.jobId}`,
+            })
+          })
+        }
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -192,6 +209,7 @@ export const workspaceFileEdit = defineWorkflow(
               revision = refreshed
               continue
             }
+            await scanAfterSetting()
             await step.run({ name: "complete-no-op" }, () =>
               persistWriteJobStatus(input.jobId, "completed"),
             )
@@ -253,6 +271,7 @@ export const workspaceFileEdit = defineWorkflow(
               handoff,
               { name: "semantic-merge-child" },
             )
+            await scanAfterSetting()
             await step.run({ name: "complete-merged-result" }, () =>
               persistWriteJobCommitSha(
                 input.jobId,
@@ -275,6 +294,7 @@ export const workspaceFileEdit = defineWorkflow(
               { idempotencyKey: `${input.jobId}:hydrate` },
             )
           })
+          await scanAfterSetting()
           await step.run({ name: "complete" }, () =>
             persistWriteJobCommitSha(input.jobId, committed.sha),
           )

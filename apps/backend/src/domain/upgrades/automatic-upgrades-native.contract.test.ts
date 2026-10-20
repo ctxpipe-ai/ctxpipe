@@ -38,7 +38,7 @@ const BRANCH = upgradeBranch(3)
 const PULLS = "https://api.github.com/repos/fixture/hydration-contract/pulls"
 
 it(
-  "Always update commits the setting to the format file, and the next scan starts the upgrade with no click",
+  "Always update commits the setting to the format file, and the scan that the write queues starts the upgrade with no click",
   { timeout: 150_000 },
   async () => {
     let openPulls: unknown[] = []
@@ -158,10 +158,8 @@ it(
             { kind: "format", format: 2, upgrades: "automatic" },
           )
 
-          // The next scan starts the waiting upgrade with no click.
-          expect(await runScan("automatic")).toMatchObject({
-            automatic: [{ workspaceId: f.workspaceId, kind: KEY }],
-          })
+          // The write queued a scan, so the waiting upgrade starts with no
+          // click and with no other request.
           await expect
             .poll(async () => (await row())?.status, { timeout: 60_000 })
             .toBe("pr_open")

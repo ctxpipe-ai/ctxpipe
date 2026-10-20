@@ -90,3 +90,14 @@ export function upgradeFailurePrompt(
   const { step } = upgradeFailureCopy(failure)
   return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctx| recorded: ${failure.summary} Find the cause, and tell me how to fix it.`
 }
+
+/**
+ * The chat prompt of "Ask the agent" for a failed item. It names the cause
+ * that ctx| recorded, also when the item has no failure class.
+ */
+export function upgradeFailedItemPrompt(
+  item: Pick<WorkspaceUpgradeItem, "title" | "failure" | "failureReason">,
+): string {
+  if (item.failure) return upgradeFailurePrompt(item, item.failure)
+  return `The upgrade "${item.title}" of this Workspace failed. ctx| recorded: ${item.failureReason ?? "no reason."} Find the cause, and tell me how to fix it.`
+}

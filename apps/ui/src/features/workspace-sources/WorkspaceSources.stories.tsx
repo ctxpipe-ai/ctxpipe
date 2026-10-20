@@ -23,7 +23,9 @@ import {
   workspaceSourcesHandler,
 } from "@/mocks/workspace-sources-handlers"
 import {
+  upgradeItemFixture,
   upgradesFixture,
+  workspaceUpgradeStartHandler,
   workspaceUpgradesHandler,
 } from "@/mocks/workspace-upgrades-handlers"
 import { entryPageInnerDecorators } from "../../../.storybook/decorators/entry-page-decorators"
@@ -71,6 +73,7 @@ type Story = StoryObj<typeof meta>
 type ChangeCall = { method: string; path: string; body: unknown }
 const editCalls: ChangeCall[] = []
 const addCalls: ChangeCall[] = []
+const upgradeStartRequests: string[] = []
 const removeCalls: ChangeCall[] = []
 
 const connected = orgConnectionsHandler([
@@ -1708,33 +1711,102 @@ export const AddRepositoriesListFailsKeepsHint: Story = {
   },
 }
 
-/** A Workspace below format 2: the dialog says to upgrade first and offers no list. */
-export const AddRepositoriesNeedUpgradeFirst: Story = {
+const beforeUpgrade = (
+  items: Parameters<typeof upgradesFixture>[0] = [upgradeItemFixture()],
+) => workspaceUpgradesHandler(upgradesFixture(items, { formatVersion: 0 }))
+
+/**
+ * A Workspace below the newest format (CTX-934, CTX-935): Sources says that
+ * the sources move with the format upgrade, links to it, and offers no Add,
+ * also with connected tools. It does not say "No sources yet".
+ */
+export const BeforeFormatUpgrade: Story = {
   parameters: {
     msw: {
       handlers: {
-        upgrades: [
-          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 1 })),
-        ],
+        upgrades: [beforeUpgrade()],
         page: [
           workspaceSourcesHandler(workspaceSourceList()),
           connected,
-          githubInstallationReposHandler(),
+          workspaceUpgradeStartHandler({ requests: upgradeStartRequests }),
+        ],
+      },
+    },
+  },
+  beforeEach: () => {
+    upgradeStartRequests.length = 0
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Sources move with the format upgrade")
+    await expect(
+      canvas.getByText(/The format upgrade moves them/),
+    ).toBeVisible()
+    await expect(
+      canvas.getByRole("link", { name: "Open Upgrades" }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    await expect(canvas.queryByText(/No sources yet/)).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()
+    await expect(canvas.queryByRole("link", { name: /Add/ })).toBeNull()
+    await userEvent.click(
+      canvas.getByRole("button", { name: "Start the upgrade" }),
+    )
+    await waitFor(() =>
+      expect(upgradeStartRequests).toEqual([
+        "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
+      ]),
+    )
+  },
+}
+
+/** A member sees "Ask an admin" in place of Start. */
+export const BeforeFormatUpgradeMember: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        role: [activeMemberRoleHandler("member")],
+        upgrades: [beforeUpgrade()],
+        page: [workspaceSourcesHandler(workspaceSourceList()), connected],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Sources move with the format upgrade")
+    await waitFor(() => expect(canvas.getByText("Ask an admin")).toBeVisible())
+    await expect(
+      canvas.queryByRole("button", { name: "Start the upgrade" }),
+    ).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()
+  },
+}
+
+/** Linked repositories still list, but with no Add, no Unlink and no Edit. */
+export const BeforeFormatUpgradeWithSources: Story = {
+  parameters: {
+    msw: {
+      handlers: {
+        upgrades: [beforeUpgrade([upgradeItemFixture({ status: "pr_open" })])],
+        page: [
+          workspaceSourcesHandler(
+            workspaceSourceList({ items: [linearSource] }),
+          ),
+          connected,
         ],
       },
     },
   },
   play: async ({ canvasElement }) => {
-    const dialog = await openAddRepositories(canvasElement)
-    await dialog.findByText(
-      "Upgrade this Workspace before you add repositories",
-    )
-    await dialog.findByRole("button", { name: "Review upgrades" })
-    await waitFor(() =>
-      expect(
-        dialog.queryByRole("button", { name: "Open a pull request" }),
-      ).not.toBeInTheDocument(),
-    )
+    const canvas = within(canvasElement)
+    await canvas.findByText("Sources move with the format upgrade")
+    await expect(canvas.getByText(/Merge it on GitHub/)).toBeVisible()
+    await canvas.findByText("1 team")
+    await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Edit/ })).toBeNull()
+    await expect(canvas.queryByRole("button", { name: /Remove/ })).toBeNull()
+    await expect(
+      canvas.queryByRole("link", { name: "Add another connection" }),
+    ).toBeNull()
   },
 }
 
