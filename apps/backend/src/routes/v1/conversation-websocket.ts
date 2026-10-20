@@ -16,6 +16,7 @@ import {
   streamTanstackWorkspaceChat,
 } from "../../domain/workspaces/tanstack-workspace-chat.js"
 import { workspaceChatRunError } from "../../domain/workspaces/workspace-chat-agui.js"
+import { workspaceChatPersistence } from "../../domain/workspaces/workspace-chat-persistence.js"
 import {
   persistWorkspaceChatUserTurnListed,
   resolveWorkspaceChatSendRuntime,
@@ -184,6 +185,7 @@ export const conversationWebSocketHandlers = {
           forwardedProps: ctx.forwardedProps,
           signal: ctx.signal,
         }),
+      { endLostRun: (runId) => endLostRun(ws.data, runId) },
     )
   },
 
@@ -195,6 +197,31 @@ export const conversationWebSocketHandlers = {
   close(ws: ChatSocket) {
     ws.data.socket.dispatchClose()
   },
+}
+
+/**
+ * A run that is marked as running, but that no turn runs, stopped with its
+ * process (a deploy or a crash). Mark it as aborted, so that the chat shows
+ * a stopped turn and a push or a pull request is not blocked.
+ */
+async function endLostRun(data: ConversationWebSocketData, runId: string) {
+  await withOrgIdContext({ id: data.orgId, slug: data.orgSlug }, () =>
+    withUserIdContext(data.userId, async () => {
+      const runs = workspaceChatPersistence({
+        threadId: data.conversationId,
+      }).stores.runs
+      const run = await runs.get(runId)
+      if (run?.threadId !== data.conversationId || run.status !== "running")
+        return
+      await runs.update(runId, { status: "aborted", finishedAt: Date.now() })
+      log.warn({
+        step: "workspace-chat-lost-run",
+        message: "Marked a run with no live turn as aborted",
+        conversationId: data.conversationId,
+        runId,
+      })
+    }),
+  )
 }
 
 async function* streamWorkspaceChatSocketTurn(input: {

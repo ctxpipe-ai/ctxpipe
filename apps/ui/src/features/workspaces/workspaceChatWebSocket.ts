@@ -14,6 +14,12 @@ export function workspaceChatSocketPath(
 type EagerSocket = {
   warm: () => void
   dispose: () => void
+  /**
+   * Stop a run on the server. The run continues when its socket closes, so
+   * the Stop control must send the abort frame, also for a run that the chat
+   * attached to again.
+   */
+  stopRun: (runId: string) => void
 }
 
 type ChatHydrationResult = Awaited<
@@ -32,6 +38,10 @@ function emptyChatHydration(): ChatHydrationResult {
 export function workspaceChatWebSocket(
   orgSlug: string,
   conversationId: string,
+  options?: {
+    /** Called when the transcript load from the server ends. */
+    onHydrated?: () => void
+  },
 ): SubscribeConnectionAdapter &
   EagerSocket & {
     hydrate: NonNullable<SubscribeConnectionAdapter["hydrate"]>
@@ -91,10 +101,14 @@ export function workspaceChatWebSocket(
         { param: { orgSlug, conversationId }, query: {} },
         { headers: { Accept: "application/json" } },
       )
-      if (res.status === 404) return emptyChatHydration()
+      if (res.status === 404) {
+        options?.onHydrated?.()
+        return emptyChatHydration()
+      }
       const data = await readApiJson(res, {
         message: "Failed to load conversation",
       })
+      options?.onHydrated?.()
       return {
         messages: reviveChatMessages(
           (Array.isArray(data.messages) ? data.messages : []) as Array<{
@@ -113,6 +127,24 @@ export function workspaceChatWebSocket(
       if (typeof WebSocket === "undefined") return
       if (warmed && warmed.readyState <= 1) return
       warmed = track(new WebSocket(absoluteWebSocketUrl(path)))
+    },
+    stopRun(runId) {
+      if (typeof WebSocket === "undefined") return
+      const frame = JSON.stringify({ type: "abort", runId })
+      const open = [...sockets].find((socket) => socket.readyState === 1)
+      if (open) {
+        open.send(frame)
+        return
+      }
+      const socket = track(new WebSocket(absoluteWebSocketUrl(path)))
+      socket.addEventListener(
+        "open",
+        () => {
+          socket.send(frame)
+          socket.close()
+        },
+        { once: true },
+      )
     },
     dispose() {
       for (const socket of sockets) {
