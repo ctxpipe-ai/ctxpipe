@@ -54,11 +54,13 @@ load_project() {
 
 # railway_environment_id <project-id> <environment-name>
 # Print the id of the named environment, or nothing when it does not exist.
-# Fail when Railway does not return the environment list after 3 attempts, so
-# a caller never reads an API error as "the environment does not exist".
+# Fail when Railway does not return the environment list after 5 attempts, so
+# a caller never reads an API error as "the environment does not exist". The
+# waits add up to 150 seconds: a Railway rate limit (HTTP 429) asks for up to
+# about 70 seconds, and many PR Deploy runs share one account token.
 railway_environment_id() {
   local project="$1" name="$2" attempt body
-  for attempt in 1 2 3; do
+  for attempt in 1 2 3 4 5; do
     if body="$(railway_graphql \
         'query Environments($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }' \
         "$(jq -nc --arg id "$project" '{id:$id}')")" \
@@ -66,8 +68,9 @@ railway_environment_id() {
       printf '%s' "$body" | jq -r --arg n "$name" '[.data.project.environments.edges[].node | select(.name == $n) | .id][0] // empty'
       return 0
     fi
-    echo "railway_environment_id: the environment list query failed (attempt $attempt of 3)" >&2
-    [[ "$attempt" -eq 3 ]] || sleep $((attempt * 5))
+    echo "railway_environment_id: the environment list query failed (attempt $attempt of 5)" >&2
+    [[ "$attempt" -eq 5 ]] || sleep $((attempt * 15))
   done
+  echo "::error::Railway did not list the environments after 5 attempts. Cause: a Railway rate limit or outage, not a removed environment. Fix: re-run the failed jobs of this run in a few minutes." >&2
   return 1
 }

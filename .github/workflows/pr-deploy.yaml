@@ -715,7 +715,7 @@ jobs:
           source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
           FOUND="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
           if [[ -z "$FOUND" || "$FOUND" != "$ENV_ID" ]]; then
-            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone. The PR-close cleanup removed it; the deploy does not create it again."
+            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone, but PR #${PR_NUMBER} is open. A cleanup of an earlier close removed it, or someone deleted it by hand. Fix: start PR Deploy again for this PR (push a commit, or Actions > PR Deploy > Run workflow). The prepare job then creates the environment again. Re-running only the failed jobs does not: it reuses the old id."
             exit 1
           fi
 
