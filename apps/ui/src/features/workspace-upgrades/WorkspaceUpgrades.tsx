@@ -289,6 +289,11 @@ function UpgradeFailureAlert(props: {
         Details: {failure.summary}
       </p>
       <p className="mt-1">{copy.action}</p>
+      {item.autoRetried ? (
+        <p className="mt-1">
+          ctx| already started this upgrade again once by itself.
+        </p>
+      ) : null}
     </InlineAlert>
   )
 }

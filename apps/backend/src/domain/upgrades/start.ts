@@ -46,7 +46,12 @@ export async function startWorkspaceUpgrade(input: {
     key: input.key,
     from: [UPGRADE_STATUSES.awaiting_operator, UPGRADE_STATUSES.failed],
     to: UPGRADE_STATUSES.queued,
-    upgrade: { approvedBy: input.userId, approvedAt, note: undefined },
+    upgrade: {
+      approvedBy: input.userId,
+      approvedAt,
+      note: undefined,
+      autoRetry: undefined,
+    },
     workflowRunId: null,
     failureReason: null,
   })

@@ -41,6 +41,7 @@ export function upgradeItemFixture(
     waitingForSlot: null,
     failureReason: null,
     failure: null,
+    autoRetried: false,
     approvedBy: null,
     approvedAt: null,
     updatedAt: "2026-10-16T10:00:00.000Z",
