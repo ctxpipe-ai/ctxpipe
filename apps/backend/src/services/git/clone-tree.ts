@@ -362,6 +362,11 @@ async function withFetchedGitSha<T>(
   }
 }
 
+/**
+ * The entries of the fetched tree. After a tree-only fetch (`prefix`), a blob
+ * is not on disk, and `ls-tree -l` would need it for its size: the entries
+ * then have no size.
+ */
 async function listTreeEntries(
   dir: string,
   prefix?: string,
@@ -372,8 +377,11 @@ async function listTreeEntries(
     [
       "-C",
       dir,
+      // No lazy fetch: the temporary copy has no credential, so the fetches
+      // with one are the only network reads.
+      "--no-lazy-fetch",
       "ls-tree",
-      "-rlz",
+      prefix ? "-rz" : "-rlz",
       "--full-tree",
       "FETCH_HEAD",
       ...(prefix ? ["--", prefix] : []),
@@ -385,20 +393,17 @@ async function listTreeEntries(
     .split("\0")
     .filter(Boolean)
     .map((record) => {
-      const entry = /^\d+ (\w+) ([0-9a-f]+) +(\d+|-)\t([\s\S]+)$/.exec(record)
-      if (
-        !entry?.[1] ||
-        !entry[2] ||
-        !entry[3] ||
-        !entry[4] ||
-        !isSafeGitPath(entry[4])
+      const entry = /^\d+ (\w+) ([0-9a-f]+)(?: +(\d+|-))?\t([\s\S]+)$/.exec(
+        record,
       )
+      if (!entry?.[1] || !entry[2] || !entry[4] || !isSafeGitPath(entry[4]))
         throw new Error("Invalid path in immutable Git tree")
       return {
         kind: entry[1],
         sha: entry[2],
         path: entry[4],
-        size: entry[3] === "-" ? null : Number(entry[3]),
+        size:
+          entry[3] === undefined || entry[3] === "-" ? null : Number(entry[3]),
       }
     })
 }
@@ -409,10 +414,13 @@ async function gitShowBytes(dir: string, path: string): Promise<GitShaFile> {
     (candidate) => candidate.kind === "blob" && candidate.path === path,
   )
   if (!entry) return { kind: "missing" }
-  const { stdout } = await gitExec(["-C", dir, "cat-file", "blob", entry.sha], {
-    timeout: 15_000,
-    maxBuffer: 10 * 1024 * 1024,
-  })
+  const { stdout } = await gitExec(
+    ["-C", dir, "--no-lazy-fetch", "cat-file", "blob", entry.sha],
+    {
+      timeout: 15_000,
+      maxBuffer: 10 * 1024 * 1024,
+    },
+  )
   return { kind: "bytes", bytes: stdout }
 }
 
@@ -435,6 +443,7 @@ export async function listGitPathsAtSha(input: {
       [
         "-C",
         dir,
+        "--no-lazy-fetch",
         "ls-tree",
         "-r",
         "-z",
@@ -541,7 +550,7 @@ export async function listMarkdownFilesAtGitSha(input: {
       await fetchBlobs(entries.map((entry) => entry.sha))
       // The caller keeps all blob contents in memory.
       const stdout = await gitOutput(
-        ["-C", dir, "cat-file", "--batch"],
+        ["-C", dir, "--no-lazy-fetch", "cat-file", "--batch"],
         60_000,
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
@@ -556,6 +565,7 @@ export async function listMarkdownFilesAtGitSha(input: {
           [
             "-C",
             dir,
+            "--no-lazy-fetch",
             "log",
             "--topo-order",
             "--format=%x00%ct",

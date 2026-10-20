@@ -32,11 +32,18 @@ export function checkingFormatExpired(
   return now - since >= CHECKING_FORMAT_MS
 }
 
-/** The same answer as {@link checkingFormatExpired}, and a re-render when the minute ends. */
+/**
+ * The same answer as {@link checkingFormatExpired}, and a re-render when the
+ * minute ends. The clock stops when the state has expired, so the card does
+ * not render each second for ever.
+ */
 export function useCheckingFormatExpired(
   scope: string,
   checking: boolean,
 ): boolean {
-  const now = useNow(checking)
-  return checkingFormatExpired(scope, checking, now)
+  const expired = checkingFormatExpired(scope, checking)
+  // The tick re-renders the card. The render after the minute sees `expired`
+  // and turns the clock off.
+  useNow(checking && !expired)
+  return expired
 }
