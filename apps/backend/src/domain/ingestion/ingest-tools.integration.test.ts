@@ -470,6 +470,22 @@ describe("ingest tool bridge through registerV1Routes (Postgres, msw codesearch)
     expect(seen).toHaveLength(0)
   })
 
+  it("answers 405, not 401, to the GET stream that an MCP client opens", async () => {
+    // A 401 makes the OpenCode MCP client start OAuth discovery (CTX-918).
+    const org = await createOrg()
+    const { token } = await step(org)
+    for (const authorization of [`Bearer ${token}`, undefined]) {
+      const response = await app().request(BRIDGE, {
+        method: "GET",
+        headers: {
+          accept: "text/event-stream",
+          ...(authorization ? { authorization } : {}),
+        },
+      })
+      expect(response.status).toBe(405)
+    }
+  })
+
   it("answers 401 after the step lets the shard lock go, and after the run is cancelled", async () => {
     const org = await createOrg()
     const released = await step(org)
