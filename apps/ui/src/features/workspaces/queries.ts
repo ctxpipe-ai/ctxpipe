@@ -582,9 +582,9 @@ async function fetchConversationGitStatus(
     param: { orgSlug, conversationId },
   })
   if (res.status === 409) return readConversationFilesBlocked(res)
-  return (await readApiJson(res, {
+  return readApiJson(res, {
     message: "Failed to load conversation git status",
-  })) as ConversationGitStatusResponse
+  })
 }
 
 async function fetchConversationGitDiff(
@@ -616,9 +616,9 @@ async function putConversationFile(
     param: { orgSlug, conversationId },
     json: input,
   })
-  return (await readApiJson(res, {
+  return readApiJson(res, {
     message: "Failed to save conversation file",
-  })) as ConversationFileWriteResponse
+  })
 }
 
 export function conversationWorktreeVersionFromCache(

@@ -36,8 +36,6 @@ export type OrgAtlassianOauthGet = Awaited<
   ReturnType<typeof fetchOrgAtlassianOauth>
 >
 
-type OrgCapabilities = { confluenceForgeInstallUrl: string | null }
-
 export async function fetchOrgCapabilities(
   orgSlug: string,
   connectionId: string,
@@ -46,9 +44,9 @@ export async function fetchOrgCapabilities(
     param: { orgSlug },
     query: { connectionId },
   })
-  return (await readApiJson(res, {
+  return readApiJson(res, {
     message: "Failed to load org capabilities",
-  })) as OrgCapabilities
+  })
 }
 
 export async function fetchOrgAtlassianOauth(
@@ -101,12 +99,9 @@ export async function deleteAtlassianConnector(
   await readApiJson(res, { message: "Failed to remove connector" })
 }
 
-export type ForgeProvisionStatusPayload = {
-  connectionId: string
-  provisionStatus: "idle" | "running" | "succeeded" | "failed"
-  provisionErrorCode: string | null
-  userMessage: string | null
-}
+export type ForgeProvisionStatusPayload = Awaited<
+  ReturnType<typeof fetchForgeProvisionStatus>
+>
 
 export async function fetchForgeProvisionStatus(
   orgSlug: string,
@@ -118,9 +113,9 @@ export async function fetchForgeProvisionStatus(
     param: { orgSlug },
     query: { connectionId },
   })
-  return (await readApiJson(res, {
+  return readApiJson(res, {
     message: "Failed to load Forge provision status",
-  })) as ForgeProvisionStatusPayload
+  })
 }
 
 type ForgeProvisionRequestBody = {
@@ -141,9 +136,9 @@ export async function postForgeProvision(
     param: { orgSlug },
     json: body,
   })
-  return (await readApiJson(res, {
+  return readApiJson(res, {
     message: "Failed to start Forge provisioning",
-  })) as { accepted: true; workflowName?: string }
+  })
 }
 
 export async function registerAtlassianInstallIntent(
