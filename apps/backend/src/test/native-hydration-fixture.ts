@@ -96,6 +96,8 @@ export type NativeHydrationOptions = {
   githubListCommits?:
     | "fail"
     | "missing"
+    /** GitHub answers 409 for a repository with no commits. */
+    | "empty"
     | Array<{
         sha: string
         message: string
@@ -452,6 +454,12 @@ async function createNativeHydrationFixture(
         options.onGithubListCommits?.()
         if (options.githubListCommits === "missing") {
           return HttpResponse.json({ message: "Not Found" }, { status: 404 })
+        }
+        if (options.githubListCommits === "empty") {
+          return HttpResponse.json(
+            { message: "Git Repository is empty." },
+            { status: 409 },
+          )
         }
         if (options.githubListCommits === "fail") {
           return HttpResponse.json(

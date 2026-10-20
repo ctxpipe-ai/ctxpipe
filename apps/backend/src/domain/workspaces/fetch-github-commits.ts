@@ -78,6 +78,8 @@ export async function fetchGithubWorkspaceCommits(input: {
     }
     return { ok: true, commits: collected }
   } catch (error) {
+    // GitHub answers 409 for a repository with no commits: empty activity.
+    if (httpStatus(error) === 409) return { ok: true, commits: [] }
     return {
       ok: false,
       reason: unreachableStatus(error) ? "unreachable" : "error",
@@ -92,9 +94,12 @@ export async function fetchGithubWorkspaceCommits(input: {
  * repository.
  */
 function unreachableStatus(error: unknown): boolean {
-  const status =
-    error && typeof error === "object" && "status" in error
-      ? (error as { status?: unknown }).status
-      : undefined
+  const status = httpStatus(error)
   return status === 404 || status === 422
+}
+
+function httpStatus(error: unknown): unknown {
+  return error && typeof error === "object" && "status" in error
+    ? (error as { status?: unknown }).status
+    : undefined
 }
