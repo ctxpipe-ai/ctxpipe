@@ -12,6 +12,10 @@ import { isDeepStrictEqual } from "node:util"
 import { fromMarkdown } from "mdast-util-from-markdown"
 import { parseDocument, stringify, type YAMLSeq } from "yaml"
 import { z } from "zod"
+import {
+  DENIED_HEADINGS,
+  INJECTION_PHRASES,
+} from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
 import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
@@ -1350,14 +1354,6 @@ function contentProblem(text: string): CheckFailure | null {
   return null
 }
 
-const DENIED_HEADINGS = [
-  /\bsystem\s+prompts?\b/i,
-  /\b(?:ai|llm|coding|autonomous)\s+(?:agents?|assistants?|models?)\b/i,
-  /\b(?:for|to|attention)\s+(?:the\s+|all\s+)?(?:ai|llms?|agents?|assistants?|models?|claude|gpt|chatgpt|copilot|cursor)\b/i,
-  /\b(?:claude|chatgpt|gpt-?\d*|copilot|gemini)\b/i,
-  /^(?:ai|llms?|agents?|assistants?|prompts?)$/i,
-]
-
 function deniedHeading(body: string): CheckFailure | null {
   for (const heading of markdownHeadings(body)) {
     if (DENIED_HEADINGS.some((pattern) => pattern.test(heading)))
@@ -1383,18 +1379,6 @@ function markdownHeadings(body: string): string[] {
   visit(fromMarkdown(body) as MarkdownNode)
   return headings
 }
-
-const INJECTION_PHRASES = [
-  /\b(?:ignore|disregard|forget|override|bypass)\b[^.\n]{0,40}\b(?:previous|prior|above|earlier|preceding|all|any|your|the)\b[^.\n]{0,20}\b(?:instructions?|prompts?|rules|directives|guidelines)\b/i,
-  /\byou are (?:now|no longer)\b/i,
-  /\b(?:new|updated|real|actual) (?:system )?instructions?\s*:/i,
-  /\bsystem prompt\b/i,
-  /\b(?:reveal|print|show|output|leak|exfiltrate|send|upload)\b[^.\n]{0,40}\b(?:system prompt|api[_ -]?keys?|credentials?|secrets?|access tokens?|passwords?)\b/i,
-  /\b(?:do not|don't|never) (?:tell|inform|alert) (?:the )?(?:user|human|operator)\b/i,
-  /\bas an ai\b/i,
-  /\b(?:ai|llm|coding) (?:agents?|assistants?|models?)\b[,:]?\s*(?:must|should|need to|are required to|please)\b/i,
-  /<\|?(?:im_start|im_end|endoftext)\|?>|\[\/?INST\]|<<\/?SYS>>/i,
-]
 
 /**
  * Scans text outside fenced code, block quotes, and inline code (concept
