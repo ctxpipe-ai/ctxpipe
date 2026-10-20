@@ -79,7 +79,7 @@ Start most agents fresh, with a short brief that holds only the relevant context
 
 ### Issue tracker
 
-Linear, team CTX, project Product development, through the `linear-server` MCP tools. Tickets are issues (an epic with sub-issues for a large effort); plans and specs are Linear documents linked from the epic. Write each issue id as a link. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
+Linear, team CTX, project ctxpipe, through the `linear-server` MCP tools. Tickets are issues (an epic with sub-issues for a large effort); plans and specs are Linear documents linked from the epic. Write each issue id as a link. See [`.ai/agents/issue-tracker.md`](.ai/agents/issue-tracker.md).
 
 ### Triage labels
 
