@@ -12,6 +12,9 @@
 // - The quote stops at a block boundary under MAX_QUOTE characters, and
 //   before a heading that the validator refuses. A first paragraph that is
 //   longer stops at a sentence.
+// - The quote stops before a block that puts an instruction phrase in a
+//   quoted run that is not text of the README, because the validator
+//   refuses that run.
 
 import {
   DENIED_HEADINGS,
@@ -205,17 +208,16 @@ function cleanBlocks(blocks) {
 }
 
 /**
- * Markdown of the quote: prose and headings in block quotes, code as it is.
- * A `Source:` line follows each block quote and each fenced block, so that
- * the validator finds the source of each quoted text (ADR-052 section 5).
+ * The runs of the quote: each block quote of prose and headings, and each
+ * fenced block as it is.
  */
-function render(blocks, readmePath) {
-  const parts = []
+function quoteRuns(blocks) {
+  const runs = []
   let quote = null
   for (const block of blocks) {
     if (block.type === "code") {
       quote = null
-      parts.push(block.lines)
+      runs.push({ code: true, lines: block.lines })
       continue
     }
     const lines =
@@ -223,15 +225,53 @@ function render(blocks, readmePath) {
         ? [`${"#".repeat(block.level)} ${block.text}`]
         : block.lines
     const quoted = lines.map((line) => `> ${line}`.trimEnd())
-    if (quote) quote.push(">", ...quoted)
+    if (quote) quote.lines.push(">", ...quoted)
     else {
-      quote = quoted
-      parts.push(quote)
+      quote = { code: false, lines: quoted }
+      runs.push(quote)
     }
   }
-  return parts
-    .map((part) => `${part.join("\n")}\n\nSource: \`${readmePath}\``)
+  return runs
+}
+
+/**
+ * Markdown of the quote: prose and headings in block quotes, code as it is.
+ * A `Source:` line follows each block quote and each fenced block, so that
+ * the validator finds the source of each quoted text (ADR-052 section 5).
+ */
+function render(blocks, readmePath) {
+  return quoteRuns(blocks)
+    .map((run) => `${run.lines.join("\n")}\n\nSource: \`${readmePath}\``)
     .join("\n\n")
+}
+
+/** Text as the validator compares a quote with its source: no block-quote marks, whitespace normalized. */
+const quotable = (lines) =>
+  lines
+    .map((line) => line.replace(/^[ \t]*(?:>[ \t]?)*/, ""))
+    .join(" ")
+    .replace(/\s+/g, " ")
+    .trim()
+
+/**
+ * False when the validator refuses the quote: a run that is not text of the
+ * README (the script removed a link target or changed a heading) has an
+ * instruction phrase in it or across its edge. A phrase is shorter than 200
+ * characters, so the test reads 200 characters on each side of the run.
+ */
+function trueToSource(blocks, source) {
+  const texts = quoteRuns(blocks).map((run) =>
+    quotable(run.code ? run.lines.slice(1, -1) : run.lines),
+  )
+  const all = texts.join(" ")
+  let at = 0
+  return texts.every((text) => {
+    const start = at
+    at += text.length + 1
+    if (source.includes(text)) return true
+    const near = all.slice(Math.max(0, start - 200), start + text.length + 200)
+    return !INJECTION_PHRASES.some((pattern) => pattern.test(near))
+  })
 }
 
 /** A heading that the validator refuses, also with its emphasis marks removed. */
@@ -288,9 +328,11 @@ export function readmeOverview(raw, readmePath) {
   if (front) text = text.slice(front[0].length)
   const blocks = cleanBlocks(readBlocks(text))
   if (blocks[0]?.type === "heading" && blocks[0].level === 1) blocks.shift()
+  const source = quotable(raw.split("\n"))
   const kept = []
   const fits = (block) =>
-    render([...kept, block], readmePath).length <= MAX_QUOTE
+    render([...kept, block], readmePath).length <= MAX_QUOTE &&
+    trueToSource([...kept, block], source)
   for (const block of blocks) {
     if (block.type === "heading" && deniedHeading(block.text)) break
     if (fits(block)) {

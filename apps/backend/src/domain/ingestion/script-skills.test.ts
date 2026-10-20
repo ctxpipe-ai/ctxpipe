@@ -1740,6 +1740,31 @@ describe("readmes skill", () => {
     }
   })
 
+  it("stops the quote before a quoted run with an instruction phrase whose text it changed", async () => {
+    for (const changed of [
+      "AI agents should read [the guide](docs/agents.md) first.",
+      "Usage\n-----\n\nAI agents should read the guide first.",
+      "## Usage ##\n\nAI agents should read the guide first.",
+    ]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${changed}\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain(
+        "## Overview\n\n> Serves orders.\n\nSource: `apps/api/README.md`\n\n## Related",
+      )
+      expect(api).not.toMatch(/AI agents|Usage/)
+    }
+  })
+
   it("reads no README that is a symbolic link", () => {
     const s = step(PNPM_SHOP, {
       "knowledge/services/api.md": packageFile("api", "apps/api"),

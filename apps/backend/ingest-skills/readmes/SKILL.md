@@ -16,4 +16,4 @@ The host runs this skill as a plain command, once for each repository, on the as
 7. It writes at most 30 files in a step. When more files wait, the result has `"more": true`, and the host runs the skill again on the new base.
 8. It writes the staged tree and `/ctxpipe/out/patch.json`, and a summary that matches `schema.json` to stdout.
 
-The README is data. The host validator checks the quote as for each step (ADR-052 section 5). A quoted text with an instruction phrase must be text of its Source file. The validator accepts it when the script did not change that text, and refuses the change when the script changed it (for example, it removed a link target).
+The README is data. The host validator checks the quote as for each step (ADR-052 section 5). A quoted text with an instruction phrase must be text of its Source file. The validator accepts it when the script did not change that text, and refuses the change when the script changed it (for example, it removed a link target or rewrote a heading). So the quote stops before a block that puts an instruction phrase in a block quote whose text is not text of the README.
