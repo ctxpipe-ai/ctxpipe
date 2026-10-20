@@ -9,6 +9,7 @@ import {
 } from "../../domain/workspaces/checkout-read.js"
 import { fileTreeFromPaths } from "../../domain/workspaces/file-tree.js"
 import {
+  EXPLORER_GIT_STATUSES,
   explorerBlobFromGitFile,
   explorerBlobPath,
 } from "../../domain/workspaces/git-explorer.js"
@@ -181,14 +182,7 @@ const getWorkspaceGitBlobRoute = createRoute({
   },
 })
 
-const ExplorerGitStatusSchema = z.enum([
-  "added",
-  "deleted",
-  "ignored",
-  "modified",
-  "renamed",
-  "untracked",
-])
+const ExplorerGitStatusSchema = z.enum(EXPLORER_GIT_STATUSES)
 
 const WorkspaceGitStatusItemSchema = z
   .object({
