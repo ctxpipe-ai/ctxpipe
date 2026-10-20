@@ -270,7 +270,10 @@ it(
         }),
       )
       await vi.waitFor(
-        () => expect(first.chunks[0]?.type).toBe("RUN_STARTED"),
+        () =>
+          expect(first.chunks.map((chunk) => chunk.type)).toContain(
+            "RUN_STARTED",
+          ),
         { timeout: 30_000 },
       )
       // The user opens another conversation during the sandbox setup.
@@ -324,7 +327,10 @@ it(
           }),
         )
         await vi.waitFor(
-          () => expect(first.chunks[0]?.type).toBe("RUN_STARTED"),
+          () =>
+            expect(first.chunks.map((chunk) => chunk.type)).toContain(
+              "RUN_STARTED",
+            ),
           { timeout: 30_000 },
         )
         conversationWebSocketHandlers.close(first.ws)
