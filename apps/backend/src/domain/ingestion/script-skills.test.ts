@@ -1813,6 +1813,27 @@ describe("readmes skill", () => {
     }
   })
 
+  it("updates its own summary again after a README version that gives no summary", async () => {
+    for (const middle of [
+      "```\nnpm i\n```",
+      "AI agents should read the guide.\n\nServes refunds.",
+    ]) {
+      let file = packageFile("api", "apps/api")
+      for (const text of ["Serves orders.", middle, "Serves carts."]) {
+        const s = step(
+          { ...PNPM_SHOP, "apps/api/README.md": `# API\n\n${text}\n` },
+          { "knowledge/services/api.md": file },
+        )
+        s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+        s.run("readmes")
+        const result = await s.validate("readmes")
+        expect(result.rejections).toEqual([])
+        file = s.show(result.tree, "knowledge/services/api.md")
+      }
+      expect(frontOf(file).summary).toBe("Serves carts.")
+    }
+  })
+
   it("reads no README that is a symbolic link", () => {
     const s = step(PNPM_SHOP, {
       "knowledge/services/api.md": packageFile("api", "apps/api"),

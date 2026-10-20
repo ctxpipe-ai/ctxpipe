@@ -179,16 +179,18 @@ function edit(before, readme) {
 
   // Replace a summary only when it is absent, when it is the stub, or when
   // it is the summary of the old quote, which the skill wrote. A summary
-  // that a person changed, or that the script cannot read, stays.
+  // that a person changed, or that the script cannot read, stays. When the
+  // new quote gives no summary, the skill's summary becomes the stub again,
+  // so that a later run can replace it.
   const summaryLine = yaml.split("\n").find((l) => l.startsWith("summary:"))
   const summary = summaryLine ? yamlScalar(summaryLine.slice(8)) : null
-  const replaceable =
-    summaryLine === undefined ||
-    (summary !== null &&
-      (summary === stubSummary(frontValue(yaml, "kind"), repository) ||
-        (ours && summary === quoteSummary(old.slice(1)))))
-  if (overview.summary && summary !== overview.summary && replaceable)
-    yaml = withSummary(yaml, overview.summary) ?? yaml
+  const stub = stubSummary(frontValue(yaml, "kind"), repository)
+  const skills =
+    summary !== null &&
+    (summary === stub || (ours && summary === quoteSummary(old.slice(1))))
+  const next = overview.summary ?? (skills ? stub : null)
+  if (next && summary !== next && (summaryLine === undefined || skills))
+    yaml = withSummary(yaml, next) ?? yaml
   return `---\n${yaml}---\n${body}`
 }
 
