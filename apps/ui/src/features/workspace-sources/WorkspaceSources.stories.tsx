@@ -1773,8 +1773,9 @@ export const BeforeFormatUpgrade: Story = {
     await expect(canvas.queryByText(/No sources yet/)).toBeNull()
     await expect(canvas.queryByRole("button", { name: /Add/ })).toBeNull()
     await expect(canvas.queryByRole("link", { name: /Add/ })).toBeNull()
+    // The role answers after the notice shows, so wait for the button.
     await userEvent.click(
-      canvas.getByRole("button", { name: "Start the upgrade" }),
+      await canvas.findByRole("button", { name: "Start the upgrade" }),
     )
     await waitFor(() =>
       expect(upgradeStartRequests).toEqual([
