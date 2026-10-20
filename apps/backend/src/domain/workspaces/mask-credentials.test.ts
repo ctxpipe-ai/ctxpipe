@@ -1,5 +1,7 @@
+import type { StreamChunk } from "@tanstack/ai"
 import { describe, expect, it } from "vitest"
 import {
+  createChunkMasker,
   createDeltaMasker,
   maskCredentials,
   maskCredentialsDeep,
@@ -164,5 +166,39 @@ describe("maskCredentialsDeep", () => {
       done: true,
     })
     expect(masked.createdAt).toBe(createdAt)
+  })
+})
+
+describe("createChunkMasker", () => {
+  it("sends the held text when the stream ends with no end chunk (CTX-892)", () => {
+    // A cancelled run ends with no TEXT_MESSAGE_END and no RUN_FINISHED.
+    const token = `ghp_${fill(36)}`
+    const masker = createChunkMasker()
+    const reply = `The token is ${token}.`
+    const deltas = reply.match(/.{1,3}/g) ?? []
+    const out = [
+      ...masker.push({
+        type: "TEXT_MESSAGE_START",
+        messageId: "m1",
+        role: "assistant",
+        timestamp: 0,
+      } as StreamChunk),
+      ...deltas.flatMap((delta) =>
+        masker.push({
+          type: "TEXT_MESSAGE_CONTENT",
+          messageId: "m1",
+          delta,
+          timestamp: 0,
+        } as StreamChunk),
+      ),
+      ...masker.end(),
+    ]
+    const text = out
+      .flatMap((chunk) =>
+        chunk.type === "TEXT_MESSAGE_CONTENT" ? [chunk.delta] : [],
+      )
+      .join("")
+    expect(text).toBe("The token is [masked].")
+    expect(masker.end()).toEqual([])
   })
 })

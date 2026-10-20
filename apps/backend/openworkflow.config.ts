@@ -5,6 +5,7 @@ import { createLogger, flushEvlog, log } from "./src/observability/logger.js"
 import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
+import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
 import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
@@ -38,6 +39,27 @@ void scheduleUpgradeScansForAllOrgs().catch((error: unknown) =>
     message: `Scheduling the upgrade scans failed: ${String(error)}`,
   }),
 )
+// A worker that stops between the end of a child run and the wake of its
+// parent leaves the parent asleep. Wake such parents at start and every
+// 5 minutes, because the old worker can stop after this one started.
+const wakeParents = () =>
+  void wakeParkedParents()
+    .then((ids) => {
+      if (ids.length)
+        log.warn({
+          step: "openworkflow.wake-parked-parents",
+          message: `Woke ${ids.length} parent runs whose child run had ended`,
+          runIds: ids.join(","),
+        })
+    })
+    .catch((error: unknown) =>
+      log.error({
+        step: "openworkflow.wake-parked-parents",
+        message: `Waking the parked parent runs failed: ${String(error)}`,
+      }),
+    )
+wakeParents()
+setInterval(wakeParents, 5 * 60_000).unref()
 
 let shuttingDown = false
 async function shutdownWorkerObservability() {

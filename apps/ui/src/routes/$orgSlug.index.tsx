@@ -206,7 +206,7 @@ export function OrgHomePageContent({ orgSlug }: { orgSlug: string }) {
           {body}
           {/* With no Workspace, the activity of the organization shows, empty. */}
           {/* Activity and Recent keep the gap of the other Home blocks. */}
-          <div className="space-y-10 [view-transition-name:home-below]">
+          <div className="space-y-10 pt-2 [view-transition-name:home-below]">
             <WorkspaceActivity
               orgSlug={orgSlug}
               workspaceSlug={
