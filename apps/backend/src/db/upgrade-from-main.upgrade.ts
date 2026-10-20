@@ -56,10 +56,10 @@ const urls = vi.hoisted(() => {
 })
 
 /*
- * The minor upgrade from main, end to end (CTX-748). An operator on main
- * deploys this release and changes nothing else:
+ * The minor upgrade from the previous release, end to end (CTX-748). An
+ * operator on the previous release (the CI job pins it) deploys this release and changes nothing else:
  *
- * 1. main's migrate command makes the schema of main, and SQL seeds an org
+ * 1. The migrate command of the previous release makes its schema, and SQL seeds an org
  *    as main kept it: GitHub, a Linear connector that synced to a context
  *    repository, the knowledge of main's code ingestion, and rows with no
  *    `org_id` that the migration must fill.
@@ -75,7 +75,7 @@ const urls = vi.hoisted(() => {
  *    next migrate brings the webhook directory back in line.
  *
  * Inputs: DATABASE_URL (a role that can CREATE DATABASE and CREATE ROLE),
- * MAIN_TREE (a checkout of origin/main with its dependencies installed).
+ * RELEASE_TREE (a checkout of the previous release with its dependencies installed).
  */
 
 const backendDir = fileURLToPath(new URL("../..", import.meta.url))
@@ -112,9 +112,9 @@ const testStart = Date.now()
 /** A progress line in the CI log, so that a hang names its phase. */
 const phase = (name: string) =>
   process.stderr.write(
-    `[upgrade-from-main] +${Math.round((Date.now() - testStart) / 1000)}s ${name}\n`,
+    `[upgrade-from-release] +${Math.round((Date.now() - testStart) / 1000)}s ${name}\n`,
   )
-let mainTree = ""
+let releaseTree = ""
 
 /**
  * Run a command and give its stdout. It does not block the event loop, so a
@@ -166,7 +166,7 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
 
 /** Run a script with main's code from the main checkout, as main runs: as the owner role. */
 async function runWithMain(body: string): Promise<unknown> {
-  const script = join(mainTree, "apps/backend", `.upgrade-main-${suffix}.mts`)
+  const script = join(releaseTree, "apps/backend", `.upgrade-main-${suffix}.mts`)
   writeFileSync(
     script,
     `const { initDb, closeDb } = await import("./src/db/client.ts")
@@ -180,7 +180,7 @@ process.exit(0)
     const out = await run(
       "pnpm",
       ["exec", "tsx", script],
-      join(mainTree, "apps/backend"),
+      join(releaseTree, "apps/backend"),
       ownerUrl,
     )
     return JSON.parse(out.trim().split("\n").at(-1) ?? "null")
@@ -339,10 +339,10 @@ async function snapshot(db: pg.Client) {
 
 beforeAll(async () => {
   const serverUrl = urls.serverUrl
-  mainTree = process.env.MAIN_TREE ?? ""
-  if (!serverUrl || !mainTree)
+  releaseTree = process.env.RELEASE_TREE ?? ""
+  if (!serverUrl || !releaseTree)
     throw new Error(
-      "DATABASE_URL (a role that can create a database) and MAIN_TREE (a checkout of main with its dependencies) are required",
+      "DATABASE_URL (a role that can create a database) and RELEASE_TREE (a checkout of the previous release with its dependencies) are required",
     )
   admin = new pg.Client({ connectionString: serverUrl })
   await admin.connect()
@@ -359,7 +359,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   await run(
     "pnpm",
     ["exec", "drizzle-kit", "migrate"],
-    join(mainTree, "apps/backend"),
+    join(releaseTree, "apps/backend"),
     ownerUrl,
   )
   await owner(seedMainOrg)

@@ -24,6 +24,7 @@ import {
   conversationGithubPullUrl,
   conversationGithubTreeUrl,
 } from "../../domain/workspaces/conversation-publish.js"
+import { EXPLORER_GIT_STATUSES } from "../../domain/workspaces/git-explorer.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
@@ -107,7 +108,7 @@ const ConversationGitStatusResponseSchema = z
     items: z.array(
       z.object({
         path: z.string(),
-        status: z.string(),
+        status: z.enum(EXPLORER_GIT_STATUSES),
         additions: z.number().int().optional(),
         deletions: z.number().int().optional(),
       }),
