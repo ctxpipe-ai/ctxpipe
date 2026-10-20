@@ -335,9 +335,18 @@ const postForgeProvisionRoute = createRoute({
       },
       description: "Provision workflow accepted",
     },
-    400: { description: "Invalid request body" },
-    401: { description: "Unauthorized" },
-    404: { description: "Unknown connection" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid request body",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
+    },
   },
 })
 
@@ -352,7 +361,18 @@ const getForgeProvisionStatusRoute = createRoute({
       },
       description: "Provision status",
     },
-    404: { description: "Unknown connection" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Missing `connectionId`",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
+    },
   },
 })
 

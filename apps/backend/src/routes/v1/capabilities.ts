@@ -19,6 +19,10 @@ const CapabilitiesQuery = z.object({
   connectionId: z.string().min(1),
 })
 
+const ErrorResponseSchema = z
+  .object({ error: z.string() })
+  .openapi("OrgCapabilitiesErrorResponse")
+
 /** The keys that apply depend on the connection type; the others are absent. */
 const CapabilitiesResponseSchema = z
   .object({
@@ -28,7 +32,7 @@ const CapabilitiesResponseSchema = z
     githubInstallationLinked: z.boolean().optional(),
     needsGithubAppCredentials: z.boolean().optional(),
     linearOauthConfigured: z.boolean().optional(),
-    linearWorkspaceName: z.string().optional(),
+    linearWorkspaceName: z.string().nullable().optional(),
     linearWebhookUrl: z.string().optional(),
     pagerdutyOauthConfigured: z.boolean().optional(),
     oauthAppSaved: z.boolean().optional(),
@@ -48,8 +52,14 @@ const getCap = createRoute({
       description:
         "Connection-scoped UX hints (non-secret): Forge install URL and/or GitHub webhook / install hints.",
     },
-    400: { description: "Missing query parameter" },
-    404: { description: "Unknown `connectionId` for this org" },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Missing query parameter",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown `connectionId` for this org",
+    },
   },
 })
 
