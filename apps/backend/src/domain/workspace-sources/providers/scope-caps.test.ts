@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest"
 import { parseSourceEntry } from "../sources-file.js"
+import { BUILDKITE_SOURCE_MAX_PIPELINES } from "./buildkite.js"
 import {
   CONFLUENCE_SOURCE_MAX_PAGES_PER_SPACE,
   CONFLUENCE_SOURCE_MAX_SPACES,
@@ -32,6 +33,12 @@ const lists = [
     max: PAGERDUTY_SOURCE_MAX_SERVICES,
     scope: (n: number) => ({ services: ids(n, (i) => `PSVC${i}`) }),
     message: `services: Select at most ${PAGERDUTY_SOURCE_MAX_SERVICES} PagerDuty services`,
+  },
+  {
+    provider: "buildkite",
+    max: BUILDKITE_SOURCE_MAX_PIPELINES,
+    scope: (n: number) => ({ pipelines: ids(n, (i) => `pipeline-${i}`) }),
+    message: `pipelines: Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines`,
   },
   {
     provider: "slack",

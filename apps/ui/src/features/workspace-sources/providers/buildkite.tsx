@@ -5,7 +5,11 @@ import { Checkbox } from "@/components/ui/Checkbox"
 import { CheckboxGroup } from "@/components/ui/CheckboxGroup"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { SearchField } from "@/components/ui/SearchField"
-import { Skeleton, SkeletonLine } from "@/components/ui/Skeleton"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { BuildkiteMark } from "@/features/connectors/components/BuildkiteMark"
 import {
   buildkiteConnectorKeys,
@@ -16,6 +20,7 @@ import type {
   SourceProviderUi,
   SourceScopeEditorProps,
 } from "../source-provider-ui"
+import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /**
  * Select the Buildkite pipelines of a source. ctx| syncs each pipeline with
@@ -33,6 +38,7 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
     queryFn: () => fetchBuildkitePipelines(orgSlug, connectionId),
     retry: retryQuery,
   })
+  const loading = useSkeletonHold(pipelinesQuery.isPending)
   const pipelines = pipelinesQuery.data?.items ?? []
   // A selected pipeline stays in the list when the filter hides it, or when
   // Buildkite no longer lists it, so the user can always see and clear it.
@@ -71,13 +77,16 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
         onChange={setFilter}
       />
       <div className="max-h-[min(280px,calc(var(--visual-viewport-height)*0.4))] min-h-0 overflow-auto rounded-md border border-border p-3">
-        {pipelinesQuery.isPending ? (
+        {loading ? (
           <div className="flex flex-col gap-2" aria-busy>
             <span className="sr-only">Loading Buildkite pipelines</span>
             {[0, 1, 2].map((row) => (
               <div key={row} className="flex h-5 items-center gap-2">
-                <Skeleton className="size-4 shrink-0" />
-                <SkeletonLine className="h-3.5 w-48" />
+                <Skeleton className="size-4.5 shrink-0" />
+                <SkeletonText
+                  className="min-w-0 flex-1 text-sm"
+                  boneClassName="h-3.5 w-48"
+                />
               </div>
             ))}
           </div>
@@ -122,6 +131,10 @@ export function BuildkiteScopeEditor(props: SourceScopeEditorProps) {
           Select at least one pipeline.
         </p>
       ) : null}
+      <ScopeLimitAlert
+        schema={buildkiteSourceScopeSchema}
+        scope={{ pipelines: selected }}
+      />
     </section>
   )
 }

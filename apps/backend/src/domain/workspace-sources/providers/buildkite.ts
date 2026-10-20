@@ -2,6 +2,13 @@ import { z } from "zod"
 import type { SourceScopeDefinition } from "./scope.js"
 
 /**
+ * The most pipelines in one Buildkite source. Each pipeline adds two
+ * requests to each sync, and Buildkite limits the REST API requests of one
+ * organization in each minute.
+ */
+export const BUILDKITE_SOURCE_MAX_PIPELINES = 50
+
+/**
  * A Buildkite pipeline slug, for example `web-app`. The slug is also a path
  * segment, so it holds only lower-case letters, digits, `-`, and `_`.
  */
@@ -18,7 +25,10 @@ export const buildkiteSourceScopeSchema = z
     pipelines: z
       .array(buildkitePipelineSlugSchema)
       .min(1, "Select at least one Buildkite pipeline")
-      .max(50, "Select at most 50 Buildkite pipelines")
+      .max(
+        BUILDKITE_SOURCE_MAX_PIPELINES,
+        `Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines`,
+      )
       .refine(
         (slugs) => new Set(slugs).size === slugs.length,
         "List each pipeline one time",

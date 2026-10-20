@@ -1,4 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
+import { BUILDKITE_SOURCE_MAX_PIPELINES } from "backend/domain/workspace-sources/providers/buildkite"
 import { delay, HttpResponse, http } from "msw"
 import { useState } from "react"
 import { expect, userEvent, waitFor, within } from "storybook/test"
@@ -120,6 +121,35 @@ export const RemovedPipelineCanBeCleared: Story = {
     await expect(
       canvas.getByText(JSON.stringify({ pipelines: ["api"] })),
     ).toBeVisible()
+  },
+}
+
+export const OverThePipelineLimit: Story = {
+  args: {
+    // A full selection: one more pipeline goes above the cap.
+    initialScope: {
+      pipelines: Array.from(
+        { length: BUILDKITE_SOURCE_MAX_PIPELINES },
+        (_, i) => `px-${String(i).padStart(3, "0")}`,
+      ),
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement.ownerDocument.body)
+    const limit = `Select at most ${BUILDKITE_SOURCE_MAX_PIPELINES} Buildkite pipelines.`
+    const webApp = await canvas.findByRole("checkbox", { name: "Web App" })
+    await expect(canvas.queryByText(limit)).not.toBeInTheDocument()
+    await userEvent.click(webApp)
+    await waitFor(() => expect(canvas.getByText(limit)).toBeVisible())
+    await expect(canvas.getByText("Not ready")).toBeVisible()
+    // One pipeline less is in the cap again, and the scope is ready.
+    await userEvent.click(canvas.getByRole("checkbox", { name: "Web App" }))
+    await waitFor(() =>
+      expect(canvas.getByText(/^\{"pipelines":\["px-000",/)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.queryByText(limit)).not.toBeInTheDocument(),
+    )
   },
 }
 
