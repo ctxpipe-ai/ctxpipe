@@ -244,6 +244,23 @@ stored encrypted on the connection.
 See [PagerDuty](/docs/self-hosting/pagerduty) for application registration and
 verification.
 
+## Zendesk
+
+A self-hosted deployment usually saves a local Zendesk OAuth client on the
+connection in the setup. These variables are optional. They set one client for
+every Zendesk connection of the deployment.
+
+| Variable | Description |
+|---|---|
+| `ZENDESK_CLIENT_ID`, `ZENDESK_CLIENT_SECRET` | Optional deployment OAuth client. Set both on the backend and the worker. A client saved on a connection takes priority. |
+
+The callback is `{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback`. There is
+no Zendesk webhook secret variable. ctx| creates one webhook for each connection
+and stores its signing secret encrypted on the connection.
+
+See [Zendesk](/docs/self-hosting/zendesk) for client registration and
+verification.
+
 ## Observability
 
 Telemetry is off until you set it. ctx| does not ship a collector, Langfuse, or

@@ -61,5 +61,6 @@ Parent: [`.ai/memory/README.md`](../README.md).
 | [ADR-051](ADR-051-mcp-read-surface.md) | MCP read surface: small read tools, slugs, scopes, and an org set per grant | Accepted (clarified: capped hubs, parallel chat claims, answers-first ranking with strong query hits, and shared fallback budgets; amended by ADR-050: `provenance` intent) 
 | [ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) | Ingestion as sandbox skills that write patches | Accepted (amended by ADR-050: `sources` holds source paths; revised 2026-10-16: publish gate at format 3, re-ingestion in the upgrade; revised 2026-10-17: no rollback to the old pipeline; revised 2026-10-18: plain git sources) |
 | [ADR-053](ADR-053-minor-upgrades-expand-only-sql-workspace-format.md) | Minor upgrades: expand-only SQL and Workspace format versions in git | Accepted |
+| [ADR-055](ADR-055-zendesk-connector-sources-only.md) | Zendesk connector, Workspace sources only | Proposed |
 
-Numbers 035 and 036 are unused. The next new ADR is 054.
+Numbers 035 and 036 are unused. Open pull requests hold ADR-054 (Buildkite) and ADR-056 (Plain). The next new ADR is 057.

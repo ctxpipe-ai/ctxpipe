@@ -17,6 +17,7 @@ import {
   AddNotionConnectorButton,
   AddPagerdutyConnectorButton,
   AddSlackConnectorButton,
+  AddZendeskConnectorButton,
   ConfluenceConnectionCard,
   ConnectorSetupDialog,
   ConnectorsEmptyState,
@@ -28,6 +29,8 @@ import {
   PagerdutyConnectionCard,
   PagerdutySetupDialog,
   SlackConnectionCard,
+  ZendeskConnectionCard,
+  ZendeskSetupDialog,
 } from "@/features/connectors"
 import { AtlassianAccountClaimModalContent } from "@/features/connectors/components/AtlassianAccountClaimModalContent"
 import { ConnectorListSkeleton } from "@/features/connectors/components/ConnectorListItem"
@@ -128,6 +131,11 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
   const [pagerdutyConnectionId, setPagerdutyConnectionId] = useState<
     string | null
   >(null)
+  const [zendeskSetupOpen, setZendeskSetupOpen] = useState(false)
+  const [zendeskConnectionId, setZendeskConnectionId] = useState<string | null>(
+    null,
+  )
+  const [zendeskReconnect, setZendeskReconnect] = useState(false)
   const [githubSelfHostedWizardOpen, setGithubSelfHostedWizardOpen] =
     useState(false)
   const [slackSetupOpen, setSlackSetupOpen] = useState(false)
@@ -292,6 +300,20 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
                 />
               )
             }
+            if (row.type === "zendesk") {
+              return (
+                <ZendeskConnectionCard
+                  key={row.id}
+                  orgSlug={orgSlug}
+                  connectionId={row.id}
+                  onOpenSetup={(options) => {
+                    setZendeskConnectionId(row.id)
+                    setZendeskReconnect(Boolean(options?.reconnect))
+                    setZendeskSetupOpen(true)
+                  }}
+                />
+              )
+            }
             if (row.type === "pagerduty") {
               return (
                 <PagerdutyConnectionCard
@@ -374,6 +396,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
             onStart={({ connectionId }) => {
               setPagerdutyConnectionId(connectionId ?? null)
               setPagerdutySetupOpen(true)
+              setCatalogOpen(false)
+            }}
+          />
+        </li>
+        <li>
+          <AddZendeskConnectorButton
+            onStart={() => {
+              setZendeskConnectionId(null)
+              setZendeskReconnect(false)
+              setZendeskSetupOpen(true)
               setCatalogOpen(false)
             }}
           />
@@ -532,6 +564,19 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           if (!open) {
             setPagerdutyConnectionId(null)
           }
+        }}
+      />
+
+      <ZendeskSetupDialog
+        key={zendeskConnectionId ?? "zendesk-setup"}
+        orgSlug={orgSlug}
+        connectionId={zendeskConnectionId ?? undefined}
+        reconnect={zendeskReconnect}
+        isOpen={zendeskSetupOpen}
+        onConnectionIdChange={setZendeskConnectionId}
+        onOpenChange={(open) => {
+          setZendeskSetupOpen(open)
+          if (!open) setZendeskConnectionId(null)
         }}
       />
     </main>

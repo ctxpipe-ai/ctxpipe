@@ -133,7 +133,7 @@ modelProvider: {
 
 ## Optional props
 
-- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret).
+- `connectorSecrets`: deployment-wide connector settings for GitHub, Atlassian, Slack, Linear, Notion, and PagerDuty. Omit for first boot if connectors are not configured yet. Linear uses `linearClientId`, `linearClientSecret`, optional `linearRedirectUri`, and `linearWebhookSecret`; Notion uses `notionClientId`, `notionClientSecret`, and `notionWebhookSecret`; Slack uses `slackClientId`, `slackClientSecret`, and `slackSigningSecret`; PagerDuty uses `pagerdutyClientId`, `pagerdutyClientSecret`, and optional `pagerdutyRedirectUri` (no shared webhook secret); Zendesk uses `zendeskClientId` and `zendeskClientSecret`. The hosted ctx| deployment uses a Zendesk global OAuth client. A self-hosted deployment usually leaves both empty and saves a local OAuth client in the ctx| setup; a client saved on a connection takes priority.
 - `size`: deployment capacity profile (`small`, `medium`, `large`). Defaults to `small` when omitted.
 - `otel`: optional OTLP export to your collector. Omit it and the tasks get no `OTEL_*` environment. The construct does not deploy a collector, Langfuse, or ClickStack.
 - `sandboxHost`: optional `instanceType` and `dockerVolumeSizeGiB` for the chat sandbox host, and `agentVaultNetworkAllowlist` for a private git server. The host is always created; see [Chat sandbox host](#chat-sandbox-host).
@@ -344,4 +344,5 @@ Because Neptune is single-graph per cluster, this construct does not support mul
 - `NOTION_CLIENT_ID`, `NOTION_CLIENT_SECRET`, `NOTION_WEBHOOK_SECRET`
 - `PAGERDUTY_CLIENT_ID`, `PAGERDUTY_CLIENT_SECRET`
 - `PAGERDUTY_REDIRECT_URI` (optional; defaults to the public app callback)
+- `ZENDESK_CLIENT_ID`, `ZENDESK_CLIENT_SECRET` (optional; a client saved on a connection takes priority)
 

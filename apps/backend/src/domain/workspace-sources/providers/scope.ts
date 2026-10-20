@@ -20,6 +20,7 @@ export type SourceScopeDefinition<
     | "linear"
     | "notion"
     | "pagerduty"
+    | "zendesk"
     | null
   /** The label for one provider, for example "Confluence". */
   label: string

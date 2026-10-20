@@ -36,8 +36,8 @@ reason to expose other services.
 | `dind` (Docker Compose) or the AWS sandbox host | Private. Do not publish the Docker API or other unauthenticated services on a host that runs chat sandboxes. |
 
 The backend refuses a webhook body above its limit with `413`: 25 MiB for
-GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, and
-Atlassian. If your proxy has a lower body limit, set it to at least 25 MiB
+GitHub, 5 MiB for Linear, and 1 MiB for Slack, Notion, PagerDuty, Zendesk,
+and Atlassian. If your proxy has a lower body limit, set it to at least 25 MiB
 for `/api/v1/webhook/github` and 5 MiB for `/api/v1/webhook/linear`.
 
 Telemetry export is outbound only. There is no collector to expose. Set
@@ -60,6 +60,8 @@ Register callback and webhook URLs against your public origin.
 | Notion webhook | `{AUTH_BASE_URL}/api/v1/webhook/notion?provisioningToken=...` |
 | PagerDuty OAuth | `{AUTH_BASE_URL}/api/v1/integrations/pagerduty/callback` |
 | PagerDuty webhook | `{AUTH_BASE_URL}/api/v1/webhook/pagerduty` |
+| Zendesk OAuth | `{AUTH_BASE_URL}/api/v1/integrations/zendesk/callback` |
+| Zendesk webhook | `{AUTH_BASE_URL}/api/v1/webhook/zendesk/<connectionId>` |
 | MCP | `{AUTH_BASE_URL}/mcp` |
 | App auth | `/.auth/*` routes under `AUTH_BASE_URL` |
 
@@ -96,6 +98,7 @@ Protect and rotate:
 - Slack client secret, signing secret, and stored bot-token encryption material
 - Linear OAuth client and webhook secrets, or the shared encryption key used to decrypt connection-stored Linear app secrets
 - Notion OAuth client and webhook secrets
+- Zendesk OAuth client secret, if set in `ZENDESK_CLIENT_SECRET`
 - Model provider API keys
 - SMTP credentials
 - OTLP exporter credentials
@@ -129,6 +132,11 @@ Before inviting users:
   ctx| creates the webhook subscription after authorization.
 - Confirm backend and worker can reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com`.
+- If using Zendesk, register a local OAuth client in Zendesk with the exact
+  OAuth callback, and save it in the connector setup. Or configure
+  `ZENDESK_CLIENT_ID` and `ZENDESK_CLIENT_SECRET` on backend and worker. ctx|
+  creates the Help Center webhook after authorization.
+- Confirm backend and worker can reach `{subdomain}.zendesk.com`.
 - Confirm the worker can run connector jobs.
 - Confirm `codesearch` can clone the expected repositories.
 - Confirm model provider credentials work for both chat and embedding calls.

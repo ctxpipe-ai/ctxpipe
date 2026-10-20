@@ -5,6 +5,7 @@ export { AddLinearConnectorButton } from "./components/AddLinearConnectorButton"
 export { AddNotionConnectorButton } from "./components/AddNotionConnectorButton"
 export { AddPagerdutyConnectorButton } from "./components/AddPagerdutyConnectorButton"
 export { AddSlackConnectorButton } from "./components/AddSlackConnectorButton"
+export { AddZendeskConnectorButton } from "./components/AddZendeskConnectorButton"
 export { ConfluenceConnectionCard } from "./components/ConfluenceConnectionCard"
 export { ConnectorSetupDialog } from "./components/ConnectorSetupDialog"
 
@@ -19,5 +20,5 @@ export { NotionSetupDialog } from "./components/NotionSetupDialog"
 export { PagerdutyConnectionCard } from "./components/PagerdutyConnectionCard"
 export { PagerdutySetupDialog } from "./components/PagerdutySetupDialog"
 export { SlackConnectionCard } from "./components/SlackConnectionCard"
-
-
+export { ZendeskConnectionCard } from "./components/ZendeskConnectionCard"
+export { ZendeskSetupDialog } from "./components/ZendeskSetupDialog"

@@ -88,6 +88,8 @@ export interface CtxPipeConnectorSecretsProps {
   readonly pagerdutyClientId?: cdk.SecretValue;
   readonly pagerdutyClientSecret?: cdk.SecretValue;
   readonly pagerdutyRedirectUri?: cdk.SecretValue;
+  readonly zendeskClientId?: cdk.SecretValue;
+  readonly zendeskClientSecret?: cdk.SecretValue;
 }
 
 /**

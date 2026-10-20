@@ -339,6 +339,15 @@ export class SecretsConstruct extends Construct {
                     props.connectorSecrets.pagerdutyRedirectUri,
                 }
               : {}),
+            ...(props.connectorSecrets.zendeskClientId
+              ? { ZENDESK_CLIENT_ID: props.connectorSecrets.zendeskClientId }
+              : {}),
+            ...(props.connectorSecrets.zendeskClientSecret
+              ? {
+                  ZENDESK_CLIENT_SECRET:
+                    props.connectorSecrets.zendeskClientSecret,
+                }
+              : {}),
           },
         })
       : undefined;
@@ -463,6 +472,18 @@ export class SecretsConstruct extends Construct {
         connectorEnv.PAGERDUTY_REDIRECT_URI = ecs.Secret.fromSecretsManager(
           connectorSecret,
           "PAGERDUTY_REDIRECT_URI",
+        );
+      }
+      if (props.connectorSecrets?.zendeskClientId) {
+        connectorEnv.ZENDESK_CLIENT_ID = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "ZENDESK_CLIENT_ID",
+        );
+      }
+      if (props.connectorSecrets?.zendeskClientSecret) {
+        connectorEnv.ZENDESK_CLIENT_SECRET = ecs.Secret.fromSecretsManager(
+          connectorSecret,
+          "ZENDESK_CLIENT_SECRET",
         );
       }
     }
