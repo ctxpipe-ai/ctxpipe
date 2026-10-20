@@ -1,7 +1,7 @@
 import { parseDate } from "@internationalized/date"
 import { IconCalendar, IconCheck, IconChevronDown } from "@tabler/icons-react"
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query"
-import { useNavigate, useSearch } from "@tanstack/react-router"
+import { Link, useNavigate, useSearch } from "@tanstack/react-router"
 import { type ReactNode, useState } from "react"
 import {
   CalendarCell,
@@ -177,6 +177,8 @@ export function WorkspaceActivity(props: {
         {activityHeader}
         <div className="mt-3">
           <WorkspaceActivityError
+            orgSlug={props.orgSlug}
+            cause={query.isError ? "request" : "github"}
             onRetry={() => {
               void query.refetch()
             }}
@@ -258,6 +260,8 @@ export function WorkspaceActivity(props: {
             <WorkspaceRecentCommitsSkeleton />
           ) : listQuery.isError ? (
             <WorkspaceActivityError
+              orgSlug={props.orgSlug}
+              cause="request"
               onRetry={() => {
                 void listQuery.refetch()
               }}
@@ -648,11 +652,23 @@ function WorkspaceActivityLoading(props: {
   )
 }
 
-function WorkspaceActivityError(props: { onRetry: () => void }) {
+/**
+ * `github`: the projection could not read the commits from GitHub.
+ * `request`: the activity request itself failed.
+ */
+function WorkspaceActivityError(props: {
+  orgSlug: string
+  cause: "github" | "request"
+  onRetry: () => void
+}) {
   return (
     <InlineAlert
       variant="error"
-      title="Could not load activity"
+      title={
+        props.cause === "github"
+          ? "Could not read commits from GitHub"
+          : "Could not load activity"
+      }
       actions={
         <Button
           variant="outline"
@@ -663,8 +679,31 @@ function WorkspaceActivityError(props: { onRetry: () => void }) {
         </Button>
       }
     >
-      The composer still works. Try again to load the heatmap and recent
-      commits.
+      {props.cause === "github" ? (
+        <>
+          ctx| could not read the commit history of this Workspace from GitHub.
+          Reconnect GitHub in{" "}
+          <Link
+            to="/$orgSlug/connectors"
+            params={{ orgSlug: props.orgSlug }}
+            search={{
+              error: undefined,
+              error_description: undefined,
+              pendingAccountClaim: undefined,
+              notionConnectionId: undefined,
+            }}
+            className="text-teal-500 underline-offset-2 hover:underline"
+          >
+            Connectors
+          </Link>
+          , then try again. The composer still works.
+        </>
+      ) : (
+        <>
+          The activity request to ctx| failed. Check your network connection,
+          then try again. The composer still works.
+        </>
+      )}
     </InlineAlert>
   )
 }
