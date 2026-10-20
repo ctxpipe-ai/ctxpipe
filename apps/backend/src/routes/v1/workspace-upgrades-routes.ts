@@ -157,7 +157,7 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `unknown`: no other class.",
+          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `repository_too_large`: a Git repository is larger than ctx| can read in one step. `unknown`: no other class.",
       }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",

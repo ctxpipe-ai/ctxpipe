@@ -40,6 +40,7 @@ import {
   transitionWorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
+import { getLogger } from "../../observability/logger.js"
 import { listMarkdownFilesAtGitSha } from "../../services/git/clone-tree.js"
 import { readGitFiles, readGitPackFromRemote } from "../../services/git/pack.js"
 import {
@@ -391,6 +392,12 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
             )
           } catch (error) {
             if (isWorkflowControlSignal(error)) throw error
+            // The row keeps a short reason for the card; the log keeps the
+            // error with its stack for the operator.
+            getLogger().error(
+              error instanceof Error ? error : new Error(String(error)),
+              { step: "workspace-upgrade.failed", upgradeKey: key },
+            )
             return finish(UPGRADE_STATUSES.failed, {
               failureReason:
                 error instanceof Error ? error.message : String(error),

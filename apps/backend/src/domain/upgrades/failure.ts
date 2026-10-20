@@ -12,6 +12,7 @@ export const UPGRADE_FAILURE_CODES = [
   "publish_conflict",
   "timeout",
   "too_many_sources",
+  "repository_too_large",
   "unknown",
 ] as const
 
@@ -70,6 +71,12 @@ const RULES: Array<{
     code: "model",
     step: "ingest",
     match: /\bmodel\b|provider|rate limit|structured output|overloaded|\b429\b/,
+  },
+  {
+    // A Git output that is larger than ctx| keeps in memory (CTX-933).
+    code: "repository_too_large",
+    step: null,
+    match: /too large for ctx\| to read|maxbuffer length exceeded/,
   },
   { code: "timeout", step: "wait", match: /waited too long for its turn/ },
   {

@@ -9,6 +9,7 @@ import {
   captureGitPack,
   type GitPack,
   nativeGit,
+  packGitObjects,
   withGitDirectory,
 } from "./pack.js"
 import {
@@ -110,11 +111,7 @@ export async function stageGitFiles(
       const tree = (await nativeGit(directory, ["write-tree"]))
         .toString()
         .trim()
-      const objects = await nativeGit(
-        directory,
-        ["pack-objects", "--stdout", "--revs"],
-        `${pack.sha}\n${tree}\n`,
-      )
+      const objects = await packGitObjects(directory, [pack.sha, tree])
       return { pack: { ...pack, objects: objects.toString("base64") }, tree }
     },
     pack,

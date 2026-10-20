@@ -63,6 +63,13 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
       "The Workspace has more source repositories than one re-ingestion handles.",
     action: "Remove some source repositories, then start it again.",
   },
+  repository_too_large: {
+    reason:
+      "The Workspace repository is larger than ctx| can read in one step.",
+    action:
+      "Start it again. If it fails again, remove large files that are not knowledge, such as build output or binary files, from the Workspace repository. Then start it again.",
+    agent: true,
+  },
   unknown: {
     reason: "ctx| does not know the cause of this failure.",
     action: "Ask the agent to find the cause, or start it again.",
