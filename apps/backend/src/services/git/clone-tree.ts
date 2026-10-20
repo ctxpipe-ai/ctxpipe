@@ -35,12 +35,13 @@ async function gitExec(
         "git is not installed on this service; cannot read a repository by clone.",
       )
     }
+    const timeout = options?.timeout
     if (
-      options.timeout &&
+      timeout &&
       err.killed &&
       err.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
     )
-      throw gitTimeoutError(args, options.timeout)
+      throw gitTimeoutError(args, timeout)
     throw error
   }
 }
