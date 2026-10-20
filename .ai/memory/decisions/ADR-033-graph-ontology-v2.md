@@ -1,6 +1,6 @@
 # ADR-033: Graph ontology v2 — relation families, shared identity, deterministic connector extraction
 
-**Status:** Accepted (revised 2026-10-13) | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
+**Status:** Accepted (revised 2026-10-20) | **Date:** 2026-09-17 | **Tags:** graph, ingestion, connectors, retrieval
 
 Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
 (connector nodes). Builds on [ADR-031](ADR-031-github-pr-scoped-mirror.md).
@@ -26,6 +26,23 @@ Amends [ADR-032](ADR-032-path-located-graph-edges.md) §2 (predicates) and §4
   resolve like reference-family claims (decisions 4 and 9): an issue that is
   not mirrored becomes a stub when its team is known, otherwise the claim
   drops.
+
+## Revision (2026-10-20): GitHub Actions workflows
+
+- **New kind `Workflow`:** a GitHub Actions workflow file of a source
+  repository. Ingestion v2 writes it as a knowledge file in
+  `knowledge/workflows/` with `workflow_file`, the path of the workflow
+  file ([ADR-052](ADR-052-ingestion-sandbox-skills-patches.md) revision
+  2026-10-20). Its identity is the source and that path, not the name.
+- **Reference family:** `Workflow MENTIONS Service|App|Library` when an
+  `on.<event>.paths` filter or a `working-directory` falls in the root of
+  the package. `MENTIONS` stays lexical. No `BUILDS` or `DEPLOYS`
+  predicate: a path filter does not tell what a workflow does to a package.
+  `TARGETS` stays in the change family.
+- **Change family:** `PullRequest CHANGED Workflow` when a merged pull
+  request changes the workflow file, valid from the merge date.
+- **Out of scope:** workflow runs (Actions: Read, `workflow_run` events).
+  They are high-volume history, not structure, and need a mirror.
 
 ## Context
 
