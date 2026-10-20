@@ -300,6 +300,22 @@ const AtlassianForgeProvisionRequestSchema = z
   })
   .openapi("AtlassianForgeProvisionRequest")
 
+const AtlassianForgeProvisionAcceptedSchema = z
+  .object({
+    accepted: z.literal(true),
+    workflowName: z.string().optional(),
+  })
+  .openapi("AtlassianForgeProvisionAccepted")
+
+const AtlassianForgeProvisionStatusSchema = z
+  .object({
+    connectionId: z.string(),
+    provisionStatus: z.enum(["idle", "running", "succeeded", "failed"]),
+    provisionErrorCode: z.string().nullable(),
+    userMessage: z.string().nullable(),
+  })
+  .openapi("AtlassianForgeProvisionStatus")
+
 const postForgeProvisionRoute = createRoute({
   method: "post",
   path: "/provision",
@@ -313,10 +329,24 @@ const postForgeProvisionRoute = createRoute({
     },
   },
   responses: {
-    202: { description: "Provision workflow accepted" },
-    400: { description: "Invalid request body" },
-    401: { description: "Unauthorized" },
-    404: { description: "Unknown connection" },
+    202: {
+      content: {
+        "application/json": { schema: AtlassianForgeProvisionAcceptedSchema },
+      },
+      description: "Provision workflow accepted",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid request body",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
+    },
   },
 })
 
@@ -325,8 +355,24 @@ const getForgeProvisionStatusRoute = createRoute({
   path: "/provision-status",
   request: { query: z.object({ connectionId: z.string().min(1) }) },
   responses: {
-    200: { description: "Provision status" },
-    404: { description: "Unknown connection" },
+    200: {
+      content: {
+        "application/json": { schema: AtlassianForgeProvisionStatusSchema },
+      },
+      description: "Provision status",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Missing `connectionId`",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connection",
+    },
   },
 })
 
