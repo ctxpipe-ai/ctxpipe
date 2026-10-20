@@ -140,6 +140,7 @@ describeWithDatabase("auth attribution (Postgres)", () => {
       "enduser.id": userId,
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
+      "ctxpipe.auth.method": "cookie",
     })
     expect(spans.serverSpan()?.attributes["ctxpipe.api_key.id"]).toBeUndefined()
   })
@@ -157,9 +158,24 @@ describeWithDatabase("auth attribution (Postgres)", () => {
       "enduser.id": userId,
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
+      "ctxpipe.auth.method": "personal_key",
     })
     expect(attributes?.["ctxpipe.api_key.id"]).toEqual(expect.any(String))
     expect(JSON.stringify(attributes)).not.toContain(personalKey)
+  })
+
+  it("attributes a key sent as a Bearer token with the method bearer_key", async () => {
+    const app = createApp()
+    for (const key of [personalKey, orgKey]) {
+      const response = await app.request(
+        `http://backend.test/mcp?orgSlug=${orgSlug}`,
+        { method: "POST", headers: { authorization: `Bearer ${key}` } },
+      )
+      expect(response.status).toBe(200)
+      expect(spans.serverSpan()?.attributes).toMatchObject({
+        "ctxpipe.auth.method": "bearer_key",
+      })
+    }
   })
 
   it("attributes an org api key without an end user", async () => {
@@ -174,6 +190,7 @@ describeWithDatabase("auth attribution (Postgres)", () => {
       "ctxpipe.actor.type": "org_api_key",
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
+      "ctxpipe.auth.method": "org_key",
     })
     expect(attributes?.["enduser.id"]).toBeUndefined()
     expect(attributes?.["ctxpipe.api_key.id"]).toEqual(expect.any(String))
@@ -196,6 +213,7 @@ describeWithDatabase("auth attribution (Postgres)", () => {
       "ctxpipe.oauth.client_id": clientId,
       "ctxpipe.org.id": orgId,
       "ctxpipe.org.slug": orgSlug,
+      "ctxpipe.auth.method": "oauth",
     })
     expect(JSON.stringify(spans.serverSpan()?.attributes)).not.toContain(
       opaqueToken,

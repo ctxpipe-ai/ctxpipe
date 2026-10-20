@@ -14,6 +14,7 @@ import { contextStorage } from "../test/hono-test-logger.js"
 import { getAuth } from "./config.js"
 import {
   requireAuth,
+  requireOrgAdminOrOwner,
   withCookieAuth,
   withMcpBearerAuth,
   withNetworkOrgContext,
@@ -101,6 +102,26 @@ describe("API key refusal events (Postgres)", () => {
     // requireAuth refuses one outside /mcp.
     app.use("/api/v1/org/*", withCookieAuth, withOrgApiKeyAuth)
     app.use("/api/v1/*", withCookieAuth, requireAuth)
+    app.use(
+      "/api/v1/orgs/:orgSlug/admin",
+      withCookieAuth,
+      requireAuth,
+      withNetworkOrgContext,
+      requireOrgAdminOrOwner,
+    )
+    app.get("/api/v1/orgs/:orgSlug/admin", (c) => c.json({ ok: true }))
+    // The user is signed in, but the org is not one that the user belongs to.
+    app.use(
+      "/api/v1/other-org/admin",
+      withCookieAuth,
+      requireAuth,
+      async (c, next) => {
+        c.set("orgId", "org_not_a_member")
+        await next()
+      },
+      requireOrgAdminOrOwner,
+    )
+    app.get("/api/v1/other-org/admin", (c) => c.json({ ok: true }))
     app.get("/api/v1/org/things", (c) => c.json({ ok: true }))
     app.get("/api/v1/things", (c) => c.json({ ok: true }))
     app.post("/api/v1/things", (c) => c.json({ ok: true }))
@@ -232,10 +253,16 @@ describe("API key refusal events (Postgres)", () => {
 
     const response = await mcp(created.key)
 
-    expect(response.status).toBe(401)
+    // A 401 would make an OAuth client sign in again; the key must wait.
+    expect(response.status).toBe(429)
+    expect(Number(response.headers.get("retry-after"))).toBeGreaterThan(0)
+    expect(response.headers.get("www-authenticate")).toBeNull()
     expect(refusalEvent()).toMatchObject({
       "ctxpipe.auth.refusal_reason": "rate_limited",
       "ctxpipe.api_key.id": created.id,
+    })
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "rate_limited",
     })
     noSecretAnywhere(created.key)
   })
@@ -311,11 +338,23 @@ describe("API key refusal events (Postgres)", () => {
       .set({ enabled: false })
       .where(eq(apikeys.id, disabled.id))
     events.length = 0
-    expect((await mcpBearer(disabled.key)).status).toBe(401)
+    const disabledResponse = await mcpBearer(disabled.key)
+    expect(disabledResponse.status).toBe(401)
     expect(refusalEvent()).toMatchObject({
       "ctxpipe.auth.refusal_reason": "disabled",
       "ctxpipe.api_key.id": disabled.id,
     })
+    // The caller reads the same text as for an unknown token, so the 401
+    // does not say that the key exists.
+    const unknownResponse = await mcpBearer(
+      "ctx_not_a_real_key_0123456789abcdefghijklmnopqrstuvwxyz",
+    )
+    expect(disabledResponse.headers.get("www-authenticate")).toBe(
+      unknownResponse.headers.get("www-authenticate"),
+    )
+    expect(disabledResponse.headers.get("www-authenticate")).toContain(
+      "The access token could not be validated",
+    )
     noSecretAnywhere(disabled.key)
 
     const expired = await newOrgKey()
@@ -336,12 +375,114 @@ describe("API key refusal events (Postgres)", () => {
       .set({ requestCount: 1_000_000, lastRequest: new Date() })
       .where(eq(apikeys.id, limited.id))
     events.length = 0
-    expect((await mcpBearer(limited.key)).status).toBe(401)
+    const limitedResponse = await mcpBearer(limited.key)
+    expect(limitedResponse.status).toBe(429)
+    expect(Number(limitedResponse.headers.get("retry-after"))).toBeGreaterThan(
+      0,
+    )
     expect(refusalEvent()).toMatchObject({
       "ctxpipe.auth.refusal_reason": "rate_limited",
       "ctxpipe.api_key.id": limited.id,
     })
     noSecretAnywhere(limited.key)
+  })
+
+  it("gives the reason token_not_recognized for an unknown Bearer token that is not a key, and not the token", async () => {
+    const token = "unknown-opaque-token-0123456789abcdefghijklmnop"
+    const response = await createApp().request(
+      "http://backend.test/mcp/bearer",
+      {
+        method: "POST",
+        headers: { authorization: `Bearer ${token}` },
+      },
+    )
+
+    expect(response.status).toBe(401)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "token_not_recognized",
+    })
+    noSecretAnywhere(token)
+  })
+
+  it("gives the reason token_signature_invalid for a JWT that no key signed", async () => {
+    const token = `${Buffer.from('{"alg":"RS256"}').toString("base64url")}.${Buffer.from("{}").toString("base64url")}.c2ln`
+    const response = await createApp().request(
+      "http://backend.test/api/v1/things",
+      { headers: { authorization: `Bearer ${token}` } },
+    )
+
+    // This route has no Bearer middleware, so the request has no session.
+    expect(response.status).toBe(401)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "no_session",
+    })
+    const bearer = await createApp().request("http://backend.test/mcp/bearer", {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    })
+    expect(bearer.status).toBe(401)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "token_signature_invalid",
+    })
+  })
+
+  it("gives the reason no_session for a request with no credential", async () => {
+    const response = await createApp().request(
+      "http://backend.test/api/v1/things",
+    )
+
+    expect(response.status).toBe(401)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "no_session",
+    })
+  })
+
+  it("logs a warning with the reason org_not_found when the org of the request is not found", async () => {
+    const response = await createApp().request(
+      "http://backend.test/mcp?orgSlug=no-such-org-slug",
+      { method: "POST", headers: { cookie: s().cookie } },
+    )
+
+    expect(response.status).toBe(404)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "org_not_found",
+    })
+    expect(events.at(-1)).toMatchObject({
+      level: "warn",
+      reason: "org_not_found",
+      requestLogs: [
+        expect.objectContaining({
+          message: "The organization of the request was not found",
+        }),
+      ],
+    })
+    expect(JSON.stringify(events)).not.toContain("no-such-org-slug")
+  })
+
+  it("gives a reason for each 403 of the org admin check", async () => {
+    const allowed = await createApp().request(
+      `http://backend.test/api/v1/orgs/${s().orgSlug}/admin`,
+      { headers: { cookie: s().cookie } },
+    )
+    expect(allowed.status).toBe(200)
+
+    const notAdmin = await createApp().request(
+      "http://backend.test/api/v1/other-org/admin",
+      { headers: { cookie: s().cookie } },
+    )
+    expect(notAdmin.status).toBe(403)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "not_org_admin",
+    })
+
+    const withKey = await createApp().request(
+      `http://backend.test/api/v1/orgs/${s().orgSlug}/admin`,
+      { headers: { "x-api-key": s().personalApiKey } },
+    )
+    expect(withKey.status).toBe(403)
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.auth.refusal_reason": "api_key_not_allowed",
+    })
   })
 
   it("logs no refusal for a valid Bearer key", async () => {

@@ -31,7 +31,10 @@ import {
   type WorkspaceIngestToolsClaims,
 } from "../workspaces/workspace-chat-run-capability.js"
 import { workspaceChatBearerToken } from "../workspaces/workspace-chat-token.js"
-import type { WorkspaceChatTanstackTool } from "../workspaces/workspace-chat-tools.js"
+import {
+  type WorkspaceChatTanstackTool,
+  withToolCallSpan,
+} from "../workspaces/workspace-chat-tools.js"
 
 /**
  * The ingest tool bridge (ADR-052 section 7): the shared codesearch tools,
@@ -177,7 +180,7 @@ function ingestTools(
         },
       }
     }),
-  ]
+  ].map(withToolCallSpan)
 }
 
 /** Stateless MCP over HTTP for ingest sandboxes: JSON-RPC in, JSON out. */

@@ -11,6 +11,8 @@ type CopyableBlockProps = {
   copyErrorMessage?: string
   /** Runs once for each copy that worked. */
   onCopied?: () => void
+  /** Runs once for each copy that the browser refused. */
+  onCopyFailed?: () => void
   variant?: "default" | "secret"
   revealAriaLabel?: string
   hideAriaLabel?: string
@@ -22,6 +24,7 @@ export function CopyableBlock({
   copyAriaLabel,
   copyErrorMessage = "Could not copy — copy the URL manually.",
   onCopied,
+  onCopyFailed,
   variant = "default",
   revealAriaLabel = "Show value",
   hideAriaLabel = "Hide value",
@@ -36,6 +39,7 @@ export function CopyableBlock({
       onCopied?.()
       window.setTimeout(() => setCopyState("idle"), 2000)
     } catch {
+      onCopyFailed?.()
       setCopyState("error")
       window.setTimeout(() => setCopyState("idle"), 2000)
     }

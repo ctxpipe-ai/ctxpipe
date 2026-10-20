@@ -1,5 +1,78 @@
 # @ctxpipe/aws-cdk
 
+## 3.3.0
+
+### Minor Changes
+
+- df99abc: Add `sandboxHost.agentVaultNetworkAllowlist`. Agent Vault on the sandbox host can then connect to a private git server, so ingestion can read a plain git repository from it. The stack adds each entry after the backend subnets. Synth rejects an entry that is not an IP address or CIDR, and an entry with a cloud metadata, link-local, loopback, or unspecified address, or a range that covers one.
+- df99abc: Provision a `ctxpipe_app` Postgres role on `cdk deploy` and point runtime `DATABASE_URL` at it. Existing stacks keep the same `CtxPipe` props: bump `@ctxpipe/aws-cdk` and redeploy.
+- df99abc: Git-backed Workspaces: each Workspace keeps its knowledge in a git repository. It links code repositories for search. Each Workspace has Workspace chat with Files, Diff, and Graph panes. Connectors write into a Workspace.
+
+  New chat sandbox host: Workspace chat runs each conversation in its own Docker container. The containers run on a new EC2 host. `CtxPipe` creates this host unless you set `sandboxHost: { enabled: false }`.
+
+  The host is a Graviton instance. The `size` prop selects `t4g.medium`, `t4g.large`, or `t4g.xlarge`. The Docker volume is 30, 50, or 100 GB. The cost is about $28, $54, or $107 a month in us-east-1.
+
+  Docker runs over mutual TLS. The certificates are in Secrets Manager. CloudWatch alarms watch Docker disk and memory (`sandboxHostAlarms`).
+
+  Two optional props change the host size: `sandboxHost.instanceType` (Graviton only) and `sandboxHost.dockerVolumeSizeGiB`.
+
+  The host pulls the chat image `ghcr.io/ctxpipe-ai/chat-sandbox` on the first chat after a release. Each release publishes this image. Thus a release does not replace the host.
+
+  Upgrade: there are no new required props. Run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`. The upgrade only adds resources. It replaces nothing that holds data. It waits until the host is ready, then it rolls backend and worker.
+
+- df99abc: The public MCP server at `/mcp` has new read-only tools: `list_workspaces`, `search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and `get_related`. The tool `ctx_advisor` is removed, so an MCP client that calls it must call the new tools. Each tool call names one organization with the `org` argument. An OAuth grant holds a set of organizations, and the user changes the set on the new Connected apps page. The server ignores the `?orgSlug=` URL parameter. The scopes are `ctxpipe:read` and `ctxpipe:write`.
+
+  Upgrade: there are no new required props. Run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`. The release runs database migrations for the organization sets and the knowledge search tables.
+
+- df99abc: The sandbox host runs Agent Vault, which adds the credentials of chat sandboxes to their requests. Sandboxes hold no GitHub token or backend credential, and they reach the network only through the Agent Vault proxy (HTTP and HTTPS stay open). The stack generates the Agent Vault passwords in Secrets Manager and gives the owner password to the backend and the worker.
+- df99abc: This release adds the chat sandbox host. It is on by default. To turn it off, set `sandboxHost: { enabled: false }`. Chat is off without the host.
+
+  The default size (`size: "small"`) is one `t4g.medium` instance. It costs about $28 a month in us-east-1. The `medium` and `large` sizes cost about $54 and $107 a month.
+
+  The first `cdk deploy` adds the host. It replaces nothing that holds data.
+
+  Before you upgrade, set the GitHub App repository permissions to `Read and write` for `Contents` and `Pull requests`. Accept the changes for each installation.
+
+  There are no new required props. Run `pnpm update @ctxpipe/aws-cdk`, then `cdk deploy`.
+
+  The migrate task now runs the single migrate entry point. This entry point makes `ctxpipe_app` ready, applies the expand-only SQL, and runs the backfills.
+
+  Before you upgrade, take a database snapshot. To roll back, restore the previous package version and the owner `DATABASE_URL` secret. See the Upgrades page.
+
+### Patch Changes
+
+- df99abc: A new Workspace on a GitHub repository that has no ctx| content now starts at the current format. An example is a new repository that you made with "Add a README". Before, such a Workspace started at format 0 and refused new sources until you ran the upgrade. Bootstrap now adds one commit with its files and `.ctxpipe/workspace.yaml`, and keeps the files that are there. A repository that has `.ctxpipe/`, `sources/` or `repositories/` keeps its format and gets the upgrade as before.
+- df99abc: The first chat turn in a new conversation is faster. The final event no longer waits for the conversation title, and the first message uses the WebSocket that the page opened before.
+- df99abc: A chat answer starts sooner. The chat agent no longer copies the repository for its own undo, watches its files, or builds a file search index before its first model call in each turn.
+
+  The backend also stops reconnecting to the chat agent of a finished turn after that agent stops.
+
+- df99abc: Workspace chat answers with fewer exploring steps. The agent gets a short summary of the Workspace: the searchable repositories and the largest knowledge folders with their file counts. The summary never lists file names and stays under 2,000 characters. A new conversation starts its sandbox when the composer gets focus, so the first turn waits less. Traces show the reasoning effort of each model call.
+- df99abc: The first chat turn in a new Workspace no longer fails with "signal timed out". The browser now waits up to 4 minutes for the chat sandbox. A new hosted sandbox can take more than 30 seconds to start.
+- df99abc: Add ast-grep and ripgrep to the chat sandbox image for the ingest skills.
+- df99abc: Fix plain-HTTP Node fetch through the egress proxy in the chat sandbox image.
+- df99abc: Codesearch opens a file without following a symlink at its last part. On Linux, it checks the opened file again before it reads it. The TypeScript indexer never writes through a symlink. The SCIP index keeps only documents inside the checkout and outside `.git`.
+- 3130db7: Keep codesearch reads and searches inside the checkout and out of `.git`. Structural search uses the codesearch ast-grep config, not a config file from the repository.
+- df99abc: Docker Compose: the `deploy` profile no longer publishes Postgres on host port 5433 (`CTXPIPE_POSTGRES_HOST_PORT`). If a backup job or a tool on the host used that port, run it through Compose, for example `docker compose exec postgres pg_dump -U ctxpipe ctxpipe > backup.sql`. The `infra` profile for local development still publishes the port.
+- df99abc: API keys and read-only OAuth tokens now get 403 on routes that write directly to a Workspace. These routes need a signed-in session or an OAuth token with the `ctxpipe:write` scope.
+- 841f2bd: Email/password accounts verify their email address before signing in when SMTP is configured. Unverified accounts are sent a fresh link when they sign in.
+- df99abc: Pass the public auth origin to the UI task for browser telemetry
+- 2efdf5f: GitHub connections that store a copy of the deployment App's credentials get the deployment App's webhooks again. A push starts re-ingestion, and a merged connector configuration pull request starts the connector sync.
+- 6cdf18b: Attaching a GitHub installation now requires a linked GitHub account that can see it, or the organization's own App.
+- df99abc: When you remove a GitHub connection, each Workspace that used it now shows a failed hydrate that tells you to reconnect GitHub. Before, the Workspace stayed in "pending" with no job to move it. When you connect GitHub, ctxpipe binds each GitHub Workspace that has no connection and whose repository the installation can read, and starts hydrate again. This includes Workspaces that you added by pasting a URL.
+- e4e24ad: License the self-host construct under MIT, matching the repository.
+- df99abc: Add Workspace no longer asks for an upgrade on a repository with no ctx| content. Before, a read of the repository before the bootstrap commit showed format 0 for a short time, and the form showed "Upgrade this Workspace before you add sources". The form now waits for the bootstrap commit, which sets the current format.
+- df99abc: The migrate task runs the same steps and backfills as Docker Compose and the hosted deploy. When the `ctxpipe_app` role does not exist and no password is given, migrate stops with exit code 1 before it changes the database, and it tells you how to fix it.
+- df99abc: Ingestion v2 reads a git repository that has no GitHub connection and needs no credential, as the old ingestion did. A plain git source file under `sources/git/` links it to a Workspace, and the format upgrade adds one for each such organization repository. ctx| reads it with no credential, checks the addresses of its host, follows no redirect, and reads no system or global git config. The sandbox can fetch only that repository path, and only while it prepares the source. A self-hosted deployment with Docker sandboxes (`SANDBOX_PROVIDER=docker`) keeps the behavior of main: a plain git URL can use `http://`, another port, an IP address, or an internal host, and the backend reads it with no credential and no redirect, through the proxy of its environment if there is one. Hosted ctx| and each other deployment read only public `https://` URLs on the default port. In each deployment, ssh, `git://`, and `file://` are not supported.
+- df99abc: You can add a plain git repository to a Workspace by its https URL. In Workspace settings > Sources, open Add repositories and use the Paste URL tab. ctx| checks the URL with the plain git URL policy and opens a pull request that adds the source file under `sources/git/`. When the pull request merges, the first ingestion of the repository starts.
+- 32fe59f: Strip characters Postgres jsonb cannot store from package extract results, so a step write is not rejected and retried.
+- df99abc: A Workspace re-ingestion now waits while an ingestion run of one of its source repositories is active, so that its publish does not need a merge with that run. A failed upgrade now shows the step that failed, the cause in plain words, and the action that fixes it.
+- df99abc: The runtime services read `DATABASE_URL` from a new `RuntimeDatabaseUrlSecret`, which holds the `ctxpipe_app` URL. `DatabaseUrlSecret` keeps the owner URL, as in earlier releases, and the migrate task reads it. If ECS or CloudFormation rolls back to the task definitions of an earlier release, those tasks start on the owner URL and see every row. Migrate also makes the webhook directory agree with the connections on each deploy, so connections that an earlier release added or deleted during a rollback get their webhooks again.
+- 494f8d7: Accept a long TypeScript SCIP index immediately and read the result back, so a headers timeout does not fail an index that is still running.
+- f415e4d: Upgrade TanStack Start past the reflected cross-site scripting fix so docs previews and the product UI are on a patched release.
+- df99abc: The backend and worker images refuse `SANDBOX_PROVIDER=unsandboxed`. An unsandboxed agent runs only in local development, and it gets only an allow-list of the backend's environment variables.
+- df99abc: A Workspace now gets its sandbox base. Before, the base build failed with "getLogger: no logger in context", so no Workspace got a base.
+
 ## 3.2.0
 
 ### Minor Changes

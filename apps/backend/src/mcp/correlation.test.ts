@@ -3,7 +3,7 @@ import {
   ResourceTemplate,
 } from "@modelcontextprotocol/sdk/server/mcp.js"
 import { ErrorCode, McpError } from "@modelcontextprotocol/sdk/types.js"
-import { SpanStatusCode } from "@opentelemetry/api"
+import { SpanStatusCode, trace } from "@opentelemetry/api"
 import type { ReadableSpan } from "@opentelemetry/sdk-trace-base"
 import { initLogger } from "evlog"
 import { evlog } from "evlog/hono"
@@ -13,10 +13,13 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
+import { toToon } from "../lib/agentToolRuntime.js"
 import { backendOtelMiddleware } from "../observability/http.js"
+import { applyLogContract } from "../observability/logContract.js"
 import {
   mcpOrgSlugHash,
   readMcpCorrelation,
+  runBridgeToolCall,
   runMcpResourceRead,
   runMcpToolCall,
   setMcpOrgSlugHash,
@@ -461,6 +464,90 @@ describe("MCP tool result facts", () => {
     // The size is the size of the result that the client gets, call id included.
     expect(bytes).toBe(Buffer.byteLength(JSON.stringify(result)))
     expect(events.at(-1)?.["ctxpipe.mcp.result.bytes"]).toBe(bytes)
+  })
+})
+
+describe("bridge tool call facts", () => {
+  const span = () => spans.spanNamed("bridge.tool get_file")
+
+  it("puts the tool name, a call id and the size of the result on the span", async () => {
+    const result = await runBridgeToolCall("get_file", async () => "owner: a\n")
+
+    expect(result).toBe("owner: a\n")
+    expect(span()?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.call.id": expect.stringMatching(/^call_/),
+      "ctxpipe.mcp.result.bytes": Buffer.byteLength("owner: a\n"),
+    })
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBeUndefined()
+    expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("puts the code of an error result on the span, and leaves the span out of ERROR", async () => {
+    await runBridgeToolCall("get_file", async () =>
+      toToon({ error: "checkout_not_in_run", repositoryId: "repo_1" }),
+    )
+
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "checkout_not_in_run",
+    )
+    expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("gives each call its own call id", async () => {
+    await runBridgeToolCall("get_file", async () => "a")
+    await runBridgeToolCall("get_file", async () => "b")
+
+    const ids = spans
+      .finishedSpans()
+      .filter((item) => item.name === "bridge.tool get_file")
+      .map((item) => item.attributes["ctxpipe.mcp.call.id"])
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it("gives a child span and a log inside the call the tool name and the call id, and keeps two concurrent calls apart", async () => {
+    const logs: Record<string, Record<string, unknown>> = {}
+    const run = (tool: string, delayMs: number) =>
+      runBridgeToolCall(tool, async () => {
+        await new Promise((resolve) => setTimeout(resolve, delayMs))
+        await trace
+          .getTracer("test")
+          .startActiveSpan(`child of ${tool}`, async (child) => {
+            child.end()
+          })
+        const event: Record<string, unknown> = {}
+        applyLogContract(event)
+        logs[tool] = event
+        return "ok"
+      })
+
+    await Promise.all([run("search_code", 20), run("get_file", 5)])
+
+    for (const tool of ["search_code", "get_file"]) {
+      const bridge = spans.spanNamed(`bridge.tool ${tool}`)
+      const child = spans.spanNamed(`child of ${tool}`)
+      const callId = bridge?.attributes["ctxpipe.mcp.call.id"]
+      expect(callId).toEqual(expect.stringMatching(/^call_/))
+      expect(child?.attributes).toMatchObject({
+        "ctxpipe.mcp.tool": tool,
+        "ctxpipe.mcp.call.id": callId,
+      })
+      expect(logs[tool]).toMatchObject({
+        "ctxpipe.mcp.tool": tool,
+        "ctxpipe.mcp.call.id": callId,
+      })
+    }
+  })
+
+  it("marks the span as an internal error and throws the error on", async () => {
+    await expect(
+      runBridgeToolCall("get_file", async () => {
+        throw new Error("codesearch is down")
+      }),
+    ).rejects.toThrow("codesearch is down")
+
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe("internal")
+    expect(span()?.status.code).toBe(SpanStatusCode.ERROR)
   })
 })
 

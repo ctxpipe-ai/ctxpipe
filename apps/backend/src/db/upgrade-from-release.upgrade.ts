@@ -34,7 +34,7 @@ const urls = vi.hoisted(() => {
   vi.stubEnv("MODEL_PROVIDER_API_KEY", "test-key")
   const serverUrl = process.env.DATABASE_URL ?? ""
   const suffix = `${Date.now()}_${Math.random().toString(36).slice(2, 8)}`
-  const database = `ctxpipe_upgrade_from_main_${suffix}`
+  const database = `ctxpipe_upgrade_from_release_${suffix}`
   const appPassword = process.env.DATABASE_APP_PASSWORD || "ctxpipe"
   if (!serverUrl)
     return {
@@ -60,8 +60,8 @@ const urls = vi.hoisted(() => {
  * operator on the previous release (the CI job pins it) deploys this release and changes nothing else:
  *
  * 1. The migrate command of the previous release makes its schema, and SQL seeds an org
- *    as main kept it: GitHub, a Linear connector that synced to a context
- *    repository, the knowledge of main's code ingestion, and rows with no
+ *    as the previous release kept it: GitHub, a Linear connector that synced to a context
+ *    repository, the knowledge of the previous release's code ingestion, and rows with no
  *    `org_id` that the migration must fill.
  * 2. The one migrate entry point of this release runs with no manual step.
  *    A second run changes nothing.
@@ -70,8 +70,8 @@ const urls = vi.hoisted(() => {
  *    upgrade through the API; it opens one pull request. After the merge,
  *    hydrate records format 3 with no direct write, and the re-ingestion is
  *    ready.
- * 4. Rollback: main's code reads the upgraded database.
- * 5. Rollback window: main's code adds a connection and deletes one, and the
+ * 4. Rollback: the previous release's code reads the upgraded database.
+ * 5. Rollback window: the previous release's code adds a connection and deletes one, and the
  *    next migrate brings the webhook directory back in line.
  *
  * Inputs: DATABASE_URL (a role that can CREATE DATABASE and CREATE ROLE),
@@ -81,10 +81,10 @@ const urls = vi.hoisted(() => {
 const backendDir = fileURLToPath(new URL("../..", import.meta.url))
 const { suffix, database, appPassword, ownerUrl, appUrl } = urls
 
-const ORG = { id: "org_main_era", slug: "main-era", name: "Main era" }
-const ADMIN_TOKEN = "main-era-admin-session-token"
-const GITHUB_CONNECTION = "con_main_github"
-const WORKSPACE_REPO = "repo_main_context"
+const ORG = { id: "org_release_era", slug: "release-era", name: "Release era" }
+const ADMIN_TOKEN = "release-era-admin-session-token"
+const GITHUB_CONNECTION = "con_release_github"
+const WORKSPACE_REPO = "repo_release_context"
 const WORKSPACE_URL = "https://github.com/fixture/hydration-contract"
 const PULLS = "https://api.github.com/repos/fixture/hydration-contract/pulls"
 const SLACK_TEAM = "T0ROLLBACK"
@@ -164,9 +164,13 @@ async function owner<T>(fn: (db: pg.Client) => Promise<T>): Promise<T> {
   }
 }
 
-/** Run a script with main's code from the main checkout, as main runs: as the owner role. */
-async function runWithMain(body: string): Promise<unknown> {
-  const script = join(releaseTree, "apps/backend", `.upgrade-main-${suffix}.mts`)
+/** Run a script with the previous release's code from the previous release checkout, as the previous release runs: as the owner role. */
+async function runWithRelease(body: string): Promise<unknown> {
+  const script = join(
+    releaseTree,
+    "apps/backend",
+    `.upgrade-release-${suffix}.mts`,
+  )
   writeFileSync(
     script,
     `const { initDb, closeDb } = await import("./src/db/client.ts")
@@ -189,9 +193,9 @@ process.exit(0)
   }
 }
 
-/** Two read paths of main's code: the repository list of the org and its connections. */
-function readWithMain(): Promise<unknown> {
-  return runWithMain(`const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
+/** Two read paths of the previous release's code: the repository list of the org and its connections. */
+function readWithRelease(): Promise<unknown> {
+  return runWithRelease(`const { listRepositoriesForOrg } = await import("./src/models/repositories.ts")
 const { listOrgConnections } = await import("./src/models/org-connections.ts")
 const repositories = await listRepositoriesForOrg(${JSON.stringify(ORG.id)})
 const connections = await listOrgConnections(${JSON.stringify(ORG.id)})
@@ -199,23 +203,23 @@ process.stdout.write("\\n" + JSON.stringify({ repositories: repositories.map((r)
 }
 
 /**
- * In the rollback window, main's code adds a Slack connection and deletes the
- * Linear connection. main writes `connections` only, not the directory.
+ * In the rollback window, the previous release's code adds a Slack connection and deletes the
+ * Linear connection. The previous release writes `connections` only, not the directory.
  */
-function writeWithMain(): Promise<unknown> {
-  return runWithMain(`const { withOrgDbContext } = await import("./src/db/client.ts")
+function writeWithRelease(): Promise<unknown> {
+  return runWithRelease(`const { withOrgDbContext } = await import("./src/db/client.ts")
 const { upsertSlackConnectionFromOAuth } = await import("./src/models/slack-connector.ts")
 const { deleteLinearConnectionById } = await import("./src/models/linear-connector.ts")
 const result = await withOrgDbContext(${JSON.stringify(ORG.id)}, async () => {
-  const slack = await upsertSlackConnectionFromOAuth({ orgId: ${JSON.stringify(ORG.id)}, env: { AUTH_SECRET: "rollback-window-secret-at-least-32-chars" }, ownerUserId: "user_main_admin", botToken: "xoxb-rollback-window", teamId: ${JSON.stringify(SLACK_TEAM)} })
-  const deleted = await deleteLinearConnectionById(${JSON.stringify(ORG.id)}, "con_main_linear")
+  const slack = await upsertSlackConnectionFromOAuth({ orgId: ${JSON.stringify(ORG.id)}, env: { AUTH_SECRET: "rollback-window-secret-at-least-32-chars" }, ownerUserId: "user_release_admin", botToken: "xoxb-rollback-window", teamId: ${JSON.stringify(SLACK_TEAM)} })
+  const deleted = await deleteLinearConnectionById(${JSON.stringify(ORG.id)}, "con_release_linear")
   return { slack: slack.id, deleted }
 })
 process.stdout.write("\\n" + JSON.stringify(result) + "\\n")`)
 }
 
-/** The org as main kept it, in main's schema. */
-async function seedMainOrg(db: pg.Client) {
+/** The org as the previous release kept it, in the previous release's schema. */
+async function seedReleaseOrg(db: pg.Client) {
   const q = (text: string, values: unknown[] = []) => db.query(text, values)
   await q(
     `INSERT INTO organizations (id, name, slug, created_at) VALUES ($1, $2, $3, now())`,
@@ -223,16 +227,16 @@ async function seedMainOrg(db: pg.Client) {
   )
   await q(
     `INSERT INTO users (id, name, email, email_verified, created_at, updated_at)
-     VALUES ('user_main_admin', 'Admin', 'admin@example.test', true, now(), now())`,
+     VALUES ('user_release_admin', 'Admin', 'admin@example.test', true, now(), now())`,
   )
   await q(
     `INSERT INTO members (id, organization_id, user_id, role, created_at)
-     VALUES ('mem_main_admin', $1, 'user_main_admin', 'admin', now())`,
+     VALUES ('mem_release_admin', $1, 'user_release_admin', 'admin', now())`,
     [ORG.id],
   )
   await q(
     `INSERT INTO sessions (id, expires_at, token, created_at, updated_at, user_id, active_organization_id)
-     VALUES ('ses_main_admin', now() + interval '1 day', $1, now(), now(), 'user_main_admin', $2)`,
+     VALUES ('ses_release_admin', now() + interval '1 day', $1, now(), now(), 'user_release_admin', $2)`,
     [ADMIN_TOKEN, ORG.id],
   )
   await q(
@@ -249,20 +253,20 @@ async function seedMainOrg(db: pg.Client) {
       }),
     ],
   )
-  // main names a GitHub repository by its full name (owner/repo), and a
+  // the previous release names a GitHub repository by its full name (owner/repo), and a
   // repository that an operator added by URL by the name that they gave.
   await q(
     `INSERT INTO repositories (id, org_id, name, git_url, github_connection_id, index_ready, created_at, updated_at) VALUES
       ($1, $2, 'fixture/hydration-contract', 'https://github.com/fixture/hydration-contract.git', $3, true, '2026-01-01T00:00:00Z', now()),
-      ('repo_main_api', $2, 'team-a/api', 'https://github.com/team-a/api.git', $3, true, '2026-02-01T00:00:00Z', now()),
-      ('repo_main_tools', $2, 'tools', 'https://gitlab.com/team-c/tools.git', NULL, true, '2026-03-01T00:00:00Z', now())`,
+      ('repo_release_api', $2, 'team-a/api', 'https://github.com/team-a/api.git', $3, true, '2026-02-01T00:00:00Z', now()),
+      ('repo_release_tools', $2, 'tools', 'https://gitlab.com/team-c/tools.git', NULL, true, '2026-03-01T00:00:00Z', now())`,
     [WORKSPACE_REPO, ORG.id, GITHUB_CONNECTION],
   )
-  // main's Linear connector synced to the context repository: the migration
+  // The Linear connector of the previous release synced to the context repository: the migration
   // makes the Workspace from this target.
   await q(
     `INSERT INTO connections (id, org_id, type, config, created_at, updated_at) VALUES
-      ('con_main_linear', $1, 'linear', $2, now(), now())`,
+      ('con_release_linear', $1, 'linear', $2, now(), now())`,
     [
       ORG.id,
       JSON.stringify({
@@ -275,12 +279,12 @@ async function seedMainOrg(db: pg.Client) {
       }),
     ],
   )
-  // The knowledge of main's code ingestion.
+  // The knowledge of the previous release's code ingestion.
   await q(
     `INSERT INTO objects (id, org_id, kind, deduplication_key, payload, created_at, updated_at) VALUES
-      ('obj_main_tools', $1, 'Service', 'svc:repo_main_tools:tools', $2, now(), now()),
-      ('obj_main_parser', $1, 'Library', 'lib:repo_main_tools:parser', $3, now(), now()),
-      ('obj_main_api', $1, 'Service', 'svc:repo_main_api:api', $4, now(), now())`,
+      ('obj_release_tools', $1, 'Service', 'svc:repo_release_tools:tools', $2, now(), now()),
+      ('obj_release_parser', $1, 'Library', 'lib:repo_release_tools:parser', $3, now(), now()),
+      ('obj_release_api', $1, 'Service', 'svc:repo_release_api:api', $4, now(), now())`,
     [
       ORG.id,
       JSON.stringify({
@@ -294,17 +298,17 @@ async function seedMainOrg(db: pg.Client) {
   )
   await q(
     `INSERT INTO claims (id, org_id, subject_id, predicate, object_id, status, first_observed_at, last_observed_at, aggregated_confidence, created_at, updated_at)
-     VALUES ('clm_main_uses', $1, 'obj_main_tools', 'USES', 'obj_main_parser', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0.9, now(), now())`,
+     VALUES ('clm_release_uses', $1, 'obj_release_tools', 'USES', 'obj_release_parser', 'active', '2026-01-01T00:00:00Z', '2026-01-01T00:00:00Z', 0.9, now(), now())`,
     [ORG.id],
   )
-  // main has no `org_id` on these tables. The migration fills it.
+  // the previous release has no `org_id` on these tables. The migration fills it.
   await q(
     `INSERT INTO claim_evidence (id, claim_id, source_type, source_id, extraction_method, confidence, observed_at, created_at)
-     VALUES ('cev_main_uses', 'clm_main_uses', 'repository', 'repo_main_tools', 'code', 0.9, '2026-01-01T00:00:00Z', now())`,
+     VALUES ('cev_release_uses', 'clm_release_uses', 'repository', 'repo_release_tools', 'code', 0.9, '2026-01-01T00:00:00Z', now())`,
   )
   await q(
     `INSERT INTO repository_checkouts (id, repository_id, ref, commit_sha, checkout_key, created_at, updated_at)
-     VALUES ('chk_main_api', 'repo_main_api', 'main', $1, 'default', now(), now())`,
+     VALUES ('chk_release_api', 'repo_release_api', 'main', $1, 'default', now(), now())`,
     ["a".repeat(40)],
   )
 }
@@ -354,20 +358,20 @@ afterAll(async () => {
   await admin?.end()
 })
 
-it("upgrades a main database and its Workspace with no manual step, and main still reads the result", async () => {
-  // 1. The database of main: main's own migrate command, then main's data.
+it("upgrades a database of the previous release and its Workspace with no manual step, and the previous release still reads the result", async () => {
+  // 1. The database of the previous release: the previous release's own migrate command, then the previous release's data.
   await run(
     "pnpm",
     ["exec", "drizzle-kit", "migrate"],
     join(releaseTree, "apps/backend"),
     ownerUrl,
   )
-  await owner(seedMainOrg)
-  const mainRead = await readWithMain()
-  expect(mainRead).toMatchObject({
+  await owner(seedReleaseOrg)
+  const releaseRead = await readWithRelease()
+  expect(releaseRead).toMatchObject({
     connections: [
       [GITHUB_CONNECTION, "github"],
-      ["con_main_linear", "linear"],
+      ["con_release_linear", "linear"],
     ],
   })
   const before = await owner(async (db) => ({
@@ -415,8 +419,12 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
   }))
   // No data loss, and the rows with no org now have the org of their parent.
   expect(migrated).toMatchObject(before)
-  expect(migrated.evidence).toEqual([{ id: "cev_main_uses", org_id: ORG.id }])
-  expect(migrated.checkouts).toEqual([{ id: "chk_main_api", org_id: ORG.id }])
+  expect(migrated.evidence).toEqual([
+    { id: "cev_release_uses", org_id: ORG.id },
+  ])
+  expect(migrated.checkouts).toEqual([
+    { id: "chk_release_api", org_id: ORG.id },
+  ])
   expect(migrated.directory).toEqual([
     {
       connection_id: GITHUB_CONNECTION,
@@ -424,12 +432,12 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
       linear_workspace_id: null,
     },
     {
-      connection_id: "con_main_linear",
+      connection_id: "con_release_linear",
       github_installation_id: null,
       linear_workspace_id: LINEAR_WORKSPACE,
     },
   ])
-  // The connector target of main is now a Workspace, with no format read yet.
+  // The connector target of the previous release is now a Workspace, with no format read yet.
   expect(migrated.workspaces).toEqual([
     {
       id: expect.stringMatching(/^ws_/),
@@ -460,7 +468,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
       github: true,
       githubWriteView: "writable",
       githubContentFiles: { "linear/config.yaml": LINEAR_CONFIG },
-      // The context repository in main's layout: no format file (format 0).
+      // The context repository in the previous release's layout: no format file (format 0).
       files: [
         { path: "README.md", body: "# Context\n" },
         { path: "linear/config.yaml", body: LINEAR_CONFIG },
@@ -573,7 +581,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
           await next()
         })
         registerV1Routes(app)
-        // The session that main stored for the admin still signs in.
+        // The session that the previous release stored for the admin still signs in.
         return app.request(
           `http://backend.test/${ORG.slug}/api/v1/workspaces/${workspace.slug}${path}`,
           { method, headers: { authorization: `Bearer ${ADMIN_TOKEN}` } },
@@ -585,7 +593,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         phase("start workers and the first hydrate")
         await f.worker.start()
         await worker.start()
-        // The first hydrate after the deploy reads the main layout: format 0.
+        // The first hydrate after the deploy reads the layout of the previous release: format 0.
         expect(
           await settle({
             workflowRun: f.handle.workflowRun,
@@ -609,7 +617,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         })
         // The re-ingestion item shows too, blocked until the format upgrade
         // merges, with the repositories that the upgrade links: the GitHub
-        // repository, and the public GitLab repository of main as a plain
+        // repository, and the public GitLab repository of the previous release as a plain
         // git source (CTX-815).
         const waiting = await row(reingestKey)
         expect(waiting).toMatchObject({
@@ -645,8 +653,8 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         )
 
         // Below format 3 no ingestion runs, and MCP still serves the
-        // knowledge of main from Postgres.
-        phase("search the knowledge of main through MCP")
+        // knowledge of the previous release from Postgres.
+        phase("search the knowledge of the previous release through MCP")
         const { getAuth } = await import("../auth/config.js")
         const { callTool, connectToolClient } = await import(
           "../test/related-fixture.js"
@@ -657,7 +665,7 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
         const orgKey = await getAuth().api.createApiKey({
           body: {
             configId: "organization",
-            name: "upgrade-from-main",
+            name: "upgrade-from-release",
             organizationId: ORG.id,
           },
           headers: new Headers({ authorization: `Bearer ${ADMIN_TOKEN}` }),
@@ -825,15 +833,18 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
     },
   )
 
-  phase("read with main after the upgrade")
-  // 4. Rollback: the code of main reads the upgraded database as it read
-  // the database of main.
-  expect(await readWithMain()).toEqual(mainRead)
+  phase("read with the previous release after the upgrade")
+  // 4. Rollback: the code of the previous release reads the upgraded database as it read
+  // the database of the previous release.
+  expect(await readWithRelease()).toEqual(releaseRead)
 
-  // 5. In the rollback window main adds one connection and deletes one. The
+  // 5. In the rollback window the previous release adds one connection and deletes one. The
   // next migrate makes the webhook directory agree with `connections` again.
-  phase("main writes in the rollback window")
-  const written = (await writeWithMain()) as { slack: string; deleted: boolean }
+  phase("the previous release writes in the rollback window")
+  const written = (await writeWithRelease()) as {
+    slack: string
+    deleted: boolean
+  }
   expect(written.deleted).toBe(true)
   const directory = () =>
     owner(
@@ -846,7 +857,11 @@ it("upgrades a main database and its Workspace with no manual step, and main sti
     )
   expect(await directory()).toEqual([
     { connection_id: GITHUB_CONNECTION, type: "github", slack_team_id: null },
-    { connection_id: "con_main_linear", type: "linear", slack_team_id: null },
+    {
+      connection_id: "con_release_linear",
+      type: "linear",
+      slack_team_id: null,
+    },
   ])
   await run("pnpm", ["exec", "tsx", "src/db/migrate.ts"], backendDir, ownerUrl)
   expect(await directory()).toEqual(
