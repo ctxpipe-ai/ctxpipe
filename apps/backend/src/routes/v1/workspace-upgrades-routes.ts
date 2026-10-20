@@ -25,7 +25,10 @@ import {
   listWorkspaceUpgradeRows,
   type WorkspaceUpgradeRow,
 } from "../../models/workspace-upgrades.js"
-import { getWorkspaceBySlug } from "../../models/workspaces.js"
+import {
+  getWorkspaceBySlug,
+  listOrgWorkspaces,
+} from "../../models/workspaces.js"
 import { enqueueWorkspaceTipCheck } from "../../openworkflow/enqueue-workspace-tip-check.js"
 import { enqueueWorkspaceUpgradeScan } from "../../openworkflow/workflows/workspace-upgrade-scan.js"
 import {
@@ -357,13 +360,13 @@ const automaticUpgradesRoute = createRoute(
                 queued: z.literal(true),
                 jobId: z.string().openapi({
                   description:
-                    "The file job that commits the setting. Read its status at `GET /{workspaceSlug}/files/jobs/{jobId}`.",
+                    "The file job that commits the setting. Read its status at `GET /{workspaceSlug}/files/jobs/{jobId}`. A job whose run ended with an error is `failed`, with the cause in `failureReason`.",
                 }),
               }),
             },
           },
           description:
-            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. Start the current upgrade after the job completes, so that its pull request contains the setting.",
+            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctx| starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -490,6 +493,14 @@ const PendingWorkspaceUpgradesSchema = z
     workspaces: z.array(
       z.object({
         workspaceSlug: z.string(),
+        formatVersion: z.number().int().nullable().openapi({
+          description:
+            "The format of the Workspace repository that ctx| read last. `null`: not read yet. `-1`: the format file is not valid.",
+        }),
+        codeFormat: z.number().int().openapi({
+          description:
+            "The newest format that this ctx| version reads and writes.",
+        }),
         items: z.array(WorkspaceUpgradeItemSchema),
       }),
     ),
@@ -505,7 +516,7 @@ const listPendingUpgradesRoute = createRoute({
         "application/json": { schema: PendingWorkspaceUpgradesSchema },
       },
       description:
-        "The upgrades of the org that are not `completed`, grouped by Workspace. A Workspace with no such upgrade is not in the list. Every member can read them. The read writes nothing.",
+        "The upgrades of the org that are not `completed`, grouped by Workspace. A Workspace below the newest format is also in the list, with no item when it has no upgrade row yet. Every other Workspace with no pending upgrade is not in the list. Every member can read them. The read writes nothing.",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -518,7 +529,8 @@ const listPendingUpgradesRoute = createRoute({
 export const orgPendingUpgradeRoutes = new OpenAPIHono<AppEnv>().openapi(
   listPendingUpgradesRoute,
   async (c) => {
-    if (!c.get("user") || !c.get("session"))
+    const orgId = c.get("orgId")
+    if (!c.get("user") || !c.get("session") || !orgId)
       return c.json({ error: "Unauthorized" }, 401)
     const bySlug = new Map<
       string,
@@ -529,11 +541,24 @@ export const orgPendingUpgradeRoutes = new OpenAPIHono<AppEnv>().openapi(
       items.push(serializeUpgrade(row))
       bySlug.set(row.workspaceSlug, items)
     }
+    // A Workspace below the newest format needs the format upgrade even when
+    // the scan wrote no upgrade row for it yet, so the connect flows need it.
+    const workspaces = (await listOrgWorkspaces(orgId))
+      .filter(
+        (workspace) =>
+          bySlug.has(workspace.slug) ||
+          (typeof workspace.formatVersion === "number" &&
+            workspace.formatVersion >= 0 &&
+            workspace.formatVersion < CODE_FORMAT),
+      )
+      .sort((a, b) => a.slug.localeCompare(b.slug))
     return c.json(
       {
-        workspaces: [...bySlug].map(([workspaceSlug, items]) => ({
-          workspaceSlug,
-          items,
+        workspaces: workspaces.map((workspace) => ({
+          workspaceSlug: workspace.slug,
+          formatVersion: workspace.formatVersion,
+          codeFormat: CODE_FORMAT,
+          items: bySlug.get(workspace.slug) ?? [],
         })),
       },
       200,

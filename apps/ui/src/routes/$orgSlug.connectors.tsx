@@ -41,6 +41,9 @@ import {
   sortOrgConnectionsForDisplay,
 } from "@/features/connectors/queries/org-connections"
 import { OrgOutletError } from "@/features/org/OrgOutletError"
+import { FormatUpgradeWorkspacesNotice } from "@/features/workspace-upgrades/FormatUpgradeWorkspacesNotice"
+import { useWorkspaceFormatGate } from "@/features/workspace-upgrades/use-workspace-format-gate"
+import { workspaceListOptions } from "@/features/workspaces/queries"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { oauthErrorMessage } from "@/lib/atlassian-oauth-messages"
@@ -149,6 +152,16 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
     "connectors",
   )
   const showEmptyState = !showPageLoading && items.length === 0
+  // Each connect flow ends with a source in a Workspace, and a Workspace
+  // below the newest format refuses it (CTX-935). When no Workspace can take
+  // a source, say so before the user starts a flow that fails.
+  const { data: workspaceList } = useQuery(workspaceListOptions(orgSlug))
+  const formatGate = useWorkspaceFormatGate(orgSlug)
+  const needUpgrade = (workspaceList?.items ?? []).filter((workspace) =>
+    formatGate.needsUpgrade(workspace.slug),
+  )
+  const connectBlocked =
+    needUpgrade.length > 0 && needUpgrade.length === workspaceList?.items.length
 
   useEffect(() => {
     if (search.pendingAccountClaim) {
@@ -225,6 +238,7 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
               size="icon"
               className="rounded-md"
               aria-label="Add connection"
+              isDisabled={connectBlocked}
               onPress={() => setCatalogOpen(true)}
             >
               <IconPlus className="size-5" aria-hidden />
@@ -232,6 +246,15 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
           )
         }
       />
+
+      {connectBlocked ? (
+        <div className="mt-8">
+          <FormatUpgradeWorkspacesNotice
+            orgSlug={orgSlug}
+            workspaces={needUpgrade}
+          />
+        </div>
+      ) : null}
 
       <section
         className={`mt-12 flex min-h-0 flex-col ${
@@ -241,7 +264,10 @@ export function ConnectorsPageContent({ orgSlug }: { orgSlug: string }) {
         {showPageLoading ? (
           <ConnectorListSkeleton />
         ) : showEmptyState ? (
-          <ConnectorsEmptyState onAddConnection={() => setCatalogOpen(true)} />
+          <ConnectorsEmptyState
+            isDisabled={connectBlocked}
+            onAddConnection={() => setCatalogOpen(true)}
+          />
         ) : (
           items.map((row) => {
             if (row.type === "forge") {

@@ -350,6 +350,7 @@ export function WorkspaceChatSession(props: {
     <WorkspaceChatChrome
       workspace={workspace}
       hintOrgSlug={orgSlug}
+      orgSlug={orgSlug}
       title={
         <ConversationTitleButton
           orgSlug={orgSlug}

@@ -31,6 +31,7 @@ import {
   persistWriteJobCommitSha,
   persistWriteJobStatus,
 } from "../../models/workspaces.js"
+import { log } from "../../observability/logger.js"
 import { repositoryFilePathSchema } from "../../services/git/file-change.js"
 import { readGitFiles } from "../../services/git/pack.js"
 import {
@@ -121,6 +122,33 @@ export const workspaceFileEdit = defineWorkflow(
           )
           throw new Error(refusal)
         }
+        // Always update writes only the format file. After that write is
+        // done and its job is marked, a scan starts the waiting upgrades of
+        // the org with no click, also after the user left the page that asked
+        // for it. The setting is already saved by then, so a failed enqueue
+        // is logged and does not change the job. The scan workflow imports
+        // the write path, so the import is late.
+        const scanAfterSetting = async () => {
+          if (!input.files.some((file) => file.path === WORKSPACE_FORMAT_PATH))
+            return
+          await step.run({ name: "enqueue-upgrade-scan" }, async () => {
+            try {
+              const { enqueueWorkspaceUpgradeScan } = await import(
+                "./workspace-upgrade-scan.js"
+              )
+              await enqueueWorkspaceUpgradeScan({
+                orgId: input.orgId,
+                trigger: `setting:${input.jobId}`,
+              })
+            } catch (error) {
+              log.error({
+                action: "workspace_file_edit.upgrade_scan_enqueue_failed",
+                jobId: input.jobId,
+                error: error instanceof Error ? error.message : String(error),
+              })
+            }
+          })
+        }
         for (let refreshAttempt = 0; refreshAttempt < 3; refreshAttempt++) {
           let acquired: NonNullable<
             Awaited<ReturnType<typeof acquireWorkspaceWriteRevision>>
@@ -195,6 +223,7 @@ export const workspaceFileEdit = defineWorkflow(
             await step.run({ name: "complete-no-op" }, () =>
               persistWriteJobStatus(input.jobId, "completed"),
             )
+            await scanAfterSetting()
             return {
               committed: false as const,
               reason: "no_changes" as const,
@@ -259,6 +288,7 @@ export const workspaceFileEdit = defineWorkflow(
                 result.committed ? result.commitSha : null,
               ),
             )
+            await scanAfterSetting()
             return result
           }
           const published = await step.run({ name: "publish-result" }, () =>
@@ -278,6 +308,7 @@ export const workspaceFileEdit = defineWorkflow(
           await step.run({ name: "complete" }, () =>
             persistWriteJobCommitSha(input.jobId, committed.sha),
           )
+          await scanAfterSetting()
           return { committed: true as const, commitSha: committed.sha }
         }
         throw new Error("Default branch kept changing during no-op validation")

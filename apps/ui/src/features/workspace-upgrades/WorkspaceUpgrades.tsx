@@ -22,7 +22,6 @@ import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
   checkWorkspaceUpgrades,
-  startWorkspaceUpgrade,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,
@@ -36,15 +35,16 @@ import {
   upgradeCanStart,
   upgradeIsPending,
   upgradeNotices,
-  upgradeStartedMessage,
   upgradeStatusTag,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
 import {
   type UpgradeFailure,
+  upgradeFailureAllowsStartAgain,
   upgradeFailureCopy,
   upgradeFailurePrompt,
 } from "./upgrade-failure"
+import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
 /**
  * One upgrade. `isAdmin` is `null` while the role loads: no action shows.
@@ -230,7 +230,9 @@ function UpgradeItemCard(props: {
           >
             Check again
           </Button>
-        ) : upgradeCanStart(item) && isAdmin === true ? (
+        ) : upgradeCanStart(item) &&
+          isAdmin === true &&
+          upgradeFailureAllowsStartAgain(item) ? (
           <Button
             variant="primary"
             isPending={isStarting}
@@ -309,24 +311,7 @@ function UpgradeItemRow(props: {
   const { item, orgSlug, workspaceSlug, isAdmin } = props
   const queryClient = useQueryClient()
   // One mutation for each card: the pending state of one card stays apart.
-  const startMutation = useMutation({
-    mutationFn: () => startWorkspaceUpgrade(orgSlug, workspaceSlug, item.key),
-    onSuccess: () => {
-      toast.success(upgradeStartedMessage(item))
-    },
-    onError: (error: Error) => {
-      toast.error(error.message)
-    },
-    onSettled: () =>
-      Promise.all([
-        queryClient.invalidateQueries({
-          queryKey: workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
-        }),
-        queryClient.invalidateQueries({
-          queryKey: workspaceUpgradeKeys.pending(orgSlug),
-        }),
-      ]),
-  })
+  const startMutation = useStartWorkspaceUpgrade(orgSlug, workspaceSlug, item)
   const checkMutation = useMutation({
     mutationFn: () => checkWorkspaceUpgrades(orgSlug, workspaceSlug),
     onSuccess: () => {

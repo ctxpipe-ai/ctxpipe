@@ -12,12 +12,14 @@ const STEP_LABEL: Record<NonNullable<UpgradeFailure["step"]>, string> = {
 
 /**
  * The fix for one failure class. `link`: a page where the user can do the
- * fix. `agent`: the card offers "Fix using agent". Else Start again is the
- * fix.
+ * fix. `agent`: the card offers "Fix using agent". `startAgain: false`: a new
+ * run cannot pass until the user changes the Workspace, so the card offers no
+ * Start again. Else Start again is the fix.
  */
 type FailureCopy = {
   reason: string
   action: string
+  startAgain?: boolean
   link?: "connectors"
   linkLabel?: string
   agent?: true
@@ -61,7 +63,9 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   too_many_sources: {
     reason:
       "The Workspace has more source repositories than one re-ingestion handles.",
-    action: "Remove some source repositories, then start it again.",
+    action:
+      "Remove some source repositories from the Workspace, then start it again.",
+    startAgain: true,
   },
   repository_too_large: {
     reason:
@@ -89,6 +93,13 @@ export function upgradeFailureCopy(failure: UpgradeFailure) {
   }
 }
 
+/** A new run can pass: false when the cause stays until the user changes the Workspace. */
+export function upgradeFailureAllowsStartAgain(
+  item: Pick<WorkspaceUpgradeItem, "failure">,
+): boolean {
+  return !item.failure || upgradeFailureCopy(item.failure).startAgain !== false
+}
+
 /** The chat prompt of "Fix using agent" for a failed upgrade. */
 export function upgradeFailurePrompt(
   item: Pick<WorkspaceUpgradeItem, "title">,
@@ -96,4 +107,15 @@ export function upgradeFailurePrompt(
 ): string {
   const { step } = upgradeFailureCopy(failure)
   return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctx| recorded: ${failure.summary} Find the cause, and tell me how to fix it.`
+}
+
+/**
+ * The chat prompt of "Ask the agent" for a failed item. It names the cause
+ * that ctx| recorded, also when the item has no failure class.
+ */
+export function upgradeFailedItemPrompt(
+  item: Pick<WorkspaceUpgradeItem, "title" | "failure" | "failureReason">,
+): string {
+  if (item.failure) return upgradeFailurePrompt(item, item.failure)
+  return `The upgrade "${item.title}" of this Workspace failed. ctx| recorded: ${item.failureReason ?? "no reason."} Find the cause, and tell me how to fix it.`
 }

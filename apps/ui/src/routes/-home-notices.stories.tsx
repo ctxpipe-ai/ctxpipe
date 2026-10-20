@@ -67,10 +67,13 @@ function homeHandlers(
   role: string,
   items: Parameters<typeof pendingWorkspaceUpgradesHandler>[0],
   skippedFiles: Record<string, WorkspaceSkippedFile[]> = {},
+  automaticJob?: { status: string; failureReason: string | null },
 ) {
   return {
     msw: {
       handlers: {
+        // The global default answers "no pending upgrade"; this key replaces it.
+        pendingUpgrades: [pendingWorkspaceUpgradesHandler(items, answered)],
         page: [
           activeMemberRoleHandler(role),
           // The detail of each Workspace, with its skipped files.
@@ -88,9 +91,11 @@ function homeHandlers(
             })
           }),
           ...workspaceShellHandlers({ workspaces: [docsWorkspace, handbook] }),
-          pendingWorkspaceUpgradesHandler(items, answered),
           workspaceUpgradeStartHandler({ requests }),
-          ...workspaceUpgradeAutomaticHandlers({ requests }),
+          ...workspaceUpgradeAutomaticHandlers({
+            requests,
+            ...(automaticJob ? { job: automaticJob } : {}),
+          }),
           // The home reads the org once. A read of one Workspace fails the story.
           http.get(/\/workspaces\/[^/]+\/upgrades$/, () => {
             perWorkspaceReads.push("upgrades")
@@ -176,8 +181,9 @@ export const UpdateOnce: Story = {
 }
 
 /**
- * Always update saves the setting, waits for its commit, then starts this
- * item, so the pull request contains the setting.
+ * Always update answers at once. The server saves the setting and starts the
+ * upgrade, so the browser sends no start request and does not wait for the
+ * commit. The toast follows the save as progress.
  */
 export const AlwaysUpdate: Story = {
   parameters: homeHandlers("owner", { docs: [upgradeItemFixture()] }),
@@ -189,12 +195,163 @@ export const AlwaysUpdate: Story = {
       }),
     )
     await waitFor(() =>
-      expect(requests).toEqual([
-        "/acme/api/v1/workspaces/docs/upgrades/automatic",
-        "/acme/api/v1/workspaces/docs/files/jobs/wjob_automatic",
-        "/acme/api/v1/workspaces/docs/upgrades/format-3/start",
-      ]),
+      expect(
+        canvas.getByText(
+          "ctx| saved the setting. The upgrade starts in a moment.",
+        ),
+      ).toBeVisible(),
     )
+    expect(requests).toEqual([
+      "/acme/api/v1/workspaces/docs/upgrades/automatic",
+      "/acme/api/v1/workspaces/docs/files/jobs/wjob_automatic",
+    ])
+    expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
+  },
+}
+
+/**
+ * A slow save does not block the toast: it says that the server saves and
+ * starts the upgrade, and the other buttons stay usable. Dismiss still works.
+ */
+export const AlwaysUpdateSlowSave: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture()] },
+    {},
+    { status: "running", failureReason: null },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Always update: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/ctx\| saves the setting\. It starts the upgrade/),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText(/You can leave this page/)).toBeVisible()
+    // The save runs on the server: nothing starts in the browser.
+    expect(requests.some((path) => path.endsWith("/start"))).toBe(false)
+  },
+}
+
+/** A failed save shows its cause and the next steps. */
+export const AlwaysUpdateSaveFails: Story = {
+  parameters: homeHandlers(
+    "owner",
+    { docs: [upgradeItemFixture()] },
+    {},
+    {
+      status: "failed",
+      failureReason:
+        "The write stopped before it finished. stdout maxBuffer length exceeded",
+    },
+  ),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await userEvent.click(
+      await canvas.findByRole("button", {
+        name: "Always update: Docs, Upgrade to format 3",
+      }),
+    )
+    await waitFor(() =>
+      expect(
+        canvas.getByText(/ctx\| could not save the setting\./),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByText(/stdout maxBuffer length exceeded/)).toBeVisible()
+    expect(
+      canvas.getByRole("link", {
+        name: "Open Upgrades: Docs, Upgrade to format 3",
+      }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    // Update once is still a way to go on.
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", {
+          name: "Update once: Docs, Upgrade to format 3",
+        }),
+      ).toBeEnabled(),
+    )
+  },
+}
+
+const failedUpgrade = upgradeItemFixture({
+  status: "failed",
+  failureReason: "stdout maxBuffer length exceeded",
+  failure: {
+    code: "unknown",
+    step: null,
+    repository: null,
+    summary: "stdout maxBuffer length exceeded",
+  },
+})
+
+/**
+ * A failed item has a cause that can repeat, so the toast offers no Update
+ * once and no Always update. It shows the cause and two next steps. Ask the
+ * agent puts the prompt into the composer of that Workspace.
+ */
+export const FailedUpgrade: Story = {
+  parameters: homeHandlers("owner", { docs: [failedUpgrade] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
+    )
+    expect(within(region).getByText(/maxBuffer length exceeded/)).toBeVisible()
+    expect(
+      within(region).queryByRole("button", { name: /Update once/ }),
+    ).toBeNull()
+    expect(
+      within(region).queryByRole("button", { name: /Always update/ }),
+    ).toBeNull()
+    expect(
+      within(region).getByRole("link", {
+        name: "Open Upgrades: Docs, Upgrade to format 3",
+      }),
+    ).toHaveAttribute("href", "/acme/ws/docs?pane=settings#upgrades")
+    await userEvent.click(
+      within(region).getByRole("button", {
+        name: "Ask the agent: Docs, Upgrade to format 3",
+      }),
+    )
+    const composer = () =>
+      canvas.getByPlaceholderText(/what should ctxpipe do in this workspace/i)
+    await waitFor(() =>
+      expect((composer() as HTMLTextAreaElement).value).toContain(
+        'The upgrade "Upgrade to format 3" of this Workspace failed',
+      ),
+    )
+    expect(requests).toEqual([])
+  },
+}
+
+/** A member sees the cause and the next steps of a failed upgrade too. */
+export const FailedUpgradeMember: Story = {
+  parameters: homeHandlers("member", { docs: [failedUpgrade] }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const region = await canvas.findByRole("region", {
+      name: "Workspace notices",
+    })
+    await waitFor(() =>
+      expect(within(region).getByText("Docs upgrade failed")).toBeVisible(),
+    )
+    expect(
+      within(region).getByRole("button", {
+        name: "Ask the agent: Docs, Upgrade to format 3",
+      }),
+    ).toBeVisible()
+    expect(
+      within(region).queryByRole("button", { name: /Update once/ }),
+    ).toBeNull()
   },
 }
 
@@ -322,9 +479,7 @@ export const MemberView: Story = {
       name: "Workspace notices",
     })
     await waitFor(() =>
-      expect(
-        within(region).getAllByText("An owner or admin can start it.")[0],
-      ).toBeVisible(),
+      expect(within(region).getAllByText("Ask an admin")[0]).toBeVisible(),
     )
     await waitFor(() =>
       expect(within(region).queryAllByRole("button")).toHaveLength(0),

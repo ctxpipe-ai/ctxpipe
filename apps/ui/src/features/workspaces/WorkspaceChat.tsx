@@ -111,6 +111,7 @@ function WorkspaceComposeChat(props: {
   return (
     <WorkspaceChatChrome
       workspace={props.workspace}
+      orgSlug={orgSlug}
       title="New conversation"
       headerExtra={props.headerExtra}
     >

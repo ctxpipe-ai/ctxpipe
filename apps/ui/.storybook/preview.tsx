@@ -7,6 +7,7 @@ import {
   organizationListWithOrgHandler,
   sessionSignedInHandler,
 } from "../src/mocks/handlers"
+import { pendingWorkspaceUpgradesHandler } from "../src/mocks/workspace-upgrades-handlers"
 import { storyRouteLoader } from "./decorators/with-story-route"
 import "../src/styles.css"
 
@@ -21,6 +22,9 @@ const storybookDefaultMswHandlers = {
     }),
     organizationListWithOrgHandler,
   ],
+  // No Workspace has a pending upgrade. The connect flows read it before
+  // they offer a Workspace (CTX-935); a story sets this key to change it.
+  pendingUpgrades: [pendingWorkspaceUpgradesHandler({})],
 }
 
 function StorybookQueryBoundary({ children }: { children: React.ReactNode }) {

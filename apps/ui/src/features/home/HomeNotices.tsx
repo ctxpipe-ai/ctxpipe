@@ -1,17 +1,24 @@
 import { IconAlertTriangle, IconCircleArrowUp } from "@tabler/icons-react"
-import { useMutation, useQueryClient } from "@tanstack/react-query"
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
 import { useNavigate } from "@tanstack/react-router"
+import { useState } from "react"
 import { Button as RACButton } from "react-aria-components"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { ToastStack } from "@/components/ui/ToastStack"
+import { workspaceUpgradesHref } from "@/features/workspace-upgrades/format-gate"
 import {
+  automaticUpgradesJobOptions,
   enableAutomaticWorkspaceUpgrades,
-  startWorkspaceUpgrade,
   type WorkspaceUpgradeItem,
   workspaceUpgradeKeys,
 } from "@/features/workspace-upgrades/queries"
-import { upgradeStartedMessage } from "@/features/workspace-upgrades/upgrade-copy"
+import { MEMBER_ASK_ADMIN } from "@/features/workspace-upgrades/upgrade-copy"
+import {
+  upgradeFailedItemPrompt,
+  upgradeFailureCopy,
+} from "@/features/workspace-upgrades/upgrade-failure"
+import { useStartWorkspaceUpgrade } from "@/features/workspace-upgrades/use-start-upgrade"
 import {
   skippedFileCopy,
   skippedFileFixable,
@@ -31,9 +38,14 @@ import { cn } from "@/lib/utils"
 import { useHomeNotices } from "./use-home-notices"
 
 /**
- * One upgrade toast. An owner or admin gets Update once, Always update and Dismiss.
- * A member gets no button. `isAdmin` is `null` while the role loads: the
- * toast then shows neither the buttons nor the member line.
+ * One upgrade toast that waits for a click. An owner or admin gets Update
+ * once, Always update and Dismiss. A member gets no button. `isAdmin` is
+ * `null` while the role loads: the toast then shows neither the buttons nor
+ * the member line.
+ *
+ * Always update answers at once. The server saves the setting and then
+ * starts the upgrade, also when the user leaves Home. The toast follows the
+ * save as progress only: a failed save shows its cause and a next step.
  */
 function UpgradeToast(props: {
   orgSlug: string
@@ -44,34 +56,33 @@ function UpgradeToast(props: {
 }) {
   const { orgSlug, workspace, item, isAdmin, onDismiss } = props
   const queryClient = useQueryClient()
-  const refresh = () =>
-    Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.pending(orgSlug),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: workspaceUpgradeKeys.list(orgSlug, workspace.slug),
-      }),
-    ])
-  const start = useMutation({
-    mutationFn: async (always: boolean) => {
-      if (always)
-        await enableAutomaticWorkspaceUpgrades(orgSlug, workspace.slug)
-      return startWorkspaceUpgrade(orgSlug, workspace.slug, item.key)
-    },
-    onSuccess: (_, always) => {
-      toast.success(
-        always
-          ? `ctx| now starts each upgrade of ${workspace.displayName}. ${upgradeStartedMessage(item)}`
-          : upgradeStartedMessage(item),
-      )
-    },
+  const startOnce = useStartWorkspaceUpgrade(orgSlug, workspace.slug, item)
+  const [savingJobId, setSavingJobId] = useState<string | null>(null)
+  const always = useMutation({
+    mutationFn: () => enableAutomaticWorkspaceUpgrades(orgSlug, workspace.slug),
+    onSuccess: ({ jobId }) => setSavingJobId(jobId),
     onError: (error: Error) => {
       toast.error(error.message)
     },
-    onSettled: refresh,
+    onSettled: () =>
+      queryClient.invalidateQueries({
+        queryKey: workspaceUpgradeKeys.pending(orgSlug),
+      }),
   })
-  const title = `${workspace.displayName} ${item.status === "failed" ? "upgrade failed" : "upgrade available"}`
+  const job = useQuery({
+    ...automaticUpgradesJobOptions(orgSlug, workspace.slug, savingJobId ?? ""),
+    enabled: savingJobId !== null,
+  })
+  const jobStatus = job.data?.status
+  const saving =
+    always.isPending ||
+    (savingJobId !== null &&
+      jobStatus !== "completed" &&
+      jobStatus !== "failed" &&
+      !job.isError)
+  const saveFailed = jobStatus === "failed"
+  const busy = startOnce.isPending || saving
+  const title = `${workspace.displayName} upgrade available`
   // One Workspace can have two items: the buttons name the item too.
   const label = `${workspace.displayName}, ${item.title}`
   return (
@@ -84,14 +95,16 @@ function UpgradeToast(props: {
       <div className="min-w-0 grow basis-64">
         <p className="text-sm font-medium">{title}</p>
         <p className="text-xs text-muted-foreground">
-          {item.status === "failed" && item.failureReason
-            ? item.failureReason
-            : item.description}
+          {saving
+            ? "ctx| saves the setting. It starts the upgrade when the setting is saved. You can leave this page."
+            : saveFailed
+              ? `ctx| could not save the setting. ${job.data?.failureReason ?? ""} Press Update once to start the upgrade now, or open Upgrades.`
+              : jobStatus === "completed"
+                ? "ctx| saved the setting. The upgrade starts in a moment."
+                : item.description}
         </p>
         {isAdmin === false ? (
-          <p className="text-xs text-muted-foreground">
-            An owner or admin can start it.
-          </p>
+          <p className="text-xs text-muted-foreground">{MEMBER_ASK_ADMIN}</p>
         ) : null}
       </div>
       {isAdmin === true ? (
@@ -99,9 +112,9 @@ function UpgradeToast(props: {
           <Button
             variant="primary"
             size="sm"
-            isDisabled={start.isPending}
-            isPending={start.isPending && start.variables === false}
-            onPress={() => start.mutate(false)}
+            isDisabled={busy}
+            isPending={startOnce.isPending}
+            onPress={() => startOnce.mutate()}
             aria-label={`Update once: ${label}`}
           >
             Update once
@@ -109,17 +122,27 @@ function UpgradeToast(props: {
           <Button
             variant="primary"
             size="sm"
-            isDisabled={start.isPending}
-            isPending={start.isPending && start.variables === true}
-            onPress={() => start.mutate(true)}
+            isDisabled={busy}
+            isPending={saving}
+            onPress={() => {
+              setSavingJobId(null)
+              always.mutate()
+            }}
             aria-label={`Always update: ${label}`}
           >
             Always update
           </Button>
+          {saveFailed ? (
+            <OpenUpgradesButton
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
+              label={label}
+            />
+          ) : null}
           <Button
             variant="ghost"
             size="sm"
-            isDisabled={start.isPending}
+            isDisabled={busy}
             onPress={onDismiss}
             aria-label={`Dismiss: ${label}`}
           >
@@ -127,6 +150,89 @@ function UpgradeToast(props: {
           </Button>
         </div>
       ) : null}
+    </div>
+  )
+}
+
+function OpenUpgradesButton(props: {
+  orgSlug: string
+  workspaceSlug: string
+  label: string
+}) {
+  return (
+    <Button
+      variant="secondary"
+      size="sm"
+      href={workspaceUpgradesHref(props.orgSlug, props.workspaceSlug)}
+      aria-label={`Open Upgrades: ${props.label}`}
+    >
+      Open Upgrades
+    </Button>
+  )
+}
+
+/**
+ * One failed upgrade. A failure with a repeatable cause fails again on a
+ * retry, so the toast offers no Update once and no Always update (CTX-936).
+ * It shows the cause and two next steps: ask the agent, or open Upgrades,
+ * where the card names the step that failed and the fix. Every role sees it.
+ */
+function FailedUpgradeToast(props: {
+  orgSlug: string
+  workspace: Pick<Workspace, "id" | "slug" | "displayName">
+  item: WorkspaceUpgradeItem
+  onFixWithAgent: (workspaceId: string, prompt: string) => void
+  onDismiss: () => void
+}) {
+  const { orgSlug, workspace, item, onFixWithAgent, onDismiss } = props
+  const label = `${workspace.displayName}, ${item.title}`
+  const cause = item.failure
+    ? upgradeFailureCopy(item.failure).reason
+    : (item.failureReason ?? "ctx| gives no reason.")
+  return (
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-2 p-3">
+      <IconAlertTriangle
+        className="size-5 shrink-0 text-red-300"
+        stroke={1.25}
+        aria-hidden
+      />
+      <div className="min-w-0 grow basis-64">
+        <p className="text-sm font-medium">
+          {workspace.displayName} upgrade failed
+        </p>
+        <p className="text-xs break-words text-muted-foreground">
+          {cause}
+          {item.failure
+            ? ` Details: ${item.failure.summary.replace(/[.!?]?$/, ".")}`
+            : ""}{" "}
+          A new try can fail the same way.
+        </p>
+      </div>
+      <div className="flex flex-wrap gap-2 max-sm:w-full">
+        <Button
+          variant="primary"
+          size="sm"
+          onPress={() =>
+            onFixWithAgent(workspace.id, upgradeFailedItemPrompt(item))
+          }
+          aria-label={`Ask the agent: ${label}`}
+        >
+          Ask the agent
+        </Button>
+        <OpenUpgradesButton
+          orgSlug={orgSlug}
+          workspaceSlug={workspace.slug}
+          label={label}
+        />
+        <Button
+          variant="ghost"
+          size="sm"
+          onPress={onDismiss}
+          aria-label={`Dismiss: ${label}`}
+        >
+          Dismiss
+        </Button>
+      </div>
     </div>
   )
 }
@@ -254,6 +360,14 @@ export function HomeNoticeToasts(props: {
             orgSlug={orgSlug}
             workspace={notice.workspace}
             skippedFiles={notice.skippedFiles}
+            onFixWithAgent={onFixWithAgent}
+            onDismiss={onDismiss}
+          />
+        ) : notice.item.status === "failed" ? (
+          <FailedUpgradeToast
+            orgSlug={orgSlug}
+            workspace={notice.workspace}
+            item={notice.item}
             onFixWithAgent={onFixWithAgent}
             onDismiss={onDismiss}
           />
