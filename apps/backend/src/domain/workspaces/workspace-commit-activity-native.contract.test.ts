@@ -195,6 +195,33 @@ it(
 )
 
 it(
+  "gives empty activity, not an error, for a GitHub repository with no commits",
+  { timeout: 60_000 },
+  async () => {
+    await withNativeHydrationFixture(
+      { github: true, githubListCommits: "empty" },
+      async (f) => {
+        await f.handle.cancel()
+        expect(
+          await withOrgIdContext(f.org, () =>
+            projectWorkspaceCommits({
+              workspaceId: f.workspaceId,
+              env: parseEnv(process.env),
+            }),
+          ),
+        ).toEqual({ status: "ready" })
+        const app = workspaceHttpApp(f.org, workspaceActivityRoutes)
+        const body = await (
+          await app.request("/workspaces/knowledge/activity")
+        ).json()
+        expect(body.status).toBe("ready")
+        expect(body.recent).toEqual([])
+      },
+    )
+  },
+)
+
+it(
   "skips a workspace when GitHub refuses a token for its repository",
   { timeout: 60_000 },
   async () => {
