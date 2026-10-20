@@ -1,5 +1,5 @@
-import { execFile } from "node:child_process"
-import { mkdtemp, rm } from "node:fs/promises"
+import { execFile, spawn } from "node:child_process"
+import { mkdtemp, open, readFile, rm } from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { promisify } from "node:util"
@@ -23,7 +23,10 @@ async function gitExec(
     if (input !== undefined) execution.child.stdin?.end(input)
     return await execution
   } catch (error) {
-    const err = error as NodeJS.ErrnoException & { message?: string }
+    const err = error as NodeJS.ErrnoException & {
+      message?: string
+      killed?: boolean
+    }
     if (
       err.code === "ENOENT" ||
       /not found in \$PATH/i.test(err.message ?? "")
@@ -32,13 +35,91 @@ async function gitExec(
         "git is not installed on this service; cannot read a repository by clone.",
       )
     }
+    if (
+      options.timeout &&
+      err.killed &&
+      err.code !== "ERR_CHILD_PROCESS_STDIO_MAXBUFFER"
+    )
+      throw gitTimeoutError(args, options.timeout)
     throw error
   }
 }
 
-type GitShaFile =
-  | { kind: "missing" }
-  | { kind: "bytes"; bytes: Uint8Array }
+/** A known sentence for the failure card; the arguments hold no credential. */
+function gitTimeoutError(args: readonly string[], timeout: number) {
+  const command = args.find(
+    (arg, index) => !arg.startsWith("-") && args[index - 1] !== "-C",
+  )
+  return new Error(
+    `Git ${command} did not finish in the time that ctx| waits (${Math.round(timeout / 1000)} s).`,
+  )
+}
+
+/**
+ * Run Git with its standard output in a temporary file, then read the file.
+ * The output of these commands grows with the repository, and a buffered
+ * standard output has a fixed limit (CTX-933).
+ */
+async function gitOutput(
+  args: string[],
+  timeout: number,
+  input?: string,
+): Promise<Buffer> {
+  const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-git-output-"))
+  try {
+    const file = join(scratch, "stdout")
+    const stdout = await open(file, "w")
+    try {
+      await new Promise<void>((resolve, reject) => {
+        const child = spawn("git", args, {
+          stdio: [input === undefined ? "ignore" : "pipe", stdout.fd, "pipe"],
+        })
+        let stderr = ""
+        let timedOut = false
+        const timer = setTimeout(() => {
+          timedOut = true
+          child.kill()
+        }, timeout)
+        child.stderr?.on("data", (chunk: Buffer) => {
+          stderr = (stderr + chunk.toString()).slice(-4096)
+        })
+        // Git can exit before it reads all of its input; its exit status
+        // gives the result, not the broken pipe.
+        child.stdin?.on("error", () => {})
+        child.stdin?.end(input)
+        child.on("error", (error: NodeJS.ErrnoException) => {
+          clearTimeout(timer)
+          reject(
+            error.code === "ENOENT"
+              ? new Error(
+                  "git is not installed on this service; cannot read a repository by clone.",
+                )
+              : error,
+          )
+        })
+        child.on("close", (code) => {
+          clearTimeout(timer)
+          if (timedOut) reject(gitTimeoutError(args, timeout))
+          else if (code === 0) resolve()
+          else
+            reject(
+              Object.assign(
+                new Error(`Command failed: git ${args.join(" ")}\n${stderr}`),
+                { code, stderr },
+              ),
+            )
+        })
+      })
+    } finally {
+      await stdout.close()
+    }
+    return await readFile(file)
+  } finally {
+    await rm(scratch, { recursive: true, force: true })
+  }
+}
+
+type GitShaFile = { kind: "missing" } | { kind: "bytes"; bytes: Uint8Array }
 
 export const GIT_REMOTE_ACCESS_MESSAGES = {
   noCredential:
@@ -222,7 +303,9 @@ async function withFetchedGitSha<T>(
         input.sha,
       ],
       {
-        timeout: 60_000,
+        // The full history of a large repository takes much longer than
+        // its newest commit.
+        timeout: input.includeIntroducingCommits ? 10 * 60_000 : 60_000,
         env,
       },
     )
@@ -245,7 +328,7 @@ async function listTreeEntries(
 ): Promise<
   Array<{ kind: string; sha: string; path: string; size: number | null }>
 > {
-  const { stdout } = await gitExec(
+  const stdout = await gitOutput(
     [
       "-C",
       dir,
@@ -255,7 +338,7 @@ async function listTreeEntries(
       "FETCH_HEAD",
       ...(prefix ? ["--", prefix] : []),
     ],
-    { timeout: 15_000, maxBuffer: 10 * 1024 * 1024 },
+    60_000,
   )
   return stdout
     .toString("utf8")
@@ -416,11 +499,10 @@ export async function listMarkdownFilesAtGitSha(input: {
       const entries = listed.filter((entry) => !tooLarge(entry))
       if (entries.length === 0) return omitted
       await fetchBlobs(entries.map((entry) => entry.sha))
-      // The caller keeps all blob contents in memory. This limit bounds that
-      // memory.
-      const { stdout } = await gitExec(
+      // The caller keeps all blob contents in memory.
+      const stdout = await gitOutput(
         ["-C", dir, "cat-file", "--batch"],
-        { timeout: 30_000, maxBuffer: 200 * 1024 * 1024 },
+        60_000,
         `${entries.map((entry) => entry.sha).join("\n")}\n`,
       )
       const introduced = new Map<string, string>()
@@ -430,7 +512,7 @@ export async function listMarkdownFilesAtGitSha(input: {
           ? workspaceRepositoryPath(input.root ?? "", input.layoutPath)
           : undefined
         // One history walk for all paths, newest first; raw -z keeps tabs/newlines in filenames intact.
-        const { stdout: history } = await gitExec(
+        const history = await gitOutput(
           [
             "-C",
             dir,
@@ -448,7 +530,7 @@ export async function listMarkdownFilesAtGitSha(input: {
             "*.md",
             ...(layoutPath ? [`:(literal)${layoutPath}`] : []),
           ],
-          { timeout: 60_000, maxBuffer: 128 * 1024 * 1024 },
+          5 * 60_000,
         )
         const records = history.toString("utf8").split("\0")
         let timestamp: string | undefined

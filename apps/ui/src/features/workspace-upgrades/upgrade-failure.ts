@@ -65,9 +65,9 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   },
   repository_too_large: {
     reason:
-      "The Workspace repository is larger than ctx| can read in one step.",
+      "A Git repository that this upgrade reads is too large for ctx| to read.",
     action:
-      "Start it again. If it fails again, remove large files that are not knowledge, such as build output or binary files, from the Workspace repository. Then start it again.",
+      "Remove large files that are not knowledge, such as build output or binary files, from that repository. Then start it again.",
     agent: true,
   },
   unknown: {

@@ -370,10 +370,15 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
                     note: pull.note,
                   },
                 })
-              if (pull.kind === "failed")
+              if (pull.kind === "failed") {
+                getLogger().error(new Error(pull.reason), {
+                  step: "workspace-upgrade.failed",
+                  upgradeKey: key,
+                })
                 return finish(UPGRADE_STATUSES.failed, {
                   failureReason: pull.reason,
                 })
+              }
               return finish(UPGRADE_STATUSES.pr_open, {
                 desiredSha: built.revision.sha,
                 upgrade: {

@@ -132,7 +132,7 @@ export async function mergeGitFiles(input: {
       const objects = await packGitObjects(directory, [input.pack.sha, tree])
       return {
         staged: {
-          pack: { ...input.pack, objects: objects.toString("base64") },
+          pack: { ...input.pack, objects },
           tree,
         },
         paths: [

@@ -123,15 +123,15 @@ export async function nativeGit(
 }
 
 /**
- * Pack the objects of `revs` (`git pack-objects --revs` input lines). Git
- * writes the pack to a file, not to standard output: the size of the pack
- * grows with the size of the repository, and a buffered standard output has
- * a fixed limit (CTX-933).
+ * Pack the objects of `revs` (`git pack-objects --revs` input lines) as
+ * base64. Git writes the pack to a file, not to standard output: the size of
+ * the pack grows with the size of the repository, and a buffered standard
+ * output has a fixed limit (CTX-933).
  */
 export async function packGitObjects(
   directory: string,
   revs: readonly string[],
-): Promise<Buffer> {
+): Promise<string> {
   const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-pack-"))
   try {
     const name = (
@@ -146,15 +146,16 @@ export async function packGitObjects(
     if (!/^[0-9a-f]{40,64}$/.test(name))
       throw new Error("Git did not name the pack that it wrote")
     const file = join(scratch, `pack-${name}.pack`)
-    // A pack travels as one base64 string. V8 refuses a string of more than
-    // about 512 Mi characters; 256 MiB of pack is about 342 Mi characters.
-    const maxBytes = 256 * 2 ** 20
+    // A pack travels as one base64 string. A Workspace write workflow keeps
+    // that string in the output of a durable step, a Postgres jsonb value of
+    // at most about 256 MiB. 190 MiB of pack is about 253 MiB of base64.
+    const maxBytes = 190 * 2 ** 20
     const { size } = await stat(file)
     if (size > maxBytes)
       throw new Error(
         `The Git repository is too large for ctx| to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
       )
-    return await readFile(file)
+    return (await readFile(file)).toString("base64")
   } finally {
     await rm(scratch, { recursive: true, force: true })
   }
@@ -172,7 +173,7 @@ export async function captureGitPack(
       throw error
     },
   )
-  return { sha, objects: objects.toString("base64"), shallow }
+  return { sha, objects, shallow }
 }
 
 export async function withGitDirectory<T>(

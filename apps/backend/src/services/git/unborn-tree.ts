@@ -97,7 +97,7 @@ export async function stageUnbornGitFiles(
     }
     const tree = (await nativeGit(directory, ["write-tree"])).toString().trim()
     const objects = await packGitObjects(directory, [tree])
-    return { tree, objects: objects.toString("base64") }
+    return { tree, objects }
   })
 }
 

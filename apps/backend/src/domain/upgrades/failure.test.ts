@@ -55,11 +55,21 @@ describe("classifyUpgradeFailure", () => {
 
   it.each([
     "stdout maxBuffer length exceeded",
-    "The Git repository is too large for ctx| to read in one step: the Git pack of its commit is 300 MiB, and the limit is 256 MiB.",
+    "The Git repository is too large for ctx| to read in one step: the Git pack of its commit is 300 MiB, and the limit is 190 MiB.",
   ])("names a Git output that is too large as a known cause: %s", (failureReason) => {
     expect(
       classifyUpgradeFailure({ status: "failed", failureReason }),
     ).toMatchObject({ code: "repository_too_large", step: null })
+  })
+
+  it("names a Git command that took too long as a timeout", () => {
+    expect(
+      classifyUpgradeFailure({
+        status: "failed",
+        failureReason:
+          "Git fetch did not finish in the time that ctx| waits (600 s).",
+      }),
+    ).toMatchObject({ code: "timeout", step: null })
   })
 
   it("reads a row error with no repository", () => {

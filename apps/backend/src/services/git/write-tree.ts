@@ -112,7 +112,7 @@ export async function stageGitFiles(
         .toString()
         .trim()
       const objects = await packGitObjects(directory, [pack.sha, tree])
-      return { pack: { ...pack, objects: objects.toString("base64") }, tree }
+      return { pack: { ...pack, objects }, tree }
     },
     pack,
   )

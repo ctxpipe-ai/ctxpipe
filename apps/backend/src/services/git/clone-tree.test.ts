@@ -52,6 +52,74 @@ describe("clone-tree", { timeout: 30_000 }, () => {
     ])
   })
 
+  it("reads the commit dates of a repository whose Git outputs are larger than a buffer allows (CTX-933)", async () => {
+    dir = await mkdtemp(join(tmpdir(), "ctxpipe-large-history-"))
+    const repo = dir
+    const git = (args: string[], input?: string, date?: number) =>
+      new Promise<string>((resolve, reject) => {
+        const child = execFile(
+          "git",
+          ["-C", repo, ...args],
+          {
+            env: {
+              ...process.env,
+              GIT_AUTHOR_NAME: "Contract",
+              GIT_AUTHOR_EMAIL: "contract@example.test",
+              GIT_COMMITTER_NAME: "Contract",
+              GIT_COMMITTER_EMAIL: "contract@example.test",
+              ...(date ? { GIT_COMMITTER_DATE: `${date} +0000` } : {}),
+            },
+          },
+          (error, stdout) => (error ? reject(error) : resolve(stdout.trim())),
+        )
+        child.stdin?.end(input)
+      })
+    await git(["init", "-b", "main"])
+    // 45,000 Markdown files with 200-character names: `ls-tree -rlz` writes
+    // more than 10 MiB. Each commit changes every file, so the Markdown log
+    // of 11 commits is more than 128 MiB.
+    const names = Array.from(
+      { length: 45_000 },
+      (_, index) => `${"n".repeat(191)}${String(index).padStart(6, "0")}.md`,
+    )
+    const trees: string[] = []
+    for (const content of ["# A\n", "# B\n"]) {
+      const blob = await git(["hash-object", "-w", "--stdin"], content)
+      trees.push(
+        await git(
+          ["mktree"],
+          names.map((name) => `100644 blob ${blob}\t${name}\n`).join(""),
+        ),
+      )
+    }
+    const start = 1_700_000_000
+    let sha = ""
+    for (let index = 0; index < 11; index++)
+      sha = await git(
+        [
+          "commit-tree",
+          trees[index % 2] as string,
+          ...(sha ? ["-p", sha] : []),
+          "-m",
+          `Change ${index}`,
+        ],
+        undefined,
+        start + index * 60,
+      )
+    const files = await listMarkdownFilesAtGitSha({
+      url: repo,
+      sha,
+      includeIntroducingCommits: true,
+    })
+    expect(files).toHaveLength(names.length)
+    expect(files[0]).toEqual({
+      path: names[0],
+      content: "# A\n",
+      introducingCommitTimestamp: new Date(start * 1000).toISOString(),
+      lastCommitTimestamp: new Date((start + 600) * 1000).toISOString(),
+    })
+  })
+
   it("names the Markdown paths that a commit deleted, relative to the root", async () => {
     dir = await mkdtemp(join(tmpdir(), "ctxpipe-deleted-paths-"))
     const git = async (...args: string[]) =>

@@ -79,6 +79,12 @@ const RULES: Array<{
     match: /too large for ctx\| to read|maxbuffer length exceeded/,
   },
   { code: "timeout", step: "wait", match: /waited too long for its turn/ },
+  // A Git command on a large repository (CTX-933).
+  {
+    code: "timeout",
+    step: null,
+    match: /^git [a-z-]+ did not finish in the time/m,
+  },
   {
     code: "timeout",
     step: "ingest",
