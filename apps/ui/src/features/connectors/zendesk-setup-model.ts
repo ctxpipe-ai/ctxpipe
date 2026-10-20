@@ -5,7 +5,7 @@ type SetupStatus = {
 }
 
 /**
- * A connection holds auth only (ADR-050, ADR-054). Hosted ctx| has a
+ * A connection holds auth only (ADR-050, ADR-055). Hosted ctx| has a
  * global OAuth client; a self-hosted deployment registers its own first.
  */
 export function getZendeskSetupSteps(deploymentOAuthClient: boolean) {

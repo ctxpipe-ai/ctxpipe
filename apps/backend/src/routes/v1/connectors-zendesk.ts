@@ -217,7 +217,7 @@ async function accessTokenOrNull(
 }
 
 /**
- * Org-admin routes of the Zendesk connector (ADR-054). The connection holds
+ * Org-admin routes of the Zendesk connector (ADR-055). The connection holds
  * auth only; each Workspace selects its categories and views in its sources.
  */
 export const zendeskConnectorRoutes = new OpenAPIHono<AppEnv>()

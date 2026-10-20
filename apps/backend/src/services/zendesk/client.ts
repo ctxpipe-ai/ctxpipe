@@ -316,7 +316,7 @@ export async function listZendeskViewTickets(
 /**
  * Create the one webhook of a connection for Help Center article events,
  * and read its signing secret. Zendesk sends ticket events only through a
- * trigger, so tickets do not use it (ADR-054).
+ * trigger, so tickets do not use it (ADR-055).
  */
 export async function createZendeskArticleWebhook(
   input: ZendeskAuth & { endpoint: string },

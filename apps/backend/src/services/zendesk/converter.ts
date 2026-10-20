@@ -42,7 +42,7 @@ export type ZendeskTicketForMirror = {
 }
 
 /**
- * The folders that one scope item owns in a Workspace (ADR-054). The sources
+ * The folders that one scope item owns in a Workspace (ADR-055). The sources
  * sync gives ownership by path prefix, so each item has its own folder.
  */
 export function zendeskCategoryRoot(categoryId: string): string {
@@ -288,7 +288,7 @@ function withoutPhoneNumbers(text: string): string {
 }
 
 /**
- * Ticket text without contact details or private URLs (ADR-054). Comments
+ * Ticket text without contact details or private URLs (ADR-055). Comments
  * and subjects are free text from end customers: email signatures carry
  * addresses and phone numbers. Other personal data can remain.
  */

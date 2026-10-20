@@ -109,7 +109,7 @@ async function readItem(
 }
 
 /**
- * The Zendesk adapter of the Workspace sources sync (ADR-054). Each sync
+ * The Zendesk adapter of the Workspace sources sync (ADR-055). Each sync
  * reads each selected category (its articles) and each selected view (its
  * latest tickets), and writes them under `zendesk/`. An item that left a
  * category or a view goes away in the same commit.

@@ -29,7 +29,7 @@ const uniqueIds = (what: string, plural: string) =>
 
 export const zendeskSourceScopeSchema = z
   .object({
-    /** Help Center categories whose articles sync (ADR-054). */
+    /** Help Center categories whose articles sync (ADR-055). */
     categories: uniqueIds("category", "categories").optional(),
     /** Ticket views whose latest tickets sync, with their comments. */
     views: uniqueIds("view", "views").optional(),

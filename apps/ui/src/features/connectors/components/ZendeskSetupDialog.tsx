@@ -57,7 +57,7 @@ type ZendeskSetupDialogProps = {
 
 /**
  * Connect a Zendesk account with OAuth, then add Zendesk to Workspaces
- * (ADR-050, ADR-054). A self-hosted deployment registers its own OAuth
+ * (ADR-050, ADR-055). A self-hosted deployment registers its own OAuth
  * client first; hosted ctx| has a global one.
  */
 export function ZendeskSetupDialog({

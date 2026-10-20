@@ -837,7 +837,7 @@ export function pagerdutyOauthConfigured(
 }
 
 /**
- * The Workspace sources sync state of a Zendesk connection (ADR-054). It
+ * The Workspace sources sync state of a Zendesk connection (ADR-055). It
  * counts the sync cycles in which a category or a view failed for good.
  */
 export const zendeskSourceSyncSchema = z.object({
@@ -847,7 +847,7 @@ export const zendeskSourceSyncSchema = z.object({
 export type ZendeskSourceSync = z.infer<typeof zendeskSourceSyncSchema>
 
 /**
- * Stored in `connections.config` for `type === "zendesk"` (ADR-054). A
+ * Stored in `connections.config` for `type === "zendesk"` (ADR-055). A
  * self-host admin saves a local OAuth client on the row; hosted ctx| uses
  * its global OAuth client from env (`ZENDESK_CLIENT_*`). Tokens and the
  * webhook signing secret are encrypted.
