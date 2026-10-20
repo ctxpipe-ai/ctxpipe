@@ -8,8 +8,6 @@ import type {
 } from "./types.js"
 import { GITHUB_PR_FILE_STATUSES } from "./types.js"
 
-export const GITHUB_PR_MIRROR_ROOT = "github"
-export const GITHUB_PR_CONFIG_PATH = "github/config.yaml"
 export const GITHUB_PR_PULLS_PREFIX = "github/pulls/"
 
 export function githubPullRequestMarkdownPath(
@@ -22,14 +20,6 @@ export function githubPullRequestMarkdownPath(
     throw new Error(`Invalid repository name "${repository}"`)
   }
   return `${GITHUB_PR_PULLS_PREFIX}${owner}/${repo}/${number}--${id}.md`
-}
-
-export function isGithubPullRequestMirrorPath(path: string): boolean {
-  const normalised = path.replace(/\\/g, "/")
-  return (
-    normalised === GITHUB_PR_CONFIG_PATH ||
-    normalised.startsWith(GITHUB_PR_PULLS_PREFIX)
-  )
 }
 
 function frontmatter(metadata: Record<string, unknown>): string {
@@ -186,7 +176,7 @@ function parseChecks(value: unknown): GithubPrRequiredCheck[] {
   })
 }
 
-export type ParsedGithubPullRequest = {
+type ParsedGithubPullRequest = {
   id: number
   number: number
   repository: string
@@ -206,11 +196,13 @@ export type ParsedGithubPullRequest = {
   mergedAt: string | null
   files: GithubPrFileChange[]
   requiredChecks: GithubPrRequiredCheck[]
-  /** Description text after the title heading, before reviews / conversation (≤ 2000 chars). */
+  /** Description text after the title heading, before reviews / conversation. */
+  body: string
+  /** The first 2,000 characters of `body`, for the node summary. */
   bodyExcerpt: string
 }
 
-function bodyExcerptAfterFrontmatter(rest: string): string {
+function bodyAfterFrontmatter(rest: string): string {
   let body = rest.replace(/^\s+/, "")
   if (body.startsWith("# ")) {
     const newline = body.indexOf("\n")
@@ -218,7 +210,7 @@ function bodyExcerptAfterFrontmatter(rest: string): string {
   }
   const cut = body.search(/\n## (Reviews|Conversation)\b/)
   if (cut !== -1) body = body.slice(0, cut)
-  return body.trim().slice(0, 2_000)
+  return body.trim()
 }
 
 export function parseGithubPullRequestMarkdown(
@@ -264,6 +256,7 @@ export function parseGithubPullRequestMarkdown(
     return null
   }
 
+  const body = bodyAfterFrontmatter(content.slice(match[0].length))
   return {
     id,
     number,
@@ -292,6 +285,7 @@ export function parseGithubPullRequestMarkdown(
     mergedAt: asString(data.mergedAt),
     files: parseFiles(data.files),
     requiredChecks: parseChecks(data.requiredChecks),
-    bodyExcerpt: bodyExcerptAfterFrontmatter(content.slice(match[0].length)),
+    body,
+    bodyExcerpt: body.slice(0, 2_000),
   }
 }

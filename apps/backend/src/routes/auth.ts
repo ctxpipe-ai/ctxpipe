@@ -9,21 +9,19 @@ import type { Context, Hono } from "hono"
 import type { AppEnv } from "../app/env.js"
 import { atlassianLinkCallbackFirst } from "../auth/atlassian-link-callback.js"
 import { getAuth } from "../auth/config.js"
+import { MCP_SCOPES } from "../auth/mcp-scopes.js"
 import {
   logOAuthError,
   prepareBetterAuthRequest,
 } from "../auth/oauth-gateway-request.js"
-import { withOAuthConsentOrganizationId } from "../auth/oauth-organization.js"
+import {
+  parseOAuthConsentOrganizationIds,
+  readOAuthRequestClientId,
+  withOAuthRequestContext,
+} from "../auth/oauth-organization.js"
+import { applyMcpScopeRules } from "../auth/oauth-scope-request.js"
 import { getSystemDb } from "../db/client.js"
 import { invitations, organizations } from "../db/schema/auth.js"
-
-function isNonEmptyStringArray(value: unknown): value is string[] {
-  return (
-    Array.isArray(value) &&
-    value.length > 0 &&
-    value.every((item) => typeof item === "string")
-  )
-}
 
 function authorizationServersForProtectedResourceMetadata(
   env: AppEnv["Variables"]["env"],
@@ -57,16 +55,12 @@ async function getMcpProtectedResourceMetadata(
     resource: `${c.var.env.AUTH_BASE_URL}/mcp`,
     authorization_servers,
   })
-  const merged: Record<string, unknown> = {
+  // Advertise only the MCP scopes. A client with no 401 scope challenge asks
+  // for every advertised scope, so the list stays minimal (no OIDC scopes).
+  return {
     ...(metadata as Record<string, unknown>),
+    scopes_supported: [...MCP_SCOPES],
   }
-  if (
-    !isNonEmptyStringArray(merged.scopes_supported) &&
-    isNonEmptyStringArray(authServerMeta.scopes_supported)
-  ) {
-    merged.scopes_supported = authServerMeta.scopes_supported
-  }
-  return merged
 }
 
 export function registerAuthRoutes(app: Hono<AppEnv>) {
@@ -121,20 +115,38 @@ export function registerAuthRoutes(app: Hono<AppEnv>) {
     )
   })
 
+  // The Better Auth infra plugin reads `X-Request-Id` as its own
+  // identification id and stores it in the `__infra-rid` cookie. Railway and
+  // `backendOtelMiddleware` set that header on each request. With the cookie,
+  // each server-side session lookup asks the infra KV for an unknown id, gets
+  // 404, and retries for about 1.1 s. The request log keeps the id.
+  // If the browser `sentinelClient` is added, this also removes its real id.
+  app.use("/.auth/api/v1/auth/*", async (c, next) => {
+    c.req.raw.headers.delete("x-request-id")
+    await next()
+  })
+
   app.on(["GET", "POST"], "/.auth/api/v1/auth/callback/atlassian", (c) =>
     atlassianLinkCallbackFirst(c),
   )
 
   app.on(["GET", "POST"], "/.auth/api/v1/auth/*", async (c) => {
     const prepared = await prepareBetterAuthRequest(c.req.raw, c.var.env)
+    prepared.request = await applyMcpScopeRules(prepared.request)
     const isOAuthConsent = c.req.path.endsWith("/oauth2/consent")
-    const submittedOrganizationId =
-      c.req.header("x-ctxpipe-oauth-organization")?.trim() || null
-    const response = isOAuthConsent
-      ? await withOAuthConsentOrganizationId(submittedOrganizationId, () =>
-          auth.handler(prepared.request),
-        )
-      : await auth.handler(prepared.request)
+    const submittedOrganizationIds = parseOAuthConsentOrganizationIds(
+      c.req.header("x-ctxpipe-oauth-organization"),
+    )
+    const clientId = await readOAuthRequestClientId(prepared.request)
+    const response = await withOAuthRequestContext(
+      {
+        submittedOrganizationIds: isOAuthConsent
+          ? submittedOrganizationIds
+          : undefined,
+        clientId,
+      },
+      () => auth.handler(prepared.request),
+    )
     if (response.status >= 400) {
       await logOAuthError(prepared.request, response, prepared.oauthTokenHints)
     }

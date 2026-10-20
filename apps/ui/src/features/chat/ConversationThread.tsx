@@ -1,10 +1,16 @@
-import { IconMessageCircle } from "@tabler/icons-react"
-import type { UIMessage } from "ai"
-import type { ReactElement } from "react"
+import { IconBrain, IconFile, IconSearch, IconTool } from "@tabler/icons-react"
+import {
+  Fragment,
+  type ReactElement,
+  type ReactNode,
+  useId,
+  useState,
+} from "react"
+import { Button as AriaButton } from "react-aria-components"
+import { useStickToBottomContext } from "use-stick-to-bottom"
 import {
   Conversation,
   ConversationContent,
-  ConversationEmptyState,
   ConversationScrollButton,
 } from "@/components/ai-elements/conversation"
 import {
@@ -12,46 +18,251 @@ import {
   MessageContent,
   MessageResponse,
 } from "@/components/ai-elements/message"
-import { formatDate } from "@/lib/format"
+import { InlineAlert } from "@/components/ui/InlineAlert"
+import {
+  type ActivityChipKind,
+  type ActivityEntry,
+  activityChips,
+  activityLog,
+  groupAssistantTurns,
+  toolBucketCounts,
+} from "@/features/chat/conversation-thread-utils"
+import type { ChatMessage, ChatStatus } from "@/features/chat/types"
+import { focusVisibleClassName } from "@/lib/focus-styles"
 import { cn } from "@/lib/utils"
+import { chatColumnClassName, chatUserBubbleClassName } from "./chat-column"
 
 const HIDDEN_DATA_PARTS = new Set(["data-rename-conversation", "data-kg-focus"])
 
-function formatMessageTimeLabel(message: UIMessage): string | null {
-  const meta = message.metadata as { createdAt?: string } | undefined
-  if (!meta?.createdAt) return null
-  const d = new Date(meta.createdAt)
-  if (Number.isNaN(d.getTime())) return null
-  return formatDate(meta.createdAt)
+type ChatPart = ChatMessage["parts"][number]
+
+function partText(part: ChatPart): string {
+  return (part.content ?? part.text ?? "").trim()
 }
 
-function isRenderableMessagePart(part: UIMessage["parts"][number]) {
-  if (HIDDEN_DATA_PARTS.has(part.type)) return false
-  if (part.type === "text") return Boolean(part.text?.trim())
-  if (part.type === "reasoning") return Boolean(part.text?.trim())
-  if (part.type === "source-url") return true
-  if (part.type.startsWith("data-")) return "data" in part
+function chipIcon(kind: ActivityChipKind) {
+  if (kind === "read") return <IconFile className="size-4" aria-hidden />
+  if (kind === "search") return <IconSearch className="size-4" aria-hidden />
+  if (kind === "thought") return <IconBrain className="size-4" aria-hidden />
+  return <IconTool className="size-4" aria-hidden />
+}
+
+function isActivityMessagePart(part: ChatPart) {
+  if (part.type === "tool-call") return true
+  if (part.type === "thinking") return Boolean(partText(part))
   return false
 }
 
-function renderMessagePart(part: UIMessage["parts"][number], key: string) {
-  if (!isRenderableMessagePart(part)) return null
-  if (part.type === "text") {
-    return <MessageResponse key={key}>{part.text}</MessageResponse>
+function isRenderableMessagePart(part: ChatPart) {
+  if (HIDDEN_DATA_PARTS.has(part.type) || part.type.startsWith("data-")) {
+    return false
   }
-  if (part.type === "reasoning") {
+  if (part.type === "text" || part.type === "thinking") {
+    return Boolean(partText(part))
+  }
+  if (part.type === "source-url" || part.type === "tool-call") return true
+  return false
+}
+
+function IconSlot(props: { children: ReactElement }) {
+  return (
+    <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center text-zinc-500">
+      {props.children}
+    </span>
+  )
+}
+
+const reasoningResponseClassName =
+  "ctx-streamdown-reasoning h-auto space-y-1 text-xs leading-relaxed text-muted-foreground [&_blockquote]:text-muted-foreground [&_h1]:text-muted-foreground [&_h2]:text-muted-foreground [&_h3]:text-muted-foreground [&_h4]:text-muted-foreground [&_li]:text-muted-foreground [&_ol]:text-muted-foreground [&_p]:text-muted-foreground [&_strong]:text-muted-foreground [&_ul]:text-muted-foreground"
+
+/**
+ * The one live line of a working turn: the current thought's title, else a
+ * real system state such as "Setting up sandbox", else "Thinking".
+ */
+function StatusLine(props: { label: string }) {
+  return (
+    // biome-ignore lint/a11y/useSemanticElements: div + role="status" is a live status, not a form output
+    <div
+      className="flex w-full min-w-0 items-start gap-2"
+      role="status"
+      aria-label={props.label}
+    >
+      <span className="mt-0.5 flex size-4 shrink-0 items-center justify-center">
+        <span className="ctx-indexing-dot" aria-hidden />
+      </span>
+      <p className="line-clamp-1 min-w-0 flex-1 text-xs font-medium leading-relaxed text-muted-foreground">
+        {props.label}
+      </p>
+    </div>
+  )
+}
+
+function LogEntry(props: { entry: ActivityEntry }) {
+  const { entry } = props
+  if (entry.kind === "thought") {
+    const { thought } = entry
     return (
-      <details
-        key={key}
-        className="rounded-none border border-border/60 bg-foreground/[0.04] p-3 text-sm text-muted-foreground"
-      >
-        <summary className="cursor-pointer text-foreground">Reasoning</summary>
-        <MessageResponse>{part.text}</MessageResponse>
-      </details>
+      <li className="flex min-w-0 items-start gap-2">
+        <IconSlot>{chipIcon("thought")}</IconSlot>
+        <div className="min-w-0 flex-1 space-y-1">
+          {thought.hasHeading ? (
+            <p className="font-medium text-muted-foreground">{thought.title}</p>
+          ) : null}
+          {thought.body ? (
+            <MessageResponse className={reasoningResponseClassName}>
+              {thought.body}
+            </MessageResponse>
+          ) : null}
+        </div>
+      </li>
     )
   }
-  if (part.type === "source-url") {
-    return (
+  const { tool } = entry
+  return (
+    <li className="flex min-w-0 items-start gap-2">
+      <IconSlot>{chipIcon(tool.bucket)}</IconSlot>
+      <span className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+        <span className="font-medium text-muted-foreground">{tool.action}</span>
+        {tool.detail ? (
+          <span className="min-w-0 break-all font-mono text-muted-foreground/80">
+            {tool.detail}
+          </span>
+        ) : null}
+      </span>
+    </li>
+  )
+}
+
+/**
+ * The counters line. It opens the log of every thought and tool call. The
+ * status line comes after it, at the same gap as the log items.
+ */
+function ActivityLog(props: { entries: ActivityEntry[]; status: ReactNode }) {
+  const { entries } = props
+  const [expanded, setExpanded] = useState(false)
+  const logId = useId()
+  // The open log makes the thread taller. Stop the stick to the bottom, so
+  // the thread does not scroll away from the counters.
+  const { stopScroll } = useStickToBottomContext()
+  const tools = entries.flatMap((entry) =>
+    entry.kind === "tool" ? [entry.tool] : [],
+  )
+  const chips = activityChips({
+    ...toolBucketCounts(tools),
+    thoughts: entries.length - tools.length,
+  })
+
+  return (
+    <div className="flex w-full min-w-0 flex-col gap-2">
+      <AriaButton
+        aria-expanded={expanded}
+        aria-controls={expanded ? logId : undefined}
+        aria-label={chips.map((chip) => chip.label).join(", ")}
+        onPress={() => {
+          if (!expanded) stopScroll()
+          setExpanded(!expanded)
+        }}
+        className={cn(
+          focusVisibleClassName,
+          "flex w-full min-w-0 flex-wrap items-center gap-x-3 gap-y-1 rounded-md text-left text-xs leading-relaxed text-muted-foreground",
+          "hover:text-foreground/80",
+        )}
+      >
+        {chips.map((chip) => (
+          <span
+            key={chip.kind}
+            className="inline-flex min-w-0 items-center gap-1.5"
+          >
+            <IconSlot>{chipIcon(chip.kind)}</IconSlot>
+            <span className="tabular-nums">{chip.label}</span>
+          </span>
+        ))}
+      </AriaButton>
+      {expanded ? (
+        <section
+          id={logId}
+          aria-label="Activity log"
+          className="min-w-0 text-xs leading-relaxed text-muted-foreground"
+        >
+          <ol className="flex min-w-0 flex-col gap-2">
+            {entries.map((entry) => (
+              <LogEntry key={entry.key} entry={entry} />
+            ))}
+          </ol>
+        </section>
+      ) : null}
+      {props.status}
+    </div>
+  )
+}
+
+function renderUserParts(message: ChatMessage): ReactElement[] {
+  return message.parts.flatMap((part, index) => {
+    if (part.type !== "text" || !partText(part)) return []
+    return [
+      // Plain text: the user's words show as typed. Markdown would block
+      // a relative link and show "[blocked]".
+      <p
+        key={`${message.id}-${index}`}
+        className="whitespace-pre-wrap break-words text-sm leading-relaxed"
+      >
+        {partText(part)}
+      </p>,
+    ]
+  })
+}
+
+function renderAssistantParts(
+  message: ChatMessage,
+  options: {
+    working: boolean
+    systemStatus: string | null
+    onOpenFile?: (path: string) => void
+  },
+): ReactElement[] {
+  const entries = activityLog(message.parts)
+  const replyParts = message.parts.filter(
+    (part) =>
+      (part.type === "text" && Boolean(partText(part))) ||
+      part.type === "source-url",
+  )
+  // The status line stays until the run ends, also while text streams.
+  const thoughts = entries.flatMap((entry) =>
+    entry.kind === "thought" ? [entry.thought] : [],
+  )
+  const status =
+    options.working && entries.length > 0 ? (
+      <StatusLine
+        key={`${message.id}-status`}
+        label={thoughts.at(-1)?.title ?? options.systemStatus ?? "Thinking"}
+      />
+    ) : null
+  const statusAfterReply = replyParts.length > 0
+  const nodes: ReactElement[] = []
+  if (entries.length > 0) {
+    nodes.push(
+      <ActivityLog
+        key={`${message.id}-activity`}
+        entries={entries}
+        status={statusAfterReply ? null : status}
+      />,
+    )
+  }
+  replyParts.forEach((part, index) => {
+    const key = `${message.id}-reply-${index}`
+    if (part.type === "text") {
+      nodes.push(
+        <MessageResponse
+          key={key}
+          isAnimating={options.working}
+          onOpenFile={options.onOpenFile}
+        >
+          {partText(part)}
+        </MessageResponse>,
+      )
+      return
+    }
+    nodes.push(
       <p key={key} className="text-xs text-muted-foreground">
         Source:{" "}
         <a
@@ -62,143 +273,118 @@ function renderMessagePart(part: UIMessage["parts"][number], key: string) {
         >
           {part.title ?? part.url}
         </a>
-      </p>
+      </p>,
     )
-  }
-  if (part.type.startsWith("data-") && "data" in part) {
-    return (
-      <pre key={key} className="text-xs text-muted-foreground">
-        {JSON.stringify(part.data)}
-      </pre>
-    )
-  }
-  return null
+  })
+  if (status && statusAfterReply) nodes.push(status)
+  return nodes
 }
 
-export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
-
-function messageHasRenderableParts(message: UIMessage) {
-  return message.parts.some(isRenderableMessagePart)
-}
-
-function AgentSenderLabel() {
-  // biome-ignore format: keep pipe inline so the span has no whitespace around |
-  const pipe = <span key="pipe" className="text-teal-400">|</span>
-  return <span className="ctx-label-muted">{["ctx", pipe]}</span>
+function messageHasVisibleActivity(message: ChatMessage) {
+  return message.parts.some(
+    (part) => isRenderableMessagePart(part) || isActivityMessagePart(part),
+  )
 }
 
 export function ConversationThread(props: {
-  messages: UIMessage[]
+  messages: ChatMessage[]
   error: Error | null
   status?: ChatStatus
+  /** A real system state, such as "Setting up sandbox"; null shows "Thinking" or the current thought. */
+  waitLabel?: string | null
   contentClassName?: string
+  /**
+   * Content after the shown message with this id, when the message is not
+   * live (for example, the files a turn changed).
+   */
+  renderAfterMessage?: (messageId: string) => ReactNode
+  /** Opens a workspace file from a file path in an answer. */
+  onOpenFile?: (path: string) => void
 }) {
-  const { messages, error, status, contentClassName } = props
-  const lastMessage = messages[messages.length - 1]
-  const lastAssistantHasRenderableParts =
+  const { messages, error, status, waitLabel, contentClassName } = props
+  const turns = groupAssistantTurns(messages)
+  const lastMessage = turns[turns.length - 1]
+  const lastAssistantHasVisibleActivity =
     lastMessage?.role === "assistant"
-      ? messageHasRenderableParts(lastMessage)
+      ? messageHasVisibleActivity(lastMessage)
       : false
-  const showPulsatingLoader =
-    status === "submitted" ||
-    (status === "streaming" && !lastAssistantHasRenderableParts)
+  const running = status === "submitted" || status === "streaming"
+  const showPulsatingLoader = running && !lastAssistantHasVisibleActivity
 
   return (
     <div className="flex min-h-0 flex-1 flex-col bg-transparent">
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <Conversation className="min-h-0 flex-1">
           <ConversationContent
-            className={cn("mx-auto max-w-2xl space-y-6 p-6", contentClassName)}
+            className={cn(
+              "mx-auto gap-6 p-5",
+              chatColumnClassName,
+              contentClassName,
+            )}
           >
-            {messages.length === 0 ? (
-              <ConversationEmptyState
-                icon={
-                  <IconMessageCircle className="h-10 w-10 text-muted-foreground" />
-                }
-                title="No messages yet"
-                description="Send the first message to begin."
-              />
-            ) : (
-              <>
-                {messages.map((message) => {
-                  const renderedParts = message.parts
-                    .map((part, index) =>
-                      renderMessagePart(part, `${message.id}-${index}`),
-                    )
-                    .filter((part): part is ReactElement => part !== null)
+            {turns.map((message, messageIndex) => {
+              const working =
+                running &&
+                message.role === "assistant" &&
+                messageIndex === turns.length - 1
+              const renderedParts =
+                message.role === "assistant"
+                  ? renderAssistantParts(message, {
+                      working,
+                      systemStatus: waitLabel ?? null,
+                      onOpenFile: props.onOpenFile,
+                    })
+                  : renderUserParts(message)
 
-                  if (renderedParts.length === 0) return null
+              const isUser = message.role === "user"
+              const after = working
+                ? null
+                : props.renderAfterMessage?.(message.id)
+              if (renderedParts.length === 0 && !after) return null
 
-                  const role = message.role
-                  const timeLabel = formatMessageTimeLabel(message)
-                  const isUser = role === "user"
-
-                  return (
+              return (
+                <Fragment key={message.id}>
+                  {renderedParts.length > 0 ? (
                     <div
-                      key={message.id}
                       className={cn(
                         "flex w-full",
                         isUser ? "justify-end" : "justify-start",
                       )}
                     >
-                      <Message from={role}>
-                        <div
-                          className={cn(
-                            "flex w-full flex-col space-y-1",
-                            isUser ? "items-end" : "items-start",
-                          )}
+                      <Message
+                        from={message.role}
+                        className={isUser ? chatUserBubbleClassName : undefined}
+                      >
+                        <MessageContent
+                          className={isUser ? undefined : "gap-5"}
                         >
-                          <div className="flex items-center gap-2">
-                            {isUser ? (
-                              <span className="ctx-label-muted">you</span>
-                            ) : (
-                              <AgentSenderLabel />
-                            )}
-                            {timeLabel ? (
-                              <span className="text-[10px] text-muted-foreground/50">
-                                {timeLabel}
-                              </span>
-                            ) : null}
-                          </div>
-                          <MessageContent>{renderedParts}</MessageContent>
-                        </div>
+                          {renderedParts}
+                        </MessageContent>
                       </Message>
                     </div>
-                  )
-                })}
-                {showPulsatingLoader && (
-                  // biome-ignore lint/a11y/useSemanticElements: div + role="status" for loading indicator; output is for form/calculation results, not live status
-                  <div
-                    className="flex w-full justify-start"
-                    role="status"
-                    aria-live="polite"
-                    aria-label="Waiting for response"
-                  >
-                    <div className="flex w-full max-w-[85%] items-center gap-3">
-                      <div
-                        className="flex size-8 shrink-0 items-center justify-center rounded-full border border-white/[0.08] bg-foreground/[0.04]"
-                        aria-hidden
-                      >
-                        <span className="ctx-indexing-dot" />
-                      </div>
-                      <div className="min-w-0 flex-1 space-y-0.5">
-                        <AgentSenderLabel />
-                        <p className="text-xs text-muted-foreground">
-                          Thinking…
-                        </p>
-                      </div>
+                  ) : null}
+                  {after ? (
+                    <div className="flex w-full min-w-0 flex-col gap-3">
+                      {after}
                     </div>
-                  </div>
-                )}
-              </>
+                  ) : null}
+                </Fragment>
+              )
+            })}
+            {showPulsatingLoader && (
+              <StatusLine label={waitLabel ?? "Thinking"} />
             )}
           </ConversationContent>
           <ConversationScrollButton />
         </Conversation>
         {error ? (
-          <p className="px-6 pb-2 text-sm text-destructive">
-            {error.message || "Chat request failed."}
-          </p>
+          <div className="px-4 pb-2">
+            <div className={cn("mx-auto", chatColumnClassName)}>
+              <InlineAlert variant="error" title="Could not send">
+                {error.message || "Chat request failed."} Send again to retry.
+              </InlineAlert>
+            </div>
+          </div>
         ) : null}
       </div>
     </div>

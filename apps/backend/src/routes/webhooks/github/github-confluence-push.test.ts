@@ -8,7 +8,15 @@ const loadScopeMock = vi.hoisted(() =>
 )
 const compareCommitsTouchesPathMock = vi.hoisted(() => vi.fn())
 
+vi.mock("../../../config/env.js", () => ({
+  parseEnv: () => ({}),
+}))
+
 vi.mock("../../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 
@@ -31,6 +39,7 @@ vi.mock("../../../openworkflow/enqueue-confluence-push-sync.js", () => ({
 
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: compareCommitsTouchesPathMock,
+  workspaceRootPathOfRepository: async () => "",
 }))
 
 import { listConfluenceSyncTargetsWithRepoByRepositoryId } from "../../../models/confluence-sync-target.js"

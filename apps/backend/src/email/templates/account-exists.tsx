@@ -9,7 +9,7 @@ import {
   Section,
   Text,
 } from "@react-email/components"
-import * as React from "react"
+import type * as React from "react"
 
 interface AccountExistsEmailProps {
   signInUrl: string
@@ -34,8 +34,8 @@ export function AccountExistsEmail({
           <Text style={paragraph}>
             Someone tried to create a <strong>ctx|</strong> account for{" "}
             <strong>{userEmail}</strong>, which already has one. Sign in
-            instead. If you have not verified this address yet, we will send
-            you a link when you do.
+            instead. If you have not verified this address yet, we will send you
+            a link when you do.
           </Text>
           <Section style={buttonContainer}>
             <Button href={signInUrl} style={button}>

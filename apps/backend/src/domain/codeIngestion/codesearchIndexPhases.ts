@@ -1,4 +1,5 @@
 import { z } from "zod"
+import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
@@ -57,6 +58,9 @@ export function isCodesearchAdmissionBusyError(
 export type CodesearchIndexAuth = {
   repositoryId: string
   orgId: string
+  repositoryRevisions?: Array<{ repositoryId: string; sha: string }>
+  workspaceId?: string
+  workspaceRevisions?: Array<{ repositoryId: string; sha: string }>
 }
 
 async function authorizedCodesearchFetch(
@@ -72,6 +76,13 @@ async function authorizedCodesearchFetch(
       sub: `repo:${auth.repositoryId}`,
       orgId: auth.orgId,
       principal: "service",
+      ...(auth.repositoryRevisions
+        ? { repositoryRevisions: auth.repositoryRevisions }
+        : {}),
+      ...(auth.workspaceRevisions
+        ? { workspaceRevisions: auth.workspaceRevisions }
+        : {}),
+      ...(auth.workspaceId ? { workspaceId: auth.workspaceId } : {}),
     },
   })
   return fetch(`${codesearchBaseUrl()}/${auth.repositoryId}${path}`, {
@@ -146,8 +157,11 @@ export async function codesearchIndexCloneCheckout(
   auth: CodesearchIndexAuth,
   body: {
     githubToken?: string
+    /** The checked plain git remote of a repository with no token (CTX-815). */
+    plainGit?: CheckedPlainGitRemote
     targetHash?: string
     fromHash?: string
+    checkoutKey?: string
   },
 ): Promise<{
   targetHash: string

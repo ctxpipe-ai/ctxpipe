@@ -1,6 +1,6 @@
 # ADR-026: Claude plugin for hosted MCP distribution
 
-**Status:** Accepted | **Date:** 2026-08-28 | **Tags:** mcp, claude, plugins, slack, distribution
+**Status:** Accepted (amended 2026-10-13 by [ADR-051](ADR-051-mcp-read-surface.md): org set per grant, `ctxpipe-context` skill, `?orgSlug=` ignored) | **Date:** 2026-08-28 | **Tags:** mcp, claude, plugins, slack, distribution
 
 ## Context
 
@@ -28,6 +28,9 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
    `.claude-plugin/marketplace.json`. Install path:
    `/plugin marketplace add ctxpipe-ai/ctxpipe` then
    `/plugin install ctxpipe@ctxpipe`.
+   **Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md)):** plugin
+   0.2.0 replaces the `ctx-advisor` skill with a `ctxpipe-context` skill,
+   because the same release removes the `ctx_advisor` tool.
 2. **Point the plugin at** `https://app.ctxpipe.ai/mcp` with `type: "http"`.
    No tokens and no `${user_config.*}` interpolation in the URL. OAuth stays
    DCR/CIMD as today.
@@ -39,10 +42,23 @@ Research: [Claude plugins](../research/claude-plugins/index.md).
    grant. The organization id is stored as the grant `referenceId`, carried
    across refreshes, and added to JWT access tokens as the namespaced
    `https://ctxpipe.ai/organization_id` claim.
+   **Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md) section 3):** the
+   grant binds a **set** of organizations. The user ticks them at consent and
+   can change them on the Connected apps page in settings, with no reconnect.
+   The set is in `oauth_grant_organizations`; the grant `referenceId` is a
+   grant id, and the JWT carries `https://ctxpipe.ai/grant_id`. A legacy grant
+   whose `referenceId` is an organization id reads as a one-organization set.
 4. **Enforce that binding on `/mcp`:** bound JWT and opaque tokens resolve only
    their selected organization. A query slug cannot override a bound grant.
    Legacy/manual clients may still use `?orgSlug=`; a bare unbound request is
    rejected rather than inferring tenant authority from current membership.
+   **Amendment (2026-10-13, [ADR-051](ADR-051-mcp-read-surface.md) section 3):** the
+   organization of each request comes from the `org` tool argument, never
+   from the query slug or the current session. The server allows it only when
+   the organization is in the grant set **and** the membership is active. The
+   rule "no tenant authority from current membership alone" stays. The
+   `?orgSlug=` URL parameter no longer selects the organization: the server
+   accepts it and ignores it, and a later release removes it.
 5. **Defer** Connectors Directory submission, `custom_connection`, MCPB desktop
    extensions, and Cursor/Codex/CodeRabbit listings.
 6. **Claude Tag customers** attach the plugin on the Access bundle and add an

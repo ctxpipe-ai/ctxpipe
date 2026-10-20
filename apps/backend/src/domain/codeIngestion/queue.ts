@@ -3,8 +3,10 @@ import { signUpstreamJwt } from "../../auth/upstreamJwt.js"
 import { parseEnv } from "../../config/env.js"
 import { codesearchBaseUrl } from "../../lib/agentToolRuntime.js"
 import { withTransientHttpRetry } from "../../lib/withTransientHttpRetry.js"
-import { getInstallationToken } from "../../models/github-installation.js"
+import { getRepositoryReadCloneToken } from "../../models/github-installation.js"
+import { getRepositoryReadBinding } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
+import { checkedPlainGitRemote } from "../../services/git/plain-git-remote.js"
 
 type ResolveRefResponse = {
   branch: string
@@ -24,7 +26,7 @@ export async function resolveRepositoryRef(input: {
     branch: input.branch,
   })
   const env = parseEnv(process.env as Record<string, string | undefined>)
-  const [token, githubToken] = await Promise.all([
+  const [token, githubToken, repository] = await Promise.all([
     signUpstreamJwt({
       env,
       audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
@@ -34,12 +36,18 @@ export async function resolveRepositoryRef(input: {
         principal: "service",
       },
     }),
-    getInstallationToken(
-      input.orgId,
-      env,
-      input.githubConnectionId ?? undefined,
-    ),
+    getRepositoryReadCloneToken(input.orgId, env, {
+      repositoryId: input.repositoryId,
+      githubConnectionId: input.githubConnectionId,
+    }),
+    getRepositoryReadBinding(input.orgId, input.repositoryId),
   ])
+  if (!repository) throw new Error("The repository is gone")
+  // With no GitHub token, codesearch reads the repository only through the
+  // checked plain git remote (CTX-815); a refused URL throws its rule.
+  const plainGit = githubToken
+    ? undefined
+    : await checkedPlainGitRemote(repository.gitUrl)
   const url = `${codesearchBaseUrl()}/${input.repositoryId}/resolve-ref`
   let res: Response
   try {
@@ -51,7 +59,7 @@ export async function resolveRepositoryRef(input: {
             "Content-Type": "application/json",
             Authorization: `Bearer ${token}`,
           },
-          body: JSON.stringify({ branch: input.branch, githubToken }),
+          body: JSON.stringify({ branch: input.branch, githubToken, plainGit }),
         }),
       { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
     )

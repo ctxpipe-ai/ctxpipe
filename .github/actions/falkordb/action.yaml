@@ -1,0 +1,38 @@
+name: FalkorDB with memory overcommit enabled
+description: >
+  Start FalkorDB on port 6379 after the runner enables vm.overcommit_memory.
+  A service container cannot do this, because the setting belongs to the host
+  kernel. The wait below runs a real GRAPH.QUERY. It does not retry. On failure it
+  runs diagnose.sh, which prints the health check results, the runner state
+  and the stack of each server thread.
+
+  The server runs with CMD_INFO off. In FalkorDB 4.20.7, module load starts
+  the cron thread before it calls Globals_Init. With CMD_INFO on, the first
+  cron task is due at once, and it takes the Globals read lock on a lock that
+  Globals_Init has not initialized yet. If Globals_Init runs while the cron
+  thread holds that lock, the lock state is lost. The first graph creation
+  then waits for the write lock for ever. The server stops at 0 percent CPU,
+  and every command that follows gets no answer. CMD_INFO off removes the
+  only cron task, so no other thread uses the lock before Globals_Init. CI
+  does not use the query log that CMD_INFO feeds.
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      run: |
+        sudo sysctl -w vm.overcommit_memory=1
+        # FALKORDB_ARGS replaces the image default, so the first three values
+        # repeat that default (MAX_QUEUED_QUERIES 25 TIMEOUT 1000 RESULTSET_SIZE 10000).
+        docker run -d --name falkordb -p 6379:6379 \
+          -e FALKORDB_ARGS="MAX_QUEUED_QUERIES 25 TIMEOUT 1000 RESULTSET_SIZE 10000 CMD_INFO no" \
+          --health-cmd "redis-cli ping && redis-cli GRAPH.LIST && redis-cli GRAPH.QUERY ci_health 'RETURN 1'" \
+          --health-interval 5s --health-timeout 5s --health-retries 12 \
+          falkordb/falkordb@sha256:13996aa523f0dd283f6bd6df6620b094dcea525452417c4d6ef9bef15dc9998d
+        for _ in $(seq 1 24); do
+          status=$(docker inspect --format '{{.State.Health.Status}}' falkordb)
+          [ "$status" = healthy ] && exit 0
+          sleep 5
+        done
+        echo "::error::FalkorDB was not healthy after 120 s"
+        bash "$GITHUB_ACTION_PATH/diagnose.sh"
+        exit 1

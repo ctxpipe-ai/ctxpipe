@@ -1,11 +1,17 @@
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
+import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import { codesearchBaseUrl } from "../lib/agentToolRuntime.js"
+import {
+  CodesearchHttpError,
+  type CodesearchHttpOptions,
+} from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import type { ZoektRepositoryRow } from "./codesearchZoekt.js"
 
 export type GraphPrimitive =
   | "find_symbol"
+  | "find_references"
   | "get_callers"
   | "get_callees"
   | "get_imports"
@@ -25,9 +31,14 @@ export type GraphRequestBody = {
 }
 
 export async function codesearchGraphQuery(
-  repository: ZoektRepositoryRow,
+  repository: Pick<ZoektRepositoryRow, "id" | "orgId">,
   body: GraphRequestBody,
+  workspace?: { workspaceId: string } & ({ sha: string } | { legacy: true }),
+  transport?: CodesearchHttpOptions,
 ): Promise<Record<string, unknown>> {
+  const source = capturedSourceRevision(repository.orgId, repository.id)
+  if (source && workspace)
+    throw new Error("Extraction tool cannot select a workspace projection")
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const token = await signUpstreamJwt({
     env,
@@ -36,6 +47,24 @@ export async function codesearchGraphQuery(
       sub: `repo:${repository.id}`,
       orgId: repository.orgId,
       principal: "service",
+      ...(source
+        ? {
+            repositoryRevisions: [
+              { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
+      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+      ...(workspace && "legacy" in workspace
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace && "sha" in workspace
+        ? {
+            workspaceRevisions: [
+              { repositoryId: repository.id, sha: workspace.sha },
+            ],
+          }
+        : {}),
     },
   })
   const res = await withTransientHttpRetry(
@@ -46,14 +75,19 @@ export async function codesearchGraphQuery(
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify(body),
+        body: JSON.stringify(
+          source ? { ...body, checkoutKey: undefined } : body,
+        ),
+        signal: transport?.signal,
       }),
-    { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+    transport?.retry ?? { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
   )
   if (!res.ok) {
     const errText = await res.text().catch(() => "")
-    throw new Error(
+    throw new CodesearchHttpError(
       `codesearch graph failed with status ${res.status}${errText ? `: ${errText}` : ""}`,
+      res.status,
+      errText.trim(),
     )
   }
   return (await res.json()) as Record<string, unknown>

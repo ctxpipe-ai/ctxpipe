@@ -1,12 +1,12 @@
 import { existsSync, mkdirSync, unlinkSync, writeFileSync } from "node:fs"
 import { homedir } from "node:os"
 import { dirname, join, resolve } from "node:path"
-import { AsyncEntry } from "@napi-rs/keyring"
 import { log, spinner } from "@clack/prompts"
+import { AsyncEntry } from "@napi-rs/keyring"
 import {
   AUTH_CLIENT_ID,
-  DEVICE_GRANT_TYPE,
   DEFAULT_BASE_URL,
+  DEVICE_GRANT_TYPE,
 } from "./constants.js"
 import { readJsonObject } from "./fs-operations.js"
 import { isObject } from "./mcp/json.js"
@@ -18,7 +18,7 @@ const KEYRING_SERVICE = "ctxpipe"
 
 let keyringFallbackWarned = false
 
-export type StoredAuth = {
+type StoredAuth = {
   baseUrl: string
   accessToken: string
   refreshToken: string | null
@@ -63,9 +63,13 @@ function storedAuthFromJsonData(
 ): StoredAuth | null {
   if (typeof data.accessToken !== "string" || !data.accessToken) return null
   return {
-    baseUrl: typeof data.baseUrl === "string" ? data.baseUrl : normalizeBaseUrl(baseUrl),
+    baseUrl:
+      typeof data.baseUrl === "string"
+        ? data.baseUrl
+        : normalizeBaseUrl(baseUrl),
     accessToken: data.accessToken,
-    refreshToken: typeof data.refreshToken === "string" ? data.refreshToken : null,
+    refreshToken:
+      typeof data.refreshToken === "string" ? data.refreshToken : null,
     tokenType: typeof data.tokenType === "string" ? data.tokenType : "Bearer",
     expiresAt: typeof data.expiresAt === "string" ? data.expiresAt : null,
     createdAt: typeof data.createdAt === "string" ? data.createdAt : null,
@@ -91,10 +95,12 @@ function removeStoredAuthFromFile(baseUrl: string): void {
   if (existsSync(path)) unlinkSync(path)
 }
 
-export async function readStoredAuth(baseUrl: string): Promise<StoredAuth | null> {
+export async function readStoredAuth(
+  baseUrl: string,
+): Promise<StoredAuth | null> {
   try {
     const password = await authEntry(baseUrl).getPassword()
-    if (password && password.trim()) {
+    if (password?.trim()) {
       const parsed: unknown = JSON.parse(password)
       if (isObject(parsed)) {
         const fromKeyring = storedAuthFromJsonData(parsed, baseUrl)
@@ -107,7 +113,7 @@ export async function readStoredAuth(baseUrl: string): Promise<StoredAuth | null
   return readStoredAuthFromFile(baseUrl)
 }
 
-export async function writeStoredAuth(auth: StoredAuth): Promise<void> {
+async function writeStoredAuth(auth: StoredAuth): Promise<void> {
   try {
     await authEntry(auth.baseUrl).setPassword(JSON.stringify(auth))
     removeStoredAuthFromFile(auth.baseUrl)
@@ -126,7 +132,7 @@ export async function removeStoredAuth(baseUrl: string): Promise<void> {
   removeStoredAuthFromFile(baseUrl)
 }
 
-export function authStorePath(baseUrl: string): string {
+function authStorePath(baseUrl: string): string {
   const safeBase = keyringAccount(baseUrl)
   return join(homedir(), ".config", "ctxpipe", `${safeBase}.auth.json`)
 }
@@ -191,7 +197,9 @@ export async function loginWithDeviceFlow({
   return auth
 }
 
-async function requestDeviceCode(baseUrl: string): Promise<Record<string, unknown>> {
+async function requestDeviceCode(
+  baseUrl: string,
+): Promise<Record<string, unknown>> {
   const response = await authFetch(baseUrl, "/device/code", {
     method: "POST",
     body: {
@@ -252,86 +260,8 @@ async function pollDeviceToken({
   throw new Error("ctx| sign-in timed out")
 }
 
-/**
- * Refresh threshold: if the stored access token expires sooner than this,
- * try a refresh before handing it back to long-running consumers.
- */
-const REFRESH_LEEWAY_MS = 10 * 60 * 1000
-
-/**
- * Return a non-expired access token for `baseUrl`. Refreshes via the stored
- * `refresh_token` when possible; returns null if no auth is stored or refresh
- * fails (signed-out mode).
- */
-export async function ensureFreshAccessToken({
-  baseUrl,
-  now,
-}: {
-  baseUrl: string
-  now?: Date
-}): Promise<StoredAuth | null> {
-  const auth = await readStoredAuth(baseUrl)
-  if (!auth) return null
-  if (!isExpiringSoon(auth, now)) return auth
-  if (!auth.refreshToken) return auth
-  try {
-    const refreshed = await refreshAccessToken({ baseUrl, refreshToken: auth.refreshToken })
-    await writeStoredAuth(refreshed)
-    return refreshed
-  } catch {
-    return auth
-  }
-}
-
-export function isExpiringSoon(
-  auth: StoredAuth,
-  now: Date = new Date(),
-): boolean {
-  if (!auth.expiresAt) return false
-  const expires = Date.parse(auth.expiresAt)
-  if (Number.isNaN(expires)) return false
-  return expires - now.getTime() < REFRESH_LEEWAY_MS
-}
-
-async function refreshAccessToken({
-  baseUrl,
-  refreshToken,
-}: {
-  baseUrl: string
-  refreshToken: string
-}): Promise<StoredAuth> {
-  const response = await authFetch(baseUrl, "/token", {
-    method: "POST",
-    body: {
-      grant_type: "refresh_token",
-      refresh_token: refreshToken,
-      client_id: AUTH_CLIENT_ID,
-    },
-  })
-  const json = await response.json().catch(() => ({}))
-  if (!response.ok) {
-    throw new Error(authErrorMessage(json, "Could not refresh ctx| access token"))
-  }
-  const data = unwrapBetterAuthData(json)
-  if (!isObject(data) || typeof data.access_token !== "string") {
-    throw new Error("Refresh response missing access_token")
-  }
-  return {
-    baseUrl: normalizeBaseUrl(baseUrl),
-    accessToken: data.access_token,
-    refreshToken:
-      typeof data.refresh_token === "string" ? data.refresh_token : refreshToken,
-    tokenType: typeof data.token_type === "string" ? data.token_type : "Bearer",
-    expiresAt:
-      typeof data.expires_in === "number"
-        ? new Date(Date.now() + data.expires_in * 1000).toISOString()
-        : null,
-    createdAt: new Date().toISOString(),
-  }
-}
-
 /** Read `.ctxpipe/config.json` from cwd or any ancestor; returns null if absent. */
-export type CtxpipeRepoConfig = {
+type CtxpipeRepoConfig = {
   orgSlug: string | null
   baseUrl: string | null
 }
@@ -453,12 +383,12 @@ function authConnectionErrorMessage({
   return `Could not reach ctx| auth at ${baseUrl}${code}.${localHint}`
 }
 
-export function unwrapBetterAuthData(json: unknown): unknown {
+function unwrapBetterAuthData(json: unknown): unknown {
   if (isObject(json) && "data" in json) return json.data
   return json
 }
 
-export function authErrorCode(json: unknown): string | null {
+function authErrorCode(json: unknown): string | null {
   if (!isObject(json)) return null
   if (typeof json.error === "string") return json.error
   if (isObject(json.error) && typeof json.error.error === "string") {
@@ -467,9 +397,10 @@ export function authErrorCode(json: unknown): string | null {
   return null
 }
 
-export function authErrorMessage(json: unknown, fallback: string): string {
+function authErrorMessage(json: unknown, fallback: string): string {
   if (isObject(json)) {
-    if (typeof json.error_description === "string") return json.error_description
+    if (typeof json.error_description === "string")
+      return json.error_description
     if (typeof json.message === "string") return json.message
     if (typeof json.error === "string") return json.error
     if (isObject(json.error)) {
@@ -484,10 +415,14 @@ export function authErrorMessage(json: unknown, fallback: string): string {
 }
 
 export function orgLabel(org: Organization): string {
-  return org.name && org.name !== org.slug ? `${org.name} (${org.slug})` : org.slug
+  return org.name && org.name !== org.slug
+    ? `${org.name} (${org.slug})`
+    : org.slug
 }
 
-export function userLabel(session: Record<string, unknown> | null): string | null {
+export function userLabel(
+  session: Record<string, unknown> | null,
+): string | null {
   const user = sessionUser(session)
   if (!user) return null
   return (
@@ -508,7 +443,10 @@ function absoluteUrl(value: string, baseUrl: string): string {
   return new URL(value, baseUrl).toString()
 }
 
-function stringField(value: Record<string, unknown>, key: string): string | null {
+function stringField(
+  value: Record<string, unknown>,
+  key: string,
+): string | null {
   return typeof value[key] === "string" ? value[key] : null
 }
 

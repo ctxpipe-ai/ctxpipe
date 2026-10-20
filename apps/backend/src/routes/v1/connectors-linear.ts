@@ -1,15 +1,14 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { linearOauthAppSavedInConfig } from "../../lib/connection-config.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
-  claimLinearContentSyncRetry,
   deleteLinearConnectionById,
   getLinearBindingWithRepoByConnectionId,
   type LinearBindingWithRepo,
-  LinearConfigPrCreationInProgressError,
   type LinearConnection,
   type LinearScope,
   LinearSyncBindingBusyError,
@@ -17,11 +16,9 @@ import {
   MULTIPLE_LINEAR_CONNECTIONS_MESSAGE,
   patchLinearConnectorConfig,
   refreshLinearConnectionTokensWithLock,
-  releaseLinearConfigPrCreationClaim,
   resolveLinearConnectionForOrgDetailed,
   saveLinearOauthAppOnConnection,
   transitionLinearBindingState,
-  updateLinearBindingPrState,
   upsertLinearConnectionFromOAuth,
   upsertLinearDraftConnection,
 } from "../../models/linear-connector.js"
@@ -33,8 +30,8 @@ import {
 import { getRepositoryForOrg } from "../../models/repositories.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
+import { enqueueConnectorConfigSync } from "../../openworkflow/enqueue-connector-config-sync.js"
+import { enqueueConnectorContentSync } from "../../openworkflow/enqueue-connector-content-sync.js"
 import { linearSyncConfig } from "../../openworkflow/workflows/linear-sync-config.js"
 import { linearSyncContent } from "../../openworkflow/workflows/linear-sync-content.js"
 import {
@@ -350,56 +347,62 @@ const getConfigRoute = createRoute({
   },
 })
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: LinearPatchConfigRequestSchema,
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": {
+              schema: LinearPatchConfigRequestSchema,
+            },
+          },
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number().int(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description:
+            "Submit scope for a git configuration pull request and store the repository binding in connection config",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid or ambiguous Linear configuration",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown Linear connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "Linear configuration pull request creation is in progress",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue Linear configuration pull request",
         },
       },
     },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number().int(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
-        },
-      },
-      description:
-        "Submit scope for a git configuration pull request and store the repository binding in connection config",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or ambiguous Linear configuration",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown Linear connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Linear configuration pull request creation is in progress",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue Linear configuration pull request",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteLinearConnectorRoute = createRoute({
   method: "delete",
@@ -422,37 +425,42 @@ const deleteLinearConnectorRoute = createRoute({
   },
 })
 
-const retryLinearSyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryLinearSyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Retry a failed Linear content sync",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Ambiguous Linear connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Linear content sync retry already claimed",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete Linear connection",
         },
       },
-      description: "Retry a failed Linear content sync",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Ambiguous Linear connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Linear content sync retry already claimed",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete Linear connection",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const retryLinearConfigRoute = createRoute({
   method: "post",
@@ -981,38 +989,14 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       saved = await patchLinearConnectorConfig({
         orgId,
         connectionId: installed.connection.id,
-        claimConfigPrCreation: shouldEnqueueConfigPr,
         ...(body.scopes !== undefined ? { scopes: body.scopes } : {}),
         ...(body.syncTarget !== undefined ? { binding: body.syncTarget } : {}),
       })
     } catch (error) {
-      if (
-        error instanceof LinearConfigPrCreationInProgressError ||
-        error instanceof LinearSyncBindingBusyError
-      ) {
+      if (error instanceof LinearSyncBindingBusyError) {
         return c.json({ error: error.message }, 409)
       }
       throw error
-    }
-    if (body.syncTarget !== undefined) {
-      await enqueueGithubPrMirrorEnsureForOrg(orgId)
-    }
-    if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
-        {
-          orgId: saved.repositoryIngestion.orgId,
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          ...(saved.repositoryIngestion.targetBranch !== undefined
-            ? { targetBranch: saved.repositoryIngestion.targetBranch }
-            : {}),
-        },
-        {
-          error: (error) =>
-            getLogger().error(error, {
-              step: "linear.repository_ingestion.enqueue",
-            }),
-        },
-      )
     }
     if (saved.supersededConfigPullUrl && saved.supersededConfigRepositoryId) {
       const pullNumber = parseGithubPullNumberFromUrl(
@@ -1086,19 +1070,26 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         return c.json({ error: "Failed to enqueue Linear initial sync" }, 503)
       }
     }
-    if (saved.configPrClaimed && body.scopes !== undefined) {
+    let configPrEnqueued = false
+    if (shouldEnqueueConfigPr && body.scopes !== undefined) {
       try {
-        await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+        const admission = await enqueueConnectorConfigSync({
+          provider: "linear",
           orgId,
           orgSlug,
           connectionId: installed.connection.id,
           scopes: body.scopes,
         })
+        if (!admission.accepted)
+          return c.json(
+            {
+              error:
+                "Linear configuration changed or a proposal is already in progress",
+            },
+            409,
+          )
+        configPrEnqueued = admission.started
       } catch (error) {
-        await releaseLinearConfigPrCreationClaim({
-          connectionId: installed.connection.id,
-          previousState: saved.previousConfigPrState!,
-        })
         getLogger().error(
           error instanceof Error ? error : new Error(String(error)),
           {
@@ -1116,8 +1107,8 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       {
         accepted: true as const,
         savedCount: saved.scopes.length,
-        configPrEnqueued: saved.configPrClaimed,
-        ...(saved.configPrClaimed
+        configPrEnqueued,
+        ...(configPrEnqueued
           ? { workflowName: linearSyncConfig.spec.name }
           : {}),
       },
@@ -1146,7 +1137,10 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
       orgId,
       installed.connection.id,
     )
-    if (binding?.setupPhase !== "config_failed") {
+    if (
+      !binding ||
+      !["config_failed", "awaiting_merge"].includes(binding.setupPhase)
+    ) {
       return c.json(
         { error: "Linear configuration pull request is not in a failed state" },
         400,
@@ -1172,35 +1166,25 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    let saved: Awaited<ReturnType<typeof patchLinearConnectorConfig>>
     try {
-      saved = await patchLinearConnectorConfig({
-        orgId,
-        connectionId: installed.connection.id,
-        scopes,
-        claimConfigPrCreation: true,
-      })
-    } catch (error) {
-      if (error instanceof LinearConfigPrCreationInProgressError) {
-        return c.json({ error: error.message }, 409)
-      }
-      throw error
-    }
-    if (!saved.configPrClaimed || !saved.previousConfigPrState) {
-      return c.json({ error: "Linear scope is not configured" }, 400)
-    }
-    try {
-      await runWorkflowWithWorkerWake(linearSyncConfig.spec, {
+      const admission = await enqueueConnectorConfigSync({
+        provider: "linear",
         orgId,
         orgSlug,
         connectionId: installed.connection.id,
+        repositoryId: binding.repositoryId,
+        branch: binding.branch,
         scopes,
       })
+      if (!admission.accepted)
+        return c.json(
+          {
+            error:
+              "Linear configuration changed or a proposal is already in progress",
+          },
+          409,
+        )
     } catch (error) {
-      await releaseLinearConfigPrCreationClaim({
-        connectionId: installed.connection.id,
-        previousState: saved.previousConfigPrState,
-      })
       getLogger().error(
         error instanceof Error ? error : new Error(String(error)),
         {
@@ -1248,26 +1232,19 @@ export const linearConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    if (!(await claimLinearContentSyncRetry(installed.connection.id))) {
+    const accepted = await enqueueConnectorContentSync({
+      orgId,
+      orgSlug: c.req.param("orgSlug"),
+      connectionId: installed.connection.id,
+      provider: "linear",
+      repositoryId: binding.repositoryId,
+      branch: binding.branch,
+    })
+    if (!accepted)
       return c.json(
         { error: "Linear content sync is already being retried" },
         409,
       )
-    }
-    try {
-      await runWorkflowWithWorkerWake(linearSyncContent.spec, {
-        orgId,
-        connectionId: installed.connection.id,
-      })
-    } catch (error) {
-      await updateLinearBindingPrState({
-        connectionId: installed.connection.id,
-        pendingConfigPullUrl: null,
-        pendingConfigPrCreating: false,
-        setupPhase: "sync_failed",
-      })
-      throw error
-    }
     return c.json({ accepted: true as const }, 202)
   })
   .openapi(deleteLinearConnectorRoute, async (c) => {
@@ -1340,7 +1317,7 @@ export const linearOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       }))
     ) {
       return relayError(
-        "You no longer have permission to connect Linear to this organisation",
+        "You no longer have permission to connect Linear to this organization",
       )
     }
 

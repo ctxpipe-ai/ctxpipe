@@ -18,11 +18,11 @@ import { Button } from "@/components/ui/Button"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
 const disclosure = tv({
-  base: "group min-w-50 font-sans rounded-none text-foreground",
+  base: "group min-w-50 font-sans rounded-md text-foreground",
 })
 
 const chevron = tv({
-  base: "w-4 h-4 text-muted-foreground transition-transform duration-200 ease-in-out",
+  base: "w-4 h-4 text-muted-foreground transition-transform ease-in-out",
   variants: {
     isExpanded: {
       true: "transform rotate-90",
@@ -33,7 +33,7 @@ const chevron = tv({
   },
 })
 
-export interface DisclosureProps extends AriaDisclosureProps {
+interface DisclosureProps extends AriaDisclosureProps {
   children: React.ReactNode
 }
 
@@ -50,7 +50,7 @@ export function Disclosure({ children, ...props }: DisclosureProps) {
   )
 }
 
-export interface DisclosureHeaderProps {
+interface DisclosureHeaderProps {
   children: React.ReactNode
   /**
    * When set, show this label on the right instead of the expand chevron. The main
@@ -73,7 +73,7 @@ export function DisclosureHeader({
       <Button
         slot="trigger"
         variant="ghost"
-        className="group flex h-auto min-h-0 w-full items-center justify-between gap-2 rounded-none px-2 py-1.5 text-left text-sm font-medium text-inherit"
+        className="group flex h-auto min-h-0 w-full items-center justify-between gap-2 rounded-md px-2 py-1.5 text-left text-sm font-medium text-inherit"
       >
         {({ isDisabled }) => (
           <>
@@ -81,7 +81,7 @@ export function DisclosureHeader({
             {trailingPill != null && trailingPill !== "" ? (
               <span
                 aria-hidden
-                className="shrink-0 rounded-none border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground transition group-hover:bg-foreground/[0.06] group-hover:text-foreground"
+                className="shrink-0 rounded-md border border-border bg-muted/50 px-2 py-0.5 text-xs font-medium text-muted-foreground transition group-hover:bg-foreground/[0.06] group-hover:text-foreground"
               >
                 {trailingPill}
               </span>
@@ -98,7 +98,7 @@ export function DisclosureHeader({
   )
 }
 
-export interface DisclosurePanelProps extends AriaDisclosurePanelProps {
+interface DisclosurePanelProps extends AriaDisclosurePanelProps {
   children: React.ReactNode
 }
 
@@ -108,7 +108,7 @@ export function DisclosurePanel({ children, ...props }: DisclosurePanelProps) {
       {...props}
       className={composeTailwindRenderProps(
         props.className,
-        "h-(--disclosure-panel-height) motion-safe:transition-[height] overflow-clip",
+        "h-(--disclosure-panel-height) overflow-clip",
       )}
     >
       <div className="px-0 pt-0.5 pb-0">{children}</div>

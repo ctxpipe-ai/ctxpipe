@@ -4,24 +4,23 @@ import { listInstallationsByGithubInstallationId } from "../../../models/github-
 import {
   getLinearConnectionByConnectionId,
   listLinearBindingsWithRepoByRepositoryId,
-  claimLinearBindingInitialSync,
   resetLinearConnectorAfterMissingConfig,
-  transitionLinearBindingState,
 } from "../../../models/linear-connector.js"
 import { findRepositoryByGithubInstallation } from "../../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
-import { linearSyncContent } from "../../../openworkflow/workflows/linear-sync-content.js"
 import {
-  githubCommitsMissingPathEntirely,
-  githubPushTouchesPath,
-} from "../../../services/confluence/github-push-config-sync.js"
-import { compareCommitsTouchesPath } from "../../../services/github/installation-write-client.js"
+  connectorConfigKey,
+  enqueueConnectorContentSync,
+} from "../../../openworkflow/enqueue-connector-content-sync.js"
+import { connectorConfigPush } from "../../../services/confluence/github-push-config-sync.js"
+import {
+  compareCommitsTouchesPath,
+  workspaceRootPathOfRepository,
+} from "../../../services/github/installation-write-client.js"
 import {
   LINEAR_CONFIG_PATH,
   loadLinearScopeFromRepo,
 } from "../../../services/linear/config-from-repo.js"
-
-const GIT_EMPTY_TREE_SHA = "0000000000000000000000000000000000000000"
+import { linearLegacySyncRetired } from "../../../services/linear/legacy-retired.js"
 
 type GithubWebhookLog = { error: (error: Error) => void }
 
@@ -44,20 +43,13 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
   const pushedBranch = input.ref.slice(branchPrefix.length)
   if (!pushedBranch) return
 
-  const touchedByCommitLists = githubPushTouchesPath({
+  const push = connectorConfigPush({
     commits: input.commits,
+    before: input.before,
+    after: input.after,
     path: LINEAR_CONFIG_PATH,
   })
-  const canCompare =
-    Boolean(input.before && input.after) &&
-    input.before !== GIT_EMPTY_TREE_SHA &&
-    input.after !== GIT_EMPTY_TREE_SHA
-  const needsCompareFallback =
-    githubCommitsMissingPathEntirely({
-      commits: input.commits,
-      path: LINEAR_CONFIG_PATH,
-    }) && canCompare
-  if (!touchedByCommitLists && !needsCompareFallback) return
+  if (!push.mayTouch) return
 
   const env = parseEnv(process.env as Record<string, string | undefined>)
   const compareCache = new Map<string, Promise<boolean>>()
@@ -77,26 +69,33 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
     )
     if (!repository?.githubConnectionId) continue
 
-    let configTouched = touchedByCommitLists
-    if (!configTouched && needsCompareFallback && input.before && input.after) {
-      let comparison = compareCache.get(repository.id)
+    const repositoryConnectionId = repository.githubConnectionId
+    // The config file is relative to the root folder of the org's Workspace.
+    const rootPath = await workspaceRootPathOfRepository({
+      orgId: installation.orgId,
+      repositoryName: repository.name,
+    })
+    const configTouched = await push.touches(rootPath, (path, base, head) => {
+      const key = `${repository.id}:${path}`
+      let comparison = compareCache.get(key)
       if (!comparison) {
         comparison = compareCommitsTouchesPath({
           orgId: installation.orgId,
           env,
           repositoryName: repository.name,
-          githubConnectionId: repository.githubConnectionId,
-          baseSha: input.before,
-          headSha: input.after,
-          path: LINEAR_CONFIG_PATH,
+          githubConnectionId: repositoryConnectionId,
+          baseSha: base,
+          headSha: head,
+          path,
         })
-        compareCache.set(repository.id, comparison)
+        compareCache.set(key, comparison)
       }
-      configTouched = await comparison
-    }
+      return comparison
+    })
     if (!configTouched) continue
 
     const targets = await listLinearBindingsWithRepoByRepositoryId(
+      installation.orgId,
       repository.id,
     )
     for (const target of targets) {
@@ -138,35 +137,31 @@ export async function maybeActivateLinearSyncOnConfigPush(input: {
         continue
       }
 
+      // ADR-050: a Workspace source that writes into this repository owns
+      // the Linear files now; the legacy full sync would delete them.
       if (
-        !(await claimLinearBindingInitialSync({
-          connectionId: target.connectionId,
-          repositoryId: target.repositoryId,
-          branch: target.branch,
-        }))
-      ) {
-        continue
-      }
-      try {
-        await runWorkflowWithWorkerWake(linearSyncContent.spec, {
+        await linearLegacySyncRetired({
           orgId: target.orgId,
           connectionId: target.connectionId,
+          syncRepositoryGitUrl: repository.gitUrl,
         })
-      } catch (error) {
-        // Avoid leaving a stuck initial_sync that blocks later CAS claims.
-        await transitionLinearBindingState({
+      )
+        continue
+
+      try {
+        await enqueueConnectorContentSync({
+          orgId: target.orgId,
           connectionId: target.connectionId,
-          expectedSetupPhase: "initial_sync",
-          expectedPendingConfigPrCreating: false,
+          provider: "linear",
           repositoryId: target.repositoryId,
           branch: target.branch,
-          pendingConfigPullUrl: null,
-          pendingConfigPrCreating: false,
-          setupPhase: "awaiting_merge",
+          configKey: connectorConfigKey(config),
         })
+      } catch (error) {
         input.log.error(
           error instanceof Error ? error : new Error(String(error)),
         )
+        throw error
       }
     }
   }

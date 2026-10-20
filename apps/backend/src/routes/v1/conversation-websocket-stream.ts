@@ -1,0 +1,138 @@
+import {
+  memoryStream,
+  resumeWebSocketStream,
+  toWebSocketStream,
+  type WebSocketLike,
+} from "@tanstack/ai"
+
+const WORKSPACE_CHAT_WS_PATH =
+  /^\/([^/]+)\/api\/v1\/conversations\/([^/]+)(?:\/stream)?$/
+
+export function parseConversationWebSocketUpgradeUrl(
+  url: string,
+): { orgSlug: string; conversationId: string } | null {
+  let parsed: URL
+  try {
+    parsed = new URL(url)
+  } catch {
+    return null
+  }
+  const match = parsed.pathname.match(WORKSPACE_CHAT_WS_PATH)
+  const orgSlug = match?.[1]
+  const conversationId = match?.[2]
+  if (!orgSlug || !conversationId) return null
+  return { orgSlug, conversationId }
+}
+
+export function isWorkspaceChatWebSocketRequest(request: Request): boolean {
+  if (request.headers.get("upgrade")?.toLowerCase() !== "websocket") {
+    return false
+  }
+  return WORKSPACE_CHAT_WS_PATH.test(new URL(request.url).pathname)
+}
+
+export function conversationWebSocketHasResumeOffset(url: string): boolean {
+  try {
+    return new URL(url).searchParams.get("offset") !== null
+  } catch {
+    return false
+  }
+}
+
+type ConversationChatSocketRun = Parameters<
+  typeof toWebSocketStream
+>[2]["onRun"]
+
+/**
+ * Start a turn or a resume on a chat socket. The run log key holds the
+ * organization, the user, and the conversation of the socket. Thus a resume
+ * finds only a run that the same user started in that conversation, and a
+ * turn of another user cannot add chunks to that run log. Any other run
+ * fails as an unknown run.
+ */
+export function startConversationChatSocket(
+  socket: WebSocketLike,
+  request: Request,
+  scope: { orgId: string; userId: string; conversationId: string },
+  onRun: ConversationChatSocketRun,
+  transport: {
+    resume: typeof resumeWebSocketStream
+    stream: typeof toWebSocketStream
+  } = {
+    resume: resumeWebSocketStream,
+    stream: toWebSocketStream,
+  },
+) {
+  const runLog = (runId: string) =>
+    `${scope.orgId}/${scope.userId}/${scope.conversationId}/${runId}`
+  const query = new URL(request.url).searchParams
+  const offset = query.get("offset")
+  if (offset !== null) {
+    const runId = query.get("runId")
+    if (!runId) {
+      socket.close(1011, "resume failed")
+      return "resume" as const
+    }
+    const adapter = memoryStream({ runId: runLog(runId), offset })
+    // A read of an unknown run from the start adds an empty run log entry.
+    // When the socket closes before the first chunk, nothing removes that
+    // entry. Thus close a run with no data before the read, with the same
+    // close that the read gives.
+    void adapter.snapshot().then((entries) => {
+      if (entries.length === 0) socket.close(1011, "resume failed")
+      else transport.resume(socket, { adapter })
+    })
+    return "resume" as const
+  }
+  transport.stream(socket, request, {
+    durability: (ctx) => memoryStream({ runId: runLog(ctx.runId) }),
+    onRun,
+  })
+  return "run" as const
+}
+
+type MessageHandler = (ev: { data: unknown }) => void
+type CloseHandler = () => void
+
+export type BunWebSocketLike = WebSocketLike & {
+  dispatchMessage: (data: string) => void
+  dispatchClose: () => void
+  dispatchError: () => void
+}
+
+export function bunSocketToWebSocketLike(ws: {
+  send: (data: string) => void
+  close: (code?: number, reason?: string) => void
+}): BunWebSocketLike {
+  const messageHandlers: MessageHandler[] = []
+  const closeHandlers: CloseHandler[] = []
+  const errorHandlers: CloseHandler[] = []
+  return {
+    send: (data) => {
+      ws.send(data)
+    },
+    close: (code, reason) => {
+      ws.close(code, reason)
+    },
+    addEventListener(type, handler) {
+      if (type === "message") {
+        messageHandlers.push(handler as MessageHandler)
+        return
+      }
+      if (type === "close") {
+        closeHandlers.push(handler as CloseHandler)
+        return
+      }
+      errorHandlers.push(handler as CloseHandler)
+    },
+    dispatchMessage(data) {
+      for (const handler of messageHandlers) handler({ data })
+    },
+    dispatchClose() {
+      for (const handler of closeHandlers) handler()
+    },
+    dispatchError() {
+      for (const handler of errorHandlers) handler()
+    },
+  }
+}

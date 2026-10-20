@@ -9,6 +9,7 @@ import { displayOAuthCallbackUrl } from "../lib/display-oauth-callback-url"
 import {
   atlassianConnectorKeys,
   fetchOrgAtlassianOauth,
+  saveOrgAtlassianOauth,
 } from "../queries/atlassian-connector"
 import { AtlassianOauthAppSavedSection } from "./AtlassianOauthAppSavedSection"
 
@@ -47,7 +48,7 @@ function AtlassianThreeLoSetupGuide({
   }
 
   const scopeCode = (ch: string) => (
-    <code className="rounded-none bg-muted/80 px-1 py-0.5 font-mono text-[0.8125rem] text-foreground">
+    <code className="rounded-md bg-muted/80 px-1 py-0.5 font-mono text-[0.8125rem] text-foreground">
       {ch}
     </code>
   )
@@ -76,7 +77,7 @@ function AtlassianThreeLoSetupGuide({
           </strong>{" "}
           → <strong className="font-medium text-foreground">Add</strong>. Paste
           this callback URL, then save.
-          <div className="mt-2 flex w-full min-w-0 items-stretch overflow-hidden rounded-none border border-border bg-muted/50">
+          <div className="mt-2 flex w-full min-w-0 items-stretch overflow-hidden rounded-md border border-border bg-muted/50">
             <div className="flex min-h-10 min-w-0 flex-1 items-center overflow-x-auto px-2">
               <code className="break-all font-mono text-sm text-muted-foreground">
                 {callbackDisplay}
@@ -89,8 +90,8 @@ function AtlassianThreeLoSetupGuide({
                 size="icon-sm"
                 className={
                   copyState === "copied"
-                    ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                    : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                    ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                    : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
                 }
                 aria-label={
                   copyState === "copied"
@@ -109,12 +110,12 @@ function AtlassianThreeLoSetupGuide({
               >
                 {copyState === "copied" ? (
                   <IconCheck
-                    className="h-4 w-4 transition-opacity duration-200"
+                    className="h-4 w-4 transition-opacity"
                     aria-hidden
                   />
                 ) : (
                   <IconCopy
-                    className="h-4 w-4 transition-opacity duration-200"
+                    className="h-4 w-4 transition-opacity"
                     aria-hidden
                   />
                 )}
@@ -183,22 +184,8 @@ export function OrgAtlassianOauthPanel({
   const [clientSecret, setClientSecret] = useState("")
 
   const save = useMutation({
-    mutationFn: async () => {
-      const q = new URLSearchParams({ connectionId })
-      const res = await fetch(
-        `/${orgSlug}/api/v1/org/atlassian-oauth?${q.toString()}`,
-        {
-          method: "PUT",
-          credentials: "include",
-          headers: { "content-type": "application/json" },
-          body: JSON.stringify({ clientId, clientSecret }),
-        },
-      )
-      if (!res.ok) {
-        const j = (await res.json().catch(() => ({}))) as { error?: string }
-        throw new Error(j.error ?? res.statusText)
-      }
-    },
+    mutationFn: () =>
+      saveOrgAtlassianOauth(orgSlug, connectionId, { clientId, clientSecret }),
     onSuccess: async () => {
       setClientSecret("")
       await queryClient.invalidateQueries({
@@ -233,7 +220,7 @@ export function OrgAtlassianOauthPanel({
       className={
         embedded
           ? "space-y-3"
-          : "max-w-lg space-y-3 rounded-none border border-border p-4"
+          : "max-w-lg space-y-3 rounded-md border border-border p-4"
       }
     >
       {embedded ? null : (
@@ -261,7 +248,7 @@ export function OrgAtlassianOauthPanel({
       />
       <Button
         variant="primary"
-        className="rounded-none"
+        className="rounded-md"
         isPending={save.isPending}
         isDisabled={meta.isPending}
         onPress={() => {

@@ -1,5 +1,6 @@
 import HyperDX from "@hyperdx/browser"
 import { MutationCache, QueryCache, QueryClient } from "@tanstack/react-query"
+import { retryQuery } from "./api-result"
 
 /** First query/mutation key segment when it is a string. */
 export function hyperDxQueryKeyName(
@@ -23,6 +24,23 @@ function isCancellation(error: unknown): boolean {
   return name === "AbortError" || name === "CancelledError"
 }
 
+/**
+ * A 409 that polling queries get while a turn runs or a sandbox starts. Other
+ * 409 answers (a stale worktree, a name conflict) are real failures.
+ */
+function isExpectedState(
+  source: "query" | "mutation",
+  error: unknown,
+): boolean {
+  if (source !== "query" || !(error instanceof Error)) return false
+  if (httpStatus(error) !== "409") return false
+  return (
+    error.message === "turn_running" ||
+    error.message === "missing_sandbox" ||
+    error.message === "Conversation sandbox is not ready"
+  )
+}
+
 function recordUiException(
   source: "query" | "mutation",
   error: unknown,
@@ -35,6 +53,15 @@ function recordUiException(
   if (error && typeof error === "object") {
     const status = httpStatus(error)
     if (status) attributes["ctxpipe.ui.http_status"] = status
+    const requestId = (error as { requestId?: unknown }).requestId
+    if (typeof requestId === "string" && requestId) {
+      attributes["request.id"] = requestId
+    }
+  }
+  // An expected state is an action, not an Error span.
+  if (isExpectedState(source, error)) {
+    HyperDX.addAction("ui_expected_state", attributes)
+    return
   }
   // Before init the SDK drops this. Recording without identity is acceptable.
   HyperDX.recordException(error, attributes)
@@ -55,6 +82,7 @@ export function createHyperDxQueryClient(): QueryClient {
     defaultOptions: {
       queries: {
         staleTime: 60_000,
+        retry: retryQuery,
       },
     },
   })

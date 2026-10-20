@@ -1,9 +1,9 @@
 /**
- * Shared personal and organisation API-key UI.
+ * Shared personal and organization API-key UI.
  *
  * Replaces better-auth-ui's <ApiKeysCard> so both ownership modes share one
  * information hierarchy and empty state. The library card's
- * `CreateApiKeyDialog` gates an organisation/personal selector on
+ * `CreateApiKeyDialog` gates an organization/personal selector on
  * `contextOrganization.apiKey` (no per-call-site opt-out). That selector would
  * mix ownership modes on both settings pages. Calling
  * `authClient.apiKey.{list,create,delete}` with an explicit config keeps each
@@ -38,9 +38,14 @@ import { GridList, GridListItem } from "@/components/ui/GridList"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Modal } from "@/components/ui/Modal"
 import { Select, SelectItem } from "@/components/ui/Select"
-import { ShimmerPlaceholder } from "@/components/ui/ShimmerPlaceholder"
+import {
+  Skeleton,
+  SkeletonText,
+  useSkeletonHold,
+} from "@/components/ui/Skeleton"
 import { TextField } from "@/components/ui/TextField"
 import { betterAuthShellClassNames } from "@/features/auth/betterAuthShellClassNames"
+import { OrganizationPicker } from "@/features/auth/OrganizationPicker"
 import {
   organizationApiKeyLocalization,
   personalApiKeyLocalization,
@@ -52,9 +57,15 @@ import {
   deleteOrganizationApiKey,
   deletePersonalApiKey,
   listOrganizationApiKeys,
+  listPersonalApiKeyOrganizations,
   listPersonalApiKeys,
+  type PersonalApiKeyOrganization,
+  recordApiKeyCopied,
+  setPersonalApiKeyOrganizations,
 } from "@/features/organization/organizationApiKeys"
+import { useListOrganizations } from "@/lib/auth-client"
 import { cn } from "@/lib/utils"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
 
 const apiKeysCardClassNames = betterAuthShellClassNames.card
 
@@ -148,7 +159,11 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   const queryClient = useQueryClient()
   const [createOpen, setCreateOpen] = useState(false)
   const [keyToRevoke, setKeyToRevoke] = useState<ApiKey | null>(null)
-  const [createdSecret, setCreatedSecret] = useState<string | null>(null)
+  const [createdSecret, setCreatedSecret] = useState<{
+    id: string
+    key: string
+  } | null>(null)
+  const [keyToEdit, setKeyToEdit] = useState<ApiKey | null>(null)
 
   const keysQuery = useQuery({
     queryKey,
@@ -158,8 +173,19 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         : listPersonalApiKeys(),
   })
 
+  // Personal keys only: the org set of each key (ADR-051).
+  const keyOrganizationsQuery = useQuery({
+    queryKey: personalKeyOrganizationsQueryKey,
+    queryFn: listPersonalApiKeyOrganizations,
+    enabled: !isOrganization,
+  })
+
   const createMutation = useMutation({
-    mutationFn: (input: { name: string; expiresIn: number | null }) =>
+    mutationFn: (input: {
+      name: string
+      expiresIn: number | null
+      organizationIds: string[]
+    }) =>
       props.kind === "organization"
         ? createOrganizationApiKey({
             organizationId: props.organizationId,
@@ -168,11 +194,28 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           })
         : createPersonalApiKey(input),
     onSuccess: async (created) => {
-      await queryClient.invalidateQueries({
-        queryKey,
-      })
+      await Promise.all([
+        queryClient.invalidateQueries({ queryKey }),
+        isOrganization
+          ? null
+          : queryClient.invalidateQueries({
+              queryKey: personalKeyOrganizationsQueryKey,
+            }),
+      ])
       setCreateOpen(false)
-      setCreatedSecret(created.key ?? null)
+      setCreatedSecret(
+        created.key ? { id: created.id, key: created.key } : null,
+      )
+    },
+  })
+
+  const editOrganizationsMutation = useMutation({
+    mutationFn: setPersonalApiKeyOrganizations,
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({
+        queryKey: personalKeyOrganizationsQueryKey,
+      })
+      setKeyToEdit(null)
     },
   })
 
@@ -194,6 +237,15 @@ function ApiKeysCard(props: ApiKeysCardProps) {
     isOrganization && keysQuery.error != null && isForbidden(keysQuery.error)
   const loadError = keysQuery.error != null && !forbidden
 
+  useHyperDxScreenError(
+    forbidden
+      ? "api_keys_forbidden"
+      : loadError
+        ? "api_keys_load_failed"
+        : null,
+  )
+
+  const keysLoading = useSkeletonHold(keysQuery.isPending)
   return (
     <div className="flex w-full min-w-0 flex-col gap-4">
       <Card
@@ -231,25 +283,47 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   params={{ organizationView: "api-keys" }}
                   className="font-medium text-teal-400 underline-offset-4 hover:underline"
                 >
-                  Use an organisation key instead.
+                  Use an organization key instead.
                 </Link>
               )}
             </p>
           </CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
-          {keysQuery.isPending ? (
-            <div aria-hidden className="flex flex-col gap-3">
+          {keysLoading ? (
+            // The box of the key list: the same border, row padding and row height.
+            <div
+              aria-hidden
+              className={cn(
+                apiKeysCardClassNames?.cell,
+                "border border-zinc-700/60 bg-transparent",
+              )}
+            >
               {[1, 2, 3].map((row) => (
-                <div key={row} className="flex flex-col gap-2 py-2">
-                  <ShimmerPlaceholder className="h-4 w-40 max-w-full" />
-                  <ShimmerPlaceholder className="h-3 w-28" />
+                <div
+                  key={row}
+                  className="flex gap-3 border-transparent border-t px-3 py-2 text-sm first:border-t-0"
+                >
+                  <Skeleton className="size-4 shrink-0" />
+                  <div className="min-w-0 flex-1">
+                    <SkeletonText
+                      className="text-sm"
+                      boneClassName="w-40 max-w-full"
+                    />
+                    <SkeletonText className="text-xs" boneClassName="w-28" />
+                  </div>
+                  {isOrganization ? null : (
+                    <Skeleton className="box-border inline-flex h-9 shrink-0 items-center rounded-md border border-transparent px-3.5 text-sm">
+                      <span className="invisible">Organizations</span>
+                    </Skeleton>
+                  )}
+                  <Skeleton className="h-9 w-24 shrink-0 rounded-md" />
                 </div>
               ))}
             </div>
           ) : forbidden ? (
             <InlineAlert variant="error" title="Admin or owner required">
-              Only organisation admins and owners can manage these keys.
+              Only organization admins and owners can manage these keys.
             </InlineAlert>
           ) : loadError ? (
             <InlineAlert variant="error" title="Could not load API keys">
@@ -262,7 +336,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
               </span>
               <div>
                 <p className="text-sm font-medium text-foreground">
-                  No {isOrganization ? "organisation" : "personal"} keys
+                  No {isOrganization ? "organization" : "personal"} keys
                 </p>
                 <p className="mt-1 text-sm text-muted-foreground">
                   {isOrganization
@@ -274,7 +348,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           ) : (
             <GridList
               aria-label={
-                isOrganization ? "Organisation API keys" : "Personal API keys"
+                isOrganization ? "Organization API keys" : "Personal API keys"
               }
               className={cn(
                 apiKeysCardClassNames?.cell,
@@ -286,7 +360,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                   key={apiKey.id}
                   id={apiKey.id}
                   textValue={apiKey.name ?? apiKey.start ?? apiKey.id}
-                  className="rounded-none border-border"
+                  className="rounded-md border-border"
                 >
                   <IconKey
                     className="size-4 shrink-0 text-muted-foreground"
@@ -301,10 +375,31 @@ function ApiKeysCard(props: ApiKeysCardProps) {
                       <span className="mx-1.5 text-zinc-600">·</span>
                       {formatExpiry(apiKey.expiresAt)}
                     </p>
+                    {isOrganization ? null : (
+                      <p className="truncate font-mono text-xs text-muted-foreground">
+                        {keyOrganizationsSummary(
+                          keyOrganizationsQuery.data?.get(apiKey.id),
+                        )}
+                      </p>
+                    )}
                   </div>
+                  {isOrganization ? null : (
+                    <Button
+                      variant="outline"
+                      className="rounded-md"
+                      aria-label={`Edit organizations of ${apiKey.name || "Unnamed key"}`}
+                      isDisabled={!keyOrganizationsQuery.data}
+                      onPress={() => {
+                        editOrganizationsMutation.reset()
+                        setKeyToEdit(apiKey)
+                      }}
+                    >
+                      Organizations
+                    </Button>
+                  )}
                   <Button
                     variant="outline"
-                    className="rounded-none"
+                    className="rounded-md"
                     onPress={() => setKeyToRevoke(apiKey)}
                   >
                     <IconTrash className="size-4" aria-hidden />
@@ -323,7 +418,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
         >
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => {
               createMutation.reset()
               setCreateOpen(true)
@@ -336,11 +431,12 @@ function ApiKeysCard(props: ApiKeysCardProps) {
 
       <CreateApiKeyModal
         isOpen={createOpen}
+        pickOrganizations={!isOrganization}
         isPending={createMutation.isPending}
         error={
           createMutation.error
             ? isOrganization && isForbidden(createMutation.error)
-              ? "Only organisation admins and owners can mint organisation keys."
+              ? "Only organization admins and owners can mint organization keys."
               : errorMessage(createMutation.error)
             : undefined
         }
@@ -361,10 +457,37 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           }}
         >
           <CreatedSecretDialog
-            secret={createdSecret}
+            secret={createdSecret.key}
+            onCopied={() => recordApiKeyCopied(props.kind, createdSecret.id)}
             onDone={() => setCreatedSecret(null)}
           />
         </Modal>
+      ) : null}
+
+      {keyToEdit ? (
+        <EditKeyOrganizationsModal
+          keyName={keyToEdit.name || "Unnamed key"}
+          initial={
+            keyOrganizationsQuery.data
+              ?.get(keyToEdit.id)
+              ?.map((org) => org.id) ?? []
+          }
+          isPending={editOrganizationsMutation.isPending}
+          error={
+            editOrganizationsMutation.error
+              ? errorMessage(editOrganizationsMutation.error)
+              : undefined
+          }
+          onClose={() => {
+            if (!editOrganizationsMutation.isPending) setKeyToEdit(null)
+          }}
+          onSave={(organizationIds) =>
+            editOrganizationsMutation.mutate({
+              keyId: keyToEdit.id,
+              organizationIds,
+            })
+          }
+        />
       ) : null}
 
       {keyToRevoke ? (
@@ -398,20 +521,43 @@ function ApiKeysCard(props: ApiKeysCardProps) {
 
 function CreateApiKeyModal(props: {
   isOpen: boolean
+  /** A personal key: the user selects the organizations it can reach. */
+  pickOrganizations: boolean
   isPending: boolean
   error: string | undefined
   onOpenChange: (open: boolean) => void
-  onSubmit: (input: { name: string; expiresIn: number | null }) => void
+  onSubmit: (input: {
+    name: string
+    expiresIn: number | null
+    organizationIds: string[]
+  }) => void
 }) {
-  const { isOpen, isPending, error, onOpenChange, onSubmit } = props
+  const {
+    isOpen,
+    pickOrganizations,
+    isPending,
+    error,
+    onOpenChange,
+    onSubmit,
+  } = props
   const [name, setName] = useState("")
   const [expiry, setExpiry] = useState<ExpiryOptionId>("30")
   const [touched, setTouched] = useState(false)
+  // Null until the user changes it: then a user with one org gets that org.
+  const [picked, setPicked] = useState<string[] | null>(null)
+  const { data: organizations, isPending: organizationsPending } =
+    useListOrganizations()
+  const [onlyOrganization] =
+    organizations?.length === 1 ? organizations : [undefined]
+  const organizationIds =
+    picked ?? (onlyOrganization ? [onlyOrganization.id] : [])
+  const organizationsMissing = pickOrganizations && organizationIds.length === 0
 
   const reset = () => {
     setName("")
     setExpiry("30")
     setTouched(false)
+    setPicked(null)
   }
 
   const nameError =
@@ -435,14 +581,20 @@ function CreateApiKeyModal(props: {
             event.preventDefault()
             setTouched(true)
             const trimmed = name.trim()
-            if (!trimmed) return
-            onSubmit({ name: trimmed, expiresIn })
+            if (!trimmed || organizationsMissing) return
+            onSubmit({
+              name: trimmed,
+              expiresIn,
+              organizationIds: pickOrganizations ? organizationIds : [],
+            })
           }}
         >
           <DialogHeader>
             <DialogTitle>Create API key</DialogTitle>
             <DialogDescription>
-              Name the key and choose an expiry. The secret is shown once.
+              {pickOrganizations
+                ? "Name the key, select its organizations, and choose an expiry. The secret is shown once."
+                : "Name the key and choose an expiry. The secret is shown once."}
             </DialogDescription>
           </DialogHeader>
           {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
@@ -461,6 +613,23 @@ function CreateApiKeyModal(props: {
             autoFocus
             className="[&_input]:rounded-none [&_input]:border-border [&_input]:bg-zinc-950 [&_input]:text-zinc-100 [&_label]:text-zinc-300"
           />
+          {pickOrganizations ? (
+            organizationsPending ? (
+              <OrganizationPickerSkeleton />
+            ) : (
+              <OrganizationPicker
+                organizations={(organizations ?? []).map(
+                  ({ id, name: orgName, slug }) => ({
+                    id,
+                    name: orgName,
+                    slug,
+                  }),
+                )}
+                value={organizationIds}
+                onChange={setPicked}
+              />
+            )
+          ) : null}
           <Select
             label="Expires"
             selectedKey={expiry}
@@ -491,7 +660,7 @@ function CreateApiKeyModal(props: {
             <Button
               type="button"
               variant="quiet"
-              className="rounded-none"
+              className="rounded-md"
               isDisabled={isPending}
               onPress={() => onOpenChange(false)}
             >
@@ -500,8 +669,8 @@ function CreateApiKeyModal(props: {
             <Button
               type="submit"
               variant="primary"
-              className="rounded-none"
-              isDisabled={isPending || !name.trim()}
+              className="rounded-md"
+              isDisabled={isPending || !name.trim() || organizationsMissing}
               isPending={isPending}
             >
               Create API key
@@ -513,8 +682,12 @@ function CreateApiKeyModal(props: {
   )
 }
 
-function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
-  const { secret, onDone } = props
+function CreatedSecretDialog(props: {
+  secret: string
+  onCopied: () => void
+  onDone: () => void
+}) {
+  const { secret, onCopied, onDone } = props
   const [copied, setCopied] = useState(false)
 
   return (
@@ -527,25 +700,132 @@ function CreatedSecretDialog(props: { secret: string; onDone: () => void }) {
           commit it; it will not be shown again.
         </DialogDescription>
       </DialogHeader>
-      <p className="mt-4 break-all rounded-none border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
+      <p className="mt-4 break-all rounded-md border border-border bg-zinc-900 px-3 py-3 font-mono text-sm text-zinc-100">
         {secret}
       </p>
       <div className="mt-5 flex justify-end gap-2">
         <Button
           variant="outline"
-          className="rounded-none"
+          className="rounded-md"
           onPress={() => {
-            void navigator.clipboard.writeText(secret)
-            setCopied(true)
+            void navigator.clipboard.writeText(secret).then(() => {
+              setCopied(true)
+              onCopied()
+            })
           }}
         >
           <IconCopy className="size-4" aria-hidden />
           {copied ? "Copied" : "Copy"}
         </Button>
-        <Button variant="primary" className="rounded-none" onPress={onDone}>
+        <Button variant="primary" className="rounded-md" onPress={onDone}>
           Done
         </Button>
       </div>
     </Dialog>
+  )
+}
+
+const personalKeyOrganizationsQueryKey = [
+  "me",
+  "api-keys",
+  "organizations",
+] as const
+
+function keyOrganizationsSummary(
+  organizations: PersonalApiKeyOrganization[] | null | undefined,
+): string {
+  // Still loading: keep the line height.
+  if (organizations === undefined) return "\u00a0"
+  if (organizations === null) return "All your organizations"
+  if (organizations.length === 0) return "No organizations"
+  return organizations.map((org) => org.slug).join(", ")
+}
+
+/** The box of `OrganizationPicker`: a check box and two text lines per row. */
+function OrganizationPickerSkeleton() {
+  return (
+    <div aria-hidden className="flex flex-col gap-2">
+      <SkeletonText className="text-sm" boneClassName="h-3.5 w-24" />
+      {[0, 1].map((row) => (
+        <div key={row} className="flex items-center gap-2">
+          <Skeleton className="size-4.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <SkeletonText className="text-sm" boneClassName="w-40" />
+            <SkeletonText className="text-xs" boneClassName="w-24" />
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Change the organizations that a personal key can reach. The change applies
+ * to the next call of the key.
+ */
+function EditKeyOrganizationsModal(props: {
+  keyName: string
+  /** The current set. Empty for a key that reaches every organization. */
+  initial: string[]
+  isPending: boolean
+  error: string | undefined
+  onClose: () => void
+  onSave: (organizationIds: string[]) => void
+}) {
+  const { keyName, initial, isPending, error, onClose, onSave } = props
+  const { data: organizations, isPending: organizationsPending } =
+    useListOrganizations()
+  const [value, setValue] = useState(initial)
+  return (
+    <Modal
+      isOpen
+      isDismissable={!isPending}
+      onOpenChange={(open) => {
+        if (!open) onClose()
+      }}
+    >
+      <Dialog>
+        <div className="flex flex-col gap-5">
+          <DialogHeader>
+            <DialogTitle>Organizations for {keyName}</DialogTitle>
+            <DialogDescription>
+              The key can reach only the organizations you select. The change
+              applies to its next call.
+            </DialogDescription>
+          </DialogHeader>
+          {error ? <InlineAlert variant="error">{error}</InlineAlert> : null}
+          {organizationsPending ? (
+            <OrganizationPickerSkeleton />
+          ) : (
+            <OrganizationPicker
+              organizations={(organizations ?? []).map(
+                ({ id, name, slug }) => ({ id, name, slug }),
+              )}
+              value={value}
+              onChange={setValue}
+            />
+          )}
+          <div className="flex justify-end gap-2">
+            <Button
+              variant="quiet"
+              className="rounded-md"
+              isDisabled={isPending}
+              onPress={onClose}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="primary"
+              className="rounded-md"
+              isDisabled={isPending || value.length === 0}
+              isPending={isPending}
+              onPress={() => onSave(value)}
+            >
+              Save
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+    </Modal>
   )
 }

@@ -1,6 +1,7 @@
 import slugify from "@sindresorhus/slugify"
 import { stringify } from "yaml"
 import { isConnectorAssetCredentialUrl } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import { rewriteLinearMarkdownImages } from "./markdown-images.js"
 
 export type LinearMirrorFile = {
@@ -35,6 +36,9 @@ export type LinearResolvedAsset =
       reason: string
     }
 
+/** A relation an issue owns: Linear `type` and the related issue identifier. */
+export type LinearIssueRelation = { type: string; identifier: string }
+
 export type LinearIssueForMirror = {
   id: string
   identifier: string
@@ -50,6 +54,12 @@ export type LinearIssueForMirror = {
   projectName?: string | null
   cycleId?: string | null
   cycleName?: string | null
+  /** Parent issue identifier (`ENG-1`) and id. */
+  parent?: string | null
+  parentId?: string | null
+  milestone?: string | null
+  milestoneId?: string | null
+  relations?: LinearIssueRelation[]
   assigneeId?: string | null
   assignee?: string | null
   creatorId?: string | null
@@ -72,7 +82,7 @@ const LINEAR_UPLOAD_HOST = /(^|\.)uploads\.linear\.app$/i
 
 function stableSlug(title: string, id: string): string {
   const readable = slugify(title).slice(0, 80) || "untitled"
-  return `${readable}--${id}`
+  return `${readable}--${connectorPathSegment(id)}`
 }
 
 export function linearIssueMarkdownPath(
@@ -338,14 +348,19 @@ export function renderLinearIssue(
       teamId: issue.teamId ?? null,
       project: issue.projectName ?? null,
       projectId: issue.projectId ?? null,
+      milestone: issue.milestone ?? null,
+      milestoneId: issue.milestoneId ?? null,
       cycle: issue.cycleName ?? null,
       cycleId: issue.cycleId ?? null,
+      parent: issue.parent ?? null,
+      parentId: issue.parentId ?? null,
       assignee: issue.assignee ?? null,
       assigneeId: issue.assigneeId ?? null,
       creator: issue.creator ?? null,
       creatorId: issue.creatorId ?? null,
       labels: issue.labels.map((label) => label.name),
       labelIds: issue.labels.map((label) => label.id),
+      relations: issue.relations ?? [],
       createdAt: issue.createdAt.toISOString(),
       updatedAt: issue.updatedAt.toISOString(),
       githubReferences,

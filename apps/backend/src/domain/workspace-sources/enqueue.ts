@@ -1,0 +1,371 @@
+import { createHash } from "node:crypto"
+import { isDeepStrictEqual } from "node:util"
+import { sql } from "drizzle-orm"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { assertNotInOrgDbContext, getSystemDb } from "../../db/client.js"
+import {
+  lastGoodTarget,
+  type SourceTarget,
+  sourceRowsNameRepository,
+} from "../../models/workspace-source-state.js"
+import {
+  listConnectionSourceRows,
+  listConnectionsWithOkSources,
+  listWorkspaceSourceRows,
+  sameSource,
+  type WorkspaceSourceRow,
+} from "../../models/workspace-sources.js"
+import { log } from "../../observability/logger.js"
+import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
+import { enqueueWriteJob } from "../../openworkflow/enqueue-workspace-write-commit.js"
+import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
+import { workspaceSourcesSync } from "../../openworkflow/workflows/workspace-sources-sync.js"
+import { workspacePublishPipeline } from "../ingestion/ingestion-v2-config.js"
+import { SOURCE_ADAPTERS } from "./adapter.js"
+import { handOverLegacyBindings } from "./legacy-handover.js"
+import type { PlannedSourceRow } from "./projection-plan.js"
+import { sourceRepositoryUrls } from "./providers/git.js"
+import { checkSourcePath } from "./source-file.js"
+import { type SourceProvider, sourceProviderSchema } from "./sources-file.js"
+
+/**
+ * Sync one connection for all its `ok` sources. A provider webhook passes its
+ * `event`, and then only the sources that match the event sync.
+ */
+export async function enqueueConnectionSourcesSync(input: {
+  orgId: string
+  connectionId: string
+  provider: SourceProvider
+  event?: unknown
+  /** A "Sync now" sync: its failures do not count toward the bounded tries. */
+  manual?: true
+  /**
+   * A key for one provider change. A second enqueue with the same key (a
+   * repeated webhook delivery) starts no new run.
+   */
+  dedupeKey?: string
+  /** The earliest start of the sync. Default: now. */
+  availableAt?: Date
+}): Promise<void> {
+  assertNotInOrgDbContext()
+  const { dedupeKey, availableAt, ...workflowInput } = input
+  await runWorkflowWithWorkerWake(
+    workspaceSourcesSync.spec,
+    { kind: "connection", ...workflowInput },
+    dedupeKey || availableAt
+      ? {
+          idempotencyKey: dedupeKey
+            ? `workspace-sources:${input.connectionId}:${dedupeKey}`
+            : undefined,
+          availableAt,
+        }
+      : undefined,
+  )
+}
+
+const HOUR_MS = 60 * 60 * 1000
+const DAY_MS = 24 * HOUR_MS
+
+/**
+ * The daily full sync (CTX-557): one sync without an event for each
+ * connection that has an `ok` source and a sync adapter. A webhook syncs only
+ * the changed item, so only this sync finds a root that the provider deleted
+ * and counts its failures. Each connection starts at a fixed time of the UTC
+ * day from a hash of its id, so the connections do not all start in the same
+ * minute. When that time is already past (a worker that started late in the
+ * day), the start is in the next hour, at the same spread. The key is per
+ * connection per day, so a second call on the same day queues nothing.
+ */
+export async function enqueueDailySourcesSyncs(now: Date): Promise<number> {
+  assertNotInOrgDbContext()
+  const day = now.toISOString().slice(0, 10)
+  const dayStart = Date.parse(`${day}T00:00:00.000Z`)
+  let queued = 0
+  for (const connection of await listConnectionsWithOkSources()) {
+    const provider = fullSyncProvider(connection.provider)
+    if (!provider) continue
+    const offset =
+      createHash("sha256")
+        .update(connection.connectionId)
+        .digest()
+        .readUInt32BE(0) % DAY_MS
+    const at = Math.max(dayStart + offset, now.getTime() + (offset % HOUR_MS))
+    try {
+      await enqueueConnectionSourcesSync({
+        orgId: connection.orgId,
+        connectionId: connection.connectionId,
+        provider,
+        dedupeKey: `daily:${day}`,
+        availableAt: new Date(at),
+      })
+      queued += 1
+    } catch (error) {
+      log.error({
+        step: "workspace_sources.enqueue_daily_sync",
+        connectionId: connection.connectionId,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+  return queued
+}
+
+/**
+ * "Sync now" on a connector: the same full sync as the daily one, now.
+ * Gives false when the connection has no `ok` source with a sync adapter.
+ *
+ * A double click starts one sync. A click less than one minute after the
+ * last Sync now of the connection queues nothing. Other clicks use a key from
+ * the last Sync now, so clicks at the same time get the same key, and the
+ * OpenWorkflow key lock lets only one of them start a run. A key from a
+ * fixed minute did not do this: two clicks on each side of a full minute got
+ * two keys and started two syncs.
+ */
+export async function requestConnectionSourcesSync(input: {
+  orgId: string
+  connectionId: string
+  now: Date
+}): Promise<boolean> {
+  const rows = await listConnectionSourceRows({
+    orgId: input.orgId,
+    connectionId: input.connectionId,
+    status: "ok",
+  })
+  const provider = rows
+    .map((row) => fullSyncProvider(row.source.provider))
+    .find((found) => found !== null)
+  if (!provider) return false
+  const keyPrefix = `workspace-sources:${input.connectionId}:sync-now:`
+  const last = (
+    await getSystemDb().execute<{ id: string; recent: boolean }>(sql`
+      select id, created_at > ${new Date(input.now.getTime() - 60_000)} as recent
+      from openworkflow.workflow_runs
+      where namespace_id = ${openWorkflowNamespaceId()}
+        and workflow_name = ${workspaceSourcesSync.spec.name}
+        and starts_with(idempotency_key, ${keyPrefix})
+      order by created_at desc, id desc
+      limit 1
+    `)
+  ).rows[0]
+  if (last?.recent) return true
+  await enqueueConnectionSourcesSync({
+    orgId: input.orgId,
+    connectionId: input.connectionId,
+    provider,
+    manual: true,
+    dedupeKey: `sync-now:after:${last?.id ?? "none"}`,
+  })
+  return true
+}
+
+/** A provider without a sync adapter (GitHub) has nothing to sync or clean up. */
+function hasAdapter(provider: string | null): boolean {
+  return provider !== null && Object.hasOwn(SOURCE_ADAPTERS, provider)
+}
+
+/**
+ * The provider of a source when a full sync of it writes files. GitHub has
+ * no sync adapter. Slack sources capture on demand, so a full Slack sync
+ * writes nothing.
+ */
+function fullSyncProvider(provider: string | null): SourceProvider | null {
+  const parsed = sourceProviderSchema.safeParse(provider)
+  return parsed.success && parsed.data !== "slack" && hasAdapter(parsed.data)
+    ? parsed.data
+    : null
+}
+
+/**
+ * After a projection: delete the managed files of removed or changed sources
+ * that no other source owns, and sync each connection that gained or changed
+ * an `ok` source.
+ */
+export async function enqueueSourceProjectionFollowUps(input: {
+  orgId: string
+  workspaceId: string
+  /** The Workspace revision of the projection. */
+  revision: string
+  projected: {
+    added: PlannedSourceRow[]
+    changed: Array<{ before: WorkspaceSourceRow; after: PlannedSourceRow }>
+    removed: WorkspaceSourceRow[]
+  }
+  /**
+   * The format in the tree of the projected revision. Only ingestion v2
+   * (format 3 or more) retracts a repository that left the sources (CTX-720).
+   */
+  format: number
+}): Promise<void> {
+  assertNotInOrgDbContext()
+  // Clean up only what left the file: the last good target of a removed
+  // source, or of a changed source that now has a valid entry with another
+  // target. A status change (a removed connection), an entry that became
+  // invalid, and a file that cannot be read keep the committed files, as the
+  // remove-connector dialog says.
+  const candidates = [
+    ...input.projected.removed.map((row) => ({
+      sourceKey: row.sourceKey,
+      target: lastGoodTarget(row),
+    })),
+    ...input.projected.changed.map(({ before, after }) => {
+      const target = lastGoodTarget(before)
+      return {
+        sourceKey: before.sourceKey,
+        target:
+          after.status !== "invalid" && target && !sameSource(target, after)
+            ? target
+            : null,
+      }
+    }),
+  ].filter(
+    (source): source is { sourceKey: string; target: SourceTarget } =>
+      source.target !== null,
+  )
+  // A target that a row still holds did not leave: the conversion of
+  // `.ctxpipe/sources.yaml` moves each entry to a file with the same target.
+  const held = candidates.length
+    ? (
+        await listWorkspaceSourceRows({
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+        })
+      ).flatMap((row) => lastGoodTarget(row) ?? [])
+    : []
+  const leftSources = candidates.filter(
+    ({ target }) => !held.some((other) => isDeepStrictEqual(other, target)),
+  )
+  const removed = leftSources
+    .map((source) => source.target)
+    .filter((target) => hasAdapter(target.provider))
+  await enqueueRepositoryRetractions({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    revision: input.revision,
+    format: input.format,
+    left: leftSources,
+  })
+  if (removed.length)
+    await runWorkflowWithWorkerWake(workspaceSourcesSync.spec, {
+      kind: "cleanup",
+      orgId: input.orgId,
+      workspaceId: input.workspaceId,
+      revision: input.revision,
+      removed,
+    })
+  // A migrated legacy binding hands over to the sources after the merge.
+  await handOverLegacyBindings({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+    rows: [
+      ...input.projected.added,
+      ...input.projected.changed.map((change) => change.after),
+    ],
+  })
+  const connections = new Map<string, SourceProvider>()
+  for (const row of [
+    ...input.projected.added,
+    ...input.projected.changed.map((change) => change.after),
+  ]) {
+    const provider = sourceProviderSchema.safeParse(row.provider)
+    if (
+      row.status === "ok" &&
+      row.connectionId &&
+      provider.success &&
+      hasAdapter(provider.data)
+    )
+      connections.set(row.connectionId, provider.data)
+  }
+  for (const [connectionId, provider] of connections) {
+    try {
+      await enqueueConnectionSourcesSync({
+        orgId: input.orgId,
+        connectionId,
+        provider,
+      })
+    } catch (error) {
+      log.error({
+        step: "workspace_sources.enqueue_sync",
+        connectionId,
+        message: error instanceof Error ? error.message : String(error),
+      })
+    }
+  }
+}
+
+/**
+ * CTX-720 (ADR-052 section 3): a repository that left the sources loses what
+ * ingestion v2 extracted from it. One host write job for each repository and
+ * the source file that declared it, only when the projected tree is at
+ * format 3 or more, where ingestion v2 publishes. The files of the
+ * repository list that source path in `sources` (ADR-050 revision
+ * 2026-10-16). An entry of `.ctxpipe/sources.yaml` has no source
+ * path, and ingestion v2 owns no file of it, so it gets no job. A stored
+ * source row that still names the repository in any form keeps it
+ * (`sourceRowsNameRepository`): also an entry that became invalid, as it
+ * keeps its files (the CTX-710 rule above).
+ * The job checks the sources at the tip again. The job id is fixed for the
+ * revision, so a retry queues no second job. A job that does not start makes
+ * this call fail, so the step that runs it retries; the retraction is not
+ * lost.
+ */
+async function enqueueRepositoryRetractions(input: {
+  orgId: string
+  workspaceId: string
+  revision: string
+  format: number
+  left: ReadonlyArray<{ sourceKey: string; target: SourceTarget }>
+}): Promise<void> {
+  const pairs = new Map<string, { url: string; sourcePath: string }>()
+  for (const { sourceKey, target } of input.left) {
+    if (!checkSourcePath(sourceKey).ok) continue
+    for (const url of sourceRepositoryUrls(target))
+      pairs.set(`${url}\0${sourceKey}`, { url, sourcePath: sourceKey })
+  }
+  if (!pairs.size || workspacePublishPipeline(input.format) !== "v2") return
+  const rows = await listWorkspaceSourceRows({
+    orgId: input.orgId,
+    workspaceId: input.workspaceId,
+  })
+  const repositories = [...pairs.values()].filter(
+    ({ url }) => !sourceRowsNameRepository(rows, url),
+  )
+  if (!repositories.length) return
+  const org = await getSystemDb().query.organizations.findFirst({
+    where: { id: { eq: input.orgId } },
+  })
+  if (!org) throw new Error("Organization not found")
+  for (const { url, sourcePath } of repositories) {
+    const jobId = `wjob_retract_${createHash("sha256")
+      .update(`${input.workspaceId}\0${input.revision}\0${url}\0${sourcePath}`)
+      .digest("hex")
+      .slice(0, 32)}`
+    const logError = (error: Error) =>
+      log.error({
+        step: "workspace_sources.enqueue_retraction",
+        workspaceId: input.workspaceId,
+        jobId,
+        message: error.message,
+      })
+    // Admission reads the Workspace in the org context.
+    const { started } = await withOrgIdContext(org, () =>
+      enqueueWriteJob(
+        {
+          orgId: input.orgId,
+          workspaceId: input.workspaceId,
+          kind: "unlink_retraction",
+          jobId,
+          retractRepositoryUrl: url,
+          retractSourcePath: sourcePath,
+        },
+        { error: logError },
+      ),
+    )
+    if (!started) {
+      const error = new Error(
+        "The unlink retraction did not start; the follow-ups retry it",
+      )
+      logError(error)
+      throw error
+    }
+  }
+}

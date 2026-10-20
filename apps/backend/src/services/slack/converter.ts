@@ -5,6 +5,7 @@ import {
   gitBlobSha,
   isConnectorAssetCredentialUrl,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 const MANAGED_ROOT = "slack"
 
@@ -31,7 +32,7 @@ export type SlackCollectedMedia = {
   mimetype?: string
 }
 
-export type SlackMediaFile = {
+type SlackMediaFile = {
   id?: string
   name?: string
   title?: string
@@ -42,7 +43,7 @@ export type SlackMediaFile = {
   url_private_download?: string
 }
 
-export type SlackMediaMessage = {
+type SlackMediaMessage = {
   ts?: string
   text?: string
   files?: SlackMediaFile[]
@@ -62,20 +63,22 @@ export type SlackMediaMessage = {
   }>
 }
 
-export function getManagedSlackRootPath(): string {
-  return `${MANAGED_ROOT}/`
-}
-
 function titleSlug(title: string): string {
   const s = slugify(title, { lowercase: true })
   return s.length > 0 ? s : "channel"
 }
 
-export type SlackChannelPathInput = {
+type SlackChannelPathInput = {
   channelId: string
   channelName: string
   /** Already-slugified directory segment; display name stays `channelName`. */
   pathSlug?: string
+  /**
+   * "source": a Workspace source (ADR-050) keys the channel directory
+   * on the id only, so the directory is a fixed managed path that a channel
+   * rename does not move. Default: the capture layout `<slug>--<id>`.
+   */
+  layout?: "capture" | "source"
 }
 
 function channelPathSegment(input: SlackChannelPathInput): string {
@@ -83,8 +86,19 @@ function channelPathSegment(input: SlackChannelPathInput): string {
   return slug && slug.length > 0 ? slug : titleSlug(input.channelName)
 }
 
+/** The channel directory of a Workspace source: `slack/channels/<id>/`. */
+export function slackSourceChannelDir(channelId: string): string {
+  return `${MANAGED_ROOT}/channels/${channelId}/`
+}
+
+function channelDir(input: SlackChannelPathInput): string {
+  return input.layout === "source"
+    ? slackSourceChannelDir(input.channelId).slice(0, -1)
+    : `${MANAGED_ROOT}/channels/${channelPathSegment(input)}--${input.channelId}`
+}
+
 export function getSlackChannelIndexPath(input: SlackChannelPathInput): string {
-  return `${MANAGED_ROOT}/channels/${channelPathSegment(input)}--${input.channelId}/index.md`
+  return `${channelDir(input)}/index.md`
 }
 
 export function getSlackThreadDirPath(
@@ -93,7 +107,7 @@ export function getSlackThreadDirPath(
   const d = new Date(Number(input.threadTs) * 1000)
   const yyyy = String(d.getUTCFullYear())
   const mm = String(d.getUTCMonth() + 1).padStart(2, "0")
-  return `${MANAGED_ROOT}/channels/${channelPathSegment(input)}--${input.channelId}/threads/${yyyy}/${mm}/${input.threadTs}`
+  return `${channelDir(input)}/threads/${yyyy}/${mm}/${connectorPathSegment(input.threadTs)}`
 }
 
 export function getSlackThreadPath(
@@ -115,7 +129,8 @@ function parseSlackChannelRoot(
   }
 }
 
-function pathContainsThreadTs(path: string, threadTs: string): boolean {
+function pathContainsThreadTs(path: string, ts: string): boolean {
+  const threadTs = connectorPathSegment(ts)
   return (
     path.includes("/threads/") &&
     (path.includes(`/${threadTs}/`) || path.endsWith(`/${threadTs}`))

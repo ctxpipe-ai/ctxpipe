@@ -61,6 +61,7 @@
   --popover-foreground: oklch(0.145 0 0);
   --primary: oklch(0.205 0 0);
   --primary-foreground: oklch(0.985 0 0);
+  --cta: var(--primary);
   --secondary: oklch(0.97 0 0);
   --secondary-foreground: oklch(0.205 0 0);
   --muted: oklch(0.97 0 0);
@@ -77,7 +78,6 @@
   --chart-3: oklch(0.398 0.07 227.392);
   --chart-4: oklch(0.828 0.189 84.429);
   --chart-5: oklch(0.769 0.188 70.08);
-  --radius: 0.625rem;
   --sidebar: oklch(0.985 0 0);
   --sidebar-foreground: oklch(0.145 0 0);
   --sidebar-primary: oklch(0.205 0 0);
@@ -92,11 +92,12 @@
  * Streamdown code blocks: toolbar alignment + reliable click targets.
  * Default layout uses a negative-margin sticky row with pointer-events-none;
  * some stacks break hit-testing; absolute toolbar matches language row height.
- * Square corners + muted surfaces to match the rest of the app (no rounded-xl/md).
+ * House radius on the block; inner parts stay flush so the corners read as one.
  */
 [data-streamdown="code-block"] {
   position: relative;
-  border-radius: 0 !important;
+  overflow: hidden;
+  border-radius: var(--radius-md, 0.2rem) !important;
 }
 
 [data-streamdown="code-block-header"] {
@@ -137,7 +138,7 @@
 }
 
 [data-streamdown="inline-code"] {
-  border-radius: 0;
+  border-radius: var(--radius-md);
 }
 
 .dark {
@@ -149,6 +150,8 @@
   --popover-foreground: oklch(0.985 0 0);
   --primary: oklch(0.985 0 0);
   --primary-foreground: oklch(0.205 0 0);
+  /* The CTA face: a little dimmer than the near-white primary. */
+  --cta: oklch(0.9 0 0);
   --secondary: oklch(0.269 0 0);
   --secondary-foreground: oklch(0.985 0 0);
   --muted: oklch(0.269 0 0);
@@ -179,6 +182,18 @@
 @theme {
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Radius: one small corner for every rounded-* step. See DESIGN.md. */
+  --radius: 0.2rem;
+  --radius-xs: 0.2rem;
+  --radius-sm: 0.2rem;
+  --radius-md: 0.2rem;
+  --radius-lg: 0.2rem;
+  --radius-xl: 0.2rem;
+  --radius-2xl: 0.2rem;
+
+  /* Motion: small elements only, 100 ms by default. See DESIGN.md "Motion". */
+  --default-transition-duration: 100ms;
 
   /*
    * Product accent: turquoise #40E0D0 — teal-* and primary-* utilities derive from this.
@@ -214,6 +229,7 @@
   --font-mono: var(--font-geist-mono);
   --color-background: var(--background);
   --color-foreground: var(--foreground);
+  --color-cta: var(--cta);
   --color-card: var(--card);
   --color-card-foreground: var(--card-foreground);
   --color-popover: var(--popover);
@@ -236,13 +252,6 @@
   --color-chart-3: var(--chart-3);
   --color-chart-4: var(--chart-4);
   --color-chart-5: var(--chart-5);
-  --radius-sm: calc(var(--radius) - 4px);
-  --radius-md: calc(var(--radius) - 2px);
-  --radius-lg: var(--radius);
-  --radius-xl: calc(var(--radius) + 4px);
-  --radius-2xl: calc(var(--radius) + 8px);
-  --radius-3xl: calc(var(--radius) + 12px);
-  --radius-4xl: calc(var(--radius) + 16px);
   --color-sidebar: var(--sidebar);
   --color-sidebar-foreground: var(--sidebar-foreground);
   --color-sidebar-primary: var(--sidebar-primary);
@@ -259,49 +268,35 @@
   }
 }
 
-@keyframes onboarding-fade-in {
-  from {
-    opacity: 0;
-  }
+/*
+ * Skeleton delay (DESIGN.md "Loading states"): a bone keeps its box but stays
+ * hidden for --skeleton-wait. CSS starts the wait at first paint, also for
+ * server HTML. The bone is a loader, so reduced motion does not skip the wait.
+ */
+@keyframes ctx-skeleton-wait {
+  from,
   to {
-    opacity: 1;
+    visibility: hidden;
   }
 }
 
-.onboarding-fade-in {
-  animation: onboarding-fade-in 700ms ease-out both;
+.ctx-loading-motion.ctx-skeleton-wait {
+  animation: ctx-skeleton-wait var(--skeleton-wait, 1000ms) linear;
 }
 
-@keyframes app-shell-fade-in {
-  0% {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  100% {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.app-shell-fade-in-onboarding {
-  animation: app-shell-fade-in 900ms cubic-bezier(0.22, 0.61, 0.36, 1) both;
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .app-shell-fade-in-onboarding {
-    animation: none;
-  }
-}
-
-@keyframes onboarding-rise-fade {
-  from {
-    opacity: 0;
-    transform: translateY(10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
+/*
+ * A block that may not show (the Get started guide) holds no space while it
+ * loads. When it appears, a view transition (useRevealOnce) moves the blocks
+ * below it with transforms, so nothing animates height (DESIGN.md "Motion").
+ */
+::view-transition-group(home-guide),
+::view-transition-group(home-below),
+::view-transition-old(home-guide),
+::view-transition-new(home-guide),
+::view-transition-old(home-below),
+::view-transition-new(home-below) {
+  animation-duration: 150ms;
+  animation-timing-function: ease-out;
 }
 
 @keyframes ctx-indexing-pulse {
@@ -346,26 +341,6 @@
   50% {
     color: rgba(252, 165, 165, 1);
   }
-}
-
-.onb-in-1,
-.onb-in-2,
-.onb-in-3 {
-  opacity: 0;
-  will-change: opacity, transform;
-  animation: onboarding-rise-fade 560ms cubic-bezier(0.16, 1, 0.3, 1) both;
-}
-
-.onb-in-1 {
-  animation-delay: 60ms;
-}
-
-.onb-in-2 {
-  animation-delay: 150ms;
-}
-
-.onb-in-3 {
-  animation-delay: 240ms;
 }
 
 .hero-gradient {
@@ -422,6 +397,7 @@
     -webkit-text-fill-color: rgb(244 244 245);
     caret-color: rgb(244 244 245);
     box-shadow: 0 0 0 1000px rgb(9 9 11) inset;
+    /* motion-allow: autofill background hack, not visible motion */
     transition: background-color 9999s ease-in-out 0s;
   }
 }
@@ -437,7 +413,7 @@
   }
 
   .ctx-connected {
-    @apply inline-flex items-center rounded-none border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
+    @apply inline-flex items-center rounded-md border border-primary/25 bg-primary/10 px-2 py-0.5 font-mono text-xs text-primary;
   }
 
   .ctx-indexing,
@@ -456,7 +432,7 @@
   }
 
   .ctx-indexing-badge {
-    @apply inline-flex items-center rounded-none border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
+    @apply inline-flex items-center rounded-md border border-teal-400/30 bg-teal-400/10 px-2 py-0.5;
   }
 
   .ctx-pending-indexing-dot {
@@ -490,11 +466,11 @@
   }
 
   .ctx-node {
-    @apply flex shrink-0 items-center justify-center rounded-none border border-border bg-transparent;
+    @apply flex shrink-0 items-center justify-center rounded-md border border-border bg-transparent;
   }
 
   .ctx-surface {
-    @apply rounded-none bg-card;
+    @apply rounded-md bg-card;
   }
 
   .ctx-border {
@@ -502,7 +478,7 @@
   }
 
   .ctx-repo-row {
-    @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-none sm:px-4;
+    @apply flex w-full items-center justify-between gap-4 bg-transparent px-3 py-4 transition-colors hover:bg-foreground/[0.03] rounded-md sm:px-4;
   }
 
   /*
@@ -565,6 +541,111 @@
   .ctx-streamdown [data-streamdown="code-block-download-button"]:disabled {
     @apply cursor-not-allowed opacity-50;
   }
+
+  /*
+   * Chat Streamdown prose: Operate scale. Streamdown ships marketing headings
+   * (text-3xl) and list-inside; beat those utilities with the house hook.
+   */
+  .ctx-streamdown [data-streamdown="heading-1"] {
+    font-size: var(--text-base) !important;
+    line-height: var(--text-base--line-height) !important;
+    font-weight: 500 !important;
+    margin-top: calc(var(--spacing) * 3) !important;
+    margin-bottom: calc(var(--spacing) * 1.5) !important;
+  }
+
+  .ctx-streamdown [data-streamdown="heading-2"],
+  .ctx-streamdown [data-streamdown="heading-3"],
+  .ctx-streamdown [data-streamdown="heading-4"],
+  .ctx-streamdown [data-streamdown="heading-5"],
+  .ctx-streamdown [data-streamdown="heading-6"] {
+    font-size: var(--text-sm) !important;
+    line-height: var(--text-sm--line-height) !important;
+    font-weight: 500 !important;
+    margin-top: calc(var(--spacing) * 3) !important;
+    margin-bottom: calc(var(--spacing) * 1.5) !important;
+  }
+
+  .ctx-streamdown [data-streamdown="unordered-list"],
+  .ctx-streamdown [data-streamdown="ordered-list"] {
+    list-style-position: outside !important;
+    padding-inline-start: calc(var(--spacing) * 4) !important;
+    margin-block: calc(var(--spacing) * 1.5);
+  }
+
+  .ctx-streamdown [data-streamdown="unordered-list"] {
+    list-style-type: disc !important;
+  }
+
+  .ctx-streamdown [data-streamdown="ordered-list"] {
+    list-style-type: decimal !important;
+  }
+
+  .ctx-streamdown [data-streamdown="list-item"] {
+    padding-block: 0.125rem !important;
+  }
+
+  .ctx-streamdown
+    [data-streamdown="list-item"]
+    [data-streamdown="unordered-list"],
+  .ctx-streamdown
+    [data-streamdown="list-item"]
+    [data-streamdown="ordered-list"] {
+    padding-inline-start: calc(var(--spacing) * 5) !important;
+    margin-block: calc(var(--spacing) * 1);
+  }
+
+  .ctx-streamdown p {
+    font-size: var(--text-sm);
+    line-height: 1.625;
+  }
+
+  /*
+   * Answer links use the teal link color of source-url parts. Streamdown
+   * renders a link as a button (link safety) or as an anchor; both get the
+   * focus ring from lib/focus-styles.ts. File links in a workspace set the
+   * same classes in message.tsx.
+   */
+  .ctx-streamdown [data-streamdown="link"] {
+    @apply cursor-pointer rounded-md decoration-teal-400/40 underline-offset-2 outline-solid outline-0 outline-offset-1 transition-colors hover:decoration-teal-400 focus-visible:relative focus-visible:z-10 focus-visible:outline-2 focus-visible:outline-teal-400/60;
+    color: var(--color-teal-400) !important;
+    font-weight: 400 !important;
+  }
+
+  .ctx-streamdown > :first-child {
+    margin-top: 0 !important;
+  }
+
+  .ctx-streamdown > :last-child {
+    margin-bottom: 0 !important;
+  }
+
+  /*
+   * Reasoning is dense muted prose. Keep the title glued to the first
+   * sentence — Streamdown's house heading gap reads too open while tokens
+   * stream in.
+   */
+  .ctx-streamdown-reasoning > :not([hidden]) ~ :not([hidden]) {
+    margin-block-start: calc(var(--spacing) * 1);
+  }
+
+  .ctx-streamdown-reasoning [data-streamdown="heading-1"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-2"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-3"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-4"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-5"],
+  .ctx-streamdown-reasoning [data-streamdown="heading-6"] {
+    margin-top: calc(var(--spacing) * 1.5) !important;
+    margin-bottom: calc(var(--spacing) * 0.5) !important;
+  }
+
+  .ctx-streamdown-reasoning p {
+    margin-block: calc(var(--spacing) * 0.5);
+  }
+
+  .ctx-streamdown-reasoning > :first-child {
+    margin-top: 0 !important;
+  }
 }
 
 .ctx-status-pulse {
@@ -581,30 +662,19 @@
   }
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .ctx-indexing,
-  .ctx-indexing-dot,
-  .ctx-unindexing,
-  .ctx-unindexing-dot,
-  .ctx-status-pulse {
-    animation: none;
-  }
-}
-
 /*
- * better-auth-ui Radix dialogs: enforce square corners for shell + controls.
+ * better-auth-ui Radix dialogs: house radius on the shell.
  * OrganizationSwitcher does not pass classNames to CreateOrganizationDialog,
  * so CSS override is the only practical hook.
  */
 [data-slot="dialog-content"],
-[data-slot="dialog-content"] *,
 [data-slot="dialog-close"] {
-  border-radius: 0 !important;
+  border-radius: var(--radius-md, 0.2rem) !important;
 }
 
 /* Sonner toasts: align with app shell styling */
 [data-sonner-toaster] [data-sonner-toast] {
-  border-radius: 0 !important;
+  border-radius: var(--radius-md, 0.2rem) !important;
   border: 1px solid rgb(45 212 191 / 0.45) !important;
   background: rgb(15 78 72) !important;
   color: hsl(var(--foreground)) !important;
@@ -621,24 +691,15 @@
   background: rgb(127 29 29) !important;
 }
 
-/*
- * Global square interactive surfaces:
- * enforce no rounded corners for menu/popover stacks regardless of
- * whether they come from local primitives or third-party UI packages.
- */
-[data-slot="dropdown-menu-content"],
-[data-slot="dropdown-menu-sub-content"],
-[data-slot="dropdown-menu-item"],
-[data-slot="dropdown-menu-sub-trigger"],
-[data-slot="dropdown-menu-checkbox-item"],
-[data-slot="dropdown-menu-radio-item"],
-[role="menu"],
-[role="menu"] [role="menuitem"],
-[role="menu"] [role="menuitemcheckbox"],
-[role="menu"] [role="menuitemradio"],
-[role="menu"] [data-hovered],
-[role="menu"] [data-focused] {
-  border-radius: 0 !important;
+/* The action of a toast: a light pill that is easy to see on the teal and red toasts. */
+[data-sonner-toaster] [data-sonner-toast] [data-button] {
+  border-radius: var(--radius-md, 0.2rem) !important;
+  background: rgb(255 255 255 / 0.16) !important;
+  color: inherit !important;
+}
+
+[data-sonner-toaster] [data-sonner-toast] [data-button]:hover {
+  background: rgb(255 255 255 / 0.26) !important;
 }
 
 /* InlineLoader: linear ping-pong; extra scale stops squash at each wall. */
@@ -687,5 +748,34 @@
     left: 0;
     width: 100%;
     opacity: 0.4;
+  }
+}
+
+/*
+ * Motion rule (DESIGN.md "Motion"): view transitions (the toast queue) use
+ * 100 ms. Reduced motion stops all transitions and animations, except a
+ * loading indicator (`animate-spin` or `ctx-loading-motion`), which must
+ * continue to show progress.
+ */
+::view-transition-group(*),
+::view-transition-old(*),
+::view-transition-new(*) {
+  animation-duration: 100ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *:not(.animate-spin, .ctx-loading-motion),
+  *:not(.ctx-loading-motion)::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+
+  ::view-transition-group(*),
+  ::view-transition-old(*),
+  ::view-transition-new(*) {
+    animation: none !important;
   }
 }

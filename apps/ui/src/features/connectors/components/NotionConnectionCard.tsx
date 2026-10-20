@@ -2,18 +2,11 @@
 
 import { IconBrandNotion } from "@tabler/icons-react"
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
-import {
-  getNotionCardCtaLabel,
-  getNotionFailureAction,
-} from "../notion-setup-model"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
+import { resolveConnectorHealth } from "../connectorHealth"
+import { getNotionCardCtaLabel } from "../notion-setup-model"
 import {
   deleteNotionConnector,
   fetchNotionConnectorStatus,
@@ -21,17 +14,12 @@ import {
   notionConnectorKeys,
 } from "../queries/notion-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  ConnectorRemoveMenu,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 
 type NotionConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenSetup: (manageScope: boolean) => void
+  onOpenSetup: () => void
 }
 
 export function NotionConnectionCard({
@@ -40,7 +28,6 @@ export function NotionConnectionCard({
   onOpenSetup,
 }: NotionConnectionCardProps) {
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const {
     data: status,
     isPending,
@@ -53,7 +40,7 @@ export function NotionConnectionCard({
   const oauthAppQuery = useQuery({
     queryKey: notionConnectorKeys.oauthApp(orgSlug, connectionId),
     queryFn: () => fetchNotionOauthApp(orgSlug, connectionId),
-    enabled: status?.setupPhase === "draft",
+    enabled: status ? !status.isInstalled : false,
   })
 
   const removeMutation = useMutation({
@@ -65,102 +52,64 @@ export function NotionConnectionCard({
           queryKey: notionConnectorKeys.status(orgSlug, connectionId),
         }),
         queryClient.invalidateQueries({
-          queryKey: notionConnectorKeys.config(orgSlug, connectionId),
-        }),
-        queryClient.invalidateQueries({
           queryKey: orgConnectionsKeys.list(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (e: Error) => toast.error(e.message),
   })
-  const failureAction = status ? getNotionFailureAction(status) : null
-  const live = status?.setupPhase === "live"
+  // A connection holds auth only (ADR-050): it is connected once installed.
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: isError,
     checking: isPending || !status,
     setupPhase: status?.setupPhase,
-    connected: live,
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
+  })
+  const actionLabel = status
+    ? getNotionCardCtaLabel(status, oauthAppQuery.data)
+    : null
+
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "notion",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Notion"
-        icon={
-          <IconBrandNotion className="size-5 text-foreground" aria-hidden />
-        }
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Notion connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={connectorDash(status?.workspaceName)}
-        scope={
-          status?.selectedResourceCount != null
-            ? formatSelectedItemCount(status.selectedResourceCount)
-            : live
-              ? "Configured"
-              : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          isError
-            ? "Retry"
-            : status
-              ? getNotionCardCtaLabel(status, oauthAppQuery.data)
-              : undefined
-        }
-        onAction={
-          isError
-            ? () => void refetch()
-            : status
-              ? () => onOpenSetup(live)
-              : undefined
-        }
-      >
-        {failureAction ? (
-          <p className="text-sm text-muted-foreground">
-            {failureAction === "retry_content"
-              ? "Content mirror failed. Open setup to retry."
-              : "Configuration pull request failed. Open setup to retry."}
-          </p>
-        ) : null}
-        {isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-        {!failureAction &&
-        status &&
-        status.setupPhase !== "live" &&
-        (status.selectedResourceCount ?? 0) > 0 ? (
-          <p className="text-xs text-muted-foreground">
-            Merge the open pull request for{" "}
-            <code className="rounded-none bg-muted px-1 py-0.5 text-[11px]">
-              notion/config.yaml
-            </code>{" "}
-            to enable syncing.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove Notion connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This removes the Notion connection, selected scope, and sync target
-          for this organisation. Existing mirrored files in GitHub are left in
-          place.
-        </AlertDialog>
-      </Modal>
-    </>
+    <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="notion"
+        />
+      }
+      sync={sync}
+      name="Notion"
+      icon={<IconBrandNotion className="size-5 text-foreground" aria-hidden />}
+      health={health}
+      remove={{
+        description:
+          "This removes the Notion connection for this organization. The Workspace sources that use it stop syncing. Existing mirrored files in GitHub stay in place.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(status?.workspaceName)}
+      actionLabel={isError ? "Retry" : (actionLabel ?? undefined)}
+      onAction={
+        isError
+          ? () => void refetch()
+          : actionLabel
+            ? () => onOpenSetup()
+            : undefined
+      }
+    >
+      {isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

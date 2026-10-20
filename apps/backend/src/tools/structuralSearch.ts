@@ -1,15 +1,121 @@
-import { tool } from "langchain"
 import { z } from "zod/v3"
 import { requireCurrentOrgId } from "../auth/context.js"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
+import { capturedSourceRevision } from "../domain/codeIngestion/source-revision-context.js"
 import {
   codesearchBaseUrl,
   repositoryIdSchema,
   toToon,
 } from "../lib/agentToolRuntime.js"
+import type { CodesearchHttpOptions } from "../lib/codesearchError.js"
 import { withTransientHttpRetry } from "../lib/withTransientHttpRetry.js"
 import { getRepositoryForOrg } from "../models/repositories.js"
+import { tool } from "./tool.js"
+
+export type StructuralSearchBody = {
+  pattern: string
+  lang?: string
+  paths?: string[]
+  globs?: string[]
+  limit?: number
+}
+
+type StructuralSearchWorkspace = { workspaceId: string } & (
+  | { sha: string }
+  | { legacy: true }
+)
+
+/** The parsed codesearch answer, or the status and detail of a 4xx. A 5xx throws. */
+export async function codesearchStructuralSearchJson(
+  repository: { id: string; orgId: string },
+  body: StructuralSearchBody,
+  workspace?: StructuralSearchWorkspace,
+  transport?: CodesearchHttpOptions,
+): Promise<
+  { ok: true; json: unknown } | { ok: false; status: number; detail: string }
+> {
+  const { pattern, lang, paths, globs, limit } = body
+  const source = capturedSourceRevision(repository.orgId, repository.id)
+  if (source && workspace)
+    throw new Error("Extraction tool cannot select a workspace projection")
+  const env = parseEnv(process.env as Record<string, string | undefined>)
+  const token = await signUpstreamJwt({
+    env,
+    audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
+    claims: {
+      sub: `repo:${repository.id}`,
+      orgId: repository.orgId,
+      principal: "service",
+      ...(source
+        ? {
+            repositoryRevisions: [
+              { repositoryId: source.repositoryId, sha: source.sha },
+            ],
+          }
+        : {}),
+      ...(workspace ? { workspaceId: workspace.workspaceId } : {}),
+      ...(workspace && "legacy" in workspace
+        ? { legacyWorkspace: true as const }
+        : {}),
+      ...(workspace && "sha" in workspace
+        ? {
+            workspaceRevisions: [
+              { repositoryId: repository.id, sha: workspace.sha },
+            ],
+          }
+        : {}),
+    },
+  })
+  const res = await withTransientHttpRetry(
+    async () =>
+      fetch(`${codesearchBaseUrl()}/${repository.id}/structural-search`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${token}`,
+        },
+        body: JSON.stringify({ pattern, lang, paths, globs, limit }),
+        signal: transport?.signal,
+      }),
+    transport?.retry ?? { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
+  )
+
+  if (res.status >= 400 && res.status < 500) {
+    const detail = await res.text().catch(() => "")
+    return {
+      ok: false,
+      status: res.status,
+      detail: detail.trim() || `client_error_${res.status}`,
+    }
+  }
+  if (!res.ok) {
+    const detail = await res.text().catch(() => "")
+    throw new Error(
+      `structural_search failed with status ${res.status}${detail ? `: ${detail}` : ""}`,
+    )
+  }
+  return { ok: true, json: await res.json() }
+}
+
+export async function codesearchStructuralSearch(
+  repository: { id: string; orgId: string },
+  body: StructuralSearchBody,
+  workspace?: StructuralSearchWorkspace,
+): Promise<string> {
+  const answer = await codesearchStructuralSearchJson(
+    repository,
+    body,
+    workspace,
+  )
+  if (answer.ok) return toToon(answer.json)
+  return toToon({
+    error: "structural_search_client_error",
+    repositoryId: repository.id,
+    status: answer.status,
+    detail: answer.detail,
+  })
+}
 
 export const structuralSearchTool = tool(
   async ({ repositoryId, pattern, lang, paths, globs, limit }) => {
@@ -24,46 +130,13 @@ export const structuralSearchTool = tool(
       })
     }
 
-    const env = parseEnv(process.env as Record<string, string | undefined>)
-    const token = await signUpstreamJwt({
-      env,
-      audience: env.AUTH_TOKEN_AUDIENCE_CODESEARCH ?? "codesearch",
-      claims: {
-        sub: `repo:${repository.id}`,
-        orgId: repository.orgId,
-        principal: "service",
-      },
+    return codesearchStructuralSearch(repository, {
+      pattern,
+      lang,
+      paths,
+      globs,
+      limit,
     })
-    const res = await withTransientHttpRetry(
-      async () =>
-        fetch(`${codesearchBaseUrl()}/${repository.id}/structural-search`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ pattern, lang, paths, globs, limit }),
-        }),
-      { retries: 10, baseDelayMs: 200, maxDelayMs: 30_000 },
-    )
-
-    if (res.status >= 400 && res.status < 500) {
-      const detail = await res.text().catch(() => "")
-      return toToon({
-        error: "structural_search_client_error",
-        repositoryId,
-        status: res.status,
-        detail: detail.trim() || `client_error_${res.status}`,
-      })
-    }
-    if (!res.ok) {
-      const detail = await res.text().catch(() => "")
-      throw new Error(
-        `structural_search failed with status ${res.status}${detail ? `: ${detail}` : ""}`,
-      )
-    }
-
-    return toToon(await res.json())
   },
   {
     name: "structural_search",

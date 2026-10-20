@@ -36,14 +36,15 @@ pnpm start
 ```
 
 The `deploy` profile starts Postgres, FalkorDB, migrator, backend, worker, UI,
-and codesearch. It does not start an OpenTelemetry collector. The backend
+and codesearch. It also starts `dind` and `chat-sandbox-image` for Workspace
+chat sandboxes. It does not start an OpenTelemetry collector. The backend
 listens on the public app port and proxies the UI.
 
 ## Required variables
 
 | Variable | Description |
 |---|---|
-| `DATABASE_URL` | PostgreSQL connection string, for example `postgresql://user:pass@host:5432/db` |
+| `DATABASE_URL` | Runtime PostgreSQL URL for backend, worker, and codesearch. Must be the `ctxpipe_app` role (no `BYPASSRLS`). Example: `postgresql://ctxpipe_app:pass@host:5432/db`. Migrate uses the table-owner URL instead. **AWS CDK** operators do not set either URL — `cdk deploy` writes them. |
 | `AUTH_SECRET` | Random 32+ character string for session signing. Generate with `openssl rand -hex 32`. |
 | `AUTH_BASE_URL` | Public URL of your ctx\| instance, for example `https://ctx.example.com` |
 | `CTXPIPE_PUBLIC_APP_URL` | Public backend URL baked into the UI image. Usually the same value as `AUTH_BASE_URL`. |
@@ -96,6 +97,42 @@ examples and embedding requirements.
 
 See [Graph databases](/docs/self-hosting/graph-databases) for provider support
 and tenancy behavior.
+
+## Chat sandboxes
+
+Workspace chat runs each conversation's agent in a sandbox. Docker Compose and
+AWS CDK set these values for you. On other platforms, set them on backend and
+worker.
+
+| Variable | Description |
+|---|---|
+| `SANDBOX_PROVIDER` | `docker` or `vercel`. Set it to `docker` on a self-hosted deployment; Docker Compose and AWS CDK set it. Chat can use Docker when you do not set it, but the plain git rules then use the strict hosted rule: they use the self-host rule only when the value is exactly `docker` (see below). If the Docker daemon does not answer, chat returns 503. The backend and worker images refuse `unsandboxed`: it is only for local development. |
+| `DOCKER_HOST` | Docker API address, for example `tcp://dind:2376`. If you do not set it, the backend uses the local Docker socket. |
+| `DOCKER_TLS_VERIFY`, `DOCKER_CERT_PATH` | Mutual TLS to the Docker API. Set `DOCKER_TLS_VERIFY=1`. `DOCKER_CERT_PATH` is a directory with `ca.pem`, `cert.pem`, and `key.pem`. |
+| `SANDBOX_CHAT_IMAGE` | Chat sandbox image on that daemon. The default is `ctxpipe-chat-sandbox:opencode-<version>`, which is in no registry. On other platforms, build `scripts/chat-sandbox` on that daemon, or use `ghcr.io/ctxpipe-ai/chat-sandbox:<backend commit SHA>` once that package is public. Compose builds `ctxpipe-chat-sandbox:local`. AWS CDK uses `ghcr.io/ctxpipe-ai/chat-sandbox` at the commit SHA tag that the package pins. |
+| `SANDBOX_CALLBACK_HOST` | Optional. Host name that sandboxes use to send requests to the backend, through Agent Vault. It must be a host name with a dot (for example `backend.sandbox.ctxpipe.internal`), not an IP address: Agent Vault rules take host names. If you do not set it and `DOCKER_HOST` is remote, the backend uses its own address on the route to the Docker daemon, which works only with `SANDBOX_CALLBACK_DNS_SUFFIX`. Compose sets it. |
+| `SANDBOX_CALLBACK_DNS_SUFFIX` | Optional. With it, that derived address becomes the name `ip-<a>-<b>-<c>-<d>.<suffix>`, for example the VPC DNS name on AWS. AWS CDK sets it. |
+| `AGENT_VAULT_ADDR` | Required for Docker sandboxes. The Agent Vault API, for example `http://agent-vault:14321`. Without it, or when Agent Vault does not answer, Docker chat returns 503. Compose and AWS CDK set it. |
+| `AGENT_VAULT_OWNER_PASSWORD`, `AGENT_VAULT_OWNER_PASSWORD_FILE` | The Agent Vault owner password, as a value or as a file. Compose and AWS CDK generate it; do not set it there. On other platforms, generate one and keep it: the backend registers it on its first login, and an Agent Vault with an owner refuses another password. |
+| `VERCEL_TOKEN`, `VERCEL_TEAM_ID`, `VERCEL_PROJECT_ID` | Required when `SANDBOX_PROVIDER=vercel`. A Vercel access token, and the team and project (slug or id) that own the sandboxes. Hosted ctx\| uses this provider. |
+
+### Plain git repositories
+
+A plain git repository is a repository that ctx| reads with no credential
+(see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
+With `SANDBOX_PROVIDER=docker`, its URL can use `https://` or `http://`,
+another port, an IP address, or an internal host name. ssh (`git@…` or
+`ssh://`), `git://`, and `file://` URLs are not supported. ctx| never reads a
+host that resolves to a cloud metadata or link-local address
+(`169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254`). With each other value
+of `SANDBOX_PROVIDER`, or with no value, the URL must use `https://` on the
+default port, and each address of its host must be public. The backend and
+codesearch read the repository through the proxy of their environment
+(`HTTPS_PROXY`, `NO_PROXY`), if you set one.
+
+| Variable | Description |
+|---|---|
+| `AGENT_VAULT_NETWORK_ALLOWLIST` | Docker Compose only (`.env`). Optional. The private addresses and CIDRs that Agent Vault may connect to, separated by commas. Compose always allows `172.30.99.10`, the backend, and adds your entries after it. To ingest a plain git repository on a private git server, add only the single host address of your git server, for example `10.20.0.15`. Without it, the ingestion sandbox cannot fetch the repository. Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet. Never add a range that covers `172.30.99.0/24`, and never add a link-local (`169.254.0.0/16`), loopback, or cloud metadata range. On AWS CDK, use `sandboxHost.agentVaultNetworkAllowlist` (see [AWS](/docs/self-hosting/deployment/aws#chat-sandbox-host)). |
 
 ## GitHub App connector
 
@@ -275,7 +312,12 @@ endpoint is unset returns `204`.
 ## Railway
 
 ctx| can be deployed on Railway with prebuilt images from GitHub Container
-Registry. A typical flow is:
+Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
+`DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
+URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at
+the owner URL — that role has `BYPASSRLS`, so `ENABLE` policies do not bind.
+
+A typical flow is:
 
 1. Build and push service images from CI:
    - `ghcr.io/ctxpipe-ai/backend:<sha>`

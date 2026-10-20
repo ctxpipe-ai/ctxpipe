@@ -1,11 +1,4 @@
 {
   "title": "Connections",
-  "pages": [
-    "index",
-    "context-repository",
-    "connected-sources",
-    "source-connectors",
-    "ingestion",
-    "faq"
-  ]
+  "pages": ["index", "source-connectors", "ingestion", "faq"]
 }

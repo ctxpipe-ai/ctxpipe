@@ -1,0 +1,184 @@
+import { githubPins } from "../../models/workspace-source-state.js"
+import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
+import {
+  type PreviousSourceRow,
+  resolveSourceRows,
+  type SourceFileBlob,
+} from "./projection-plan.js"
+import { gitSourceScopeUrl, sourceRepositoryUrls } from "./providers/git.js"
+import { githubSourceScopeRepositories } from "./providers/github.js"
+import { checkSourcePath } from "./source-file.js"
+import { SOURCES_FOLDER_PREFIX } from "./source-tree.js"
+import { SOURCES_FILE_PATH } from "./sources-file.js"
+
+type DeclaredGithubRepository = {
+  gitUrl: string
+  ref: string | null
+  connectionId: string
+  /** The file that declares it: `.ctxpipe/sources.yaml` or a source file. */
+  path: string
+}
+
+/**
+ * The linked repositories that the GitHub sources of a Workspace declare,
+ * each with its ref and the connection that reads it. It reads the rows of
+ * {@link resolveSourceRows}, so it has the winners of the projection: each
+ * `ok` GitHub row in row order (the entries of `.ctxpipe/sources.yaml` until
+ * CTX-721 T11, then the source files in byte order). When `connectionIds`
+ * (the org's GitHub connections) is set, a source with another connection
+ * links nothing. An invalid file or entry declares nothing; the projection
+ * shows its error. A YAML entry can still name the Workspace repository;
+ * the caller skips it.
+ */
+export function githubSourceRepositories(
+  text: string | null,
+  connectionIds: ReadonlySet<string> | null,
+  sourceFiles: ReadonlyArray<SourceFileBlob> = [],
+  options: {
+    /** The rows of the previous projected revision: they decide the winners. */
+    previousRows?: ReadonlyArray<PreviousSourceRow>
+    workspaceUrl?: string | null
+  } = {},
+): DeclaredGithubRepository[] {
+  const rows = resolveSourceRows({
+    text,
+    files: sourceFiles,
+    connections:
+      connectionIds === null
+        ? null
+        : new Map([...connectionIds].map((id) => [id, { id, type: "github" }])),
+    previousRows: options.previousRows,
+    workspaceUrl: options.workspaceUrl,
+  })
+  const linked = new Set<string>()
+  return linkingOrder(rows).flatMap((row) => {
+    const connectionId = row.connectionId
+    if (row.provider !== "github" || row.status !== "ok" || !connectionId)
+      return []
+    return githubSourceScopeRepositories(row.scope).flatMap(({ name, ref }) => {
+      const gitUrl = normalizeWorkspaceRepositoryUrl(
+        `https://github.com/${name}`,
+      )
+      if (linked.has(gitUrl)) return []
+      linked.add(gitUrl)
+      return [
+        {
+          gitUrl,
+          ref,
+          connectionId,
+          path: row.sourceKey.startsWith(SOURCES_FOLDER_PREFIX)
+            ? row.sourceKey
+            : SOURCES_FILE_PATH,
+        },
+      ]
+    })
+  })
+}
+
+/**
+ * The URL of each `ok` plain git source of a Workspace revision (CTX-815),
+ * in the checked form, with the winners of the projection.
+ */
+export function plainGitSourceUrls(
+  sourceFiles: ReadonlyArray<SourceFileBlob>,
+  options: {
+    previousRows?: ReadonlyArray<PreviousSourceRow>
+    workspaceUrl?: string | null
+  } = {},
+): string[] {
+  return resolveSourceRows({
+    text: null,
+    files: sourceFiles,
+    connections: null,
+    previousRows: options.previousRows,
+    workspaceUrl: options.workspaceUrl,
+  }).flatMap((row) => {
+    const url =
+      row.provider === "git" && row.status === "ok"
+        ? gitSourceScopeUrl(row.scope)
+        : null
+    return url ? [url] : []
+  })
+}
+
+/**
+ * The source file path of each repository that an `ok` GitHub or plain git
+ * source file row names, by normalized repository URL (ADR-050 decision 6,
+ * CTX-815). The rows are the rows of the projection (stored, or from
+ * {@link resolveSourceRows}), so the winner of a repository that two files
+ * name is the winner of the projection. A row of `.ctxpipe/sources.yaml` has
+ * no source path. Ingestion v2 writes this path into `sources` (ADR-052
+ * section 3).
+ */
+export function repositorySourcePaths(
+  rows: ReadonlyArray<{
+    sourceKey: string
+    provider: string | null
+    status: string
+    scope: unknown
+  }>,
+): Map<string, string> {
+  const paths = new Map<string, string>()
+  for (const row of rows) {
+    if (row.status !== "ok" || !checkSourcePath(row.sourceKey).ok) continue
+    for (const gitUrl of sourceRepositoryUrls(row))
+      if (!paths.has(gitUrl)) paths.set(gitUrl, row.sourceKey)
+  }
+  return paths
+}
+
+/**
+ * {@link repositorySourcePaths} of the source files at a revision, with the
+ * stored rows of the Workspace as the previous rows of the projection.
+ */
+export function repositorySourcePathsAtRevision(
+  sourceFiles: ReadonlyArray<SourceFileBlob>,
+  previousRows: ReadonlyArray<PreviousSourceRow>,
+): Map<string, string> {
+  return repositorySourcePaths(
+    resolveSourceRows({
+      text: null,
+      files: sourceFiles,
+      connections: null,
+      previousRows,
+    }),
+  )
+}
+
+/**
+ * The rows in the order that links their repositories: the source files
+ * first, then the YAML entries in file order. A source file that can link
+ * holds its repository alone (the projection makes a second one invalid),
+ * and a YAML entry skips a repository that a file or an earlier entry links.
+ */
+export function linkingOrder<T extends { sourceKey: string }>(
+  rows: readonly T[],
+): T[] {
+  const isFile = (row: T) => row.sourceKey.startsWith(SOURCES_FOLDER_PREFIX)
+  return [...rows.filter(isFile), ...rows.filter((row) => !isFile(row))]
+}
+
+/**
+ * The source file path of the GitHub source row that pins `gitUrl`, or null
+ * when no row with a source path does (for example a row of the YAML dual
+ * read). The pull request mirror stamps it into each file.
+ */
+export function githubSourcePathOf(
+  rows: ReadonlyArray<{
+    id: string
+    provider: string | null
+    state: unknown
+    sourceKey: string
+  }>,
+  gitUrl: string,
+): string | null {
+  const target = normalizeWorkspaceRepositoryUrl(gitUrl)
+  const row = rows.find(
+    (candidate) =>
+      checkSourcePath(candidate.sourceKey).ok &&
+      githubPins(candidate).some(
+        (pin) => normalizeWorkspaceRepositoryUrl(pin.gitUrl) === target,
+      ),
+  )
+  return row?.sourceKey ?? null
+}

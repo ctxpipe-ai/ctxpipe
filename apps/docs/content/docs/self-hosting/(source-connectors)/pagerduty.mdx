@@ -21,7 +21,8 @@ or CDK to finish first-time setup.
 - A public HTTPS `AUTH_BASE_URL`. In production, keep
   `CTXPIPE_PUBLIC_APP_URL` on the same origin.
 - Permission to create a PagerDuty OAuth application.
-- A ctx| GitHub App connection with write access to a destination repository.
+- A ctx| GitHub App connection with write access to each Workspace repository
+  that syncs PagerDuty incidents.
 - The backend and worker able to reach `identity.pagerduty.com` and
   `api.pagerduty.com` or `api.eu.pagerduty.com` over HTTPS.
 
@@ -136,9 +137,10 @@ body, binds the event to the one connection whose stored secret verifies, and
 routes with `X-PagerDuty-Subscription`. Re-authorization replaces a lost
 secret instead of stacking another subscription on the same event URL.
 
-Account-level delivery can include every service. Events with no service, or
-a service missing from live YAML, are acknowledged with `200` and never
-fetched.
+Account-level delivery can include every service. ctxpipe syncs an event only
+for the Workspace sources whose services include the incident's service.
+Events with no service, or a service that no source selects, are acknowledged
+with `200` and never fetched.
 
 ## 4. Verify the connector
 
@@ -147,17 +149,42 @@ fetched.
 3. If the wizard shows **Register PagerDuty OAuth app**, save the client id
    and secret. Skip this when the deployment already has a shared env app.
 4. Complete OAuth and confirm the expected account appears.
-5. Choose a GitHub repository and at least one service. Search and page if the
-   account has more than one page of services.
-6. Merge the generated `pagerduty/config.yaml` pull request.
-7. Confirm the GitHub App delivers the merge push to
-   `{AUTH_BASE_URL}/api/v1/webhook/github/<connectionId>`.
-8. Confirm the connector reaches **Connected** and generated files appear under
-   `pagerduty/incidents/`.
-9. Trigger or update an in-scope incident and confirm
+5. In **Add PagerDuty to Workspaces**, select one or more Workspaces and at
+   least one service for each. Search, and show more services if the account
+   has many.
+6. Merge the pull request that adds `sources/pagerduty/<name>.md` in each
+   Workspace repository.
+7. Confirm the source shows **OK** in the Workspace settings and generated
+   files appear under `pagerduty/services/<serviceId>/incidents/`.
+8. Trigger or update an in-scope incident and confirm
    `POST /api/v1/webhook/pagerduty` succeeds and the corresponding Git file
    changes.
-10. Confirm repository ingestion completes.
+9. Confirm the Workspace re-indexes.
+
+## Upgrade from `pagerduty/config.yaml`
+
+Earlier versions kept the service scope in `pagerduty/config.yaml` in one sync
+repository. Upgrade step 1 of each Workspace moves the connection to Workspace
+sources. An org owner or admin starts it with **Start** in the
+Upgrades section of the Workspace settings. You can also start it from the
+command line:
+
+```bash
+pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <orgId>
+pnpm --filter @ctxpipe/backend migrate-workspace-sources --org <orgId> --apply
+```
+
+The first command only prints the plan. With `--apply`, the command starts
+the Workspace upgrade, as the button does. The upgrade opens one pull request
+for each Workspace and never pushes to the default branch. When the Workspace
+links the old sync repository, the pull request adds the merged services as a
+source. The old per-connection sync stops after the merge, when the new source
+syncs. When the Workspace repository is the old sync repository, the same pull
+request moves each file in `pagerduty/incidents/` to
+`pagerduty/services/<serviceId>/incidents/`, with its assets. The service id
+comes from the `service_id` front matter of the file. Git keeps the history of
+each moved file. A file without a readable `service_id` stays in
+`pagerduty/incidents/`.
 
 ## US and EU accounts
 
@@ -184,9 +211,16 @@ trailing slash is present.
 
 ### Incremental events never arrive
 
-Confirm the public webhook URL is reachable, the connection is live, and the
-incident's service is listed in the merged YAML. Tampered or stale signatures
+Confirm the public webhook URL is reachable, the connection is connected, and
+the incident's service is in an **OK** PagerDuty source of a Workspace. Tampered or stale signatures
 are rejected. Failed enqueue returns `5xx` so PagerDuty can retry.
+
+### A source shows “Out of access”
+
+A selected service was deleted in PagerDuty, or the OAuth grant cannot read
+it. ctxpipe tries the service in three sync cycles, keeps its files, and then
+marks only that source. Remove the service from the source, or give the
+connection access to it.
 
 See [PagerDuty connector](/docs/connections/source-connectors/pagerduty) for
 scope, files, and product troubleshooting.

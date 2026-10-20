@@ -24,6 +24,15 @@ const listRepositoriesForGithubConnectionMock = vi.hoisted(() => vi.fn())
 const pruneGithubConnectionRepositoriesNotInGitUrlsMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
 )
+const bulkCreateRepositoriesForOrgMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([]),
+)
+const enqueueRepositoryIngestionWorkflowMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue(undefined),
+)
+const listAllReposForInstallationMock = vi.hoisted(() =>
+  vi.fn().mockResolvedValue([]),
+)
 
 vi.mock("../../models/repositories.js", async (importOriginal) => {
   const actual =
@@ -36,8 +45,13 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
       listRepositoriesForGithubConnectionMock,
     pruneGithubConnectionRepositoriesNotInGitUrls:
       pruneGithubConnectionRepositoriesNotInGitUrlsMock,
+    bulkCreateRepositoriesForOrg: bulkCreateRepositoriesForOrgMock,
   }
 })
+
+vi.mock("../../openworkflow/enqueue-repository-ingestion.js", () => ({
+  enqueueRepositoryIngestionWorkflow: enqueueRepositoryIngestionWorkflowMock,
+}))
 
 const upsertInstallationMock = vi.hoisted(() => vi.fn())
 const registerInstallationOnConnectionMock = vi.hoisted(() => vi.fn())
@@ -67,25 +81,6 @@ vi.mock("../../models/connection-rows.js", async (importOriginal) => {
   }
 })
 
-const resolveGithubPrMirrorRepositoryMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue("repo_ctx"),
-)
-const bindGithubPrMirrorMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-const enqueueGithubPrMirrorEnsureForOrgMock = vi.hoisted(() =>
-  vi.fn().mockResolvedValue(undefined),
-)
-
-vi.mock("../../models/github-pr-mirror.js", () => ({
-  resolveGithubPrMirrorRepository: resolveGithubPrMirrorRepositoryMock,
-  bindGithubPrMirror: bindGithubPrMirrorMock,
-}))
-
-vi.mock("../../openworkflow/workflows/github-ensure-pr-mirror.js", () => ({
-  enqueueGithubPrMirrorEnsureForOrg: enqueueGithubPrMirrorEnsureForOrgMock,
-}))
-
 vi.mock("../../models/github-installation.js", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>
   return {
@@ -108,13 +103,13 @@ vi.mock("../../models/github-installation.js", async (importOriginal) => {
     listReposForInstallation: listReposForInstallationMock,
     searchReposForInstallation: searchReposForInstallationMock,
     updateInstallationOptions: updateInstallationOptionsMock,
+    listAllReposForInstallation: listAllReposForInstallationMock,
   }
 })
 
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import type { Env } from "../../config/env.js"
 import { parseEnv } from "../../config/env.js"
-import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
 import { githubInstallationRoutes } from "./github-installation.js"
 import { meGithubInstallationsRoutes } from "./me-github-installations.js"
 
@@ -452,6 +447,7 @@ describe("PATCH /github/installation", () => {
         clone_url: "https://github.com/acme/beta.git",
       },
     ]
+    listAllReposForInstallationMock.mockResolvedValueOnce(selectedRepositories)
 
     const app = createApp()
     const res = await app.request("/github/installation", {
@@ -475,10 +471,9 @@ describe("PATCH /github/installation", () => {
         "https://github.com/acme/beta.git",
       ]),
     )
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "con_github",
-      reposToSync: [
+    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith(
+      "org_1",
+      [
         {
           name: "acme/alpha",
           gitUrl: "https://github.com/acme/alpha.git",
@@ -488,10 +483,86 @@ describe("PATCH /github/installation", () => {
           gitUrl: "https://github.com/acme/beta.git",
         },
       ],
-    })
+      { githubConnectionId: "con_github" },
+    )
   })
 
-  it("all mode enqueues full sync without reposToSync", async () => {
+  it("select mode syncs only the selected repositories that GitHub lists for the installation", async () => {
+    // The client sends the selection. A repository that GitHub does not
+    // list is not readable by this connection, so the sync must not bind it.
+    listAllReposForInstallationMock.mockResolvedValueOnce([
+      {
+        id: 1,
+        full_name: "acme/alpha",
+        name: "alpha",
+        clone_url: "https://github.com/acme/alpha.git",
+      },
+    ])
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        selectedRepositories: [
+          {
+            id: 1,
+            full_name: "acme/alpha",
+            name: "alpha",
+            clone_url: "https://github.com/acme/alpha.git",
+          },
+          {
+            id: 9,
+            full_name: "other/private",
+            name: "private",
+            clone_url: "https://github.com/other/private.git",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith(
+      "org_1",
+      [{ name: "acme/alpha", gitUrl: "https://github.com/acme/alpha.git" }],
+      { githubConnectionId: "con_github" },
+    )
+  })
+
+  it("changes nothing when GitHub fails to list the installation repositories", async () => {
+    listAllReposForInstallationMock.mockRejectedValueOnce(
+      new Error("GitHub 500"),
+    )
+
+    const app = createApp()
+    const res = await app.request("/github/installation", {
+      method: "PATCH",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        ingestAllRepositories: false,
+        includeFutureRepos: false,
+        selectedRepositories: [
+          {
+            id: 1,
+            full_name: "acme/alpha",
+            name: "alpha",
+            clone_url: "https://github.com/acme/alpha.git",
+          },
+        ],
+      }),
+    })
+
+    expect(res.status).toBe(500)
+    expect(updateInstallationOptionsMock).not.toHaveBeenCalled()
+    expect(
+      pruneGithubConnectionRepositoriesNotInGitUrlsMock,
+    ).not.toHaveBeenCalled()
+    expect(bulkCreateRepositoriesForOrgMock).not.toHaveBeenCalled()
+  })
+
+  it("all mode does not enqueue org ingest sync", async () => {
     const app = createApp()
     const res = await app.request("/github/installation", {
       method: "PATCH",
@@ -506,67 +577,9 @@ describe("PATCH /github/installation", () => {
     expect(
       pruneGithubConnectionRepositoriesNotInGitUrlsMock,
     ).not.toHaveBeenCalled()
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
+    expect(listAllReposForInstallationMock).toHaveBeenCalled()
+    expect(bulkCreateRepositoriesForOrgMock).toHaveBeenCalledWith("org_1", [], {
       githubConnectionId: "con_github",
-    })
-    expect(runWorkflowMock.mock.calls[0]?.[1]).not.toHaveProperty("reposToSync")
-    expect(bindGithubPrMirrorMock).not.toHaveBeenCalled()
-    expect(enqueueGithubPrMirrorEnsureForOrgMock).not.toHaveBeenCalled()
-  })
-
-  it("binds the chosen context repository even when it is not named ctxpipe-context", async () => {
-    const app = createApp()
-    const res = await app.request("/github/installation", {
-      method: "PATCH",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        ingestAllRepositories: false,
-        includeFutureRepos: false,
-        selectedRepositories: [
-          {
-            full_name: "acme/alpha",
-            name: "alpha",
-            clone_url: "https://github.com/acme/alpha.git",
-          },
-        ],
-        contextRepository: {
-          full_name: "acme/ctxpipe-context-demo",
-          name: "ctxpipe-context-demo",
-          clone_url: "https://github.com/acme/ctxpipe-context-demo.git",
-          default_branch: "main",
-        },
-      }),
-    })
-
-    expect(res.status).toBe(200)
-    expect(resolveGithubPrMirrorRepositoryMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_github",
-      repositoryName: "acme/ctxpipe-context-demo",
-      gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
-      branch: "main",
-    })
-    expect(bindGithubPrMirrorMock).toHaveBeenCalledWith({
-      orgId: "org_1",
-      connectionId: "con_github",
-      repositoryId: "repo_ctx",
-      branch: "main",
-    })
-    expect(enqueueGithubPrMirrorEnsureForOrgMock).toHaveBeenCalledWith("org_1")
-    expect(runWorkflowMock).toHaveBeenCalledWith(syncGithubRepositories.spec, {
-      orgId: "org_1",
-      githubConnectionId: "con_github",
-      reposToSync: [
-        {
-          name: "acme/alpha",
-          gitUrl: "https://github.com/acme/alpha.git",
-        },
-        {
-          name: "acme/ctxpipe-context-demo",
-          gitUrl: "https://github.com/acme/ctxpipe-context-demo.git",
-        },
-      ],
     })
   })
 

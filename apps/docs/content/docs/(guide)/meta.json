@@ -3,11 +3,9 @@
   "root": true,
   "pages": [
     "getting-started",
+    "workspaces",
     "connections",
-    "git-repositories",
     "mcp",
-    "chat",
-    "knowledge-graph",
     "managing-organization",
     "resources"
   ]

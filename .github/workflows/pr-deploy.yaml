@@ -1,3 +1,35 @@
+# Secrets and isolation of a preview. A preview runs code that the team did
+# not write (dependency install scripts, packages, build steps) and branch
+# code. Such code gets no secret except a credential that works on this
+# preview only:
+# - RAILWAY_API_TOKEN (Railway account token) comes from the protected
+#   GitHub environment `Preview`. It goes only to jobs that run no
+#   package manager, no migrate and no build. These jobs check out the commit
+#   of this workflow file and source only reviewed scripts from it.
+# - NEON_API_KEY goes only to prepare_pr_database, deploy_pr_environment and
+#   cleanup_pr_environment, which run no package manager. prepare_pr_database
+#   gives neondb_owner a new password on the preview branch (the copy from
+#   production has the production password), and hands only that branch
+#   owner URL to migrate_pr_database.
+# - Each secret goes in the `env:` of the steps that need it, never in a job
+#   `env:`. A job with a secret installs no package: the Railway CLI is the
+#   pinned release binary, checked against the sha256 in this file.
+# - scripts/ci/check-secret-jobs.mjs keeps these rules true. The token never
+#   goes into a preview service variable. The preview backend wakes its
+#   worker with a Railway project token that the deploy creates for the
+#   preview environment only (scripts/preview-own-secrets.sh), and that the
+#   PR-close cleanup revokes.
+#   Limit: GitHub runs this file from the branch, so a person who can push a
+#   branch can change this file. Required reviewers on `Preview` would be
+#   the control for that case.
+# - AUTH_SECRET and CONNECTION_SECRETS_ENCRYPTION_KEY: each preview gets its
+#   own random values once, and keeps them for its life. Connection secrets
+#   copied from production do not decrypt on a preview.
+# - GH_* (Preview environment secrets): the preview GitHub App. The deploy
+#   fails when one is empty, or when GH_APP_ID or GH_CLIENT_ID is equal to the
+#   production backend value (scripts/preview-github-app-vars.sh).
+# - OTEL exporter variables: the deploy reads only those four variables from
+#   the production backend (scripts/preview-otel-vars.sh).
 name: PR Deploy
 
 on:
@@ -7,8 +39,17 @@ on:
       - reopened
       - synchronize
       - closed
-  # Cloud-agent git pushes often do not emit pull_request synchronize. Manual
-  # redeploy: Actions → PR Deploy → Run workflow → enter PR number.
+  # Cloud Agent pushes sometimes skip pull_request synchronize. Keep push so
+  # resolve_pr can map the branch to an open PR. Agent jobs run on push only;
+  # humans on pull_request only. Ignore main (production Deploy) and tags.
+  # Manual fallback: Run workflow from the PR branch → PR number. A run
+  # from main fails: the Actions cache scope of main is readable by every
+  # branch (see prepare_pr_database).
+  push:
+    branches-ignore:
+      - main
+    tags-ignore:
+      - "**"
   workflow_dispatch:
     inputs:
       pr_number:
@@ -16,8 +57,22 @@ on:
         required: true
         type: string
 
+# One group for each PR branch holds a whole run, so the migrate and the roll
+# of one run are never split by the migrate of a newer run.
+# pr-preview-roll-existing.yaml uses the same group. Queue, do not cancel:
+# cancelling the GH job leaves Railway still DEPLOYING; the next run then
+# waits 7m on leftover rolls and never reaches the UI canary. A run that
+# resolve_pr skips (a push by a person, a pull_request by the agent, a fork)
+# gets a group of its own: in the PR group it could replace a queued real run.
+# A manual run must start from the PR branch (resolve_pr checks this), so its
+# ref name is the PR branch.
+# A PR close is not in this group: GitHub cancels a pending run of a group
+# when a newer run queues, so a push after the close could cancel the
+# cleanup. The cleanup jobs have a group of their own for each PR, and the
+# deploy jobs refuse a closed PR.
 concurrency:
-  group: ${{ github.workflow }}-${{ github.event_name == 'workflow_dispatch' && format('pr-{0}', inputs.pr_number) || github.ref }}
+  group: ${{ (github.event_name == 'workflow_dispatch' || (github.event_name == 'push' && (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) || (github.event_name == 'pull_request' && github.event.action != 'closed' && github.actor != 'cursor[bot]' && github.actor != 'cursoragent' && github.event.pull_request.head.repo.full_name == github.repository)) && format('pr-deploy-{0}', github.head_ref || github.ref_name) || format('pr-deploy-skipped-{0}', github.run_id) }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -26,14 +81,19 @@ permissions:
 
 jobs:
   resolve_pr:
+    timeout-minutes: 10
     name: Resolve PR number and head SHA
     if: |
-      github.event_name == 'workflow_dispatch' || (
-      github.event_name == 'pull_request' && (
-      github.event.action == 'synchronize'
-      || github.event.action == 'opened'
-      || github.event.action == 'reopened') &&
-      github.event.pull_request.head.repo.full_name == github.repository)
+      github.event_name == 'workflow_dispatch' ||
+      (github.event_name == 'push' &&
+        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent')) ||
+      (github.event_name == 'pull_request' &&
+        github.actor != 'cursor[bot]' &&
+        github.actor != 'cursoragent' &&
+        (github.event.action == 'synchronize'
+          || github.event.action == 'opened'
+          || github.event.action == 'reopened') &&
+        github.event.pull_request.head.repo.full_name == github.repository)
     runs-on: blacksmith-4vcpu-ubuntu-2404
     outputs:
       pr_number: ${{ steps.resolve.outputs.pr_number }}
@@ -41,21 +101,58 @@ jobs:
     steps:
       - name: Resolve
         id: resolve
+        # The run script reads each context value from the environment, never
+        # from an inline expression, so a branch name or an input stays data.
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EVENT_NAME: ${{ github.event_name }}
+          REPO: ${{ github.repository }}
+          INPUT_PR_NUMBER: ${{ inputs.pr_number }}
+          OWNER: ${{ github.repository_owner }}
+          BRANCH: ${{ github.ref_name }}
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+          PUSH_SHA: ${{ github.sha }}
+          EVENT_PR_NUMBER: ${{ github.event.number }}
+          EVENT_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
         run: |
           set -euo pipefail
-          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            PR_NUMBER="${{ inputs.pr_number }}"
-            HEAD_REPO="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.repo.full_name)"
-            if [[ "$HEAD_REPO" != "${{ github.repository }}" ]]; then
+          if [[ "$EVENT_NAME" == "workflow_dispatch" ]]; then
+            PR_NUMBER="${INPUT_PR_NUMBER}"
+            if [[ ! "$PR_NUMBER" =~ ^[0-9]+$ ]]; then
+              echo "The pr_number input must be a number" >&2
+              exit 1
+            fi
+            # The Actions cache scope of the default branch is readable by
+            # every branch, so the owner URL handoff must not run there. The
+            # run must also hold the concurrency group of the PR branch.
+            if [[ "$REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+              echo "::error::Do not run PR Deploy from ${DEFAULT_BRANCH}. Run it from the branch of PR #${PR_NUMBER}."
+              exit 1
+            fi
+            PR_JSON="$(gh api "repos/${REPO}/pulls/${PR_NUMBER}")"
+            HEAD_REPO="$(jq -r .head.repo.full_name <<<"$PR_JSON")"
+            if [[ "$HEAD_REPO" != "${REPO}" ]]; then
               echo "Refusing to build untrusted fork PR #${PR_NUMBER} (${HEAD_REPO})" >&2
               exit 1
             fi
-            HEAD_SHA="$(gh api "repos/${{ github.repository }}/pulls/${PR_NUMBER}" --jq .head.sha)"
+            if [[ "$(jq -r .head.ref <<<"$PR_JSON")" != "$BRANCH" || "$REF" != "refs/heads/${BRANCH}" ]]; then
+              echo "::error::Run PR Deploy from the branch of PR #${PR_NUMBER}, not from ${BRANCH}."
+              exit 1
+            fi
+            HEAD_SHA="$(jq -r .head.sha <<<"$PR_JSON")"
+          elif [[ "$EVENT_NAME" == "push" ]]; then
+            PR_NUMBER="$(gh api -X GET "repos/${REPO}/pulls?state=open&head=${OWNER}:${BRANCH}" --jq '.[0].number // empty')"
+            HEAD_SHA="${PUSH_SHA}"
+            if [[ -z "$PR_NUMBER" ]]; then
+              echo "No open PR for ${OWNER}:${BRANCH}; skipping preview deploy"
+              echo "pr_number=" >> "$GITHUB_OUTPUT"
+              echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
           else
-            PR_NUMBER="${{ github.event.number }}"
-            HEAD_SHA="${{ github.event.pull_request.head.sha }}"
+            PR_NUMBER="${EVENT_PR_NUMBER}"
+            HEAD_SHA="${EVENT_HEAD_SHA}"
           fi
           echo "pr_number=$PR_NUMBER" >> "$GITHUB_OUTPUT"
           echo "head_sha=$HEAD_SHA" >> "$GITHUB_OUTPUT"
@@ -64,8 +161,13 @@ jobs:
   build_pr_images:
     name: Build and Publish PR GHCR Images
     needs: [resolve_pr]
+    if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 30
+    # Builds branch code: it pushes the PR images and does nothing else.
+    permissions:
+      contents: read
+      packages: write
     strategy:
       fail-fast: false
       matrix:
@@ -89,12 +191,30 @@ jobs:
         with:
           max-cache-size-mb: "61440"
 
+      # docker/login-action fails closed on a one-shot ghcr.io EOF (seen on
+      # backend/worker while ui/codesearch in the same matrix succeeded).
       - name: Login to GHCR
-        uses: docker/login-action@v3
-        with:
-          registry: ghcr.io
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
+        env:
+          GHCR_USER: ${{ github.actor }}
+          GHCR_PASSWORD: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          attempt=1
+          max_attempts=5
+          delay=4
+          while true; do
+            if printf '%s' "$GHCR_PASSWORD" | docker login ghcr.io --username "$GHCR_USER" --password-stdin; then
+              exit 0
+            fi
+            if (( attempt >= max_attempts )); then
+              echo "GHCR login failed after ${max_attempts} attempts" >&2
+              exit 1
+            fi
+            echo "GHCR login failed (attempt ${attempt}/${max_attempts}); retrying in ${delay}s..." >&2
+            sleep "$delay"
+            attempt=$((attempt + 1))
+            delay=$((delay * 2))
+          done
 
       - name: Build and push PR image
         uses: useblacksmith/build-push-action@v2
@@ -102,6 +222,8 @@ jobs:
           context: .
           file: ${{ matrix.dockerfile }}
           push: true
+          build-args: |
+            ${{ matrix.image == 'ui' && format('VITE_PUBLIC_API_URL=https://backend-pr-{0}.up.railway.app', needs.resolve_pr.outputs.pr_number) || '' }}
           tags: |
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
             ghcr.io/ctxpipe-ai/${{ matrix.image }}:${{ needs.resolve_pr.outputs.head_sha }}
@@ -111,6 +233,11 @@ jobs:
     needs: [resolve_pr, build_pr_images]
     runs-on: blacksmith-4vcpu-ubuntu-2404
     timeout-minutes: 15
+    # Runs branch code. It reads the PR file list and pulls the PR images.
+    permissions:
+      contents: read
+      packages: read
+      pull-requests: read
     steps:
       - name: Checkout repository
         uses: useblacksmith/checkout@v1
@@ -120,7 +247,8 @@ jobs:
       - name: Mount pnpm store sticky disk
         uses: useblacksmith/stickydisk@v1
         with:
-          key: ${{ github.repository }}-pnpm-store
+          # Not the production key: branch code writes to this store.
+          key: ${{ github.repository }}-pnpm-store-pr
           path: ~/.pnpm-store
 
       - uses: pnpm/action-setup@v4
@@ -180,131 +308,479 @@ jobs:
               run apps/backend/src/scripts/verifyConnectorAssetRuntime.ts
           done
 
-  deploy_pr_environment:
-    name: Deploy PR environment (Railway + Neon)
+  # The deploy is four jobs, because a job is the trust boundary. Each job has
+  # its own runner. A step that runs branch code (pnpm install with the install
+  # scripts of each dependency, migrate) can change the rest of its job: it
+  # can write BASH_ENV or PATH to $GITHUB_ENV, change files on disk, leave
+  # a process that reads the environment of a later step, or read the memory
+  # of the runner. Thus the account tokens (RAILWAY_API_TOKEN, NEON_API_KEY)
+  # go only to prepare_pr_environment, prepare_pr_database and
+  # deploy_pr_environment, and these jobs run no branch code. They check out
+  # the commit of this workflow file (no `ref:`), and run only the scripts that
+  # this workflow sources from that checkout. migrate_pr_database runs the
+  # branch code and gets only the owner URL of the preview branch.
+  # scripts/ci/check-secret-jobs.mjs keeps this true.
+  prepare_pr_environment:
+    name: Prepare PR environment (Railway)
     needs: [resolve_pr, build_pr_images, verify_connector_assets]
+    if: needs.resolve_pr.outputs.pr_number != ''
     runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 20
+    # RAILWAY_API_TOKEN and the preview GitHub App secrets come from this
+    # protected environment.
+    environment: Preview
     env:
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
       PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
-      IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
-      PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
     outputs:
       env_id: ${{ steps.railway_env.outputs.env_id }}
     steps:
-      - name: Checkout repository
-        uses: useblacksmith/checkout@v1
-        with:
-          ref: ${{ needs.resolve_pr.outputs.head_sha }}
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
 
-      - name: Mount pnpm store sticky disk
-        uses: useblacksmith/stickydisk@v1
-        with:
-          key: ${{ github.repository }}-pnpm-store
-          path: ~/.pnpm-store
+      # No `ref:`: the commit of this workflow file, not the PR head. This job
+      # holds the account token.
+      - name: Checkout workflow commit
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
 
-      - uses: pnpm/action-setup@v4
+      - name: Check the Railway token
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            exit 1
+          }
 
-      - uses: useblacksmith/setup-node@v5
-        with:
-          node-version: "22"
+      - name: Check preview GitHub App secrets
+        # Fail before the job creates anything: a preview must not run with
+        # the production GitHub App that the production duplicate carries.
+        # The check also fails when GH_APP_ID or GH_CLIENT_ID is equal to the
+        # production backend value (a missing Preview secret falls back to a
+        # repository secret). It reads only those two production variables.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+          check_preview_github_app_secrets
 
-      - name: Force pnpm store path
-        run: pnpm config set store-dir ~/.pnpm-store
-
-      - name: Install Railway CLI
-        # @railway/cli postinstall fetches a GitHub release tarball; that often
-        # socket-hangs (ECONNRESET) on hosted runners.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 3
-          max_attempts: 3
-          retry_wait_seconds: 15
-          command: npm install -g @railway/cli@4.35.2
+      - name: Install the Railway CLI release binary
+        # Not `npm install -g @railway/cli`: its install script and floating
+        # dependencies would run in this job. The release tarball holds one
+        # binary. To change the version, take the sha256 from the release
+        # asset digest (gh api repos/railwayapp/cli/releases/tags/vX.Y.Z).
+        # This step has no secret in its environment.
+        env:
+          RAILWAY_CLI_VERSION: 4.35.2
+          RAILWAY_CLI_SHA256: cded28aa1285b9b54a430475d8ea85ca62b32dfde45b30a319030412b8858738
+        run: |
+          set -euo pipefail
+          dir="${RUNNER_TEMP}/railway-cli"
+          mkdir -p "$dir"
+          curl -fsSL --retry 5 --retry-all-errors -o "$dir/railway.tar.gz" \
+            "https://github.com/railwayapp/cli/releases/download/v${RAILWAY_CLI_VERSION}/railway-v${RAILWAY_CLI_VERSION}-x86_64-unknown-linux-musl.tar.gz"
+          echo "${RAILWAY_CLI_SHA256}  $dir/railway.tar.gz" | sha256sum --check --strict
+          tar -xzf "$dir/railway.tar.gz" -C "$dir" railway
+          rm "$dir/railway.tar.gz"
+          echo "$dir" >>"$GITHUB_PATH"
 
       - name: Ensure Railway PR environment exists
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
+        id: railway_env
+        # "Exists" comes from the GraphQL environment list, not from the exit
+        # code of `railway environment config`: that command can fail for a
+        # live environment. The step never deletes an environment. When
+        # `environment new` fails, the step fails, and the retry looks again.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 12
           max_attempts: 2
+          retry_wait_seconds: 30
           command: |
             set -euo pipefail
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-            if railway environment config --environment "$PR_ENV" --json >/dev/null 2>&1; then
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+            railway link --project "$RAILWAY_PROJECT_ID" --environment production
+            ENV_ID="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+            if [[ -n "$ENV_ID" ]]; then
               echo "Railway environment $PR_ENV already exists"
             else
-              set +e
               railway environment new "$PR_ENV" --duplicate production
-              CREATE_STATUS=$?
-              set -e
-
-              if [[ "$CREATE_STATUS" -ne 0 ]]; then
-                echo "Failed to create Railway environment $PR_ENV from production duplicate."
-                echo "Deleting partially-created environment so retry can start from a clean slate."
-                railway environment delete "$PR_ENV" --yes || echo "Railway environment delete skipped or already removed"
-                echo "Waiting 10 minutes for Railway environment deletion consistency before retry..."
-                sleep 600
-                exit "$CREATE_STATUS"
-              fi
+              ENV_ID="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+              [[ -n "$ENV_ID" ]] || { echo "Railway created $PR_ENV but does not list it yet"; exit 1; }
             fi
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment "$PR_ENV"
+            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
+            echo "Railway environment id: $ENV_ID"
 
-      - name: Neon branch expiration (14 days)
-        id: neon_expires
-        run: echo "expires_at=$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')" >> "$GITHUB_OUTPUT"
+  # Runs no branch code, and holds NEON_API_KEY. It makes the preview branch,
+  # and gives neondb_owner a password that works on this branch only: the
+  # branch copies the role from production, with the production password.
+  # It resets the password on each run, so a password from an older run
+  # stops working. It hands the new owner URL to migrate_pr_database through
+  # the Actions cache, because GitHub drops a job output that holds a masked
+  # value, and prints each `env:` value.
+  # The handoff is safe only when:
+  # - The run is not on the default branch. The cache scope of the default
+  #   branch is readable by every branch, so this job refuses it.
+  # - The key holds a random nonce made here, so no job that ran earlier can
+  #   create the entry first: migrate restores the exact key, never a prefix.
+  # - delete_db_handoff deletes the entry after migrate, also when migrate
+  #   fails or a later job never gets its approval.
+  # - The cache is GitHub's: this job and migrate run on GitHub-hosted
+  #   runners. On a Blacksmith runner, actions/cache writes to the Blacksmith
+  #   cache, which the GitHub API (gh cache delete) cannot delete.
+  prepare_pr_database:
+    name: Prepare PR Neon branch
+    needs: [resolve_pr, prepare_pr_environment]
+    # github-hosted: the owner URL handoff must use the GitHub Actions cache, so that delete_db_handoff can delete it with gh cache delete.
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: read
+      pull-requests: read
+    # NEON_API_KEY comes from this protected environment.
+    environment: Preview
+    outputs:
+      # Hex of the cache key. A masked value is dropped from a job output, and
+      # the consumers must mask the key before any step shows it.
+      handoff_key_hex: ${{ steps.owner.outputs.handoff_key_hex }}
+    steps:
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
 
-      - name: Create Neon branch
-        id: neon_branch
-        uses: neondatabase/create-branch-action@v6
+      - name: Refuse the default branch
+        env:
+          REF: ${{ github.ref }}
+          DEFAULT_BRANCH: ${{ github.event.repository.default_branch }}
+        run: |
+          if [[ "$REF" == "refs/heads/${DEFAULT_BRANCH}" ]]; then
+            echo "::error::The owner URL handoff cannot run on ${DEFAULT_BRANCH}: every branch can read its cache. Run PR Deploy from the PR branch."
+            exit 1
+          fi
+
+      # No `ref:`: the commit of this workflow file, not the PR head.
+      - name: Checkout workflow commit
+        uses: actions/checkout@v6
         with:
-          project_id: ${{ vars.NEON_PROJECT_ID }}
-          branch_name: preview/pr-${{ needs.resolve_pr.outputs.pr_number }}
-          parent_branch: production
-          api_key: ${{ secrets.NEON_API_KEY }}
-          expires_at: ${{ steps.neon_expires.outputs.expires_at }}
+          persist-credentials: false
+
+      - name: Create the Neon branch and reset its owner password
+        id: owner
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+          HANDOFF: ${{ runner.temp }}/preview-db-handoff
+          RUN_ID: ${{ github.run_id }}
+          RUN_ATTEMPT: ${{ github.run_attempt }}
+        run: |
+          set -euo pipefail
+          [[ -n "$NEON_API_KEY" ]] || {
+            echo "::error::NEON_API_KEY is missing. Add it to the Preview environment (Settings > Environments)."
+            exit 1
+          }
+          # The nonce is not secret: it only stops an earlier job from
+          # creating this key first.
+          HANDOFF_KEY="preview-db-handoff-${RUN_ID}-${RUN_ATTEMPT}-$(openssl rand -hex 16)"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+          neon_ensure_preview_branch "$PR_NUMBER" "$(date -u --date '+14 days' +'%Y-%m-%dT%H:%M:%SZ')"
+          # The id comes from the branch name, and the lookup refuses the
+          # default branch and the production branch.
+          BRANCH_ID="$(neon_preview_branch_id "$PR_NUMBER")"
+          neon_reset_owner_password "$BRANCH_ID"
+          OWNER_DB_URL="$(neon_owner_url "$BRANCH_ID" false)"
+          echo "::add-mask::$OWNER_DB_URL"
+          # The password alone too: an error message can show it without the URL.
+          echo "::add-mask::$(python3 -c 'import sys, urllib.parse as u; print(u.unquote(u.urlparse(sys.argv[1]).password or ""))' "$OWNER_DB_URL")"
+          umask 077
+          mkdir -p "$HANDOFF"
+          printf '%s' "$OWNER_DB_URL" >"$HANDOFF/owner-db-url"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+          echo "handoff_key_hex=$(printf '%s' "$HANDOFF_KEY" | od -An -tx1 | tr -d ' \n')" >>"$GITHUB_OUTPUT"
+          echo "Neon branch preview/pr-$PR_NUMBER: $BRANCH_ID, owner password reset"
+
+      - name: Hand the branch owner URL to the migrate job
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/preview-db-handoff
+          key: ${{ env.HANDOFF_KEY }}
+
+  # Runs branch code: pnpm install and migrate. It gets no account token, only
+  # the owner URL of the preview branch, which does not work on production.
+  migrate_pr_database:
+    name: Migrate PR Neon branch
+    needs: [resolve_pr, prepare_pr_database]
+    # github-hosted: it restores the owner URL handoff from the GitHub Actions cache (see prepare_pr_database).
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+    env:
+      HANDOFF_KEY_HEX: ${{ needs.prepare_pr_database.outputs.handoff_key_hex }}
+    steps:
+      - name: Mask the handoff key
+        # The hex comes from the job env, which the log does not show. A step
+        # `env:` or `with:` shows its values before any mask exists.
+        run: |
+          set -euo pipefail
+          HANDOFF_KEY="$(python3 -c 'import sys; print(bytes.fromhex(sys.argv[1]).decode())' "$HANDOFF_KEY_HEX")"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.resolve_pr.outputs.head_sha }}
+          persist-credentials: false
+
+      - name: Receive the branch owner URL
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/preview-db-handoff
+          key: ${{ env.HANDOFF_KEY }}
+          fail-on-cache-miss: true
+
+      - name: Mask the branch owner URL for later steps
+        # GITHUB_ENV, not `env:`: GitHub prints each `env:` value.
+        env:
+          HANDOFF: ${{ runner.temp }}/preview-db-handoff
+        run: |
+          set -euo pipefail
+          OWNER_DB_URL="$(cat "$HANDOFF/owner-db-url")"
+          rm -rf "$HANDOFF"
+          [[ -n "$OWNER_DB_URL" ]] || { echo "The handoff holds no owner URL"; exit 1; }
+          echo "::add-mask::$OWNER_DB_URL"
+          # The password alone too: an error message can show it without the URL.
+          echo "::add-mask::$(python3 -c 'import sys, urllib.parse as u; print(u.unquote(u.urlparse(sys.argv[1]).password or ""))' "$OWNER_DB_URL")"
+          printf 'OWNER_DB_URL=%s\n' "$OWNER_DB_URL" >>"$GITHUB_ENV"
+
+      - uses: pnpm/action-setup@v4
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: "22"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Run Drizzle migrations on PR Neon branch
+      - name: Migrate PR Neon branch
         working-directory: apps/backend
-        run: NO_COLOR=1 CI=true stdbuf -oL -eL pnpm exec drizzle-kit migrate
         env:
-          DATABASE_URL: ${{ steps.neon_branch.outputs.db_url }}
+          # The backfills read OpenWorkflow runs of the namespace that the
+          # preview services use, not the production runs on the copied branch.
+          OPENWORKFLOW_NAMESPACE_ID: preview-pr-${{ needs.resolve_pr.outputs.pr_number }}
+        # The one migrate entry point (the same as production, Compose and
+        # CDK): app role, Drizzle, OpenWorkflow, every backfill, then grants.
+        # No DATABASE_APP_PASSWORD: the branch copies ctxpipe_app from
+        # production, so migrate checks the role and grants, and does not
+        # change its password. The deploy job sets the preview password,
+        # because only that job can read the preview DATABASE_URL in Railway.
+        run: NO_COLOR=1 CI=true DATABASE_URL="$OWNER_DB_URL" pnpm exec tsx src/db/migrate.ts
 
-      - name: Get Railway environment ID
-        id: railway_env
+  # The handoff entry holds the owner URL of the preview branch, so it must
+  # not wait for the cache to expire. This job runs after migrate on every
+  # path (a failed or cancelled migrate too). It needs no approval, so an
+  # approval that never comes for deploy_pr_environment does not keep the
+  # entry. It gets no secret.
+  delete_db_handoff:
+    name: Delete the owner URL handoff
+    needs: [prepare_pr_database, migrate_pr_database]
+    if: always() && needs.prepare_pr_database.outputs.handoff_key_hex != ''
+    runs-on: blacksmith-2vcpu-ubuntu-2404
+    timeout-minutes: 5
+    permissions:
+      actions: write
+    env:
+      HANDOFF_KEY_HEX: ${{ needs.prepare_pr_database.outputs.handoff_key_hex }}
+    steps:
+      - name: Mask the handoff key
+        # The hex comes from the job env, which the log does not show. A step
+        # `env:` or `with:` shows its values before any mask exists.
+        run: |
+          set -euo pipefail
+          HANDOFF_KEY="$(python3 -c 'import sys; print(bytes.fromhex(sys.argv[1]).decode())' "$HANDOFF_KEY_HEX")"
+          echo "::add-mask::$HANDOFF_KEY"
+          printf 'HANDOFF_KEY=%s\n' "$HANDOFF_KEY" >>"$GITHUB_ENV"
+
+      - name: Delete the owner URL handoff
+        env:
+          GH_TOKEN: ${{ github.token }}
+        # The entry is absent when the save step of prepare_pr_database
+        # failed: then there is nothing to delete.
+        run: |
+          set -euo pipefail
+          if ! gh cache delete "$HANDOFF_KEY" --repo "$GITHUB_REPOSITORY"; then
+            LEFT="$(gh cache list --repo "$GITHUB_REPOSITORY" --key "$HANDOFF_KEY" --json key --jq 'length')"
+            [[ "$LEFT" == "0" ]] || { echo "::error::The owner URL handoff is still in the cache."; exit 1; }
+            echo "No owner URL handoff in the cache."
+          fi
+
+  deploy_pr_environment:
+    name: Deploy PR environment (Railway + Neon)
+    # Waits for migrate_pr_database of the same run. The workflow
+    # concurrency group keeps a newer run out until this roll ends.
+    needs: [resolve_pr, prepare_pr_environment, prepare_pr_database, migrate_pr_database]
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    timeout-minutes: 45
+    # pull-requests: write for the preview comment.
+    permissions:
+      contents: read
+      pull-requests: write
+    # RAILWAY_API_TOKEN, the preview GitHub App secrets and the preview
+    # VERCEL_ACCESS_TOKEN come from this protected environment. That Vercel
+    # token reaches only the preview Vercel project
+    # (scripts/preview-sandbox-vars.sh), never production.
+    environment: Preview
+    env:
+      PR_ENV: pr-${{ needs.resolve_pr.outputs.pr_number }}
+      IMAGE_TAG: pr-${{ needs.resolve_pr.outputs.pr_number }}-${{ needs.resolve_pr.outputs.head_sha }}
+      PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+    steps:
+      - name: Refuse a closed PR
+        # A deploy must not create or roll a preview after the PR-close
+        # cleanup, which does not wait for this run.
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PR_NUMBER: ${{ needs.resolve_pr.outputs.pr_number }}
+        run: |
+          set -euo pipefail
+          STATE="$(gh api "repos/${GITHUB_REPOSITORY}/pulls/${PR_NUMBER}" --jq .state)"
+          if [[ "$STATE" != "open" ]]; then
+            echo "::error::PR #${PR_NUMBER} is ${STATE}. The deploy stops, because the PR-close cleanup removes the preview."
+            exit 1
+          fi
+
+      # No `ref:`: the commit of this workflow file, not the PR head. This job
+      # holds the account token.
+      - name: Checkout workflow commit
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+
+      - name: Check the Railway token
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 5
-          max_attempts: 2
-          command: |
-            set -euo pipefail
-            ENV_NAME="pr-${{ needs.resolve_pr.outputs.pr_number }}"
-            # Query for environment ID by name
-            ENV_ID=$(curl -fsS -X POST \
-              -H "Authorization: Bearer ${RAILWAY_API_TOKEN}" \
-              -H "Content-Type: application/json" \
-              -d "{\"query\": \"query { project(id: \\\"${{ vars.RAILWAY_PROJECT_ID }}\\\") { environments { edges { node { id name } } } } }\"}" \
-              https://backboard.railway.com/graphql/v2 \
-              | jq -r --arg name "$ENV_NAME" '.data.project.environments.edges[] | select(.node.name == $name) | .node.id')
-            if [[ -z "$ENV_ID" ]]; then
-              echo "Error: Could not find environment $ENV_NAME"
-              exit 1
-            fi
-            echo "env_id=$ENV_ID" >> "$GITHUB_OUTPUT"
-            echo "Found environment ID: $ENV_ID"
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            exit 1
+          }
+
+      - name: Refuse a removed Railway environment
+        # A PR-close cleanup can run while this run waits. Each later step
+        # writes to the environment id of prepare_pr_environment and never
+        # creates an environment; this step stops early when the id is gone.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          FOUND="$(railway_environment_id "$RAILWAY_PROJECT_ID" "$PR_ENV")"
+          if [[ -z "$FOUND" || "$FOUND" != "$ENV_ID" ]]; then
+            echo "::error::The Railway environment $PR_ENV ($ENV_ID) is gone. The PR-close cleanup removed it; the deploy does not create it again."
+            exit 1
+          fi
+
+      - name: Read Neon owner credentials
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+        # The branch id comes from the branch name again, not from an output
+        # of migrate_pr_database, which runs branch code. The lookup refuses
+        # the default branch and the production branch: the next step changes
+        # a role password on this branch. Each value is masked before it goes
+        # to GITHUB_ENV.
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-neon-branch.sh"
+          NEON_BRANCH_ID="$(neon_preview_branch_id "$PR_NUMBER")"
+          export_masked() {
+            local name="$1" value="$2"
+            [[ -n "$value" ]] || { echo "Neon returned no value for $name"; exit 1; }
+            echo "::add-mask::$value"
+            printf '%s=%s\n' "$name" "$value" >> "$GITHUB_ENV"
+          }
+          export_masked OWNER_DB_URL "$(neon_owner_url "$NEON_BRANCH_ID" false)"
+          export_masked OWNER_DB_URL_POOLED "$(neon_owner_url "$NEON_BRANCH_ID" true)"
+
+      - name: Set preview ctxpipe_app password
+        # The Neon API cannot show the password of a role that SQL made, so
+        # the preview backend DATABASE_URL keeps it, and later runs use it
+        # again (scripts/preview-app-db-password.sh). A new password on each
+        # run broke the live services until the deploy rolled them, and for
+        # all time when the deploy failed after that. The step sets the
+        # password before the roll. A kept password changes nothing. A new
+        # password replaces a URL that the services cannot use on this branch.
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
+          BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
+        run: |
+          set -euo pipefail
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+          # shellcheck disable=SC1091
+          source "${GITHUB_WORKSPACE}/scripts/preview-app-db-password.sh"
+          PASSWORD="$(preview_app_db_password)"
+          echo "::add-mask::$PASSWORD"
+          command -v psql >/dev/null || { sudo apt-get update -qq && sudo apt-get install -y -qq postgresql-client >/dev/null; }
+          # psql reads the password from the environment (\getenv), and
+          # format(%L) quotes it, as migrate does. No value goes on a command
+          # line or into the log.
+          PREVIEW_APP_DB_PASSWORD="$PASSWORD" psql "$OWNER_DB_URL" -X -q -v ON_ERROR_STOP=1 <<'SQL'
+          \getenv pw PREVIEW_APP_DB_PASSWORD
+          SELECT format('ALTER ROLE %I WITH LOGIN PASSWORD %L', 'ctxpipe_app', :'pw') \gexec
+          SQL
+          POOLED="$(python3 -c 'import sys; from urllib.parse import urlparse, urlunparse, quote; parsed=urlparse(sys.argv[1]); password=quote(sys.argv[2], safe=""); host=parsed.hostname or ""; netloc=f"ctxpipe_app:{password}@{host}" + (f":{parsed.port}" if parsed.port else ""); print(urlunparse(parsed._replace(netloc=netloc)))' "$OWNER_DB_URL_POOLED" "$PASSWORD")"
+          echo "::add-mask::$POOLED"
+          # GITHUB_ENV, not a step output: a later `env:` block would print it.
+          printf 'NEON_DB_URL=%s\n' "$POOLED" >> "$GITHUB_ENV"
 
       - name: Update Railway service config via GraphQL and deploy once
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
           RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
-          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
-          NEON_DB_URL: ${{ steps.neon_branch.outputs.db_url_pooled }}
+          ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
           WORKER_SERVICE_ID: ${{ vars.RAILWAY_WORKER_SERVICE_ID }}
           UI_SERVICE_ID: ${{ vars.RAILWAY_UI_SERVICE_ID }}
@@ -313,15 +789,21 @@ jobs:
           WORKER_IMAGE: ghcr.io/ctxpipe-ai/worker:${{ env.IMAGE_TAG }}
           UI_IMAGE: ghcr.io/ctxpipe-ai/ui:${{ env.IMAGE_TAG }}
           CODESEARCH_IMAGE: ghcr.io/ctxpipe-ai/codesearch:${{ env.IMAGE_TAG }}
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        # Extra time: a new PR env from `environment new --duplicate` applies as
-        # a staged commit; serviceInstanceDeployV2 fails with "Service Instance
-        # not found" until those instances exist.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 18
-          max_attempts: 2
-          command: |
+          OBSERVABILITY_OTLP_HEADERS: ${{ secrets.OBSERVABILITY_OTLP_HEADERS }}
+          VERCEL_ACCESS_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          GH_APP_ID: ${{ secrets.GH_APP_ID }}
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
+          GH_CLIENT_ID: ${{ secrets.GH_CLIENT_ID }}
+          GH_CLIENT_SECRET: ${{ secrets.GH_CLIENT_SECRET }}
+          GH_PRIVATE_KEY: ${{ secrets.GH_PRIVATE_KEY }}
+          GH_WEBHOOK_SECRET: ${{ secrets.GH_WEBHOOK_SECRET }}
+        # Single Railway roll. Do not wrap this script in nick-fields/retry —
+        # a second attempt stacks serviceInstanceDeployV2 on a still-DEPLOYING
+        # instance. GraphQL HTTP retries live in railway_graphql.
+        # New PR envs from `environment new --duplicate` apply as a staged
+        # commit; wait_for_service_instance covers "Service Instance not found".
+        timeout-minutes: 35
+        run: |
             set -euo pipefail
 
             if [[ -z "${RAILWAY_API_TOKEN:-}" ]]; then
@@ -357,8 +839,39 @@ jobs:
             require_var UI_SERVICE_ID
             require_var CODESEARCH_SERVICE_ID
 
-            # shellcheck disable=SC1091
-            source "${GITHUB_WORKSPACE}/scripts/railway-graphql.sh"
+            railway_graphql() {
+              local query="$1"
+              local variables="$2"
+              local attempt raw http_code body
+              # Retry HTTP/GraphQL transport only. Do not retry the whole deploy
+              # script — that stacks serviceInstanceDeployV2 on a still-DEPLOYING instance.
+              for attempt in 1 2 3; do
+                raw="$(curl -sS -w '\n%{http_code}' \
+                  -H "Authorization: Bearer $RAILWAY_API_TOKEN" \
+                  -H "Content-Type: application/json" \
+                  -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \
+                  https://backboard.railway.com/graphql/v2)" || {
+                  echo "Railway GraphQL curl failed (attempt $attempt) for query: ${query:0:120}…" >&2
+                  if [[ "$attempt" != 3 ]]; then
+                    sleep 3
+                    continue
+                  fi
+                  return 22
+                }
+                http_code="$(printf '%s' "$raw" | tail -n1)"
+                body="$(printf '%s' "$raw" | sed '$d')"
+                if [[ "$http_code" == "200" ]] && ! echo "$body" | jq -e '.errors | type == "array" and length > 0' >/dev/null 2>&1; then
+                  printf '%s' "$body"
+                  return 0
+                fi
+                echo "Railway GraphQL HTTP $http_code (attempt $attempt) for query: ${query:0:120}…" >&2
+                echo "$body" >&2
+                if [[ "$attempt" != 3 ]]; then
+                  sleep 3
+                fi
+              done
+              return 22
+            }
 
             # Poll until Railway has a live instance in this environment.
             # Duplicate-from-production creates the env immediately; instances
@@ -465,18 +978,28 @@ jobs:
               echo "Updated preview namespace variables for service $service_id"
             }
 
-            # Backend: allow waking the worker after enqueue (Railway GraphQL deploy).
-            upsert_preview_backend_wake_variables() {
+            # UI Nitro must bind 0.0.0.0 or Railway healthcheck on / never reaches the process.
+            # Server-render calls use the backend private domain, as in production
+            # (infra/module/ctxpipe/railway.tf). Through the public edge, about one
+            # new connection in three from the UI did not reach the backend, and
+            # the call waited for its 10 s timeout. Each environment has its own
+            # private network, so the reference resolves to this PR's backend.
+            # The port is 8080, the backend PORT that Terraform sets in
+            # production. A preview made before that change has no backend
+            # PORT variable, so the literal is safer than `backend.PORT`.
+            # `dollar` keeps GitHub Actions from reading the Railway reference
+            # as an expression.
+            upsert_preview_ui_bind_variables() {
               local service_id="$1"
-              local token
-              token="${RAILWAY_API_TOKEN:?RAILWAY_API_TOKEN must be set for preview worker wake}"
+              local dollar='$'
+              local auth_base="http://${dollar}{{backend.RAILWAY_PRIVATE_DOMAIN}}:8080"
+              # The UI browser OTEL proxy accepts AUTH_BASE_URL and
+              # AUTH_ALLOWED_ORIGINS as the browser origin. AUTH_BASE_URL is
+              # private, so name the public origin here.
+              local public_origin="https://backend-pr-${PR_NUMBER}.up.railway.app"
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
-                "$(jq -nc \
-                  --arg project "$RAILWAY_PROJECT_ID" \
-                  --arg env "$ENV_ID" \
-                  --arg service "$service_id" \
-                  --arg wake_token "$token" \
+                "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" --arg auth "$auth_base" --arg origins "$public_origin" \
                   '{
                     input: {
                       projectId: $project,
@@ -484,11 +1007,14 @@ jobs:
                       serviceId: $service,
                       skipDeploys: true,
                       variables: {
-                        RAILWAY_TOKEN: $wake_token
+                        HOST: "0.0.0.0",
+                        NITRO_HOST: "0.0.0.0",
+                        AUTH_BASE_URL: $auth,
+                        AUTH_ALLOWED_ORIGINS: $origins
                       }
                     }
                   }')"
-              echo "Updated preview RAILWAY_TOKEN on backend service $service_id for worker wake"
+              echo "Set HOST/NITRO_HOST=0.0.0.0 and AUTH_BASE_URL=$auth_base for UI $service_id"
             }
 
             update_preview_worker_service_instance() {
@@ -554,12 +1080,124 @@ jobs:
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true}}')"
             }
 
+            # Preview UI: Nitro SSR can pass local curls but Railway's / healthcheck
+            # stays "service unavailable" for 5m and blocks the image roll. Clear the
+            # path so deploy can succeed; backend still proxies to the UI privately.
+            update_ui_source_image() {
+              local service_id="$1"
+              local image="$2"
+              railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg img "$image" \
+                  '{environmentId:$env, serviceId:$service, input:{source:{image:$img}, sleepApplication:true, healthcheckPath:""}}')"
+              echo "Updated UI image and cleared healthcheckPath for $service_id"
+            }
+
             # Serverless only (no image change) — for infra images managed by Terraform (e.g. FalkorDB).
             enable_serverless() {
               local service_id="$1"
               railway_graphql \
                 'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service, input:{sleepApplication:true}}')"
+            }
+
+            # Preview compute next to Neon (aws-us-east-1). Duplicate-from-production
+            # copies asia-southeast1; that ~200ms RTT makes every org SQL hop ~1s.
+            # Stateless services only — codesearch/FalkorDB volumes stay in Singapore
+            # so this preview does not trigger Railway volume migration.
+            PREVIEW_COMPUTE_REGION="us-east4-eqdc4a"
+
+            pin_stateless_preview_region() {
+              local label="$1"
+              local service_id="$2"
+              # Railway rejects numReplicas < 1. Omitting a region removes it.
+              if railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" --arg east "$PREVIEW_COMPUTE_REGION" '{
+                  environmentId: $env,
+                  serviceId: $service,
+                  input: {
+                    multiRegionConfig: {
+                      ($east): {"numReplicas": 1}
+                    }
+                  }
+                }')" >/dev/null; then
+                echo "Pinned $label ($service_id) to $PREVIEW_COMPUTE_REGION"
+              else
+                echo "Warning: failed to pin $label ($service_id) to $PREVIEW_COMPUTE_REGION" >&2
+              fi
+            }
+
+            # Scale a service to zero replicas in this environment (config only).
+            # Railway rejects numReplicas < 1, so do not send multiRegionConfig here.
+            # Non-fatal: deploymentStop below is what actually stops running containers.
+            scale_service_to_zero() {
+              local service_id="$1"
+              if railway_graphql \
+                'mutation serviceInstanceUpdate($environmentId: String, $serviceId: String!, $input: ServiceInstanceUpdateInput!) { serviceInstanceUpdate(environmentId: $environmentId, serviceId: $serviceId, input: $input) }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{
+                  environmentId: $env,
+                  serviceId: $service,
+                  input: {
+                    sleepApplication: true
+                  }
+                }')" >/dev/null; then
+                echo "Enabled serverless sleep for service $service_id (config)"
+              else
+                echo "Warning: failed to enable serverless sleep for $service_id (continuing with deploymentStop)" >&2
+              fi
+            }
+
+            # Stop active deployments without creating a new one (no "Deploy" in UI).
+            stop_active_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "SUCCESS" or .status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No active deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
+            }
+
+            # Leave SUCCESS running; only kill leftover rolls from cancelled GH jobs.
+            stop_in_flight_deployments() {
+              local service_id="$1"
+              local response dep_ids
+              response="$(railway_graphql \
+                'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status } } } }' \
+                "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+              dep_ids="$(echo "$response" | jq -r '
+                .data.deployments.edges[]?
+                | .node
+                | select(.status == "DEPLOYING" or .status == "INITIALIZING" or .status == "BUILDING" or .status == "WAITING")
+                | .id
+              ' 2>/dev/null || true)"
+              if [[ -z "$dep_ids" ]]; then
+                echo "No in-flight deployments to stop for service $service_id"
+                return 0
+              fi
+              while IFS= read -r dep_id; do
+                [[ -z "$dep_id" ]] && continue
+                railway_graphql \
+                  'mutation deploymentStop($id: String!) { deploymentStop(id: $id) }' \
+                  "$(jq -nc --arg id "$dep_id" '{id:$id}')" >/dev/null || true
+                echo "Stopped in-flight deployment $dep_id for service $service_id"
+              done <<< "$dep_ids"
             }
 
             # Read back sleepApplication for deploy logs / debugging.
@@ -579,9 +1217,87 @@ jobs:
 
             deploy_service() {
               local service_id="$1"
+              stop_in_flight_deployments "$service_id"
               railway_graphql \
                 'mutation serviceInstanceDeployV2($serviceId: String!, $environmentId: String!) { serviceInstanceDeployV2(serviceId: $serviceId, environmentId: $environmentId) }' \
                 "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')"
+            }
+
+            # serviceInstanceDeployV2 is async — without waiting, preview can stay on a
+            # stale UI image while the workflow reports green.
+            wait_for_image_deploy() {
+              local label="$1"
+              local service_id="$2"
+              local expected_image="$3"
+              local timeout_s="${4:-420}"
+              local expected_tag="${expected_image##*:}"
+              local started_at deadline response status image node_json newest
+              started_at="$(date +%s)"
+              deadline=$((started_at + timeout_s))
+              echo "Waiting for $label ($service_id) to reach SUCCESS or SLEEPING with image $expected_image (timeout ${timeout_s}s)"
+              while true; do
+                response="$(railway_graphql \
+                  'query deployments($input: DeploymentListInput!) { deployments(input: $input) { edges { node { id status createdAt meta } } } }' \
+                  "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{input:{environmentId:$env, serviceId:$service}}')")"
+                # Only accept a deployment whose meta mentions the expected image/tag.
+                # Never treat an older SUCCESS (different tag) as done.
+                node_json="$(echo "$response" | jq -c --arg img "$expected_image" --arg tag "$expected_tag" '
+                  [.data.deployments.edges[]?.node // empty
+                    | select(
+                        ((.meta | tostring) | contains($img))
+                        or ((.meta | tostring) | contains($tag))
+                      )
+                  ][0] // empty
+                ')"
+                if [[ -n "$node_json" && "$node_json" != "null" ]]; then
+                  status="$(echo "$node_json" | jq -r '.status // empty')"
+                  image="$(echo "$node_json" | jq -r '.meta.image // empty')"
+                  echo "$label matching deploy status=${status:-unknown} image=${image:-unknown}"
+                  if [[ "$status" == "SUCCESS" || "$status" == "SLEEPING" ]]; then
+                    # Best-effort confirm configured source image (schema may vary).
+                    if response="$(railway_graphql \
+                      'query serviceInstanceSource($environmentId: String!, $serviceId: String!) { serviceInstance(environmentId: $environmentId, serviceId: $serviceId) { source { image } } }' \
+                      "$(jq -nc --arg env "$ENV_ID" --arg service "$service_id" '{environmentId:$env, serviceId:$service}')" 2>/dev/null)"; then
+                      image="$(echo "$response" | jq -r '.data.serviceInstance.source.image // empty')"
+                      echo "$label serviceInstance.source.image=${image:-unknown}"
+                      if [[ -n "$image" && "$image" != *"$expected_tag"* ]]; then
+                        echo "ERROR: $label source image is '$image', expected to contain '$expected_tag'" >&2
+                        return 1
+                      fi
+                    else
+                      echo "Warning: could not query $label serviceInstance.source.image (continuing after SUCCESS)"
+                    fi
+                    return 0
+                  fi
+                  if [[ "$status" == "FAILED" || "$status" == "CRASHED" || "$status" == "REMOVED" ]]; then
+                    echo "ERROR: $label deployment ended with status=$status" >&2
+                    echo "$node_json" >&2
+                    dep_id="$(echo "$node_json" | jq -r '.id // empty')"
+                    if [[ -n "$dep_id" ]]; then
+                      echo "=== $label deploymentLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { deploymentLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:200}')" \
+                        | jq -r '(.data.deploymentLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                      echo "=== $label buildLogs for $dep_id ===" >&2
+                      railway_graphql \
+                        'query($id: String!, $limit: Int) { buildLogs(deploymentId: $id, limit: $limit) { timestamp severity message } }' \
+                        "$(jq -nc --arg id "$dep_id" '{id:$id, limit:100}')" \
+                        | jq -r '(.data.buildLogs // [])[]? | "\(.timestamp) [\(.severity)] \(.message)"' >&2 || true
+                    fi
+                    return 1
+                  fi
+                else
+                  newest="$(echo "$response" | jq -r '.data.deployments.edges[0].node | "\(.status // "?") meta=\(.meta|tostring)"')"
+                  echo "$label no deploy yet for $expected_tag (newest: ${newest:-none})"
+                fi
+                if (( $(date +%s) >= deadline )); then
+                  echo "ERROR: timed out waiting for $label deployment with image $expected_image" >&2
+                  echo "$response" | jq -c '.data.deployments.edges[0:5]' >&2 || true
+                  return 1
+                fi
+                sleep 8
+              done
             }
 
             wait_for_service_instance "backend" "$BACKEND_SERVICE_ID"
@@ -589,26 +1305,69 @@ jobs:
             wait_for_service_instance "ui" "$UI_SERVICE_ID"
             wait_for_service_instance "codesearch" "$CODESEARCH_SERVICE_ID"
 
+            # Long-lived PR envs cloned before ClickStack never received
+            # OTEL_EXPORTER_OTLP_*. Later rolls only upsert DB/image/capacity.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-otel-vars.sh"
+            sync_preview_otel_variables
+
+            # Hosted chat runs in Vercel sandboxes tagged with this environment;
+            # the PR-close cleanup deletes them by that tag.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-sandbox-vars.sh"
+            sync_preview_sandbox_variables
+
+            # A duplicate of production carries the production GitHub App,
+            # and its services run the production image until this roll.
+            # Replace the App here, so branch code starts only with the
+            # preview App.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-github-app-vars.sh"
+            sync_preview_github_app_variables
+
+            # The duplicate carries the production AUTH_SECRET and
+            # CONNECTION_SECRETS_ENCRYPTION_KEY. Give the preview its own
+            # values, and give the backend a worker-wake token that Railway
+            # scopes to this environment. Once per preview; later rolls keep them.
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-own-secrets.sh"
+            sync_preview_own_secrets
+            echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key. Connection secrets copied from production do not decrypt here: connect each integration again on the preview." >> "$GITHUB_STEP_SUMMARY"
+
             upsert_database_url_without_deploy "$BACKEND_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$BACKEND_SERVICE_ID" >/dev/null
-            upsert_preview_backend_wake_variables "$BACKEND_SERVICE_ID" >/dev/null
+            # shellcheck disable=SC1091
+            source "${GITHUB_WORKSPACE}/scripts/preview-ui-private.sh"
+            point_preview_backend_at_private_ui
+            pin_stateless_preview_region "backend" "$BACKEND_SERVICE_ID"
             update_source_image "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE" >/dev/null
             deploy_service "$BACKEND_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "backend" "$BACKEND_SERVICE_ID" "$BACKEND_IMAGE"
+            # The backend now proxies to the UI private domain, so the UI
+            # needs no public domain. Production UI has none either.
+            remove_preview_ui_public_domains
 
             upsert_database_url_without_deploy "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_service_variables "$WORKER_SERVICE_ID" >/dev/null
             upsert_preview_worker_idle_exit "$WORKER_SERVICE_ID" >/dev/null
+            pin_stateless_preview_region "worker" "$WORKER_SERVICE_ID"
             update_preview_worker_service_instance "$WORKER_SERVICE_ID" "$WORKER_IMAGE" >/dev/null
             deploy_service "$WORKER_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "worker" "$WORKER_SERVICE_ID" "$WORKER_IMAGE"
 
             upsert_preview_service_variables "$UI_SERVICE_ID" >/dev/null
-            update_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
+            upsert_preview_ui_bind_variables "$UI_SERVICE_ID" >/dev/null
+            pin_stateless_preview_region "ui" "$UI_SERVICE_ID"
+            update_ui_source_image "$UI_SERVICE_ID" "$UI_IMAGE" >/dev/null
             deploy_service "$UI_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "ui" "$UI_SERVICE_ID" "$UI_IMAGE"
+            bash scripts/ci/smoke-preview-ui.sh "https://backend-pr-${PR_NUMBER}.up.railway.app"
 
             upsert_database_url_without_deploy "$CODESEARCH_SERVICE_ID" >/dev/null
             upsert_preview_codesearch_capacity "$CODESEARCH_SERVICE_ID" >/dev/null
             update_source_image "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE" >/dev/null
             deploy_service "$CODESEARCH_SERVICE_ID" >/dev/null
+            wait_for_image_deploy "codesearch" "$CODESEARCH_SERVICE_ID" "$CODESEARCH_IMAGE"
 
             load_service_ids_by_name
             FALKORDB_SERVICE_ID="$(echo "$SERVICE_IDS_BY_NAME_JSON" | jq -r '.falkordb // empty')"
@@ -629,10 +1388,10 @@ jobs:
         continue-on-error: true
         env:
           RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
-          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          ENV_ID: ${{ needs.prepare_pr_environment.outputs.env_id }}
           BACKEND_SERVICE_ID: ${{ vars.RAILWAY_BACKEND_SERVICE_ID }}
         # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 5
           max_attempts: 2
@@ -662,10 +1421,12 @@ jobs:
 
       - name: Build PR deploy comment body
         if: always()
+        env:
+          GH_APP_SLUG: ${{ secrets.GH_APP_SLUG }}
         run: |
           set -euo pipefail
           BACKEND_URL="${{ steps.backend_url.outputs.backend_url }}"
-          DASHBOARD_URL="https://railway.com/project/${{ vars.RAILWAY_PROJECT_ID }}?environmentId=${{ steps.railway_env.outputs.env_id }}"
+          DASHBOARD_URL="https://railway.com/project/${{ vars.RAILWAY_PROJECT_ID }}?environmentId=${{ needs.prepare_pr_environment.outputs.env_id }}"
 
           {
             echo "## PR Preview Environment"
@@ -676,7 +1437,8 @@ jobs:
               echo "- Preview URL: _Unavailable (service may still be provisioning or has no public domain)_"
             fi
             echo "- Railway Dashboard: $DASHBOARD_URL"
-            echo "- If you want to sign in with Github on this preview URL, you need to add $BACKEND_URL/.auth/api/v1/auth/callback/github to list of callback URLs [here](https://github.com/organizations/ctxpipe-ai/settings/apps/ctxpipe-agent). Unfortunately, GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- This preview uses the preview GitHub App, not the production App. To sign in with GitHub here, add $BACKEND_URL/.auth/api/v1/auth/callback/github to the callback URLs of the [preview GitHub App](https://github.com/organizations/ctxpipe-ai/settings/apps/${GH_APP_SLUG:-}). GitHub doesn't allow wildcard callback URLs or an API to do this automatically, so you need to add the exact URL."
+            echo "- This preview has its own \`AUTH_SECRET\` and connection-secrets key, so connection secrets copied from production do not decrypt here. Connect each integration again on the preview."
             echo "- To test Linear OAuth, add $BACKEND_URL/api/v1/integrations/linear/callback to the Linear application's redirect URIs. Linear applications have one webhook URL, so a shared production application will not deliver incremental events to this preview; use a dedicated preview application if webhook testing is required."
           } > pr-deploy-comment.md
 
@@ -705,21 +1467,42 @@ jobs:
               -F body=@pr-deploy-comment.md
           fi
 
+  # Not in the deploy group (see the workflow concurrency): a push after the
+  # close must not cancel this job. It can run while a deploy runs, so each
+  # delete accepts a resource that is already gone, and the deploy fails when
+  # its environment is gone.
   cleanup_pr_environment:
+    timeout-minutes: 20
     name: Cleanup Neon, Railway, and PR GHCR images
     if: |
       github.event_name == 'pull_request' && github.event.action == 'closed' &&
       github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: pr-cleanup-environment-${{ github.event.number }}
+      cancel-in-progress: false
     runs-on: blacksmith-4vcpu-ubuntu-2404
-    env:
-      NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
-      RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+    # RAILWAY_API_TOKEN and NEON_API_KEY come from this protected environment.
+    # The job calls only the Neon and Railway APIs with curl: no CLI, no
+    # package. Each secret is in the env of the steps that need it.
+    environment: Preview
     steps:
+      - name: Check the Railway token
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+        run: |
+          [[ -n "$RAILWAY_API_TOKEN" ]] || {
+            echo "::error::RAILWAY_API_TOKEN is missing. Add it to the Preview environment (Settings > Environments)."
+            exit 1
+          }
+
       - name: Delete Neon branch
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          PR_NUMBER: ${{ github.event.number }}
         run: |
           set -euo pipefail
-          PROJECT_ID="${{ vars.NEON_PROJECT_ID }}"
-          BRANCH_NAME="preview/pr-${{ github.event.number }}"
+          BRANCH_NAME="preview/pr-${PR_NUMBER}"
           API="https://console.neon.tech/api/v2"
           RESP=$(curl -fsS -H "Authorization: Bearer ${NEON_API_KEY}" \
             "${API}/projects/${PROJECT_ID}/branches")
@@ -732,33 +1515,149 @@ jobs:
             "${API}/projects/${PROJECT_ID}/branches/${BID}"
           echo "Deleted Neon branch $BRANCH_NAME"
 
-      - name: Install Railway CLI
-        # @railway/cli postinstall fetches a GitHub release tarball; that often
-        # socket-hangs (ECONNRESET) on hosted runners.
-        uses: nick-fields/retry@v4
-        with:
-          timeout_minutes: 3
-          max_attempts: 3
-          retry_wait_seconds: 15
-          command: npm install -g @railway/cli@4.35.2
+      - name: Find the Railway environment
+        id: railway_env
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          PR_ENV: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          ENV_ID="$(curl -fsS --retry 3 --retry-all-errors \
+            -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+            -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id: String!) { project(id: $id) { environments { edges { node { id name } } } } }",variables:{id:$id}}')" \
+            https://backboard.railway.com/graphql/v2 \
+            | jq -er --arg n "$PR_ENV" '.data.project.environments.edges | [.[].node | select(.name == $n) | .id][0] // ""')"
+          if [[ -z "$ENV_ID" ]]; then
+            echo "No Railway environment $PR_ENV (already deleted?)"
+          fi
+          echo "env_id=$ENV_ID" >>"$GITHUB_OUTPUT"
+
+      - name: Revoke the preview worker-wake token
+        # PR Deploy creates one Railway project token per preview environment
+        # (scripts/preview-own-secrets.sh). Delete each token of this
+        # environment before the environment goes. Prints no token value.
+        # A failure here must not stop the environment delete, because the
+        # token is scoped to that environment.
+        if: steps.railway_env.outputs.env_id != ''
+        continue-on-error: true
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          PR_ENV: pr-${{ github.event.number }}
+        run: |
+          set -euo pipefail
+          gql() {
+            curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg q "$1" --argjson v "$2" '{query:$q,variables:$v}')" \
+              https://backboard.railway.com/graphql/v2
+          }
+          TOKEN_IDS="$(gql 'query($projectId: String!) { projectTokens(projectId: $projectId, first: 100) { edges { node { id environmentId } } } }' \
+            "$(jq -nc --arg p "$RAILWAY_PROJECT_ID" '{projectId:$p}')" \
+            | jq -r --arg env "$ENV_ID" '.data.projectTokens.edges[]?.node | select(.environmentId == $env) | .id')"
+          for id in $TOKEN_IDS; do
+            gql 'mutation($id: String!) { projectTokenDelete(id: $id) }' "$(jq -nc --arg id "$id" '{id:$id}')" >/dev/null
+            echo "Revoked Railway project token $id of $PR_ENV"
+          done
 
       - name: Delete Railway environment
-        # Railway API/CLI calls can be flaky; retry once before failing.
-        uses: nick-fields/retry@v4
+        # The id comes from the exact name pr-<N>, so this never deletes
+        # production. Railway API calls can be flaky; retry once.
+        if: steps.railway_env.outputs.env_id != ''
+        env:
+          RAILWAY_API_TOKEN: ${{ secrets.RAILWAY_API_TOKEN }}
+          RAILWAY_PROJECT_ID: ${{ vars.RAILWAY_PROJECT_ID }}
+          ENV_ID: ${{ steps.railway_env.outputs.env_id }}
+          PR_ENV: pr-${{ github.event.number }}
+        uses: nick-fields/retry@ad984534de44a9489a53aefd81eb77f87c70dc60 # v4
         with:
           timeout_minutes: 5
           max_attempts: 2
           command: |
             set -euo pipefail
-            railway link --project "${{ vars.RAILWAY_PROJECT_ID }}" --environment production
-            railway environment delete "pr-${{ github.event.number }}" --yes || echo "Railway environment delete skipped or already removed"
+            RESP="$(curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+              -d "$(jq -nc --arg id "$ENV_ID" '{query:"mutation($id: String!) { environmentDelete(id: $id) }",variables:{id:$id}}')" \
+              https://backboard.railway.com/graphql/v2)"
+            if jq -e '.errors | type == "array" and length > 0' >/dev/null <<<"$RESP"; then
+              # An earlier attempt or another cleanup can have deleted it.
+              LEFT="$(curl -fsS -H "Authorization: Bearer $RAILWAY_API_TOKEN" -H "Content-Type: application/json" \
+                -d "$(jq -nc --arg id "$RAILWAY_PROJECT_ID" '{query:"query($id: String!) { project(id: $id) { environments { edges { node { id } } } } }",variables:{id:$id}}')" \
+                https://backboard.railway.com/graphql/v2 \
+                | jq -er --arg env "$ENV_ID" '.data.project.environments.edges | [.[].node | select(.id == $env)] | length')"
+              if [[ "$LEFT" == "0" ]]; then
+                echo "Railway environment $PR_ENV is already deleted"
+                exit 0
+              fi
+              echo "Railway did not delete $PR_ENV: $(jq -c '.errors' <<<"$RESP")" >&2
+              exit 1
+            fi
+            echo "Deleted Railway environment $PR_ENV"
 
       # Requires packages:write (workflow) and Admin on each GHCR package → Manage Actions access for this repo.
       - name: Delete PR-tagged GHCR images
-        uses: dataaxiom/ghcr-cleanup-action@v1
+        uses: dataaxiom/ghcr-cleanup-action@d52806a0dc70b430571a37da1fde39733ffd640f # v1
         with:
           token: ${{ secrets.GITHUB_TOKEN }}
           owner: ctxpipe-ai
           packages: backend,worker,ui,codesearch
           delete-tags: '^pr-${{ github.event.number }}-'
           use-regex: true
+
+  # Runs after the preview teardown was attempted (even if it failed), so a
+  # preview backend is unlikely to start a sandbox behind it; re-running the
+  # job deletes any straggler. The sandboxes' GitHub token rows live in the
+  # preview's Neon branch, which the teardown deletes.
+  cleanup_pr_sandboxes:
+    timeout-minutes: 20
+    name: Delete preview Vercel sandboxes
+    needs: cleanup_pr_environment
+    if: |
+      !cancelled() &&
+      github.event_name == 'pull_request' && github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    concurrency:
+      group: pr-cleanup-sandboxes-${{ github.event.number }}
+      cancel-in-progress: false
+    runs-on: blacksmith-4vcpu-ubuntu-2404
+    permissions:
+      contents: read
+    # The preview Vercel project and token (scripts/preview-sandbox-vars.sh).
+    # This job runs pnpm install with that token: a reviewed exception in
+    # scripts/ci/check-secret-jobs.mjs. It stays in Preview: it deletes
+    # the sandboxes of the Railway PR preview, not those of CI contracts.
+    environment: Preview
+    steps:
+      - name: Checkout repository
+        uses: useblacksmith/checkout@25227e61ff9dafe400e22fa487b673eac4e4409a # v1
+
+      - name: Mount pnpm store sticky disk
+        uses: useblacksmith/stickydisk@3f6be1451e3cad893b778bc93495c80452a5da26 # v1
+        with:
+          # Not the production key: branch code writes to this store.
+          key: ${{ github.repository }}-pnpm-store-pr
+          path: ~/.pnpm-store
+
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
+
+      - uses: useblacksmith/setup-node@65c6ca86fdeb0ab3d85e78f57e4f6a7e4780b391 # v5
+        with:
+          node-version: "22"
+
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Force pnpm store path
+        run: pnpm config set store-dir ~/.pnpm-store
+
+      - name: Install backend dependencies
+        run: pnpm install --frozen-lockfile --filter @ctxpipe/backend...
+
+      - name: Delete sandboxes tagged with this preview environment
+        working-directory: apps/backend
+        env:
+          VERCEL_TOKEN: ${{ secrets.VERCEL_ACCESS_TOKEN }}
+          VERCEL_TEAM_ID: ctxpipe
+          VERCEL_PROJECT_ID: ctxpipe-previews
+        run: bun src/scripts/deletePreviewSandboxes.ts "pr-${{ github.event.number }}"

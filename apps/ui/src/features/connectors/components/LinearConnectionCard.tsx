@@ -1,21 +1,11 @@
 "use client"
 
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query"
-import { useNavigate } from "@tanstack/react-router"
-import { useState } from "react"
 import { toast } from "sonner"
-import { AlertDialog } from "@/components/ui/AlertDialog"
-import { Modal } from "@/components/ui/Modal"
-import {
-  formatSelectedItemCount,
-  resolveConnectorHealth,
-} from "../connectorHealth"
-import {
-  getLinearCardPrimaryCta,
-  getLinearSetupCurrentIndex,
-  getLinearSetupSteps,
-  getLinearStatusRefetchInterval,
-} from "../linear-setup-model"
+import { ConnectorUsedIn } from "@/features/workspace-sources/ConnectorUsedIn"
+import { useConnectorSync } from "@/features/workspace-sources/useConnectorSync"
+import { resolveConnectorHealth } from "../connectorHealth"
+import { getLinearCardPrimaryCta } from "../linear-setup-model"
 import {
   deleteLinearConnector,
   fetchLinearConnectorStatus,
@@ -23,18 +13,13 @@ import {
   linearConnectorKeys,
 } from "../queries/linear-connector"
 import { orgConnectionsKeys } from "../queries/org-connections"
-import {
-  ConnectorListItem,
-  ConnectorRemoveMenu,
-  connectorDash,
-  formatSyncRepositoryLine,
-} from "./ConnectorListItem"
+import { ConnectorListItem, connectorDash } from "./ConnectorListItem"
 import { LinearMark } from "./LinearMark"
 
 type LinearConnectionCardProps = {
   orgSlug: string
   connectionId: string
-  onOpenWizard: (manageScope: boolean) => void
+  onOpenWizard: () => void
 }
 
 export function LinearConnectionCard({
@@ -42,16 +27,10 @@ export function LinearConnectionCard({
   connectionId,
   onOpenWizard,
 }: LinearConnectionCardProps) {
-  const navigate = useNavigate()
   const queryClient = useQueryClient()
-  const [removeOpen, setRemoveOpen] = useState(false)
   const statusQuery = useQuery({
     queryKey: linearConnectorKeys.status(orgSlug, connectionId),
     queryFn: () => fetchLinearConnectorStatus(orgSlug, connectionId),
-    refetchInterval: (query) =>
-      query.state.status === "error"
-        ? false
-        : getLinearStatusRefetchInterval(query.state.data),
   })
   const oauthQuery = useQuery({
     queryKey: linearConnectorKeys.oauthApp(orgSlug, connectionId),
@@ -69,100 +48,62 @@ export function LinearConnectionCard({
           queryKey: linearConnectorKeys.allStatusForOrg(orgSlug),
         }),
       ])
-      setRemoveOpen(false)
     },
     onError: (error: Error) => toast.error(error.message),
   })
 
   const status = statusQuery.data
   const oauthMeta = oauthQuery.data
-  const complete = status
-    ? getLinearSetupCurrentIndex(status, oauthMeta) >=
-      getLinearSetupSteps(oauthMeta).length
-    : false
   const primary = status ? getLinearCardPrimaryCta(status, oauthMeta) : null
   const health = resolveConnectorHealth({
+    installationStatus: status?.installationStatus,
     statusError: statusQuery.isError,
     checking: statusQuery.isPending || !status,
-    setupPhase: status?.setupPhase,
-    connected: complete,
+    connected: Boolean(status?.isInstalled),
+    draft: !status?.isInstalled,
+  })
+
+  const sync = useConnectorSync({
+    orgSlug,
+    connectionId,
+    provider: "linear",
   })
 
   return (
-    <>
-      <ConnectorListItem
-        name="Linear"
-        icon={<LinearMark className="size-5 text-foreground" />}
-        health={health}
-        menu={
-          <ConnectorRemoveMenu
-            ariaLabel="Linear connector actions"
-            onRemove={() => setRemoveOpen(true)}
-          />
-        }
-        workspace={connectorDash(status?.workspaceName)}
-        scope={
-          status?.selectedScopeCount != null
-            ? formatSelectedItemCount(status.selectedScopeCount)
-            : status?.setupPhase === "live"
-              ? "Configured"
-              : "—"
-        }
-        syncRepository={formatSyncRepositoryLine(status?.syncTarget ?? null)}
-        actionLabel={
-          statusQuery.isError ? "Retry" : primary ? primary.label : undefined
-        }
-        onAction={
-          statusQuery.isError
-            ? () => void statusQuery.refetch()
-            : primary
-              ? () => {
-                  if (primary.kind === "navigate_repositories") {
-                    void navigate({
-                      to: "/$orgSlug/repositories",
-                      params: { orgSlug },
-                    })
-                  } else {
-                    onOpenWizard(primary.kind === "manage_scope")
-                  }
-                }
-              : undefined
-        }
-      >
-        {status?.setupPhase === "initial_sync" ? (
-          <p className="text-sm text-muted-foreground">
-            Mirroring Linear content to Git.
-          </p>
-        ) : null}
-        {status?.setupPhase === "sync_failed" ? (
-          <p className="text-sm text-muted-foreground">
-            Content mirror failed. Open setup to retry.
-          </p>
-        ) : null}
-        {status?.setupPhase === "config_failed" ? (
-          <p className="text-sm text-muted-foreground">
-            Configuration pull request failed. Open setup to retry.
-          </p>
-        ) : null}
-        {statusQuery.isError ? (
-          <p className="text-sm text-muted-foreground">
-            Status request failed. Retry, or open setup if this persists.
-          </p>
-        ) : null}
-      </ConnectorListItem>
-      <Modal isOpen={removeOpen} onOpenChange={setRemoveOpen} isDismissable>
-        <AlertDialog
-          title="Remove Linear connector?"
-          variant="destructive"
-          actionLabel="Remove connector"
-          cancelLabel="Cancel"
-          onAction={() => removeMutation.mutate()}
-        >
-          This removes the Linear authorisation and repository binding from the
-          connection. Scope configuration and mirrored files already committed
-          to Git are not deleted.
-        </AlertDialog>
-      </Modal>
-    </>
+    <ConnectorListItem
+      usedIn={
+        <ConnectorUsedIn
+          orgSlug={orgSlug}
+          connectionId={connectionId}
+          provider="linear"
+        />
+      }
+      sync={sync}
+      name="Linear"
+      icon={<LinearMark className="size-5 text-foreground" />}
+      health={health}
+      remove={{
+        description:
+          "This removes the Linear authorization. Its Workspace sources stop syncing. The source files and the files already committed to Git stay.",
+        onConfirm: () => removeMutation.mutate(),
+      }}
+      workspace={connectorDash(status?.workspaceName)}
+      actionLabel={
+        statusQuery.isError ? "Retry" : primary ? primary.label : undefined
+      }
+      onAction={
+        statusQuery.isError
+          ? () => void statusQuery.refetch()
+          : primary
+            ? () => onOpenWizard()
+            : undefined
+      }
+    >
+      {statusQuery.isError ? (
+        <p className="text-sm text-muted-foreground">
+          Status request failed. Retry, or open setup if this persists.
+        </p>
+      ) : null}
+    </ConnectorListItem>
   )
 }

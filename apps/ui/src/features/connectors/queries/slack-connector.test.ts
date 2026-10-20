@@ -22,7 +22,6 @@ vi.mock("@/lib/api", () => ({
 
 import {
   fetchSlackConnectorStatus,
-  patchSlackConnectorConfig,
   SlackConnectionNotFoundError,
 } from "./slack-connector"
 
@@ -71,65 +70,8 @@ describe("fetchSlackConnectorStatus", () => {
   it("throws SlackConnectionNotFoundError on 404", async () => {
     getStatusMock.mockResolvedValue(new Response(null, { status: 404 }))
 
-    await expect(fetchSlackConnectorStatus("acme", "con_missing")).rejects.toThrow(
-      SlackConnectionNotFoundError,
-    )
-  })
-})
-
-describe("patchSlackConnectorConfig", () => {
-  afterEach(() => {
-    vi.clearAllMocks()
-  })
-
-  it("binds a repository and returns the resulting setup phase", async () => {
-    patchMock.mockResolvedValue(
-      new Response(JSON.stringify({ accepted: true, setupPhase: "live" }), {
-        status: 200,
-      }),
-    )
-
     await expect(
-      patchSlackConnectorConfig("acme", { repositoryId: "repo_1" }, "con_1"),
-    ).resolves.toEqual({ accepted: true, setupPhase: "live" })
-    expect(patchMock).toHaveBeenCalledWith({
-      param: { orgSlug: "acme" },
-      query: { connectionId: "con_1" },
-      json: { repositoryId: "repo_1" },
-    })
-  })
-
-  it("can bind by GitHub repository metadata without a registered repositoryId", async () => {
-    patchMock.mockResolvedValue(
-      new Response(JSON.stringify({ accepted: true, setupPhase: "live" }), {
-        status: 200,
-      }),
-    )
-
-    await expect(
-      patchSlackConnectorConfig(
-        "acme",
-        {
-          repositoryName: "acme/ctxpipe-context",
-          gitUrl: "https://github.com/acme/ctxpipe-context.git",
-          githubConnectionId: "ghc_1",
-          branch: "main",
-        },
-        "con_1",
-      ),
-    ).resolves.toEqual({ accepted: true, setupPhase: "live" })
-  })
-
-  it("surfaces the backend error message on failure", async () => {
-    patchMock.mockResolvedValue(
-      new Response(
-        JSON.stringify({ error: "Repository not found for organization" }),
-        { status: 404 },
-      ),
-    )
-
-    await expect(
-      patchSlackConnectorConfig("acme", { repositoryId: "repo_missing" }),
-    ).rejects.toThrow("Repository not found for organization")
+      fetchSlackConnectorStatus("acme", "con_missing"),
+    ).rejects.toThrow(SlackConnectionNotFoundError)
   })
 })

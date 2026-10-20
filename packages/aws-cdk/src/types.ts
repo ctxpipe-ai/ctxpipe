@@ -1,4 +1,5 @@
 import type * as cdk from "aws-cdk-lib";
+import type * as ec2 from "aws-cdk-lib/aws-ec2";
 
 export type CtxPipeSize = "small" | "medium" | "large";
 
@@ -116,6 +117,40 @@ export interface CtxPipeOtelProps {
   readonly resourceAttributes?: string;
 }
 
+/**
+ * Overrides for the EC2 Docker host that runs Workspace chat sandboxes.
+ * The host is on by default. Set `enabled: false` to create no host. Chat
+ * then stays off: it answers "sandbox unavailable" (503).
+ */
+export interface CtxPipeSandboxHostProps {
+  /**
+   * Create the host. Defaults to `true`. When `false`, the stack has no EC2
+   * host and the services get no sandbox host settings, so Workspace chat
+   * does not work. The other overrides are ignored.
+   */
+  readonly enabled?: boolean;
+  /**
+   * Defaults by `size`: `t4g.medium` (small), `t4g.large` (medium),
+   * `t4g.xlarge` (large). Memory is the limit (~0.3–0.5 GiB per active
+   * sandbox). Must be a Graviton (arm64) type.
+   */
+  readonly instanceType?: ec2.InstanceType;
+  /**
+   * gp3 volume for `/var/lib/docker`, in GiB. Holds images, running and
+   * stopped sandboxes (kept up to 30 days). Defaults by `size`: 30, 50, 100.
+   */
+  readonly dockerVolumeSizeGiB?: number;
+  /**
+   * More private addresses or CIDRs that Agent Vault on the host may dial,
+   * added after the private subnets of the backend. Add the address of a
+   * private git server here, so that ingestion can fetch a plain git source
+   * from it. The host must also have a route to that network (for example
+   * VPC peering or a transit gateway). Defaults to none. An IPv4 or IPv6
+   * address or CIDR only. A cloud metadata or link-local address is refused.
+   */
+  readonly agentVaultNetworkAllowlist?: readonly string[];
+}
+
 export interface CtxPipeProps {
   /**
    * Organization slug used by self-hosted deployment.
@@ -136,4 +171,6 @@ export interface CtxPipeProps {
    * Defaults to "small" when omitted.
    */
   readonly size?: CtxPipeSize;
+  /** The chat sandbox host: on by default; overrides and an off switch. */
+  readonly sandboxHost?: CtxPipeSandboxHostProps;
 }

@@ -1,4 +1,11 @@
-import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises"
+import {
+  mkdir,
+  mkdtemp,
+  readFile,
+  rm,
+  symlink,
+  writeFile,
+} from "node:fs/promises"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
@@ -93,5 +100,86 @@ describe("SCIP protobuf helpers", () => {
 
     expect(() => assertScipIndex(valid)).not.toThrow()
     expect(() => assertScipIndex(malformed)).toThrow()
+  })
+
+  it("drops documents whose path ends outside the checkout", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-contained-"))
+    try {
+      const checkoutPath = join(directory, "checkout")
+      const outside = join(directory, "outside")
+      await mkdir(join(checkoutPath, "src"), { recursive: true })
+      await mkdir(outside)
+      await writeFile(join(outside, "data.ts"), "export {}\n")
+      await writeFile(join(checkoutPath, "src", "main.ts"), "export {}\n")
+      await symlink(outside, join(checkoutPath, "linked"))
+      await symlink(join(outside, "data.ts"), join(checkoutPath, "link.ts"))
+      const shardPath = join(directory, "0.scip")
+      await writeFile(
+        shardPath,
+        encodeScipIndex({
+          documents: [
+            { relativePath: "src/main.ts" },
+            { relativePath: "/abs/data.ts" },
+            { relativePath: "../outside/data.ts" },
+            { relativePath: "src/../../outside/data.ts" },
+            { relativePath: "linked/data.ts" },
+            { relativePath: "link.ts" },
+            { relativePath: "src/generated.ts" },
+          ],
+          externalSymbols: [],
+        }),
+      )
+      const outputPath = join(directory, "index.scip")
+
+      await mergeScipShardFiles([shardPath], outputPath, {
+        dedupe: false,
+        checkoutPath,
+      })
+
+      expect(
+        decodeScipIndex(await readFile(outputPath)).documents?.map(
+          (document) => (document as { relativePath: string }).relativePath,
+        ),
+      ).toEqual(["src/main.ts", "src/generated.ts"])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
+  })
+
+  it("drops documents with a .git segment", async () => {
+    const directory = await mkdtemp(join(tmpdir(), "scip-git-"))
+    try {
+      const checkoutPath = join(directory, "checkout")
+      await mkdir(join(checkoutPath, ".git"), { recursive: true })
+      await writeFile(join(checkoutPath, ".git", "config"), "[core]\n")
+      await symlink(".git", join(checkoutPath, "git-dir"))
+      const shardPath = join(directory, "0.scip")
+      await writeFile(
+        shardPath,
+        encodeScipIndex({
+          documents: [
+            { relativePath: "src/main.ts" },
+            { relativePath: ".git/config" },
+            { relativePath: "sub/.GIT/hook.ts" },
+            { relativePath: "git-dir/config" },
+          ],
+          externalSymbols: [],
+        }),
+      )
+      const outputPath = join(directory, "index.scip")
+
+      await mergeScipShardFiles([shardPath], outputPath, {
+        dedupe: false,
+        checkoutPath,
+      })
+
+      expect(
+        decodeScipIndex(await readFile(outputPath)).documents?.map(
+          (document) => (document as { relativePath: string }).relativePath,
+        ),
+      ).toEqual(["src/main.ts"])
+    } finally {
+      await rm(directory, { recursive: true, force: true })
+    }
   })
 })

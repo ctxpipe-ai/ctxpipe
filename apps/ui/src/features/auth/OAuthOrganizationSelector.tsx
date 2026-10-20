@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 import { Radio, RadioGroup } from "@/components/ui/RadioGroup"
 
-export type OAuthOrganizationOption = {
+type OAuthOrganizationOption = {
   id: string
   name: string
   slug: string
@@ -24,20 +24,20 @@ export function OAuthOrganizationSelector({
 
   return (
     <main className="mx-auto max-w-xl px-6 py-16 text-foreground">
-      <section className="space-y-6 rounded-none border border-border bg-card/80 p-6">
+      <section className="space-y-6 rounded-md border border-border bg-card/80 p-6">
         <div className="space-y-2">
           <p className="ctx-label">OAuth connection</p>
-          <h1 className="text-xl font-medium">Choose an organisation</h1>
+          <h1 className="text-xl font-medium">Choose an organization</h1>
           <p className="text-sm text-muted-foreground">
-            Claude will use ctx| data from this organisation. The choice is
+            Claude will use ctx| data from this organization. The choice is
             bound to this connection and will not change when you switch
-            organisations later.
+            organizations later.
           </p>
         </div>
 
         {organizations.length > 0 ? (
           <RadioGroup
-            aria-label="Organisation"
+            aria-label="Organization"
             value={selectedId ?? ""}
             onChange={(value) => setSelectedId(String(value))}
           >
@@ -45,7 +45,7 @@ export function OAuthOrganizationSelector({
               <Radio
                 key={organization.id}
                 value={organization.id}
-                className="rounded-none border border-border bg-background/35 p-3 hover:bg-foreground/[0.04]"
+                className="rounded-md border border-border bg-background/35 p-3 hover:bg-foreground/[0.04]"
               >
                 <span className="min-w-0">
                   <span className="block font-medium text-foreground">
@@ -61,18 +61,18 @@ export function OAuthOrganizationSelector({
         ) : (
           <InlineAlert
             variant="warning"
-            title="No organisations available"
+            title="No organizations available"
             actions={
               <Button
                 href="/onboarding"
                 variant="outline"
-                className="rounded-none"
+                className="rounded-md"
               >
                 Open ctx| setup
               </Button>
             }
           >
-            Create or join an organisation, then reconnect Claude.
+            Create or join an organization, then reconnect Claude.
           </InlineAlert>
         )}
 
@@ -85,7 +85,7 @@ export function OAuthOrganizationSelector({
         {organizations.length > 0 ? (
           <div className="flex justify-end">
             <Button
-              className="rounded-none"
+              className="rounded-md"
               isDisabled={!selectedId || isSubmitting}
               isPending={isSubmitting}
               onPress={() => {

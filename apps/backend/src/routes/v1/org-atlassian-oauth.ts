@@ -5,7 +5,7 @@ import { SignJWT } from "jose"
 import type { AppEnv } from "../../app/env.js"
 import { requireOrgAdminOrOwner } from "../../auth/withAuth.js"
 import { parseEnv } from "../../config/env.js"
-import { getSystemDb } from "../../db/client.js"
+import { getOrgDb, withOrgDbContext } from "../../db/client.js"
 import {
   CONNECTION_TYPE_FORGE,
   connections,
@@ -163,18 +163,19 @@ export const orgAtlassianOauthReadRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!connectionId) {
       return c.json({ error: "connectionId is required" }, 400)
     }
-    const db = getSystemDb()
-    const [row] = await db
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.orgId, orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .limit(1)
+    const [row] = await withOrgDbContext(orgId, () =>
+      getOrgDb()
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, connectionId),
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+          ),
+        )
+        .limit(1),
+    )
     if (!row) {
       return c.json({ error: "Forge connection not found" }, 404)
     }
@@ -207,17 +208,19 @@ const orgAtlassianOauthAdminHandlers = new OpenAPIHono<AppEnv>()
       return c.json({ error: "connectionId is required" }, 400)
     }
     const body = PutBody.parse(await c.req.json())
-    const [row] = await getSystemDb()
-      .select()
-      .from(connections)
-      .where(
-        and(
-          eq(connections.id, connectionId),
-          eq(connections.orgId, orgId),
-          eq(connections.type, CONNECTION_TYPE_FORGE),
-        ),
-      )
-      .limit(1)
+    const [row] = await withOrgDbContext(orgId, () =>
+      getOrgDb()
+        .select()
+        .from(connections)
+        .where(
+          and(
+            eq(connections.id, connectionId),
+            eq(connections.orgId, orgId),
+            eq(connections.type, CONNECTION_TYPE_FORGE),
+          ),
+        )
+        .limit(1),
+    )
     if (!row) {
       return c.json({ error: "Forge connection not found" }, 404)
     }

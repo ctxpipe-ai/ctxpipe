@@ -12,6 +12,7 @@ import {
   patchGithubDraftConnection,
 } from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
+import { client } from "@/lib/api"
 import { githubAppInstallUrl } from "@/lib/github-app-url"
 import { generateGithubWebhookSecret } from "@/lib/github-webhook-secret"
 import {
@@ -19,7 +20,7 @@ import {
   clearGithubPopupFlow,
   GITHUB_DRAFT_CONNECTION_KEY,
   GITHUB_POPUP_NAME,
-  type GithubSetupRegistrationStatus,
+  type GithubSetupPopupResult,
   handleGithubSetupPopupResult,
   openCenteredPopup,
   setGithubSetupOrgHint,
@@ -33,9 +34,7 @@ type GithubSelfHostedWizardModalProps = {
   onOpenChange: (open: boolean) => void
   onInstallFlowStarted?: () => void
   onDraftCreated?: (args: { connectionId: string }) => void
-  onInstallPopupSettled?: (payload: {
-    status: GithubSetupRegistrationStatus
-  }) => void
+  onInstallPopupSettled?: (result: GithubSetupPopupResult) => void
   /**
    * Hide the modal when jumping to the GitHub install popup. Prefer this over
    * `onOpenChange(false)` so parents don’t treat the handoff as a user dismiss/cancel.
@@ -151,15 +150,15 @@ export function GithubSelfHostedWizardModal({
       if (popup) {
         watchPopupClose(popup, () => {
           void (async () => {
-            const { status } = await handleGithubSetupPopupResult(
+            const result = await handleGithubSetupPopupResult(
               orgSlug,
               queryClient,
             )
-            if (status === "registered") {
+            if (result.status === "registered") {
               HyperDX.addAction("connector_connect", { connector: "github" })
               toast.success("GitHub installation linked.")
             }
-            onInstallPopupSettled?.({ status })
+            onInstallPopupSettled?.(result)
             localStorage.removeItem(GITHUB_DRAFT_CONNECTION_KEY)
             reset()
           })()
@@ -199,10 +198,10 @@ export function GithubSelfHostedWizardModal({
         const saved = credentialsSavedRef.current
         if (id != null && !saved) {
           void (async () => {
-            await fetch(
-              `/${orgSlug}/api/v1/github/installation?${new URLSearchParams({ connectionId: id })}`,
-              { method: "DELETE", credentials: "include" },
-            )
+            await client[":orgSlug"].api.v1.github.installation.$delete({
+              param: { orgSlug },
+              query: { connectionId: id },
+            })
             await queryClient.invalidateQueries({
               queryKey: orgConnectionsKeys.list(orgSlug),
             })

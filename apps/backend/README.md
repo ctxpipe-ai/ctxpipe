@@ -8,7 +8,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 
 - org-scoped REST APIs (`/:orgSlug/api/v1/*`)
 - MCP endpoint (`/mcp`) for agent integrations
-- ingestion orchestration for repository indexing and context extraction
+- repository indexing, and ingestion v2 (sandbox skills that write patches) for context extraction
 - authentication and organisation access control
 
 ## Stack
@@ -18,7 +18,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 - API contracts: `@hono/zod-openapi` + Zod
 - Auth: Better Auth
 - DB: PostgreSQL + Drizzle ORM
-- Orchestration: OpenWorkflow + LangGraph
+- Orchestration: OpenWorkflow
 - Testing: Vitest
 
 ## API & endpoints
@@ -36,7 +36,7 @@ ctx| product feature. Use it to exercise OAuth and tools against a **test**
 organisation. Keep the official `pnpm mcp:inspect` workflow as an independent
 protocol reference.
 
-**In scope:** interactive DCR OAuth, `tools/list`, a test `ctx_advisor` call,
+**In scope:** interactive DCR OAuth, `tools/list`, a test `list_workspaces` call,
 protocol conformance (CI), and a visual Inspector for local HTTP(S).
 
 **Out of scope:** tenant isolation, token refresh races, dropped-session
@@ -102,8 +102,8 @@ and a test user; do not expose customer tool results or reusable credentials to
 a third-party hosted project.
 
 When a failure reproduces, correlate the MCPJam timestamp and JSON-RPC method
-with the backend's `step=mcp.request` event in Railway logs, then use the
-resulting advisor thread in Langfuse for model/tool execution details. OAuth
+with the backend's `step=mcp.request` event in Railway logs, then find the
+`mcp.tool <name>` span of the call in HyperDX by its call id. OAuth
 endpoint failures use `step=oauth.endpoint_error`. Files under `.mcpjam/` are
 gitignored, but they can still contain operational details: review them before
 sharing.
@@ -112,12 +112,16 @@ sharing.
 
 - Endpoint: `POST /api/v1/webhook/github`
 - HMAC verification via `GITHUB_WEBHOOK_SECRET`
-- `push` events to the default branch trigger repository ingestion (with UI “indexing recent changes”)
+- `push` events to the default branch trigger repository indexing (with UI “indexing recent changes”). Ingestion v2 publishes at Workspace format 3 or more; below format 3 no ingestion runs
 - `repository.created` can trigger repository sync when auto-sync options are enabled
 
 The GitHub App must be subscribed to `push` webhook events on connected repositories for re-indexing to fire on merge / direct push. `pull_request` events are intentionally not a fallback — they don't cover direct pushes to the default branch (hotfixes, incident response).
 
 For **local development**, GitHub cannot deliver webhooks to `localhost`; use an HTTPS tunnel (for example Cloudflare Tunnel, ngrok, or Tailscale Funnel), register the forwarded URL with your GitHub App, and ensure it reaches `POST …/api/v1/webhook/github`.
+
+## Contract tests
+
+Run `pnpm test:contracts` with `DATABASE_URL`, `AUTH_SECRET`, and `GRAPH_DB_URI` pointing to disposable development services. The lane checks PostgreSQL, a writable FalkorDB graph, Git, Bun, OpenCode, Zoekt and ast-grep before executing contracts; missing prerequisites fail the run. CI provisions PostgreSQL and a pinned FalkorDB image. Native graph contracts create scoped ACL users and delete their own tenant graphs, so their FalkorDB test connection needs ACL administration permissions.
 
 ## Scripts (this package)
 
@@ -141,7 +145,6 @@ For **local development**, GitHub cannot deliver webhooks to `localhost`; use an
 - `src/mcp` – MCP tools and server integration
 - `src/db` – schema and database access
 - `src/openworkflow` – ingestion and sync workflows
-- `src/graphs` – LangGraph pipelines
 
 ## Licence
 

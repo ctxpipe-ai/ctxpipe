@@ -10,7 +10,7 @@ import {
   Section,
   Text,
 } from "@react-email/components"
-import * as React from "react"
+import type * as React from "react"
 
 interface InvitationEmailProps {
   inviteLink: string
@@ -28,9 +28,7 @@ export function InvitationEmail({
   return (
     <Html>
       <Head />
-      <Preview>
-        ctx| invitation on behalf of {organizationName}
-      </Preview>
+      <Preview>ctx| invitation on behalf of {organizationName}</Preview>
       <Body style={main}>
         <Container style={container}>
           <Heading style={heading}>ctx| invitation</Heading>

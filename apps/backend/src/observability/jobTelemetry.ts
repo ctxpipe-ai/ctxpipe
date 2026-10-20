@@ -1,11 +1,15 @@
 import { context, trace } from "@opentelemetry/api"
+import { eq } from "drizzle-orm"
 import { z } from "zod"
+import { getSystemDb } from "../db/client.js"
+import { organizations } from "../db/schema/auth.js"
 import {
   type AttributionKey,
   contextWithAttributionBag,
   readAttribution,
   sanitizeAttribution,
 } from "./attribution.js"
+import { log } from "./logger.js"
 
 export const jobTelemetrySchema = z.object({
   "request.id": z.string().optional(),
@@ -60,10 +64,12 @@ function attributionPatchFromJobInput(
     stringField(record, "connectionId") ??
     stringField(record, "githubConnectionId")
   const repositoryId = stringField(record, "repositoryId")
+  const workspaceId = stringField(record, "workspaceId")
   if (orgId) patch["ctxpipe.org.id"] = orgId
   if (orgSlug) patch["ctxpipe.org.slug"] = orgSlug
   if (connectionId) patch["ctxpipe.connection.id"] = connectionId
   if (repositoryId) patch["ctxpipe.repository.id"] = repositoryId
+  if (workspaceId) patch["ctxpipe.workspace.id"] = workspaceId
   return patch
 }
 
@@ -82,11 +88,68 @@ export function attachJobTelemetry<T>(
   return { ...record, telemetry } as T & { telemetry: JobTelemetry }
 }
 
+type StandardSchema = {
+  readonly "~standard": {
+    readonly validate: (
+      value: unknown,
+    ) => { issues?: unknown } | Promise<{ issues?: unknown }>
+  }
+}
+
+function schemaAccepts(schema: StandardSchema, value: unknown): boolean {
+  const result = schema["~standard"].validate(value)
+  if (result instanceof Promise) {
+    void result.catch(() => {})
+    return false
+  }
+  return !result.issues
+}
+
+/** Attach telemetry only when the workflow's Standard Schema would accept it. */
+export function attachJobTelemetryForSchema<T>(
+  schema: StandardSchema | undefined,
+  input: T,
+): T {
+  const attached = attachJobTelemetry(input)
+  if (!schema || attached === input) return attached
+  if (schemaAccepts(schema, attached)) return attached
+  return input
+}
+
 function telemetryFromInput(input: unknown): JobTelemetry {
   if (!input || typeof input !== "object") return {}
   const raw = (input as { telemetry?: unknown }).telemetry
   const parsed = jobTelemetrySchema.safeParse(raw)
   return parsed.success ? parsed.data : {}
+}
+
+const orgSlugs = new Map<string, string>()
+
+/**
+ * The slug of an org, for the Langfuse `org:<slug>` tag of a job whose input
+ * has only the org id. A slug is read once per process and org, so a resumed
+ * run does not read it again. A failed read leaves the tag out and never
+ * fails the job.
+ */
+async function orgSlugForJob(orgId: string): Promise<string | undefined> {
+  const known = orgSlugs.get(orgId)
+  if (known) return known
+  try {
+    const [org] = await getSystemDb()
+      .select({ slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1)
+    if (org) orgSlugs.set(orgId, org.slug)
+    return org?.slug
+  } catch (error) {
+    log.warn({
+      step: "job-telemetry.org-slug",
+      message: `Reading the org slug for job telemetry failed: ${String(error)}`,
+      orgId,
+    })
+    return undefined
+  }
 }
 
 /**
@@ -113,13 +176,12 @@ export async function restoreJobTelemetry<T>(
   const inputOrgSlug = inputRecord
     ? stringField(inputRecord, "orgSlug")
     : undefined
-  if (
-    !inputOrgSlug &&
-    inputOrgId &&
-    inputOrgId === fields["ctxpipe.org.id"] &&
-    fields["ctxpipe.org.slug"]
-  ) {
-    bagPatch["ctxpipe.org.slug"] = fields["ctxpipe.org.slug"]
+  if (!inputOrgSlug && inputOrgId) {
+    const slug =
+      inputOrgId === fields["ctxpipe.org.id"] && fields["ctxpipe.org.slug"]
+        ? fields["ctxpipe.org.slug"]
+        : await orgSlugForJob(inputOrgId)
+    if (slug) bagPatch["ctxpipe.org.slug"] = slug
   }
   const attribution = sanitizeAttribution({
     ...bagPatch,

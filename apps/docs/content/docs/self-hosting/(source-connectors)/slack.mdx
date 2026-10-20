@@ -11,8 +11,8 @@ workspace; they do not create their own Slack apps or webhook URLs.
 
 Capture is **intent-based**: mentioning the bot starts a small in-thread agent.
 Bare mention or “capture this” snapshots that thread as Markdown under `slack/`
-in a GitHub context repository (typically `ctxpipe-context`), then ingest runs
-like any other repo. Other mention text gets a capability reply — v1 does not
+in the chosen Workspace's repository, then the Workspace re-indexes like after
+any other commit. Other mention text gets a capability reply — v1 does not
 answer questions in Slack. There is no continuous channel mirror. Uninstalling
 the Slack app **does not purge git**.
 
@@ -171,7 +171,7 @@ Slack files and explicit embedded media are downloaded through the connector and
 committed with relative links. The worker never writes Slack private/download
 URLs into Markdown. Each asset is capped at 25 MiB and each captured thread has
 a 100 MiB asset budget; unavailable, unsafe, or oversized files leave a
-permalink or textual stub. Use a private context repository whenever Slack
+permalink or textual stub. Use a Workspace with a private repository whenever Slack
 captures may contain sensitive material.
 
 ## Operator troubleshooting

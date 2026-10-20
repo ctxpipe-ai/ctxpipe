@@ -1,6 +1,7 @@
 import { createHmac, timingSafeEqual } from "node:crypto"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import { orgHasAnyGithubConnection } from "../../models/github-installation.js"
 import {
@@ -16,14 +17,13 @@ import {
   upsertSlackConnectionFromOAuth,
 } from "../../models/slack-connector.js"
 import { getLogger } from "../../observability/logger.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
 import {
   assertSlackOAuthConfigured,
   botTokenFromConnection,
   exchangeSlackOAuthCode,
   fetchSlackUserProfile,
   getSlackOAuthAuthorizeUrl,
+  listSlackChannels,
   SlackOAuthMissingScopesError,
   verifySlackInstallation,
 } from "../../services/slack/client.js"
@@ -157,6 +157,56 @@ const getStatusRoute = createRoute({
   },
 })
 
+const SlackChannelSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    isPrivate: z.boolean(),
+    isMember: z.boolean(),
+  })
+  .openapi("SlackChannel")
+
+const listChannelsRoute = createRoute({
+  method: "get",
+  path: "/channels",
+  request: { query: ConnectionIdQuerySchema },
+  responses: {
+    200: {
+      content: {
+        "application/json": {
+          schema: z.object({
+            items: z.array(SlackChannelSchema),
+            /** True when Slack has more channels than the list holds. */
+            truncated: z.boolean(),
+          }),
+        },
+      },
+      description:
+        "Channels that a Slack source can select: public channels, and private channels that the bot is in",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Multiple Slack connections; pass connectionId",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unknown connectionId",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack connection is not installed",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Slack did not return the channels",
+    },
+  },
+})
+
 const verifyInstallationRoute = createRoute({
   method: "post",
   path: "/verify",
@@ -207,47 +257,52 @@ const SlackBindRepositoryRequestSchema = z
   )
   .openapi("SlackBindRepositoryRequest")
 
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: SlackBindRepositoryRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            setupPhase: z.enum(SLACK_SETUP_PHASES),
-          }),
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: SlackBindRepositoryRequestSchema },
+          },
         },
       },
-      description: "Context repository bound; connector is now live",
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                setupPhase: z.enum(SLACK_SETUP_PHASES),
+              }),
+            },
+          },
+          description: "Context repository bound; connector is now live",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid request or ambiguous connection",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown connectionId or repository",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Slack connection is not installed",
+        },
+      },
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid request or ambiguous connection",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown connectionId or repository",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Slack connection is not installed",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deleteSlackConnectorRoute = createRoute({
   method: "delete",
@@ -407,7 +462,7 @@ async function resolveInstalledSlack(
   return { connection: resolved.connection }
 }
 
-export const slackConnectorRoutes = new OpenAPIHono<AppEnv>().openapi(
+const slackOAuthStartRoutes = new OpenAPIHono<AppEnv>().openapi(
   getOAuthStartRoute,
   async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -561,7 +616,7 @@ export const slackOAuthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
   },
 )
 
-slackConnectorRoutes
+export const slackConnectorRoutes = slackOAuthStartRoutes
   .openapi(getStatusRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
       return c.json({ error: "Unauthorized" }, 401)
@@ -613,6 +668,31 @@ slackConnectorRoutes
       },
       200,
     )
+  })
+  .openapi(listChannelsRoute, async (c) => {
+    if (!c.get("user") || !c.get("session")) {
+      return c.json({ error: "Unauthorized" }, 401)
+    }
+    const orgId = c.get("orgId")
+    if (!orgId) return c.json({ error: "Unauthorized" }, 401)
+    const { connectionId } = c.req.valid("query")
+    const installed = await resolveInstalledSlack(orgId, connectionId ?? null)
+    if ("error" in installed) {
+      return c.json({ error: installed.error }, installed.status)
+    }
+    try {
+      const listed = await listSlackChannels({
+        env: c.var.env,
+        connection: installed.connection,
+      })
+      return c.json(listed, 200)
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        { step: "slack.channels.list", connectionId: installed.connection.id },
+      )
+      return c.json({ error: "Could not load the Slack channels" }, 502)
+    }
   })
   .openapi(verifyInstallationRoute, async (c) => {
     if (!c.get("user") || !c.get("session")) {
@@ -679,24 +759,6 @@ slackConnectorRoutes
           branch: body.branch,
         }),
       )
-      await enqueueGithubPrMirrorEnsureForOrg(orgId)
-      if (target.repositoryIngestion) {
-        await enqueueRepositoryIngestionWorkflow(
-          {
-            orgId: target.repositoryIngestion.orgId,
-            repositoryId: target.repositoryIngestion.repositoryId,
-            ...(target.repositoryIngestion.targetBranch !== undefined
-              ? { targetBranch: target.repositoryIngestion.targetBranch }
-              : {}),
-          },
-          {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "slack.repository_ingestion.enqueue",
-              }),
-          },
-        )
-      }
       return c.json(
         { accepted: true as const, setupPhase: target.setupPhase },
         200,

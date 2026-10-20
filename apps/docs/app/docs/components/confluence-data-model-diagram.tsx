@@ -97,15 +97,15 @@ export function ConfluenceDataModelDiagram() {
           ]}
         />
 
-        <Arrow label="Writes markdown and config" />
+        <Arrow label="Writes Markdown" />
 
         <Node
           label="Sync target"
           title="GitHub Repository"
           tone="github"
           artifacts={[
-            { text: "confluence/pages/", code: true },
-            { text: "confluence/config.yaml", code: true },
+            { text: "confluence/<spaceKey>/", code: true },
+            { text: "sources/confluence/<name>.md", code: true },
             { text: "Git history / visible / reviewable" },
           ]}
         />
@@ -130,7 +130,7 @@ export function ConfluenceDataModelDiagram() {
             label="Interface"
             title="ctx| MCP"
             tone="mcp"
-            artifacts={[{ text: "ctx_advisor and ctx| tools" }]}
+            artifacts={[{ text: "ctx| read tools" }]}
           />
           <div className="confluence-model-small-arrow" aria-hidden="true">
             <div className="confluence-model-small-arrow-line" />

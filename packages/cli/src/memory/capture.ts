@@ -5,7 +5,7 @@ import {
   readFileSync,
   writeFileSync,
 } from "node:fs"
-import { join, resolve as pathResolve } from "node:path"
+import { join } from "node:path"
 import { createHash, randomUUID } from "node:crypto"
 import { resolveRepoRoot } from "./paths.js"
 import { uncommittedMemory } from "./uncommitted.js"
@@ -14,9 +14,9 @@ export { resolveRepoRoot } from "./paths.js"
 
 export type CaptureHost = "cursor" | "claude" | "codex" | "opencode" | "vscode" | "unknown"
 
-export type ClassificationKind = "lesson" | "decision" | "requirement" | "glossary"
+type ClassificationKind = "lesson" | "decision" | "requirement" | "glossary"
 
-export type Classification = {
+type Classification = {
   kind: ClassificationKind
   destination: string
   action: string
@@ -85,7 +85,11 @@ const SECRET_PATTERNS: Array<[RegExp, string]> = [
   ],
   [/\bBearer\s+[A-Za-z0-9._\-+=/]+/gi, "Bearer [REDACTED_SECRET]"],
   [/\bsk-(?:ant|proj)-[A-Za-z0-9_-]+/g, "[REDACTED_SECRET]"],
-  [/\bgh[pous]_[A-Za-z0-9_]+/g, "[REDACTED_SECRET]"],
+  // A GitHub token; the installation token form can hold "." between its parts.
+  [
+    /\bgh[pousr]_[A-Za-z0-9_-]{1,4096}(?:\.[A-Za-z0-9_-]{1,4096}){0,8}/g,
+    "[REDACTED_SECRET]",
+  ],
   [/\bgithub_pat_[A-Za-z0-9_]+/g, "[REDACTED_SECRET]"],
   [/\bAKIA[0-9A-Z]{16}/g, "[REDACTED_SECRET]"],
   [/\bAIza[0-9A-Za-z_-]{35}/g, "[REDACTED_SECRET]"],
@@ -109,7 +113,7 @@ const FOLLOWUP_PROMPT_RE =
   /Memory candidates \(|Uncommitted memory \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const SELF_CAPTURE_RE =
-  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision/i
+  /memory capture|memory-capture|capture\.ts|capture-adr|capture-lesson|capture-glossary|capture-decision|Memory candidates \(|Promote via skills\/rules|mark ids promoted\/dismissed|do not auto-write ADRs from hooks/i
 
 const TOOL_DUMP_RE =
   /error TS\d+|Cannot find module|vitest run|FAIL\s+|^\s*✓\s+/m
@@ -119,11 +123,11 @@ const MEMORY_PATH_RE = /(?:^|[\\/])\.ai[\\/]memory(?:[\\/]|$)/i
 const MAX_TEXT = 2000
 const MAX_EXCERPT = 700
 
-export function memoryRoot(repoRoot: string): string {
+function memoryRoot(repoRoot: string): string {
   return join(repoRoot, ".ai", "memory")
 }
 
-export function eventsRoot(repoRoot: string): string {
+function eventsRoot(repoRoot: string): string {
   return join(memoryRoot(repoRoot), "events")
 }
 
@@ -407,7 +411,7 @@ function isSelfCapture(payload: Record<string, unknown>, text: string): boolean 
   return SELF_CAPTURE_RE.test(blob) || FOLLOWUP_PROMPT_RE.test(blob)
 }
 
-export function isUserPromptEvent(eventType: string): boolean {
+function isUserPromptEvent(eventType: string): boolean {
   return /^(beforeSubmitPrompt|UserPromptSubmit)$/i.test(eventType.trim())
 }
 
@@ -461,7 +465,7 @@ function existingExcerptKeys(repoRoot: string): Set<string> {
   return keys
 }
 
-export type ObserveResult = {
+type ObserveResult = {
   ok: true
   wrote: boolean
   candidateCount: number
@@ -622,7 +626,7 @@ export function observeCapture(opts: {
   return { ok: true, wrote: true, candidateCount, eventId }
 }
 
-export type SummaryCandidate = {
+type SummaryCandidate = {
   candidateId: string
   kind: string
   destination: string
@@ -630,7 +634,7 @@ export type SummaryCandidate = {
   excerpt: string
 }
 
-export type SummaryResult = {
+type SummaryResult = {
   priority: "low" | "medium" | "high"
   message: string
   candidates: SummaryCandidate[]
@@ -1035,9 +1039,4 @@ export function parseHost(value: string | undefined): CaptureHost {
     return v
   }
   return "unknown"
-}
-
-/** Resolve path under repo for tests */
-export function resolveUnderRepo(repoRoot: string, ...parts: string[]): string {
-  return pathResolve(repoRoot, ...parts)
 }

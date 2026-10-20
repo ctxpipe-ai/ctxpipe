@@ -14,9 +14,7 @@ import { Modal } from "@/components/ui/Modal"
 import { authClient } from "@/lib/auth-client"
 import { useUserPreferences } from "@/lib/user-preferences"
 import { cn } from "@/lib/utils"
-
-const ORG_SLUG_MAX_LENGTH = 32
-const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/
+import { orgSlugError, orgSlugFromName } from "../onboarding/org-name"
 
 type SideNavOrganizationCreateDialogProps = {
   isOpen: boolean
@@ -33,12 +31,15 @@ export function SideNavOrganizationCreateDialog({
   const queryClient = useQueryClient()
   const [, setPreferences] = useUserPreferences()
   const [orgName, setOrgName] = useState("")
-  const [orgSlug, setOrgSlug] = useState("")
+  // `null` means the user has not edited the slug. Until then it follows the
+  // name.
+  const [typedOrgSlug, setOrgSlug] = useState<string | null>(null)
+  const orgSlug = typedOrgSlug ?? orgSlugFromName(orgName)
   const [validationError, setValidationError] = useState<string | null>(null)
 
   const resetForm = () => {
     setOrgName("")
-    setOrgSlug("")
+    setOrgSlug(null)
     setValidationError(null)
   }
 
@@ -54,7 +55,7 @@ export function SideNavOrganizationCreateDialog({
         !("slug" in organization) ||
         typeof organization.slug !== "string"
       ) {
-        throw new Error("Failed to create organisation")
+        throw new Error("Failed to create organization")
       }
       return organization as { id: string; slug: string; name: string }
     },
@@ -71,10 +72,11 @@ export function SideNavOrganizationCreateDialog({
         ...prev,
         selectedOrganizationSlug: organization.slug,
       }))
+      // Home shows the Get started guide: the organization is new.
       resetForm()
       onOpenChange(false)
       await router.navigate({
-        to: "/$orgSlug/setup",
+        to: "/$orgSlug",
         params: { orgSlug: organization.slug },
         replace: true,
       })
@@ -83,15 +85,16 @@ export function SideNavOrganizationCreateDialog({
       setValidationError(
         error instanceof Error
           ? error.message
-          : "Failed to create organisation",
+          : "Failed to create organization",
       )
     },
   })
 
-  const slugTrimmedPreview = orgSlug.trim()
-  const slugTooLong = slugTrimmedPreview.length > ORG_SLUG_MAX_LENGTH
+  const slugError = orgSlugError(orgSlug)
+  const slugInvalid = orgSlug.trim() !== "" && slugError !== null
   const orgError =
     validationError ??
+    (slugInvalid ? slugError : null) ??
     (createOrg.error instanceof Error ? createOrg.error.message : null)
 
   const handleOpenChange = (open: boolean) => {
@@ -103,24 +106,12 @@ export function SideNavOrganizationCreateDialog({
   const handleCreate = () => {
     const trimmed = orgName.trim()
     if (!trimmed) {
-      setValidationError("Enter a name for your organisation.")
+      setValidationError("Enter a name for your organization.")
       return
     }
     const slug = orgSlug.trim()
-    if (!slug) {
-      setValidationError("Enter an organisation slug.")
-      return
-    }
-    if (slug.length > ORG_SLUG_MAX_LENGTH) {
-      setValidationError(
-        `Organisation slug must be at most ${ORG_SLUG_MAX_LENGTH} characters.`,
-      )
-      return
-    }
-    if (!ORG_SLUG_PATTERN.test(slug)) {
-      setValidationError(
-        "Organisation slug may only contain lowercase letters, numbers, and hyphens.",
-      )
+    if (slugError) {
+      setValidationError(slugError)
       return
     }
     setValidationError(null)
@@ -137,16 +128,16 @@ export function SideNavOrganizationCreateDialog({
         {({ close }) => (
           <>
             <DialogHeader>
-              <DialogTitle>Create organisation</DialogTitle>
+              <DialogTitle>Create organization</DialogTitle>
               <DialogDescription>
-                Set up a new organisation workspace for your team.
+                Set up a new organization workspace for your team.
               </DialogDescription>
             </DialogHeader>
             <label
               className="mb-2 mt-4 block text-sm text-zinc-200"
               htmlFor={orgNameFieldId}
             >
-              Organisation name
+              Organization name
             </label>
             <input
               id={orgNameFieldId}
@@ -162,7 +153,7 @@ export function SideNavOrganizationCreateDialog({
                 if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="Acme Engineering"
-              className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
+              className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
             />
             <label
               className="mb-2 block text-sm text-zinc-200"
@@ -175,7 +166,7 @@ export function SideNavOrganizationCreateDialog({
               type="text"
               value={orgSlug}
               disabled={createOrg.isPending}
-              aria-invalid={slugTooLong}
+              aria-invalid={slugInvalid}
               onChange={(e) => {
                 setOrgSlug(e.target.value)
                 setValidationError(null)
@@ -185,7 +176,7 @@ export function SideNavOrganizationCreateDialog({
                 if (e.key === "Enter" && !createOrg.isPending) handleCreate()
               }}
               placeholder="acme-engineering"
-              className="mb-4 h-11 w-full rounded-none border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
+              className="mb-4 h-11 w-full rounded-md border border-border bg-zinc-950 px-3 text-sm text-zinc-100 outline-none focus:border-teal-400/60 disabled:opacity-50"
             />
             {orgError ? (
               <p className="mb-4 text-xs text-red-400">{orgError}</p>
@@ -193,7 +184,7 @@ export function SideNavOrganizationCreateDialog({
             <div className="flex justify-end gap-3">
               <Button
                 variant="ghost"
-                className="rounded-none text-zinc-400 hover:text-zinc-200"
+                className="rounded-md text-zinc-400 hover:text-zinc-200"
                 isDisabled={createOrg.isPending}
                 onPress={() => close()}
               >
@@ -201,16 +192,16 @@ export function SideNavOrganizationCreateDialog({
               </Button>
               <Button
                 className={cn(
-                  "min-w-[11rem] rounded-none bg-zinc-100 hover:bg-zinc-200",
+                  "min-w-[11rem] rounded-md bg-zinc-100 hover:bg-zinc-200",
                   createOrg.isPending
                     ? "!text-transparent [&_svg]:text-zinc-950"
                     : "text-zinc-950",
                 )}
-                isDisabled={createOrg.isPending}
+                isDisabled={createOrg.isPending || slugInvalid}
                 isPending={createOrg.isPending}
                 onPress={() => handleCreate()}
               >
-                Create organisation
+                Create organization
               </Button>
             </div>
           </>

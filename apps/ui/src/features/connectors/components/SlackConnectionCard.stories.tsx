@@ -1,6 +1,11 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { delay, HttpResponse, http } from "msw"
 import type { ReactNode } from "react"
+import { expect, waitFor, within } from "storybook/test"
+import {
+  connectionUsageHandler,
+  connectionUsageItem,
+} from "@/mocks/workspace-sources-handlers"
 import { entryPageInnerDecorators } from "../../../../.storybook/decorators/entry-page-decorators"
 import type { StoryRouteParams } from "../../../../.storybook/decorators/with-story-route"
 import { SlackConnectionCard } from "./SlackConnectionCard"
@@ -25,8 +30,21 @@ const statusLive = {
 const meta = {
   title: "Components/Connections/Slack/ConnectionCard",
   component: SlackConnectionCard,
+  args: { orgSlug, connectionId },
   decorators: entryPageInnerDecorators,
   parameters: {
+    msw: {
+      handlers: {
+        usage: [
+          connectionUsageHandler([
+            connectionUsageItem({
+              workspaceSlug: "docs",
+              workspaceName: "Docs",
+            }),
+          ]),
+        ],
+      },
+    },
     layout: "fullscreen",
     storyRoute: {
       pattern: "orgIndex",
@@ -62,7 +80,8 @@ export const Connected: Story = {
   },
 }
 
-export const DraftAwaitingRepository: Story = {
+/** Installed without an @mention capture repository: the connection is ready for Workspace sources. */
+export const ConnectedWithoutCaptureRepository: Story = {
   render: () =>
     shell(
       <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
@@ -79,6 +98,44 @@ export const DraftAwaitingRepository: Story = {
         ],
       },
     },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Slack connector actions" }),
+      ).toBeVisible(),
+    )
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(canvas.queryByText(/in a thread to capture it/)).toBeNull()
+  },
+}
+
+export const Revoked: Story = {
+  render: () =>
+    shell(
+      <SlackConnectionCard orgSlug={orgSlug} connectionId={connectionId} />,
+    ),
+  parameters: {
+    msw: {
+      handlers: {
+        page: [
+          statusHandler({
+            ...statusLive,
+            isInstalled: false,
+            installationStatus: "revoked",
+          }),
+        ],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await canvas.findByText("Needs reconnect")
+    expect(canvas.queryByText("Setup not finished")).toBeNull()
+    expect(
+      canvas.getByRole("button", { name: "Slack connector actions" }),
+    ).toBeVisible()
   },
 }
 

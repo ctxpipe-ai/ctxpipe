@@ -1,0 +1,182 @@
+---
+title: Linked repositories
+description: Add code repositories to a Workspace so chat and agents can search them.
+---
+
+**Linked repositories** are code repositories a Workspace searches. ctx|
+indexes each one for code search and extracts services, APIs, libraries, and
+their relationships into the workspace repository as knowledge files.
+
+A repository can be linked to several Workspaces. Each Workspace keeps its own
+index, so search in one Workspace never returns another Workspace's code.
+
+## Link repositories
+
+Each linked GitHub repository is one source file in the workspace repository, at
+`sources/github/<owner>/<name>.md`. A pull request adds or removes the file. The
+change applies after you merge the pull request.
+
+<Steps>
+  <Step>
+    ### Open Settings
+
+    In the Workspace, open the **Settings** tab and find **GitHub** under
+    **Sources**.
+  </Step>
+
+  <Step>
+    ### Add repositories
+
+    Choose **Add repositories**. Search the repositories that the ctx| GitHub
+    App can see (sort by recently pushed, newest, oldest, or name) and select one
+    or more. This list shows only GitHub repositories. Only an organization
+    owner or admin can list them. A member sees "Ask an admin to add
+    repositories." To link a repository on another git host that needs no
+    credential, see [Plain git repositories](#plain-git-repositories). On hosted
+    ctx|, that host must be public. A self-hosted deployment can also read a git
+    server inside your network.
+
+    Choose **Open a pull request**. ctx| opens one pull request for up to 20
+    repositories. The message "Pull request opened. The change applies after the
+    merge." has a **View pull request** action.
+  </Step>
+
+  <Step>
+    ### Merge and wait for indexing
+
+    Merge the pull request. The row shows **Awaiting merge** until then. After
+    the merge is on the default branch, ctx| queues each repository for
+    indexing.
+  </Step>
+</Steps>
+
+To remove a repository, choose the unlink button on its row (**Unlink
+owner/name**). ctx| opens a pull request
+that deletes its source file. After you merge it, ctx| stops searching the
+repository and retracts the knowledge that it extracted.
+
+## Pin a branch or tag
+
+A source file reads the default branch of the repository. To read a branch or a
+tag, add `ref` to the front matter with a pull request:
+
+```markdown
+---
+provider: github
+connection: con_example
+repository: acme/payments
+ref: release
+---
+
+The payments API. Use it for questions about refunds and card tokens.
+```
+
+The `repository` key is `owner/name`. A `ref` is a branch or a tag. The body is an
+optional description of what the repository is for. People own the body, and
+ctx| never changes it. A repository can be a source of only one file. A source
+file cannot name the workspace repository itself.
+
+You can rename or move a source file inside `sources/github/`. The pin stays
+with the repository.
+
+## Plain git repositories
+
+ctx| can also read a repository on another git host that needs no
+credential, or a public GitHub repository with no GitHub connection. Add a source file for it under
+`sources/git/` in the workspace repository with a pull request:
+
+```markdown
+---
+provider: git
+url: https://git.example.org/team/tools.git
+---
+```
+
+ctx| reads the repository with git, with no credential. In each deployment,
+the URL must obey these rules:
+
+- ctx| does not support ssh (`git@…` or `ssh://`), `git://`, or `file://`
+  URLs: the sandbox reaches the outside only through an HTTP proxy.
+- It has no user name, password, query, or fragment.
+
+On hosted ctx|, and on each deployment that does not set
+`SANDBOX_PROVIDER=docker`, the URL must also obey these rules:
+
+- It uses `https://` and the default port.
+- Its host is a domain name, not an IP address or a private name such as
+  `localhost` or a `.local` or `.internal` name.
+- Each address of the host is public. ctx| does not read a host that
+  resolves to a private, loopback, or link-local address.
+
+A self-hosted deployment with Docker sandboxes (`SANDBOX_PROVIDER=docker`,
+which Docker Compose and AWS CDK set) can also read a git server inside your
+network. Its URL can use `http://`, another port, an IP address, or an
+internal host name, for example `http://git.internal:3000/team/tools.git`.
+ctx| never reads a host that resolves to a cloud metadata or link-local
+address (`169.254.0.0/16`, such as `169.254.169.254`, `fe80::/10`, or
+`fd00:ec2::254`), also on a self-hosted deployment.
+The sandbox fetches the repository through Agent Vault. Agent Vault connects
+to a private address only when that address is in its network allowlist. Add
+the address of your git server to it:
+
+- Docker Compose: set `AGENT_VAULT_NETWORK_ALLOWLIST` in `.env`. Add only
+  the single host address of your git server, for example
+  `AGENT_VAULT_NETWORK_ALLOWLIST=10.20.0.15`. Compose always keeps
+  `172.30.99.10` (the backend) in the list.
+- AWS CDK: set `sandboxHost.agentVaultNetworkAllowlist`, for example
+  `["10.20.0.15/32"]`. ctx| adds it after the backend subnets. The sandbox host
+  must also have a route to that address.
+
+<Callout type="warn">
+  Chat-sandbox vaults forward each host that no rule matches. An address or CIDR in this list therefore lets every chat agent reach every port and path at that address. Add only the single host address of the git server, never a whole subnet.
+</Callout>
+
+Do not add a cloud metadata, link-local, or loopback address.
+
+ctx| does not follow a redirect. Use the exact clone URL of the repository.
+Repositories that need a credential on other git hosts are not supported.
+
+The sandbox that extracts knowledge can fetch the repository only while it
+prepares its copy of the source. The steps after that cannot reach the git
+host.
+
+The source file links the repository to the Workspace. As before Workspaces,
+ctx| indexes a plain git repository when you add it with the repositories
+API (`POST /{orgSlug}/api/v1/repositories` with `name` and `gitUrl`), and
+when you start its indexing again (`POST /{orgSlug}/api/v1/repositories/{id}/reindex`).
+Both calls check the URL with the rules above and answer `400` with the
+rule when ctx| does not read it.
+Each index of the repository also updates the knowledge of each Workspace
+whose source file names it.
+
+## Indexing status
+
+| Status | Meaning |
+| --- | --- |
+| **Pending** | Linked, waiting to be indexed. |
+| **Indexing** | ctx\| is building search and extracting knowledge. Answers may be incomplete. |
+| **Indexed** | Search and extraction finished for the current commit. |
+| **Indexed with issues** | Search works, but part of the index failed, usually code navigation for one language. The reason is shown on the row. |
+
+Indexing runs again when the linked branch or tag of the repository changes.
+
+## What indexing builds
+
+- **Code search**: text, file, and symbol search over the default branch.
+- **Code navigation**: definitions and references for supported languages.
+- **Extracted knowledge**: services, APIs, libraries, infrastructure, and
+  instructions such as `AGENTS.md`, skills, and ADRs, committed to the
+  workspace repository as knowledge files with claims.
+
+Extraction uses models on parts of the code. Treat extracted claims like any
+other knowledge file: review them in git and correct them when they are wrong.
+
+## Closed pull requests
+
+For a linked GitHub repository, ctx| also mirrors its closed pull requests,
+merged or not, into `github/pulls/` in the workspace repository. When ctx|
+first reads a link, whether you added it in **Settings** or added its source
+file with Git, it backfills up to 200 recent closed pull requests. After that,
+each pull request that closes arrives as GitHub reports it.
+Unlinking stops new pull requests and keeps the files already mirrored. See
+[GitHub connector](/docs/connections/source-connectors/github).

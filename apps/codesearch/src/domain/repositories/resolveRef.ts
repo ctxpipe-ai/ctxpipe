@@ -1,14 +1,14 @@
 import { log } from "../../observability/logger.js"
-import { authenticatedGitUrl } from "../../utils/git.js"
+import type { GitRemote } from "../../utils/git.js"
 
-async function runCommand(
-  cmd: string[],
-  env?: Record<string, string | undefined>,
-): Promise<string> {
+async function runCommand(cmd: string[], remote: GitRemote): Promise<string> {
+  // A plain git remote has a time limit; Bun kills git after it.
   const subprocess = Bun.spawn(cmd, {
-    env,
+    env: remote.env,
     stdout: "pipe",
     stderr: "pipe",
+    timeout: remote.limits?.timeoutMs,
+    killSignal: "SIGKILL",
   })
   const [stdout, stderr, exitCode] = await Promise.all([
     new Response(subprocess.stdout).text(),
@@ -29,18 +29,17 @@ async function runCommand(
   return stdout
 }
 
-async function resolveDefaultBranch(
-  gitUrl: string,
-  githubToken?: string,
-): Promise<string> {
-  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
+async function resolveDefaultBranch(remote: GitRemote): Promise<string> {
   let stdout: string
   try {
-    stdout = await runCommand(["git", "ls-remote", "--symref", authUrl, "HEAD"])
+    stdout = await runCommand(
+      ["git", "ls-remote", "--symref", "--", remote.url, "HEAD"],
+      remote,
+    )
   } catch (error) {
     log.error({
       step: "resolveDefaultBranch",
-      gitUrl,
+      gitUrl: remote.url,
       error: error instanceof Error ? error.message : String(error),
     })
     throw error
@@ -54,17 +53,13 @@ async function resolveDefaultBranch(
 }
 
 async function resolveBranchHash(
-  gitUrl: string,
+  remote: GitRemote,
   branch: string,
-  githubToken?: string,
 ): Promise<string> {
-  const authUrl = authenticatedGitUrl(gitUrl, githubToken)
-  const stdout = await runCommand([
-    "git",
-    "ls-remote",
-    authUrl,
-    `refs/heads/${branch}`,
-  ])
+  const stdout = await runCommand(
+    ["git", "ls-remote", "--", remote.url, `refs/heads/${branch}`],
+    remote,
+  )
   const firstLine = stdout.split("\n")[0] ?? ""
   const hash = firstLine.split("\t")[0]
   if (!hash) {
@@ -73,16 +68,19 @@ async function resolveBranchHash(
   return hash
 }
 
+/**
+ * The branch and its tip on `remote` (see `repositoryGitRemote`): the
+ * requested branch, or the default branch of the remote.
+ */
 export async function resolveRepositoryRef(input: {
-  gitUrl: string
+  remote: GitRemote
   branch?: string
-  githubToken?: string
 }): Promise<{ branch: string; hash: string }> {
   const branch =
     input.branch && input.branch.trim().length > 0
       ? input.branch.trim()
-      : await resolveDefaultBranch(input.gitUrl, input.githubToken)
+      : await resolveDefaultBranch(input.remote)
 
-  const hash = await resolveBranchHash(input.gitUrl, branch, input.githubToken)
+  const hash = await resolveBranchHash(input.remote, branch)
   return { branch, hash }
 }

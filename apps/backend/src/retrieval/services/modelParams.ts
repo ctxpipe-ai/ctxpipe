@@ -1,6 +1,6 @@
 import { z } from "zod"
 
-export const REASONING_EFFORT_VALUES = [
+const REASONING_EFFORT_VALUES = [
   "none",
   "minimal",
   "low",
@@ -9,17 +9,13 @@ export const REASONING_EFFORT_VALUES = [
   "xhigh",
 ] as const
 
-export type ReasoningEffort = (typeof REASONING_EFFORT_VALUES)[number]
-
-export const VERBOSITY_VALUES = [
+const VERBOSITY_VALUES = [
   "low",
   "medium",
   "high",
   "xhigh",
   "max",
 ] as const
-
-export type Verbosity = (typeof VERBOSITY_VALUES)[number]
 
 const reasoningParamsSchema = z
   .object({
@@ -79,7 +75,9 @@ function coerceQueryValue(value: string): string | number | boolean {
   return value
 }
 
-function nestQueryParams(params: Record<string, string>): Record<string, unknown> {
+function nestQueryParams(
+  params: Record<string, string>,
+): Record<string, unknown> {
   const out: Record<string, unknown> = {}
 
   for (const [key, rawValue] of Object.entries(params)) {
@@ -113,7 +111,9 @@ function nestQueryParams(params: Record<string, string>): Record<string, unknown
   return out
 }
 
-export function paramsToModelParams(params: Record<string, string>): ModelParams {
+export function paramsToModelParams(
+  params: Record<string, string>,
+): ModelParams {
   const nested = nestQueryParams(params)
   const parsed = modelParamsSchema.safeParse(nested)
   if (!parsed.success) {
@@ -156,7 +156,7 @@ function deepMerge(
   return out
 }
 
-export function isEmptyModelParams(params: ModelParams | undefined): boolean {
+function isEmptyModelParams(params: ModelParams | undefined): boolean {
   if (!params) return true
   return Object.keys(params).length === 0
 }

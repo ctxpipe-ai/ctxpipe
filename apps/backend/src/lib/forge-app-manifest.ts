@@ -9,7 +9,7 @@
  */
 import { stringify } from "yaml"
 
-export type BuildForgeAppManifestInput = {
+type BuildForgeAppManifestInput = {
   /**
    * Full `ari:cloud:ecosystem::app/...` when redeploying an existing app; omit for
    * first `forge register` (manifest has no `app.id` line until Atlassian assigns one).

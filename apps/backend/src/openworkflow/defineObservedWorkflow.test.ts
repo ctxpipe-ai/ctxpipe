@@ -1,10 +1,12 @@
 import { SpanStatusCode } from "@opentelemetry/api"
+import { initLogger } from "evlog"
 import { OpenWorkflow } from "openworkflow"
 import { BackendSqlite } from "openworkflow/sqlite"
 import { describe, expect, it, vi } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import { readAttribution } from "../observability/attribution.js"
+import { getLogger } from "../observability/logger.js"
 import { defineWorkflow } from "./defineObservedWorkflow.js"
 
 const spans = recordSpans()
@@ -31,6 +33,122 @@ describe("defineObservedWorkflow", () => {
         .finishedSpans()
         .some((span) => span.name.startsWith("openworkflow.job")),
     ).toBe(false)
+  })
+
+  it("keeps a strict refined schema valid when enqueue adds telemetry", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "workspace-hydrate-strict",
+        schema: z
+          .object({
+            orgId: z.string(),
+            workspaceId: z.string(),
+          })
+          .strict()
+          .refine((input) => input.workspaceId.startsWith("ws_"), "workspace"),
+      },
+      async ({ input }) => ({
+        workspaceId: input.workspaceId,
+        attribution: readAttribution(),
+      }),
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      workspaceId: "ws_1",
+      attribution: {
+        "ctxpipe.workspace.id": "ws_1",
+        "request.id": "req_1",
+      },
+    })
+  })
+
+  it("lets a body re-parse its strict input schema when enqueue added telemetry", async () => {
+    // Workspace write workflows (extract-ingest, bootstrap, …) parse
+    // `queuedInput` with their own strict schema as their first line.
+    const schema = z
+      .object({ orgId: z.string(), workspaceId: z.string() })
+      .strict()
+    const workflow = defineWorkflow(
+      { name: "workspace-write-ops-folder-list-strict", schema },
+      async ({ input }) => ({
+        input: schema.parse(input),
+        attribution: readAttribution(),
+      }),
+    )
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      input: { orgId: "org_1", workspaceId: "ws_1" },
+      attribution: { "request.id": "req_1" },
+    })
+  })
+
+  it("accepts enqueue telemetry on a union schema and still rejects invalid input", async () => {
+    const workflow = defineWorkflow(
+      {
+        name: "workspace-bootstrap-union",
+        schema: z.union([
+          z.object({ orgId: z.string(), workspaceId: z.string() }).strict(),
+          z.object({ orgId: z.string(), unborn: z.literal(true) }).strict(),
+        ]),
+      },
+      async () => readAttribution(),
+    )
+    const validate = (value: unknown) =>
+      workflow.spec.schema?.["~standard"].validate(value)
+
+    expect(
+      await validate({
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        telemetry: { "request.id": "req_1" },
+      }),
+    ).toMatchObject({
+      value: {
+        orgId: "org_1",
+        workspaceId: "ws_1",
+        telemetry: { "request.id": "req_1" },
+      },
+    })
+    expect(
+      await validate({ orgId: "org_1", workspaceId: "ws_1", extra: true }),
+    ).toMatchObject({ issues: expect.any(Array) })
+    await expect(
+      workflow.fn({
+        input: {
+          orgId: "org_1",
+          workspaceId: "ws_1",
+          telemetry: { "request.id": "req_1" },
+        },
+        step: {} as never,
+        version: null,
+        run: {} as never,
+      }),
+    ).resolves.toMatchObject({
+      "ctxpipe.actor.type": "job",
+      "ctxpipe.org.id": "org_1",
+      "ctxpipe.workspace.id": "ws_1",
+      "request.id": "req_1",
+    })
   })
 
   it("gives a child run the parent attribution and a link to the parent span", async () => {
@@ -360,4 +478,46 @@ describe("defineObservedWorkflow", () => {
         ?.spanContext().spanId,
     )
   }, 20_000)
+
+  it("gives a workflow body a logger with the spec log fields when the worker runs it", async () => {
+    const events: Record<string, unknown>[] = []
+    initLogger({
+      pretty: false,
+      silent: true,
+      drain: (ctx) => {
+        events.push(ctx.event)
+      },
+    })
+    const workflow = defineWorkflow(
+      {
+        name: "logger-once",
+        schema: z.object({ orgId: z.string() }),
+        logFields: (input, run) => ({ orgId: input.orgId, runId: run.id }),
+      },
+      async () => {
+        getLogger().set({ step: "logger-once.body" })
+        return "logged"
+      },
+    )
+    const ow = new OpenWorkflow({ backend: BackendSqlite.connect(":memory:") })
+    ow.implementWorkflow(workflow.spec, workflow.fn)
+    const worker = ow.newWorker({ concurrency: 1 })
+    await worker.start()
+    try {
+      const handle = await ow.runWorkflow(workflow.spec, { orgId: "org_1" })
+      await expect(handle.result({ timeoutMs: 15_000 })).resolves.toBe("logged")
+      await vi.waitFor(() =>
+        expect(events).toContainEqual(
+          expect.objectContaining({
+            workflow: "logger-once",
+            step: "logger-once.body",
+            orgId: "org_1",
+            runId: handle.workflowRun.id,
+          }),
+        ),
+      )
+    } finally {
+      await worker.stop()
+    }
+  })
 })

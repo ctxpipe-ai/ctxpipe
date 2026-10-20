@@ -76,6 +76,22 @@ describe("applyLogContract", () => {
     expect(event).not.toHaveProperty("service.namespace")
   })
 
+  it("renames workflow repository and workspace ids onto attribution keys", () => {
+    const event: Record<string, unknown> = {
+      step: "repository-ingestion.start",
+      repositoryId: "repo_1",
+      workspaceId: "ws_1",
+      orgId: "org_1",
+    }
+    applyLogContract(event)
+    expect(event["ctxpipe.repository.id"]).toBe("repo_1")
+    expect(event["ctxpipe.workspace.id"]).toBe("ws_1")
+    expect(event["ctxpipe.org.id"]).toBe("org_1")
+    expect(event).not.toHaveProperty("repositoryId")
+    expect(event).not.toHaveProperty("workspaceId")
+    expect(event).not.toHaveProperty("orgId")
+  })
+
   it("keeps a downstream status off the access-log key", () => {
     const downstream: Record<string, unknown> = {
       step: "repositoryDeletion.codesearch_purge",

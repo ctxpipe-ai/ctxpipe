@@ -1,17 +1,12 @@
 import type { EvlogVariables } from "evlog/hono"
+import type { VerifiedToken } from "../auth/jwt.js"
 import type { Env } from "../config/env.js"
 import type { Db } from "../db/client.js"
-
-export type AuthClaims = {
-  sub: string
-  orgId: string
-  principal: "user" | "service"
-}
 
 export type AppEnv = EvlogVariables & {
   Variables: {
     db: Db | null
     env: Env
-    auth: AuthClaims | null
+    auth: VerifiedToken | null
   }
 }

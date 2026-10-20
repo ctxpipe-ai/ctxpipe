@@ -4,12 +4,13 @@ import {
   isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 import type { NotionBlock, NotionPage } from "./client.js"
 import { getNotionPageTitle } from "./client.js"
 
 const MANAGED_ROOT = "notion"
 
-function titleSlug(title: string): string {
+export function titleSlug(title: string): string {
   const s = slugify(title, { lowercase: true })
   return s.length > 0 ? s : "untitled"
 }
@@ -17,22 +18,25 @@ function titleSlug(title: string): string {
 export function getNotionPagePath(input: {
   page: NotionPage
   ancestors?: Array<{ id: string; title: string }>
+  /** Name the folder with this title, not the page title. */
+  title?: string
 }): string {
-  const title = getNotionPageTitle(input.page)
+  const title = input.title ?? getNotionPageTitle(input.page)
   const segments = [
     ...(input.ancestors ?? []).map(
-      (ancestor) => `${titleSlug(ancestor.title)}--${ancestor.id}`,
+      (ancestor) =>
+        `${titleSlug(ancestor.title)}--${connectorPathSegment(ancestor.id)}`,
     ),
-    `${titleSlug(title)}--${input.page.id}`,
+    `${titleSlug(title)}--${connectorPathSegment(input.page.id)}`,
   ]
   return `${MANAGED_ROOT}/pages/${segments.join("/")}/index.md`
 }
 
 export function notionIdKey(id: string): string {
-  return id.replaceAll("-", "").toLowerCase()
+  return connectorPathSegment(id).replaceAll("-", "").toLowerCase()
 }
 
-export type NotionFilesPropertyAssetKey = {
+type NotionFilesPropertyAssetKey = {
   mapKey: string
   pathKey: string
   propertyIdentity: string
@@ -122,7 +126,7 @@ export function notionFilesPropertyAssetKeys(
     if (uploadId) {
       return {
         mapKey: `files:${propertyId}:${uploadId}`,
-        pathKey: `${propertyStem}--${uploadId}`,
+        pathKey: `${propertyStem}--${connectorPathSegment(uploadId)}`,
         propertyIdentity: propertyId,
         propertyStem,
       }
@@ -242,6 +246,31 @@ function blockText(block: NotionBlock, context: NotionLinkContext): string {
   return richTextMarkdown(data.rich_text, context)
 }
 
+/**
+ * A Notion table keeps its cells in its `table_row` children. Markdown needs
+ * a header row, so the first row is the header.
+ */
+function markdownTable(
+  block: NotionBlock,
+  context: NotionLinkContext,
+  indent: string,
+): string {
+  const rows = (block.children ?? []).map((row) => {
+    const data = row.table_row as { cells?: unknown } | undefined
+    const cells = Array.isArray(data?.cells) ? data.cells : []
+    return cells.map((cell) =>
+      richTextMarkdown(cell, context)
+        .replaceAll("|", "\\|")
+        .replace(/[\r\n]+/g, " "),
+    )
+  })
+  const [header, ...body] = rows
+  if (!header) return ""
+  return [header, header.map(() => "---"), ...body]
+    .map((cells) => `${indent}| ${cells.join(" | ")} |`)
+    .join("\n")
+}
+
 function markdownLabel(value: string): string {
   return value
     .replaceAll("\\", "\\\\")
@@ -297,6 +326,7 @@ function markdownForBlock(
   context: NotionLinkContext,
   indent = "",
 ): string {
+  if (block.type === "table") return markdownTable(block, context, indent)
   const text = blockText(block, context)
   let line: string
   switch (block.type) {
@@ -500,7 +530,7 @@ export function toNotionMarkdownFile(input: {
   const title = getNotionPageTitle(input.page) || input.resource.title
   const path =
     input.path ??
-    `${MANAGED_ROOT}/pages/${titleSlug(title)}--${input.resource.externalId}/index.md`
+    `${MANAGED_ROOT}/pages/${titleSlug(title)}--${connectorPathSegment(input.resource.externalId)}/index.md`
   const context: NotionLinkContext = {
     currentPath: path,
     pathByNotionId: input.pathByNotionId,
@@ -547,11 +577,11 @@ export function toNotionMarkdownFile(input: {
 }
 
 function databaseSegment(resource: { externalId: string; title: string }) {
-  return `${titleSlug(resource.title)}--${resource.externalId}`
+  return `${titleSlug(resource.title)}--${connectorPathSegment(resource.externalId)}`
 }
 
 function rowSegment(page: NotionPage) {
-  return `${titleSlug(getNotionPageTitle(page))}--${page.id}`
+  return `${titleSlug(getNotionPageTitle(page))}--${connectorPathSegment(page.id)}`
 }
 
 export function getNotionDatabaseIndexPath(resource: {
@@ -561,7 +591,7 @@ export function getNotionDatabaseIndexPath(resource: {
   return `${MANAGED_ROOT}/databases/${databaseSegment(resource)}/index.md`
 }
 
-export function getNotionDatabaseCsvPath(resource: {
+function getNotionDatabaseCsvPath(resource: {
   externalId: string
   title: string
 }): string {
@@ -608,7 +638,7 @@ function propertyMarkdownLine(
   return text ? `- **${markdownLabel(name)}:** ${text}` : ""
 }
 
-export function toNotionDatabaseRowMarkdownFile(input: {
+function toNotionDatabaseRowMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   page: NotionPage
   blocks: NotionBlock[]
@@ -675,7 +705,7 @@ export function toNotionDatabaseRowMarkdownFile(input: {
   }
 }
 
-export function toNotionDatabaseIndexMarkdownFile(input: {
+function toNotionDatabaseIndexMarkdownFile(input: {
   resource: { externalId: string; title: string; url?: string | null }
   rows: Array<{ page: NotionPage; blocks: NotionBlock[] }>
 }): { path: string; content: string } {

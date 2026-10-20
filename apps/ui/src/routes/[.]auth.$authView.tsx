@@ -4,15 +4,25 @@ import { createFileRoute } from "@tanstack/react-router"
 import type { FormEvent } from "react"
 import { useEffect, useMemo, useRef, useState } from "react"
 import { Button } from "@/components/ui/Button"
+import { PageBodySkeleton } from "@/components/ui/Skeleton"
 import { Spinner } from "@/components/ui/spinner"
 import { acceptInvitationThenRedirect } from "@/features/auth/accept-invitation"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  betterAuthAuthViewClassNames,
+  betterAuthEmailPlaceholder,
+} from "@/features/auth/betterAuthShellClassNames"
+import { InviteAcceptErrorNotice } from "@/features/auth/InviteAcceptErrorNotice"
 import { InviteWrongAccountNotice } from "@/features/auth/InviteWrongAccountNotice"
 import {
   decideInviteAccept,
   inviteSignInHref,
   inviteSignOutHref,
 } from "@/features/auth/invite-accept-decision"
+import {
+  type InviteAcceptError,
+  inviteAcceptError,
+} from "@/features/auth/invite-accept-error"
+import { apiFetch, readApiJson, retryQuery } from "@/lib/api-result"
 import { authClient, useSession } from "@/lib/auth-client"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { safeAuthRedirectPath } from "@/lib/safe-auth-redirect"
@@ -34,17 +44,6 @@ type InviteAcceptSignUpProps = {
   redirectTo?: string
 }
 
-function extractErrorMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message
-  if (typeof error === "object" && error != null) {
-    const maybeMessage = (error as { message?: unknown }).message
-    if (typeof maybeMessage === "string" && maybeMessage.length > 0) {
-      return maybeMessage
-    }
-  }
-  return "Request failed. Please try again."
-}
-
 function AuthStatusMessage({ message }: { message: string }) {
   return (
     <div className="flex min-h-[12rem] flex-col items-center justify-center gap-3 text-center">
@@ -54,7 +53,7 @@ function AuthStatusMessage({ message }: { message: string }) {
   )
 }
 
-function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
+export function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const { data: session, isPending: sessionPending } = useSession()
   const params = useMemo(
     () =>
@@ -69,13 +68,22 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       : `${window.location.pathname}${window.location.search}`
   const invitationId = props.invitationId ?? params.get("invitationId") ?? ""
   const redirectTo =
-    props.redirectTo ?? params.get("redirectTo") ?? "/onboarding"
+    typeof window === "undefined"
+      ? "/onboarding"
+      : safeAuthRedirectPath(
+          props.redirectTo ?? params.get("redirectTo"),
+          "/onboarding",
+          window.location.origin,
+        )
   const invitationEmailFromUrl =
     props.invitationEmail ?? params.get("email") ?? null
   const [name, setName] = useState("")
   const [password, setPassword] = useState("")
   const [confirmPassword, setConfirmPassword] = useState("")
+  // A form input problem, shown under the form.
   const [error, setError] = useState<string | null>(null)
+  // A failed sign-up or accept, shown in place of the form with a next step.
+  const [failure, setFailure] = useState<InviteAcceptError | null>(null)
   // Set when sign-up needs the address verified first: there is no session
   // until they click the emailed link, which returns here to finish joining.
   const [verifyEmailFor, setVerifyEmailFor] = useState<string | null>(null)
@@ -84,18 +92,21 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
   const invitationEmailQuery = useQuery({
     queryKey: ["public-invitation-details", invitationId],
     queryFn: async () => {
-      const res = await fetch(
+      const res = await apiFetch(
         `/.auth/api/v1/public/invitations/${encodeURIComponent(invitationId)}`,
         { credentials: "include" },
       )
-      if (!res.ok) throw new Error("Invitation not found or expired")
-      const json = (await res.json()) as InvitationDetails
+      // TODO: the public invitation route is outside the Hono client, so the body is unknown.
+      const json = (await readApiJson(res, {
+        message: "Invitation not found or expired",
+      })) as InvitationDetails
       return {
         email: json.email,
         organizationName: json.organizationName,
       }
     },
     enabled: invitationId.length > 0,
+    retry: retryQuery,
   })
 
   const acceptInviteMutation = useMutation({
@@ -130,7 +141,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         () => window.location.assign(redirectTo),
       )
     },
-    onError: (err) => setError(extractErrorMessage(err)),
+    onError: (err) => setFailure(inviteAcceptError(err)),
   })
 
   const sessionEmail =
@@ -157,9 +168,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     void acceptInvitationThenRedirect(
       () => acceptInviteMutation.mutateAsync(invitationId),
       () => window.location.assign(redirectTo),
-    ).catch((err) => {
-      setError(extractErrorMessage(err))
-    })
+    ).catch((err) => setFailure(inviteAcceptError(err)))
   }, [
     session,
     sessionPending,
@@ -169,7 +178,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     acceptInviteMutation,
   ])
 
-  if (sessionPending) return null
+  if (sessionPending) {
+    return <PageBodySkeleton label="Loading sign-in" />
+  }
   if (decision.kind === "wrong-account") {
     return (
       <InviteWrongAccountNotice
@@ -179,20 +190,24 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       />
     )
   }
-  if (decision.kind === "unknown" && session) {
-    if (invitationEmailQuery.error) {
-      return (
-        <p className="text-sm text-red-400">
-          {invitationEmailQuery.error instanceof Error
-            ? invitationEmailQuery.error.message
-            : "Invitation not found or expired"}
-        </p>
-      )
-    }
-    return <AuthStatusMessage message="Loading invitation…" />
+  const failureShown =
+    failure ??
+    (invitationEmailQuery.error
+      ? inviteAcceptError(invitationEmailQuery.error)
+      : null)
+  if (failureShown) {
+    return (
+      <InviteAcceptErrorNotice
+        error={failureShown}
+        invitationId={invitationId}
+        invitationEmail={invitationEmail}
+        sessionEmail={sessionEmail}
+        onRetry={() => window.location.reload()}
+      />
+    )
   }
-  if (session && error) {
-    return <p className="text-sm text-red-400">{error}</p>
+  if (decision.kind === "unknown" && session) {
+    return <AuthStatusMessage message="Loading invitation…" />
   }
   if (verifyEmailFor) {
     return (
@@ -202,7 +217,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         Open it to finish joining
         {invitationEmailQuery.data?.organizationName
           ? ` ${invitationEmailQuery.data.organizationName}`
-          : " the organisation"}
+          : " the organization"}
         . No email, or the link expired?{" "}
         <a
           href={inviteSignInHref(invitationId, verifyEmailFor)}
@@ -219,7 +234,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     signUpMutation.isPending ||
     acceptInviteMutation.isPending
   ) {
-    return <AuthStatusMessage message="Accepting organisation invite…" />
+    return <AuthStatusMessage message="Accepting organization invite…" />
   }
 
   if (!invitationId) {
@@ -230,18 +245,8 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
     )
   }
 
-  if (invitationEmailQuery.isPending) {
-    return <AuthStatusMessage message="Loading invitation…" />
-  }
-
-  if (invitationEmailQuery.error || !invitationEmailQuery.data) {
-    return (
-      <p className="text-sm text-red-400">
-        {invitationEmailQuery.error instanceof Error
-          ? invitationEmailQuery.error.message
-          : "Invitation not found or expired"}
-      </p>
-    )
+  if (invitationEmailQuery.isPending || !invitationEmailQuery.data) {
+    return <PageBodySkeleton label="Loading invitation" />
   }
 
   const submit = (e: FormEvent<HTMLFormElement>) => {
@@ -251,8 +256,9 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
       setError("Enter your name.")
       return
     }
-    if (password.length < 8) {
-      setError("Password must be at least 8 characters.")
+    // Better Auth's default length limits: 8 to 128 characters.
+    if (password.length < 8 || password.length > 128) {
+      setError("Use a password of 8 to 128 characters.")
       return
     }
     if (password !== confirmPassword) {
@@ -276,12 +282,12 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
         .
       </p>
       <label className="grid gap-1 text-sm">
-        <span className="text-zinc-300">Organisation</span>
+        <span className="text-zinc-300">Organization</span>
         <input
           type="text"
           value={invitationEmailQuery.data.organizationName}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -290,7 +296,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="email"
           value={invitationEmailQuery.data.email}
           disabled
-          className="h-10 w-full rounded-none border border-border bg-zinc-900 px-3 text-zinc-400"
+          className="h-10 w-full rounded-md border border-border bg-zinc-900 px-3 text-zinc-400"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -299,7 +305,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="text"
           value={name}
           onChange={(event) => setName(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -308,7 +314,7 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={password}
           onChange={(event) => setPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       <label className="grid gap-1 text-sm">
@@ -317,13 +323,13 @@ function InviteAcceptSignUp(props: InviteAcceptSignUpProps = {}) {
           type="password"
           value={confirmPassword}
           onChange={(event) => setConfirmPassword(event.target.value)}
-          className="h-10 w-full rounded-none border border-border bg-zinc-950 px-3 text-zinc-100"
+          className="h-10 w-full rounded-md border border-border bg-zinc-950 px-3 text-zinc-100"
         />
       </label>
       {error ? <p className="text-sm text-red-400">{error}</p> : null}
       <Button
         type="submit"
-        className="w-full rounded-none bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
+        className="w-full rounded-md bg-zinc-100 text-zinc-950 hover:bg-zinc-200"
         isDisabled={signUpMutation.isPending || acceptInviteMutation.isPending}
       >
         {signUpMutation.isPending || acceptInviteMutation.isPending
@@ -386,6 +392,7 @@ function SignOutView() {
     return safeAuthRedirectPath(
       new URLSearchParams(window.location.search).get("redirectTo"),
       "/.auth/sign-in",
+      window.location.origin,
     )
   }, [])
 
@@ -435,10 +442,7 @@ function AuthViewRoute() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(
-          window.location.pathname,
-          window.location.search,
-        )
+      : getAuthContinuationProps(window.location.origin, window.location.search)
 
   const inviteFromRedirect =
     authView === "sign-up" && continuation?.redirectTo
@@ -507,7 +511,7 @@ function AuthViewRoute() {
             </div>
             <div className="ctx-border ctx-surface shadow-none px-6 pt-24 pb-6">
               <h2 className="mb-3 text-lg font-semibold text-zinc-100">
-                Join organisation
+                Join organization
               </h2>
               <InviteAcceptSignUp
                 invitationId={inviteFromRedirect.invitationId}
@@ -545,6 +549,7 @@ function AuthViewRoute() {
               callbackURL={continuation?.redirectTo}
               className={showBranding ? "pt-24" : undefined}
               classNames={betterAuthAuthViewClassNames}
+              localization={{ EMAIL_PLACEHOLDER: betterAuthEmailPlaceholder }}
             />
           )}
         </div>

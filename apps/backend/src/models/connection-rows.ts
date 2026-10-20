@@ -14,10 +14,10 @@ import {
   decodeLinearTokens,
   decodeNotionTokens,
   decodePagerdutyTokens,
-  decodeSlackBotToken,
   encodeLinearTokensForDb,
   encodeNotionTokensForDb,
   encodePagerdutyTokensForDb,
+  type ForgeSourceSync,
   type githubConnectionConfigStoredSchema,
   type LinearSetupPhase,
   type NotionSetupPhase,
@@ -63,6 +63,8 @@ export type ForgeInstallationShape = {
   lastProvisionAt: string | null
   /** 3LO OAuth app client id (not the secret; secret stays only in `connections.config` JSON). */
   atlassianOAuthClientId: string | null
+  /** The Workspace sources sync state (cursor and failures). */
+  sourceSync: ForgeSourceSync | null
   createdAt: Date
   updatedAt: Date
 }
@@ -184,6 +186,7 @@ export function forgeConnectionToShape(
     provisionWorkflowRunId: c.provisionWorkflowRunId ?? null,
     lastProvisionAt: c.lastProvisionAt ?? null,
     atlassianOAuthClientId: c.atlassianOAuthClientId ?? null,
+    sourceSync: c.sourceSync ?? null,
     createdAt: row.createdAt,
     updatedAt: row.updatedAt,
   }
@@ -309,6 +312,7 @@ export function forgeShapeToConfig(
     provisionWorkflowRunId: input.provisionWorkflowRunId,
     lastProvisionAt: input.lastProvisionAt,
     atlassianOAuthClientId: input.atlassianOAuthClientId,
+    sourceSync: input.sourceSync ?? undefined,
     atlassianOAuthClientSecret:
       typeof options?.preserveOauthClientSecretFromConfig
         ?.atlassianOAuthClientSecret === "string"
@@ -526,14 +530,6 @@ export function slackShapeToConfig(
     branch: input.branch,
     enabled: input.enabled,
   })
-}
-
-export function slackRowHasBotToken(row: ConnectionRow, env: Env): boolean {
-  if (row.type !== CONNECTION_TYPE_SLACK) return false
-  const stored = parseSlackConnectionStored(
-    row.config as Record<string, unknown>,
-  )
-  return decodeSlackBotToken(stored, env) != null
 }
 
 export function pagerdutyConnectionToShape(

@@ -1,6 +1,18 @@
 # ADR-022: Linear connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-08 | **Updated:** 2026-09-28 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-08 | **Updated:** 2026-10-13 | **Tags:** connectors, linear, oauth, webhooks, git, multi-tenant
+
+## Revision (2026-10-13): issue links
+
+- An issue file also records its parent issue (`parent`, `parentId`), its
+  project milestone (`milestone`, `milestoneId`), and the relations it owns
+  (`relations`: `type` and the related issue identifier). The first page
+  holds 10 relations; more come from a follow page, as for labels and
+  comments. The graph edges are in [ADR-033](ADR-033-graph-ontology-v2.md).
+- A parent or milestone change is an `Issue` update, so the webhook re-reads
+  the issue. Linear sends no webhook for an issue relation, so a relation
+  change reaches the mirror at the next update of the issue that owns it or
+  at the next full sync (known gap).
 
 ## Context
 
@@ -18,6 +30,15 @@ ctxpipe needs Linear work context alongside code and existing source connectors.
 5. Treat GitHub pull requests and commits as references only. Linear files may retain normalised URLs and lightweight state metadata, but must not mirror PR bodies, diffs, reviews, CI output, or commit patches.
 6. After a successful full reconcile on config merge, apply entity updates by enqueueing OpenWorkflow runs from signed Linear webhooks (ACK after enqueue). Non-live setup phases skip webhook events (same trade-off as Confluence). Failed initial syncs enter `sync_failed` and are explicitly retryable.
 7. OAuth credentials are deployment-owned **or** connection-specific. Hosted ctxpipe uses its shared public Linear OAuth app (`LINEAR_CLIENT_ID` / `LINEAR_CLIENT_SECRET` / `LINEAR_WEBHOOK_SECRET`) as the default. Self-hosted operators may paste their own Linear application client ID, client secret, and webhook signing secret onto `connections.config` (encrypted `*Enc` fields) from the product UI. Env remains an optional deployment-wide fallback. Same routes for hosted and self-host; no SaaS proxy.
+
+### Workspace sources (ADR-050, 2026-10-11)
+
+- A Linear source in `.ctxpipe/sources.yaml` holds `teams` (team keys, for example `ENG`), optional `projects` (Linear project ids), and an optional `customerRequests: exclude`. `connection` is the Linear connection. `config.workspaceId` of that connection is the Linear workspace, not a ctx| Workspace.
+- The sync walks each team and each project of the union of scopes one time, with the page walk above. It writes a team under `linear/teams/<key>/` and a project under `linear/projects/<id>/`, with the same layout as before inside that root. Each Workspace gets only the roots of its own scope.
+- One teams-only discovery maps the team keys to Linear ids. `checkAccess` names a key that the Linear workspace does not have.
+- A webhook enqueues one sources sync for the connection. The event carries the team keys and project ids of the changed entity, and only the matching sources sync. An event without them syncs every source of the connection.
+- A failed page stops the sync, so that the frame does not delete managed files.
+- The migration moves teams, projects, and the customer request policy from `linear/config.yaml`. Documents and initiatives do not move; the report names them.
 
 ## Rationale
 

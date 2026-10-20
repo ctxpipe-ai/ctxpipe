@@ -1,6 +1,6 @@
 import type { TypedDocumentNode } from "@graphql-typed-document-node/core"
 import type { LinearClient } from "@linear/sdk"
-import type { LinearIssueForMirror } from "./converter.js"
+import type { LinearIssueForMirror, LinearIssueRelation } from "./converter.js"
 import type {
   LinearActorFragment,
   LinearAttachmentNodeFragment,
@@ -26,6 +26,7 @@ import {
   IssueProjectTeamsDocument,
   IssueRecordDocument,
   IssueRecordWithNeedsDocument,
+  IssueRelationsPageDocument,
   ProjectDocumentsPageDocument,
   ProjectIssuesDocument,
   ProjectIssuesWithNeedsDocument,
@@ -127,7 +128,7 @@ export type LoadedProject = {
   actors: LinearActorFragment[]
 }
 
-export type LoadedTeam = {
+type LoadedTeam = {
   id: string
   name: string
   key: string
@@ -176,6 +177,7 @@ export type LinearFollowConnection =
   | "issue-comments"
   | "issue-attachments"
   | "issue-labels"
+  | "issue-relations"
   | "issue-needs"
   | "issue-project-teams"
   | "project-teams"
@@ -192,7 +194,7 @@ export type LinearFollow = {
   after: string
 }
 
-export type LinearFollowPage =
+type LinearFollowPage =
   | {
       connection: "issue-comments"
       comments: LinearIssueForMirror["comments"]
@@ -207,6 +209,11 @@ export type LinearFollowPage =
   | {
       connection: "issue-labels"
       labels: Array<{ id: string; name: string }>
+      nextAfter: string | null
+    }
+  | {
+      connection: "issue-relations"
+      relations: LinearIssueRelation[]
       nextAfter: string | null
     }
   | {
@@ -600,6 +607,7 @@ function loadIssueNode(issue: IssueNode, includeNeeds: boolean): IssueRead {
     ...continued("issue-comments", issue.id, issue.id, issue.comments),
     ...continued("issue-attachments", issue.id, issue.id, issue.attachments),
     ...continued("issue-labels", issue.id, issue.id, issue.labels),
+    ...continued("issue-relations", issue.id, issue.id, issue.relations),
     ...(includeNeeds
       ? continued("issue-needs", issue.id, issue.id, issue.needs)
       : []),
@@ -628,6 +636,11 @@ function loadIssueNode(issue: IssueNode, includeNeeds: boolean): IssueRead {
     projectName: project?.name ?? null,
     cycleId: issue.cycle?.id ?? null,
     cycleName: issue.cycle?.name ?? null,
+    parent: issue.parent?.identifier ?? null,
+    parentId: issue.parent?.id ?? null,
+    milestone: issue.projectMilestone?.name ?? null,
+    milestoneId: issue.projectMilestone?.id ?? null,
+    relations: issue.relations.nodes.map(mapRelation),
     assigneeId: issue.assignee?.id ?? null,
     assignee: linearActorName(issue.assignee),
     creatorId: issue.creator?.id ?? null,
@@ -867,6 +880,13 @@ function mapUpdate(update: {
   }
 }
 
+function mapRelation(relation: {
+  type: string
+  relatedIssue: { identifier: string }
+}): LinearIssueRelation {
+  return { type: relation.type, identifier: relation.relatedIssue.identifier }
+}
+
 function attachmentMetadata(metadata: unknown): Record<string, unknown> | null {
   if (!isRecord(metadata)) return null
   return { ...metadata }
@@ -960,6 +980,19 @@ export async function readLinearFollow(
       return {
         connection: follow.connection,
         labels: page.nodes.map((label) => ({ id: label.id, name: label.name })),
+        nextAfter: nextCursor(page),
+      }
+    }
+    case "issue-relations": {
+      const page = (
+        await gql(client, accessToken, IssueRelationsPageDocument, {
+          id: follow.queryId,
+          after: follow.after,
+        })
+      ).issue.relations
+      return {
+        connection: follow.connection,
+        relations: page.nodes.map(mapRelation),
         nextAfter: nextCursor(page),
       }
     }
@@ -1092,6 +1125,14 @@ export function applyLinearFollowToIssue(
         issue: {
           ...loaded.issue,
           labels: [...loaded.issue.labels, ...page.labels],
+        },
+      }
+    case "issue-relations":
+      return {
+        ...loaded,
+        issue: {
+          ...loaded.issue,
+          relations: [...(loaded.issue.relations ?? []), ...page.relations],
         },
       }
     case "issue-needs":

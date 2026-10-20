@@ -1,15 +1,19 @@
 import type { QueryClient } from "@tanstack/react-query"
 import { useEffect, useRef } from "react"
-import { githubConnectorKeys } from "@/features/connectors/queries/github-connector"
+import {
+  githubConnectorKeys,
+  githubInstallationIsLinked,
+} from "@/features/connectors/queries/github-connector"
 import { orgConnectionsKeys } from "@/features/connectors/queries/org-connections"
 import { client } from "@/lib/api"
+import { ApiError, readApiJson } from "@/lib/api-result"
 
 /**
  * Shared key for the GitHub setup popup to relay `installation_id` back to the
  * opener via localStorage. The popup writes, the opener reads + deletes.
  */
 export const GITHUB_SETUP_RESULT_KEY = "github-setup-result"
-export const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
+const GITHUB_SETUP_ORG_HINT_KEY = "github-setup-org-hint"
 export const NOTION_SETUP_RESULT_KEY = "notion-setup-result"
 export const PAGERDUTY_SETUP_RESULT_KEY = "pagerduty-setup-result"
 /** Draft `con_*` id for wizard: popup callback merges install with this row. */
@@ -23,6 +27,11 @@ type GithubPopupFlowState = {
   startedAtMs: number
 }
 
+export type GithubSetupPopupResult =
+  | { status: GithubSetupRegistrationStatus }
+  /** The popup could not link the user's GitHub account. */
+  | { status: "link_failed"; linkError: string }
+
 export type GithubSetupRegistrationStatus =
   | "no_result"
   | "registered"
@@ -30,12 +39,12 @@ export type GithubSetupRegistrationStatus =
   /** Left for `/.github/setup` to link a GitHub account; callers do nothing. */
   | "redirected"
 
-export type NotionSetupPopupResult =
+type NotionSetupPopupResult =
   | { status: "no_result" }
   | { status: "connected"; connectionId: string }
   | { status: "error"; error: string }
 
-export type PagerdutySetupPopupResult =
+type PagerdutySetupPopupResult =
   | { status: "no_result" }
   | { status: "connected"; connectionId: string }
   | { status: "error"; error: string }
@@ -43,7 +52,6 @@ export type PagerdutySetupPopupResult =
 /** Window name used when opening the GitHub app install popup. */
 export const GITHUB_POPUP_NAME = "github-app-install"
 export const NOTION_POPUP_NAME = "ctxpipe-notion-connect"
-export const PAGERDUTY_POPUP_NAME = "ctxpipe-pagerduty-connect"
 export const GITHUB_SETUP_RESULT_MESSAGE = "ctxpipe-github-setup-result"
 
 function safeNowMs() {
@@ -122,9 +130,40 @@ export function consumeGithubSetupOrgHint() {
   return orgSlug
 }
 
-export function peekGithubDraftConnectionHint(): string | null {
-  if (typeof window === "undefined") return null
-  return localStorage.getItem(GITHUB_DRAFT_CONNECTION_KEY)
+/**
+ * True for a GitHub App install page on github.com. The link page goes on
+ * only to such a page, so its `next` parameter cannot send the user
+ * elsewhere.
+ */
+export function isGithubAppInstallUrl(url: string): boolean {
+  try {
+    const parsed = new URL(url)
+    return (
+      parsed.origin === "https://github.com" &&
+      /^\/apps\/[^/]+\/installations\/(new|select_target)$/.test(
+        parsed.pathname,
+      )
+    )
+  } catch {
+    return false
+  }
+}
+
+/**
+ * The popup address that links the user's GitHub account first, then opens
+ * `installUrl`. The backend attaches an installation only for a user whose
+ * linked GitHub account can see it.
+ */
+export function githubLinkPopupUrl(installUrl: string) {
+  return `/.github/link?${new URLSearchParams({ next: installUrl })}`
+}
+
+/** The message for an error code of a failed GitHub account link. */
+export function githubLinkErrorMessage(code: string | undefined) {
+  if (code === "account_already_linked_to_different_user") {
+    return "This GitHub account is linked to another ctx| user. Sign in as that user and unlink GitHub (User account → OAuth Providers → Unlink OAuth), or use a different GitHub account."
+  }
+  return "Could not link your GitHub account. Try again."
 }
 
 /**
@@ -143,6 +182,8 @@ type PopupOptions = {
   name?: string
   width?: number
   height?: number
+  /** Where this window goes when the browser blocks the popup (default: `url`). */
+  fallbackUrl?: string
 }
 
 export function openCenteredPopup(url: string, options?: PopupOptions) {
@@ -168,7 +209,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
   )
 
   if (!popup) {
-    window.location.assign(url)
+    window.location.assign(options?.fallbackUrl ?? url)
     return null
   }
 
@@ -181,7 +222,7 @@ export function openCenteredPopup(url: string, options?: PopupOptions) {
  * `onClosed`. Returns a disposer that clears the watcher.
  * Prefer {@link useWatchPopupClose} in components so cleanup runs on unmount and when opening a new popup.
  */
-export function onPopupClosed(
+function onPopupClosed(
   popup: Window,
   onClosed: () => void,
   options?: { resultKey?: string; messageType?: string },
@@ -263,7 +304,7 @@ export function useWatchPopupClose() {
 export async function handleGithubSetupPopupResult(
   orgSlug: string,
   queryClient: QueryClient,
-): Promise<{ status: GithubSetupRegistrationStatus }> {
+): Promise<GithubSetupPopupResult> {
   const raw = localStorage.getItem(GITHUB_SETUP_RESULT_KEY)
   localStorage.removeItem(GITHUB_SETUP_RESULT_KEY)
   const activePopupFlow = getActiveGithubPopupFlowState()
@@ -276,14 +317,25 @@ export async function handleGithubSetupPopupResult(
         installationId: number
         connectionId?: string
         popupFlowNonce?: string
+        linkError?: string
       }
-      const { installationId, connectionId, popupFlowNonce } = parsed
+      const { installationId, connectionId, popupFlowNonce, linkError } = parsed
+      // The link page stopped before the install. Only the popup of this
+      // flow can report that, so a stale or planted value does nothing.
+      if (
+        typeof linkError === "string" &&
+        activePopupFlow &&
+        popupFlowNonce === activePopupFlow.nonce
+      ) {
+        clearGithubPopupFlow()
+        return { status: "link_failed", linkError }
+      }
       const nonceMatches =
         !activePopupFlow ||
         (typeof popupFlowNonce === "string" &&
           popupFlowNonce.length > 0 &&
           popupFlowNonce === activePopupFlow.nonce)
-      if (installationId && orgSlug) {
+      if (githubInstallationIsLinked({ installationId }) && orgSlug) {
         if (nonceMatches) {
           const response = await client[
             ":orgSlug"
@@ -294,22 +346,25 @@ export async function handleGithubSetupPopupResult(
               ...(connectionId ? { connectionId } : {}),
             },
           })
-          status = response.ok ? "registered" : "registration_failed"
-          if (response.status === 403) {
-            const body = (await response.json().catch(() => null)) as {
-              why?: string
-            } | null
-            if (body?.why === "github_not_linked") {
-              // Its not-linked view links GitHub, then registers again.
-              status = "redirected"
-              window.location.assign(
-                `/.github/setup?${new URLSearchParams({
-                  installation_id: String(installationId),
-                  orgSlug,
-                  ...(connectionId ? { connectionId } : {}),
-                })}`,
-              )
-            }
+          try {
+            await readApiJson(response)
+            status = "registered"
+          } catch (e) {
+            if (!(e instanceof ApiError && e.body.why === "github_not_linked"))
+              throw e
+            // Its not-linked view links GitHub, then registers again.
+            status = "redirected"
+            // End the flow first. The navigation unloads this page before the
+            // clear below runs, and a live flow makes /.github/setup act as
+            // the popup and close itself.
+            clearGithubPopupFlow()
+            window.location.assign(
+              `/.github/setup?${new URLSearchParams({
+                installation_id: String(installationId),
+                orgSlug,
+                ...(connectionId ? { connectionId } : {}),
+              })}`,
+            )
           }
         }
       }
@@ -356,12 +411,11 @@ export async function handleGithubSetupPopupResult(
       const response = await client[":orgSlug"].api.v1.github.installation.$get(
         {
           param: { orgSlug },
+          query: {},
         },
       )
-      if (response.ok) {
-        const linked = (await response.json()) as { id: string } | null
-        if (linked) status = "registered"
-      }
+      const linked = await readApiJson(response)
+      if (githubInstallationIsLinked(linked)) status = "registered"
     } catch {
       // Keep "no_result" and let caller decide UX.
     }
@@ -406,7 +460,10 @@ export function consumePagerdutySetupPopupResult(): PagerdutySetupPopupResult {
       error?: unknown
       type?: unknown
     }
-    if (parsed.type === "pagerduty-oauth-error" && typeof parsed.error === "string") {
+    if (
+      parsed.type === "pagerduty-oauth-error" &&
+      typeof parsed.error === "string"
+    ) {
       return { status: "error", error: parsed.error }
     }
     if (typeof parsed.connectionId === "string" && parsed.connectionId) {

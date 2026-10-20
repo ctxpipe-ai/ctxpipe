@@ -1,26 +1,24 @@
 import type { OrgAtlassianOauthGet } from "./queries/atlassian-connector"
 import type { AtlassianConnectorStatus } from "./types"
 
-export type ConfluenceWizardStepId =
+type ConfluenceWizardStepId =
   | "oauth_register"
   | "link"
   | "forge"
-  | "github"
-  | "target"
-  | "scope"
-  | "merge"
+  | "workspaces"
 
-export type ConfluenceWizardStepDef = {
+type ConfluenceWizardStepDef = {
   readonly id: ConfluenceWizardStepId
   readonly label: string
 }
 
+/**
+ * A connection holds auth only (ADR-050). The scope (spaces and pages) is in
+ * each Workspace's sources, so the last step adds the connection to Workspaces.
+ */
 const CONFLUENCE_STEP_TAIL = [
   { id: "forge" as const, label: "Install Forge app" },
-  { id: "github" as const, label: "Link GitHub account" },
-  { id: "target" as const, label: "Select sync repository" },
-  { id: "scope" as const, label: "Configure Confluence scope" },
-  { id: "merge" as const, label: "Approve configuration in GitHub" },
+  { id: "workspaces" as const, label: "Add to Workspaces" },
 ] as const satisfies readonly ConfluenceWizardStepDef[]
 
 /** Managed cloud: server supplies the Atlassian OAuth app — no per-org registration step. */
@@ -56,51 +54,40 @@ function stepIndex(
   return i
 }
 
-/** Index in the active step list that is current, or `length` when all steps are done. */
+/**
+ * Index in the active step list that is current. After the install, it is
+ * the "workspaces" step: the connection is ready, and adding it to Workspaces
+ * is optional.
+ */
 export function getConfluenceCardCurrentIndex(
   status: AtlassianConnectorStatus,
   oauthMeta: OrgAtlassianOauthGet | undefined,
 ): number {
   const defs = getConfluenceCardStepDefs(oauthMeta)
-  const registerFirst = defs[0]?.id === "oauth_register"
-
-  if (registerFirst) {
-    if (!oauthMeta?.oauthAppSaved) return stepIndex(defs, "oauth_register")
-    if (!status.isLinked) return stepIndex(defs, "link")
-    if (!status.isInstalled) return stepIndex(defs, "forge")
-    if (!status.isGithubLinked) return stepIndex(defs, "github")
-    if (!status.syncTargetConfigured) return stepIndex(defs, "target")
-    if (status.selectedSpaceCount === 0) return stepIndex(defs, "scope")
-    if (status.setupPhase === "live") return defs.length
-    return stepIndex(defs, "merge")
-  }
-
+  // The org connection is ready, also for a member without an Atlassian link.
+  if (status.isInstalled) return stepIndex(defs, "workspaces")
+  if (defs[0]?.id === "oauth_register" && !oauthMeta?.oauthAppSaved)
+    return stepIndex(defs, "oauth_register")
   if (!status.isLinked) return stepIndex(defs, "link")
-  if (!status.isInstalled) return stepIndex(defs, "forge")
-  if (!status.isGithubLinked) return stepIndex(defs, "github")
-  if (!status.syncTargetConfigured) return stepIndex(defs, "target")
-  if (status.selectedSpaceCount === 0) return stepIndex(defs, "scope")
-  if (status.setupPhase === "live") return defs.length
-  return stepIndex(defs, "merge")
+  return stepIndex(defs, "forge")
 }
 
-export type ConfluenceWizardBodyId =
+type ConfluenceWizardBodyId =
   | "oauth_register"
   | "link"
   | "install"
   | "wait"
-  | "github"
-  | "target"
-  | "scope"
-  | "merge"
+  | "workspaces"
   | "complete"
 
 export function getConfluenceWizardBodyId(
   status: AtlassianConnectorStatus,
-  options: { waitForInstall: boolean },
+  options: { waitForInstall: boolean; workspacesDone?: boolean },
   oauthMeta: OrgAtlassianOauthGet | undefined,
 ): ConfluenceWizardBodyId {
   const defs = getConfluenceCardStepDefs(oauthMeta)
+  if (status.isInstalled)
+    return options.workspacesDone ? "complete" : "workspaces"
   if (
     defs[0]?.id === "oauth_register" &&
     oauthMeta &&
@@ -109,14 +96,7 @@ export function getConfluenceWizardBodyId(
     return "oauth_register"
   }
   if (!status.isLinked) return "link"
-  if (!status.isInstalled) {
-    return options.waitForInstall ? "wait" : "install"
-  }
-  if (!status.isGithubLinked) return "github"
-  if (!status.syncTargetConfigured) return "target"
-  if (status.selectedSpaceCount === 0) return "scope"
-  if (status.setupPhase !== "live") return "merge"
-  return "complete"
+  return options.waitForInstall ? "wait" : "install"
 }
 
 /** Wizard panel for a specific card step index (used when revisiting a previous step). */
@@ -140,14 +120,8 @@ export function getConfluenceWizardBodyIdForStepIndex(
         return options.waitForInstall ? "wait" : "install"
       }
       return "install"
-    case "github":
-      return "github"
-    case "target":
-      return "target"
-    case "scope":
-      return "scope"
-    case "merge":
-      return "merge"
+    case "workspaces":
+      return "workspaces"
     default: {
       const _x: never = step
       return _x
@@ -155,49 +129,24 @@ export function getConfluenceWizardBodyIdForStepIndex(
   }
 }
 
-export type ConfluenceCardPrimaryCta =
-  | { kind: "open_wizard"; label: string }
-  | { kind: "navigate_repositories"; label: string }
-  | { kind: "open_scope"; label: string }
+/** The card action: continue setup, or none once the connection is ready. */
+type ConfluenceCardPrimaryCta = { kind: "open_wizard"; label: string }
 
 export function getConfluenceCardPrimaryCta(
   currentIndex: number,
   stepDefs: readonly ConfluenceWizardStepDef[],
 ): ConfluenceCardPrimaryCta {
-  if (currentIndex >= stepDefs.length) {
-    return { kind: "open_scope", label: "Manage scope" }
-  }
   const step = stepDefs[currentIndex]
-  if (!step) {
-    return { kind: "open_scope", label: "Manage scope" }
-  }
-  switch (step.id) {
+  switch (step?.id) {
     case "oauth_register":
       return { kind: "open_wizard", label: "Register OAuth app" }
     case "link":
       return { kind: "open_wizard", label: "Link Atlassian account" }
     case "forge":
       return { kind: "open_wizard", label: "Continue setup" }
-    case "github":
-      return { kind: "navigate_repositories", label: "Link GitHub" }
-    case "target":
-      return { kind: "open_wizard", label: "Select repository" }
-    case "scope":
-      return { kind: "open_scope", label: "Configure scope" }
-    case "merge":
-      return { kind: "open_wizard", label: "Continue setup" }
-    default: {
-      const _x: never = step
-      return _x
-    }
+    default:
+      // The setup dialog adds a connected Confluence to more Workspaces.
+      return { kind: "open_wizard", label: "Manage" }
   }
 }
 
-export function hasConfluenceConnectionRow(
-  status: AtlassianConnectorStatus | undefined,
-): boolean {
-  if (!status) return false
-  return Boolean(
-    status.isLinked || status.isInstalled || status.installationStatus != null,
-  )
-}

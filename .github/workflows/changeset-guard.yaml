@@ -9,20 +9,36 @@ on:
       - reopened
       - synchronize
       - ready_for_review
+  push:
+    branches-ignore:
+      - main
+    tags-ignore:
+      - "**"
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name }}-${{ github.head_ref || github.ref_name }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   require_changesets:
+    timeout-minutes: 10
     name: Require changesets for apps and packages
-    if: github.event.pull_request.user.login != 'github-actions[bot]'
-    runs-on: ubuntu-latest
+    if: |
+      github.actor != 'github-actions[bot]' &&
+      ((github.event_name == 'pull_request') !=
+        (github.actor == 'cursor[bot]' || github.actor == 'cursoragent'))
+    runs-on: blacksmith-4vcpu-ubuntu-2404
     steps:
       - name: Checkout repository
         uses: actions/checkout@v6
         with:
           fetch-depth: 0
+
+      - name: Fetch comparison base
+        run: git fetch origin ${{ github.event.pull_request.base.ref || 'main' }}
 
       - uses: pnpm/action-setup@v6
 
@@ -36,4 +52,4 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Require changesets when versionable packages changed
-        run: pnpm changeset status --since=origin/${{ github.base_ref }}
+        run: pnpm changeset status --since=origin/${{ github.event.pull_request.base.ref || 'main' }}

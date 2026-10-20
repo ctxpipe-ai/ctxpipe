@@ -47,15 +47,6 @@ describe("getBadgeWord", () => {
     expect(getBadgeWord("indexing_search")).toBe("indexing")
     expect(getBadgeWord("detecting_languages")).toBe("indexing")
     expect(getBadgeWord("merging_intelligence")).toBe("indexing")
-    expect(getBadgeWord("retracting")).toBe("updating")
-    expect(getBadgeWord("finding_roots")).toBe("finding packages")
-    expect(getBadgeWord("classifying_packages")).toBe("classifying")
-    expect(getBadgeWord("identify_apis")).toBe("analyzing")
-    expect(getBadgeWord("extract_instruction_units")).toBe("analyzing")
-    expect(getBadgeWord("deduplicating")).toBe("deduplicating")
-    expect(getBadgeWord("projecting")).toBe("projecting")
-    expect(getBadgeWord("embedding")).toBe("embedding")
-    expect(getBadgeWord("syncing_graph")).toBe("syncing")
     expect(getBadgeWord("finalizing")).toBe("finalizing")
   })
 
@@ -73,17 +64,17 @@ describe("resolveIndexingStep", () => {
   it("resolves queued as step 1 with badge queued", () => {
     const res = resolveIndexingStep("queued")
     expect(res).not.toBeNull()
-    expect(res!.step).toBe(1)
-    expect(res!.key).toBe("queued")
-    expect(res!.badgeWord).toBe("queued")
+    expect(res?.step).toBe(1)
+    expect(res?.key).toBe("queued")
+    expect(res?.badgeWord).toBe("queued")
   })
 
   it("resolves finalizing as the last step when no SCIP languages", () => {
     const checklist = buildIndexingChecklist()
     const res = resolveIndexingStep("finalizing")
     expect(res).not.toBeNull()
-    expect(res!.step).toBe(checklist.length)
-    expect(res!.total).toBe(checklist.length)
+    expect(res?.step).toBe(checklist.length)
+    expect(res?.total).toBe(checklist.length)
   })
 
   it("resolves scip:go correctly when go is in the language list", () => {
@@ -91,9 +82,9 @@ describe("resolveIndexingStep", () => {
     const checklist = buildIndexingChecklist(langs)
     const res = resolveIndexingStep("scip:go", langs)
     expect(res).not.toBeNull()
-    expect(res!.badgeWord).toBe("indexing")
-    expect(res!.total).toBe(checklist.length)
-    expect(res!.step).toBe(checklist.indexOf("scip:go") + 1)
+    expect(res?.badgeWord).toBe("indexing")
+    expect(res?.total).toBe(checklist.length)
+    expect(res?.step).toBe(checklist.indexOf("scip:go") + 1)
   })
 
   it("returns null for scip:go when go is NOT in the language list", () => {

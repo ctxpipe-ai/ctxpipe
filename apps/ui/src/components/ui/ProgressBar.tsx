@@ -1,5 +1,4 @@
 "use client"
-import React from "react"
 import {
   ProgressBar as AriaProgressBar,
   type ProgressBarProps as AriaProgressBarProps,
@@ -7,7 +6,7 @@ import {
 import { Label } from "@/components/ui/Field"
 import { composeTailwindRenderProps } from "@/lib/react-aria-utils"
 
-export interface ProgressBarProps extends AriaProgressBarProps {
+interface ProgressBarProps extends AriaProgressBarProps {
   label?: string
 }
 
@@ -30,8 +29,8 @@ export function ProgressBar({ label, ...props }: ProgressBarProps) {
           </div>
           <div className="max-w-full h-2 rounded-full bg-neutral-300 dark:bg-neutral-700 outline outline-1 -outline-offset-1 outline-transparent relative overflow-hidden">
             <div
-              className={`absolute top-0 h-full rounded-full bg-blue-500 forced-colors:bg-[Highlight] ${isIndeterminate ? "left-full animate-in duration-1000 slide-in-from-left-[20rem] repeat-infinite ease-out" : "left-0"}`}
-              style={{ width: (isIndeterminate ? 40 : percentage) + "%" }}
+              className={`absolute top-0 h-full rounded-full bg-blue-500 forced-colors:bg-[Highlight] ${isIndeterminate ? "ctx-loading-motion left-full animate-in duration-1000 slide-in-from-left-[20rem] repeat-infinite ease-out" : "left-0"}`}
+              style={{ width: `${isIndeterminate ? 40 : percentage}%` }}
             />
           </div>
         </>

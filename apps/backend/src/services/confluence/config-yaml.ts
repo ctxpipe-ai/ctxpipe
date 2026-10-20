@@ -48,34 +48,31 @@ export function parseConfluenceConfigYamlContent(
   }
 }
 
+export function confluenceSpaceSelection(
+  spaces: ParsedConfluenceRepoConfig["spaces"],
+) {
+  return spaces
+    .map((space) => ({
+      spaceKey: space.spaceKey,
+      selectedPageIds: space.selectedPageIds?.length
+        ? [...space.selectedPageIds].sort()
+        : null,
+    }))
+    .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey))
+}
+
 export function renderConfluenceConfigYaml(input: {
   spaces: Array<{ spaceKey: string; selectedPageIds: string[] | null }>
 }): string {
   const payload = {
     version: 1,
     source: "confluence",
-    spaces: input.spaces.map((space) => ({
+    spaces: confluenceSpaceSelection(input.spaces).map((space) => ({
       key: space.spaceKey,
       selectedPageIds: space.selectedPageIds ?? [],
     })),
   }
   return stringify(payload)
-}
-
-export function confluenceSpacesEqual(
-  left: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
-  right: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
-): boolean {
-  const normalize = (
-    spaces: Array<{ spaceKey: string; selectedPageIds: string[] | null }>,
-  ) =>
-    [...spaces]
-      .map((space) => ({
-        spaceKey: space.spaceKey,
-        selectedPageIds: [...(space.selectedPageIds ?? [])].sort(),
-      }))
-      .sort((a, b) => a.spaceKey.localeCompare(b.spaceKey))
-  return JSON.stringify(normalize(left)) === JSON.stringify(normalize(right))
 }
 
 export function hasConfigYamlChanged(input: {

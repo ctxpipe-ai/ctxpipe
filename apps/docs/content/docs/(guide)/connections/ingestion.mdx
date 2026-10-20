@@ -1,94 +1,73 @@
 ---
-title: How ingestion works
-description: What ctx| prepares after you connect a repository, and how to read indexing states.
+title: How indexing works
+description: What ctx| builds after content reaches a Workspace, and how to read indexing states.
 ---
 
-**Ingestion** turns a connected repository into context that Search, Chat, the
-knowledge graph, and MCP can use. It is asynchronous: a repository can appear in
-ctx| before every capability is ready.
+**Indexing** turns a Workspace's files and linked code into something chat,
+search, the graph, and MCP can use. It runs in the background after every
+change, so new content can take a few minutes to show up in answers.
 
-## The four stages
+## Two kinds of indexing
 
 <Steps>
   <Step>
-    ### Read the selected source
+    ### The workspace repository
 
-    ctx| resolves the selected repository and default branch, then prepares a
-    working copy for indexing. Private repositories require the GitHub App or
-    clone credentials to remain valid.
+    When the workspace repository's default branch changes, ctx| reads the
+    knowledge files at that commit and rebuilds the Workspace's index: units,
+    links and claims for the graph, and embeddings for search. It never edits
+    files and never calls an extraction model at this step. The previous index
+    keeps serving until the new one is ready.
   </Step>
 
   <Step>
-    ### Build code navigation
+    ### Linked repositories
 
-    ctx| builds lexical and structural indexes so agents can search code, list
-    files, and retrieve relevant source without reading an entire repository
-    into one prompt.
-  </Step>
-
-  <Step>
-    ### Extract technical context
-
-    Model-assisted extraction identifies systems, APIs, libraries,
-    infrastructure, instructions, and relationships. Those findings become
-    evidence-backed claims in the organization knowledge graph.
-  </Step>
-
-  <Step>
-    ### Publish readiness
-
-    The repository status tells you whether work is pending, in progress,
-    complete, or complete with issues. Search and graph preparation are
-    separate, so one capability can be ready before another.
+    When a linked repository changes, ctx| checks out its default branch,
+    builds code search and code navigation, and uses models to extract
+    services, APIs, libraries, infrastructure, and instructions. The extracted
+    knowledge is committed to the workspace repository as knowledge files,
+    which triggers the first kind of indexing.
   </Step>
 </Steps>
 
-## Read the repository state
+## Read the status
 
-| State | Meaning | What to do |
+**Settings** in each Workspace shows whether the Workspace index is ready and
+the status of each linked repository:
+
+| Status | Meaning | What to do |
 | --- | --- | --- |
-| **Pending indexing** | The source is selected but ingestion has not started. | Choose **Index now**. |
-| **Indexing** | ctx| is preparing search and graph context. | Wait; answers may be incomplete. |
-| **Indexed** | The current ingestion run completed. | Test a known question in Chat or MCP. |
-| **Complete with issues** | Useful context exists, but one indexing capability failed. | Open the row menu and choose **Retry indexing** after resolving the cause. |
-| **Failed** | ctx| could not complete the repository run. | Check access, repository size, and operator logs, then retry. |
+| **Pending** | Linked, not yet indexed. | Wait. |
+| **Indexing** | ctx| is building search and extracting knowledge. | Answers may be incomplete. |
+| **Indexed** | The current commit is indexed. | Ask a known question in chat or MCP. |
+| **Indexed with issues** | Search works, but part of the index failed. The reason is shown. | Check the reason. A push to the repository re-runs indexing. |
+
+A Workspace index that fails keeps serving the last good version. Fix the
+cause, often malformed front matter or lost repository access, and push again.
 
 <Callout type="warn" title="Indexed does not mean infallible">
-  Ingestion creates search indexes and inferred graph claims; it does not certify
-  an answer as correct. Ask agents to cite files and verify risky decisions
-  against the current source.
+  Indexing builds search and graph data from files and model-extracted claims.
+  It does not certify an answer. Ask for files and verify risky decisions
+  against current source.
 </Callout>
 
 ## Three layers
 
-Connected content lives in up to three layers, and they are not the same
-thing:
+Content in a Workspace lives in three layers:
 
-1. **Warehouse**: bytes in git, either the source repository itself or
-   connector Markdown committed to a context repository.
-2. **Search**: the code and text index over that tree. Chat and MCP can
-   retrieve anything warehoused.
-3. **Graph**: typed nodes and claims. Only kinds an extractor was written for
-   appear here. Connector Markdown is parsed from its frontmatter into
-   `Issue`, `Team`, `Thread`, and `PullRequest` nodes; it is never read as
-   instructions. Cross-tool links are joined by URL or identifier.
-
-When a context-repository change touches only connector content, ingestion
-skips the code extractors and runs the connector extractors alone.
-
-## Keeping context current
-
-Repository changes can trigger another ingestion run. Connector-generated
-content follows the same path after it reaches the context repository.
-
-If a repository is stale or a run failed, use **Retry indexing**. You no longer
-need to remove and add the repository merely to start a fresh run. Use
-**Unindex** only when the repository should stop contributing to Search, Chat,
-MCP, and the graph.
+1. **Files**: the bytes in git, in the workspace repository or a linked
+   repository.
+2. **Search**: the text and code index over those files. Chat and MCP can
+   retrieve anything here.
+3. **Graph**: typed nodes and relationships from links, claims, and `kind`
+   front matter. Mirrored connector content becomes `Issue`, `Thread`,
+   `PullRequest`, and similar nodes. It is never treated as instructions.
+   Cross-tool links are joined by URL or identifier, not guessed.
 
 <Cards>
-  <Card title="Manage repositories" href="/docs/git-repositories/manage-repositories" description="Review scope, status, retries, and GitHub selection." />
-  <Card title="Retry or unindex" href="/docs/git-repositories/unindex-reindex" description="Choose the right recovery or removal action." />
-  <Card title="Knowledge graph" href="/docs/knowledge-graph" description="Understand the extracted claims produced during ingestion." />
-  <Card title="Self-host operations" href="/docs/self-hosting/operations" description="Diagnose services, logs, storage, and recovery as an operator." />
+  <Card title="Knowledge files" href="/docs/workspaces/knowledge-files" description="How files become graph nodes and claims." />
+  <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Link code and read its status." />
+  <Card title="Knowledge graph" href="/docs/workspaces/graph" description="Explore what indexing built." />
+  <Card title="Self-host operations" href="/docs/self-hosting/operations" description="Diagnose services, logs, storage, and recovery." />
 </Cards>

@@ -1,4 +1,10 @@
 {
   "title": "ctx| MCP",
-  "pages": ["mcp-docs", "local-memory"]
+  "pages": [
+    "mcp-docs",
+    "use-from-your-agent",
+    "connected-apps",
+    "claude-plugin",
+    "local-memory"
+  ]
 }

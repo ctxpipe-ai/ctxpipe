@@ -4,31 +4,26 @@ import { cjk } from "@streamdown/cjk"
 import { code } from "@streamdown/code"
 import { math } from "@streamdown/math"
 import { mermaid } from "@streamdown/mermaid"
-import type { UIMessage } from "ai"
-import { ChevronLeftIcon, ChevronRightIcon } from "lucide-react"
-import type { ComponentProps, HTMLAttributes, ReactElement } from "react"
-import {
-  createContext,
-  memo,
-  useCallback,
-  useContext,
-  useEffect,
-  useMemo,
-  useState,
-} from "react"
-import { Streamdown } from "streamdown"
-import { Button } from "@/components/ui/Button"
-import { ButtonGroup, ButtonGroupText } from "@/components/ui/button-group"
-import {
-  Tooltip,
-  TooltipContent,
-  TooltipProvider,
-  TooltipTrigger,
-} from "@/components/ui/Tooltip"
-import { cn } from "@/lib/utils"
+type ChatMessageRole = "system" | "user" | "assistant"
 
-export type MessageProps = HTMLAttributes<HTMLDivElement> & {
-  from: UIMessage["role"]
+import { IconExternalLink } from "@tabler/icons-react"
+import type {
+  ComponentProps,
+  HTMLAttributes,
+  ReactNode,
+} from "react"
+import {
+  memo,
+  useMemo,
+} from "react"
+import { Button as AriaButton } from "react-aria-components"
+import { defaultRehypePlugins, Streamdown } from "streamdown"
+import { focusVisibleClassName } from "@/lib/focus-styles"
+import { cn } from "@/lib/utils"
+import { workspaceFilePath } from "@/lib/workspace-file-path"
+
+type MessageProps = HTMLAttributes<HTMLDivElement> & {
+  from: ChatMessageRole
 }
 
 export const Message = ({ className, from, ...props }: MessageProps) => (
@@ -42,7 +37,7 @@ export const Message = ({ className, from, ...props }: MessageProps) => (
   />
 )
 
-export type MessageContentProps = HTMLAttributes<HTMLDivElement>
+type MessageContentProps = HTMLAttributes<HTMLDivElement>
 
 export const MessageContent = ({
   children,
@@ -51,15 +46,15 @@ export const MessageContent = ({
 }: MessageContentProps) => (
   <div
     className={cn(
-      "flex w-full min-w-0 max-w-full flex-col gap-2 text-[15px] leading-relaxed",
-      /* User bubble: clip to rounded box. Assistant: no overflow-y clip so Streamdown code
+      "flex w-full min-w-0 max-w-full flex-col gap-2 text-sm leading-relaxed",
+      /* User bubble: clip to rounded-md box. Assistant: no overflow-y clip so Streamdown code
          block sticky copy/download controls (negative top offset) stay visible and clickable. */
       "group-[.is-user]:overflow-hidden",
       "group-[.is-assistant]:overflow-visible",
-      "group-[.is-user]:rounded-none group-[.is-user]:border-0 group-[.is-user]:bg-white/[0.05] group-[.is-user]:p-4 group-[.is-user]:text-foreground",
+      "group-[.is-user]:rounded-md group-[.is-user]:bg-zinc-900 group-[.is-user]:px-3.5 group-[.is-user]:py-2.5 group-[.is-user]:text-foreground",
       /* Assistant: do not set text colour on this wrapper — it flattens Streamdown/Shiki token
          spans that use color: var(--sdm-c, inherit). Body copy colour comes from Streamdown + CSS. */
-      "group-[.is-assistant]:rounded-none group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
+      "group-[.is-assistant]:rounded-md group-[.is-assistant]:bg-transparent group-[.is-assistant]:p-0",
       className,
     )}
     {...props}
@@ -68,309 +63,154 @@ export const MessageContent = ({
   </div>
 )
 
-export type MessageActionsProps = ComponentProps<"div">
-
-export const MessageActions = ({
-  className,
-  children,
-  ...props
-}: MessageActionsProps) => (
-  <div className={cn("flex items-center gap-1", className)} {...props}>
-    {children}
-  </div>
-)
-
-export type MessageActionProps = ComponentProps<typeof Button> & {
-  tooltip?: string
-  label?: string
+type MessageResponseProps = ComponentProps<typeof Streamdown> & {
+  /** Opens a workspace file. When set, file paths in the answer become buttons. */
+  onOpenFile?: (path: string) => void
 }
-
-export const MessageAction = ({
-  tooltip,
-  children,
-  label,
-  variant = "ghost",
-  size = "icon-sm",
-  ...props
-}: MessageActionProps) => {
-  const button = (
-    <Button size={size} type="button" variant={variant} {...props}>
-      {children}
-      <span className="sr-only">{label || tooltip}</span>
-    </Button>
-  )
-
-  if (tooltip) {
-    return (
-      <TooltipProvider>
-        <Tooltip>
-          <TooltipTrigger>{button}</TooltipTrigger>
-          <TooltipContent>
-            <p>{tooltip}</p>
-          </TooltipContent>
-        </Tooltip>
-      </TooltipProvider>
-    )
-  }
-
-  return button
-}
-
-interface MessageBranchContextType {
-  currentBranch: number
-  totalBranches: number
-  goToPrevious: () => void
-  goToNext: () => void
-  branches: ReactElement[]
-  setBranches: (branches: ReactElement[]) => void
-}
-
-const MessageBranchContext = createContext<MessageBranchContextType | null>(
-  null,
-)
-
-const useMessageBranch = () => {
-  const context = useContext(MessageBranchContext)
-
-  if (!context) {
-    throw new Error(
-      "MessageBranch components must be used within MessageBranch",
-    )
-  }
-
-  return context
-}
-
-export type MessageBranchProps = HTMLAttributes<HTMLDivElement> & {
-  defaultBranch?: number
-  onBranchChange?: (branchIndex: number) => void
-}
-
-export const MessageBranch = ({
-  defaultBranch = 0,
-  onBranchChange,
-  className,
-  ...props
-}: MessageBranchProps) => {
-  const [currentBranch, setCurrentBranch] = useState(defaultBranch)
-  const [branches, setBranches] = useState<ReactElement[]>([])
-
-  const handleBranchChange = useCallback(
-    (newBranch: number) => {
-      setCurrentBranch(newBranch)
-      onBranchChange?.(newBranch)
-    },
-    [onBranchChange],
-  )
-
-  const goToPrevious = useCallback(() => {
-    const newBranch =
-      currentBranch > 0 ? currentBranch - 1 : branches.length - 1
-    handleBranchChange(newBranch)
-  }, [currentBranch, branches.length, handleBranchChange])
-
-  const goToNext = useCallback(() => {
-    const newBranch =
-      currentBranch < branches.length - 1 ? currentBranch + 1 : 0
-    handleBranchChange(newBranch)
-  }, [currentBranch, branches.length, handleBranchChange])
-
-  const contextValue = useMemo<MessageBranchContextType>(
-    () => ({
-      branches,
-      currentBranch,
-      goToNext,
-      goToPrevious,
-      setBranches,
-      totalBranches: branches.length,
-    }),
-    [branches, currentBranch, goToNext, goToPrevious],
-  )
-
-  return (
-    <MessageBranchContext.Provider value={contextValue}>
-      <div
-        className={cn("grid w-full gap-2 [&>div]:pb-0", className)}
-        {...props}
-      />
-    </MessageBranchContext.Provider>
-  )
-}
-
-export type MessageBranchContentProps = HTMLAttributes<HTMLDivElement>
-
-export const MessageBranchContent = ({
-  children,
-  ...props
-}: MessageBranchContentProps) => {
-  const { currentBranch, setBranches, branches } = useMessageBranch()
-  const childrenArray = useMemo(
-    () => (Array.isArray(children) ? children : [children]),
-    [children],
-  )
-
-  // Use useEffect to update branches when they change
-  useEffect(() => {
-    if (branches.length !== childrenArray.length) {
-      setBranches(childrenArray)
-    }
-  }, [childrenArray, branches, setBranches])
-
-  return childrenArray.map((branch, index) => (
-    <div
-      className={cn(
-        "grid gap-2 overflow-hidden [&>div]:pb-0",
-        index === currentBranch ? "block" : "hidden",
-      )}
-      key={branch.key}
-      {...props}
-    >
-      {branch}
-    </div>
-  ))
-}
-
-export type MessageBranchSelectorProps = ComponentProps<typeof ButtonGroup>
-
-export const MessageBranchSelector = ({
-  className,
-  ...props
-}: MessageBranchSelectorProps) => {
-  const { totalBranches } = useMessageBranch()
-
-  // Don't render if there's only one branch
-  if (totalBranches <= 1) {
-    return null
-  }
-
-  return (
-    <ButtonGroup
-      className={cn(
-        "[&>*:not(:first-child)]:rounded-l-md [&>*:not(:last-child)]:rounded-r-md",
-        className,
-      )}
-      orientation="horizontal"
-      {...props}
-    />
-  )
-}
-
-export type MessageBranchPreviousProps = ComponentProps<typeof Button>
-
-export const MessageBranchPrevious = ({
-  children,
-  ...props
-}: MessageBranchPreviousProps) => {
-  const { goToPrevious, totalBranches } = useMessageBranch()
-
-  return (
-    <Button
-      aria-label="Previous branch"
-      disabled={totalBranches <= 1}
-      onClick={goToPrevious}
-      size="icon-sm"
-      type="button"
-      variant="ghost"
-      {...props}
-    >
-      {children ?? <ChevronLeftIcon size={14} />}
-    </Button>
-  )
-}
-
-export type MessageBranchNextProps = ComponentProps<typeof Button>
-
-export const MessageBranchNext = ({
-  children,
-  ...props
-}: MessageBranchNextProps) => {
-  const { goToNext, totalBranches } = useMessageBranch()
-
-  return (
-    <Button
-      aria-label="Next branch"
-      disabled={totalBranches <= 1}
-      onClick={goToNext}
-      size="icon-sm"
-      type="button"
-      variant="ghost"
-      {...props}
-    >
-      {children ?? <ChevronRightIcon size={14} />}
-    </Button>
-  )
-}
-
-export type MessageBranchPageProps = HTMLAttributes<HTMLSpanElement>
-
-export const MessageBranchPage = ({
-  className,
-  ...props
-}: MessageBranchPageProps) => {
-  const { currentBranch, totalBranches } = useMessageBranch()
-
-  return (
-    <ButtonGroupText
-      className={cn(
-        "border-none bg-transparent text-muted-foreground shadow-none",
-        className,
-      )}
-      {...props}
-    >
-      {currentBranch + 1} of {totalBranches}
-    </ButtonGroupText>
-  )
-}
-
-export type MessageResponseProps = ComponentProps<typeof Streamdown>
 
 const streamdownPlugins = { cjk, code, math, mermaid }
 
 /** Light + dark Shiki themes (required pair for codeToTokens); app is `.dark` so dark slot colours apply. */
 const streamdownShikiTheme = ["github-light", "github-dark-dimmed"] as const
 
+type HastNode = {
+  type: string
+  tagName?: string
+  properties?: Record<string, unknown>
+  children?: HastNode[]
+  value?: string
+}
+
+function hastText(node: HastNode): string {
+  if (node.type === "text") return node.value ?? ""
+  return (node.children ?? []).map(hastText).join("")
+}
+
+function fileLinkNode(path: string, children: HastNode[]): HastNode {
+  return {
+    type: "element",
+    tagName: "ctx-file-link",
+    properties: { path },
+    children,
+  }
+}
+
+/**
+ * Rehype plugin. It adds an icon to off-site links. With `files`, it changes
+ * file paths in inline code and relative links into `ctx-file-link` elements.
+ * It runs after sanitize, so model HTML cannot make these elements, and
+ * before harden, which blocks relative links.
+ */
+function markAnswerLinks(options: { files: boolean }) {
+  const visit = (parent: HastNode) => {
+    parent.children = parent.children?.map((node) => {
+      if (node.type !== "element") return node
+      if (node.tagName === "a") {
+        const href = String(node.properties?.href ?? "")
+        if (/^https?:\/\//.test(href)) {
+          node.children = [
+            ...(node.children ?? []),
+            {
+              type: "element",
+              tagName: "ctx-external-link-icon",
+              properties: {},
+              children: [],
+            },
+          ]
+          return node
+        }
+        const path = options.files ? workspaceFilePath(href) : null
+        if (path) return fileLinkNode(path, node.children ?? [])
+      }
+      if (
+        node.tagName === "code" &&
+        parent.tagName !== "pre" &&
+        options.files
+      ) {
+        const path = workspaceFilePath(hastText(node))
+        if (path) return fileLinkNode(path, [node])
+      }
+      visit(node)
+      return node
+    })
+  }
+  return visit
+}
+
+const answerRehypePlugins = (
+  files: boolean,
+): ComponentProps<typeof Streamdown>["rehypePlugins"] => [
+  defaultRehypePlugins.raw,
+  defaultRehypePlugins.sanitize,
+  [markAnswerLinks, { files }],
+  defaultRehypePlugins.harden,
+]
+const chatRehypePlugins = answerRehypePlugins(false)
+const workspaceRehypePlugins = answerRehypePlugins(true)
+
 export const MessageResponse = memo(
-  ({ className, ...props }: MessageResponseProps) => (
-    <Streamdown
-      {...props}
-      className={cn(
-        "ctx-streamdown size-full [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
-        /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
-        "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
-        "*:data-[streamdown='table-wrapper']:bg-transparent",
-        "*:data-[streamdown='table-wrapper']:my-4",
-        "*:data-[streamdown='table-wrapper']:p-0",
-        "*:data-[streamdown='table-wrapper']:border-0",
-        "*:data-[streamdown='table-wrapper']:gap-1",
-        "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:h-3",
-        "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
-        className,
-      )}
-      controls={{ code: true, mermaid: true, table: true }}
-      isAnimating={false}
-      plugins={streamdownPlugins}
-      shikiTheme={streamdownShikiTheme}
-    />
-  ),
+  ({
+    className,
+    isAnimating = false,
+    onOpenFile,
+    ...props
+  }: MessageResponseProps) => {
+    const components = useMemo(
+      () => ({
+        "ctx-external-link-icon": () => (
+          <IconExternalLink
+            aria-hidden
+            className="ml-0.5 inline size-3.5 align-text-bottom"
+          />
+        ),
+        "ctx-file-link": ({
+          path,
+          children,
+        }: {
+          path?: unknown
+          children?: ReactNode
+        }) => (
+          <AriaButton
+            data-ctx-file-link=""
+            onPress={() => onOpenFile?.(String(path))}
+            className={cn(
+              "inline cursor-pointer rounded-md text-left text-teal-400 underline decoration-teal-400/40 underline-offset-2 transition-colors hover:decoration-teal-400",
+              focusVisibleClassName,
+            )}
+          >
+            {children}
+          </AriaButton>
+        ),
+      }),
+      [onOpenFile],
+    )
+    return (
+      <Streamdown
+        {...props}
+        className={cn(
+          "ctx-streamdown size-full text-sm leading-relaxed [&>*:first-child]:mt-0 [&>*:last-child]:mb-0",
+          /* Body copy only — fenced code blocks are not inside these, so Shiki keeps token colours */
+          "[&_blockquote]:text-muted-foreground [&_h1]:text-foreground [&_h2]:text-foreground [&_h3]:text-foreground [&_h4]:text-foreground [&_li]:text-foreground/90 [&_ol]:text-foreground/90 [&_p]:text-foreground/90 [&_strong]:text-foreground [&_ul]:text-foreground/90",
+          "*:data-[streamdown='table-wrapper']:bg-transparent",
+          "*:data-[streamdown='table-wrapper']:my-4",
+          "*:data-[streamdown='table-wrapper']:p-0",
+          "*:data-[streamdown='table-wrapper']:border-0",
+          "*:data-[streamdown='table-wrapper']:gap-1",
+          "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:h-3",
+          "[&>[data-streamdown='table-wrapper']>div:first-child_svg]:w-3",
+          className,
+        )}
+        components={components}
+        controls={{ code: true, mermaid: true, table: true }}
+        isAnimating={isAnimating}
+        plugins={streamdownPlugins}
+        rehypePlugins={onOpenFile ? workspaceRehypePlugins : chatRehypePlugins}
+        shikiTheme={streamdownShikiTheme}
+      />
+    )
+  },
   // Re-render on every streaming delta (children string grows); strict equality hid updates.
 )
 
 MessageResponse.displayName = "MessageResponse"
 
-export type MessageToolbarProps = ComponentProps<"div">
-
-export const MessageToolbar = ({
-  className,
-  children,
-  ...props
-}: MessageToolbarProps) => (
-  <div
-    className={cn(
-      "mt-4 flex w-full items-center justify-between gap-4",
-      className,
-    )}
-    {...props}
-  >
-    {children}
-  </div>
-)

@@ -13,7 +13,7 @@ keep a running instance healthy and to diagnose component-level failures.
 | Backend status | `GET /.status` | JSON response with `status: "ok"` and `timestamp` |
 | Postgres in Compose | Docker health check uses `pg_isready` | Service is healthy before migrations and app services start |
 | UI through backend | Open `AUTH_BASE_URL` | App loads from the backend origin |
-| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=..."` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
+| MCP route | `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"` then an OAuth-capable MCP client | Doctor reports `ready-for-oauth`; client OAuth then succeeds |
 | Codesearch | Add or reindex a repository | Repository reaches indexed state; backend can call `CODESEARCH_URL` |
 | Graph database | Open graph page or use graph-backed chat/MCP | Graph responses succeed; backend does not return graph connectivity errors |
 
@@ -26,14 +26,38 @@ keep a running instance healthy and to diagnose component-level failures.
 ## Migrations
 
 The Compose `deploy` profile starts a `migrate` service before backend, worker,
-UI, and codesearch. It runs:
+UI, and codesearch. Migrate uses the owner URL and provisions `ctxpipe_app`.
+App processes use the app-role `DATABASE_URL`. The migrate container runs:
 
 ```bash
 bun run apps/backend/src/db/migrate.ts
 ```
 
+The AWS CDK migrate task and the hosted deploy run the same script,
+`migrate.ts`. It does these steps in this order: it makes the `ctxpipe_app` role ready, applies the
+Drizzle and OpenWorkflow migrations, runs every data backfill, and then grants
+`ctxpipe_app` access to the tables.
+
+After the Drizzle migrations, migrate runs the backfills. The org backfill
+fills a missing `org_id` on rows that the previous release wrote (the
+`BEFORE INSERT` triggers on `repository_checkouts`, `confluence_spaces`, and
+`claim_evidence` do the same at write time). You do not run it by hand. See
+[Upgrades](/docs/self-hosting/upgrades#what-the-sql-changes) for the
+expand-only rules and the rollback runbook.
+
 Migrations are idempotent. Drizzle tracks applied migrations in the
-`drizzle_migrations` table and skips migrations that already ran.
+`drizzle_migrations` table and skips migrations that already ran. A second run
+changes nothing.
+
+Migrate reads the `ctxpipe_app` password from `DATABASE_APP_PASSWORD`:
+
+- When the password is set, migrate creates the role if it is missing and sets
+  its password.
+- When the password is not set and the role exists, migrate only grants access.
+- When the password is not set and the role does not exist, migrate stops with
+  exit code 1 before it changes the database. The error tells you how to fix it
+  for each deployment path. Compose sends `POSTGRES_PASSWORD`, and the CDK
+  migrate task sends the app database credentials secret.
 
 For non-Compose deployments:
 
@@ -76,7 +100,110 @@ changes.
 | `zoekt_index_deploy` | Optional but recommended for large deployments. Rebuildable by reindexing. |
 | Secrets | Export from your secret manager or platform. Keep historical values needed for rollback. |
 
+## Chat sandbox host (AWS)
+
+`@ctxpipe/aws-cdk` runs Workspace chat sandboxes on one EC2 Docker host (see
+[AWS: Chat sandbox host](/docs/self-hosting/deployment/aws#chat-sandbox-host)).
+It holds no data you need to back up: a replaced host starts empty and
+conversations continue from their git branch.
+
+Find the instance from the `SandboxHostAutoScalingGroupName` stack output and
+open a shell with Session Manager (no SSH key or open port is needed):
+
+```bash
+aws ssm start-session --target <instance-id>
+```
+
+| Check | Command on the host | Expected result |
+|---|---|---|
+| Docker is up | `sudo systemctl is-active docker` | `active` |
+| Docker volume | `df -h /var/lib/docker` | Below 80% used. The disk alarm fires at 80%. |
+| What uses the disk | `sudo docker system df` | Images, containers, and build cache sizes |
+| Sandboxes | `sudo docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `systemctl status ctxpipe-sandboxes.slice` | Memory in use stays below the slice limit (85% of host memory) |
+| Chat image | `sudo docker image ls ghcr.io/ctxpipe-ai/chat-sandbox` | The tag the backend's `SANDBOX_CHAT_IMAGE` names, after the first chat of a release |
+| Workspace bases | `sudo docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
+| Boot log | `sudo tail -n 100 /var/log/cloud-init-output.log` | Ends with the CloudFormation success signal |
+
+Sandboxes stop after 5 minutes idle and are removed 30 days after last use;
+an organization runs at most 50 at once. A Workspace base is an image of the
+Workspace repository after clone and setup, so that a new conversation starts
+without a clone. The periodic sandbox cleanup deletes a base when a newer base
+replaces it, and deletes the current base when no new conversation
+started from it for 30 days. The same cleanup removes objects with ctxpipe
+labels (`ai.ctxpipe.*`) that no database row records. If the volume still
+fills, check `docker system df` for what grows, then raise
+`sandboxHost.dockerVolumeSizeGiB` and run `cdk deploy`; the new size replaces
+the host.
+
+Do not run `docker system prune` or `docker container prune` while
+conversations are active: they delete stopped sandboxes that conversations
+would resume. Do not run `docker image prune -a`: it deletes Workspace bases,
+and the next new conversation of each Workspace clones the repository again
+while a new base builds.
+
+## Chat sandboxes (Docker Compose)
+
+The Compose deploy profile runs Workspace chat sandboxes inside the `dind`
+service (see [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes)).
+Its `sandbox_docker` volume holds no data you need to back up. Run these from
+the repository root:
+
+| Check | Command | Expected result |
+|---|---|---|
+| Daemon is up | `docker compose --profile deploy ps dind` | `healthy` |
+| Chat image | `docker compose --profile deploy logs chat-sandbox-image` | Ends with the image ID (`sha256:…`) |
+| Sandbox disk | `docker compose exec dind df -h /var/lib/docker` | Room left on the host disk that holds the Docker volumes |
+| What uses the disk | `docker compose exec dind docker system df` | Images, containers, and build cache sizes |
+| Workspace bases | `docker compose exec dind docker image ls ctxpipe-workspace-base` | At most about one image for each Workspace that had a new conversation in the last 30 days |
+| Sandboxes | `docker compose exec dind docker ps -a` | One container per recent conversation; stopped ones are idle sandboxes |
+| Memory cap | `docker compose exec dind cat /sys/fs/cgroup/ctxpipe-sandboxes/memory.current /sys/fs/cgroup/ctxpipe-sandboxes/memory.max` | Memory in use stays below the cap. Missing on hosts without cgroup v2 (`dind` logs a warning). |
+| Metadata block | `docker compose exec dind iptables -t raw -S PREROUTING` | Includes `-d 169.254.169.254/32 -j DROP` |
+| No published data stores | `docker port $(docker compose ps -q postgres falkordb)` | Prints nothing |
+| No host socket | `docker inspect --format '{{range .Mounts}}{{.Source}} {{end}}' $(docker compose ps -q backend worker)` | No `/var/run/docker.sock` |
+
+Sandboxes and Workspace bases are removed on the same schedule as on AWS. To free disk without touching sandboxes, remove untagged chat images
+and build cache:
+
+```bash
+docker compose exec dind docker image prune -f
+docker compose exec dind docker builder prune -f
+```
+
+`docker image prune` without `-a` keeps every tagged image, so it keeps the
+Workspace bases. Do not run `docker system prune` or `docker container prune`
+inside `dind` while conversations are active: they delete stopped sandboxes
+that conversations would resume. Do not run `docker image prune -a`: it
+deletes Workspace bases, and the next new conversation of each Workspace
+clones the repository again while a new base builds.
+
 ## Recovery runbooks
+
+### Workspace chat fails to start on Docker Compose
+
+- A 503 saying the Docker daemon is not reachable means `dind` is down:
+  confirm it is healthy (`docker compose --profile deploy ps -a`) and check
+  `docker compose logs dind`.
+- A 503 saying the chat sandbox image is missing means `chat-sandbox-image`
+  has not finished or failed (for example a package mirror was unreachable,
+  or the `sandbox_docker` volume was removed). Check its logs and rerun it:
+  `docker compose --profile deploy up -d chat-sandbox-image`.
+- Check backend logs for Docker TLS errors. After the `sandbox_ca` volume is
+  removed, restart `backend` and `worker` so they read the new certificates.
+- `dind` needs a privileged container. On a host that refuses one, see the
+  last-resort option in [Docker: Chat sandboxes](/docs/self-hosting/deployment/docker#chat-sandboxes).
+
+### Workspace chat fails to start on AWS
+
+- Confirm the sandbox host instance is `InService` in its Auto Scaling group.
+- Check backend logs for Docker connection or TLS errors. Backend and worker
+  reach the host at `sandbox-host.ctxpipe.local:2376`; the host registers that
+  name when it finishes booting.
+- If the backend reports that the chat sandbox image is missing, the host
+  could not pull `ghcr.io/ctxpipe-ai/chat-sandbox`. Check the host's outbound
+  access to `ghcr.io` through NAT.
+- Terminate the instance to get a fresh host. The Auto Scaling group replaces
+  it in a few minutes and reuses the stored TLS certificates.
 
 ### App loads but sign-in fails
 
@@ -95,13 +222,13 @@ changes.
 ### MCP discovery or OAuth fails
 
 - Confirm `GET /.status` returns `{ "status": "ok" }`.
-- Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp?orgSlug=<slug>"`.
+- Run `npx ctxpipe doctor mcp --url "$AUTH_BASE_URL/mcp"`.
 - A `ready-for-oauth` result means routing, the Bearer challenge, and OAuth
   discovery are coherent. It does not prove authenticated `tools/list` or
-  `ctx_advisor`.
+  a tool call.
 - Confirm `AUTH_BASE_URL` matches the public origin clients use, including TLS.
-- Confirm the MCP URL includes `orgSlug`.
-- For authenticated OAuth, `tools/list`, and `ctx_advisor`, use a version-pinned
+- Confirm the MCP URL path is `/mcp`. The server ignores a `?orgSlug=` query.
+- For authenticated OAuth, `tools/list`, and a `list_workspaces` call, use a version-pinned
   MCPJam client against a test organization. See
   [MCP](/docs/self-hosting/mcp).
 
@@ -137,7 +264,7 @@ changes.
   merge pushes reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `linear-sync-config`, `linear-sync-content`, or
   `linear-sync-incremental` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [Linear](/docs/self-hosting/linear).
 
@@ -145,13 +272,13 @@ changes.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  merged `pagerduty/config.yaml`. There is no shared webhook secret; ctx|
+  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctx|
   stores the per-subscription secret on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.
 - Check worker logs for `pagerduty-sync-config`, `pagerduty-sync-content`, or
   `pagerduty-sync-entity` failures.
-- Use the setup dialog's configuration or content retry action after fixing the
+- Choose **Sync now** in the menu of the connector card after you fix the
   underlying credential, network, or permission failure.
 - See [PagerDuty](/docs/self-hosting/pagerduty).
 

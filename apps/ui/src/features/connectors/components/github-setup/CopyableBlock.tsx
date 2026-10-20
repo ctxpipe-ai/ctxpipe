@@ -9,6 +9,8 @@ type CopyableBlockProps = {
   copiedAriaLabel: string
   copyAriaLabel: string
   copyErrorMessage?: string
+  /** Runs once for each copy that worked. */
+  onCopied?: () => void
   variant?: "default" | "secret"
   revealAriaLabel?: string
   hideAriaLabel?: string
@@ -19,6 +21,7 @@ export function CopyableBlock({
   copiedAriaLabel,
   copyAriaLabel,
   copyErrorMessage = "Could not copy — copy the URL manually.",
+  onCopied,
   variant = "default",
   revealAriaLabel = "Show value",
   hideAriaLabel = "Hide value",
@@ -30,6 +33,7 @@ export function CopyableBlock({
     try {
       await navigator.clipboard.writeText(value)
       setCopyState("copied")
+      onCopied?.()
       window.setTimeout(() => setCopyState("idle"), 2000)
     } catch {
       setCopyState("error")
@@ -53,7 +57,9 @@ export function CopyableBlock({
             {variant === "secret" ? (
               value ? (
                 isSecretVisible ? (
-                  <span className="inline-block break-all select-text">{value}</span>
+                  <span className="inline-block break-all select-text">
+                    {value}
+                  </span>
                 ) : (
                   <span
                     className="block min-w-0 truncate select-none tracking-wider"
@@ -77,7 +83,7 @@ export function CopyableBlock({
                 type="button"
                 variant="ghost"
                 size="icon-sm"
-                className="h-full min-h-10 w-10 shrink-0 rounded-none text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
+                className="h-full min-h-10 w-10 shrink-0 rounded-md text-muted-foreground hover:bg-foreground/6 hover:text-foreground"
                 aria-label={isSecretVisible ? hideAriaLabel : revealAriaLabel}
                 aria-pressed={isSecretVisible}
                 isDisabled={!value}
@@ -99,23 +105,19 @@ export function CopyableBlock({
             size="icon-sm"
             className={
               copyState === "copied"
-                ? "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-emerald-600 transition-colors duration-200 hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
-                : "h-full min-h-10 w-11 shrink-0 rounded-none px-0 text-primary transition-colors duration-200 hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
+                ? "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-emerald-600 transition-colors hover:bg-emerald-500/10 hover:text-emerald-600 dark:text-emerald-400 dark:hover:text-emerald-400"
+                : "h-full min-h-10 w-11 shrink-0 rounded-md px-0 text-primary transition-colors hover:bg-primary/10 hover:text-primary pressed:bg-primary/15"
             }
-            aria-label={copyState === "copied" ? copiedAriaLabel : copyAriaLabel}
+            aria-label={
+              copyState === "copied" ? copiedAriaLabel : copyAriaLabel
+            }
             isDisabled={!value}
             onPress={() => void handleCopy()}
           >
             {copyState === "copied" ? (
-              <IconCheck
-                className="h-4 w-4 transition-opacity duration-200"
-                aria-hidden
-              />
+              <IconCheck className="h-4 w-4 transition-opacity" aria-hidden />
             ) : (
-              <IconCopy
-                className="h-4 w-4 transition-opacity duration-200"
-                aria-hidden
-              />
+              <IconCopy className="h-4 w-4 transition-opacity" aria-hidden />
             )}
           </Button>
         </div>

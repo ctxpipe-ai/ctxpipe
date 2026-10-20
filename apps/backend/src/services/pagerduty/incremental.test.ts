@@ -38,7 +38,9 @@ describe("PagerDuty incremental scope", () => {
 
   it("keeps incidents on selected services", () => {
     expect(pagerdutyIncidentIsInScope({ serviceId: "PSVC" }, config)).toBe(true)
-    expect(pagerdutyIncidentIsInScope({ serviceId: "POUT" }, config)).toBe(false)
+    expect(pagerdutyIncidentIsInScope({ serviceId: "POUT" }, config)).toBe(
+      false,
+    )
   })
 
   it("preserves the prior binary when an incremental image download fails", async () => {
@@ -68,7 +70,8 @@ describe("PagerDuty incremental scope", () => {
       status: "stub",
       reason: "download_failed",
     })
-    const preserved = "pagerduty/incidents/12--PT4KHLK/assets/PALERT1-image-0.png"
+    const preserved =
+      "pagerduty/incidents/12--PT4KHLK/assets/PALERT1-image-0.png"
 
     const result = await buildPagerdutyIncrementalChanges({
       env: {} as never,
@@ -77,7 +80,7 @@ describe("PagerDuty incremental scope", () => {
         region: "us",
       } as never,
       config,
-      entity: { incidentId: "PT4KHLK", action: "upsert" },
+      entity: { incidentId: "PT4KHLK" },
       existingPaths: [
         "pagerduty/incidents/12--PT4KHLK.md",
         preserved,

@@ -1,52 +1,13 @@
-import type { LLMResult } from "@langchain/core/outputs"
-import { CallbackHandler } from "@langfuse/langchain"
 import { propagateAttributes, startActiveObservation } from "@langfuse/tracing"
 import { readAttribution } from "./attribution.js"
 import { otelDeploymentEnvironment } from "./otel.js"
 
-export type LangfuseContextAttrs = {
+type LangfuseContextAttrs = {
   sessionId?: string
   userId?: string
   tags?: string[]
   /** Merged onto the Langfuse trace (e.g. repositoryId, workflow). */
   traceMetadata?: Record<string, unknown>
-}
-
-/**
- * `@langchain/core` 1.2.1 `_mergeDicts` concatenates `model_name` across
- * stream chunks. `id`, `name`, `output_version`, and `model_provider` are
- * the only protected string keys.
- */
-export class CtxpipeCallbackHandler extends CallbackHandler {
-  // LangChain runs handlers on a background queue by default, which drops the
-  // active OTel span. Inline so generations parent to that span and inherit
-  // propagateAttributes.
-  awaitHandlers = true
-
-  override async handleLLMEnd(
-    output: LLMResult,
-    runId: string,
-    parentRunId?: string,
-  ): Promise<void> {
-    for (const group of output.generations) {
-      for (const generation of group) {
-        const meta = (
-          generation as {
-            message?: { response_metadata?: { model_name?: unknown } }
-          }
-        ).message?.response_metadata
-        const name = meta?.model_name
-        const unit =
-          typeof name === "string" ? /^(.+?)\1+$/.exec(name)?.[1] : undefined
-        if (meta && unit) meta.model_name = unit
-      }
-    }
-    return super.handleLLMEnd(output, runId, parentRunId)
-  }
-}
-
-export function getLangfuseHandler(): CallbackHandler {
-  return new CtxpipeCallbackHandler()
 }
 
 function uniqueTags(tags: string[]): string[] {
@@ -65,10 +26,13 @@ function stringMetadata(
   return Object.keys(out).length > 0 ? out : undefined
 }
 
-export function runWithLangfuseContext<T>(
+/**
+ * Langfuse trace attributes from `attrs` and the active attribution: the
+ * user, the session, the `org:` and `env:` tags, and the org metadata.
+ */
+export function langfusePropagation(
   attrs: LangfuseContextAttrs,
-  fn: () => T | Promise<T>,
-): Promise<T> {
+): Parameters<typeof propagateAttributes>[0] {
   const bag = readAttribution()
   const userId =
     bag["ctxpipe.actor.type"] === "org_api_key"
@@ -89,17 +53,19 @@ export function runWithLangfuseContext<T>(
     ...(bag["request.id"] ? { requestId: bag["request.id"] } : {}),
     environment,
   })
-  return Promise.resolve(
-    propagateAttributes(
-      {
-        ...(userId ? { userId } : {}),
-        ...(sessionId ? { sessionId } : {}),
-        tags,
-        ...(metadata ? { metadata } : {}),
-      },
-      fn,
-    ),
-  )
+  return {
+    ...(userId ? { userId } : {}),
+    ...(sessionId ? { sessionId } : {}),
+    tags,
+    ...(metadata ? { metadata } : {}),
+  }
+}
+
+export function runWithLangfuseContext<T>(
+  attrs: LangfuseContextAttrs,
+  fn: () => T | Promise<T>,
+): Promise<T> {
+  return Promise.resolve(propagateAttributes(langfusePropagation(attrs), fn))
 }
 
 export function withLangfuseObservation<T>(
@@ -110,19 +76,38 @@ export function withLangfuseObservation<T>(
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return startActiveObservation(
-    attrs.name,
-    async (span) => {
-      span.update({
-        ...(attrs.input !== undefined ? { input: attrs.input } : {}),
-        metadata: {
-          ...attrs.metadata,
-        },
-      })
-      return fn()
-    },
-    { asType: "span" },
+  return runWithLangfuseContext({}, () =>
+    startActiveObservation(
+      attrs.name,
+      async (span) => {
+        span.update({
+          ...(attrs.input !== undefined ? { input: attrs.input } : {}),
+          metadata: {
+            ...attrs.metadata,
+          },
+        })
+        return fn()
+      },
+      { asType: "span" },
+    ),
   )
+}
+
+export type LangfuseUsageDetails = {
+  input?: number
+  output?: number
+  total?: number
+}
+
+function usageDetailsOrUndefined(
+  usage: LangfuseUsageDetails | undefined,
+): LangfuseUsageDetails | undefined {
+  if (!usage) return undefined
+  const details: LangfuseUsageDetails = {}
+  if (usage.input !== undefined) details.input = usage.input
+  if (usage.output !== undefined) details.output = usage.output
+  if (usage.total !== undefined) details.total = usage.total
+  return Object.keys(details).length > 0 ? details : undefined
 }
 
 export function withLangfuseGeneration<T>(
@@ -132,33 +117,40 @@ export function withLangfuseGeneration<T>(
     input: Record<string, unknown>
     metadata?: Record<string, unknown>
     summarizeOutput?: (result: T) => Record<string, unknown>
+    usageFromResult?: (result: T) => LangfuseUsageDetails | undefined
   },
   fn: () => Promise<T>,
 ): Promise<T> {
-  return startActiveObservation(
-    attrs.name,
-    async (generation) => {
-      generation.update({
-        input: attrs.input,
-        ...(attrs.model ? { model: attrs.model } : {}),
-        metadata: {
-          ...attrs.metadata,
-        },
-      })
-      try {
-        const result = await fn()
+  return runWithLangfuseContext({}, () =>
+    startActiveObservation(
+      attrs.name,
+      async (generation) => {
         generation.update({
-          output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+          input: attrs.input,
+          ...(attrs.model ? { model: attrs.model } : {}),
+          metadata: {
+            ...attrs.metadata,
+          },
         })
-        return result
-      } catch (err) {
-        generation.update({
-          level: "ERROR",
-          statusMessage: err instanceof Error ? err.message : String(err),
-        })
-        throw err
-      }
-    },
-    { asType: "generation" },
+        try {
+          const result = await fn()
+          const usageDetails = usageDetailsOrUndefined(
+            attrs.usageFromResult?.(result),
+          )
+          generation.update({
+            output: attrs.summarizeOutput?.(result) ?? { status: "ok" },
+            ...(usageDetails ? { usageDetails } : {}),
+          })
+          return result
+        } catch (err) {
+          generation.update({
+            level: "ERROR",
+            statusMessage: err instanceof Error ? err.message : String(err),
+          })
+          throw err
+        }
+      },
+      { asType: "generation" },
+    ),
   )
 }

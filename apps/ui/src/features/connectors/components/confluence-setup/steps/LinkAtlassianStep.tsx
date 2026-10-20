@@ -7,12 +7,26 @@ import {
   DisclosureHeader,
   DisclosurePanel,
 } from "@/components/ui/Disclosure"
+import { InlineLoader } from "@/components/ui/InlineLoader"
 import { authClient } from "@/lib/auth-client"
 import {
   atlassianConnectorKeys,
   fetchOrgAtlassianOauth,
 } from "../../../queries/atlassian-connector"
 import { AtlassianOauthAppSavedSection } from "../../AtlassianOauthAppSavedSection"
+
+/**
+ * The account link leaves the page. The connectors page reads
+ * `atlassianConnectionId` and opens the wizard again for this connection.
+ */
+function atlassianLinkReturnPath(
+  href: string,
+  atlassianConnectionId: string,
+): string {
+  const back = new URL(href)
+  back.searchParams.set("atlassianConnectionId", atlassianConnectionId)
+  return `${back.pathname}${back.search}`
+}
 
 type LinkAtlassianStepProps = {
   orgSlug: string
@@ -32,6 +46,9 @@ export function LinkAtlassianStep({
   })
 
   const useGlobalOauth = meta.data?.globalAtlassianOAuthConfigured === true
+
+  const returnPath = () =>
+    atlassianLinkReturnPath(window.location.href, atlassianConnectionId)
 
   return (
     <div className="space-y-4">
@@ -61,9 +78,7 @@ export function LinkAtlassianStep({
           </p>
         )}
       </div>
-      {meta.isPending ? (
-        <p className="text-sm text-muted-foreground">Loading…</p>
-      ) : null}
+      {meta.isPending ? <InlineLoader label="Loading Atlassian OAuth" /> : null}
       {meta.isError ? (
         <p className="text-sm text-destructive">
           Could not load org OAuth settings.
@@ -73,12 +88,12 @@ export function LinkAtlassianStep({
         <div className="space-y-3">
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isPending={meta.isPending}
             onPress={async () => {
               await authClient.linkSocial({
                 provider: "atlassian",
-                callbackURL: window.location.pathname,
+                callbackURL: returnPath(),
               })
             }}
           >
@@ -104,9 +119,9 @@ export function LinkAtlassianStep({
           </Disclosure>
           <Button
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={() => {
-              const returnTo = `${window.location.pathname}${window.location.search}`
+              const returnTo = returnPath()
               const u = new URL(
                 `/${orgSlug}/api/v1/org/atlassian-oauth/authorize`,
                 window.location.origin,

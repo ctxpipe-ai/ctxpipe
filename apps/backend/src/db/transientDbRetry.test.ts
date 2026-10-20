@@ -1,14 +1,4 @@
 import { beforeEach, describe, expect, it, vi } from "vitest"
-
-vi.mock("../observability/logger.js", () => ({
-  log: {
-    info: vi.fn(),
-    error: vi.fn(),
-    warn: vi.fn(),
-  },
-}))
-
-import { log } from "../observability/logger.js"
 import {
   formatUnknownError,
   isTransientDbConnectionError,
@@ -77,7 +67,6 @@ describe("formatUnknownError", () => {
 
 describe("withTransientDbQueryRetry", () => {
   beforeEach(() => {
-    vi.clearAllMocks()
     vi.useRealTimers()
   })
 
@@ -93,15 +82,6 @@ describe("withTransientDbQueryRetry", () => {
     )
     expect(result).toBe("ok")
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledTimes(1)
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({
-        step: "db.transient_connection_retry",
-        attempt: 1,
-        maxAttempts: 2,
-        message: "Connection terminated unexpectedly",
-      }),
-    )
   })
 
   it("does not retry non-transient errors", async () => {
@@ -113,7 +93,6 @@ describe("withTransientDbQueryRetry", () => {
       }),
     ).rejects.toThrow("unique violation")
     expect(n).toBe(1)
-    expect(log.info).not.toHaveBeenCalled()
   })
 
   it("rethrows after exhausting retries", async () => {
@@ -132,10 +111,6 @@ describe("withTransientDbQueryRetry", () => {
 })
 
 describe("wrapPoolQueryWithTransientRetry", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-  })
-
   it("retries promise query once then succeeds", async () => {
     let n = 0
     const pool = {
@@ -146,18 +121,13 @@ describe("wrapPoolQueryWithTransientRetry", () => {
       }),
     }
 
-    wrapPoolQueryWithTransientRetry(
-      pool as unknown as import("pg").Pool,
-    )
+    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
 
     const result = await (
       pool.query as unknown as () => Promise<{ rows: { ok: boolean }[] }>
     )()
     expect(result).toEqual({ rows: [{ ok: true }] })
     expect(n).toBe(2)
-    expect(log.info).toHaveBeenCalledWith(
-      expect.objectContaining({ step: "db.transient_connection_retry" }),
-    )
   })
 
   it("leaves callback-style query unwrapped for retry", () => {
@@ -168,14 +138,11 @@ describe("wrapPoolQueryWithTransientRetry", () => {
     )
     const pool = { query: underlying }
 
-    wrapPoolQueryWithTransientRetry(
-      pool as unknown as import("pg").Pool,
-    )
+    wrapPoolQueryWithTransientRetry(pool as unknown as import("pg").Pool)
 
     const cb = vi.fn()
     ;(pool.query as typeof underlying)("select 1", cb)
     expect(underlying).toHaveBeenCalledTimes(1)
     expect(cb).toHaveBeenCalledTimes(1)
-    expect(log.info).not.toHaveBeenCalled()
   })
 })

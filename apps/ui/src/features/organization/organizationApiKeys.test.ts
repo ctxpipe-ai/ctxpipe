@@ -1,4 +1,13 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import HyperDX from "@hyperdx/browser"
+import {
+  afterEach,
+  beforeEach,
+  describe,
+  expect,
+  it,
+  type MockInstance,
+  vi,
+} from "vitest"
 
 const fetchMock = vi.fn<typeof fetch>()
 
@@ -16,17 +25,21 @@ function jsonResponse(body: object): Response {
 }
 
 describe("API-key client", () => {
+  let addAction: MockInstance<(typeof HyperDX)["addAction"]>
+
   beforeEach(() => {
     vi.stubGlobal("fetch", fetchMock)
     vi.resetModules()
+    addAction = vi.spyOn(HyperDX, "addAction").mockImplementation(() => {})
   })
 
   afterEach(() => {
+    addAction.mockRestore()
     vi.unstubAllGlobals()
     fetchMock.mockReset()
   })
 
-  it("lists only the requested organisation key configuration", async () => {
+  it("lists only the requested organization key configuration", async () => {
     const { listOrganizationApiKeys } = await import("./organizationApiKeys")
     fetchMock.mockResolvedValue(
       jsonResponse({ apiKeys: [{ id: "key_org", name: "ci" }], total: 1 }),
@@ -45,7 +58,7 @@ describe("API-key client", () => {
     )
   })
 
-  it("creates organisation-owned keys and explicitly clears a never expiry", async () => {
+  it("creates organization-owned keys and explicitly clears a never expiry", async () => {
     const { createOrganizationApiKey } = await import("./organizationApiKeys")
     fetchMock
       .mockResolvedValueOnce(jsonResponse({ id: "key_org", key: "secret" }))
@@ -69,7 +82,7 @@ describe("API-key client", () => {
     })
   })
 
-  it("revokes only through the organisation key configuration", async () => {
+  it("revokes only through the organization key configuration", async () => {
     const { deleteOrganizationApiKey } = await import("./organizationApiKeys")
     fetchMock.mockResolvedValue(jsonResponse({ success: true }))
 
@@ -81,7 +94,7 @@ describe("API-key client", () => {
     })
   })
 
-  it("uses the personal key configuration without an organisation id", async () => {
+  it("uses the personal key configuration without an organization id, and sends the org set", async () => {
     const { createPersonalApiKey, deletePersonalApiKey, listPersonalApiKeys } =
       await import("./organizationApiKeys")
     fetchMock
@@ -95,6 +108,7 @@ describe("API-key client", () => {
     await createPersonalApiKey({
       name: "my-agent",
       expiresIn: 30 * 24 * 60 * 60,
+      organizationIds: ["org_a", "org_b"],
     })
     await deletePersonalApiKey("key_personal")
 
@@ -106,9 +120,110 @@ describe("API-key client", () => {
       name: "my-agent",
       expiresIn: 2_592_000,
     })
+    // The backend writes this org set before it answers with the secret.
+    expect(requestAt(1).headers.get("x-ctxpipe-api-key-organizations")).toBe(
+      "org_a,org_b",
+    )
     expect(await requestAt(2).json()).toEqual({
       keyId: "key_personal",
       configId: "default",
+    })
+  })
+
+  describe("HyperDX actions", () => {
+    it("counts each organization of the set once", async () => {
+      const { createPersonalApiKey } = await import("./organizationApiKeys")
+      fetchMock.mockResolvedValueOnce(
+        jsonResponse({ id: "key_personal", key: "SECRET_PERSONAL" }),
+      )
+
+      await createPersonalApiKey({
+        name: "my-agent",
+        expiresIn: 2_592_000,
+        organizationIds: ["org_a", "org_a", "org_b"],
+      })
+
+      expect(addAction.mock.calls[0]?.[1]).toMatchObject({
+        organization_count: 2,
+      })
+    })
+
+    it("records api_key_create with the key id, the owner and the org set size, and never the secret", async () => {
+      const { createOrganizationApiKey, createPersonalApiKey } = await import(
+        "./organizationApiKeys"
+      )
+      fetchMock
+        .mockResolvedValueOnce(
+          jsonResponse({ id: "key_personal", key: "SECRET_PERSONAL" }),
+        )
+        .mockResolvedValueOnce(
+          jsonResponse({ id: "key_org", key: "SECRET_ORG" }),
+        )
+
+      await createPersonalApiKey({
+        name: "my-agent",
+        expiresIn: 2_592_000,
+        organizationIds: ["org_a", "org_b"],
+      })
+      await createOrganizationApiKey({
+        organizationId: "org_acme",
+        name: "ci",
+        expiresIn: 2_592_000,
+      })
+
+      expect(addAction.mock.calls).toEqual([
+        [
+          "api_key_create",
+          { owner: "personal", key_id: "key_personal", organization_count: 2 },
+        ],
+        ["api_key_create", { owner: "organization", key_id: "key_org" }],
+      ])
+      expect(JSON.stringify(addAction.mock.calls)).not.toContain("SECRET")
+    })
+
+    it("records no api_key_create when the key is not created", async () => {
+      const { createOrganizationApiKey } = await import("./organizationApiKeys")
+      fetchMock.mockResolvedValue(
+        new Response(JSON.stringify({ message: "Forbidden" }), {
+          status: 403,
+          headers: { "content-type": "application/json" },
+        }),
+      )
+
+      await expect(
+        createOrganizationApiKey({
+          organizationId: "org_acme",
+          name: "ci",
+          expiresIn: null,
+        }),
+      ).rejects.toBeDefined()
+
+      expect(addAction).not.toHaveBeenCalled()
+    })
+
+    it("records api_key_revoke with the key id and the owner", async () => {
+      const { deleteOrganizationApiKey, deletePersonalApiKey } = await import(
+        "./organizationApiKeys"
+      )
+      fetchMock.mockImplementation(async () => jsonResponse({ success: true }))
+
+      await deletePersonalApiKey("key_personal")
+      await deleteOrganizationApiKey("key_org")
+
+      expect(addAction.mock.calls).toEqual([
+        ["api_key_revoke", { owner: "personal", key_id: "key_personal" }],
+        ["api_key_revoke", { owner: "organization", key_id: "key_org" }],
+      ])
+    })
+
+    it("records api_key_copy with the key id and the owner, and never the secret", async () => {
+      const { recordApiKeyCopied } = await import("./organizationApiKeys")
+
+      recordApiKeyCopied("personal", "key_personal")
+
+      expect(addAction.mock.calls).toEqual([
+        ["api_key_copy", { owner: "personal", key_id: "key_personal" }],
+      ])
     })
   })
 })

@@ -1,31 +1,21 @@
-import type { NotionResource } from "./types"
-
 type SetupStatus = {
   setupPhase: string
-  selectedResourceCount: number | null
-  pendingConfigPullUrl?: string | null
-  pendingConfigPrCreating?: boolean
-}
-
-type SetupProgressStatus = SetupStatus & {
-  isGithubLinked: boolean
-  syncTargetConfigured: boolean
-  pendingConfigPullUrl: string | null
-  pendingConfigPrCreating?: boolean
   isInstalled?: boolean
 }
 
-export type NotionOauthMeta = {
+type NotionOauthMeta = {
   oauthAppSaved: boolean
   globalNotionOAuthConfigured: boolean
   webhookConfigured?: boolean
 }
 
+/**
+ * A connection holds auth only (ADR-050): connect Notion, then add it to
+ * Workspaces. Each Workspace keeps its pages and databases in its sources.
+ */
 export const NOTION_SETUP_STEPS = [
-  { id: "github", label: "Link GitHub account" },
-  { id: "target", label: "Select sync repository" },
-  { id: "scope", label: "Choose Notion content" },
-  { id: "merge", label: "Approve configuration in GitHub" },
+  { id: "connect", label: "Connect Notion" },
+  { id: "workspaces", label: "Add to Workspaces" },
 ] as const
 
 export const SELF_HOSTED_NOTION_SETUP_STEPS = [
@@ -61,100 +51,31 @@ export function shouldShowNotionWebhookStep(
   )
 }
 
-export type NotionFailureAction = "retry_config" | "retry_content"
-
-export function getNotionFailureAction(
-  status: Pick<SetupStatus, "setupPhase">,
-): NotionFailureAction | null {
-  if (status.setupPhase === "sync_failed") return "retry_content"
-  if (status.setupPhase === "config_failed") return "retry_config"
-  return null
-}
-
 export function getNotionSetupCurrentIndex(
-  status: SetupProgressStatus,
+  status: SetupStatus,
   oauthMeta?: NotionOauthMeta,
+  options: { workspacesDone?: boolean } = {},
 ): number {
-  const selfHost = getNotionSetupSteps(oauthMeta)[0]?.id === "register"
+  const steps = getNotionSetupSteps(oauthMeta)
+  const selfHost = steps[0]?.id === "register"
   const offset = selfHost ? 2 : 0
-  if (selfHost && status.isInstalled === false) {
-    if (!oauthMeta?.oauthAppSaved) return 0
-    return 1
+  if (!status.isInstalled) {
+    if (selfHost && !oauthMeta?.oauthAppSaved) return 0
+    if (selfHost && !oauthMeta?.webhookConfigured) return 1
+    return offset
   }
-  if (!status.isGithubLinked) return offset
-  if (!status.syncTargetConfigured) return 1 + offset
-  // Pre-PR config failure has no git draft — resubmit resources.
-  if (
-    status.setupPhase === "config_failed" &&
-    !status.pendingConfigPullUrl &&
-    !status.pendingConfigPrCreating
-  ) {
-    return 2 + offset
-  }
-  // Git scope is loaded only inside setup. Status polling must stay DB-only, so
-  // the count is null and lifecycle state drives progress here.
-  if (
-    status.pendingConfigPrCreating ||
-    status.pendingConfigPullUrl ||
-    status.setupPhase === "awaiting_merge" ||
-    status.setupPhase === "config_failed" ||
-    status.setupPhase === "initial_sync" ||
-    status.setupPhase === "sync_failed"
-  ) {
-    return 3 + offset
-  }
-  if (status.setupPhase === "live") {
-    return getNotionSetupSteps(oauthMeta).length
-  }
-  return 2 + offset
+  return options.workspacesDone ? steps.length : offset + 1
 }
 
+/** The card action while setup is not done, or null once Notion is connected. */
 export function getNotionCardCtaLabel(
   status: SetupStatus,
   oauthMeta?: NotionOauthMeta,
-): string {
-  if (status.setupPhase === "draft") {
-    if (shouldShowNotionRegisterStep(oauthMeta)) {
-      return "Register OAuth app"
-    }
-    if (shouldShowNotionWebhookStep(oauthMeta)) {
-      if (!oauthMeta?.webhookConfigured) return "Add webhook"
-      return "Connect Notion"
-    }
-  }
-  if (getNotionFailureAction(status)) return "Review failure"
-  if (status.setupPhase === "live") {
-    return "Manage scope"
-  }
-  if (
-    status.pendingConfigPrCreating ||
-    status.pendingConfigPullUrl ||
-    status.setupPhase === "awaiting_merge" ||
-    status.setupPhase === "initial_sync"
-  ) {
-    return "Continue setup"
-  }
-  return "Set up"
-}
-
-function scopeKeys(resources: NotionResource[]): string[] {
-  return resources
-    .map((resource) => `${resource.type}:${resource.externalId}`)
-    .sort()
-}
-
-export function hasNotionScopeChanged(
-  saved: NotionResource[],
-  selected: NotionResource[],
-): boolean {
-  return (
-    JSON.stringify(scopeKeys(saved)) !== JSON.stringify(scopeKeys(selected))
-  )
-}
-
-export function shouldShowNotionSetupComplete(
-  status: SetupStatus,
-  manageScope: boolean,
-): boolean {
-  return !manageScope && status.setupPhase === "live"
+): string | null {
+  // The setup dialog adds a connected Notion to more Workspaces.
+  if (status.isInstalled) return "Manage"
+  if (shouldShowNotionRegisterStep(oauthMeta)) return "Register OAuth app"
+  if (shouldShowNotionWebhookStep(oauthMeta) && !oauthMeta?.webhookConfigured)
+    return "Add webhook"
+  return "Connect Notion"
 }

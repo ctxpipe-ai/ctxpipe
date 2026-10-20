@@ -4,8 +4,9 @@
 
 ctx| is an organization-scoped context platform for engineering teams and AI
 agents. It ingests selected Git repositories and Git-backed connector content,
-builds search indexes and graph claims, and exposes that context through Chat,
-the knowledge graph UI, and the `ctx_advisor` MCP tool.
+builds search indexes and graph claims, and exposes that context through
+git-backed Workspaces (Workspace chat, Files, Graph) and the product MCP
+([workspaces PRD](PRDs/workspaces.md)).
 
 The monorepo uses pnpm workspaces, Turbo, and Biome. The repository is licensed
 under the MIT License.
@@ -13,7 +14,7 @@ under the MIT License.
 ## Applications and packages
 
 - **`apps/backend`** — Hono on Bun. Owns the REST API, in-process MCP endpoint,
-  Better Auth, Drizzle schema and migrations, LangGraph graphs, retrieval, and
+  Better Auth, Drizzle schema and migrations, Workspace chat, retrieval, and
   OpenWorkflow enqueue paths.
 - **Backend worker** — the `apps/backend` OpenWorkflow worker runs durable
   repository indexing, ingestion, deletion, GitHub synchronization, and
@@ -37,6 +38,8 @@ under the MIT License.
 - **`packages/aws-cdk`** — AWS self-hosting construct, with a runnable example
   under `examples/aws-cdk-self-host`.
 
+Workspace chat is stock TanStack (`useChat` + persistence + sandbox) against git-backed Workspaces ([ADR-044](decisions/ADR-044-workspace-chat-stock-tanstack.md)). Codesearch is one service: Zoekt lexical search, SCIP graph, ast-grep structural match, and checkout file reads ([ADR-008](decisions/ADR-008-codesearch-zoekt-orchestration.md)).
+
 ## Data and tenancy
 
 - PostgreSQL 17 with pgvector stores application, auth, repository, connection,
@@ -53,11 +56,15 @@ under the MIT License.
 ## Ingestion and retrieval
 
 - Repository and connector events enqueue durable OpenWorkflow jobs.
-- `repository-ingestion` coordinates repository indexing and graph extraction.
-  Its indexing child calls codesearch phases for checkout, Zoekt, language
-  detection, SCIP, and SCIP merge.
-- LangGraph remains responsible for code extraction and the conversation graph;
-  it is not the durable workflow engine.
+- `repository-ingestion` coordinates repository indexing. Its indexing child
+  calls codesearch phases for checkout, Zoekt, language detection, SCIP, and
+  SCIP merge.
+- Knowledge extraction is ingestion v2: sandbox skills that write patches
+  ([ADR-052](decisions/ADR-052-ingestion-sandbox-skills-patches.md)). It
+  publishes only for a Workspace at format 3 or more. Below format 3 no
+  ingestion runs. The old pipeline (ReAct agents and the legacy capture) is
+  deleted. Workspace chat runs OpenCode in a sandbox
+  ([ADR-044](decisions/ADR-044-workspace-chat-stock-tanstack.md)).
 - The backend owns repository readiness and indexing status. Codesearch records
   checkout and indexing-step metadata.
 - Retrieval combines code search, repository files, extracted objects and
@@ -66,14 +73,15 @@ under the MIT License.
 ## MCP and product interfaces
 
 - REST routes are organization-scoped under `/:orgSlug/api/v1`.
-- The product MCP is a Streamable HTTP endpoint at `/mcp`. `ctx_advisor` is
-  the product tool and runs the same conversation graph used by Chat. Humans
-  default to OAuth: grants are bound to one organization before consent;
-  explicit `orgSlug` remains for legacy/manual clients and cannot override a
-  bound grant. Organization-owned API keys (`x-api-key`) are the
-  non-interactive twin of that binding: one org per key, no user session,
-  MCP-only, advisor conversations with `userId` null. Personal user keys
-  remain. See [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
+- The product MCP is a Streamable HTTP endpoint at `/mcp`. It has seven
+  read-only tools (`list_workspaces`, `search_knowledge`, `search_code`,
+  `find_symbol`, `read_file`, `list_files`, `get_related`); `ctx_advisor` is
+  removed. Humans default to OAuth: a grant holds a set of organizations that
+  the user ticks at consent and edits on Connected apps. Each call names one
+  organization with the `org` argument; the `?orgSlug=` URL parameter is
+  ignored. Organization-owned API keys (`x-api-key`) are the non-interactive
+  twin of that binding: one org per key, no user session, MCP-only. Personal
+  user keys remain and read every organization that the user is a member of. See [ADR-051](decisions/ADR-051-mcp-read-surface.md), [ADR-026](decisions/ADR-026-claude-plugin-mcp-distribution.md)
   and [ADR-030](decisions/ADR-030-organization-owned-mcp-api-keys.md).
 - Claude Code, Cowork, and Claude Tag install the hosted MCP through the plugin
   at `plugins/ctxpipe` (marketplace `.claude-plugin/marketplace.json`). The
@@ -88,9 +96,9 @@ under the MIT License.
 
 - Connections use the unified `connections` model with GitHub, Confluence
   (`forge`), Linear, Notion, and Slack connection types.
-- GitHub repositories are selected and ingested directly. An optional
+- GitHub repositories are linked to Workspaces and ingested. The
   pull-request mirror (ADR-031) copies merged PR conversation and change
-  lists into the context repository. Graph extraction locates every
+  lists into every Workspace repository that links the repository. Graph extraction locates every
   path-bearing object on a `File` node (ADR-032); pull-request change
   predicates hang off `PullRequest` onto those same files.
 - Connector Markdown is parsed into typed nodes by a registry of

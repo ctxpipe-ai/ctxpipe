@@ -1,6 +1,6 @@
 import { getGraphClient, withGraphClient } from "../../platform/graph/client.js"
 
-export type TraversalResult = {
+type TraversalResult = {
   nodeIds: string[]
   edgeClaimIds: string[]
   depth: number
@@ -12,20 +12,21 @@ const MAX_DEPTH = 5
 /** Reference, cause and ownership families (ADR-033); containment and change stay on the core walk. */
 export const EXTENSION_TRAVERSAL_PREDICATES = [
   "REFERENCES",
+  "RESOLVES",
   "MENTIONS",
   "INFLUENCES",
   "SUPERSEDES",
   "OWNS",
 ] as const
 
-export type GraphTraversalOptions = {
+type GraphTraversalOptions = {
   /** Max depth (default 3, clamped to 1-5) */
   maxDepth?: number
   /** Max number of paths to return (default 50) */
   limit?: number
   /** When set, filter edges to those valid at this time */
   validAt?: Date
-  /** When true, only traverse reference / cause / ownership edges (REFERENCES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS) */
+  /** When true, only traverse reference / cause / ownership edges (REFERENCES, RESOLVES, MENTIONS, INFLUENCES, SUPERSEDES, OWNS) */
   useExtensionLayer?: boolean
 }
 

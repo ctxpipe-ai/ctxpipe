@@ -1,8 +1,12 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 
-const createRepositoryMock = vi.hoisted(() => vi.fn())
+const createOrGetRepositoryMock = vi.hoisted(() => vi.fn())
 const getRepositoryMock = vi.hoisted(() => vi.fn())
 const enqueueIngestionMock = vi.hoisted(() =>
   vi.fn().mockResolvedValue(undefined),
@@ -16,7 +20,7 @@ vi.mock("../../models/repositories.js", async (importOriginal) => {
     await importOriginal<typeof import("../../models/repositories.js")>()
   return {
     ...actual,
-    createRepository: createRepositoryMock,
+    createOrGetRepository: createOrGetRepositoryMock,
     getRepository: getRepositoryMock,
   }
 })
@@ -29,7 +33,48 @@ vi.mock("../../openworkflow/enqueue-repository-deletion.js", () => ({
   enqueueRepositoryDeletionWorkflow: enqueueDeletionMock,
 }))
 
+import { usePlainGitNetwork } from "../../services/git/plain-git-remote.js"
 import { repositoryRoutes } from "./repositories.js"
+
+beforeAll(() => {
+  // The route checks each git URL as a plain git URL (CTX-815); the test
+  // has its own DNS answer.
+  usePlainGitNetwork({ lookup: async () => [{ address: "140.82.112.3" }] })
+})
+
+function appWithAuth(options?: { orgSlug?: string }) {
+  const app = new OpenAPIHono<AppEnv>()
+  app.use(contextStorage())
+  app.use(withTestRequestLogger)
+  app.use("*", async (c, next) => {
+    c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
+    c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
+    if (options?.orgSlug) c.set("orgSlug", options.orgSlug)
+    await next()
+  })
+  app.route("/repositories", repositoryRoutes)
+  return app
+}
+
+const createdRepository = {
+  id: "repo_ABC",
+  orgId: "org_mock123",
+  zoektRepoId: 123,
+  name: "ctxpipe",
+  gitUrl: "https://github.com/appear/ctxpipe.git",
+  indexReady: false,
+  indexingStatus: "queued" as const,
+  indexingError: null,
+  indexingFailedAt: null,
+  indexingReason: null,
+  indexingStep: null,
+  indexingStepTotal: null,
+  indexingStepKey: null,
+  lastIngestedHash: null,
+  lastIngestedAt: null,
+  createdAt: new Date("2026-02-21T10:00:00.000Z"),
+  updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+}
 
 describe("POST /api/v1/repositories", () => {
   beforeEach(() => {
@@ -39,43 +84,12 @@ describe("POST /api/v1/repositories", () => {
   })
 
   it("creates repository and triggers ingestion workflow", async () => {
-    createRepositoryMock.mockResolvedValue({
+    createOrGetRepositoryMock.mockResolvedValue({
+      repository: createdRepository,
       created: true,
-      repository: {
-        id: "repo_ABC",
-        orgId: "org_mock123",
-        zoektRepoId: 123,
-        name: "ctxpipe",
-        gitUrl: "https://github.com/appear/ctxpipe.git",
-        indexReady: false,
-        indexingStatus: "queued",
-        indexingError: null,
-        indexingFailedAt: null,
-        indexingReason: null,
-        indexingStep: null,
-        indexingStepTotal: null,
-        indexingStepKey: null,
-        lastIngestedHash: null,
-        lastIngestedAt: null,
-        createdAt: new Date("2026-02-21T10:00:00.000Z"),
-        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
-      },
     })
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth()
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -94,7 +108,7 @@ describe("POST /api/v1/repositories", () => {
       indexingStepTotal: null,
       indexingStepKey: null,
     })
-    expect(createRepositoryMock).toHaveBeenCalledWith({
+    expect(createOrGetRepositoryMock).toHaveBeenCalledWith({
       name: "ctxpipe",
       gitUrl: "https://github.com/appear/ctxpipe.git",
     })
@@ -105,43 +119,18 @@ describe("POST /api/v1/repositories", () => {
   })
 
   it("returns indexingStep fields when set", async () => {
-    createRepositoryMock.mockResolvedValue({
-      created: true,
+    createOrGetRepositoryMock.mockResolvedValue({
       repository: {
-        id: "repo_ABC",
-        orgId: "org_mock123",
-        zoektRepoId: 123,
-        name: "ctxpipe",
-        gitUrl: "https://github.com/appear/ctxpipe.git",
-        indexReady: false,
+        ...createdRepository,
         indexingStatus: "running",
-        indexingError: null,
-        indexingFailedAt: null,
-        indexingReason: null,
         indexingStep: 7,
         indexingStepTotal: 22,
-        indexingStepKey: "embedding",
-        lastIngestedHash: null,
-        lastIngestedAt: null,
-        createdAt: new Date("2026-02-21T10:00:00.000Z"),
-        updatedAt: new Date("2026-02-21T10:00:00.000Z"),
+        indexingStepKey: "finalizing",
       },
+      created: true,
     })
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth()
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -156,27 +145,14 @@ describe("POST /api/v1/repositories", () => {
     expect(body).toMatchObject({
       indexingStep: 7,
       indexingStepTotal: 22,
-      indexingStepKey: "embedding",
+      indexingStepKey: "finalizing",
     })
   })
 
   it("returns 500 when createRepository fails", async () => {
-    createRepositoryMock.mockRejectedValue(new Error("create failed"))
+    createOrGetRepositoryMock.mockRejectedValue(new Error("create failed"))
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth()
     const res = await app.request("/repositories", {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -190,6 +166,55 @@ describe("POST /api/v1/repositories", () => {
     expect(res.status).toBe(500)
     expect(enqueueIngestionMock).not.toHaveBeenCalled()
   })
+
+  it("returns 200 for an existing repository that is not being deleted", async () => {
+    createOrGetRepositoryMock.mockResolvedValue({
+      repository: createdRepository,
+      created: false,
+    })
+
+    const app = appWithAuth()
+    const res = await app.request("/repositories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+      }),
+    })
+
+    expect(res.status).toBe(200)
+    const body = await res.json()
+    expect(body).toMatchObject({ id: "repo_ABC" })
+    expect(enqueueIngestionMock).toHaveBeenCalledWith(
+      { repositoryId: "repo_ABC", orgId: "org_mock123" },
+      expect.any(Object),
+    )
+  })
+
+  it("returns 409 when the existing repository is being deleted", async () => {
+    createOrGetRepositoryMock.mockResolvedValue({
+      repository: {
+        ...createdRepository,
+        indexingStatus: "unindexing",
+      },
+      created: false,
+    })
+
+    const app = appWithAuth()
+    const res = await app.request("/repositories", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        name: "ctxpipe",
+        gitUrl: "https://github.com/appear/ctxpipe.git",
+      }),
+    })
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "Repository is being deleted" })
+    expect(enqueueIngestionMock).not.toHaveBeenCalled()
+  })
 })
 
 describe("POST /api/v1/repositories/:id/reindex", () => {
@@ -200,39 +225,13 @@ describe("POST /api/v1/repositories/:id/reindex", () => {
 
   it("enqueues manual reindex for an existing repository", async () => {
     getRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
+      ...createdRepository,
       indexingStatus: "failed",
       indexingError: "codesearch failed",
       indexingFailedAt: new Date("2026-02-21T10:00:00.000Z"),
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth()
 
     const res = await app.request("/repositories/repo_ABC/reindex", {
       method: "POST",
@@ -260,40 +259,11 @@ describe("DELETE /api/v1/repositories/:id", () => {
 
   it("returns 202 and enqueues durable deletion from the loaded repository", async () => {
     getRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
+      ...createdRepository,
       indexingStatus: "ready",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("orgSlug", "acme")
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth({ orgSlug: "acme" })
 
     const res = await app.request("/repositories/repo_ABC", {
       method: "DELETE",
@@ -315,21 +285,7 @@ describe("DELETE /api/v1/repositories/:id", () => {
   it("returns 404 when repository is not found", async () => {
     getRepositoryMock.mockResolvedValue(null)
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("orgSlug", "acme")
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth({ orgSlug: "acme" })
 
     const res = await app.request("/repositories/repo_missing", {
       method: "DELETE",
@@ -341,41 +297,12 @@ describe("DELETE /api/v1/repositories/:id", () => {
 
   it("returns 404 when enqueue reports the row is already gone", async () => {
     getRepositoryMock.mockResolvedValue({
-      id: "repo_ABC",
-      orgId: "org_mock123",
-      zoektRepoId: 123,
-      name: "ctxpipe",
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-      indexReady: false,
+      ...createdRepository,
       indexingStatus: "unindexing",
-      indexingError: null,
-      indexingFailedAt: null,
-      indexingReason: null,
-      indexingStep: null,
-      indexingStepTotal: null,
-      indexingStepKey: null,
-      lastIngestedHash: null,
-      lastIngestedAt: null,
-      createdAt: new Date("2026-02-21T10:00:00.000Z"),
-      updatedAt: new Date("2026-02-21T10:00:00.000Z"),
     })
     enqueueDeletionMock.mockResolvedValue(null)
 
-    const app = new OpenAPIHono<AppEnv>()
-    app.use("*", async (c, next) => {
-      c.set("user", { id: "user_test" } as AppEnv["Variables"]["user"])
-      c.set("session", { id: "sess_test" } as AppEnv["Variables"]["session"])
-      c.set("orgSlug", "acme")
-      c.set("log", {
-        error: vi.fn(),
-        info: vi.fn(),
-        warn: vi.fn(),
-        debug: vi.fn(),
-        child: vi.fn(),
-      } as unknown as AppEnv["Variables"]["log"])
-      await next()
-    })
-    app.route("/repositories", repositoryRoutes)
+    const app = appWithAuth({ orgSlug: "acme" })
 
     const res = await app.request("/repositories/repo_ABC", {
       method: "DELETE",

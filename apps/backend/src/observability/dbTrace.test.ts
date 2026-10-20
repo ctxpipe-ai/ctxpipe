@@ -91,6 +91,32 @@ describe("graph query spans", () => {
     expect(query?.attributes["error.type"]).toBe("08006")
   })
 
+  it("does not mark an index that already exists as an error", async () => {
+    const exists = new Error("Attribute 'projectionKey' is already indexed")
+    await trace
+      .getTracer("ctxpipe-backend")
+      .startActiveSpan("hydrate", async (job) => {
+        await expect(
+          traceGraphQuery(
+            {
+              system: "falkordb",
+              query:
+                "CREATE INDEX FOR (n:WorkspaceKnowledgeUnit) ON (n.projectionKey, n.id)",
+            },
+            async () => {
+              throw exists
+            },
+          ),
+        ).rejects.toBe(exists)
+        job.end()
+      })
+    const query = exporter
+      .getFinishedSpans()
+      .find((span) => span.name !== "hydrate")
+    expect(query?.status.code).toBe(SpanStatusCode.UNSET)
+    expect(query?.events).toEqual([])
+  })
+
   it("does not start a graph span without an active parent", async () => {
     await traceGraphQuery(
       {

@@ -1,5 +1,7 @@
 import { Button } from "@/components/ui/Button"
+import { InlineAlert } from "@/components/ui/InlineAlert"
 import { authClient } from "@/lib/auth-client"
+import { githubLinkErrorMessage } from "@/lib/popup"
 
 /**
  * Attaching an installation through the deployment's GitHub App needs a linked
@@ -9,9 +11,12 @@ import { authClient } from "@/lib/auth-client"
 export function GithubNotLinkedNotice({
   githubSignInEnabled,
   orgSlug,
+  linkError,
 }: {
   githubSignInEnabled: boolean
   orgSlug: string
+  /** The error code of the last link attempt, from the `error` search parameter. */
+  linkError?: string
 }) {
   if (!githubSignInEnabled) {
     return (
@@ -45,16 +50,32 @@ export function GithubNotLinkedNotice({
         To securely link this GitHub App installation, we need to verify that
         you have access to the GitHub App.
       </p>
+      {linkError ? (
+        <div className="mt-6">
+          <InlineAlert
+            variant="error"
+            title="Could not link your GitHub account"
+          >
+            {githubLinkErrorMessage(linkError)}
+          </InlineAlert>
+        </div>
+      ) : null}
 
       <div className="mt-6">
         <Button
           type="button"
           variant="primary"
-          className="rounded-none"
+          className="rounded-md"
           onPress={async () => {
+            // Come back here with or without an error, never to Connectors.
+            const search = new URLSearchParams(window.location.search)
+            search.delete("error")
+            search.delete("error_description")
+            const back = `/.github/setup?${search}`
             await authClient.linkSocial({
               provider: "github",
-              callbackURL: `/.github/setup${window.location.search ?? ""}`,
+              callbackURL: back,
+              errorCallbackURL: back,
             })
           }}
         >

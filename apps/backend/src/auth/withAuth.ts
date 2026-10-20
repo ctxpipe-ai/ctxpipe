@@ -1,6 +1,7 @@
 import { AsyncLocalStorage } from "node:async_hooks"
 import { createHash } from "node:crypto"
-import { and, desc, eq } from "drizzle-orm"
+import { defaultKeyHasher } from "@better-auth/api-key"
+import { desc, eq } from "drizzle-orm"
 import type { Context, MiddlewareHandler, Next } from "hono"
 import {
   createLocalJWKSet,
@@ -9,11 +10,10 @@ import {
   jwtVerify,
 } from "jose"
 import type { AppEnv } from "../app/env.js"
-import { getSystemDb, withOrgDbContext } from "../db/client.js"
+import { getSystemDb } from "../db/client.js"
 import {
-  members,
+  apikeys,
   oauthAccessTokens,
-  organizations,
   sessions,
   users,
 } from "../db/schema/auth.js"
@@ -22,8 +22,14 @@ import {
   attributesForOrgApiKey,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
+import { recordApiKeyEvent } from "./api-key-events.js"
+import { callPrincipalFromContext, resolveCallOrg } from "./call-org.js"
 import { type AuthSession, type AuthUser, getAuth } from "./config.js"
-import { OAUTH_ORGANIZATION_CLAIM } from "./oauth-organization.js"
+import { MCP_READ_SCOPE, quoteHeaderValue } from "./mcp-scopes.js"
+import {
+  OAUTH_GRANT_CLAIM,
+  OAUTH_ORGANIZATION_CLAIM,
+} from "./oauth-organization.js"
 
 /** Seconds — small skew between issuers, clients, and this server (Better Auth / jose guidance). */
 const JWT_CLOCK_TOLERANCE_SECONDS = 60
@@ -70,7 +76,7 @@ function isMcpRequestPath(pathname: string): boolean {
 function wwwAuthenticateInvalidToken(
   errorDescription: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   return {
     "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}"`,
   }
@@ -80,11 +86,11 @@ function wwwAuthenticateInvalidTokenMcp(
   errorDescription: string,
   authBaseUrl: string,
 ): Record<string, string> {
-  const esc = errorDescription.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const esc = quoteHeaderValue(errorDescription)
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
-    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer error="invalid_token", error_description="${esc}", scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -98,9 +104,9 @@ function wwwAuthenticateMcpDiscovery(
   authBaseUrl: string,
 ): Record<string, string> {
   const meta = mcpOAuthProtectedResourceMetadataUrl(authBaseUrl)
-  const metaEsc = meta.replace(/\\/g, "\\\\").replace(/"/g, '\\"')
+  const metaEsc = quoteHeaderValue(meta)
   return {
-    "WWW-Authenticate": `Bearer resource_metadata="${metaEsc}"`,
+    "WWW-Authenticate": `Bearer scope="${MCP_READ_SCOPE}", resource_metadata="${metaEsc}"`,
   }
 }
 
@@ -223,8 +229,9 @@ async function resolveBearerPrincipal(
 async function resolveOpaqueAccessToken(token: string): Promise<{
   session: AuthSession | null
   user: AuthUser
-  oauthOrganizationId: string | null
+  oauthReferenceId: string | null
   oauthClientId: string | null
+  oauthScopes: string[]
 } | null> {
   const db = getSystemDb()
   const hashed = hashOpaqueAccessToken(token)
@@ -244,26 +251,72 @@ async function resolveOpaqueAccessToken(token: string): Promise<{
   return principal
     ? {
         ...principal,
-        oauthOrganizationId: record.referenceId ?? null,
+        oauthReferenceId: record.referenceId ?? null,
         oauthClientId: record.clientId ?? null,
+        oauthScopes: record.scopes,
       }
     : null
+}
+
+async function resolveSessionToken(
+  token: string,
+): Promise<{ session: AuthSession; user: AuthUser } | null> {
+  const db = getSystemDb()
+  const rows = await db
+    .select({ session: sessions, user: users })
+    .from(sessions)
+    .innerJoin(users, eq(sessions.userId, users.id))
+    .where(eq(sessions.token, token))
+    .limit(1)
+  const row = rows[0]
+  if (!row) return null
+  if (row.session.expiresAt && row.session.expiresAt.getTime() <= Date.now()) {
+    return null
+  }
+  return row
+}
+
+export type RequestSession = Awaited<
+  ReturnType<ReturnType<typeof getAuth>["api"]["getSession"]>
+>
+
+/**
+ * The Better Auth session of the request headers. The first caller starts the
+ * lookup and keeps it in `c.var`. The evlog identify middleware and
+ * {@link withCookieAuth} share it, so one request reads the session one time.
+ * Both callers run before a route handler, and no handler reads this value, so
+ * a session change in a handler cannot see a stale value.
+ */
+export function requestSession(c: Context<AppEnv>): Promise<RequestSession> {
+  const known = c.get("sessionLookup")
+  if (known) return known
+  const lookup = getAuth().api.getSession({ headers: c.req.raw.headers })
+  c.set("sessionLookup", lookup)
+  return lookup
 }
 
 export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (c.get("user") || c.get("session") || c.get("orgApiKey")) return next()
   const started = performance.now()
-  const auth = getAuth()
   const apiKeyHeader = c.req.header("x-api-key")?.trim()
-  let authSession: Awaited<ReturnType<typeof auth.api.getSession>> = null
+  let authSession: RequestSession = null
   try {
-    authSession = await auth.api.getSession({
-      headers: c.req.raw.headers,
-    })
+    authSession = await requestSession(c)
   } catch (err) {
-    // Org keys cannot mock a user session. The user-config session hook may
-    // throw when `x-api-key` is an organization key; fall through to verify.
     if (!apiKeyHeader) throw err
+    // getSession checks a personal key and deletes it when it is expired, so
+    // a later verify finds no row. Record the reason of getSession here. An
+    // organization key gets `INVALID_API_KEY` from getSession and falls
+    // through to verify.
+    const refusal = await personalApiKeyRefusal(err, apiKeyHeader)
+    if (refusal) {
+      recordApiKeyRefusal(refusal)
+      return c.json(
+        { error: "Unauthorized" },
+        401,
+        wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+      )
+    }
     authSession = null
   }
   const resolvedIn = Math.round(performance.now() - started)
@@ -302,7 +355,7 @@ function applyPrincipalAttribution(c: Context<AppEnv>): void {
   }
   if (!userId && !oauthClientId) return
   const actorType =
-    oauthClientId || c.get("oauthOrganizationId") ? "oauth_client" : "user"
+    oauthClientId || c.get("oauthReferenceId") ? "oauth_client" : "user"
   applyAttribution({
     "ctxpipe.actor.type": actorType,
     ...(userId ? { "enduser.id": userId } : {}),
@@ -322,11 +375,92 @@ type BearerApiKeyAuthResult =
       kind: "org"
       orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]>
     }
-  | { kind: "invalid" }
+  | { kind: "invalid"; refusal: OrgApiKeyRefusal }
 
-async function resolveOrgApiKey(
+type OrgApiKeyRefusal = {
+  /** `invalid`, `expired`, `disabled`, `rate_limited`, or `not_org_key`. */
+  reason: string
+  /** The key id, when the auth library tells it or the key row still exists. */
+  keyId?: string
+}
+
+/** Our reason for each error code of `verifyApiKey`. */
+function refusalReason(code: unknown): string {
+  switch (code) {
+    case "KEY_EXPIRED":
+      return "expired"
+    case "KEY_DISABLED":
+      return "disabled"
+    case "RATE_LIMITED":
+    case "USAGE_EXCEEDED":
+      return "rate_limited"
+    default:
+      return "invalid"
+  }
+}
+
+/** A refusal with the key id when the key row is still there. */
+async function apiKeyRefusal(
+  reason: string,
   apiKey: string,
-): Promise<NonNullable<AppEnv["Variables"]["orgApiKey"]> | null> {
+): Promise<OrgApiKeyRefusal> {
+  return {
+    reason,
+    keyId:
+      reason === "disabled" || reason === "rate_limited"
+        ? await refusedKeyId(apiKey)
+        : undefined,
+  }
+}
+
+/**
+ * The refusal of a personal key from the error of `getSession`, or undefined
+ * when the error does not tell why (an unknown key, or an organization key).
+ */
+async function personalApiKeyRefusal(
+  err: unknown,
+  apiKey: string,
+): Promise<OrgApiKeyRefusal | undefined> {
+  const code = (err as { body?: { code?: unknown } } | null)?.body?.code
+  const reason = refusalReason(code)
+  return reason === "invalid" ? undefined : apiKeyRefusal(reason, apiKey)
+}
+
+/**
+ * The id of a refused key, found by the hash of the key value. `verifyApiKey`
+ * does not return the key of a refusal. An expired key is already deleted, and
+ * an unknown key has no row, so only a disabled or limited key has an id.
+ */
+async function refusedKeyId(apiKey: string): Promise<string | undefined> {
+  try {
+    const [row] = await getSystemDb()
+      .select({ id: apikeys.id })
+      .from(apikeys)
+      .where(eq(apikeys.key, await defaultKeyHasher(apiKey)))
+      .limit(1)
+    return row?.id
+  } catch {
+    return undefined
+  }
+}
+
+/** One wide event for a refused API key: the reason, and the key id when known. */
+function recordApiKeyRefusal(refusal: OrgApiKeyRefusal) {
+  applyAttribution({ "ctxpipe.api_key.id": refusal.keyId })
+  recordApiKeyEvent({
+    step: "api_key.refused",
+    outcome: "refused",
+    reason: refusal.reason,
+    apiKey: {},
+  })
+}
+
+async function verifyOrgApiKey(
+  apiKey: string,
+): Promise<
+  | { orgApiKey: NonNullable<AppEnv["Variables"]["orgApiKey"]> }
+  | { refusal: OrgApiKeyRefusal }
+> {
   const verified = await getAuth()
     .api.verifyApiKey({ body: { key: apiKey } })
     .catch((err: unknown) => {
@@ -337,19 +471,24 @@ async function resolveOrgApiKey(
       return null
     })
 
-  if (
-    !verified?.valid ||
-    !verified.key ||
-    verified.key.configId !== "organization" ||
-    !verified.key.referenceId
-  ) {
-    return null
+  if (!verified?.valid || !verified.key) {
+    return {
+      refusal: await apiKeyRefusal(
+        refusalReason(verified?.error?.code),
+        apiKey,
+      ),
+    }
+  }
+  if (verified.key.configId !== "organization" || !verified.key.referenceId) {
+    return { refusal: { reason: "not_org_key", keyId: verified.key.id } }
   }
 
   return {
-    id: verified.key.id,
-    orgId: verified.key.referenceId,
-    configId: verified.key.configId,
+    orgApiKey: {
+      id: verified.key.id,
+      orgId: verified.key.referenceId,
+      configId: verified.key.configId,
+    },
   }
 }
 
@@ -374,12 +513,16 @@ async function resolveBearerApiKeyAuth(
         personalApiKeyId: authSession.session.id,
       }
     }
-  } catch {
+  } catch (err) {
+    const refusal = await personalApiKeyRefusal(err, apiKey)
+    if (refusal) return { kind: "invalid", refusal }
     // Org keys cannot mock a user session; fall through to verifyApiKey.
   }
 
-  const orgApiKey = await resolveOrgApiKey(apiKey)
-  return orgApiKey ? { kind: "org", orgApiKey } : { kind: "invalid" }
+  const resolved = await verifyOrgApiKey(apiKey)
+  return "orgApiKey" in resolved
+    ? { kind: "org", orgApiKey: resolved.orgApiKey }
+    : { kind: "invalid", refusal: resolved.refusal }
 }
 
 /**
@@ -393,9 +536,9 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const apiKey = c.req.header("x-api-key")?.trim()
   if (!apiKey) return next()
 
-  const orgApiKey = await resolveOrgApiKey(apiKey)
-  if (!orgApiKey) {
-    getLogger().warn("Unauthorized because of invalid API key")
+  const resolved = await verifyOrgApiKey(apiKey)
+  if ("refusal" in resolved) {
+    recordApiKeyRefusal(resolved.refusal)
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -403,9 +546,24 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     )
   }
 
-  c.set("orgApiKey", orgApiKey)
+  c.set("orgApiKey", resolved.orgApiKey)
   applyPrincipalAttribution(c)
   return next()
+}
+
+/**
+ * The grant reference of a JWT access token: the grant id claim, else the
+ * legacy org id claim, else null. `false` when a claim is present but invalid.
+ */
+function readOAuthReferenceClaim(
+  payload: Record<string, unknown>,
+): string | null | false {
+  for (const claim of [OAUTH_GRANT_CLAIM, OAUTH_ORGANIZATION_CLAIM]) {
+    const value = payload[claim]
+    if (value === undefined) continue
+    return typeof value === "string" && value.length > 0 ? value : false
+  }
+  return null
 }
 
 async function authenticateBearer(
@@ -422,16 +580,25 @@ async function authenticateBearer(
   // Better Auth's oauthProvider only issues JWT access tokens when the client
   // sends the RFC 8707 `resource` parameter (`index.mjs:411`). MCP clients like
   // CodeRabbit omit it, so we get an opaque random string instead. JWTs have
-  // three `.`-separated base64url segments; anything else is opaque OAuth
-  // first, then (on MCP only) a personal/org API key.
+  // three `.`-separated base64url segments; anything else is opaque OAuth,
+  // then a Better Auth session token, then (on MCP only) a personal/org API key.
   if (accessToken.split(".").length !== 3) {
-    const resolved = await resolveOpaqueAccessToken(accessToken)
-    if (resolved) {
+    const opaque = await resolveOpaqueAccessToken(accessToken)
+    if (opaque) {
       c.set("personalApiKeyId", null)
-      c.set("session", resolved.session)
-      c.set("user", resolved.user)
-      c.set("oauthOrganizationId", resolved.oauthOrganizationId)
-      c.set("oauthClientId", resolved.oauthClientId)
+      c.set("session", opaque.session)
+      c.set("user", opaque.user)
+      c.set("oauthReferenceId", opaque.oauthReferenceId)
+      c.set("oauthClientId", opaque.oauthClientId)
+      c.set("oauthScopes", opaque.oauthScopes)
+      applyPrincipalAttribution(c)
+      return next()
+    }
+    const sessionResolved = await resolveSessionToken(accessToken)
+    if (sessionResolved) {
+      c.set("personalApiKeyId", null)
+      c.set("session", sessionResolved.session)
+      c.set("user", sessionResolved.user)
       applyPrincipalAttribution(c)
       return next()
     }
@@ -450,6 +617,11 @@ async function authenticateBearer(
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
         applyPrincipalAttribution(c)
         return next()
+      }
+      // An unknown token can be an OAuth token that expired (a client
+      // refreshes it after this 401), so only a known key is a key refusal.
+      if (apiKeyAuth.refusal.reason !== "invalid") {
+        recordApiKeyRefusal(apiKeyAuth.refusal)
       }
     }
 
@@ -578,12 +750,8 @@ async function authenticateBearer(
       wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
     )
   }
-  const oauthOrganizationClaim = payload[OAUTH_ORGANIZATION_CLAIM]
-  if (
-    oauthOrganizationClaim !== undefined &&
-    (typeof oauthOrganizationClaim !== "string" ||
-      oauthOrganizationClaim.length === 0)
-  ) {
+  const oauthReferenceClaim = readOAuthReferenceClaim(payload)
+  if (oauthReferenceClaim === false) {
     return c.json(
       { error: "Unauthorized" },
       401,
@@ -606,7 +774,11 @@ async function authenticateBearer(
     c.set("personalApiKeyId", null)
     c.set("session", tokenSessionContext.session)
     c.set("user", tokenSessionContext.user)
-    c.set("oauthOrganizationId", oauthOrganizationClaim ?? null)
+    c.set("oauthReferenceId", oauthReferenceClaim)
+    c.set(
+      "oauthScopes",
+      typeof payload.scope === "string" ? payload.scope.split(" ") : [],
+    )
     const clientIdClaim = payload.client_id ?? payload.azp
     if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
       c.set("oauthClientId", clientIdClaim)
@@ -645,7 +817,12 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const orgApiKey = c.get("orgApiKey")
   if (orgApiKey) {
     if (!isMcpRequestPath(c.req.path)) {
-      getLogger().warn("Unauthorized because org API key is MCP-only")
+      recordApiKeyEvent({
+        step: "api_key.refused",
+        outcome: "refused",
+        reason: "mcp_only",
+        apiKey: {},
+      })
       return c.json(
         { error: "Unauthorized" },
         401,
@@ -653,6 +830,29 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       )
     }
     return next()
+  }
+
+  // A personal API key is read-only (see write-grant.ts). Outside /mcp it
+  // reads; every other method gets 403 before the route.
+  if (
+    c.get("personalApiKeyId") &&
+    !isMcpRequestPath(c.req.path) &&
+    !["GET", "HEAD", "OPTIONS"].includes(c.req.method)
+  ) {
+    recordApiKeyEvent({
+      step: "api_key.read_only",
+      outcome: "refused",
+      reason: "read_only",
+      apiKey: {},
+    })
+    return c.json(
+      {
+        error:
+          "API keys are read-only. Sign in, or use an OAuth token with the ctxpipe:write scope.",
+        code: "write_grant_required",
+      },
+      403,
+    )
   }
 
   const hasValidOfflineMcpBearer =
@@ -689,14 +889,16 @@ export async function hasOrgAdminOrOwnerRole(input: {
   }
 }
 
-/** Use after {@link requireAuth} and {@link withNetworkOrgContext}. Requires org admin or owner (Better Auth organization plugin). */
+/** Use after {@link requireAuth} and {@link withNetworkOrgContext}. Requires an org admin or owner session (Better Auth organization plugin); an API key gets 403. */
 export const requireOrgAdminOrOwner: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
   const user = c.get("user")
   const orgId = c.get("orgId")
-  if (!user?.id || !orgId) {
+  // Better Auth gives a personal API key a session with the user's role, so
+  // the role check alone would let the key through.
+  if (!user?.id || !orgId || c.get("personalApiKeyId") || c.get("orgApiKey")) {
     return c.json({ error: "Forbidden" }, 403)
   }
   if (
@@ -714,92 +916,41 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
   c,
   next,
 ) => {
-  const orgApiKey = c.get("orgApiKey")
-  const userId = c.get("user")?.id
+  // REST routes take the org from the URL. `/mcp` does not use this
+  // middleware: MCP read tools name the org in their `org` argument.
   const rawOrgSlug = c.req.param("orgSlug") ?? c.req.query("orgSlug")
-  const orgSlug = rawOrgSlug?.trim() || undefined
-  const oauthOrganizationId = c.get("oauthOrganizationId")
-  const systemDb = getSystemDb()
-  let resolved: { id: string; slug: string } | undefined
-
-  if (orgApiKey) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .where(eq(organizations.id, orgApiKey.orgId))
-      .limit(1)
-    resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
-    }
-  } else if (!userId) {
-    return c.json({ error: "Not found" }, 404)
-  } else if (oauthOrganizationId) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id, slug: organizations.slug })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.id, oauthOrganizationId))
-      .limit(1)
-
-    resolved = orgRows[0]
-    if (!resolved || (orgSlug && resolved.slug !== orgSlug)) {
-      return c.json({ error: "Not found" }, 404)
-    }
-  } else if (orgSlug) {
-    const orgRows = await systemDb
-      .select({ id: organizations.id })
-      .from(organizations)
-      .innerJoin(
-        members,
-        and(
-          eq(members.organizationId, organizations.id),
-          eq(members.userId, userId),
-        ),
-      )
-      .where(eq(organizations.slug, orgSlug))
-      .limit(1)
-    const org = orgRows[0]
-    if (!org) return c.json({ error: "Not found" }, 404)
-    resolved = { id: org.id, slug: orgSlug }
-  } else {
+  const result = await resolveCallOrg(callPrincipalFromContext(c), rawOrgSlug)
+  if (!result.ok && result.error === "org_required") {
     return c.json(
       {
         jsonrpc: "2.0",
         error: {
           code: -32600,
           message:
-            "This OAuth grant is not bound to an organization. Reconnect ctxpipe and select an organization, or use /mcp?orgSlug=<orgSlug> for a manual connection.",
+            "Name an organization: use /mcp?orgSlug=<orgSlug>. Reconnect ctxpipe to select one organization instead.",
         },
         id: null,
       },
       400,
     )
   }
+  if (!result.ok) return c.json({ error: "Not found" }, 404)
+  return bindRequestOrg(c, result.org, next)
+}
 
-  if (!resolved) return c.json({ error: "Not found" }, 404)
-  c.set("orgSlug", resolved.slug)
-  c.set("orgId", resolved.id)
+/**
+ * Make `org` the org of the request: the Hono variables, the org context
+ * for short org SQL, and the request attribution. Do not hold a request-wide
+ * transaction across HTTP, MCP, or sandbox I/O — those gateways call `assertNotInOrgDbContext()`.
+ */
+function bindRequestOrg(c: Context<AppEnv>, org: OrgContext, next: Next) {
+  c.set("orgSlug", org.slug)
+  c.set("orgId", org.id)
   applyAttribution({
-    "ctxpipe.org.id": resolved.id,
-    "ctxpipe.org.slug": resolved.slug,
+    "ctxpipe.org.id": org.id,
+    "ctxpipe.org.slug": org.slug,
   })
-  return withOrgIdContext(
-    { id: resolved.id, slug: resolved.slug },
-    async () => {
-      // MCP tools/call can run the advisor graph for tens of seconds. Holding the
-      // request-wide org transaction across that wait lets Neon/Postgres kill the
-      // idle-in-transaction connection ("Connection terminated unexpectedly").
-      if (isMcpRequestPath(c.req.path)) return next()
-      return withOrgDbContext(resolved.id, async () => next())
-    },
-  )
+  return withOrgIdContext({ id: org.id, slug: org.slug }, () => next())
 }
 
 type OrgContext = { id: string; slug: string }

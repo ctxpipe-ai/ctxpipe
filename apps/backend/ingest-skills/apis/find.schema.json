@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "find-apis result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["root", "specs", "routes", "skipped"],
+  "properties": {
+    "root": { "type": "string" },
+    "specs": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "version", "title", "operations"],
+        "properties": {
+          "path": { "type": "string" },
+          "version": { "type": ["string", "null"] },
+          "title": { "type": ["string", "null"] },
+          "operations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["method", "path"],
+              "properties": {
+                "method": { "type": "string" },
+                "path": { "type": "string" },
+                "operationId": { "type": "string" },
+                "summary": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    },
+    "routes": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["method", "path", "file", "line", "framework"],
+        "properties": {
+          "method": {
+            "type": "string",
+            "description": "An HTTP method, or ANY when the route names none"
+          },
+          "path": { "type": "string" },
+          "file": { "type": "string" },
+          "line": { "type": "integer" },
+          "framework": { "type": "string" }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": ["string", "null"] },
+          "reason": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -77,7 +77,7 @@ describe("writeMergedScipIndex", () => {
     })
     await writeFile(shardPath, shard)
 
-    await writeMergedScipIndex([shardPath], outputPath)
+    await writeMergedScipIndex([shardPath], outputPath, directory)
 
     const output = await readFile(outputPath)
     expect(output).toEqual(Buffer.from(shard))
@@ -97,9 +97,9 @@ describe("writeMergedScipIndex", () => {
     await writeFile(shardPath, new Uint8Array())
     await writeFile(outputPath, published)
 
-    await expect(writeMergedScipIndex([shardPath], outputPath)).rejects.toThrow(
-      `Empty SCIP shard: ${shardPath}`,
-    )
+    await expect(
+      writeMergedScipIndex([shardPath], outputPath, directory),
+    ).rejects.toThrow(`Empty SCIP shard: ${shardPath}`)
 
     expect(await readFile(outputPath)).toEqual(Buffer.from(published))
     expect(await readdir(directory)).toEqual(["index.scip", "typescript.scip"])
@@ -125,7 +125,11 @@ describe("writeMergedScipIndex", () => {
     await writeFile(outputPath, published)
 
     await expect(
-      writeMergedScipIndex([validShardPath, malformedShardPath], outputPath),
+      writeMergedScipIndex(
+        [validShardPath, malformedShardPath],
+        outputPath,
+        directory,
+      ),
     ).rejects.toThrow(`Malformed SCIP shard ${malformedShardPath}`)
 
     expect(await readFile(outputPath)).toEqual(Buffer.from(published))
@@ -171,6 +175,7 @@ describe("publishMergedScipIndex", () => {
       detectedLanguages: ["typescript", "go", "python"],
       shardPaths: [validShardPath, missingShardPath, malformedShardPath],
       outputPath,
+      checkoutPath: directory,
     })
 
     expect(published).toEqual({ shardCount: 1 })
@@ -187,6 +192,7 @@ describe("publishMergedScipIndex", () => {
       detectedLanguages: [],
       shardPaths: [],
       outputPath,
+      checkoutPath: directory,
     })
 
     expect(published).toEqual({ shardCount: 0 })
@@ -210,6 +216,7 @@ describe("publishMergedScipIndex", () => {
       detectedLanguages: ["go"],
       shardPaths: [join(directory, "go.scip")],
       outputPath,
+      checkoutPath: directory,
     })
 
     expect(published).toEqual({ shardCount: 0 })
@@ -226,6 +233,7 @@ describe("publishMergedScipIndex", () => {
       detectedLanguages: ["go"],
       shardPaths: [emptyShardPath],
       outputPath,
+      checkoutPath: directory,
     })
 
     expect(existsSync(emptyShardPath)).toBe(false)
@@ -242,6 +250,7 @@ describe("publishMergedScipIndex", () => {
       detectedLanguages: ["go"],
       shardPaths: [malformedShardPath],
       outputPath,
+      checkoutPath: directory,
     })
 
     expect(existsSync(malformedShardPath)).toBe(false)

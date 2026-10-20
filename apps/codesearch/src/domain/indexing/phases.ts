@@ -2,11 +2,16 @@ import { randomUUID } from "node:crypto"
 import { mkdir, readFile, rename, rm, stat, writeFile } from "node:fs/promises"
 import { dirname, join } from "node:path"
 import { and, eq } from "drizzle-orm"
+import type { CheckedPlainGitRemote } from "../../../../../shared/plain-git.js"
 import { ZOEKT_INDEX_DIR } from "../../config/paths.js"
-import type { Db } from "../../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  type Db,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { repositoryCheckouts } from "../../db/schema.js"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
-import { authenticatedGitUrl } from "../../utils/git.js"
+import { type GitRemote, repositoryGitRemote } from "../../utils/git.js"
 import {
   assertScipIndex,
   encodeScipIndex,
@@ -14,10 +19,7 @@ import {
 } from "../graph/scipProto.js"
 import type { IndexingStepKey } from "../indexingSteps.js"
 import { trySetRepositoryIndexingStep } from "../indexingSteps.js"
-import {
-  DEFAULT_CHECKOUT_KEY,
-  scipLangShardPath,
-} from "../repositories/paths.js"
+import { scipLangShardPath } from "../repositories/paths.js"
 import { resolveRepositoryRef } from "../repositories/resolveRef.js"
 import { refreshPinnedRepo } from "../zoekt/pinManager.js"
 import { detectLanguages, type ScipIndexerId } from "./detectLanguages.js"
@@ -33,6 +35,7 @@ export type IndexPhaseRepoContext = {
   orgId: string
   repoId: string
   repoGitUrl: string
+  checkoutKey: string
   clonePath: string
   scipIndexPath: string
   zoektRepoId: number
@@ -40,9 +43,15 @@ export type IndexPhaseRepoContext = {
   repoName: string
   repoUrl: string
   githubToken?: string
+  /**
+   * The plain git remote that the backend checked, for a repository with no
+   * GitHub token (CTX-815). Codesearch reads that repository only through
+   * it, never through `repoGitUrl`.
+   */
+  plainGit?: CheckedPlainGitRemote
 }
 
-export type CloneCheckoutResult = {
+type CloneCheckoutResult = {
   targetHash: string
   ingestMode: "full" | "partial"
   changedPaths: string[]
@@ -50,7 +59,7 @@ export type CloneCheckoutResult = {
   renames: { from: string; to: string }[]
 }
 
-export type DetectLanguagesResult = {
+type DetectLanguagesResult = {
   detectedLanguages: string[]
   languagesToIndex: string[]
 }
@@ -61,6 +70,7 @@ type WriteStep = (
 ) => Promise<void>
 
 async function withPhase<T>(phase: string, fn: () => Promise<T>): Promise<T> {
+  assertNotInOrgDbContext()
   const startMs = Date.now()
   tryEmitIndexEvent("codesearch.index.phase.start", { phase })
   try {
@@ -100,14 +110,45 @@ async function runCommand(
     env?: Record<string, string | undefined>
     outputTailBytes?: number
     heartbeat?: { indexerId: string }
+    /** The time and size limits of a plain git command (CTX-815). */
+    limits?: GitRemote["limits"]
   },
 ): Promise<void> {
-  const subprocess = Bun.spawn(cmd, {
-    cwd: options?.cwd,
-    env: options?.env,
-    stdout: "pipe",
-    stderr: "pipe",
-  })
+  const limits = options?.limits
+  // `ulimit -f` counts 512-byte blocks; `exec` leaves one process. Each
+  // file that git writes (the pack, a checkout file) stays below the limit:
+  // git then dies of SIGXFSZ.
+  const subprocess = Bun.spawn(
+    limits
+      ? [
+          "sh",
+          "-c",
+          'ulimit -f "$0" && exec "$@"',
+          String(Math.ceil(limits.maxFileBytes / 512)),
+          ...cmd,
+        ]
+      : cmd,
+    {
+      cwd: options?.cwd,
+      env: options?.env,
+      stdout: "pipe",
+      stderr: "pipe",
+      // With a time limit, git and its helpers get their own process group,
+      // so the kill stops each of them.
+      detached: limits !== undefined,
+    },
+  )
+  let timedOut = false
+  const killTimer = limits
+    ? setTimeout(() => {
+        timedOut = true
+        try {
+          process.kill(-subprocess.pid, "SIGKILL")
+        } catch {
+          subprocess.kill("SIGKILL")
+        }
+      }, limits.timeoutMs)
+    : undefined
 
   const heartbeatOpt = options?.heartbeat
   const startMs = Date.now()
@@ -134,6 +175,10 @@ async function runCommand(
         : new Response(subprocess.stderr).text(),
       subprocess.exited,
     ])
+    if (timedOut)
+      throw new Error(
+        `${cmd[0]} ${cmd[1] ?? ""} did not finish in ${limits?.timeoutMs} ms, so it was stopped`,
+      )
     if (exitCode !== 0) {
       if (exitCode === 137) {
         tryEmitIndexEvent("codesearch.index.memory_exceeded", {
@@ -150,6 +195,7 @@ async function runCommand(
     }
   } finally {
     if (heartbeatTimer !== undefined) clearInterval(heartbeatTimer)
+    if (killTimer !== undefined) clearTimeout(killTimer)
   }
 }
 
@@ -186,17 +232,19 @@ async function runCommandOutput(
 }
 
 async function ensureRepositoryClone(params: {
-  repoGitUrl: string
+  remote: GitRemote
   clonePath: string
-  githubToken?: string
 }): Promise<void> {
-  const authUrl = authenticatedGitUrl(params.repoGitUrl, params.githubToken)
+  const { remote } = params
   if (await hasGitDir(params.clonePath)) {
-    await runCommand(["git", "remote", "set-url", "origin", authUrl], {
+    // Use the plain remote URL; the credential comes per command.
+    await runCommand(["git", "remote", "set-url", "origin", remote.url], {
       cwd: params.clonePath,
     })
     await runCommand(["git", "fetch", "origin", "--prune"], {
       cwd: params.clonePath,
+      env: remote.env,
+      limits: remote.limits,
     })
     return
   }
@@ -204,12 +252,25 @@ async function ensureRepositoryClone(params: {
   if (await pathExists(params.clonePath)) {
     await rm(params.clonePath, { recursive: true, force: true })
   }
-  await runCommand(["git", "clone", "--depth", "1", authUrl, params.clonePath])
+  await runCommand(
+    [
+      "git",
+      "clone",
+      "--depth",
+      "1",
+      "--no-recurse-submodules",
+      "--",
+      remote.url,
+      params.clonePath,
+    ],
+    { env: remote.env, limits: remote.limits },
+  )
 }
 
 async function ensureCommitInRepo(
   clonePath: string,
   refOrSha: string,
+  remote: GitRemote,
 ): Promise<string> {
   const trimmed = refOrSha.trim()
   try {
@@ -217,7 +278,11 @@ async function ensureCommitInRepo(
       cwd: clonePath,
     })
   } catch {
-    await runCommand(["git", "fetch", "origin", trimmed], { cwd: clonePath })
+    await runCommand(["git", "fetch", "origin", "--", trimmed], {
+      cwd: clonePath,
+      env: remote.env,
+      limits: remote.limits,
+    })
     await runCommand(["git", "rev-parse", "--verify", `${trimmed}^{commit}`], {
       cwd: clonePath,
     })
@@ -229,25 +294,26 @@ async function ensureCommitInRepo(
 }
 
 async function resolveTargetCommitHash(params: {
-  repoGitUrl: string
+  remote: GitRemote
   clonePath: string
-  githubToken?: string
   targetHash?: string
 }): Promise<string> {
   if (params.targetHash && params.targetHash.trim().length > 0) {
-    return ensureCommitInRepo(params.clonePath, params.targetHash.trim())
+    return ensureCommitInRepo(
+      params.clonePath,
+      params.targetHash.trim(),
+      params.remote,
+    )
   }
-  const { hash } = await resolveRepositoryRef({
-    gitUrl: params.repoGitUrl,
-    githubToken: params.githubToken,
-  })
-  return ensureCommitInRepo(params.clonePath, hash)
+  const { hash } = await resolveRepositoryRef({ remote: params.remote })
+  return ensureCommitInRepo(params.clonePath, hash, params.remote)
 }
 
 async function ensureMergeBaseAvailable(
   clonePath: string,
   fromSha: string,
   toSha: string,
+  remote: GitRemote,
 ): Promise<void> {
   const maxIterations = 24
   for (let i = 0; i < maxIterations; i++) {
@@ -261,6 +327,8 @@ async function ensureMergeBaseAvailable(
     try {
       await runCommand(["git", "fetch", "origin", "--deepen", "256"], {
         cwd: clonePath,
+        env: remote.env,
+        limits: remote.limits,
       })
     } catch {
       // continue deepening / unshallow
@@ -269,6 +337,8 @@ async function ensureMergeBaseAvailable(
   try {
     await runCommand(["git", "fetch", "origin", "--unshallow"], {
       cwd: clonePath,
+      env: remote.env,
+      limits: remote.limits,
     })
   } catch {
     // best-effort: some repos are not shallow
@@ -368,11 +438,15 @@ async function indexRepository(params: {
 }): Promise<void> {
   await mkdir(ZOEKT_INDEX_DIR, { recursive: true })
   const metaPath = `/tmp/zoekt-meta-${randomUUID()}.json`
+  const version = await readGitHead(params.clonePath)
+  if (!version)
+    throw new Error("Cannot index a repository without an immutable Git HEAD")
   const metadata = {
     ID: params.zoektRepoId,
     Name: params.zoektName,
     URL: params.repoUrl,
     Source: params.clonePath,
+    Branches: [{ Name: "HEAD", Version: version }],
   }
   await writeFile(metaPath, JSON.stringify(metadata))
   try {
@@ -429,6 +503,8 @@ export async function publishMergedScipIndex(input: {
   detectedLanguages: readonly string[]
   shardPaths: readonly string[]
   outputPath: string
+  /** Documents whose path ends outside this checkout are dropped. */
+  checkoutPath: string
 }): Promise<{ shardCount: number }> {
   const valid: string[] = []
   for (const shardPath of input.shardPaths) {
@@ -474,19 +550,20 @@ export async function publishMergedScipIndex(input: {
   }
   if (valid.length === 0) {
     if (input.detectedLanguages.length === 0) {
-      await writeMergedScipIndex([], input.outputPath)
+      await writeMergedScipIndex([], input.outputPath, input.checkoutPath)
     } else {
       await rm(input.outputPath, { force: true })
     }
     return { shardCount: 0 }
   }
-  await writeMergedScipIndex(valid, input.outputPath)
+  await writeMergedScipIndex(valid, input.outputPath, input.checkoutPath)
   return { shardCount: valid.length }
 }
 
 export async function writeMergedScipIndex(
   shardPaths: readonly string[],
   outputPath: string,
+  checkoutPath: string,
 ): Promise<void> {
   await mkdir(dirname(outputPath), { recursive: true })
   const temporaryPath = `${outputPath}.${randomUUID()}.tmp`
@@ -497,7 +574,10 @@ export async function writeMergedScipIndex(
         encodeScipIndex({ documents: [], externalSymbols: [] }),
       )
     } else {
-      await mergeScipShardFiles(shardPaths, temporaryPath, { dedupe: false })
+      await mergeScipShardFiles(shardPaths, temporaryPath, {
+        dedupe: false,
+        checkoutPath,
+      })
     }
     await rename(temporaryPath, outputPath)
   } finally {
@@ -505,9 +585,13 @@ export async function writeMergedScipIndex(
   }
 }
 
-function monotonicWriteStep(db: Db, repoId: string): WriteStep {
+function monotonicWriteStep(ctx: IndexPhaseRepoContext): WriteStep {
+  // Immutable index artifacts have no authority to change canonical repository progress.
+  // Their owning ingestion workflow publishes progress under its current request fence.
+  if (ctx.checkoutKey !== "default") return async () => undefined
+  const { db, orgId, repoId } = ctx
   return (key, scipLanguages) =>
-    trySetRepositoryIndexingStep(db, repoId, key, scipLanguages, {
+    trySetRepositoryIndexingStep(db, orgId, repoId, key, scipLanguages, {
       monotonic: true,
     })
 }
@@ -516,23 +600,25 @@ export async function phaseCloneCheckout(
   ctx: IndexPhaseRepoContext,
   params: { targetHash?: string; fromHash?: string },
 ): Promise<CloneCheckoutResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
+  // A repository with no GitHub token and no checked plain git remote is
+  // refused here, before any git command.
+  const remote = repositoryGitRemote({
+    gitUrl: ctx.repoGitUrl,
+    githubToken: ctx.githubToken,
+    plainGit: ctx.plainGit,
+  })
 
   await writeStep("cloning")
   await withPhase("clone", () =>
-    ensureRepositoryClone({
-      repoGitUrl: ctx.repoGitUrl,
-      clonePath: ctx.clonePath,
-      githubToken: ctx.githubToken,
-    }),
+    ensureRepositoryClone({ remote, clonePath: ctx.clonePath }),
   )
 
   await writeStep("checking_out")
   const resolvedTarget = await withPhase("resolve_commit", () =>
     resolveTargetCommitHash({
-      repoGitUrl: ctx.repoGitUrl,
+      remote,
       clonePath: ctx.clonePath,
-      githubToken: ctx.githubToken,
       targetHash: params.targetHash,
     }),
   )
@@ -545,11 +631,16 @@ export async function phaseCloneCheckout(
   if (params.fromHash && params.fromHash.trim().length > 0) {
     const fromHash = params.fromHash.trim()
     const diffResult = await withPhase("diff", async () => {
-      const fromResolved = await ensureCommitInRepo(ctx.clonePath, fromHash)
+      const fromResolved = await ensureCommitInRepo(
+        ctx.clonePath,
+        fromHash,
+        remote,
+      )
       await ensureMergeBaseAvailable(
         ctx.clonePath,
         fromResolved,
         resolvedTarget,
+        remote,
       )
       const ancestor = await isAncestor(
         ctx.clonePath,
@@ -599,7 +690,7 @@ export async function phaseCloneCheckout(
 }
 
 export async function phaseZoekt(ctx: IndexPhaseRepoContext): Promise<void> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   await writeStep("indexing_search")
   await withPhase("zoekt", () =>
     indexRepository({
@@ -620,7 +711,7 @@ export async function phaseDetectLanguages(
     renames: readonly { from: string; to: string }[]
   },
 ): Promise<DetectLanguagesResult> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   await writeStep("detecting_languages")
 
   return withPhase("detect_languages", async () => {
@@ -637,7 +728,12 @@ export async function phaseDetectLanguages(
     if (params.ingestMode === "partial") {
       const selected = new Set(languagesToIndex)
       for (const indexerId of detected) {
-        const shardPath = scipLangShardPath(ctx.orgId, ctx.repoId, indexerId)
+        const shardPath = scipLangShardPath(
+          ctx.orgId,
+          ctx.repoId,
+          indexerId,
+          ctx.checkoutKey,
+        )
         if (await pathExists(shardPath)) continue
         selected.add(indexerId)
       }
@@ -661,8 +757,13 @@ export async function phaseScipLanguage(
     detectedLanguages: readonly string[]
   },
 ): Promise<{ issue?: string }> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
-  const shardPath = scipLangShardPath(ctx.orgId, ctx.repoId, params.language)
+  const writeStep = monotonicWriteStep(ctx)
+  const shardPath = scipLangShardPath(
+    ctx.orgId,
+    ctx.repoId,
+    params.language,
+    ctx.checkoutKey,
+  )
   const result = await withPhase(`scip:${params.language}`, () =>
     runScipIndexer({
       indexerId: params.language as ScipIndexerId,
@@ -683,7 +784,7 @@ export async function phaseMergeScip(
     languagesToMerge?: readonly string[]
   },
 ): Promise<{ shardCount: number }> {
-  const writeStep = monotonicWriteStep(ctx.db, ctx.repoId)
+  const writeStep = monotonicWriteStep(ctx)
   const detected = [...params.detectedLanguages]
   const languagesToMerge =
     params.languagesToMerge !== undefined
@@ -693,7 +794,7 @@ export async function phaseMergeScip(
     await writeStep("merging_intelligence", detected)
     return await withPhase("scip_merge", async () => {
       const shardPaths = languagesToMerge.map((indexerId) =>
-        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+        scipLangShardPath(ctx.orgId, ctx.repoId, indexerId, ctx.checkoutKey),
       )
       if (
         params.languagesToMerge !== undefined &&
@@ -701,7 +802,12 @@ export async function phaseMergeScip(
       ) {
         await discardScipShardFiles(
           detected.map((indexerId) =>
-            scipLangShardPath(ctx.orgId, ctx.repoId, indexerId),
+            scipLangShardPath(
+              ctx.orgId,
+              ctx.repoId,
+              indexerId,
+              ctx.checkoutKey,
+            ),
           ),
         )
       }
@@ -709,6 +815,7 @@ export async function phaseMergeScip(
         detectedLanguages: detected,
         shardPaths,
         outputPath: ctx.scipIndexPath,
+        checkoutPath: ctx.clonePath,
       })
     })
   } catch (error) {
@@ -721,16 +828,25 @@ export async function phaseMarkCheckoutIndexed(
   ctx: IndexPhaseRepoContext,
 ): Promise<void> {
   const head = await readGitHead(ctx.clonePath)
-  await ctx.db
-    .update(repositoryCheckouts)
-    .set({
-      commitSha: head,
-      updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(repositoryCheckouts.repositoryId, ctx.repoId),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-      ),
-    )
+  await withOrgDbContext(ctx.db, ctx.orgId, async (tx) => {
+    const updated = await tx
+      .update(repositoryCheckouts)
+      .set({
+        commitSha: head,
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(repositoryCheckouts.repositoryId, ctx.repoId),
+          eq(repositoryCheckouts.orgId, ctx.orgId),
+          eq(repositoryCheckouts.checkoutKey, ctx.checkoutKey),
+        ),
+      )
+      .returning({ id: repositoryCheckouts.id })
+    if (updated.length === 0) {
+      throw new Error(
+        `repository_checkouts UPDATE 0 for ${ctx.repoId} ${ctx.checkoutKey}`,
+      )
+    }
+  })
 }

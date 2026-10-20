@@ -8,6 +8,10 @@ vi.mock("../../../config/env.js", () => ({
   parseEnv: () => ({}),
 }))
 vi.mock("../../../db/client.js", () => ({
+  tryGetOrgDb: () => ({}),
+  tryGetOrgDbOrgId: () => "org_test",
+  assertNotInOrgDbContext: () => undefined,
+
   withOrgDbContext: (_orgId: string, fn: () => unknown) => fn(),
 }))
 vi.mock("../../../models/github-installation.js", () => ({
@@ -26,6 +30,7 @@ vi.mock("../../../openworkflow/enqueue-notion-push-sync.js", () => ({
 }))
 vi.mock("../../../services/github/installation-write-client.js", () => ({
   compareCommitsTouchesPath: vi.fn(),
+  workspaceRootPathOfRepository: async () => "",
 }))
 
 import { listInstallationsByGithubInstallationId } from "../../../models/github-installation.js"

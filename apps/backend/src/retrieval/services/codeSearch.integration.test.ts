@@ -12,7 +12,12 @@ import {
 } from "vitest"
 import { describeWithDatabase } from "../../../test/db.js"
 import { useMswServer } from "../../../test/msw.js"
-import { closeDb, getSystemDb, initDb } from "../../db/client.js"
+import {
+  closeDb,
+  getSystemDb,
+  initDb,
+  withOrgDbContext,
+} from "../../db/client.js"
 import { organizations } from "../../db/schema/auth.js"
 import { repositories } from "../../db/schema/repositories.js"
 import { repositoryCheckouts } from "../../db/schema/repository_checkouts.js"
@@ -46,29 +51,33 @@ describeWithDatabase("codeSearch (Postgres)", () => {
       },
     })
     initDb(databaseUrl)
-    const db = getSystemDb()
-    await db.insert(organizations).values({
-      id: orgId,
-      name: `Code search ${suffix}`,
-      slug: `code-search-${suffix}`,
-      createdAt: new Date(),
-    })
-    await db.insert(repositories).values({
-      id: repositoryId,
-      orgId,
-      name: repositoryName,
-      gitUrl: `https://github.com/acme/search-${suffix}.git`,
-    })
-    const [checkout] = await db
-      .insert(repositoryCheckouts)
+    await getSystemDb()
+      .insert(organizations)
       .values({
-        id: generateObjectId("checkout"),
-        repositoryId,
-        checkoutKey: "default",
+        id: orgId,
+        name: `Code search ${suffix}`,
+        slug: `code-search-${suffix}`,
+        createdAt: new Date(),
       })
-      .returning({ zoektRepoId: repositoryCheckouts.zoektRepoId })
-    if (!checkout) throw new Error("checkout insert did not return a row")
-    zoektRepoId = checkout.zoektRepoId
+    zoektRepoId = await withOrgDbContext(orgId, async (db) => {
+      await db.insert(repositories).values({
+        id: repositoryId,
+        orgId,
+        name: repositoryName,
+        gitUrl: `https://github.com/acme/search-${suffix}.git`,
+      })
+      const [checkout] = await db
+        .insert(repositoryCheckouts)
+        .values({
+          id: generateObjectId("checkout"),
+          orgId,
+          repositoryId,
+          checkoutKey: "default",
+        })
+        .returning({ zoektRepoId: repositoryCheckouts.zoektRepoId })
+      if (!checkout) throw new Error("checkout insert did not return a row")
+      return checkout.zoektRepoId
+    })
   })
 
   beforeEach(() => {
@@ -88,9 +97,10 @@ describeWithDatabase("codeSearch (Postgres)", () => {
 
   afterAll(async () => {
     if (!process.env.DATABASE_URL) return
-    const db = getSystemDb()
-    await db.delete(repositories).where(eq(repositories.id, repositoryId))
-    await db.delete(organizations).where(eq(organizations.id, orgId))
+    await withOrgDbContext(orgId, (db) =>
+      db.delete(repositories).where(eq(repositories.id, repositoryId)),
+    )
+    await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()
   })
 

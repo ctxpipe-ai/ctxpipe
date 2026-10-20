@@ -60,7 +60,7 @@ metadata. If `CTXPIPE_API_KEY` is set in the doctor process, it sends `x-api-key
 on initialize and a `ready-for-api-key` result means HTTP 2xx initialize
 succeeded. Without the variable, a `ready-for-oauth` result means discovery is
 coherent; it does not prove that browser OAuth, authenticated tools, or
-`ctx_advisor` work. The doctor does not accept bearer tokens and does not test
+an MCP tool call work. The doctor does not accept bearer tokens and does not test
 STDIO servers.
 
 Use the external, version-pinned MCPJam CLI for the authenticated part of the

@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react"
+import { type DragEvent, useState } from "react"
 import { toast } from "sonner"
 import { Button } from "@/components/ui/Button"
 import { TextField } from "@/components/ui/TextField"
@@ -6,7 +6,7 @@ import { Textarea } from "@/components/ui/textarea"
 import { cn } from "@/lib/utils"
 import { CopyableBlock } from "../CopyableBlock"
 
-export type GithubSelfHostedCredentialsStepProps = {
+type GithubSelfHostedCredentialsStepProps = {
   githubAppId: string
   setGithubAppId: (v: string) => void
   appSlug: string
@@ -44,9 +44,7 @@ export function GithubSelfHostedCredentialsStep({
   const [pemDropActive, setPemDropActive] = useState(false)
 
   const selfHostedDomain =
-    typeof window !== "undefined"
-      ? window.location.origin
-      : null
+    typeof window !== "undefined" ? window.location.origin : null
   const callbackUrl = selfHostedDomain
     ? `${selfHostedDomain}/.auth/api/v1/auth/callback/github`
     : null
@@ -97,7 +95,7 @@ export function GithubSelfHostedCredentialsStep({
         </h3>
         <p className="mt-2 text-sm text-muted-foreground">
           Self-hosted deployments use a GitHub App you create under your own
-          user account or organisation.
+          user account or organization.
         </p>
         <ol className="mt-4 list-decimal space-y-6 pl-5 text-sm text-muted-foreground">
           <li>
@@ -110,7 +108,7 @@ export function GithubSelfHostedCredentialsStep({
             >
               New GitHub App (personal)
             </a>
-            , or for an organisation: open the org →{" "}
+            , or for an organization: open the org →{" "}
             <strong className="font-medium text-foreground">Settings</strong> →{" "}
             <strong className="font-medium text-foreground">
               Developer settings
@@ -378,11 +376,12 @@ export function GithubSelfHostedCredentialsStep({
             </strong>{" "}
             section — entire PEM including BEGIN/END lines. You can also drop a
             downloaded{" "}
-            <code className="rounded bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">
+            <code className="rounded-md bg-muted/80 px-1 py-0.5 font-mono text-xs text-foreground">
               .pem
             </code>{" "}
             file here.
           </p>
+          {/* biome-ignore lint/a11y/noStaticElementInteractions: PEM file drop target around the textarea */}
           <div
             className={cn(
               "rounded-md transition-shadow",
@@ -411,7 +410,7 @@ export function GithubSelfHostedCredentialsStep({
           <Button
             type="button"
             variant="secondary"
-            className="rounded-none"
+            className="rounded-md"
             onPress={onCancel}
           >
             Cancel
@@ -419,7 +418,7 @@ export function GithubSelfHostedCredentialsStep({
           <Button
             type="submit"
             variant="primary"
-            className="rounded-none"
+            className="rounded-md"
             isDisabled={draftPending || saveDisabled}
           >
             Install App

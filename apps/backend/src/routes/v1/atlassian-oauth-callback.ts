@@ -1,13 +1,13 @@
-import { and, eq } from "drizzle-orm"
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
+import { and, eq } from "drizzle-orm"
 import { jwtVerify } from "jose"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
 import { getSystemDb } from "../../db/client.js"
 import { accounts, members, organizations } from "../../db/schema/auth.js"
 import { generateObjectId } from "../../lib/id.js"
-import { getLogger } from "../../observability/logger.js"
 import { getAtlassianOauthCredsForForgeConnection } from "../../models/atlassian-oauth-creds.js"
+import { getLogger } from "../../observability/logger.js"
 
 const ATLASSIAN_TOKEN = "https://auth.atlassian.com/oauth/token"
 const ATLASSIAN_ME = "https://api.atlassian.com/me"
@@ -25,10 +25,7 @@ function getSecretKey(): Uint8Array {
   return new TextEncoder().encode(env.AUTH_SECRET)
 }
 
-function safeReturnPath(
-  p: string | null | undefined,
-  orgSlug: string,
-): string {
+function safeReturnPath(p: string | null | undefined, orgSlug: string): string {
   if (!p || typeof p !== "string") {
     return `/${orgSlug}/connectors`
   }
@@ -190,10 +187,7 @@ export const atlassianOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       .select()
       .from(accounts)
       .where(
-        and(
-          eq(accounts.userId, user.id),
-          eq(accounts.providerId, "atlassian"),
-        ),
+        and(eq(accounts.userId, user.id), eq(accounts.providerId, "atlassian")),
       )
       .limit(1)
 

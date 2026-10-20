@@ -1,7 +1,7 @@
 import HyperDX from "@hyperdx/browser"
 import { TanStackDevtools } from "@tanstack/react-devtools"
 import {
-  createRootRoute,
+  createRootRouteWithContext,
   type ErrorComponentProps,
   HeadContent,
   Scripts,
@@ -12,19 +12,20 @@ import { Toaster } from "sonner"
 import { getConfluenceForgeRuntimeConfig } from "@/lib/confluenceForgeRuntimeConfig"
 import { getHyperDxDocumentContext } from "@/lib/hyperdxRuntimeConfig"
 import { Providers } from "@/providers"
+import { useHyperDxScreenError } from "@/providers/HyperDxProvider"
+import type { RouterContext } from "@/router"
 
 import appCss from "../styles.css?url"
 
-export const Route = createRootRoute({
+export const Route = createRootRouteWithContext<RouterContext>()({
   // Client navigations keep the document identity. `router.invalidate()` still
   // enters the loader; the client half returns undefined and the previous data stays.
   shouldReload: false,
   loader: async ({ location }) => {
     const hyperdx = await getHyperDxDocumentContext(location.pathname)
-    if (!hyperdx) return undefined
     return {
-      hyperdxRuntimeConfig: hyperdx.config,
-      hyperdxIdentity: hyperdx.identity,
+      hyperdxRuntimeConfig: hyperdx?.config ?? { enabled: false },
+      hyperdxIdentity: hyperdx?.identity ?? null,
       confluenceForgeRuntimeConfig: getConfluenceForgeRuntimeConfig(),
     }
   },
@@ -60,14 +61,19 @@ export const Route = createRootRoute({
   }),
   shellComponent: RootDocument,
   errorComponent: RootErrorComponent,
-  notFoundComponent: () => (
+  notFoundComponent: RootNotFoundComponent,
+})
+
+function RootNotFoundComponent() {
+  useHyperDxScreenError("not_found")
+  return (
     <main className="min-h-screen bg-background text-foreground">
       <div className="mx-auto max-w-3xl px-6 py-16">
         <p className="text-sm text-muted-foreground">Not Found</p>
       </div>
     </main>
-  ),
-})
+  )
+}
 
 function RootErrorComponent({ reset }: ErrorComponentProps) {
   return (
@@ -76,7 +82,7 @@ function RootErrorComponent({ reset }: ErrorComponentProps) {
         <p className="text-sm text-muted-foreground">Something went wrong</p>
         <button
           type="button"
-          className="mt-4 rounded-none border border-border px-3 py-1.5 text-sm"
+          className="mt-4 rounded-md border border-border px-3 py-1.5 text-sm"
           onClick={() => reset()}
         >
           Try again

@@ -20,7 +20,7 @@ import {
   writeMergedScipIndex,
 } from "./phases.js"
 
-export type IndexRepoResult = {
+type IndexRepoResult = {
   targetHash: string
   ingestMode: "full" | "partial"
   changedPaths: string[]
@@ -33,9 +33,12 @@ type IndexInput = {
   orgId: string
   repoId: string
   repoGitUrl: string
+  checkoutKey: string
   clonePath: string
   scipIndexPath: string
   githubToken?: string
+  /** The checked plain git remote of a repository with no token (CTX-815). */
+  plainGit?: IndexPhaseRepoContext["plainGit"]
   zoektRepoId: number
   repoName: string
   repoUrl: string
@@ -47,9 +50,7 @@ type IndexInput = {
 
 export { discardScipShardFiles, publishMergedScipIndex, writeMergedScipIndex }
 
-export type OptionalIndexPhaseResult =
-  | { ok: true }
-  | { ok: false; error: unknown }
+type OptionalIndexPhaseResult = { ok: true } | { ok: false; error: unknown }
 
 /**
  * Run an optional index phase. Failures are warnings so non-OW callers get
@@ -81,16 +82,19 @@ function toPhaseContext(input: IndexInput): IndexPhaseRepoContext {
     orgId: input.orgId,
     repoId: input.repoId,
     repoGitUrl: input.repoGitUrl,
+    checkoutKey: input.checkoutKey,
     clonePath: input.clonePath,
     scipIndexPath: input.scipIndexPath,
     zoektRepoId: input.zoektRepoId,
     zoektName: zoektRepositoryName({
       orgId: input.orgId,
       repoId: input.repoId,
+      checkoutKey: input.checkoutKey,
     }),
     repoName: input.repoName,
     repoUrl: input.repoUrl,
     githubToken: input.githubToken,
+    plainGit: input.plainGit,
   }
 }
 
@@ -106,7 +110,13 @@ export async function cloneAndIndexRepository(
   return withRepositoryIndexOperation(input.repoId, () =>
     withIndexConcurrency(
       () => cloneAndIndexRepositoryInner(input),
-      () => trySetRepositoryIndexingStep(input.db, input.repoId, "index_queue"),
+      () =>
+        trySetRepositoryIndexingStep(
+          input.db,
+          input.orgId,
+          input.repoId,
+          "index_queue",
+        ),
     ),
   )
 }

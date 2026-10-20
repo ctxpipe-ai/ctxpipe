@@ -1,5 +1,11 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { repositoryGitRemote } from "../../utils/git.js"
 import { resolveRepositoryRef } from "./resolveRef.js"
+
+const remote = repositoryGitRemote({
+  gitUrl: "https://github.com/appear/ctxpipe.git",
+  githubToken: "token",
+})
 
 function streamFromString(content: string): ReadableStream<Uint8Array> {
   return new ReadableStream<Uint8Array>({
@@ -32,9 +38,8 @@ describe("resolveRepositoryRef", () => {
     })
 
     const resolved = await resolveRepositoryRef({
-      gitUrl: "https://github.com/appear/ctxpipe.git",
+      remote,
       branch: "main",
-      githubToken: "token",
     })
 
     expect(resolved).toEqual({ branch: "main", hash: "abc123" })
@@ -57,9 +62,7 @@ describe("resolveRepositoryRef", () => {
         exited: Promise.resolve(0),
       })
 
-    const resolved = await resolveRepositoryRef({
-      gitUrl: "https://github.com/appear/ctxpipe.git",
-    })
+    const resolved = await resolveRepositoryRef({ remote })
 
     expect(resolved).toEqual({ branch: "main", hash: "def456" })
     expect(spawnMock).toHaveBeenCalledTimes(2)
@@ -77,10 +80,7 @@ describe("resolveRepositoryRef", () => {
     })
 
     await expect(
-      resolveRepositoryRef({
-        gitUrl: "https://github.com/appear/ctxpipe.git",
-        branch: "main",
-      }),
+      resolveRepositoryRef({ remote, branch: "main" }),
     ).rejects.toThrow("Command failed with exit code 128")
   })
 })

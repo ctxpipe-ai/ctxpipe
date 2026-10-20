@@ -27,7 +27,14 @@
     },
     "dev": {
       "cache": false,
-      "persistent": true
+      "persistent": true,
+      "passThroughEnv": [
+        "OTEL_EXPORTER_OTLP_TRACES_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_LOGS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_METRICS_ENDPOINT",
+        "OTEL_EXPORTER_OTLP_HEADERS",
+        "OTEL_RESOURCE_ATTRIBUTES"
+      ]
     },
     "test": {
       "outputs": [],

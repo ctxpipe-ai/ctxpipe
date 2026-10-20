@@ -1,5 +1,7 @@
 import type * as cdk from "aws-cdk-lib";
 import type * as acm from "aws-cdk-lib/aws-certificatemanager";
+import type * as autoscaling from "aws-cdk-lib/aws-autoscaling";
+import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch";
 import type * as ec2 from "aws-cdk-lib/aws-ec2";
 import type * as ecs from "aws-cdk-lib/aws-ecs";
 import type * as efs from "aws-cdk-lib/aws-efs";
@@ -67,6 +69,14 @@ export interface CtxPipeSizeProfile {
     readonly codesearchIndexPipelineConcurrency: number;
   };
   readonly backupRetentionDays: number;
+  readonly sandboxHost: CtxPipeSandboxHostProfile;
+}
+
+export interface CtxPipeSandboxHostProfile {
+  readonly instanceType: ec2.InstanceType;
+  readonly dockerVolumeSizeGiB: number;
+  /** Checked entries that Agent Vault may dial, after the backend subnets. */
+  readonly agentVaultNetworkAllowlist?: readonly string[];
 }
 
 export interface NetworkingResources {
@@ -92,9 +102,20 @@ export interface DataPlaneResources {
 
 export interface SecretsResources {
   readonly authSecret: secretsmanager.Secret;
+  /**
+   * Owner `DATABASE_URL` for the migrate task (Aurora master `ctxpipe`). Task
+   * definitions from before the app role read it too, so it never holds the
+   * app URL: a rollback to them must see every row.
+   */
   readonly databaseUrlSecret: secretsmanager.Secret;
-  /** Populates `databaseUrlSecret` at deploy time (after Aurora is available). */
+  /** Runtime `DATABASE_URL` for backend/worker/codesearch (`ctxpipe_app`). */
+  readonly runtimeDatabaseUrlSecret: secretsmanager.Secret;
+  /** Login password for `ctxpipe_app`; generated once, never rotated by deploy. */
+  readonly appDatabaseCredentialsSecret: secretsmanager.Secret;
+  /** Writes the owner URL before migrate. */
   readonly databaseUrlWriter: cdk.CustomResource;
+  /** Writes the runtime `ctxpipe_app` URL; must run after migrate. */
+  readonly runtimeDatabaseUrlWriter: cdk.CustomResource;
   readonly modelProviderSecret?: secretsmanager.Secret;
   readonly smtpSecret: secretsmanager.Secret;
   readonly connectorSecret?: secretsmanager.Secret;
@@ -114,6 +135,22 @@ export interface ServiceResources {
   readonly workerService: ecs.FargateService;
   readonly uiService: ecs.FargateService;
   readonly codesearchService: ecs.FargateService;
+}
+
+export interface SandboxHostResources {
+  readonly autoScalingGroup: autoscaling.AutoScalingGroup;
+  /** Docker API client; the only group sandboxes may call back. */
+  readonly backendSecurityGroup: ec2.SecurityGroup;
+  /** Docker API client only. */
+  readonly workerSecurityGroup: ec2.SecurityGroup;
+  readonly clientTlsSecret: secretsmanager.Secret;
+  /** `DOCKER_HOST` for the clients. */
+  readonly dockerHost: string;
+  /** Agent Vault on the host: the API for backend and worker. */
+  readonly agentVaultAddress: string;
+  /** The generated owner password that backend and worker log in with. */
+  readonly agentVaultOwnerSecret: secretsmanager.Secret;
+  readonly alarms: cloudwatch.Alarm[];
 }
 
 export interface IngressResources {
@@ -145,6 +182,10 @@ export interface SecretsConstructProps {
   readonly emailFromAddress: string;
 }
 
+export interface SandboxHostConstructProps extends CtxPipeSandboxHostProfile {
+  readonly networking: NetworkingResources;
+}
+
 export interface TaskDefinitionsConstructProps {
   readonly orgSlug: string;
   readonly networking: NetworkingResources;
@@ -155,6 +196,8 @@ export interface TaskDefinitionsConstructProps {
   readonly defaultImageTag: string;
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly otel?: CtxPipeOtelProps;
+  /** Absent when the host is turned off. */
+  readonly sandboxHost?: SandboxHostResources;
 }
 
 export interface ServicesConstructProps {
@@ -163,6 +206,8 @@ export interface ServicesConstructProps {
   readonly sizeProfile: CtxPipeSizeProfile;
   readonly migrateDependency?: IDependable;
   readonly codesearchEfsMountDependency?: IDependable;
+  /** Absent when the host is turned off. */
+  readonly sandboxHost?: SandboxHostResources;
 }
 
 export interface IngressConstructProps {
@@ -185,4 +230,5 @@ export interface OutputsConstructProps {
   readonly modelProviderSecretArn?: string;
   readonly smtpSecretArn: string;
   readonly connectorSecretArn?: string;
+  readonly sandboxHostAutoScalingGroupName?: string;
 }

@@ -1,7 +1,11 @@
 import { and, eq } from "drizzle-orm"
 import { signUpstreamJwt } from "../auth/upstreamJwt.js"
 import { parseEnv } from "../config/env.js"
-import { getOrgDb } from "../db/client.js"
+import {
+  assertNotInOrgDbContext,
+  getOrgDb,
+  withOrgDbContext,
+} from "../db/client.js"
 import { organizations } from "../db/schema/auth.js"
 import { claims } from "../db/schema/claims.js"
 import { conversations } from "../db/schema/conversations.js"
@@ -14,14 +18,13 @@ import {
   TransientHttpError,
   withTransientHttpRetry,
 } from "../lib/withTransientHttpRetry.js"
-import { clearGithubPrMirrorBindingsForRepository } from "../models/github-pr-mirror.js"
 import { clearLinearSyncBindingsForRepository } from "../models/linear-connector.js"
 import { clearNotionSyncBindingsForRepository } from "../models/notion-connector.js"
 import { clearPagerdutySyncBindingsForRepository } from "../models/pagerduty-connector.js"
 import { DEFAULT_CHECKOUT_KEY } from "../models/repositories.js"
 import { clearSlackSyncBindingsForRepository } from "../models/slack-connector.js"
 import { log } from "../observability/logger.js"
-import { getGraphClient } from "../platform/graph/client.js"
+import { getGraphClient, withGraphClient } from "../platform/graph/client.js"
 import {
   applyIngestionRetractionGraphEffects,
   type IngestionRetractionGraphEffects,
@@ -68,6 +71,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
   repoName: string
   zoektRepoId: number
 }): Promise<void> {
+  assertNotInOrgDbContext()
   const url = `${codesearchBaseUrl()}/${params.repositoryId}/purge`
   const codesearchStarted = Date.now()
   try {
@@ -130,7 +134,7 @@ export async function notifyCodesearchRepositoryDeleted(params: {
  * a separate graph per org (`selectGraph(orgId)`) so no property filter
  * is needed; `MATCH (n) DETACH DELETE n` wipes the whole tenant graph.
  */
-export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
+async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   try {
     const driver = getGraphClient()
     await driver.executeQuery("MATCH (n) DETACH DELETE n")
@@ -144,7 +148,7 @@ export async function dropFalkorOrgGraph(orgId: string): Promise<void> {
   }
 }
 
-export type RepositoryDeletionPrepareResult = {
+type RepositoryDeletionPrepareResult = {
   found: boolean
   name: string | null
   zoektRepoId: number | null
@@ -152,7 +156,7 @@ export type RepositoryDeletionPrepareResult = {
   graphEffects: IngestionRetractionGraphEffects
 }
 
-export type RepositoryPostgresPurgeResult = {
+type RepositoryPostgresPurgeResult = {
   deleted: boolean
   alreadyGone: boolean
   name: string | null
@@ -272,8 +276,6 @@ export async function deleteRepositoryRowPostgres(params: {
   const notionCleared = await clearNotionSyncBindingsForRepository(params)
   const slackCleared = await clearSlackSyncBindingsForRepository(params)
   const pagerdutyCleared = await clearPagerdutySyncBindingsForRepository(params)
-  const githubPrMirrorCleared =
-    await clearGithubPrMirrorBindingsForRepository(params)
   const del = await db
     .delete(repositories)
     .where(
@@ -290,7 +292,6 @@ export async function deleteRepositoryRowPostgres(params: {
     notionCleared,
     slackCleared,
     pagerdutyCleared,
-    githubPrMirrorCleared,
   })
   return deleted
 }
@@ -363,38 +364,6 @@ export async function applyRepositoryDeletionGraphCleanup(params: {
 }
 
 /**
- * Full cleanup when the caller already established org DB + graph context.
- *
- * Prefer phased helpers (`purgeRepositoryPostgres` then graph/codesearch
- * outside `withOrgDbContext`) for new code — this helper still runs graph and
- * codesearch after the inner PG transaction, but if the caller wraps the whole
- * call in `withOrgDbContext`, those side effects remain inside the outer txn.
- */
-export async function deleteRepositoryWithCleanup(params: {
-  orgId: string
-  repositoryId: string
-}): Promise<boolean> {
-  const pg = await purgeRepositoryPostgres(params)
-  if (pg.alreadyGone) return false
-
-  await applyRepositoryDeletionGraphCleanup({
-    repositoryId: params.repositoryId,
-    graphEffects: pg.graphEffects,
-  })
-
-  if (pg.name != null && pg.zoektRepoId != null && pg.zoektRepoId > 0) {
-    await notifyCodesearchRepositoryDeleted({
-      orgId: params.orgId,
-      repositoryId: params.repositoryId,
-      repoName: pg.name,
-      zoektRepoId: pg.zoektRepoId,
-    })
-  }
-
-  return pg.deleted
-}
-
-/**
  * Wipes all org-scoped product data before Better Auth removes the organization row.
  *
  * Must be called inside {@link withOrgDbContext} (the hook in auth/config.ts
@@ -405,16 +374,40 @@ export async function deleteRepositoryWithCleanup(params: {
 export async function purgeOrgDataBeforeAuthDelete(
   orgId: string,
 ): Promise<void> {
-  const db = getOrgDb()
+  const prepared = await withOrgDbContext(orgId, async () => {
+    const db = getOrgDb()
+    const [orgRow] = await db
+      .select({ slug: organizations.slug })
+      .from(organizations)
+      .where(eq(organizations.id, orgId))
+      .limit(1)
+    const orgSlug = orgRow?.slug
+    if (!orgSlug) return null
 
-  const [orgRow] = await db
-    .select({ slug: organizations.slug })
-    .from(organizations)
-    .where(eq(organizations.id, orgId))
-    .limit(1)
-  const orgSlug = orgRow?.slug
+    const repoRows = await db
+      .select({
+        id: repositories.id,
+        name: repositories.name,
+        zoektRepoId: repositoryCheckouts.zoektRepoId,
+      })
+      .from(repositories)
+      .innerJoin(
+        repositoryCheckouts,
+        and(
+          eq(repositoryCheckouts.repositoryId, repositories.id),
+          eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
+        ),
+      )
+      .where(eq(repositories.orgId, orgId))
 
-  if (!orgSlug) {
+    await db.delete(claims).where(eq(claims.orgId, orgId))
+    await db.delete(objects).where(eq(objects.orgId, orgId))
+    await db.delete(conversations).where(eq(conversations.orgId, orgId))
+    await db.delete(repositories).where(eq(repositories.orgId, orgId))
+    return { orgSlug, repoRows }
+  })
+
+  if (!prepared) {
     log.error({
       step: "purgeOrgDataBeforeAuthDelete",
       message: "purgeOrgDataBeforeAuthDelete: organization not found",
@@ -423,31 +416,7 @@ export async function purgeOrgDataBeforeAuthDelete(
     return
   }
 
-  const repoRows = await db
-    .select({
-      id: repositories.id,
-      name: repositories.name,
-      zoektRepoId: repositoryCheckouts.zoektRepoId,
-    })
-    .from(repositories)
-    .innerJoin(
-      repositoryCheckouts,
-      and(
-        eq(repositoryCheckouts.repositoryId, repositories.id),
-        eq(repositoryCheckouts.checkoutKey, DEFAULT_CHECKOUT_KEY),
-      ),
-    )
-    .where(eq(repositories.orgId, orgId))
-
-  // claim_evidence cascades on claim deletion (FK onDelete: cascade).
-  // repository_checkouts cascades on repo deletion (FK onDelete: cascade).
-  await db.delete(claims).where(eq(claims.orgId, orgId))
-  await db.delete(objects).where(eq(objects.orgId, orgId))
-  await db.delete(conversations).where(eq(conversations.orgId, orgId))
-  await db.delete(repositories).where(eq(repositories.orgId, orgId))
-
-  // Best-effort: codesearch disk + FalkorDB
-  for (const r of repoRows) {
+  for (const r of prepared.repoRows) {
     await notifyCodesearchRepositoryDeleted({
       orgId,
       repositoryId: r.id,
@@ -456,5 +425,7 @@ export async function purgeOrgDataBeforeAuthDelete(
     })
   }
 
-  await dropFalkorOrgGraph(orgId)
+  await withGraphClient({ orgId, orgSlug: prepared.orgSlug }, () =>
+    dropFalkorOrgGraph(orgId),
+  )
 }

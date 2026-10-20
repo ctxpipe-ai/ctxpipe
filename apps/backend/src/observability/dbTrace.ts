@@ -11,7 +11,7 @@ import { dbErrorException } from "./scrubDbError.js"
 
 type PgQuery = (...args: unknown[]) => unknown
 
-export type TraceablePgClient = {
+type TraceablePgClient = {
   query: PgQuery
   database?: string
   connectionParameters?: {
@@ -249,7 +249,7 @@ function tracePromiseQuery(
 }
 
 /** One CLIENT span per promise-API query, parented to the active span. */
-export function instrumentPgClient(
+function instrumentPgClient(
   client: TraceablePgClient,
   tracerName = "ctxpipe-backend",
 ): void {
@@ -342,7 +342,12 @@ export function traceGraphQuery<T>(
         try {
           return await run()
         } catch (error) {
-          recordDbFailure(span, error)
+          // FalkorDB has no CREATE INDEX IF NOT EXISTS; this answer means
+          // the index is there, so the caller ignores it.
+          const indexExists =
+            /^\s*CREATE\s+INDEX\b/i.test(input.query) &&
+            /already indexed/i.test(String(error))
+          if (!indexExists) recordDbFailure(span, error)
           throw error
         } finally {
           span.end()

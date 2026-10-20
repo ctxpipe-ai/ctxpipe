@@ -2,15 +2,37 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { formatUnknownError } from "../../db/transientDbRetry.js"
 import {
-  createRepository,
+  createOrGetRepository,
   deriveRepositoryIndexingStatus,
   getRepository,
   listRepositories,
   type RepositoryWithSearch,
 } from "../../models/repositories.js"
+import { applyAttribution } from "../../observability/attribution.js"
 import { getLogger } from "../../observability/logger.js"
 import { enqueueRepositoryDeletionWorkflow } from "../../openworkflow/enqueue-repository-deletion.js"
 import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
+import {
+  PlainGitUrlError,
+  plainGitRefusalReason,
+  resolvePlainGitRemote,
+} from "../../services/git/plain-git-remote.js"
+
+/**
+ * The reason why ctx| does not read `gitUrl`, or null (CTX-815). With no
+ * GitHub token, codesearch reads a repository as a plain git source, so
+ * each URL must obey the plain git rules of the deployment mode, also the
+ * DNS rule. The reason always states the protocol rule.
+ */
+async function refusedRepositoryUrl(gitUrl: string): Promise<string | null> {
+  try {
+    await resolvePlainGitRemote(gitUrl)
+    return null
+  } catch (error) {
+    if (!(error instanceof PlainGitUrlError)) throw error
+    return plainGitRefusalReason(error)
+  }
+}
 
 const CreateRepositoryRequestSchema = z
   .object({
@@ -58,7 +80,7 @@ const ListRepositoriesResponseSchema = z
   })
   .openapi("ListRepositoriesResponse")
 
-export const listRepositoriesRoute = createRoute({
+const listRepositoriesRoute = createRoute({
   method: "get",
   path: "/",
   responses: {
@@ -85,7 +107,7 @@ const GetRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("GetRepositoryParams")
 
-export const getRepositoryRoute = createRoute({
+const getRepositoryRoute = createRoute({
   method: "get",
   path: "/{id}",
   request: {
@@ -119,7 +141,7 @@ export const getRepositoryRoute = createRoute({
   },
 })
 
-export const createRepositoryRoute = createRoute({
+const createRepositoryRoute = createRoute({
   method: "post",
   path: "/",
   request: {
@@ -147,6 +169,14 @@ export const createRepositoryRoute = createRoute({
         },
       },
       description: "Repository created",
+    },
+    400: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "ctx| does not read this git URL",
     },
     500: {
       content: {
@@ -198,7 +228,7 @@ const ReindexRepositoryParamsSchema = z
   .object({ id: z.string() })
   .openapi("ReindexRepositoryParams")
 
-export const deleteRepositoryRoute = createRoute({
+const deleteRepositoryRoute = createRoute({
   method: "delete",
   path: "/{id}",
   request: {
@@ -235,7 +265,7 @@ export const deleteRepositoryRoute = createRoute({
   },
 })
 
-export const reindexRepositoryRoute = createRoute({
+const reindexRepositoryRoute = createRoute({
   method: "post",
   path: "/{id}/reindex",
   request: {
@@ -244,6 +274,14 @@ export const reindexRepositoryRoute = createRoute({
   responses: {
     202: {
       description: "Repository reindex accepted",
+    },
+    400: {
+      content: {
+        "application/json": {
+          schema: ErrorResponseSchema,
+        },
+      },
+      description: "ctx| does not read the git URL of this repository",
     },
     401: {
       content: {
@@ -315,6 +353,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     if (!repository) {
       return c.json({ error: "Not found" }, 404)
     }
+    applyAttribution({ "ctxpipe.repository.id": repository.id })
     return c.json(serializeRepository(repository), 200)
   })
   .openapi(createRepositoryRoute, async (c) => {
@@ -325,26 +364,39 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
     }
     const body = c.req.valid("json")
     try {
-      const { repository, created } = await createRepository({
+      const refused = await refusedRepositoryUrl(body.gitUrl)
+      if (refused) return c.json({ error: refused }, 400)
+      const { repository, created } = await createOrGetRepository({
         name: body.name,
         gitUrl: body.gitUrl,
       })
-      if (!created) {
-        if (repository.indexingStatus === "unindexing") {
-          return c.json({ error: "Repository is being deleted" }, 409)
-        }
-        return c.json(serializeRepository(repository), 200)
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
+      if (repository.indexingStatus === "unindexing") {
+        return c.json({ error: "Repository is being deleted" }, 409)
       }
-      void enqueueRepositoryIngestionWorkflow(
-        { repositoryId: repository.id, orgId: repository.orgId },
-        {
-          error: (err) =>
-            getLogger().error(err, {
-              step: "repositories.create.enqueue-ingestion",
-            }),
-        },
+      try {
+        await enqueueRepositoryIngestionWorkflow(
+          { repositoryId: repository.id, orgId: repository.orgId },
+          {
+            error: (error) =>
+              getLogger().error(error, {
+                step: "repositories.create.enqueue-ingestion",
+              }),
+          },
+        )
+      } catch {
+        return c.json(
+          {
+            error:
+              "Repository ingestion admission unavailable; retry this request",
+          },
+          503,
+        )
+      }
+      return c.json(
+        serializeRepository((await getRepository(repository.id)) ?? repository),
+        created ? 201 : 200,
       )
-      return c.json(serializeRepository(repository), 201)
     } catch (e) {
       getLogger().error(e instanceof Error ? e : new Error(String(e)), {
         step: "repositories.create",
@@ -364,6 +416,9 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
+      const refused = await refusedRepositoryUrl(repository.gitUrl)
+      if (refused) return c.json({ error: refused }, 400)
       await enqueueRepositoryIngestionWorkflow(
         {
           repositoryId: repository.id,
@@ -400,6 +455,7 @@ export const repositoryRoutes = new OpenAPIHono<AppEnv>()
       if (!repository) {
         return c.json({ error: "Not found" }, 404)
       }
+      applyAttribution({ "ctxpipe.repository.id": repository.id })
       const result = await enqueueRepositoryDeletionWorkflow(
         {
           repositoryId: id,

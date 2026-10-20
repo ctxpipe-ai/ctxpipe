@@ -15,22 +15,6 @@ const BASE_STEP_KEYS = [
   "detecting_languages",
   // scip:<lang> steps are inserted here at runtime
   "merging_intelligence",
-  "retracting",
-  "finding_roots",
-  "classifying_packages",
-  "identify_api_clients",
-  "identify_apis",
-  "identify_databases",
-  "identify_infrastructure",
-  "identify_streams",
-  "identify_service_dependencies",
-  "identify_libraries",
-  "identify_patterns",
-  "extract_instruction_units",
-  "deduplicating",
-  "projecting",
-  "embedding",
-  "syncing_graph",
   "finalizing",
 ] as const
 
@@ -40,20 +24,12 @@ export type BaseStepKey = (typeof BASE_STEP_KEYS)[number]
 export type IndexingStepKey = BaseStepKey | `scip:${string}`
 
 /** Badge word shown in the UI status pill. */
-export type BadgeWord =
+type BadgeWord =
   | "queued"
   | "resolving"
   | "cloning"
   | "checking out"
   | "indexing"
-  | "updating"
-  | "finding packages"
-  | "classifying"
-  | "analyzing"
-  | "deduplicating"
-  | "projecting"
-  | "embedding"
-  | "syncing"
   | "finalizing"
 
 const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
@@ -65,22 +41,6 @@ const BADGE_BY_BASE_KEY: Record<BaseStepKey, BadgeWord> = {
   indexing_search: "indexing",
   detecting_languages: "indexing",
   merging_intelligence: "indexing",
-  retracting: "updating",
-  finding_roots: "finding packages",
-  classifying_packages: "classifying",
-  identify_api_clients: "analyzing",
-  identify_apis: "analyzing",
-  identify_databases: "analyzing",
-  identify_infrastructure: "analyzing",
-  identify_streams: "analyzing",
-  identify_service_dependencies: "analyzing",
-  identify_libraries: "analyzing",
-  identify_patterns: "analyzing",
-  extract_instruction_units: "analyzing",
-  deduplicating: "deduplicating",
-  projecting: "projecting",
-  embedding: "embedding",
-  syncing_graph: "syncing",
   finalizing: "finalizing",
 }
 
@@ -103,10 +63,14 @@ export function getBadgeWord(key: IndexingStepKey): BadgeWord {
 export function buildIndexingChecklist(
   scipLanguages: string[] = [],
 ): IndexingStepKey[] {
-  const scipKeys: IndexingStepKey[] = scipLanguages.map((l) => `scip:${l}`)
+  const scipKeys: IndexingStepKey[] = scipLanguages.map(
+    (language): IndexingStepKey => `scip:${language}`,
+  )
   const result: IndexingStepKey[] = []
   for (let i = 0; i < BASE_STEP_KEYS.length; i++) {
-    result.push(BASE_STEP_KEYS[i] as IndexingStepKey)
+    const key = BASE_STEP_KEYS[i]
+    if (!key) continue
+    result.push(key)
     if (i === SCIP_INSERT_AFTER) {
       result.push(...scipKeys)
     }
@@ -114,7 +78,7 @@ export function buildIndexingChecklist(
   return result
 }
 
-export interface IndexingStepResolution {
+interface IndexingStepResolution {
   /** 1-based step index (position in the checklist). */
   step: number
   /** Total steps for this run. */

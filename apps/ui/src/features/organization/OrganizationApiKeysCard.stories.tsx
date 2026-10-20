@@ -1,5 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
-import { expect, userEvent, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   orgApiKeysCreateHandler,
   orgApiKeysDeleteHandler,
@@ -74,9 +74,9 @@ export const Forbidden: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(
-      await canvas.findByText("Admin or owner required"),
-    ).toBeVisible()
+    await waitFor(() =>
+      expect(canvas.getByText("Admin or owner required")).toBeVisible(),
+    )
     await expect(canvas.queryByText("ci-mcp")).toBeNull()
   },
 }
@@ -100,26 +100,39 @@ export const CreateNamedKey: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(canvas.getByText(/For CI and shared agents\./)).toBeVisible()
-    await expect(canvas.getByText("No organisation keys")).toBeVisible()
+    // The card renders after the organization loads, and the key list after its skeleton.
+    await waitFor(() =>
+      expect(canvas.getByText(/For CI and shared agents\./)).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByText("No organization keys")).toBeVisible(),
+    )
     await expect(
       canvas.getByRole("link", { name: "Use a personal key instead." }),
     ).toBeVisible()
     await userEvent.click(
       canvas.getByRole("button", { name: "Create API key" }),
     )
-    const dialog = await canvas.findByRole("dialog")
+    // A modal renders in a portal outside the canvas element.
+    const page = within(canvasElement.ownerDocument.body)
+    const dialog = await page.findByRole("dialog")
     const nameField = within(dialog).getByLabelText("Name")
     await userEvent.type(nameField, "ci-mcp")
-    await expect(within(dialog).getByText("30 days")).toBeVisible()
+    // The select also renders a hidden native option, so query the visible button.
+    // The dialog fades in, so wait for the button to show.
+    await waitFor(() =>
+      expect(
+        within(dialog).getByRole("button", { name: /30 days/ }),
+      ).toBeVisible(),
+    )
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Create API key" }),
     )
-    await expect(await canvas.findByText("API key created")).toBeVisible()
-    await expect(canvas.getByText("org_plaintext_shown_once")).toBeVisible()
-    await expect(canvas.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(
-      0,
-    )
+    // The secret modal fades in; wait until it is visible.
+    const created = await page.findByText("API key created")
+    await waitFor(() => expect(created).toBeVisible())
+    await expect(page.getByText("org_plaintext_shown_once")).toBeVisible()
+    await expect(page.getAllByText(/CTXPIPE_API_KEY/).length).toBeGreaterThan(0)
   },
 }
 
@@ -133,9 +146,11 @@ export const RevokeKey: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await expect(await canvas.findByText("ci-mcp")).toBeVisible()
+    await waitFor(() => expect(canvas.getByText("ci-mcp")).toBeVisible())
     await userEvent.click(canvas.getByRole("button", { name: /Revoke/i }))
-    const dialog = await canvas.findByRole("alertdialog")
+    // A modal renders in a portal outside the canvas element.
+    const page = within(canvasElement.ownerDocument.body)
+    const dialog = await page.findByRole("alertdialog")
     await userEvent.click(
       within(dialog).getByRole("button", { name: "Revoke key" }),
     )

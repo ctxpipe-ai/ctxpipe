@@ -6,7 +6,7 @@
  * that resolveIndexingStep produces accurate totals relative to the backend catalog.
  */
 import { and, eq, isNull, lte, or } from "drizzle-orm"
-import type { Db } from "../db/client.js"
+import { type Db, withOrgDbContext } from "../db/client.js"
 import { repositories } from "../db/schema.js"
 
 const BASE_STEP_KEYS = [
@@ -42,7 +42,7 @@ export type BaseStepKey = (typeof BASE_STEP_KEYS)[number]
 
 export type IndexingStepKey = BaseStepKey | `scip:${string}`
 
-export type BadgeWord =
+type BadgeWord =
   | "queued"
   | "resolving"
   | "cloning"
@@ -109,7 +109,7 @@ export function buildIndexingChecklist(
   return result
 }
 
-export interface IndexingStepResolution {
+interface IndexingStepResolution {
   step: number
   total: number
   key: IndexingStepKey
@@ -146,7 +146,7 @@ export function resolveHighestCompletedScipStep(
   return highest
 }
 
-export type SetRepositoryIndexingStepOptions = {
+type SetRepositoryIndexingStepOptions = {
   /**
    * Only advance the step counter — skip the update when DB step > new step.
    * Used so parallel SCIP/extract writers and retries cannot snap the badge
@@ -162,6 +162,7 @@ export type SetRepositoryIndexingStepOptions = {
  */
 export async function setRepositoryIndexingStep(
   db: Db,
+  orgId: string,
   repositoryId: string,
   key: IndexingStepKey,
   scipLanguages: string[] = [],
@@ -169,7 +170,10 @@ export async function setRepositoryIndexingStep(
 ): Promise<void> {
   const resolution = resolveIndexingStep(key, scipLanguages)
   if (!resolution) return
-  const idCondition = eq(repositories.id, repositoryId)
+  const idCondition = and(
+    eq(repositories.id, repositoryId),
+    eq(repositories.orgId, orgId),
+  )
   const where = options.monotonic
     ? and(
         idCondition,
@@ -179,14 +183,16 @@ export async function setRepositoryIndexingStep(
         ),
       )
     : idCondition
-  await db
-    .update(repositories)
-    .set({
-      indexingStep: resolution.step,
-      indexingStepTotal: resolution.total,
-      indexingStepKey: resolution.key,
-    })
-    .where(where)
+  await withOrgDbContext(db, orgId, async (tx) => {
+    await tx
+      .update(repositories)
+      .set({
+        indexingStep: resolution.step,
+        indexingStepTotal: resolution.total,
+        indexingStepKey: resolution.key,
+      })
+      .where(where)
+  })
 }
 
 /**
@@ -194,6 +200,7 @@ export async function setRepositoryIndexingStep(
  */
 export async function trySetRepositoryIndexingStep(
   db: Db,
+  orgId: string,
   repositoryId: string,
   key: IndexingStepKey,
   scipLanguages: string[] = [],
@@ -202,6 +209,7 @@ export async function trySetRepositoryIndexingStep(
   try {
     await setRepositoryIndexingStep(
       db,
+      orgId,
       repositoryId,
       key,
       scipLanguages,

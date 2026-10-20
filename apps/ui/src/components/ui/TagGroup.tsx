@@ -31,7 +31,7 @@ const ColorContext = createContext<Color>("gray")
 
 const tagStyles = tv({
   extend: focusRing,
-  base: "transition cursor-default text-xs rounded-full border px-3 py-0.5 flex items-center max-w-fit gap-1 font-sans [-webkit-tap-highlight-color:transparent]",
+  base: "transition cursor-default text-xs rounded-md border px-3 py-0.5 flex items-center max-w-fit gap-1 font-sans [-webkit-tap-highlight-color:transparent]",
   variants: {
     color: {
       gray: "",
@@ -57,7 +57,7 @@ const tagStyles = tv({
   })),
 })
 
-export interface TagGroupProps<T>
+interface TagGroupProps<T>
   extends Omit<AriaTagGroupProps, "children">,
     Pick<TagListProps<T>, "items" | "children" | "renderEmptyState"> {
   color?: Color
@@ -66,7 +66,7 @@ export interface TagGroupProps<T>
   errorMessage?: string
 }
 
-export interface TagProps extends AriaTagProps {
+interface TagProps extends AriaTagProps {
   color?: Color
 }
 

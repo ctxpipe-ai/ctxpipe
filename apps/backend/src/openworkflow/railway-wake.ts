@@ -1,4 +1,7 @@
+import { sql } from "drizzle-orm"
+import { getSystemDb } from "../db/client.js"
 import { log } from "../observability/logger.js"
+import { openWorkflowNamespaceId } from "./namespace.js"
 
 // Slack retries (~3s) plus PR worker boot (~30s). A 25s window still stacked
 // serviceInstanceDeployV2 calls that replaced workers mid-start (PR-267).
@@ -13,7 +16,7 @@ function isRailwayPrPreview(): boolean {
 }
 
 let lastWakeAt = 0
-let pendingWake = false
+let pendingWake: Promise<void> | undefined
 let cachedOpenworkflowServiceId: string | undefined | null
 
 async function railwayGraphql(
@@ -24,7 +27,9 @@ async function railwayGraphql(
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      // RAILWAY_TOKEN is a Railway project token scoped to this preview
+      // environment. Railway reads a project token from this header only.
+      "Project-Access-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
@@ -104,7 +109,9 @@ async function deployWorkerService(
   const res = await fetch("https://backboard.railway.com/graphql/v2", {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${token}`,
+      // RAILWAY_TOKEN is a Railway project token scoped to this preview
+      // environment. Railway reads a project token from this header only.
+      "Project-Access-Token": token,
       "Content-Type": "application/json",
     },
     body: JSON.stringify(body),
@@ -152,7 +159,41 @@ function wakeParamsFromEnv(): WakeParams | undefined {
   return { token, projectId, environmentId }
 }
 
+/**
+ * True when a worker holds the lease of a run now. That worker is alive and
+ * claims new runs itself. A redeploy would stop its steps, so a step longer
+ * than one wake interval would never end.
+ */
+async function workerHoldsLiveLease(): Promise<boolean> {
+  try {
+    const result = await getSystemDb().execute<{ live: boolean }>(sql`
+      select exists (
+        select 1 from openworkflow.workflow_runs
+        where namespace_id = ${openWorkflowNamespaceId()}
+          and status = 'running'
+          and worker_id is not null
+          and available_at > now()
+      ) as live
+    `)
+    return result.rows[0]?.live === true
+  } catch (error) {
+    log.warn({
+      step: "railway-wake-worker.lease_check_failed",
+      message: "Could not read the run leases, so the wake continues",
+      error: error instanceof Error ? error.message : String(error),
+    })
+    return false
+  }
+}
+
 async function runWakeOnce(params: WakeParams): Promise<void> {
+  if (await workerHoldsLiveLease()) {
+    log.info({
+      step: "railway-wake-worker.skipped",
+      message: "A worker holds a live run lease, so it runs already",
+    })
+    return
+  }
   const workerServiceId = await resolveOpenworkflowServiceId(
     params.token,
     params.projectId,
@@ -201,24 +242,23 @@ async function runWakeOnce(params: WakeParams): Promise<void> {
 /**
  * After enqueueing OpenWorkflow work on Railway PR preview, redeploy the openworkflow service.
  * Debounced; uses RAILWAY_TOKEN and Railway-provided RAILWAY_* ids only when RAILWAY_ENVIRONMENT_NAME starts with pr-.
+ * It does not redeploy while a worker holds a live run lease. The promise
+ * resolves when the wake or the skip is done; callers need not wait for it.
  */
-export function scheduleEnsureWorkerRunning(): void {
+export function scheduleEnsureWorkerRunning(): Promise<void> {
   const params = wakeParamsFromEnv()
-  if (!params) return
+  if (!params) return Promise.resolve()
 
   const now = Date.now()
   const elapsed = now - lastWakeAt
   if (elapsed < DEBOUNCE_MS) {
-    if (!pendingWake) {
-      pendingWake = true
-      void (async () => {
-        await new Promise((r) => setTimeout(r, DEBOUNCE_MS - elapsed))
-        pendingWake = false
-        const fresh = wakeParamsFromEnv()
-        if (fresh) await runWakeOnce(fresh)
-      })()
-    }
-    return
+    pendingWake ??= (async () => {
+      await new Promise((r) => setTimeout(r, DEBOUNCE_MS - elapsed))
+      pendingWake = undefined
+      const fresh = wakeParamsFromEnv()
+      if (fresh) await runWakeOnce(fresh)
+    })()
+    return pendingWake
   }
-  void runWakeOnce(params)
+  return runWakeOnce(params)
 }

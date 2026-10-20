@@ -1,5 +1,6 @@
 import { existsSync, readFileSync } from "node:fs"
 import { join, resolve } from "node:path"
+import { isObject } from "../mcp/json.js"
 import type {
   Operation,
   OperationContext,
@@ -7,12 +8,11 @@ import type {
   WriteTextOperation,
 } from "../mcp/mcp-operations.js"
 import { createOperationContext } from "../mcp/mcp-operations.js"
-import { isObject } from "../mcp/json.js"
 import { relativePath } from "../mcp/paths.js"
 import { LESSONS_SEED, MEMORY_README_SEED } from "./seed.js"
 
 /** Legacy AgentMemory / ConKeeper guidance that must not survive re-init. */
-export function isLegacyMemoryDoc(text: string): boolean {
+function isLegacyMemoryDoc(text: string): boolean {
   // Require multiple signals so a single negated mention ("do not use AgentMemory")
   // does not wipe a custom README.
   let score = 0
@@ -53,7 +53,7 @@ export function isLegacyMemoryDoc(text: string): boolean {
  * Strip retired local-memory MCP tables from Codex config.toml
  * (e.g. `[mcp_servers.ctxpipe-memory]` from `codex mcp add`).
  */
-export function stripLegacyCodexMemoryToml(existing: string): string {
+function stripLegacyCodexMemoryToml(existing: string): string {
   // Match section headers even when indented; stop at the next header line.
   let text = existing.replace(
     /^[ \t]*\[(?:mcp_servers|mcp\.servers)\.ctxpipe-memory\][^\n]*(?:\n(?![ \t]*\[)[^\n]*)*/gm,
@@ -96,7 +96,9 @@ function isLegacyLocalMemoryServer(key: string, value: unknown): boolean {
   )
 }
 
-function stripServerMap(servers: Record<string, unknown>): Record<string, unknown> {
+function stripServerMap(
+  servers: Record<string, unknown>,
+): Record<string, unknown> {
   const next: Record<string, unknown> = {}
   for (const [key, value] of Object.entries(servers)) {
     if (isLegacyLocalMemoryServer(key, value)) continue
@@ -106,7 +108,7 @@ function stripServerMap(servers: Record<string, unknown>): Record<string, unknow
 }
 
 /** Strip legacy AgentMemory MCP + memory stanza from JSON configs. */
-export function stripLegacyMemoryMcp(
+function stripLegacyMemoryMcp(
   existing: Record<string, unknown>,
 ): Record<string, unknown> {
   const next = { ...existing }
@@ -185,22 +187,18 @@ function migratePatternsToLessonsOperation(
       }
       const patterns = readFileSync(patternsPath, "utf8")
       if (!patterns.trim()) return existing ?? LESSONS_SEED
-      if (existing && existing.includes("Migrated from former `patterns.md`")) {
+      if (existing?.includes("Migrated from former `patterns.md`")) {
         return existing
       }
-      const header =
-        existing && existing.trim()
-          ? existing.trimEnd()
-          : LESSONS_SEED.trimEnd()
+      const header = existing?.trim()
+        ? existing.trimEnd()
+        : LESSONS_SEED.trimEnd()
       return `${header}\n\n## Migrated from former \`patterns.md\`\n\n${patterns.trim()}\n`
     },
   }
 }
 
-function pushRetiredSkillAndRuleRemovals(
-  ops: Operation[],
-  root: string,
-): void {
+function pushRetiredSkillAndRuleRemovals(ops: Operation[], root: string): void {
   const skillsRoot = resolve(root, "skills")
   const rulesRoot = resolve(root, "rules")
   for (const name of RETIRED_SKILLS) {
@@ -267,7 +265,8 @@ export function buildMemoryUpgradeOperations({
     ops.push({
       type: "write-text",
       path: readmePath,
-      description: "replace legacy AgentMemory README with ADR-024 seed when detected",
+      description:
+        "replace legacy AgentMemory README with ADR-024 seed when detected",
       content(existing) {
         if (existing && isLegacyMemoryDoc(existing)) return MEMORY_README_SEED
         return existing ?? MEMORY_README_SEED

@@ -11,6 +11,8 @@ const ConnectorListItemSchema = z
   .object({
     id: z.string(),
     type: z.enum(["github", "forge", "slack", "linear", "notion", "pagerduty"]),
+    /** The account, site, or workspace name that the provider gives. */
+    displayName: z.string().nullable(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -58,15 +60,14 @@ const suggestedSyncTargetRoute = createRoute({
                 branch: z.string(),
                 githubConnectionId: z.string(),
                 usedBy: z.array(
-                  z.enum(["confluence", "notion", "linear", "slack", "github"]),
+                  z.enum(["confluence", "notion", "linear", "slack"]),
                 ),
               })
               .nullable(),
           }),
         },
       },
-      description:
-        "Recommend a context repository from existing connectors or GitHub setup",
+      description: "Recommend a context repository from existing connectors",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -89,6 +90,7 @@ export const connectorsListRoutes = new OpenAPIHono<AppEnv>()
         items: rows.map((r) => ({
           id: r.id,
           type: r.type,
+          displayName: r.displayName,
           createdAt: r.createdAt.toISOString(),
           updatedAt: r.updatedAt.toISOString(),
         })),

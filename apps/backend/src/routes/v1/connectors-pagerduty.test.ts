@@ -371,7 +371,7 @@ describe("PagerDuty connector routes", () => {
   it("rejects changing an OAuth app after tokens are issued", async () => {
     mocks.saveOauthApp.mockRejectedValueOnce(
       new Error(
-        "PagerDuty OAuth app cannot be changed after account authorisation",
+        "PagerDuty OAuth app cannot be changed after account authorization",
       ),
     )
     const app = appWithVariables().route(
@@ -394,7 +394,7 @@ describe("PagerDuty connector routes", () => {
     expect(response.status).toBe(409)
     expect(await response.json()).toEqual({
       error:
-        "PagerDuty OAuth app cannot be changed after account authorisation",
+        "PagerDuty OAuth app cannot be changed after account authorization",
     })
   })
 
@@ -459,7 +459,7 @@ describe("PagerDuty connector routes", () => {
       status: "installed",
     })
     mocks.upsertConnection.mockRejectedValueOnce(
-      new Error("PagerDuty authorised account does not match this connection"),
+      new Error("PagerDuty authorized account does not match this connection"),
     )
     const app = appWithVariables().route(
       "/api/v1/integrations/pagerduty",
@@ -474,7 +474,7 @@ describe("PagerDuty connector routes", () => {
 
     expect(response.status).toBe(200)
     expect(await response.text()).toContain(
-      "PagerDuty authorised account does not match this connection",
+      "PagerDuty authorized account does not match this connection",
     )
     expect(mocks.upsertConnection).toHaveBeenCalled()
     expect(mocks.ensureWebhook).not.toHaveBeenCalled()
@@ -639,6 +639,7 @@ describe("PagerDuty connector routes", () => {
     expect(response.status).toBe(200)
     expect(mocks.claimConfig).not.toHaveBeenCalled()
     expect(mocks.transitionTarget).toHaveBeenCalledWith({
+      orgId: "org_1",
       connectionId: "con_pd",
       expectedSetupPhase: "draft",
       expectedPendingConfigPrCreating: false,
@@ -676,6 +677,7 @@ describe("PagerDuty connector routes", () => {
     )
     expect(response.status).toBe(503)
     expect(mocks.transitionTarget).toHaveBeenLastCalledWith({
+      orgId: "org_1",
       connectionId: "con_pd",
       expectedSetupPhase: "initial_sync",
       expectedPendingConfigPrCreating: false,

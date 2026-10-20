@@ -91,8 +91,8 @@ export function ProgressLoader({
     <LoaderShell label={label} sublabel={sublabel} className={className}>
       <div aria-hidden className="h-1 w-56 overflow-hidden bg-zinc-900/80">
         <div
-          className="h-full bg-teal-400 transition-[width] duration-150 ease-linear"
-          style={{ width: `${clamped}%` }}
+          className="h-full w-full origin-left bg-teal-400 transition-[scale] duration-150 ease-linear"
+          style={{ scale: `${clamped / 100} 1` }}
         />
       </div>
     </LoaderShell>

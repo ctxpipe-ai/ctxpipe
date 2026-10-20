@@ -1,13 +1,11 @@
-import { useQuery } from "@tanstack/react-query"
-import { client } from "@/lib/api"
+
 import {
   formatIndexingStepLabel,
   getRepositoryIndexingStatus,
-  type Repository,
   type RepositoryIndexingStatus,
 } from "./types"
 
-export type RepositoryIndexingSummary = {
+type RepositoryIndexingSummary = {
   totalCount: number
   activeCount: number
   queuedCount: number
@@ -15,7 +13,7 @@ export type RepositoryIndexingSummary = {
   failedCount: number
   /**
    * When exactly one active (queued/running) repository has step data,
-   * this is its formatted step label (e.g. `"embedding 7/22"`).
+   * this is its formatted step label (e.g. `"finalizing 7/22"`).
    * Null when there are zero or multiple active repos, or no step data.
    */
   singleActiveStepLabel: string | null
@@ -64,39 +62,3 @@ export function getRepositoryIndexingSummary(
   }
 }
 
-export function useRepositoryIndexingSummary(
-  orgSlug: string | null,
-  options: {
-    enabled?: boolean
-    pollWhileEmpty?: boolean
-  } = {},
-) {
-  const query = useQuery({
-    queryKey: ["repositories", orgSlug],
-    enabled: Boolean(orgSlug) && (options.enabled ?? true),
-    queryFn: async () => {
-      if (!orgSlug) throw new Error("Missing organisation")
-      const res = await client[":orgSlug"].api.v1.repositories.$get({
-        param: { orgSlug },
-      })
-      if (!res.ok) throw new Error("Failed to fetch repositories")
-      const json = (await res.json()) as { items: Repository[] }
-      return json.items
-    },
-    refetchInterval: (query) => {
-      const repositories = (query.state.data as Repository[] | undefined) ?? []
-      const summary = getRepositoryIndexingSummary(repositories)
-      return summary.activeCount > 0 ||
-        (options.pollWhileEmpty && repositories.length === 0)
-        ? 3000
-        : false
-    },
-  })
-
-  return {
-    repositories: query.data,
-    summary: getRepositoryIndexingSummary(query.data ?? []),
-    isPending: query.isPending,
-    isError: query.isError,
-  }
-}

@@ -1,6 +1,5 @@
-import { ChatOpenAI } from "@langchain/openai"
-
 import { lowerOpenAiChatCompletionsParams } from "./openAILikeModelProvider.js"
+import { openAiHostAdapter } from "./openAiHostAdapter.js"
 import type {
   OpenAiCompatibleFetch,
   ProviderCallOpts,
@@ -23,18 +22,10 @@ export function azureModelProvider(opts: ProviderCallOpts): ProviderCallResult {
     throw new Error("MODEL_PROVIDER_URL is required for MODEL_PROVIDER=azure")
   }
 
-  const primary = opts.models[0] ?? ""
   const modelKwargs = lowerOpenAiChatCompletionsParams(opts.modelParams)
   const fetchFn = azureFetch(opts.apiKey)
   return {
-    chat: new ChatOpenAI({
-      model: primary,
-      apiKey: opts.apiKey,
-      temperature: opts.temperature,
-      streaming: opts.streaming ?? true,
-      ...(modelKwargs ? { modelKwargs } : {}),
-      configuration: { baseURL, fetch: fetchFn },
-    }),
+    chat: openAiHostAdapter(opts, "azure", baseURL, fetchFn, modelKwargs),
     fetch: fetchFn,
   }
 }

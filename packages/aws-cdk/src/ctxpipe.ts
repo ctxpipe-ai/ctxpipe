@@ -1,31 +1,34 @@
-import * as cdk from "aws-cdk-lib";
-import * as acm from "aws-cdk-lib/aws-certificatemanager";
-import * as ec2 from "aws-cdk-lib/aws-ec2";
-import * as lambda from "aws-cdk-lib/aws-lambda";
-import * as route53 from "aws-cdk-lib/aws-route53";
-import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
-import * as cr from "aws-cdk-lib/custom-resources";
-import { Construct } from "constructs";
-import { resolveModelProvider, validateModelProvider } from "./model-provider";
-import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag";
+import { BlockList, isIP } from "node:net"
+import * as cdk from "aws-cdk-lib"
+import * as acm from "aws-cdk-lib/aws-certificatemanager"
+import type * as cloudwatch from "aws-cdk-lib/aws-cloudwatch"
+import * as ec2 from "aws-cdk-lib/aws-ec2"
+import * as lambda from "aws-cdk-lib/aws-lambda"
+import * as route53 from "aws-cdk-lib/aws-route53"
+import type * as secretsmanager from "aws-cdk-lib/aws-secretsmanager"
+import * as cr from "aws-cdk-lib/custom-resources"
+import { Construct } from "constructs"
 import type {
-  CtxPipeSizeProfile,
   CtxPipeResolvedDefaults,
+  CtxPipeSizeProfile,
   ResolvedCtxPipeCustomDomainProps,
-} from "./internal/contracts";
-import { DataPlaneConstruct } from "./internal/data-plane-construct";
-import { IngressConstruct } from "./internal/ingress-construct";
-import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct";
-import { NetworkingConstruct } from "./internal/networking-construct";
-import { OutputsConstruct } from "./internal/outputs-construct";
-import { SecretsConstruct } from "./internal/secrets-construct";
-import { ServicesConstruct } from "./internal/services-construct";
-import { TaskDefinitionsConstruct } from "./internal/task-definitions-construct";
-import type { CtxPipeProps, CtxPipeSize } from "./types";
+} from "./internal/contracts"
+import { DataPlaneConstruct } from "./internal/data-plane-construct"
+import { IngressConstruct } from "./internal/ingress-construct"
+import { MigrateOnDeployConstruct } from "./internal/migrate-on-deploy-construct"
+import { NetworkingConstruct } from "./internal/networking-construct"
+import { OutputsConstruct } from "./internal/outputs-construct"
+import { SandboxHostConstruct } from "./internal/sandbox-host-construct"
+import { SecretsConstruct } from "./internal/secrets-construct"
+import { ServicesConstruct } from "./internal/services-construct"
+import { TaskDefinitionsConstruct } from "./internal/task-definitions-construct"
+import { resolveModelProvider, validateModelProvider } from "./model-provider"
+import { PINNED_SERVICE_IMAGE_TAG } from "./pinned-service-image-tag"
+import type { CtxPipeProps, CtxPipeSize } from "./types"
 
-const DEFAULT_BACKUP_RETENTION_DAYS = 7;
-const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/;
-const DEFAULT_SIZE: CtxPipeSize = "small";
+const DEFAULT_BACKUP_RETENTION_DAYS = 7
+const ORG_SLUG_PATTERN = /^[a-z0-9-]+$/
+const DEFAULT_SIZE: CtxPipeSize = "small"
 
 const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
   small: {
@@ -58,6 +61,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 1,
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.MEDIUM),
+      dockerVolumeSizeGiB: 30,
+    },
   },
   medium: {
     size: "medium",
@@ -89,6 +96,10 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 2,
     },
     backupRetentionDays: DEFAULT_BACKUP_RETENTION_DAYS,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.LARGE),
+      dockerVolumeSizeGiB: 50,
+    },
   },
   large: {
     size: "large",
@@ -120,40 +131,57 @@ const SIZE_PROFILES: Record<CtxPipeSize, CtxPipeSizeProfile> = {
       codesearchIndexPipelineConcurrency: 2,
     },
     backupRetentionDays: 14,
+    sandboxHost: {
+      instanceType: ec2.InstanceType.of(ec2.InstanceClass.T4G, ec2.InstanceSize.XLARGE),
+      dockerVolumeSizeGiB: 100,
+    },
   },
-};
+}
 
 export class CtxPipe extends Construct {
-  public readonly appUrl: string;
-  public readonly databaseUrlSecret: secretsmanager.ISecret;
-  public readonly modelProviderSecret?: secretsmanager.ISecret;
-  public readonly smtpSecret: secretsmanager.ISecret;
-  public readonly connectorSecret?: secretsmanager.ISecret;
+  public readonly appUrl: string
+  public readonly databaseUrlSecret: secretsmanager.ISecret
+  public readonly modelProviderSecret?: secretsmanager.ISecret
+  public readonly smtpSecret: secretsmanager.ISecret
+  public readonly connectorSecret?: secretsmanager.ISecret
+  /**
+   * Disk and memory alarms for the chat sandbox host. They have no actions;
+   * add your own (for example an SNS topic) with `addAlarmAction`.
+   */
+  public readonly sandboxHostAlarms: readonly cloudwatch.IAlarm[]
 
   public constructor(scope: Construct, id: string, props: CtxPipeProps) {
-    super(scope, id);
+    super(scope, id)
 
-    this.validateOrgSlug(props);
-    validateModelProvider(props.modelProvider);
+    this.validateOrgSlug(props)
+    validateModelProvider(props.modelProvider)
     const resolvedModel = resolveModelProvider(
       props.modelProvider,
       cdk.Stack.of(this).region,
-    );
-    const sizeProfile = this.resolveSizeProfile(props);
-    const resolvedCustomDomain = this.resolveCustomDomain(props);
+    )
+    const sizeProfile = this.resolveSizeProfile(props)
+    const sandboxHostProfile =
+      props.sandboxHost?.enabled === false
+        ? undefined
+        : this.resolveSandboxHost(props, sizeProfile)
+    const resolvedCustomDomain = this.resolveCustomDomain(props)
 
-    const defaults = this.resolveDefaults(props, resolvedCustomDomain, sizeProfile);
+    const defaults = this.resolveDefaults(
+      props,
+      resolvedCustomDomain,
+      sizeProfile,
+    )
 
     const networking = new NetworkingConstruct(this, "Networking", {
       maxAzs: sizeProfile.network.maxAzs,
       natGateways: sizeProfile.network.natGateways,
-    });
+    })
 
     const dataPlane = new DataPlaneConstruct(this, "DataPlane", {
       networking: networking.resources,
       defaults,
       sizeProfile,
-    });
+    })
 
     const secrets = new SecretsConstruct(this, "Secrets", {
       dataPlane: dataPlane.resources,
@@ -162,46 +190,65 @@ export class CtxPipe extends Construct {
       hostedZone: resolvedCustomDomain.hostedZone,
       connectorSecrets: props.connectorSecrets,
       emailFromAddress: defaults.emailFromAddress,
-    });
+    })
 
-    const taskDefinitions = new TaskDefinitionsConstruct(this, "TaskDefinitions", {
-      orgSlug: props.orgSlug,
-      networking: networking.resources,
-      dataPlane: dataPlane.resources,
-      secrets: secrets.resources,
-      customDomain: resolvedCustomDomain,
-      resolvedModel,
-      defaultImageTag: defaults.defaultImageTag,
-      sizeProfile,
-      otel: props.otel,
-    });
+    const sandboxHost = sandboxHostProfile
+      ? new SandboxHostConstruct(this, "SandboxHost", {
+          networking: networking.resources,
+          ...sandboxHostProfile,
+        })
+      : undefined
 
-    const migrateOnDeploy = new MigrateOnDeployConstruct(this, "MigrateOnDeploy", {
-      networking: networking.resources,
-      dataPlane: dataPlane.resources,
-      tasks: taskDefinitions.resources,
-      secrets: secrets.resources,
-    });
+    const taskDefinitions = new TaskDefinitionsConstruct(
+      this,
+      "TaskDefinitions",
+      {
+        orgSlug: props.orgSlug,
+        networking: networking.resources,
+        dataPlane: dataPlane.resources,
+        secrets: secrets.resources,
+        customDomain: resolvedCustomDomain,
+        resolvedModel,
+        defaultImageTag: defaults.defaultImageTag,
+        sizeProfile,
+        otel: props.otel,
+        sandboxHost: sandboxHost?.resources,
+      },
+    )
+
+    new MigrateOnDeployConstruct(
+      this,
+      "MigrateOnDeploy",
+      {
+        networking: networking.resources,
+        dataPlane: dataPlane.resources,
+        tasks: taskDefinitions.resources,
+        secrets: secrets.resources,
+      },
+    )
 
     const services = new ServicesConstruct(this, "Services", {
       networking: networking.resources,
       tasks: taskDefinitions.resources,
       sizeProfile,
-      migrateDependency: migrateOnDeploy.resources.migrateResource,
-      codesearchEfsMountDependency: dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
-    });
+      migrateDependency: secrets.resources.runtimeDatabaseUrlWriter,
+      codesearchEfsMountDependency:
+        dataPlane.resources.codesearchFileSystem.mountTargetsAvailable,
+      sandboxHost: sandboxHost?.resources,
+    })
 
     const ingress = new IngressConstruct(this, "Ingress", {
       networking: networking.resources,
       backendService: services.resources.backendService,
       customDomain: resolvedCustomDomain,
-    });
+    })
 
-    this.databaseUrlSecret = secrets.resources.databaseUrlSecret;
-    this.modelProviderSecret = secrets.resources.modelProviderSecret;
-    this.smtpSecret = secrets.resources.smtpSecret;
-    this.connectorSecret = secrets.resources.connectorSecret;
-    this.appUrl = ingress.resources.appUrl;
+    this.databaseUrlSecret = secrets.resources.databaseUrlSecret
+    this.modelProviderSecret = secrets.resources.modelProviderSecret
+    this.smtpSecret = secrets.resources.smtpSecret
+    this.connectorSecret = secrets.resources.connectorSecret
+    this.appUrl = ingress.resources.appUrl
+    this.sandboxHostAlarms = sandboxHost?.resources.alarms ?? []
 
     new OutputsConstruct(this, "Outputs", {
       appUrl: this.appUrl,
@@ -210,48 +257,88 @@ export class CtxPipe extends Construct {
       modelProviderSecretArn: this.modelProviderSecret?.secretArn,
       smtpSecretArn: this.smtpSecret.secretArn,
       connectorSecretArn: this.connectorSecret?.secretArn,
-    });
+      sandboxHostAutoScalingGroupName:
+        sandboxHost?.resources.autoScalingGroup.autoScalingGroupName,
+    })
   }
 
   private validateOrgSlug(props: CtxPipeProps): void {
-    const orgSlug = props.orgSlug.trim();
+    const orgSlug = props.orgSlug.trim()
     if (orgSlug.length === 0) {
-      throw new Error("orgSlug is required");
+      throw new Error("orgSlug is required")
     }
     if (!ORG_SLUG_PATTERN.test(orgSlug)) {
-      throw new Error("orgSlug must contain only lowercase letters, numbers, or hyphens");
+      throw new Error(
+        "orgSlug must contain only lowercase letters, numbers, or hyphens",
+      )
     }
   }
 
   private resolveDefaults(
-    props: CtxPipeProps,
+    _props: CtxPipeProps,
     customDomain: ResolvedCtxPipeCustomDomainProps,
     sizeProfile: CtxPipeSizeProfile,
   ): CtxPipeResolvedDefaults {
-    const normalizedZoneName = customDomain.hostedZoneName.replace(/\.$/, "");
+    const normalizedZoneName = customDomain.hostedZoneName.replace(/\.$/, "")
     return {
       databaseName: "ctxpipe",
       backupRetentionDays: sizeProfile.backupRetentionDays,
       defaultImageTag: PINNED_SERVICE_IMAGE_TAG,
       emailFromAddress: `ctxpipe-noreply@${normalizedZoneName}`,
-    };
+    }
   }
 
   private resolveSizeProfile(props: CtxPipeProps): CtxPipeSizeProfile {
-    const size = props.size ?? DEFAULT_SIZE;
-    return SIZE_PROFILES[size];
+    const size = props.size ?? DEFAULT_SIZE
+    return SIZE_PROFILES[size]
   }
 
-  private resolveCustomDomain(props: CtxPipeProps): ResolvedCtxPipeCustomDomainProps {
-    const hostedZoneName = this.resolveHostedZoneName(props.customDomain.hostedZoneId);
+  private resolveSandboxHost(
+    props: CtxPipeProps,
+    sizeProfile: CtxPipeSizeProfile,
+  ): CtxPipeSizeProfile["sandboxHost"] {
+    const dockerVolumeSizeGiB =
+      props.sandboxHost?.dockerVolumeSizeGiB ??
+      sizeProfile.sandboxHost.dockerVolumeSizeGiB
+    if (!Number.isInteger(dockerVolumeSizeGiB) || dockerVolumeSizeGiB < 20) {
+      throw new Error(
+        "sandboxHost.dockerVolumeSizeGiB must be a whole number of at least 20",
+      )
+    }
+    const instanceType =
+      props.sandboxHost?.instanceType ?? sizeProfile.sandboxHost.instanceType
+    if (instanceType.architecture !== ec2.InstanceArchitecture.ARM_64) {
+      throw new Error(
+        `sandboxHost.instanceType must be a Graviton (arm64) type such as t4g.xlarge or m7g.large; got ${instanceType}`,
+      )
+    }
+    const agentVaultNetworkAllowlist = [
+      ...(props.sandboxHost?.agentVaultNetworkAllowlist ?? []),
+    ]
+    for (const entry of agentVaultNetworkAllowlist)
+      if (!agentVaultAllowlistEntryOk(entry))
+        throw new Error(
+          `sandboxHost.agentVaultNetworkAllowlist must hold IPv4 or IPv6 addresses or CIDRs with no cloud metadata, link-local, loopback, or unspecified address; got ${JSON.stringify(entry)}`,
+        )
+    return { instanceType, dockerVolumeSizeGiB, agentVaultNetworkAllowlist }
+  }
+
+  private resolveCustomDomain(
+    props: CtxPipeProps,
+  ): ResolvedCtxPipeCustomDomainProps {
+    const hostedZoneName = this.resolveHostedZoneName(
+      props.customDomain.hostedZoneId,
+    )
     const hostedZone = route53.HostedZone.fromHostedZoneAttributes(
       this,
       "CustomDomainHostedZone",
       {
-        hostedZoneId: this.normalizeHostedZoneId(props.customDomain.hostedZoneId),
+        hostedZoneId: this.normalizeHostedZoneId(
+          props.customDomain.hostedZoneId,
+        ),
         zoneName: hostedZoneName,
       },
-    );
+    )
 
     return {
       ...props.customDomain,
@@ -261,7 +348,7 @@ export class CtxPipe extends Construct {
         domainName: props.customDomain.domainName,
         validation: acm.CertificateValidation.fromDns(hostedZone),
       }),
-    };
+    }
   }
 
   private resolveHostedZoneName(hostedZoneId: string): string {
@@ -290,13 +377,16 @@ export class CtxPipe extends Construct {
         resources: cr.AwsCustomResourcePolicy.ANY_RESOURCE,
       }),
       installLatestAwsSdk: false,
-    });
+    })
 
-    const normalizeFunction = new lambda.Function(this, "HostedZoneNameNormalizeFunction", {
-      runtime: lambda.Runtime.NODEJS_20_X,
-      handler: "index.handler",
-      timeout: cdk.Duration.seconds(15),
-      code: lambda.Code.fromInline(`
+    const normalizeFunction = new lambda.Function(
+      this,
+      "HostedZoneNameNormalizeFunction",
+      {
+        runtime: lambda.Runtime.NODEJS_20_X,
+        handler: "index.handler",
+        timeout: cdk.Duration.seconds(15),
+        code: lambda.Code.fromInline(`
           exports.handler = async (event) => {
             const physicalId = event.PhysicalResourceId || "hosted-zone-name-normalized";
             if (event.RequestType === "Delete") {
@@ -313,31 +403,81 @@ export class CtxPipe extends Construct {
             };
           };
         `),
-    });
-
-    const normalizeProvider = new cr.Provider(this, "HostedZoneNameNormalizeProvider", {
-      onEventHandler: normalizeFunction,
-    });
-
-    const normalizeResource = new cdk.CustomResource(this, "HostedZoneNameNormalize", {
-      serviceToken: normalizeProvider.serviceToken,
-      properties: {
-        HostedZoneName: lookup.getResponseField("HostedZone.Name"),
       },
-    });
+    )
 
-    return normalizeResource.getAttString("HostedZoneName");
+    const normalizeProvider = new cr.Provider(
+      this,
+      "HostedZoneNameNormalizeProvider",
+      {
+        onEventHandler: normalizeFunction,
+      },
+    )
+
+    const normalizeResource = new cdk.CustomResource(
+      this,
+      "HostedZoneNameNormalize",
+      {
+        serviceToken: normalizeProvider.serviceToken,
+        properties: {
+          HostedZoneName: lookup.getResponseField("HostedZone.Name"),
+        },
+      },
+    )
+
+    return normalizeResource.getAttString("HostedZoneName")
   }
 
   private normalizeHostedZoneId(hostedZoneId: string): string {
     return hostedZoneId.startsWith("/hostedzone/")
       ? hostedZoneId.slice("/hostedzone/".length)
-      : hostedZoneId;
+      : hostedZoneId
   }
 
   private toHostedZoneApiId(hostedZoneId: string): string {
     return hostedZoneId.startsWith("/hostedzone/")
       ? hostedZoneId
-      : `/hostedzone/${hostedZoneId}`;
+      : `/hostedzone/${hostedZoneId}`
   }
+}
+
+/**
+ * True when `entry` is an IPv4 or IPv6 address or CIDR that holds no cloud
+ * metadata, link-local, loopback, or unspecified address. The entry goes into
+ * the host boot script, so only these characters can get through.
+ */
+function agentVaultAllowlistEntryOk(entry: string): boolean {
+  const [address = "", prefix, ...rest] = entry.split("/")
+  const family = isIP(address)
+  if (!family || rest.length) return false
+  const type = family === 4 ? "ipv4" : "ipv6"
+  const bits = prefix === undefined ? (family === 4 ? 32 : 128) : Number(prefix)
+  if (
+    (prefix !== undefined && !/^\d{1,3}$/.test(prefix)) ||
+    bits > (family === 4 ? 32 : 128)
+  )
+    return false
+  const range = new BlockList()
+  range.addSubnet(address, bits, type)
+  const denied = new BlockList()
+  const deniedSubnets = [
+    ["169.254.0.0", 16, "ipv4"],
+    ["fe80::", 10, "ipv6"],
+    ["127.0.0.0", 8, "ipv4"],
+    ["::1", 128, "ipv6"],
+    ["0.0.0.0", 32, "ipv4"],
+    ["::", 128, "ipv6"],
+    ["169.254.169.254", 32, "ipv4"],
+    ["169.254.170.2", 32, "ipv4"],
+    ["fd00:ec2::254", 128, "ipv6"],
+  ] as const
+  for (const [network, length, networkType] of deniedSubnets)
+    denied.addSubnet(network, length, networkType)
+  // Reject an entry that is inside a denied range or that covers one.
+  return (
+    !denied.check(address, type) &&
+    !deniedSubnets.some(([network, , networkType]) =>
+      range.check(network, networkType),
+    )
+  )
 }

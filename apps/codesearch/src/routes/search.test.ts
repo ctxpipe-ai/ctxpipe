@@ -21,6 +21,7 @@ import {
   vi,
 } from "vitest"
 import type { AppEnv } from "../app/env.js"
+import type { VerifiedToken } from "../auth/jwt.js"
 import {
   zoektRepositoryName,
   zoektShardFilePrefix,
@@ -93,17 +94,20 @@ function otlpLogEvents(): Record<string, unknown>[] {
   return events
 }
 
-function createTestApp(db: { select: ReturnType<typeof vi.fn> }) {
+function createTestApp(
+  db: { select: ReturnType<typeof vi.fn> },
+  auth: VerifiedToken = {
+    sub: "user_test",
+    orgId: "org_mock123",
+    principal: "user",
+  },
+) {
   const app = new OpenAPIHono<AppEnv>()
   useObservability(app)
   app.use("*", async (c, next) => {
     c.set("db", db as unknown as AppEnv["Variables"]["db"])
     c.set("env", { NODE_ENV: "test", PORT: 3001 } as AppEnv["Variables"]["env"])
-    c.set("auth", {
-      sub: "user_test",
-      orgId: "org_mock123",
-      principal: "user",
-    } as AppEnv["Variables"]["auth"])
+    c.set("auth", auth)
     await next()
   })
   registerSearchRoutes(app)
@@ -117,7 +121,16 @@ function mockDb(
   const innerJoin = vi.fn().mockReturnValue({ where })
   const from = vi.fn().mockReturnValue({ innerJoin })
   const select = vi.fn().mockReturnValue({ from })
-  return { select, where }
+  return {
+    select,
+    where,
+    transaction: async (
+      fn: (tx: {
+        select: typeof select
+        execute: () => Promise<void>
+      }) => unknown,
+    ) => fn({ select, execute: async () => undefined }),
+  }
 }
 
 async function writeColdShard(zoektName: string): Promise<string> {

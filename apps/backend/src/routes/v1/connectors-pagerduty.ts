@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { hasOrgAdminOrOwnerRole } from "../../auth/withAuth.js"
+import { directWriteRoute } from "../../auth/write-grant.js"
 import { withOrgDbContext } from "../../db/client.js"
 import {
   envHasPagerdutyOAuthApp,
@@ -30,7 +31,6 @@ import {
 } from "../../models/pagerduty-connector.js"
 import { getLogger } from "../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 import { pagerdutySyncConfig } from "../../openworkflow/workflows/pagerduty-sync-config.js"
 import { pagerdutySyncContent } from "../../openworkflow/workflows/pagerduty-sync-content.js"
 import { getPullRequestHeadBranch } from "../../services/github/installation-write-client.js"
@@ -185,7 +185,7 @@ const putOAuthAppRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "OAuth app is already bound to authorised tokens",
+      description: "OAuth app is already bound to authorized tokens",
     },
   },
 })
@@ -324,41 +324,9 @@ const getConfigRoute = createRoute({
       },
       description: "PagerDuty scope from git and repository binding",
     },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-  },
-})
-
-const patchConfigRoute = createRoute({
-  method: "patch",
-  path: "/config",
-  request: {
-    query: ConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": { schema: PagerdutyPatchConfigRequestSchema },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: z.object({
-            accepted: z.literal(true),
-            savedCount: z.number().int(),
-            configPrEnqueued: z.boolean(),
-            workflowName: z.string().optional(),
-          }),
-        },
-      },
-      description: "Saved PagerDuty binding and/or enqueued config PR",
-    },
     400: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Invalid or ambiguous PagerDuty configuration",
+      description: "Invalid or revoked PagerDuty connection",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -368,12 +336,62 @@ const patchConfigRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Unknown PagerDuty connection",
     },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue configuration pull request",
-    },
   },
 })
+
+const patchConfigRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "patch",
+      path: "/config",
+      request: {
+        query: ConnectionIdQuerySchema,
+        body: {
+          content: {
+            "application/json": { schema: PagerdutyPatchConfigRequestSchema },
+          },
+        },
+      },
+      responses: {
+        200: {
+          content: {
+            "application/json": {
+              schema: z.object({
+                accepted: z.literal(true),
+                savedCount: z.number().int(),
+                configPrEnqueued: z.boolean(),
+                workflowName: z.string().optional(),
+              }),
+            },
+          },
+          description: "Saved PagerDuty binding and/or enqueued config PR",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Invalid or ambiguous PagerDuty configuration",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown PagerDuty connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description:
+            "PagerDuty sync target changed while starting initial sync",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue configuration pull request",
+        },
+      },
+    },
+    { orgAdmin: true },
+  ),
+)
 
 const retryPagerdutyConfigRoute = createRoute({
   method: "post",
@@ -425,41 +443,46 @@ const retryPagerdutyConfigRoute = createRoute({
   },
 })
 
-const retryPagerdutySyncRoute = createRoute({
-  method: "post",
-  path: "/retry",
-  request: { query: ConnectionIdQuerySchema },
-  responses: {
-    202: {
-      content: {
-        "application/json": {
-          schema: z.object({ accepted: z.literal(true) }),
+const retryPagerdutySyncRoute = createRoute(
+  directWriteRoute(
+    {
+      method: "post",
+      path: "/retry",
+      request: { query: ConnectionIdQuerySchema },
+      responses: {
+        202: {
+          content: {
+            "application/json": {
+              schema: z.object({ accepted: z.literal(true) }),
+            },
+          },
+          description: "Content sync retry accepted",
+        },
+        400: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Not in a failed content sync state",
+        },
+        401: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unauthorized",
+        },
+        404: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Unknown or incomplete PagerDuty connection",
+        },
+        409: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Content sync already being retried",
+        },
+        503: {
+          content: { "application/json": { schema: ErrorResponseSchema } },
+          description: "Failed to enqueue content sync retry",
         },
       },
-      description: "Content sync retry accepted",
     },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Not in a failed content sync state",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unknown or incomplete PagerDuty connection",
-    },
-    409: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Content sync already being retried",
-    },
-    503: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Failed to enqueue content sync retry",
-    },
-  },
-})
+    { orgAdmin: true },
+  ),
+)
 
 const deletePagerdutyConnectorRoute = createRoute({
   method: "delete",
@@ -681,7 +704,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       if (message === "PagerDuty connection not found") {
         return c.json({ error: "Unknown PagerDuty connection" }, 404)
       }
-      if (message.includes("cannot be changed after account authorisation")) {
+      if (message.includes("cannot be changed after account authorization")) {
         return c.json({ error: message }, 409)
       }
       throw error
@@ -938,30 +961,15 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
     // but still needs its initial content sync.
     const servicesChanged = body.services !== undefined && !servicesMatch
 
-    const saved = await patchPagerdutyConnectorConfig({
+    await patchPagerdutyConnectorConfig({
       orgId,
       connectionId: installed.connection.id,
       ...(body.syncTarget !== undefined ? { syncTarget: body.syncTarget } : {}),
     })
 
-    if (saved.repositoryIngestion) {
-      await enqueueRepositoryIngestionWorkflow(
-        {
-          repositoryId: saved.repositoryIngestion.repositoryId,
-          orgId: saved.repositoryIngestion.orgId,
-          ...(saved.repositoryIngestion.targetBranch !== undefined
-            ? { targetBranch: saved.repositoryIngestion.targetBranch }
-            : {}),
-        },
-        {
-          error: (err) =>
-            getLogger().error(err, { step: "repositoryIngestion.enqueue" }),
-        },
-      )
-    }
-
     const previousConfigPrState = servicesChanged
       ? await claimPagerdutyConfigPrCreation({
+          orgId,
           connectionId: installed.connection.id,
         })
       : undefined
@@ -976,6 +984,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         })
       } catch (err) {
         await releasePagerdutyConfigPrCreationClaim({
+          orgId,
           connectionId: installed.connection.id,
           previousState: previousConfigPrState,
         })
@@ -992,6 +1001,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
 
     if (shouldStartInitialSync && binding) {
       const claimed = await transitionPagerdutyBindingState({
+        orgId,
         connectionId: installed.connection.id,
         expectedSetupPhase: "draft",
         expectedPendingConfigPrCreating: false,
@@ -1016,6 +1026,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         })
       } catch (error) {
         await transitionPagerdutyBindingState({
+          orgId,
           connectionId: installed.connection.id,
           expectedSetupPhase: "initial_sync",
           expectedPendingConfigPrCreating: false,
@@ -1103,6 +1114,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       )
     }
     const previousState = await claimPagerdutyConfigPrCreation({
+      orgId,
       connectionId: installed.connection.id,
     })
     if (!previousState) {
@@ -1123,6 +1135,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       })
     } catch (error) {
       await releasePagerdutyConfigPrCreationClaim({
+        orgId,
         connectionId: installed.connection.id,
         previousState,
       })
@@ -1173,7 +1186,12 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
         400,
       )
     }
-    if (!(await claimPagerdutyContentSyncRetry(installed.connection.id))) {
+    if (
+      !(await claimPagerdutyContentSyncRetry({
+        orgId,
+        connectionId: installed.connection.id,
+      }))
+    ) {
       return c.json(
         { error: "PagerDuty content sync is already being retried" },
         409,
@@ -1186,6 +1204,7 @@ export const pagerdutyConnectorRoutes = new OpenAPIHono<AppEnv>()
       })
     } catch (error) {
       await transitionPagerdutyBindingState({
+        orgId,
         connectionId: installed.connection.id,
         expectedSetupPhase: "initial_sync",
         expectedPendingConfigPrCreating: false,
@@ -1303,23 +1322,21 @@ export const pagerdutyOauthCallbackRoutes = new OpenAPIHono<AppEnv>().openapi(
       }))
     ) {
       return relayError(
-        "You no longer have permission to connect PagerDuty to this organisation",
+        "You no longer have permission to connect PagerDuty to this organization",
       )
     }
 
     try {
       const draft = state.connectionId
-        ? await withOrgDbContext(state.orgId, () =>
-            getPagerdutyConnectionByConnectionId(
-              state.orgId,
-              state.connectionId ?? "",
-              c.var.env,
-            ),
+        ? await getPagerdutyConnectionByConnectionId(
+            state.orgId,
+            state.connectionId ?? "",
+            c.var.env,
           )
         : undefined
       if (state.connectionId && !draft) {
         return relayError(
-          "PagerDuty connection was removed before authorisation completed",
+          "PagerDuty connection was removed before authorization completed",
         )
       }
       const creds = resolvePagerdutyCredsForConnection(draft, c.var.env)

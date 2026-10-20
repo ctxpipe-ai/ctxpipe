@@ -1,0 +1,41 @@
+{
+  "version": 1,
+  "diagnostics": [
+    {
+      "file": "src/auth/oauth-gateway-request.ts",
+      "code": 2345,
+      "message": "Argument of type 'Record<string, unknown>' is not assignable to parameter of type 'string'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/auth.ts",
+      "code": 2339,
+      "message": "Property 'getProtectedResourceMetadata' does not exist on type 'AuthClient<BetterAuthClientOptions>'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/mcp.conformance.server.ts",
+      "code": 2769,
+      "message": "No overload matches this call.\n  The last overload gave the following error.\n    Type 'Promise<void> | Response' is not assignable to type 'Promise<void | Response>'.\n      Type 'Response' is missing the following properties from type 'Promise<void | Response>': then, catch, finally, [Symbol.toStringTag]",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; stream?: unknown; messages?: unknown[] | undefined; temperature?: number | undefined; }' is not assignable to parameter of type 'OpenAiChatBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; input?: unknown; }' is not assignable to parameter of type 'OpenAiEmbeddingBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/v1/org-atlassian-oauth.test.ts",
+      "code": 2532,
+      "message": "Object is possibly 'undefined'.",
+      "count": 1
+    }
+  ]
+}

@@ -1,47 +1,11 @@
-import type { GithubPrMirrorRepoConfig } from "./config-yaml.js"
-
-export type GithubPrMirrorCandidate = {
-  repository: string
-  merged: boolean
+/**
+ * Closed, non-draft pull requests are mirrored: merged ones and ones closed
+ * without a merge. Every source reports a merged pull request as `closed`.
+ * There is no per-Workspace setting.
+ */
+export function shouldMirrorGithubPullRequest(candidate: {
+  state: "open" | "closed"
   draft: boolean
-  updatedAt: string
-}
-
-export function isGithubPullRequestRepositoryInScope(input: {
-  config: GithubPrMirrorRepoConfig
-  repository: string
 }): boolean {
-  return input.config.repositories.includes(input.repository)
-}
-
-export function shouldMirrorGithubPullRequest(input: {
-  config: GithubPrMirrorRepoConfig
-  candidate: GithubPrMirrorCandidate
-}): boolean {
-  if (
-    !isGithubPullRequestRepositoryInScope({
-      config: input.config,
-      repository: input.candidate.repository,
-    })
-  ) {
-    return false
-  }
-  if (input.candidate.draft && !input.config.includeDrafts) {
-    return false
-  }
-  const wantsMerged = input.config.states.includes("merged")
-  const wantsOpen = input.config.states.includes("open")
-  if (input.candidate.merged) {
-    if (!wantsMerged) return false
-  } else if (!wantsOpen) {
-    return false
-  }
-  if (input.config.updatedSince) {
-    const since = Date.parse(input.config.updatedSince)
-    const updated = Date.parse(input.candidate.updatedAt)
-    if (Number.isFinite(since) && Number.isFinite(updated) && updated < since) {
-      return false
-    }
-  }
-  return true
+  return candidate.state === "closed" && !candidate.draft
 }

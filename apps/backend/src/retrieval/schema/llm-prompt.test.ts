@@ -58,12 +58,11 @@ describe("retrieval schema", () => {
     }
     const parsed = RetrievalPlanSchema.parse(plan)
     expect(parsed.steps).toHaveLength(1)
-    expect(parsed.steps[0].type).toBe("claim_aggregation")
-    expect((parsed.steps[0].params as { predicates: string[] }).predicates).toEqual([
-      "WRITES_TO",
-      "READS_FROM",
-      "USES_LIBRARY",
-    ])
+    expect(parsed.steps[0]?.type).toBe("claim_aggregation")
+    expect(
+      (parsed.steps[0]?.params as { predicates: string[] } | undefined)
+        ?.predicates,
+    ).toEqual(["WRITES_TO", "READS_FROM", "USES_LIBRARY"])
   })
 
   it("getYamlSchemaForLlm returns non-empty string", () => {
@@ -72,5 +71,9 @@ describe("retrieval schema", () => {
     expect(yaml.length).toBeGreaterThan(100)
     expect(yaml).toContain("hybrid_search")
     expect(yaml).toContain("code_search")
+    expect(yaml).toContain("CHANGED:")
+    expect(yaml).toContain(
+      "the merged PullRequest changed this Service, App, Library or Repository",
+    )
   })
 })

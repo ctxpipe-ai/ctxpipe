@@ -4,13 +4,17 @@ import {
   githubConnectorKeys,
 } from "@/features/connectors/queries/github-connector"
 
-export type { GithubConnectorBootstrap } from "@/features/connectors/queries/github-connector"
 
-export { fetchGithubConnectorBootstrap } from "@/features/connectors/queries/github-connector"
+
+
 
 export function useGithubConnectorBootstrap(
   orgSlug: string | null,
-  opts?: { refetchInterval?: number },
+  opts?: {
+    refetchInterval?:
+      | number
+      | ((query: { state: { status: string } }) => number | false)
+  },
 ) {
   return useQuery({
     queryKey: githubConnectorKeys.bootstrap(orgSlug ?? ""),

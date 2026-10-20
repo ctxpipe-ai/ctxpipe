@@ -1,6 +1,9 @@
 import { AuthView } from "@daveyplate/better-auth-ui"
 import { createFileRoute } from "@tanstack/react-router"
-import { betterAuthAuthViewClassNames } from "@/features/auth/betterAuthShellClassNames"
+import {
+  betterAuthAuthViewClassNames,
+  betterAuthEmailPlaceholder,
+} from "@/features/auth/betterAuthShellClassNames"
 import { getAuthContinuationProps } from "@/lib/auth-continuation"
 import { useGetAuthConfig } from "@/lib/useGetAuthConfig"
 
@@ -15,10 +18,7 @@ export function SignInRoutePage() {
   const continuation =
     typeof window === "undefined"
       ? undefined
-      : getAuthContinuationProps(
-          window.location.pathname,
-          window.location.search,
-        )
+      : getAuthContinuationProps(window.location.origin, window.location.search)
 
   return (
     <main className="hero-gradient min-h-screen bg-zinc-950 text-foreground">
@@ -40,6 +40,7 @@ export function SignInRoutePage() {
               callbackURL={continuation?.redirectTo}
               className="pt-24"
               classNames={betterAuthAuthViewClassNames}
+              localization={{ EMAIL_PLACEHOLDER: betterAuthEmailPlaceholder }}
             />
           )}
         </div>

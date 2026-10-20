@@ -28,17 +28,23 @@ function synthCtxPipe(connectorSecrets?: CtxPipeConnectorSecretsProps): Template
 function findResourceByIdFragment(
   resources: Record<string, unknown>,
   fragment: string,
+  exclude?: string,
 ): [string, Record<string, unknown>] | undefined {
-  return Object.entries(resources).find(([logicalId]) => logicalId.includes(fragment)) as
-    | [string, Record<string, unknown>]
-    | undefined;
+  return Object.entries(resources).find(
+    ([logicalId]) =>
+      logicalId.includes(fragment) && (exclude === undefined || !logicalId.includes(exclude)),
+  ) as [string, Record<string, unknown>] | undefined;
 }
 
 describe("SecretsConstruct database URL secret", () => {
   it("does not synthesize DATABASE_URL from the RDS credentials SecretValue", () => {
     const template = synthCtxPipe();
     const secrets = template.findResources("AWS::SecretsManager::Secret");
-    const databaseUrlSecret = findResourceByIdFragment(secrets, "DatabaseUrlSecret");
+    const databaseUrlSecret = findResourceByIdFragment(
+      secrets,
+      "DatabaseUrlSecret",
+      "Runtime",
+    );
 
     expect(databaseUrlSecret).toBeDefined();
     const properties = databaseUrlSecret?.[1].Properties as Record<string, unknown> | undefined;
@@ -52,32 +58,140 @@ describe("SecretsConstruct database URL secret", () => {
     expect(JSON.stringify(generateSecretString ?? {})).not.toContain("password");
   });
 
-  it("writes DATABASE_URL at deploy time via a custom resource", () => {
+  it("generates the ctxpipe_app password once in Secrets Manager", () => {
+    const template = synthCtxPipe();
+    const secrets = template.findResources("AWS::SecretsManager::Secret");
+    const appCredentials = findResourceByIdFragment(secrets, "AppDatabaseCredentialsSecret");
+    expect(appCredentials).toBeDefined();
+    const properties = appCredentials?.[1].Properties as Record<string, unknown> | undefined;
+    const generateSecretString = properties?.GenerateSecretString as
+      | Record<string, unknown>
+      | undefined;
+    expect(generateSecretString?.GenerateStringKey).toBe("password");
+    expect(generateSecretString?.ExcludePunctuation).toBe(true);
+    expect(String(generateSecretString?.SecretStringTemplate)).toContain("ctxpipe_app");
+  });
+
+  it("writes owner and runtime DATABASE_URL at deploy time via custom resources", () => {
     const template = synthCtxPipe();
     template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe",
+      DatabaseName: "ctxpipe",
       DbCredentialsSecretArn: Match.anyValue(),
       DatabaseUrlSecretArn: Match.anyValue(),
       DbHost: Match.anyValue(),
       DbPort: Match.anyValue(),
+    });
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe_app",
       DatabaseName: "ctxpipe",
+      DbCredentialsSecretArn: Match.anyValue(),
+      DatabaseUrlSecretArn: Match.anyValue(),
+      DbHost: Match.anyValue(),
+      DbPort: Match.anyValue(),
     });
   });
 
-  it("runs migrations only after the database URL writer completes", () => {
+  it("runs migrations only after the owner database URL writer completes", () => {
     const template = synthCtxPipe();
     const customResources = template.findResources("AWS::CloudFormation::CustomResource");
     const migrateResource = findResourceByIdFragment(customResources, "RunMigrations");
-    const databaseUrlWriter = findResourceByIdFragment(customResources, "DatabaseUrlWriter");
+    const ownerUrlWriter = findResourceByIdFragment(
+      customResources,
+      "DatabaseUrlWriter",
+      "Runtime",
+    );
 
     expect(migrateResource).toBeDefined();
-    expect(databaseUrlWriter).toBeDefined();
+    expect(ownerUrlWriter).toBeDefined();
 
     const dependsOn = migrateResource?.[1].DependsOn;
     expect(dependsOn).toBeDefined();
     const dependsOnList = Array.isArray(dependsOn) ? dependsOn : [dependsOn];
-    expect(dependsOnList).toEqual(
-      expect.arrayContaining([databaseUrlWriter?.[0]]),
+    expect(dependsOnList).toEqual(expect.arrayContaining([ownerUrlWriter?.[0]]));
+  });
+
+  it("rewrites the runtime DATABASE_URL after migrate completes", () => {
+    const template = synthCtxPipe();
+    const customResources = template.findResources("AWS::CloudFormation::CustomResource");
+    const migrateResource = findResourceByIdFragment(customResources, "RunMigrations");
+    const runtimeWriter = findResourceByIdFragment(customResources, "RuntimeDatabaseUrlWriter");
+
+    expect(migrateResource).toBeDefined();
+    expect(runtimeWriter).toBeDefined();
+
+    const dependsOn = runtimeWriter?.[1].DependsOn;
+    const dependsOnList = Array.isArray(dependsOn) ? dependsOn : [dependsOn];
+    expect(dependsOnList).toEqual(expect.arrayContaining([migrateResource?.[0]]));
+  });
+
+  it("injects owner DATABASE_URL and ctxpipe_app password into the migrate task only", () => {
+    const template = synthCtxPipe();
+    const taskDefinitions = Object.entries(template.findResources("AWS::ECS::TaskDefinition"));
+    const migrateTask = taskDefinitions.find(([, resource]) =>
+      JSON.stringify(resource).includes("ctxpipe-migrate"),
     );
+    expect(migrateTask).toBeDefined();
+    const migrateJson = JSON.stringify(migrateTask?.[1]);
+    expect(migrateJson).toContain("DATABASE_APP_PASSWORD");
+    expect(migrateJson).toContain("DATABASE_URL");
+
+    const backendTask = taskDefinitions.find(([, resource]) =>
+      JSON.stringify(resource).includes("ctxpipe-backend"),
+    );
+    expect(backendTask).toBeDefined();
+    const backendJson = JSON.stringify(backendTask?.[1]);
+    expect(backendJson).toContain("DATABASE_URL");
+    expect(backendJson).not.toContain("DATABASE_APP_PASSWORD");
+  });
+
+  it("keeps the owner URL in the main-era DatabaseUrlSecret, and gives the new tasks RuntimeDatabaseUrlSecret", () => {
+    const template = synthCtxPipe();
+    const secrets = template.findResources("AWS::SecretsManager::Secret");
+    // The construct path of main, so that the deploy updates main's secret
+    // in place and main's task definitions keep reading it.
+    const [ownerSecretId] =
+      findResourceByIdFragment(secrets, "CtxPipeSecretsDatabaseUrlSecret") ?? [];
+    const [runtimeSecretId] =
+      findResourceByIdFragment(secrets, "CtxPipeSecretsRuntimeDatabaseUrlSecret") ?? [];
+    expect(ownerSecretId).toMatch(/^CtxPipeSecretsDatabaseUrlSecret[0-9A-F]{8}$/);
+    expect(runtimeSecretId).toBeDefined();
+
+    // The owner writer writes the main-era secret. Only the writer that runs
+    // after migrate writes the app URL, and only into the new secret.
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe",
+      DatabaseUrlSecretArn: { Ref: ownerSecretId },
+    });
+    template.hasResourceProperties("AWS::CloudFormation::CustomResource", {
+      Username: "ctxpipe_app",
+      DatabaseUrlSecretArn: { Ref: runtimeSecretId },
+    });
+    const writers = Object.values(
+      template.findResources("AWS::CloudFormation::CustomResource"),
+    ).filter((resource) =>
+      JSON.stringify(resource).includes(`"DatabaseUrlSecretArn":{"Ref":"${ownerSecretId}"}`),
+    );
+    expect(writers.map((writer) => (writer.Properties as { Username: string }).Username)).toEqual([
+      "ctxpipe",
+    ]);
+
+    const databaseUrlSource = (logPrefix: string) => {
+      const task = Object.values(template.findResources("AWS::ECS::TaskDefinition")).find(
+        (resource) => JSON.stringify(resource).includes(`"${logPrefix}"`),
+      );
+      const containers = (task?.Properties as {
+        ContainerDefinitions: Array<{ Secrets?: Array<{ Name: string; ValueFrom: unknown }> }>;
+      }).ContainerDefinitions;
+      const secret = containers
+        .flatMap((container) => container.Secrets ?? [])
+        .find((entry) => entry.Name === "DATABASE_URL");
+      return JSON.stringify(secret?.ValueFrom);
+    };
+    for (const service of ["ctxpipe-backend", "ctxpipe-worker", "ctxpipe-codesearch"]) {
+      expect(databaseUrlSource(service), service).toContain(`"Ref":"${runtimeSecretId}"`);
+    }
+    expect(databaseUrlSource("ctxpipe-migrate")).toContain(`"Ref":"${ownerSecretId}"`);
   });
 
   it("injects Linear connector settings into backend and worker tasks", () => {

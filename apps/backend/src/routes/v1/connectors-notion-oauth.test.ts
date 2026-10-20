@@ -2,8 +2,8 @@ import { createHmac } from "node:crypto"
 import { OpenAPIHono } from "@hono/zod-openapi"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { AppEnv } from "../../app/env.js"
-import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 import { parseNotionConnectionConfig } from "../../lib/connection-config.js"
+import { encryptConnectionSecret } from "../../lib/connection-secrets.js"
 
 const getNotionStoredConfigByConnectionIdMock = vi.hoisted(() => vi.fn())
 const upsertNotionConnectionFromOAuthMock = vi.hoisted(() => vi.fn())

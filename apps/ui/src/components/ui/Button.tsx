@@ -1,5 +1,5 @@
 "use client"
-import type { ComponentProps, ReactNode } from "react"
+import type { ComponentProps, ReactNode, Ref } from "react"
 import type { ButtonProps as RACButtonProps } from "react-aria-components"
 import {
   composeRenderProps,
@@ -9,7 +9,7 @@ import {
 import { tv } from "tailwind-variants"
 import { focusRing } from "@/lib/react-aria-utils"
 
-export interface ButtonProps extends Omit<RACButtonProps, "size"> {
+interface ButtonProps extends Omit<RACButtonProps, "size"> {
   /** @default 'primary' */
   variant?:
     | "primary"
@@ -19,12 +19,17 @@ export interface ButtonProps extends Omit<RACButtonProps, "size"> {
     | "ghost"
     | "outline"
   /** @default 'default' */
-  size?: "default" | "icon" | "icon-sm"
+  size?: "default" | "sm" | "icon" | "icon-sm"
+  ref?: Ref<HTMLButtonElement>
+  href?: string
+  target?: ComponentProps<typeof RACLink>["target"]
+  rel?: string
+  download?: ComponentProps<typeof RACLink>["download"]
 }
 
 const button = tv({
   extend: focusRing,
-  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-lg cursor-default [-webkit-tap-highlight-color:transparent]",
+  base: "relative inline-flex items-center justify-center gap-2 border border-transparent dark:border-white/10 h-9 box-border px-3.5 py-0 font-sans text-sm text-center transition rounded-md cursor-default [-webkit-tap-highlight-color:transparent]",
   variants: {
     variant: {
       primary:
@@ -42,6 +47,7 @@ const button = tv({
     },
     size: {
       default: "",
+      sm: "h-7 gap-1.5 px-2.5 text-xs",
       icon: "h-9 w-9 min-w-9 shrink-0 px-0",
       "icon-sm": "h-8 w-8 min-w-8 shrink-0 px-0",
     },

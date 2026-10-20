@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto"
 import { copyFile, mkdir, rename, rm, stat, writeFile } from "node:fs/promises"
 import { basename, dirname, join, relative, resolve } from "node:path"
-import { SpanStatusCode, trace } from "@opentelemetry/api"
+import { type Span, SpanStatusCode, trace } from "@opentelemetry/api"
 import { tryEmitIndexEvent } from "../../observability/indexingLog.js"
 import { mergeScipShardFiles } from "../graph/scipProto.js"
 import { getIndexerProcessConcurrency } from "./capacityEnv.js"
@@ -120,65 +120,99 @@ async function runIndexerProcess(input: {
   /** Node heap for Node-based indexers; set after the env allowlist. */
   heapMb?: number
 }): Promise<void> {
-  await withIndexerProcessSlot(async () => {
-    const subprocess = (() => {
-      try {
-        return Bun.spawn(input.argv, {
-          cwd: input.checkoutPath,
-          env: {
-            ...withIndexerGoLimits(input.env),
-            ...(input.heapMb
-              ? { NODE_OPTIONS: `--max-old-space-size=${input.heapMb}` }
-              : {}),
-          },
-          stdout: "pipe",
-          stderr: "pipe",
-        })
-      } catch (error) {
-        throw new Error(
-          `SCIP indexer "${input.indexerId}" failed to start (${input.argv.join(" ")}): ${
-            error instanceof Error ? error.message : String(error)
-          }`,
-          { cause: error },
-        )
-      }
-    })()
+  await withIndexerProcessSlot(() =>
+    trace
+      .getTracer("codesearch")
+      .startActiveSpan(
+        "scip.indexer.process",
+        { attributes: { "scip.indexer": input.indexerId } },
+        async (span) => {
+          try {
+            await runIndexerSubprocess(input, span)
+          } catch (error) {
+            const message = errorMessage(error)
+            span.recordException(error instanceof Error ? error : message)
+            span.setStatus({ code: SpanStatusCode.ERROR, message })
+            throw error
+          } finally {
+            span.end()
+          }
+        },
+      ),
+  )
+}
 
-    const startMs = Date.now()
-    const pid = subprocess.pid
-    const heartbeatTimer = setInterval(() => {
-      tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
-        indexerId: input.indexerId,
-        elapsedMs: Date.now() - startMs,
-        pid,
-      })
-    }, 30_000)
-
+async function runIndexerSubprocess(
+  input: Parameters<typeof runIndexerProcess>[0],
+  span: Span,
+): Promise<void> {
+  const subprocess = (() => {
     try {
-      const [stdout, stderr, exitCode] = await Promise.all([
-        readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
-        readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
-        subprocess.exited,
-      ])
+      return Bun.spawn(input.argv, {
+        cwd: input.checkoutPath,
+        env: {
+          ...withIndexerGoLimits(input.env),
+          ...(input.heapMb
+            ? { NODE_OPTIONS: `--max-old-space-size=${input.heapMb}` }
+            : {}),
+        },
+        stdout: "pipe",
+        stderr: "pipe",
+      })
+    } catch (error) {
+      throw new Error(
+        `SCIP indexer "${input.indexerId}" failed to start (${input.argv.join(" ")}): ${
+          error instanceof Error ? error.message : String(error)
+        }`,
+        { cause: error },
+      )
+    }
+  })()
 
-      if (exitCode !== 0) {
-        if (exitCode === 137) {
-          tryEmitIndexEvent("codesearch.index.memory_exceeded", {
-            indexerId: input.indexerId,
-            exitCode,
-          })
-        }
-        throw errorFromIndexerExit({
+  const startMs = Date.now()
+  const pid = subprocess.pid
+  const heartbeatTimer = setInterval(() => {
+    tryEmitIndexEvent("codesearch.index.phase.heartbeat", {
+      indexerId: input.indexerId,
+      elapsedMs: Date.now() - startMs,
+      pid,
+    })
+  }, 30_000)
+
+  try {
+    const [stdout, stderr, exitCode] = await Promise.all([
+      readStreamTail(subprocess.stdout, INDEX_CHILD_LOG_TAIL_BYTES),
+      readStreamTail(subprocess.stderr, INDEX_CHILD_LOG_TAIL_BYTES),
+      subprocess.exited,
+    ])
+    span.setAttribute("process.exit.code", exitCode)
+    // Record the peak memory and the CPU time of the indexer for the
+    // ingestion profile. Bun gives no usage before the process exits, and it
+    // gives the CPU time as a bigint, but its type is number.
+    const usage = subprocess.resourceUsage()
+    if (usage)
+      span.setAttributes({
+        "scip.process.max_rss_mb": Math.round(usage.maxRSS / 1024 / 1024),
+        "scip.process.cpu_ms": Math.round(Number(usage.cpuTime.total) / 1000),
+      })
+
+    if (exitCode !== 0) {
+      if (exitCode === 137) {
+        tryEmitIndexEvent("codesearch.index.memory_exceeded", {
+          indexerId: input.indexerId,
           exitCode,
-          stderr,
-          stdout,
-          headline: `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
         })
       }
-    } finally {
-      clearInterval(heartbeatTimer)
+      throw errorFromIndexerExit({
+        exitCode,
+        stderr,
+        stdout,
+        headline: `SCIP indexer "${input.indexerId}" failed with exit code ${exitCode} (${input.argv.join(" ")})`,
+      })
     }
-  })
+  } finally {
+    clearInterval(heartbeatTimer)
+  }
 }
 
 async function verifyShard(
@@ -224,15 +258,18 @@ export async function runScipIndexer(input: {
 }): Promise<{ issue?: string }> {
   const shardPath = resolve(input.shardPath)
   const outputFlag = SCIP_INDEXER_OUTPUT_FLAG[input.indexerId]
-  await mkdir(dirname(shardPath), { recursive: true })
 
+  // Join the checkout queue before any await, so runs on one checkout start
+  // in the order they were requested.
   if (input.indexerId === "typescript") {
-    return withCheckoutMutex(input.checkoutPath, () =>
-      runTypeScriptIndexer({ ...input, shardPath }),
-    )
+    return withCheckoutMutex(input.checkoutPath, async () => {
+      await mkdir(dirname(shardPath), { recursive: true })
+      return runTypeScriptIndexer({ ...input, shardPath })
+    })
   }
 
   if (outputFlag) {
+    await mkdir(dirname(shardPath), { recursive: true })
     const argv = [...SCIP_INDEXER_ARGV[input.indexerId], outputFlag, shardPath]
     await rm(shardPath, { force: true })
     try {
@@ -246,6 +283,7 @@ export async function runScipIndexer(input: {
   }
 
   await withCheckoutMutex(input.checkoutPath, async () => {
+    await mkdir(dirname(shardPath), { recursive: true })
     const generatedPath = join(resolve(input.checkoutPath), "index.scip")
     const temporaryPath = join(
       dirname(shardPath),

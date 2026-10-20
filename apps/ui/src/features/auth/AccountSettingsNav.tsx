@@ -6,7 +6,8 @@ const NAV_ITEMS = [
   { view: "settings", label: "Account" },
   { view: "security", label: "Security" },
   { view: "api-keys", label: "API Keys" },
-  { view: "organizations", label: "Organisations" },
+  { view: "connected-apps", label: "Connected apps" },
+  { view: "organizations", label: "Organizations" },
 ] as const
 
 export function AccountSettingsNav(props: { current: string }) {

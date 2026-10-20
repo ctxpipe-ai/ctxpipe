@@ -11,12 +11,13 @@ resource "railway_project" "this" {
 }
 
 locals {
-  database_url  = neon_project.this.connection_uri_pooler
+  database_url  = local.app_database_url
   falkordb_port = 6379
   # Honor var.railway_regions (default us-east4-eqdc4a). A direct assign
   # or `for` over the list fails plan in railway 0.6.1 (ServiceResourceRegionModel
   # "unknown value"). Expanding the one element into an HCL object still
   # reads the variable. See variable validation (exactly one region).
+  # Do not hardcode Singapore — that leftover default left compute 200ms from Postgres.
   regions = [
     {
       num_replicas = var.railway_regions[0].num_replicas
@@ -169,6 +170,23 @@ locals {
       name  = "GITHUB_WEBHOOK_SECRET",
       value = var.github_webhook_secret
     },
+    # Hosted chat runs each conversation in a Vercel sandbox; never unsandboxed.
+    {
+      name  = "SANDBOX_PROVIDER"
+      value = "vercel"
+    },
+    {
+      name  = "VERCEL_TOKEN"
+      value = var.vercel_access_token
+    },
+    {
+      name  = "VERCEL_TEAM_ID"
+      value = "ctxpipe"
+    },
+    {
+      name  = "VERCEL_PROJECT_ID"
+      value = "ctxpipe"
+    },
   ], local.otel_shared_env, local.slack_shared_env, local.linear_shared_env, local.pagerduty_shared_env)
 }
 
@@ -180,6 +198,8 @@ resource "railway_service" "ui" {
 
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI. Terraform Update()
+    # calls serviceConnect + redeployAllInstances and would overwrite pr-* envs.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
     # The same Update() connects source_image for the whole project and
@@ -192,6 +212,9 @@ resource "railway_service" "ui" {
 resource "railway_variable_collection" "ui_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.ui.id
+  # AUTH_BASE_URL refers to backend.PORT. Write the backend variables first,
+  # so the reference never resolves empty when the UI redeploys.
+  depends_on = [railway_variable_collection.backend_env]
 
   variables = concat([
     {
@@ -201,6 +224,26 @@ resource "railway_variable_collection" "ui_env" {
     {
       name  = "PORT"
       value = "3002"
+    },
+    {
+      # Nitro/Vinxi default bind is localhost; Railway healthchecks need 0.0.0.0.
+      name  = "HOST"
+      value = "0.0.0.0"
+    },
+    {
+      name  = "NITRO_HOST"
+      value = "0.0.0.0"
+    },
+    {
+      # UI SSR must reach the backend (not localhost baked into VITE_PUBLIC_API_URL).
+      name  = "AUTH_BASE_URL"
+      value = "http://$${{backend.RAILWAY_PRIVATE_DOMAIN}}:$${{backend.PORT}}"
+    },
+    {
+      # The browser OTLP relay (`/.otel`) accepts only these origins. The
+      # private AUTH_BASE_URL above is not an origin that a browser uses.
+      name  = "AUTH_ALLOWED_ORIGINS"
+      value = "https://${railway_custom_domain.app.domain},https://$${{backend.RAILWAY_PUBLIC_DOMAIN}}"
     }
   ], local.otel_shared_env)
 }
@@ -213,6 +256,7 @@ resource "railway_service" "backend" {
   depends_on   = [railway_service.falkordb, railway_service.ui, railway_service.code_search]
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
     # The same Update() connects source_image for the whole project and
@@ -237,6 +281,7 @@ resource "railway_custom_domain" "app" {
 resource "railway_variable_collection" "backend_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.backend.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {
@@ -250,6 +295,13 @@ resource "railway_variable_collection" "backend_env" {
     {
       name  = "OTEL_SERVICE_NAME"
       value = "backend"
+    },
+    {
+      # The UI reaches the backend over the private network on this port
+      # (ui_env AUTH_BASE_URL). Set it here so it does not depend on the
+      # PORT value that Railway injects at runtime.
+      name  = "PORT"
+      value = "8080"
     },
   ])
 }
@@ -265,6 +317,7 @@ resource "railway_service" "code_search" {
   }
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
     # The same Update() connects source_image for the whole project and
@@ -277,6 +330,7 @@ resource "railway_service" "code_search" {
 resource "railway_variable_collection" "code_search_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.code_search.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat([
     {
@@ -326,6 +380,7 @@ resource "railway_service" "open_workflow" {
   depends_on   = [railway_service.falkordb, railway_service.backend]
   lifecycle {
     prevent_destroy = true
+    # SHA rolls are environment-scoped GraphQL in CI.
     # Provider 0.6.x Update() never sends multiRegionConfig (issue #77).
     # Region writes go through scripts/railway-set-regions.sh.
     # The same Update() connects source_image for the whole project and
@@ -338,6 +393,7 @@ resource "railway_service" "open_workflow" {
 resource "railway_variable_collection" "open_workflow_env" {
   environment_id = railway_project.this.default_environment.id
   service_id     = railway_service.open_workflow.id
+  depends_on     = [terraform_data.app_database_url]
 
   variables = concat(local.shared_backend_env_variables, [
     {

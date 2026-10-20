@@ -2,6 +2,7 @@ import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { RequestError } from "octokit"
 import type { AppEnv } from "../../app/env.js"
+import { rebindUnboundWorkspaces } from "../../domain/workspaces/workspace-lifecycle.js"
 import type { GitHubInstallationShape } from "../../models/connection-rows.js"
 import {
   githubConnectionToShape,
@@ -16,6 +17,7 @@ import {
   getGithubConnectionRow,
   getGithubUserAccessToken,
   githubAppOwnsInstallation,
+  isGithubInstallationTokenError,
   listAllReposForInstallation,
   listGithubConnectionRowsForOrg,
   listReposForInstallation,
@@ -29,22 +31,13 @@ import {
   userCanAccessInstallation,
 } from "../../models/github-installation.js"
 import {
-  createCtxpipeMcpConfigPullRequests,
-  type McpOnboardingAgent,
-  previewMcpConfigChanges,
-} from "../../models/github-mcp-config-pr.js"
-import {
-  bindGithubPrMirror,
-  resolveGithubPrMirrorRepository,
-} from "../../models/github-pr-mirror.js"
-import {
+  bulkCreateRepositoriesForOrg,
   countRepositoriesForGithubConnection,
   listRepositoriesForGithubConnection,
   pruneGithubConnectionRepositoriesNotInGitUrls,
 } from "../../models/repositories.js"
-import { runWorkflowWithWorkerWake } from "../../openworkflow/client.js"
-import { enqueueGithubPrMirrorEnsureForOrg } from "../../openworkflow/workflows/github-ensure-pr-mirror.js"
-import { syncGithubRepositories } from "../../openworkflow/workflows/sync-github-repositories.js"
+import { getLogger } from "../../observability/logger.js"
+import { enqueueRepositoryIngestionWorkflow } from "../../openworkflow/enqueue-repository-ingestion.js"
 
 const ErrorResponseSchema = z
   .object({
@@ -158,13 +151,7 @@ const GITHUB_INSTALLATION_UNAVAILABLE_MESSAGE =
   "GitHub installation is no longer available. Reconnect GitHub from the Connectors page."
 
 function isGitHubInstallationUnavailableError(e: unknown): boolean {
-  if (!(e instanceof Error)) return false
-  const status =
-    "status" in e && typeof (e as { status: unknown }).status === "number"
-      ? (e as { status: number }).status
-      : undefined
-  if (status === 404) return true
-  return e.message.includes("create-an-installation-access-token-for-an-app")
+  return isGithubInstallationTokenError(e)
 }
 
 const GitHubRepoItemSchema = z
@@ -204,19 +191,11 @@ const SelectedRepoSchema = z.object({
   clone_url: z.string(),
 })
 
-const ContextRepositorySchema = z.object({
-  full_name: z.string().min(1),
-  name: z.string().min(1),
-  clone_url: z.string().min(1),
-  default_branch: z.string().min(1).optional(),
-})
-
 const UpdateInstallationOptionsBodySchema = z
   .object({
     ingestAllRepositories: z.boolean(),
     includeFutureRepos: z.boolean(),
     selectedRepositories: z.array(SelectedRepoSchema).optional(),
-    contextRepository: ContextRepositorySchema.optional(),
   })
   .openapi("UpdateInstallationOptionsBody")
 
@@ -237,7 +216,7 @@ const GithubConnectionIdQuerySchema = z.object({
   connectionId: z.string().min(1).optional(),
 })
 
-export const getInstallationSetupRoute = createRoute({
+const getInstallationSetupRoute = createRoute({
   method: "get",
   path: "/setup",
   request: {
@@ -268,7 +247,7 @@ export const getInstallationSetupRoute = createRoute({
   },
 })
 
-export const getInstallationRoute = createRoute({
+const getInstallationRoute = createRoute({
   method: "get",
   path: "/",
   request: {
@@ -295,7 +274,8 @@ export const getInstallationRoute = createRoute({
   },
 })
 
-export const registerInstallationRoute = createRoute({
+// No write grant: a rebind queues only the system bootstrap commit, not user content.
+const registerInstallationRoute = createRoute({
   method: "post",
   path: "/",
   request: {
@@ -336,7 +316,7 @@ export const registerInstallationRoute = createRoute({
   },
 })
 
-export const githubConnectorBootstrapRoute = createRoute({
+const githubConnectorBootstrapRoute = createRoute({
   method: "get",
   path: "/connector-bootstrap",
   responses: {
@@ -359,7 +339,7 @@ export const githubConnectorBootstrapRoute = createRoute({
   },
 })
 
-export const createGithubDraftRoute = createRoute({
+const createGithubDraftRoute = createRoute({
   method: "post",
   path: "/draft",
   request: {
@@ -396,7 +376,7 @@ export const createGithubDraftRoute = createRoute({
   },
 })
 
-export const createGithubDraftPlaceholderRoute = createRoute({
+const createGithubDraftPlaceholderRoute = createRoute({
   method: "post",
   path: "/draft/placeholder",
   responses: {
@@ -424,7 +404,7 @@ export const createGithubDraftPlaceholderRoute = createRoute({
   },
 })
 
-export const patchGithubDraftRoute = createRoute({
+const patchGithubDraftRoute = createRoute({
   method: "patch",
   path: "/draft",
   request: {
@@ -476,7 +456,7 @@ const GithubConnectorStatusResponseSchema = z
   })
   .openapi("GithubConnectorStatus")
 
-export const githubConnectorStatusRoute = createRoute({
+const githubConnectorStatusRoute = createRoute({
   method: "get",
   path: "/connector-status",
   request: {
@@ -503,7 +483,7 @@ export const githubConnectorStatusRoute = createRoute({
   },
 })
 
-export const listInstallationReposRoute = createRoute({
+const listInstallationReposRoute = createRoute({
   method: "get",
   path: "/repositories",
   request: {
@@ -539,138 +519,7 @@ export const listInstallationReposRoute = createRoute({
   },
 })
 
-const McpOnboardingAgentSchema = z.enum(["cursor", "claude_code", "opencode"])
-
-const CreateMcpConfigPrBodySchema = z
-  .object({
-    repositories: z.array(z.string().min(1).max(200)).min(1).max(25),
-    agents: z.array(McpOnboardingAgentSchema).min(1).max(10),
-  })
-  .openapi("CreateMcpConfigPrBody")
-
-const CreateMcpConfigPrResponseSchema = z
-  .object({
-    pullRequests: z.array(
-      z.object({
-        repository: z.string(),
-        pullRequestUrl: z.string().url(),
-      }),
-    ),
-    failures: z.array(
-      z.object({
-        repository: z.string(),
-        error: z.string(),
-        status: z.number().int().optional(),
-        documentationUrl: z.string().optional(),
-        errors: z.unknown().optional(),
-      }),
-    ),
-  })
-  .openapi("CreateMcpConfigPrResponse")
-
-const McpConfigPreviewFileSchema = z
-  .object({
-    repository: z.string(),
-    path: z.string(),
-    exists: z.boolean(),
-    existingUtf8: z.string().nullable(),
-    mergedUtf8: z.string(),
-  })
-  .openapi("McpConfigPreviewFile")
-
-const McpConfigPreviewResponseSchema = z
-  .object({
-    files: z.array(McpConfigPreviewFileSchema),
-  })
-  .openapi("McpConfigPreviewResponse")
-
-export const previewMcpConfigRoute = createRoute({
-  method: "post",
-  path: "/mcp-config-preview",
-  request: {
-    query: GithubConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: CreateMcpConfigPrBodySchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: McpConfigPreviewResponseSchema,
-        },
-      },
-      description:
-        "Preview merged MCP config files as they would appear on the default branch",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "Bad request (e.g. repository not accessible to installation)",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No installation for org",
-    },
-    500: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Internal server error",
-    },
-  },
-})
-
-export const createMcpConfigPrsRoute = createRoute({
-  method: "post",
-  path: "/mcp-config-prs",
-  request: {
-    query: GithubConnectionIdQuerySchema,
-    body: {
-      content: {
-        "application/json": {
-          schema: CreateMcpConfigPrBodySchema,
-        },
-      },
-    },
-  },
-  responses: {
-    200: {
-      content: {
-        "application/json": {
-          schema: CreateMcpConfigPrResponseSchema,
-        },
-      },
-      description:
-        "Opened one pull request per repository with MCP config files",
-    },
-    400: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description:
-        "Bad request (e.g. repository not accessible to installation)",
-    },
-    401: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Unauthorized",
-    },
-    404: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "No installation for org",
-    },
-    500: {
-      content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Internal server error",
-    },
-  },
-})
-
-export const updateInstallationOptionsRoute = createRoute({
+const updateInstallationOptionsRoute = createRoute({
   method: "patch",
   path: "/",
   request: {
@@ -715,7 +564,7 @@ export const updateInstallationOptionsRoute = createRoute({
   },
 })
 
-export const deleteInstallationRoute = createRoute({
+const deleteInstallationRoute = createRoute({
   method: "delete",
   path: "/",
   request: {
@@ -1037,7 +886,8 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         if (!canAccess) {
           return c.json(
             {
-              error: "Forbidden",
+              error:
+                "Your GitHub account cannot access this GitHub App installation",
               message:
                 "Your GitHub account cannot access this GitHub App installation",
               why: "github_installation_not_accessible",
@@ -1073,6 +923,12 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
             c.var.env,
           )) ?? installation
       }
+      await rebindUnboundWorkspaces({
+        orgId,
+        connectionId: installation.id,
+        env: c.var.env,
+        log: c.get("log"),
+      })
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
     } catch (e) {
@@ -1205,23 +1061,33 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const selectedRepos = [
-        ...(body.selectedRepositories ?? []),
-        ...(body.contextRepository &&
-        !(body.selectedRepositories ?? []).some(
-          (repo) => repo.clone_url === body.contextRepository?.clone_url,
-        )
-          ? [
-              {
-                full_name: body.contextRepository.full_name,
-                name: body.contextRepository.name,
-                clone_url: body.contextRepository.clone_url,
-              },
-            ]
-          : []),
-      ]
+      const selectedRepos = body.selectedRepositories ?? []
       if (!body.ingestAllRepositories && selectedRepos.length === 0) {
         return c.json({ error: "Select at least one repository" }, 400)
+      }
+
+      // List first: a GitHub failure must change nothing.
+      let reposToSync: { name: string; gitUrl: string }[] | undefined
+      if (resolved.installation.installationId != null) {
+        // The client sends the selection. Sync only the repositories that
+        // GitHub lists for the installation, because the sync binds them to
+        // this connection.
+        const selectedNames = new Set(
+          selectedRepos.map((repo) => repo.full_name.toLowerCase()),
+        )
+        reposToSync = (
+          await listAllReposForInstallation(
+            orgId,
+            resolved.installation.id,
+            c.var.env,
+          )
+        )
+          .filter(
+            (repo) =>
+              body.ingestAllRepositories ||
+              selectedNames.has(repo.full_name.toLowerCase()),
+          )
+          .map((repo) => ({ name: repo.full_name, gitUrl: repo.clone_url }))
       }
 
       const installation = await updateInstallationOptions(
@@ -1248,39 +1114,24 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
         )
       }
 
-      const workflowPayload = body.ingestAllRepositories
-        ? { orgId, githubConnectionId: installation.id }
-        : {
-            orgId,
-            githubConnectionId: installation.id,
-            reposToSync: selectedRepos.map((r) => ({
-              name: r.full_name,
-              gitUrl: r.clone_url,
-            })),
-          }
-      if (installation.installationId != null) {
-        void runWorkflowWithWorkerWake(
-          syncGithubRepositories.spec,
-          workflowPayload,
+      if (reposToSync) {
+        const created = await bulkCreateRepositoriesForOrg(orgId, reposToSync, {
+          githubConnectionId: installation.id,
+        })
+        await Promise.all(
+          created.map((repo) =>
+            enqueueRepositoryIngestionWorkflow(
+              { repositoryId: repo.id, orgId: repo.orgId },
+              {
+                error: (error) =>
+                  getLogger().error(error, {
+                    step: "github_installation.sync_repositories.enqueue",
+                    repositoryId: repo.id,
+                  }),
+              },
+            ),
+          ),
         )
-      }
-
-      if (body.contextRepository) {
-        const branch = body.contextRepository.default_branch?.trim() || "main"
-        const repositoryId = await resolveGithubPrMirrorRepository({
-          orgId,
-          connectionId: installation.id,
-          repositoryName: body.contextRepository.full_name,
-          gitUrl: body.contextRepository.clone_url,
-          branch,
-        })
-        await bindGithubPrMirror({
-          orgId,
-          connectionId: installation.id,
-          repositoryId,
-          branch,
-        })
-        await enqueueGithubPrMirrorEnsureForOrg(orgId)
       }
 
       return c.json(await githubInstallationResponsePayload(installation), 200)
@@ -1315,193 +1166,4 @@ export const githubInstallationRoutes = new OpenAPIHono<AppEnv>()
       return c.json({ error: "No GitHub installation found for this org" }, 404)
     }
     return c.body(null, 204)
-  })
-  .openapi(previewMcpConfigRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Not found" }, 404)
-    const orgSlug = c.req.param("orgSlug")
-    if (!orgSlug) return c.json({ error: "Not found" }, 404)
-
-    const { connectionId: mcpConn } = GithubConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
-    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
-    const resolved = await resolveGithubInstallationForOrgDetailed(
-      orgId,
-      mcpConn ?? null,
-    )
-    if (resolved.status === "ambiguous") {
-      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
-    }
-    if (resolved.status === "none") {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
-    }
-    const installation = resolved.installation
-
-    const env = c.var.env
-    let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
-    try {
-      if (installation.installationId == null) {
-        accessible = []
-      } else {
-        accessible = await listAllReposForInstallation(
-          orgId,
-          installation.id,
-          env,
-        )
-      }
-    } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "github_installation.mcp_preview_list_repos",
-      })
-      return c.json(
-        {
-          error: e instanceof Error ? e.message : "Failed to list repositories",
-        },
-        500,
-      )
-    }
-
-    const allowed = new Set(accessible.map((r) => r.full_name))
-    const requested: string[] = [...new Set(body.repositories)]
-    const notAllowed = requested.filter((name) => !allowed.has(name))
-    if (notAllowed.length > 0) {
-      return c.json(
-        {
-          error: `Repositories not accessible to this GitHub installation: ${notAllowed.join(", ")}`,
-        },
-        400,
-      )
-    }
-
-    const agents = [...new Set(body.agents)] as McpOnboardingAgent[]
-
-    try {
-      const files = await previewMcpConfigChanges({
-        orgId,
-        orgSlug,
-        env,
-        githubConnectionId: installation.id,
-        repositories: requested,
-        agents,
-      })
-      return c.json({ files }, 200)
-    } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "github_installation.mcp_preview",
-      })
-      return c.json(
-        {
-          error:
-            e instanceof Error ? e.message : "Failed to preview MCP config",
-        },
-        500,
-      )
-    }
-  })
-  .openapi(createMcpConfigPrsRoute, async (c) => {
-    if (!c.get("user") || !c.get("session")) {
-      return c.json({ error: "Unauthorized" }, 401)
-    }
-    const orgId = c.get("orgId")
-    if (!orgId) return c.json({ error: "Not found" }, 404)
-    const orgSlug = c.req.param("orgSlug")
-    if (!orgSlug) return c.json({ error: "Not found" }, 404)
-
-    const { connectionId: mcpPrConn } = GithubConnectionIdQuerySchema.parse({
-      connectionId: c.req.query("connectionId") ?? undefined,
-    })
-    const body = CreateMcpConfigPrBodySchema.parse(await c.req.json())
-    const resolvedPr = await resolveGithubInstallationForOrgDetailed(
-      orgId,
-      mcpPrConn ?? null,
-    )
-    if (resolvedPr.status === "ambiguous") {
-      return c.json({ error: MULTIPLE_GITHUB_CONNECTIONS_MESSAGE }, 400)
-    }
-    if (resolvedPr.status === "none") {
-      return c.json({ error: "No GitHub installation found for this org" }, 404)
-    }
-    const installation = resolvedPr.installation
-
-    const env = c.var.env
-    let accessible: Awaited<ReturnType<typeof listAllReposForInstallation>>
-    try {
-      if (installation.installationId == null) {
-        accessible = []
-      } else {
-        accessible = await listAllReposForInstallation(
-          orgId,
-          installation.id,
-          env,
-        )
-      }
-    } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "github_installation.mcp_pr_list_repos",
-      })
-      return c.json(
-        {
-          error: e instanceof Error ? e.message : "Failed to list repositories",
-        },
-        500,
-      )
-    }
-
-    const allowed = new Set(accessible.map((r) => r.full_name))
-    const requested: string[] = [...new Set(body.repositories)]
-    const notAllowed = requested.filter((name) => !allowed.has(name))
-    if (notAllowed.length > 0) {
-      return c.json(
-        {
-          error: `Repositories not accessible to this GitHub installation: ${notAllowed.join(", ")}`,
-        },
-        400,
-      )
-    }
-
-    const agents = [...new Set(body.agents)] as McpOnboardingAgent[]
-
-    try {
-      const log = c.get("log")
-      const { pullRequests, failures } =
-        await createCtxpipeMcpConfigPullRequests({
-          orgId,
-          orgSlug,
-          env,
-          githubConnectionId: installation.id,
-          repositories: requested,
-          agents,
-          onRepoFailure: ({ repository, error, detail }) => {
-            // Per-repo failure: log with the repo name + GitHub-provided detail
-            // so we can tell which repo tripped which kind of 422/403/etc.
-            // instead of an anonymous batch-level "Reference update failed".
-            log.error(
-              error instanceof Error ? error : new Error(String(error)),
-              {
-                step: "github_installation.mcp_create_pr_repo",
-                repository,
-                "upstream.status_code": detail.status,
-                documentationUrl: detail.documentationUrl,
-                errors: detail.errors,
-              },
-            )
-          },
-        })
-      return c.json({ pullRequests, failures }, 200)
-    } catch (e) {
-      c.get("log").error(e instanceof Error ? e : new Error(String(e)), {
-        step: "github_installation.mcp_create_prs",
-      })
-      return c.json(
-        {
-          error:
-            e instanceof Error ? e.message : "Failed to open pull requests",
-        },
-        500,
-      )
-    }
   })

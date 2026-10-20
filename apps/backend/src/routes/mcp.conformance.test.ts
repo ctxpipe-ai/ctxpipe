@@ -8,6 +8,8 @@ import { existsSync } from "node:fs"
 import { createServer } from "node:net"
 import { join } from "node:path"
 import { fileURLToPath } from "node:url"
+import { Client } from "@modelcontextprotocol/sdk/client/index.js"
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 
 const repoRoot = fileURLToPath(new URL("../../../../", import.meta.url))
@@ -183,6 +185,45 @@ describe("MCP conformance (Vitest-integrated)", () => {
       stdout: expect.stringContaining('"passed":true'),
     })
   }, 180_000)
+
+  it("serves framework instructions, a read tool, and structuredContent to the MCP SDK Client", async () => {
+    const client = new Client({ name: "conformance-sdk", version: "1.0.0" })
+    await client.connect(
+      new StreamableHTTPClientTransport(new URL(`${baseUrl}/mcp`)),
+    )
+    try {
+      expect(client.getInstructions()).toMatch(
+        /^ctxpipe is your organization's context/,
+      )
+      expect(client.getInstructions()).toContain("\n- acme: payments")
+      const { tools } = await client.listTools()
+      expect(tools.map((tool) => tool.name)).toEqual([
+        "conformance_echo",
+        "conformance_read",
+      ])
+      expect(tools[1]?.annotations).toMatchObject({ readOnlyHint: true })
+      expect(tools[1]?.outputSchema?.properties).toHaveProperty("text")
+      const result = await client.callTool({
+        name: "conformance_read",
+        arguments: { text: "hello" },
+      })
+      expect(result.structuredContent).toEqual({ text: "hello" })
+      expect(result.content).toEqual([{ type: "text", text: "text: hello" }])
+      const failed = await client.callTool({
+        name: "conformance_read",
+        arguments: { text: "fail" },
+      })
+      expect(failed.isError).toBe(true)
+      expect(failed.structuredContent).toBeUndefined()
+      expect(failed._meta?.["ai.ctxpipe/error"]).toEqual({
+        code: "invalid_argument",
+        message: "The text is fail.",
+        retryable: false,
+      })
+    } finally {
+      await client.close()
+    }
+  }, 60_000)
 }, 180_000)
 
 async function waitForServerReady(statusUrl: string): Promise<void> {

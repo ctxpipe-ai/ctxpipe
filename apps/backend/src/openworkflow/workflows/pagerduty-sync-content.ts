@@ -1,15 +1,17 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
+import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   finalizePagerdutyBindingAfterContentWorkflow,
-  getPagerdutyBindingByConnectionId,
+  getPagerdutyBindingWithRepoByConnectionId,
   getPagerdutyConnectionByConnectionId,
 } from "../../models/pagerduty-connector.js"
-import { getLogger } from "../../observability/logger.js"
-import { syncPagerdutyContent } from "../../services/pagerduty/sync.js"
+import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
+import { capturePagerdutyContent } from "../../services/pagerduty/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const pagerdutySyncContentInputSchema = z.object({
   orgId: z.string().min(1),
@@ -18,98 +20,160 @@ const pagerdutySyncContentInputSchema = z.object({
 
 export const pagerdutySyncContent = defineWorkflow(
   {
+    logFields: (input) => ({
+      orgId: input.orgId,
+      connectionId: input.connectionId,
+    }),
     name: "pagerduty-sync-content",
     schema: pagerdutySyncContentInputSchema,
   },
-  async ({ input, step }) => {
+  async ({ input, step, run }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const markSyncFailed = () =>
-      withOrgDbContext(input.orgId, () =>
-        finalizePagerdutyBindingAfterContentWorkflow({
-          connectionId: input.connectionId,
-          workflowStatus: "failed",
-        }),
-      )
+      finalizePagerdutyBindingAfterContentWorkflow({
+        orgId: input.orgId,
+        connectionId: input.connectionId,
+        workflowStatus: "failed",
+      })
+    // ADR-050: once Workspace sources own the repository, only they write it.
+    if (
+      await step.run({ name: "check-workspace-sources-handover" }, async () => {
+        const binding = await getPagerdutyBindingWithRepoByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        return binding
+          ? legacyBindingHandedOver("pagerduty", {
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              repositoryGitUrl: binding.repositoryGitUrl,
+            })
+          : false
+      })
+    )
+      return {
+        status: "superseded" as const,
+        written: 0,
+        deleted: 0,
+        resourcesProcessed: 0,
+        resourcesFailed: 0,
+        commitShas: [],
+        errors: [],
+      }
     const context = await step
-      .run({ name: "load-pagerduty-sync-context" }, () =>
-        withOrgDbContext(input.orgId, async () => ({
-          connection: await getPagerdutyConnectionByConnectionId(
-            input.orgId,
-            input.connectionId,
+      .run(
+        {
+          name: "load-pagerduty-sync-context",
+          retryPolicy: { maximumAttempts: 1 },
+        },
+        async () => {
+          const [connection, binding] = await Promise.all([
+            getPagerdutyConnectionByConnectionId(
+              input.orgId,
+              input.connectionId,
+              env,
+            ),
+            getPagerdutyBindingWithRepoByConnectionId(
+              input.orgId,
+              input.connectionId,
+            ),
+          ])
+          if (!connection) {
+            throw new Error("PagerDuty connection is not ready for sync")
+          }
+          if (!binding?.githubConnectionId) {
+            throw new Error("PagerDuty binding is not configured")
+          }
+          if (
+            binding.orgId !== input.orgId ||
+            !binding.enabled ||
+            binding.setupPhase !== "initial_sync"
+          ) {
+            throw new Error("PagerDuty binding is not ready for initial sync")
+          }
+          const captured = await captureConnectorMirrorTarget({
+            repositoryGitUrl: binding.repositoryGitUrl,
+            orgId: input.orgId,
             env,
-          ),
-          binding: await getPagerdutyBindingByConnectionId(input.connectionId),
-        })),
+            mirror: {
+              provider: "pagerduty",
+              connectionId: input.connectionId,
+              repositoryId: binding.repositoryId,
+            },
+          })
+          const config = parsePagerdutyConfigYamlContent(captured.config)
+          if (!config) {
+            throw new Error(
+              "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
+            )
+          }
+          return { binding, captured, config }
+        },
       )
       .catch(async (error) => {
         await markSyncFailed()
         throw error
       })
-    if (!context.connection) {
-      await markSyncFailed()
-      throw new Error("PagerDuty connection is not ready for sync")
-    }
-    if (!context.binding) {
-      await markSyncFailed()
-      throw new Error("PagerDuty binding is not configured")
-    }
-    const connection = context.connection
-    const binding = context.binding
-    if (
-      binding.orgId !== input.orgId ||
-      !binding.enabled ||
-      binding.setupPhase !== "initial_sync"
-    ) {
-      await markSyncFailed()
-      throw new Error("PagerDuty binding is not ready for initial sync")
-    }
 
     try {
-      const contentResult = await step.run({ name: "sync-content" }, () =>
-        syncPagerdutyContent({
-          orgId: input.orgId,
-          env,
-          connection,
-          binding,
-        }),
-      )
-
-      if (contentResult.status !== "failed") {
-        await runConnectorRepositoryIngestionWorkflow(
-          step,
-          {
-            repositoryId: binding.repositoryId,
+      const captured = await step.run(
+        { name: "capture-pagerduty-content" },
+        async () => {
+          const connection = await getPagerdutyConnectionByConnectionId(
+            input.orgId,
+            input.connectionId,
+            env,
+          )
+          if (!connection || connection.status !== "installed") {
+            throw new Error("PagerDuty authorization changed")
+          }
+          return capturePagerdutyContent({
             orgId: input.orgId,
-            targetBranch: binding.branch,
-            indexingReason: "Syncing PagerDuty content",
-          },
+            env,
+            connection,
+            config: context.config,
+            existingPaths: context.captured.paths,
+          })
+        },
+      )
+      if (
+        captured.status !== "failed" &&
+        (captured.files.length || captured.deletePaths.length)
+      ) {
+        await step.runWorkflow(
+          workspaceConnectorMirror.spec,
           {
-            error: (error) =>
-              getLogger().error(error, {
-                step: "pagerduty-sync-content.ingestion",
-                connectionId: input.connectionId,
-              }),
+            orgId: input.orgId,
+            workspaceId: context.captured.workspaceId,
+            revision: context.captured.revision,
+            mirror: context.captured.mirror,
+            jobId: `wjob_${run.id}_mirror`,
+            files: captured.files,
+            deletePaths: captured.deletePaths,
           },
+          { name: "commit-pagerduty-mirror" },
         )
       }
 
       await step.run({ name: "finalize-setup-phase" }, () =>
-        withOrgDbContext(input.orgId, () =>
-          finalizePagerdutyBindingAfterContentWorkflow({
-            connectionId: input.connectionId,
-            workflowStatus: contentResult.status,
-          }),
-        ),
+        finalizePagerdutyBindingAfterContentWorkflow({
+          orgId: input.orgId,
+          connectionId: input.connectionId,
+          workflowStatus: captured.status,
+        }),
       )
 
       return {
-        status: contentResult.status,
-        resourcesProcessed: contentResult.resourcesProcessed,
-        resourcesFailed: contentResult.resourcesFailed,
-        commitShas: contentResult.commitSha ? [contentResult.commitSha] : [],
-        errors: contentResult.errors,
+        status: captured.status,
+        written: captured.files.length,
+        deleted: captured.deletePaths.length,
+        resourcesProcessed: captured.resourcesProcessed,
+        resourcesFailed: captured.resourcesFailed,
+        commitShas: [],
+        errors: captured.errors,
       }
     } catch (error) {
+      if (isWorkflowControlSignal(error)) throw error
       await markSyncFailed()
       throw error
     }

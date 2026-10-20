@@ -6,8 +6,9 @@ import {
   text,
   timestamp,
 } from "drizzle-orm/pg-core"
+import { orgIsolationPolicy } from "./org-rls.js"
 
-export const claims = pgTable(
+export const claims = pgTable.withRLS(
   "claims",
   {
     id: text("id").primaryKey(),
@@ -39,5 +40,6 @@ export const claims = pgTable(
     index().on(t.subjectId),
     index().on(t.objectId),
     index().on(t.status),
+    orgIsolationPolicy(t.orgId),
   ],
 )

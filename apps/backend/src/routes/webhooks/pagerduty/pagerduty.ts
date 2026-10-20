@@ -1,6 +1,7 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import type { AppEnv } from "../../../app/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { decryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
   getPagerdutyBindingWithRepoByConnectionId,
@@ -14,9 +15,10 @@ import {
   pagerdutyEventIsStale,
   verifyPagerdutyWebhookSignature,
 } from "../../../services/pagerduty/signature.js"
+import type { PagerdutySourceEvent } from "../../../services/pagerduty/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
-export function pagerdutyIncidentEventFromPayload(payload: unknown):
+function pagerdutyIncidentEventFromPayload(payload: unknown):
   | {
       eventId?: string
       eventType: string
@@ -98,6 +100,34 @@ async function handlePagerdutyWebhook(c: Context<AppEnv>) {
   }
   if (pagerdutyEventIsStale(event.occurredAt)) {
     return c.json({ error: "Stale PagerDuty event" }, 401)
+  }
+
+  // ADR-050: one sources sync for each incident event. The run finds the
+  // `ok` sources of the connection; the event id deduplicates it. A failed
+  // enqueue returns 5xx, so PagerDuty delivers the event again.
+  if (connection.status === "installed" && event.serviceId) {
+    try {
+      await enqueueConnectionSourcesSync({
+        orgId: connection.orgId,
+        connectionId: connection.id,
+        provider: "pagerduty",
+        event: {
+          incidentId: event.incidentId,
+          serviceId: event.serviceId,
+        } satisfies PagerdutySourceEvent,
+        dedupeKey: event.eventId,
+      })
+    } catch (error) {
+      getLogger().error(
+        error instanceof Error ? error : new Error(String(error)),
+        {
+          step: "pagerduty_webhook.sources",
+          connectionId: connection.id,
+          incidentId: event.incidentId,
+        },
+      )
+      return c.json({ error: "Failed to enqueue PagerDuty sync" }, 503)
+    }
   }
 
   if (

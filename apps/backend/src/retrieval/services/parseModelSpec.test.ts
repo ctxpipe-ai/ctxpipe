@@ -1,9 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import {
-  mergeModelParams,
-  paramsToModelParams,
-} from "./modelParams.js"
+import { mergeModelParams, paramsToModelParams } from "./modelParams.js"
 import {
   modelParamsFromSpec,
   modelSpecBase,
@@ -27,9 +24,7 @@ describe("parseModelSpec", () => {
 
   it("parses multiple query params", () => {
     expect(
-      parseModelSpec(
-        "openai.gpt-5.5?reasoning.effort=high&text.verbosity=low",
-      ),
+      parseModelSpec("openai.gpt-5.5?reasoning.effort=high&text.verbosity=low"),
     ).toEqual({
       modelId: "openai.gpt-5.5",
       params: {
@@ -102,10 +97,10 @@ describe("modelParamsFromSpec", () => {
   })
 
   it("parses full spec", () => {
-    expect(
-      modelParamsFromSpec("openai/gpt-5.5?reasoning.effort=high"),
-    ).toEqual({
-      reasoning: { effort: "high" },
-    })
+    expect(modelParamsFromSpec("openai/gpt-5.5?reasoning.effort=high")).toEqual(
+      {
+        reasoning: { effort: "high" },
+      },
+    )
   })
 })

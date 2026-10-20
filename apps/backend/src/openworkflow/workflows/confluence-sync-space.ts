@@ -1,14 +1,19 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { withOrgDbContext } from "../../db/client.js"
-import { getForgeInstallationByConnectionId } from "../../models/atlassian-connector.js"
-import { getConfluenceSyncTargetByConnectionId } from "../../models/confluence-sync-target.js"
-import { getLogger } from "../../observability/logger.js"
-import { syncConfluenceContent } from "../../services/confluence/sync.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
+import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
+import {
+  getForgeInstallationByConnectionId,
+  updateConfluenceSpaceSyncState,
+} from "../../models/atlassian-connector.js"
+import { getConfluenceSyncTargetWithRepoByConnectionId } from "../../models/confluence-sync-target.js"
+import { parseConfluenceConfigYamlContent } from "../../services/confluence/config-yaml.js"
+import { captureConfluenceContent } from "../../services/confluence/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
-const confluenceSyncSpaceInputSchema = z.object({
+const inputSchema = z.object({
   orgId: z.string().min(1),
   connectionId: z.string().min(1),
   spaceKey: z.string().min(1),
@@ -17,71 +22,143 @@ const confluenceSyncSpaceInputSchema = z.object({
 })
 
 export const confluenceSyncSpace = defineWorkflow(
-  {
-    name: "confluence-sync-space",
-    schema: confluenceSyncSpaceInputSchema,
-  },
-  async ({ input, step }) => {
-    const forgeInstallation = await withOrgDbContext(input.orgId, (db) =>
-      getForgeInstallationByConnectionId(input.orgId, input.connectionId, db),
-    )
-    const cloudId = forgeInstallation?.cloudId
-    const appSystemToken = forgeInstallation?.appSystemToken
-    if (!forgeInstallation || !cloudId || !appSystemToken) {
-      throw new Error("Forge installation is not ready for Confluence sync")
-    }
-
-    const target = await step.run(
-      { name: "load-confluence-space-target" },
-      async () => {
-        const current = await getConfluenceSyncTargetByConnectionId(
+  { name: "confluence-sync-space", schema: inputSchema },
+  async ({ input, step, run }) => {
+    const env = parseEnv(process.env)
+    // ADR-050: once Workspace sources own the repository, only they write it.
+    if (
+      await step.run({ name: "check-workspace-sources-handover" }, async () => {
+        const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+          input.orgId,
           input.connectionId,
         )
-        if (!current) {
-          throw new Error("Confluence sync target is not configured")
+        return target
+          ? legacyBindingHandedOver("confluence", {
+              orgId: input.orgId,
+              connectionId: input.connectionId,
+              repositoryGitUrl: target.repositoryGitUrl,
+            })
+          : false
+      })
+    )
+      return {
+        status: "superseded" as const,
+        spacesProcessed: 0,
+        pagesProcessed: 0,
+        pagesFailed: 0,
+        commitSha: undefined,
+        errors: [],
+        spaceKey: input.spaceKey,
+      }
+    const context = await step.run(
+      { name: "capture-confluence-target" },
+      async () => {
+        const target = await getConfluenceSyncTargetWithRepoByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        const installation = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        if (
+          !installation?.cloudId ||
+          !installation.appSystemToken ||
+          ["revoked", "uninstalled"].includes(installation.status)
+        )
+          throw new Error("Forge installation is not ready for Confluence sync")
+        if (
+          !target?.enabled ||
+          !["initial_sync", "live"].includes(target.setupPhase)
+        )
+          throw new Error("Confluence sync target is not live")
+        const captured = await captureConnectorMirrorTarget({
+          orgId: input.orgId,
+          env,
+          repositoryGitUrl: target.repositoryGitUrl,
+          mirror: {
+            provider: "confluence",
+            connectionId: input.connectionId,
+            repositoryId: target.repositoryId,
+          },
+        })
+        const config = parseConfluenceConfigYamlContent(captured.config)
+        if (!config) throw new Error("confluence/config.yaml was not found")
+        return {
+          captured,
+          config,
+          cloudId: installation.cloudId,
+          atlassianApiBaseUrl: installation.atlassianApiBaseUrl,
         }
-        return current
       },
     )
-
-    const result = await step.run({ name: "sync-confluence-space" }, () =>
-      syncConfluenceContent({
-        orgId: input.orgId,
-        env: parseEnv(process.env as Record<string, string | undefined>),
-        forgeInstallation: {
-          id: forgeInstallation.id,
-          cloudId,
-          atlassianApiBaseUrl: forgeInstallation.atlassianApiBaseUrl,
-          appSystemToken,
-        },
-        target,
-        mode: {
-          spaceKey: input.spaceKey,
-          pageId: input.pageId,
-          eventType: input.eventType,
-        },
+    const captured = await step.run(
+      { name: "capture-confluence-content" },
+      async () => {
+        const installation = await getForgeInstallationByConnectionId(
+          input.orgId,
+          input.connectionId,
+        )
+        if (
+          !installation?.appSystemToken ||
+          installation.cloudId !== context.cloudId ||
+          installation.atlassianApiBaseUrl !== context.atlassianApiBaseUrl ||
+          ["revoked", "uninstalled"].includes(installation.status)
+        )
+          throw new Error("Confluence authorization changed")
+        return captureConfluenceContent({
+          forgeInstallation: {
+            id: installation.id,
+            cloudId: context.cloudId,
+            appSystemToken: installation.appSystemToken,
+            atlassianApiBaseUrl: context.atlassianApiBaseUrl,
+          },
+          config: context.config,
+          existingPaths: context.captured.paths,
+          existingBlobs: context.captured.blobs,
+          mode: {
+            spaceKey: input.spaceKey,
+            pageId: input.pageId,
+            eventType: input.eventType,
+          },
+        })
+      },
+    )
+    const result =
+      captured.status !== "failed" &&
+      (captured.files.length || captured.deletePaths.length)
+        ? await step.runWorkflow(
+            workspaceConnectorMirror.spec,
+            {
+              orgId: input.orgId,
+              workspaceId: context.captured.workspaceId,
+              revision: context.captured.revision,
+              mirror: context.captured.mirror,
+              jobId: `wjob_${run.id}_mirror`,
+              files: captured.files,
+              deletePaths: captured.deletePaths,
+            },
+            { name: "commit-confluence-mirror" },
+          )
+        : null
+    await step.run({ name: "record-synced-spaces" }, () =>
+      withOrgDbContext(input.orgId, async () => {
+        for (const space of captured.syncedSpaces)
+          await updateConfluenceSpaceSyncState({
+            connectionId: input.connectionId,
+            ...space,
+            lastSyncedAt: run.createdAt,
+          })
       }),
     )
 
-    await runConnectorRepositoryIngestionWorkflow(
-      step,
-      {
-        repositoryId: target.repositoryId,
-        orgId: input.orgId,
-        targetBranch: target.branch,
-        indexingReason: "Applying Confluence updates",
-      },
-      {
-        error: (error) =>
-          getLogger().error(error, {
-            step: "confluence-sync-space.ingestion",
-            connectionId: input.connectionId,
-          }),
-      },
-    )
-
     return {
-      ...result,
+      status: captured.status,
+      spacesProcessed: captured.spacesProcessed,
+      pagesProcessed: captured.pagesProcessed,
+      pagesFailed: captured.pagesFailed,
+      commitSha: result?.committed ? result.commitSha : undefined,
+      errors: captured.errors,
       spaceKey: input.spaceKey,
     }
   },

@@ -2,6 +2,7 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import type { Context } from "hono"
 import { z } from "zod"
 import type { AppEnv } from "../../../app/env.js"
+import { enqueueConnectionSourcesSync } from "../../../domain/workspace-sources/enqueue.js"
 import { parseNotionConnectionConfig } from "../../../lib/connection-config.js"
 import { decryptConnectionSecret } from "../../../lib/connection-secrets.js"
 import {
@@ -15,10 +16,12 @@ import {
   listNotionConnectionsForWebhook,
   persistNotionWebhookSecret,
 } from "../../../models/notion-connector.js"
+import { listConnectionSourceRows } from "../../../models/workspace-sources.js"
 import { getLogger } from "../../../observability/logger.js"
 import { runWorkflowWithWorkerWake } from "../../../openworkflow/client.js"
 import { notionSyncEntity } from "../../../openworkflow/workflows/notion-sync-entity.js"
 import type { NotionEntityChange } from "../../../services/notion/incremental.js"
+import type { NotionSourceEvent } from "../../../services/notion/workspace-source-adapter.js"
 import { noteResolvedWebhookConnections } from "../attribution.js"
 
 const notionWebhookPayloadSchema = z.object({
@@ -39,7 +42,7 @@ const notionWebhookPayloadSchema = z.object({
  * delete action; every other lifecycle event (created/updated/moved/undeleted/…)
  * re-mirrors the affected resource.
  */
-export function notionEntityTargetForEvent(input: {
+function notionEntityTargetForEvent(input: {
   type: string | undefined
   entity: { id: string; type: string } | undefined
 }): NotionEntityChange | undefined {
@@ -218,11 +221,48 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
       connection.enabled &&
       connection.setupPhase === "live",
   )
-  if (liveConnections.length === 0) return c.body(null, 204)
+  // ADR-050: one sources sync for each installed connection with `ok`
+  // sources. A failed lookup or enqueue must not block the legacy sync.
+  const warnSources = (connectionId: string, error: unknown) =>
+    getLogger().warn("Notion webhook could not route to Workspace sources", {
+      step: "notion_webhook.sources",
+      connectionId,
+      error: error instanceof Error ? error.message : String(error),
+    })
+  const sourceConnections = (
+    await Promise.all(
+      connections
+        .filter((connection) => connection.status === "installed")
+        .map((connection) =>
+          listConnectionSourceRows({
+            orgId: connection.orgId,
+            connectionId: connection.id,
+            status: "ok",
+          }).then(
+            (rows) => (rows.length ? [connection] : []),
+            (error: unknown) => {
+              warnSources(connection.id, error)
+              return []
+            },
+          ),
+        ),
+    )
+  ).flat()
+  if (!liveConnections.length && !sourceConnections.length)
+    return c.body(null, 204)
 
   try {
-    await Promise.all(
-      liveConnections.map((connection) =>
+    await Promise.all([
+      ...sourceConnections.map((connection) =>
+        enqueueConnectionSourcesSync({
+          orgId: connection.orgId,
+          connectionId: connection.id,
+          provider: "notion",
+          event: entityTarget satisfies NotionSourceEvent,
+          dedupeKey: parsed.data.id,
+        }).catch((error: unknown) => warnSources(connection.id, error)),
+      ),
+      ...liveConnections.map((connection) =>
         enqueueNotionEntitySync({
           orgId: connection.orgId,
           connectionId: connection.id,
@@ -230,7 +270,7 @@ async function handleNotionWebhook(c: Context<AppEnv>) {
           eventId: parsed.data.id,
         }),
       ),
-    )
+    ])
   } catch (error) {
     getLogger().error(
       error instanceof Error ? error : new Error(String(error)),

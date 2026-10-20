@@ -113,32 +113,34 @@ function webhookSubscriptionFetch(options: {
   createdId?: string
 }): { deletedIds: string[]; fetchMock: ReturnType<typeof vi.fn> } {
   const deletedIds: string[] = []
-  const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
-    const href = String(input)
-    const method = (init?.method ?? "GET").toUpperCase()
-    if (method === "GET" && href.endsWith("/webhook_subscriptions")) {
-      return jsonResponse(200, {
-        webhook_subscriptions: options.listed.map((subscription) => ({
-          id: subscription.id,
-          delivery_method: { url: subscription.url },
-        })),
-      })
-    }
-    if (method === "POST" && href.endsWith("/webhook_subscriptions")) {
-      return jsonResponse(200, {
-        webhook_subscription: {
-          id: options.createdId ?? "PFNEW",
-          delivery_method: { secret: "new-secret" },
-        },
-      })
-    }
-    const deleteMatch = href.match(/\/webhook_subscriptions\/([^/?]+)$/)
-    if (method === "DELETE" && deleteMatch) {
-      deletedIds.push(decodeURIComponent(deleteMatch[1] ?? ""))
-      return new Response(null, { status: 204 })
-    }
-    throw new Error(`unexpected ${method} ${href}`)
-  })
+  const fetchMock = vi.fn(
+    async (input: RequestInfo | URL, init?: RequestInit) => {
+      const href = String(input)
+      const method = (init?.method ?? "GET").toUpperCase()
+      if (method === "GET" && href.endsWith("/webhook_subscriptions")) {
+        return jsonResponse(200, {
+          webhook_subscriptions: options.listed.map((subscription) => ({
+            id: subscription.id,
+            delivery_method: { url: subscription.url },
+          })),
+        })
+      }
+      if (method === "POST" && href.endsWith("/webhook_subscriptions")) {
+        return jsonResponse(200, {
+          webhook_subscription: {
+            id: options.createdId ?? "PFNEW",
+            delivery_method: { secret: "new-secret" },
+          },
+        })
+      }
+      const deleteMatch = href.match(/\/webhook_subscriptions\/([^/?]+)$/)
+      if (method === "DELETE" && deleteMatch) {
+        deletedIds.push(decodeURIComponent(deleteMatch[1] ?? ""))
+        return new Response(null, { status: 204 })
+      }
+      throw new Error(`unexpected ${method} ${href}`)
+    },
+  )
   return { deletedIds, fetchMock }
 }
 

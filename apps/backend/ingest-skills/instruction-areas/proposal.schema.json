@@ -1,0 +1,76 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "instruction-areas proposal",
+  "description": "The agent writes this file to /ctxpipe/out/proposal.json. The script checks every field again.",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["areas"],
+  "properties": {
+    "complete": {
+      "type": "boolean",
+      "description": "True when the proposal names every area of the repository: the source leaves the other area files."
+    },
+    "areas": {
+      "type": "array",
+      "maxItems": 40,
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["slug", "rules"],
+        "properties": {
+          "slug": {
+            "type": "string",
+            "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$",
+            "maxLength": 60
+          },
+          "summary": { "type": "string", "maxLength": 300 },
+          "notes": {
+            "type": "array",
+            "maxItems": 5,
+            "items": { "type": "string", "maxLength": 300 }
+          },
+          "rules": {
+            "type": "array",
+            "maxItems": 40,
+            "items": {
+              "type": "object",
+              "additionalProperties": false,
+              "required": ["key", "value", "text"],
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "pattern": "^[a-z0-9][a-z0-9-]{0,59}$"
+                },
+                "value": { "type": "string", "maxLength": 100 },
+                "text": { "type": "string", "maxLength": 300 },
+                "core": { "type": "boolean" },
+                "documents": {
+                  "type": "array",
+                  "maxItems": 5,
+                  "items": {
+                    "type": "object",
+                    "additionalProperties": false,
+                    "required": ["path", "quote"],
+                    "properties": {
+                      "path": { "type": "string" },
+                      "quote": {
+                        "type": "string",
+                        "minLength": 3,
+                        "maxLength": 300
+                      }
+                    }
+                  }
+                },
+                "pattern": {
+                  "type": "string",
+                  "minLength": 3,
+                  "maxLength": 200
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

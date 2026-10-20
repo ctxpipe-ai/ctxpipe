@@ -1,10 +1,10 @@
-import { withOrgDbContext } from "../db/client.js"
+import { assertNotInOrgDbContext, withOrgDbContext } from "../db/client.js"
 import { formatUnknownError } from "../db/transientDbRetry.js"
 import { markRepositoryUnindexing } from "../models/repositories.js"
 import { runWorkflowWithWorkerWake } from "./client.js"
 import { repositoryDeletion } from "./workflows/repository-deletion.js"
 
-export type RepositoryDeletionEnqueueInput = {
+type RepositoryDeletionEnqueueInput = {
   repositoryId: string
   orgId: string
   /** Optional; helps codesearch purge if prepare resumes after the row is gone. */
@@ -12,7 +12,7 @@ export type RepositoryDeletionEnqueueInput = {
   zoektRepoId?: number
 }
 
-export type RepositoryDeletionEnqueueResult = {
+type RepositoryDeletionEnqueueResult = {
   jobId: string
   status: "queued"
 }
@@ -41,6 +41,7 @@ export async function enqueueRepositoryDeletionWorkflow(
   input: RepositoryDeletionEnqueueInput,
   log: { error: (err: Error) => void },
 ): Promise<RepositoryDeletionEnqueueResult | null> {
+  assertNotInOrgDbContext()
   const marked = await withOrgDbContext(input.orgId, () =>
     markRepositoryUnindexing({ repositoryId: input.repositoryId }),
   )

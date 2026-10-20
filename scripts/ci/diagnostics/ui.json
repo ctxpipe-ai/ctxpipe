@@ -1,0 +1,251 @@
+{
+  "version": 1,
+  "diagnostics": [
+    {
+      "file": "../backend/src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; stream?: unknown; messages?: unknown[] | undefined; temperature?: number | undefined; }' is not assignable to parameter of type 'OpenAiChatBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "../backend/src/routes/v1/openai.ts",
+      "code": 2345,
+      "message": "Argument of type '{ model?: unknown; input?: unknown; }' is not assignable to parameter of type 'OpenAiEmbeddingBody'.\n  Types of property 'model' are incompatible.\n    Type 'unknown' is not assignable to type 'string | undefined'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ai-elements/message.tsx",
+      "code": 4104,
+      "message": "The type 'readonly [\"github-light\", \"github-dark-dimmed\"]' is 'readonly' and cannot be assigned to the mutable type '[BundledTheme, BundledTheme]'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "code": 2322,
+      "message": "Type '\"default\"' is not assignable to type '\"primary\" | \"secondary\" | \"destructive\" | \"quiet\" | \"ghost\" | \"outline\"'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ai-elements/prompt-input.tsx",
+      "code": 2322,
+      "message": "Type '(e: React.MouseEvent<HTMLButtonElement>) => void' is not assignable to type '(e: MouseEvent<FocusableElement, MouseEvent>) => void'.\n  Types of parameters 'e' and 'e' are incompatible.\n    Type 'MouseEvent<FocusableElement, MouseEvent>' is not assignable to type 'MouseEvent<HTMLButtonElement, MouseEvent>'.\n      Type 'FocusableElement' is missing the following properties from type 'HTMLButtonElement': disabled, form, formAction, formEnctype, and 143 more.",
+      "count": 1
+    },
+    {
+      "file": "src/components/SideNav/SideNavTooltip.tsx",
+      "code": 2322,
+      "message": "Type '{ render: ReactElement<unknown, string | JSXElementConstructor<any>>; nativeButton: boolean; }' is not assignable to type 'IntrinsicAttributes & Props<unknown>'.\n  Property 'nativeButton' does not exist on type 'IntrinsicAttributes & Props<unknown>'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/SideNav/SideNavUserButton.tsx",
+      "code": 2339,
+      "message": "Property 'isAnonymous' does not exist on type 'StripEmptyObjects<{ id: string; createdAt: Date; updatedAt: Date; email: string; emailVerified: boolean; name: string; image?: string | null | undefined; }>'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/AlertDialog.tsx",
+      "code": 6133,
+      "message": "'React' is declared but its value is never read.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/Checkbox.tsx",
+      "code": 6133,
+      "message": "'React' is declared but its value is never read.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/Form.tsx",
+      "code": 6133,
+      "message": "'React' is declared but its value is never read.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/InlineLoader.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { label: string; sublabel?: string | undefined; className?: string | undefined; }, { label: string; sublabel?: string | undefined; className?: string | undefined; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { label: string; sublabel?: string | undefined; className?: string | undefined; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/Link.tsx",
+      "code": 6133,
+      "message": "'React' is declared but its value is never read.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/TagGroup.tsx",
+      "code": 2322,
+      "message": "Type '{ children: Element; slot: string; size: string; className: TVReturnType<{} | { isFocusVisible: { false: ClassNameValue | SlotsClassValue<undefined, \"cursor-default rounded-full transition-[background-color] p-0.5 flex items-center justify-center bg-transparent text-[inherit] border-0 hover:bg-black/10 dark:hover:bg...' is not assignable to type 'IntrinsicAttributes & ButtonProps & RefAttributes<HTMLButtonElement>'.\n  Property 'size' does not exist on type 'IntrinsicAttributes & ButtonProps & RefAttributes<HTMLButtonElement>'.",
+      "count": 1
+    },
+    {
+      "file": "src/components/ui/Toolbar.tsx",
+      "code": 6133,
+      "message": "'React' is declared but its value is never read.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/AddConfluenceConnectorButton.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }, { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; onInstallIntentRegistered: (args: { connectionId: string; }) => void; }; }'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/connectors/components/AddConnectorCatalogDialog.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }, { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/AddConnectorCatalogDialog.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }, { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { isOpen: boolean; onOpenChange: (open: boolean) => void; children: ReactNode; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/AddGithubConnectorButton.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onFlowStarted?: (() => void) | undefined; onGithubInstallIntentRegistered?: ((args: { connectionId: string; }) => void) | undefined; onRequestSelfHostedWizard?: (() => void) | undefined; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; onFlowStarted?: (() => void) | undefined; onGithubInstallIntentRegistered?: ((args: { connectionId: string; }) => void) | undefined; onRequestSelfHostedWizard?: (() => void) | undefined; }; }'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/connectors/components/AddSlackConnectorButton.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; onOpenSetup: () => void; }, { orgSlug: string; onOpenSetup: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { orgSlug: string; onOpenSetup: () => void; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/AtlassianAccountClaimModalContent.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { onCancel: () => void | Promise<void>; onConfirm: () => void | Promise<void>; }, { onCancel: () => void | Promise<void>; onConfirm: () => void | Promise<...>; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { onCancel: () => void | Promise<void>; onConfirm: () => void | Promise<void>; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/confluence-setup/steps/InstallForgeStep.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }, { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }; }'.",
+      "count": 6
+    },
+    {
+      "file": "src/features/connectors/components/confluence-setup/steps/InstallForgeStep.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }, { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId: string; onOpenedInstall: () => void; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/confluence-setup/steps/LinkAtlassianStep.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId: string; }, { orgSlug: string; atlassianConnectionId: string; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId: string; }; }'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/connectors/components/confluence-setup/steps/RegisterAtlassianOauthStep.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId: string; }, { orgSlug: string; atlassianConnectionId: string; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId: string; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/ConnectorsEmptyState.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { onAddConnection: () => void; }, { onAddConnection: () => void; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { onAddConnection: () => void; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/ConnectorSetupStepper.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { steps: readonly ConnectorSetupStepDef[]; currentIndex: number; focusOverride?: number | null | undefined; onStepSelect?: ((index: number) => void) | undefined; className?: string | undefined; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { steps: readonly ConnectorSetupStepDef[]; currentIndex: number; focusOverride?: number | null | undefined; onStepSelect?: ((index: number) => void) | undefined; className?: string | undefined; }; }'.",
+      "count": 3
+    },
+    {
+      "file": "src/features/connectors/components/ConnectorSetupStepper.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { steps: readonly ConnectorSetupStepDef[]; currentIndex: number; focusOverride?: number | null | undefined; onStepSelect?: ((index: number) => void) | undefined; className?: string | undefined; }, { ...; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; }' but required in type '{ args: { steps: readonly ConnectorSetupStepDef[]; currentIndex: number; focusOverride?: number | null | undefined; onStepSelect?: ((index: number) => void) | undefined; className?: string | undefined; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/github-setup/steps/GithubSelfHostedCredentialsStep.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { githubAppId: string; setGithubAppId: (v: string) => void; appSlug: string; setAppSlug: (v: string) => void; privateKey: string; setPrivateKey: (v: string) => void; ... 7 more ...; onCancel: () => void; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; }' but required in type '{ args: { githubAppId: string; setGithubAppId: (v: string) => void; appSlug: string; setAppSlug: (v: string) => void; privateKey: string; setPrivateKey: (v: string) => void; generatedWebhookSecret: string; ... 6 more ...; onCancel: () => void; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/GithubConnectionCard.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; }, { orgSlug: string; connectionId: string; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; }; }'.",
+      "count": 4
+    },
+    {
+      "file": "src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }; }'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/connectors/components/OrgAtlassianOauthPanel.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }, { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; connectionId: string; embedded?: boolean | undefined; }; }'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/connectors/components/OrgAtlassianOauthPanel.tsx",
+      "code": 2322,
+      "message": "Type '{ children: Element; type: \"button\"; variant: \"ghost\"; size: \"icon-sm\"; className: string; \"aria-label\": string; title: string; isDisabled: boolean; onPress: () => undefined; }' is not assignable to type 'IntrinsicAttributes & ButtonProps'.\n  Property 'title' does not exist on type 'IntrinsicAttributes & ButtonProps'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/SlackConnectionCard.stories.tsx",
+      "code": 2345,
+      "message": "Argument of type 'unknown' is not assignable to parameter of type 'JsonBodyType'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/components/SlackSetupDialog.stories.tsx",
+      "code": 2345,
+      "message": "Argument of type 'unknown' is not assignable to parameter of type 'JsonBodyType'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/confluence-setup-model.ts",
+      "code": 2322,
+      "message": "Type 'ConfluenceWizardStepDef' is not assignable to type 'never'.",
+      "count": 1
+    },
+    {
+      "file": "src/features/connectors/SpacePageTree.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }, { ...; }>'.\n  Property 'args' is missing in type '{ render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }; }'.",
+      "count": 2
+    },
+    {
+      "file": "src/features/connectors/SpacePageTree.stories.tsx",
+      "code": 2322,
+      "message": "Type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' is not assignable to type 'StoryAnnotations<ReactRenderer, { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }, { ...; }>'.\n  Property 'args' is missing in type '{ name: string; render: () => JSX.Element; parameters: { msw: { handlers: { page: HttpHandler[]; }; }; }; }' but required in type '{ args: { orgSlug: string; atlassianConnectionId?: string | undefined; value: SpaceScopeItem[]; onChange: (value: SpaceScopeItem[]) => void; }; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/providers/AuthProvider.tsx",
+      "code": 2339,
+      "message": "Property 'providers' does not exist on type '{}'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/[.]auth.device.tsx",
+      "code": 2339,
+      "message": "Property 'message' does not exist on type '{ error: \"invalid_request\"; error_description: string; status: number; statusText: string; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/[.]auth.device.tsx",
+      "code": 2339,
+      "message": "Property 'message' does not exist on type '{ error: \"invalid_request\" | \"expired_token\" | \"access_denied\" | \"device_code_already_processed\" | \"unauthorized\"; error_description: string; status: number; statusText: string; }'.",
+      "count": 1
+    },
+    {
+      "file": "src/routes/[.]auth.device.tsx",
+      "code": 2339,
+      "message": "Property 'message' does not exist on type '{ error: \"invalid_request\" | \"expired_token\" | \"access_denied\" | \"unauthorized\"; error_description: string; status: number; statusText: string; }'.",
+      "count": 1
+    }
+  ]
+}

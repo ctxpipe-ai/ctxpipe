@@ -1,0 +1,95 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "classify-kind result",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "path",
+    "name",
+    "kind",
+    "decidedBy",
+    "signals",
+    "ambiguous",
+    "ops",
+    "skipped",
+    "more"
+  ],
+  "properties": {
+    "path": {
+      "type": "string",
+      "description": "The root path. \".\" is the repository root."
+    },
+    "name": {
+      "type": ["string", "null"],
+      "description": "The manifest name, else the folder name."
+    },
+    "kind": {
+      "enum": ["App", "Library", "Service", null]
+    },
+    "decidedBy": {
+      "enum": ["script", "model", null]
+    },
+    "signals": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["kind", "strength", "evidence", "reason"],
+        "properties": {
+          "kind": { "enum": ["App", "Library", "Service"] },
+          "strength": { "enum": ["strong", "weak"] },
+          "evidence": { "type": "string" },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "ambiguous": {
+      "description": "Set when the rules cannot decide. The script wrote nothing.",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["reason", "options", "files"],
+          "properties": {
+            "reason": { "type": "string" },
+            "options": {
+              "type": "array",
+              "items": { "enum": ["App", "Library", "Service"] }
+            },
+            "files": {
+              "type": "array",
+              "items": { "type": "string" },
+              "description": "At most 20 files of the root that help to choose."
+            }
+          }
+        }
+      ]
+    },
+    "ops": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["op", "path"],
+        "properties": {
+          "op": { "enum": ["create", "update", "delete"] },
+          "path": { "type": "string" }
+        }
+      }
+    },
+    "skipped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["path", "reason"],
+        "properties": {
+          "path": { "type": ["string", "null"] },
+          "reason": { "type": "string" }
+        }
+      }
+    },
+    "more": { "type": "boolean" }
+  }
+}

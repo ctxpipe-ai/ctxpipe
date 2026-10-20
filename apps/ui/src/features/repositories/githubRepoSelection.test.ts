@@ -5,9 +5,7 @@ import {
   countSelectionDelta,
   describeSelectionDelta,
   githubCloneUrlKey,
-  githubContextRepoPollMs,
   matchSavedRepoIds,
-  resolvedContextRepository,
   sortGithubRepos,
   unmatchedSavedRepos,
 } from "./githubRepoSelection"
@@ -49,6 +47,21 @@ describe("githubCloneUrlKey", () => {
   it("treats trailing .git and case as the same repo", () => {
     expect(githubCloneUrlKey("https://github.com/Acme/Web.GIT")).toBe(
       "https://github.com/acme/web",
+    )
+  })
+
+  it("also ignores a trailing slash and the space around the URL", () => {
+    expect(githubCloneUrlKey(" https://github.com/Acme/Web.git/ ")).toBe(
+      "https://github.com/acme/web",
+    )
+    expect(githubCloneUrlKey("https://github.com/acme/web/")).toBe(
+      "https://github.com/acme/web",
+    )
+  })
+
+  it("keeps two repositories apart", () => {
+    expect(githubCloneUrlKey("https://github.com/acme/web")).not.toBe(
+      githubCloneUrlKey("https://github.com/acme/web-2"),
     )
   })
 })
@@ -182,18 +195,25 @@ describe("collectInstallationRepoPages", () => {
           repositories: page1,
           hasMore: true,
           repositorySelection: "selected",
+          manageUrl: "https://github.com/settings/installations/123",
+          totalCount: 3,
         }
       }
       return {
         repositories: page2,
         hasMore: false,
         repositorySelection: "selected",
+        manageUrl: "https://github.com/settings/installations/123",
+        totalCount: 3,
       }
     })
     const result = await collectInstallationRepoPages(fetchPage)
     expect(fetchPage).toHaveBeenCalledTimes(2)
     expect(result.repositories.map((repo) => repo.id)).toEqual([1, 2, 31])
-    expect(result.manageUrl).toBeNull()
+    expect(result.manageUrl).toBe(
+      "https://github.com/settings/installations/123",
+    )
+    expect(result.totalCount).toBe(3)
   })
 
   it("keeps the first manage URL from the installation pages", async () => {
@@ -209,56 +229,5 @@ describe("collectInstallationRepoPages", () => {
     expect(result.manageUrl).toBe(
       "https://github.com/organizations/acme/settings/installations/1",
     )
-  })
-})
-
-describe("githubContextRepoPollMs", () => {
-  it("polls on the context step so a newly granted repo can appear", () => {
-    expect(githubContextRepoPollMs("select")).toBe(false)
-    expect(githubContextRepoPollMs("context")).toBe(4000)
-  })
-})
-
-describe("resolvedContextRepository", () => {
-  const canonical = {
-    id: 9,
-    name: "ctxpipe-context",
-  }
-  const demo = {
-    id: 10,
-    name: "ctxpipe-context-demo",
-  }
-
-  it("suggests ctxpipe-context only when the user has not picked", () => {
-    expect(
-      resolvedContextRepository([demo, canonical], {
-        picked: false,
-        selectedId: null,
-      }),
-    ).toEqual(canonical)
-  })
-
-  it("keeps a picked repo that is not named ctxpipe-context", () => {
-    expect(
-      resolvedContextRepository([demo, canonical], {
-        picked: true,
-        selectedId: demo.id,
-      }),
-    ).toEqual(demo)
-  })
-
-  it("does not invent a selection when nothing matches", () => {
-    expect(
-      resolvedContextRepository([demo], {
-        picked: false,
-        selectedId: null,
-      }),
-    ).toBeNull()
-    expect(
-      resolvedContextRepository([demo], {
-        picked: true,
-        selectedId: 99,
-      }),
-    ).toBeNull()
   })
 })

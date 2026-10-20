@@ -1,3 +1,4 @@
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import { resolveAtlassianConfluenceApiBaseUrl } from "../../lib/atlassian-api-base-url.js"
 import {
   type ConnectorAssetBudget,
@@ -11,7 +12,7 @@ export type ConfluenceClientInput = {
   appSystemToken: string
 }
 
-export type ConfluenceSpace = {
+type ConfluenceSpace = {
   id: string
   key: string
   name: string
@@ -19,7 +20,7 @@ export type ConfluenceSpace = {
   homepageId: string | null
 }
 
-export type ConfluencePage = {
+type ConfluencePage = {
   id: string
   title: string
   spaceId: string
@@ -27,7 +28,7 @@ export type ConfluencePage = {
   parentId: string | null
 }
 
-export type ConfluencePageWithBody = ConfluencePage & {
+type ConfluencePageWithBody = ConfluencePage & {
   bodyStorage: string
 }
 
@@ -61,6 +62,7 @@ async function fetchConfluence<T>(
     onResponse?: (response: Response) => void
   },
 ): Promise<T> {
+  assertNotInOrgDbContext()
   const base = resolveAtlassianConfluenceApiBaseUrl(input)
   for (let attempt = 0; attempt < CONFLUENCE_FETCH_MAX_ATTEMPTS; attempt += 1) {
     const response = await fetch(`${base}${path}`, {

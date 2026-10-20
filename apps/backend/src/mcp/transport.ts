@@ -1,25 +1,34 @@
 import { StreamableHTTPTransport } from "@hono/mcp"
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js"
-import { CallToolRequestSchema } from "@modelcontextprotocol/sdk/types.js"
+import {
+  CallToolRequestSchema,
+  ReadResourceRequestSchema,
+  SUPPORTED_PROTOCOL_VERSIONS,
+} from "@modelcontextprotocol/sdk/types.js"
 import type { Context } from "hono"
 import type { AppEnv } from "../app/env.js"
-import { currentMcpActor, requireCurrentOrgId } from "../auth/context.js"
+import {
+  disableToolsOutsideScopes,
+  grantedMcpScopes,
+  insufficientMcpScopeResponse,
+} from "../auth/mcp-scopes.js"
+import {
+  isAllowedRequestOrigin,
+  isLoopbackHostname,
+} from "../auth/request-origin.js"
+import { mcpOAuthProtectedResourceMetadataUrl } from "../auth/withAuth.js"
 import {
   type AttributionInput,
   applyAttribution,
 } from "../observability/attribution.js"
 import { getLogger } from "../observability/logger.js"
-import { mcpAdvisorThreadId } from "./advisorThread.js"
+import { INSTRUCTION_RULES } from "./framework/instructions.js"
+import {
+  serverDiscoverResponse,
+  serverDiscoverResult,
+} from "./framework/server-discover.js"
 import { getMcpServerImplementation } from "./mcp-server-info.js"
-
-function isLoopbackHostname(hostname: string): boolean {
-  return (
-    hostname === "localhost" ||
-    hostname === "127.0.0.1" ||
-    hostname === "::1" ||
-    hostname.endsWith(".localhost")
-  )
-}
+import { workspaceFileResourceName } from "./resources/workspace-file.js"
 
 export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
   const expected = new URL(c.get("env").AUTH_BASE_URL)
@@ -38,28 +47,23 @@ export function rejectInvalidMcpOrigin(c: Context<AppEnv>): Response | null {
 
   const originHeader = c.req.header("origin")
   if (!originHeader) return null
-  try {
-    const origin = new URL(originHeader)
-    const configuredOrigins = (c.get("env").AUTH_ALLOWED_ORIGINS ?? "")
-      .split(",")
-      .map((value) => value.trim())
-      .filter(Boolean)
-    const allowed =
-      origin.origin === expected.origin ||
-      configuredOrigins.includes(origin.origin) ||
-      (isLoopbackHostname(expected.hostname) &&
-        isLoopbackHostname(origin.hostname) &&
-        origin.protocol === expected.protocol &&
-        origin.port === expected.port)
-    return allowed ? null : new Response(null, { status: 403 })
-  } catch {
-    return new Response(null, { status: 403 })
-  }
+  return isAllowedRequestOrigin(c.get("env"), originHeader)
+    ? null
+    : new Response(null, { status: 403 })
+}
+
+export type McpTransportOptions = {
+  /**
+   * Dynamic server instructions for the principal of the request. The
+   * transport loads them only for `initialize` and `server/discover`.
+   */
+  instructions?: () => Promise<string>
 }
 
 export async function handleMcpTransportRequest(
   c: Context<AppEnv>,
   registerTools: (server: McpServer) => void,
+  options: McpTransportOptions = {},
 ) {
   const startedAt = performance.now()
   let parsedBody: unknown
@@ -111,16 +115,64 @@ export async function handleMcpTransportRequest(
     )
   }
 
-  // Streamable HTTP returns the Response before tools/call runs, so the
-  // server span and request log would otherwise close without these fields.
-  // SSE stays on: clients send progress notifications and accept event-stream.
-  const toolAttribution = attributionFromToolsCall(messages)
-  if (toolAttribution) applyAttribution(toolAttribution)
+  // Streamable HTTP returns the Response before tools/call or resources/read
+  // runs, so the server span and request log would otherwise close without
+  // these fields.
+  const callAttribution = attributionFromCall(messages)
+  if (callAttribution) applyAttribution(callAttribution)
 
+  let instructions: string | undefined
+  if (
+    options.instructions &&
+    rpcMethods.some(
+      (method) => method === "initialize" || method === "server/discover",
+    )
+  ) {
+    try {
+      instructions = await options.instructions()
+    } catch (error) {
+      // The handshake must not fail: send the fixed rules without the orgs.
+      log.error(error instanceof Error ? error : new Error(String(error)), {
+        step: "mcp.instructions",
+      })
+      instructions = INSTRUCTION_RULES
+    }
+  }
+  const implementation = getMcpServerImplementation(c.get("env").AUTH_BASE_URL)
   const server = new McpServer(
-    getMcpServerImplementation(c.get("env").AUTH_BASE_URL),
+    implementation,
+    instructions ? { instructions } : undefined,
   )
   registerTools(server)
+  const grantedScopes = grantedMcpScopes(c.get("oauthScopes"))
+  const hiddenTools = disableToolsOutsideScopes(server, grantedScopes)
+  for (const message of messages) {
+    const call = CallToolRequestSchema.safeParse(message)
+    if (!call.success) continue
+    const tool = call.data.params.name
+    const required = hiddenTools.get(tool)
+    if (!required) continue
+    return logResponse(
+      insufficientMcpScopeResponse(c, {
+        granted: grantedScopes,
+        required,
+        tool,
+        resourceMetadataUrl: mcpOAuthProtectedResourceMetadataUrl(
+          c.var.env.AUTH_BASE_URL,
+        ),
+      }),
+    )
+  }
+  // `server/discover` (2026-07-28) comes with no `initialize` and with a
+  // protocol version header that the SDK transport refuses, so answer it here.
+  const discover = serverDiscoverResponse(parsedBody, () =>
+    serverDiscoverResult(server, {
+      implementation,
+      supportedVersions: SUPPORTED_PROTOCOL_VERSIONS,
+      instructions,
+    }),
+  )
+  if (discover) return logResponse(c.json(discover))
   const transport = new StreamableHTTPTransport()
   try {
     await server.connect(transport)
@@ -156,31 +208,19 @@ export async function handleMcpTransportRequest(
   }
 }
 
-function attributionFromToolsCall(
+function attributionFromCall(
   messages: readonly unknown[],
 ): AttributionInput | undefined {
   for (const message of messages) {
-    const parsed = CallToolRequestSchema.safeParse(message)
-    if (!parsed.success) continue
-    const name = parsed.data.params.name.slice(0, 100)
-    const args = parsed.data.params.arguments ?? {}
-    const rawConversationId = args.conversationId
-    let conversationId: string | undefined
-    if (name === "ctx_advisor" && typeof rawConversationId === "string") {
-      conversationId = mcpAdvisorThreadId({
-        orgId: requireCurrentOrgId(),
-        actor: currentMcpActor(),
-        currentProjectName:
-          typeof args.currentProjectName === "string"
-            ? args.currentProjectName
-            : undefined,
-        conversationId: rawConversationId,
-      })
+    const tool = CallToolRequestSchema.safeParse(message)
+    if (tool.success) {
+      return { "ctxpipe.mcp.tool": tool.data.params.name.slice(0, 100) }
     }
-    return {
-      "ctxpipe.mcp.tool": name,
-      ...(conversationId ? { "ctxpipe.conversation.id": conversationId } : {}),
-    }
+    const read = ReadResourceRequestSchema.safeParse(message)
+    if (!read.success) continue
+    // The name only, never the URI: it holds a path.
+    const resource = workspaceFileResourceName(read.data.params.uri)
+    if (resource) return { "ctxpipe.mcp.resource": resource }
   }
   return undefined
 }

@@ -1,12 +1,11 @@
 import type { SlackConnectorStatus } from "./queries/slack-connector"
 
-export type SlackSetupView =
+type SlackSetupView =
   | "loading"
   | "error"
   | "authorize"
   | "github"
-  | "target"
-  | "live"
+  | "workspaces"
 
 export function getSlackSetupView(input: {
   status: SlackConnectorStatus | undefined
@@ -18,8 +17,7 @@ export function getSlackSetupView(input: {
   const status = input.status
   if (!status?.isInstalled) return "authorize"
   if (!status.isGithubLinked) return "github"
-  if (status.setupPhase !== "live") return "target"
-  return "live"
+  return "workspaces"
 }
 
 export function getSlackSetupStepIndex(
@@ -27,15 +25,15 @@ export function getSlackSetupStepIndex(
 ): number {
   if (!status?.isInstalled) return 0
   if (!status.isGithubLinked) return 1
-  if (status.setupPhase !== "live") return 2
-  return 3
+  return 2
 }
 
 export function getSlackSetupPhaseLabel(
   status: Pick<SlackConnectorStatus, "setupPhase" | "isInstalled">,
 ): string {
-  if (!status.isInstalled) return "Setup required"
-  return status.setupPhase === "live" ? "Connected" : "Setup required"
+  // A connection holds auth only (ADR-050). The mention capture repository
+  // is optional.
+  return status.isInstalled ? "Connected" : "Setup required"
 }
 
 export function formatSlackBotMention(

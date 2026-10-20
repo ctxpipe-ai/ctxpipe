@@ -1,10 +1,21 @@
-import { index, jsonb, pgTable, text, timestamp, unique } from "drizzle-orm/pg-core"
+import {
+  index,
+  jsonb,
+  pgTable,
+  text,
+  timestamp,
+  unique,
+} from "drizzle-orm/pg-core"
 import { connections } from "./connections.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
-export const confluenceSpaces = pgTable(
+export const confluenceSpaces = pgTable.withRLS(
   "confluence_spaces",
   {
     id: text("id").primaryKey(),
+    // Nullable in this minor release, so that the previous image can write after a
+    // rollback. RLS hides a row with no org. The next major release sets NOT NULL.
+    orgId: text("org_id"),
     connectionId: text("connection_id")
       .notNull()
       .references(() => connections.id, { onDelete: "cascade" }),
@@ -30,5 +41,7 @@ export const confluenceSpaces = pgTable(
       t.connectionId,
       t.spaceKey,
     ),
+    index("confluence_spaces_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
   ],
 )

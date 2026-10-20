@@ -1,183 +1,202 @@
 import { OpenAPIHono } from "@hono/zod-openapi"
-import { beforeEach, describe, expect, it, vi } from "vitest"
+import { eq } from "drizzle-orm"
+import { afterAll, beforeAll, expect, it } from "vitest"
+import {
+  cleanupSeededOrg,
+  describeWithDatabase,
+  type SeededOrg,
+  seedOrg,
+} from "../../../test/db.js"
 import type { AppEnv } from "../../app/env.js"
-
-const getActiveMemberRoleMock = vi.hoisted(() => vi.fn())
-const listConversationsPaginatedMock = vi.hoisted(() => vi.fn())
-const getConversationMock = vi.hoisted(() => vi.fn())
-
-vi.mock("../../auth/config.js", () => ({
-  getAuth: () => ({
-    api: { getActiveMemberRole: getActiveMemberRoleMock },
-  }),
-}))
-
-vi.mock("../../models/conversations.js", () => ({
-  listConversationsPaginated: listConversationsPaginatedMock,
-  getConversation: getConversationMock,
-  updateConversation: vi.fn(),
-  deleteConversation: vi.fn(),
-  ensureConversation: vi.fn(),
-  touchConversationLastMessage: vi.fn(),
-}))
-
-vi.mock("../../domain/conversations/renameStream.js", () => ({
-  createRenameStreamEnhancer: vi.fn(),
-}))
-
-vi.mock("../../domain/conversations/internalNodeMessageFilter.js", () => ({
-  filterInternalNodeMessageChunks: vi.fn(),
-}))
-
-vi.mock("../../domain/conversations/transport.js", () => ({
-  createDataStreamConversationTransport: vi.fn(),
-  loadConversationUiMessages: vi.fn(async () => []),
-  toPromptFromIncomingMessage: vi.fn(),
-}))
-
+import { getAuth } from "../../auth/config.js"
+import { withOrgIdContext } from "../../auth/withAuth.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { members, users } from "../../db/schema/auth.js"
+import { conversations } from "../../db/schema/conversations.js"
+import { generateObjectId } from "../../lib/id.js"
+import {
+  contextStorage,
+  withTestRequestLogger,
+} from "../../test/hono-test-logger.js"
 import { conversationRoutes } from "./conversations.js"
 
 const now = new Date("2026-09-14T00:00:00.000Z")
 
-function conversationRow(overrides: {
-  id: string
-  userId: string | null
-  source?: string | null
-}) {
-  return {
-    id: overrides.id,
-    orgId: "org_1",
-    userId: overrides.userId,
-    name: "New Chat",
-    source: overrides.source ?? "mcp",
-    lastMessageAt: null,
-    createdAt: now,
-    updatedAt: now,
-  }
+function sessionCookie(response: Response): string {
+  const cookie = response.headers
+    .getSetCookie()
+    .map((part) => part.split(";")[0]?.trim())
+    .filter((part): part is string => Boolean(part))
+    .join("; ")
+  if (!cookie) throw new Error("signUpEmail did not set a session cookie")
+  return cookie
 }
 
-function createApp(): OpenAPIHono<AppEnv> {
-  const app = new OpenAPIHono<AppEnv>()
-  app.use("*", async (c, next) => {
-    c.set("user", { id: "user_1" } as AppEnv["Variables"]["user"])
-    c.set("session", { id: "sess_1" } as AppEnv["Variables"]["session"])
-    c.set("orgId", "org_1")
-    await next()
-  })
-  app.route("/conversations", conversationRoutes)
-  return app
-}
+describeWithDatabase("GET /conversations org-service", () => {
+  let seed: SeededOrg
+  let memberUserId = ""
+  let memberCookie = ""
+  const serviceConversationId = generateObjectId("conv")
+  const userMcpConversationId = generateObjectId("conv")
 
-describe("GET /conversations", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-    listConversationsPaginatedMock.mockResolvedValue({
-      items: [],
-      pageInfo: {
-        hasNextPage: false,
-        hasPreviousPage: false,
-        startCursor: null,
-        endCursor: null,
+  beforeAll(async () => {
+    seed = await seedOrg()
+    const suffix = `${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`
+    const origin = process.env.AUTH_BASE_URL ?? "http://localhost:3000"
+    const signUp = await getAuth().api.signUpEmail({
+      body: {
+        name: "Conversation member",
+        email: `member-${suffix}@example.com`,
+        password: "integration-member-password",
       },
+      headers: new Headers({ origin }),
+      asResponse: true,
+    })
+    if (!signUp.ok) {
+      throw new Error(`member signUpEmail failed: ${signUp.status}`)
+    }
+    const signedUp = (await signUp.json()) as { user: { id: string } }
+    memberUserId = signedUp.user.id
+    memberCookie = sessionCookie(signUp)
+    await getSystemDb()
+      .insert(members)
+      .values({
+        id: generateObjectId("member"),
+        organizationId: seed.orgId,
+        userId: memberUserId,
+        role: "member",
+        createdAt: new Date(),
+      })
+    await withOrgDbContext(seed.orgId, async (db) => {
+      await db.insert(conversations).values([
+        {
+          id: serviceConversationId,
+          orgId: seed.orgId,
+          userId: null,
+          name: "Org MCP service",
+          source: "mcp",
+          lastMessageAt: now,
+        },
+        {
+          id: userMcpConversationId,
+          orgId: seed.orgId,
+          userId: seed.userId,
+          name: "User MCP",
+          source: "mcp",
+          lastMessageAt: now,
+        },
+      ])
     })
   })
 
-  it("returns 403 when a member lists MCP service conversations", async () => {
-    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "member" })
+  afterAll(async () => {
+    if (!seed) return
+    await getSystemDb()
+      .delete(conversations)
+      .where(eq(conversations.orgId, seed.orgId))
+    if (memberUserId) {
+      await getSystemDb()
+        .delete(members)
+        .where(eq(members.userId, memberUserId))
+      await getSystemDb().delete(users).where(eq(users.id, memberUserId))
+    }
+    await cleanupSeededOrg(seed)
+  })
 
-    const res = await createApp().request(
+  function createApp(userId: string): OpenAPIHono<AppEnv> {
+    const app = new OpenAPIHono<AppEnv>()
+    app.use("*", contextStorage(), withTestRequestLogger)
+    app.use("*", async (c, next) => {
+      c.set("user", { id: userId } as AppEnv["Variables"]["user"])
+      c.set("session", {
+        id: `sess_${userId}`,
+      } as AppEnv["Variables"]["session"])
+      c.set("orgId", seed.orgId)
+      c.set("orgSlug", seed.orgSlug)
+      await withOrgIdContext({ id: seed.orgId, slug: seed.orgSlug }, next)
+    })
+    app.route("/conversations", conversationRoutes)
+    return app
+  }
+
+  it("returns 403 when a member lists MCP service conversations", async () => {
+    const res = await createApp(memberUserId).request(
       "/conversations?source=mcp-service&first=10",
+      { headers: { cookie: memberCookie } },
     )
 
     expect(res.status).toBe(403)
     expect(await res.json()).toEqual({ error: "Forbidden" })
-    expect(listConversationsPaginatedMock).not.toHaveBeenCalled()
   })
 
   it("lists org-service MCP threads for an admin", async () => {
-    const row = conversationRow({ id: "c_org", userId: null })
-    listConversationsPaginatedMock.mockResolvedValueOnce({
-      items: [row],
-      pageInfo: {
-        hasNextPage: false,
-        hasPreviousPage: false,
-        startCursor: null,
-        endCursor: null,
-      },
-    })
-
-    const res = await createApp().request(
+    const res = await createApp(seed.userId).request(
       "/conversations?source=mcp-service&first=10",
+      { headers: { cookie: seed.cookie } },
     )
 
     expect(res.status).toBe(200)
-    expect(listConversationsPaginatedMock).toHaveBeenCalledWith({
-      source: undefined,
-      orgService: true,
-      first: 10,
-      after: undefined,
-    })
     const body = (await res.json()) as {
-      items: Array<{ userId: string | null }>
+      items: Array<{ id: string; userId: string | null; source: string | null }>
     }
     expect(body.items).toEqual([
-      expect.objectContaining({ id: "c_org", userId: null, source: "mcp" }),
+      expect.objectContaining({
+        id: serviceConversationId,
+        userId: null,
+        source: "mcp",
+      }),
     ])
+    expect(body.items.map((item) => item.id)).not.toContain(
+      userMcpConversationId,
+    )
   })
 
   it("keeps source=mcp as the signed-in user's threads", async () => {
-    const row = conversationRow({ id: "c_user", userId: "user_1" })
-    listConversationsPaginatedMock.mockResolvedValueOnce({
-      items: [row],
-      pageInfo: {
-        hasNextPage: false,
-        hasPreviousPage: false,
-        startCursor: null,
-        endCursor: null,
-      },
-    })
-
-    const res = await createApp().request("/conversations?source=mcp&first=10")
+    const res = await createApp(seed.userId).request(
+      "/conversations?source=mcp&first=10",
+      { headers: { cookie: seed.cookie } },
+    )
 
     expect(res.status).toBe(200)
-    expect(getActiveMemberRoleMock).not.toHaveBeenCalled()
-    expect(listConversationsPaginatedMock).toHaveBeenCalledWith({
-      source: "mcp",
-      orgService: false,
-      first: 10,
-      after: undefined,
-    })
-  })
-})
-
-describe("GET /conversations/:id org-service", () => {
-  beforeEach(() => {
-    vi.clearAllMocks()
-    getActiveMemberRoleMock.mockResolvedValue({ role: "admin" })
-    getConversationMock.mockResolvedValue(null)
+    const body = (await res.json()) as {
+      items: Array<{ id: string; userId: string | null }>
+    }
+    expect(body.items).toEqual([
+      expect.objectContaining({
+        id: userMcpConversationId,
+        userId: seed.userId,
+      }),
+    ])
+    expect(body.items.map((item) => item.id)).not.toContain(
+      serviceConversationId,
+    )
   })
 
   it("returns an org-service thread for an admin after the user-scoped lookup misses", async () => {
-    const row = conversationRow({ id: "c_org", userId: null })
-    getConversationMock.mockResolvedValueOnce(null).mockResolvedValueOnce(row)
-
-    const res = await createApp().request("/conversations/c_org")
+    const res = await createApp(seed.userId).request(
+      `/conversations/${serviceConversationId}`,
+      { headers: { cookie: seed.cookie } },
+    )
 
     expect(res.status).toBe(200)
-    expect(getConversationMock).toHaveBeenNthCalledWith(1, "c_org")
-    expect(getConversationMock).toHaveBeenNthCalledWith(2, "c_org", {
-      orgService: true,
-    })
+    const body = (await res.json()) as {
+      conversation: { id: string; userId: string | null; source: string | null }
+    }
+    expect(body.conversation).toEqual(
+      expect.objectContaining({
+        id: serviceConversationId,
+        userId: null,
+        source: "mcp",
+      }),
+    )
   })
 
   it("returns 404 when a member cannot see an org-service thread", async () => {
-    getActiveMemberRoleMock.mockResolvedValueOnce({ role: "member" })
-    getConversationMock.mockResolvedValueOnce(null)
-
-    const res = await createApp().request("/conversations/c_org")
+    const res = await createApp(memberUserId).request(
+      `/conversations/${serviceConversationId}`,
+      { headers: { cookie: memberCookie } },
+    )
 
     expect(res.status).toBe(404)
-    expect(getConversationMock).toHaveBeenCalledTimes(1)
   })
 })

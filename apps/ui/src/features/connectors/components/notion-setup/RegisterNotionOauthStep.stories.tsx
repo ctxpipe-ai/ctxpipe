@@ -13,6 +13,10 @@ const connectionId = "con_story_notion"
 const meta = {
   title: "Components/Connections/Notion/Steps/RegisterOAuth",
   component: RegisterNotionOauthStep,
+  args: {
+    orgSlug,
+    connectionId,
+  },
   decorators: [
     (Story) => (
       <div className="w-full max-w-md p-2">

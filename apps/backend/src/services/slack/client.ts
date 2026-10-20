@@ -1,4 +1,5 @@
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import {
   decodeSlackBotToken,
   parseSlackConnectionStored,
@@ -12,7 +13,7 @@ import {
 
 const SLACK_API = "https://slack.com/api"
 
-export type SlackOAuthAccessResponse = {
+type SlackOAuthAccessResponse = {
   ok: boolean
   error?: string
   access_token?: string
@@ -54,7 +55,7 @@ export class SlackOAuthMissingScopesError extends Error {
   }
 }
 
-export type SlackInstallationVerification = {
+type SlackInstallationVerification = {
   appId: string | null
   storedTeamId: string | null
   storedBotUserId: string | null
@@ -112,7 +113,7 @@ export function assertSlackOAuthConfigured(env: Env): void {
   }
 }
 
-export function slackOAuthRedirectUri(env: Env): string {
+function slackOAuthRedirectUri(env: Env): string {
   if (env.SLACK_REDIRECT_URI) return env.SLACK_REDIRECT_URI
   return `${env.AUTH_BASE_URL.replace(/\/$/, "")}/api/v1/connectors/slack/oauth/callback`
 }
@@ -193,6 +194,7 @@ async function slackApiCall<T extends { ok: boolean; error?: string }>(input: {
   jsonBody?: Record<string, unknown>
   signal?: AbortSignal
 }): Promise<T> {
+  assertNotInOrgDbContext()
   const url = new URL(`${SLACK_API}/${input.method}`)
   for (const [key, value] of Object.entries(input.query ?? {})) {
     if (value !== undefined) url.searchParams.set(key, value)
@@ -350,7 +352,7 @@ export type SlackApiMessage = {
   }>
 }
 
-export type SlackChannelInfo = {
+type SlackChannelInfo = {
   channelId: string
   name: string
   isPrivate: boolean
@@ -363,12 +365,15 @@ export class SlackDirectMessageNotSupportedError extends Error {
   }
 }
 
-/** Resolve a human-readable channel name for git paths (ADR-025 layout). */
+/**
+ * Resolve a human-readable channel name for git paths (ADR-025 layout), and
+ * whether the bot can read the channel.
+ */
 export async function resolveSlackChannelInfo(input: {
   env: Env
   connection: SlackConnectionShape
   channelId: string
-}): Promise<SlackChannelInfo> {
+}): Promise<SlackChannelInfo & { isArchived: boolean; isMember: boolean }> {
   const botToken = botTokenFromConnection(input.connection, input.env)
   const page = await slackApiCall<{
     ok: boolean
@@ -377,6 +382,8 @@ export async function resolveSlackChannelInfo(input: {
       id?: string
       name?: string
       is_private?: boolean
+      is_archived?: boolean
+      is_member?: boolean
       is_im?: boolean
       is_mpim?: boolean
     }
@@ -393,6 +400,10 @@ export async function resolveSlackChannelInfo(input: {
     channelId: input.channelId,
     name: name && name.length > 0 ? name : input.channelId,
     isPrivate: Boolean(page.channel?.is_private),
+    isArchived: Boolean(page.channel?.is_archived),
+    // Slack sends is_member for public channels; it can read a private
+    // channel only as a member.
+    isMember: Boolean(page.channel?.is_member ?? page.channel?.is_private),
   }
 }
 
@@ -455,7 +466,7 @@ export async function updateSlackMessage(input: {
   }
 }
 
-export const SLACK_THREAD_MAX_MESSAGES = 500
+const SLACK_THREAD_MAX_MESSAGES = 500
 
 /** Bound thread snapshots so a mega-thread cannot exhaust the shared Slack app quota. */
 export function capSlackThreadMessages<T>(
@@ -606,5 +617,72 @@ export async function getSlackPermalink(input: {
     return permalink && permalink.length > 0 ? permalink : undefined
   } catch {
     return undefined
+  }
+}
+
+/** A channel that a Slack source can select. */
+type SlackListedChannel = {
+  id: string
+  name: string
+  isPrivate: boolean
+  /** The bot is a member, so it can read the history. */
+  isMember: boolean
+}
+
+const SLACK_CHANNEL_LIST_MAX = 2000
+
+/**
+ * List the channels that a source can select: the public channels of the
+ * team and the private channels that the bot is a member of. Slack returns a
+ * private channel only when the bot is in it. Archived channels are left out.
+ * The list stops at SLACK_CHANNEL_LIST_MAX channels, and `truncated` tells
+ * so. `conversations.list` has no name filter, so a search on the server
+ * would read the same pages; the picker searches the listed channels.
+ */
+export async function listSlackChannels(input: {
+  env: Env
+  connection: SlackConnectionShape
+}): Promise<{ items: SlackListedChannel[]; truncated: boolean }> {
+  const botToken = botTokenFromConnection(input.connection, input.env)
+  const channels: SlackListedChannel[] = []
+  let cursor: string | undefined
+  do {
+    const page = await slackApiCall<{
+      ok: boolean
+      error?: string
+      channels?: Array<{
+        id?: string
+        name?: string
+        is_private?: boolean
+        is_member?: boolean
+        is_archived?: boolean
+      }>
+      response_metadata?: { next_cursor?: string }
+    }>({
+      method: "conversations.list",
+      botToken,
+      query: {
+        types: "public_channel,private_channel",
+        exclude_archived: "true",
+        limit: "200",
+        cursor,
+      },
+    })
+    for (const channel of page.channels ?? []) {
+      if (!channel.id || channel.is_archived) continue
+      channels.push({
+        id: channel.id,
+        name: channel.name?.trim() || channel.id,
+        isPrivate: Boolean(channel.is_private),
+        // Slack lists a private channel only when the bot is in it.
+        isMember: Boolean(channel.is_member ?? channel.is_private),
+      })
+    }
+    const next = page.response_metadata?.next_cursor?.trim()
+    cursor = next ? next : undefined
+  } while (cursor && channels.length < SLACK_CHANNEL_LIST_MAX)
+  return {
+    items: channels.sort((a, b) => a.name.localeCompare(b.name)),
+    truncated: Boolean(cursor),
   }
 }

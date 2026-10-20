@@ -6,7 +6,7 @@ import {
   type RepositoryStatusDisplay,
 } from "./types"
 
-export type RepositoryCardPresentation = {
+type RepositoryCardPresentation = {
   displayStatus: RepositoryStatusDisplay
   issuesDetail: string | null
   failedDetail: string | null

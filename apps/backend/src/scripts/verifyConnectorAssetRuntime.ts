@@ -8,6 +8,11 @@ import {
   downloadConnectorAsset,
   isPublicConnectorAssetAddress,
 } from "../services/connectors/assets.js"
+import {
+  connectionTimeoutError,
+  expectRefusal,
+  retryOnConnectionError,
+} from "./retryOnConnectionError.js"
 
 initEvlog()
 
@@ -25,9 +30,11 @@ if (
 }
 
 const selectedAddress = (
-  await lookup("www.google.com", {
-    all: true,
-  })
+  await retryOnConnectionError(() =>
+    lookup("www.google.com", {
+      all: true,
+    }),
+  )
 ).filter(
   (
     candidate,
@@ -43,60 +50,76 @@ if (!selectedAddress) {
 }
 const { address, family } = selectedAddress
 let lookupCalls = 0
-await new Promise<void>((resolve, reject) => {
-  const tlsOptions = connectorAssetPinnedTlsOptions({
-    hostname: "www.google.com",
-    address,
-    family,
-  })
-  const pinnedLookup = tlsOptions.lookup
-  const req = request(
-    "https://www.google.com/robots.txt",
-    {
-      ...tlsOptions,
-      lookup: (hostname, options, callback) => {
-        lookupCalls += 1
-        pinnedLookup(hostname, options, callback)
-      },
-    },
-    (response) => {
-      response.resume()
-      response.on("end", resolve)
-    },
-  )
-  req.setTimeout(10_000, () =>
-    req.destroy(new Error("Timed out verifying connector DNS pinning")),
-  )
-  req.on("error", reject)
-  req.end()
-})
+// The probes call public hosts, so a single reset must not fail the check.
+await retryOnConnectionError(
+  () =>
+    new Promise<void>((resolve, reject) => {
+      lookupCalls = 0
+      const tlsOptions = connectorAssetPinnedTlsOptions({
+        hostname: "www.google.com",
+        address,
+        family,
+      })
+      const pinnedLookup = tlsOptions.lookup
+      const req = request(
+        "https://www.google.com/robots.txt",
+        {
+          ...tlsOptions,
+          lookup: (hostname, options, callback) => {
+            lookupCalls += 1
+            pinnedLookup(hostname, options, callback)
+          },
+        },
+        (response) => {
+          response.resume()
+          response.on("end", resolve)
+        },
+      )
+      req.setTimeout(10_000, () =>
+        req.destroy(
+          connectionTimeoutError("Timed out verifying connector DNS pinning"),
+        ),
+      )
+      req.on("error", reject)
+      req.end()
+    }),
+)
 if (lookupCalls !== 1) {
   throw new Error(
     `Bun did not honour connector DNS pinning (lookup calls: ${lookupCalls})`,
   )
 }
 
-await new Promise<void>((resolve, reject) => {
-  const req = request(
-    "https://www.google.com/robots.txt",
-    connectorAssetPinnedTlsOptions({
-      hostname: "www.google.com",
-      address: "1.1.1.1",
-      family: 4,
-    }),
-    (response) => {
-      response.destroy()
-      reject(new Error("Bun ignored the callback-selected pinned address"))
+await retryOnConnectionError(() =>
+  expectRefusal(
+    (onResponse) =>
+      request(
+        "https://www.google.com/robots.txt",
+        connectorAssetPinnedTlsOptions({
+          hostname: "www.google.com",
+          address: "1.1.1.1",
+          family: 4,
+        }),
+        (response) => {
+          onResponse()
+          response.destroy()
+        },
+      ),
+    {
+      timeoutMs: 5_000,
+      timeoutMessage: "Timed out verifying the deliberately wrong pin",
+      answeredMessage: "Bun ignored the callback-selected pinned address",
+      // The pinned address has a valid certificate for another host name.
+      refusalCode: "ERR_TLS_CERT_ALTNAME_INVALID",
     },
-  )
-  req.setTimeout(5_000, () =>
-    req.destroy(new Error("Expected failure from deliberately wrong pin")),
-  )
-  req.on("error", () => resolve())
-  req.end()
-})
+  ),
+)
 
-const expiredAddress = (await lookup("expired.badssl.com", { all: true })).find(
+const expiredAddress = (
+  await retryOnConnectionError(() =>
+    lookup("expired.badssl.com", { all: true }),
+  )
+).find(
   (
     candidate,
   ): candidate is {
@@ -112,30 +135,39 @@ if (!expiredAddress) {
 const previousTlsSetting = process.env.NODE_TLS_REJECT_UNAUTHORIZED
 process.env.NODE_TLS_REJECT_UNAUTHORIZED = "0"
 try {
-  await new Promise<void>((resolve, reject) => {
-    const req = request(
-      "https://expired.badssl.com/",
-      connectorAssetPinnedTlsOptions({
-        hostname: "expired.badssl.com",
-        ...expiredAddress,
+  await retryOnConnectionError(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        const req = request(
+          "https://expired.badssl.com/",
+          connectorAssetPinnedTlsOptions({
+            hostname: "expired.badssl.com",
+            ...expiredAddress,
+          }),
+          (response) => {
+            response.resume()
+            reject(
+              new Error("Explicit connector TLS verification was bypassed"),
+            )
+          },
+        )
+        req.setTimeout(10_000, () =>
+          req.destroy(
+            connectionTimeoutError(
+              "Timed out verifying connector TLS rejection",
+            ),
+          ),
+        )
+        req.on("error", (error: NodeJS.ErrnoException) => {
+          if (error.code === "CERT_HAS_EXPIRED") {
+            resolve()
+            return
+          }
+          reject(error)
+        })
+        req.end()
       }),
-      (response) => {
-        response.resume()
-        reject(new Error("Explicit connector TLS verification was bypassed"))
-      },
-    )
-    req.setTimeout(10_000, () =>
-      req.destroy(new Error("Timed out verifying connector TLS rejection")),
-    )
-    req.on("error", (error: NodeJS.ErrnoException) => {
-      if (error.code === "CERT_HAS_EXPIRED") {
-        resolve()
-        return
-      }
-      reject(error)
-    })
-    req.end()
-  })
+  )
 } finally {
   if (previousTlsSetting === undefined) {
     delete process.env.NODE_TLS_REJECT_UNAUTHORIZED
@@ -144,9 +176,29 @@ try {
   }
 }
 
-const result = await downloadConnectorAsset({
+// A network failure comes back as a stub, so retry a few times before failing.
+// Each attempt gets a fresh budget, and the last budget is returned.
+async function downloadWithRetry(
+  options: Omit<Parameters<typeof downloadConnectorAsset>[0], "budget">,
+) {
+  let budget = createConnectorAssetBudget({ maxDurationMs: 20_000 })
+  let result = await downloadConnectorAsset({ ...options, budget })
+  for (
+    let attempt = 1;
+    attempt < 3 &&
+    result.status === "stub" &&
+    result.reason === "download_failed";
+    attempt += 1
+  ) {
+    await new Promise((resolve) => setTimeout(resolve, 1_000))
+    budget = createConnectorAssetBudget({ maxDurationMs: 20_000 })
+    result = await downloadConnectorAsset({ ...options, budget })
+  }
+  return { result, budget }
+}
+
+const { result } = await downloadWithRetry({
   url: "https://www.google.com/robots.txt",
-  budget: createConnectorAssetBudget({ maxDurationMs: 20_000 }),
 })
 
 if (result.status !== "downloaded" || result.bytes.byteLength === 0) {
@@ -157,11 +209,17 @@ if (result.status !== "downloaded" || result.bytes.byteLength === 0) {
   )
 }
 
-const authenticated = await downloadConnectorAsset({
-  url: "https://httpbingo.org/headers",
-  budget: createConnectorAssetBudget({ maxDurationMs: 20_000 }),
+function echoedAuthorization(
+  headers: { authorization?: unknown; Authorization?: unknown } | undefined,
+): string | undefined {
+  const value = headers?.authorization ?? headers?.Authorization
+  return typeof value === "string" ? value : undefined
+}
+
+const { result: authenticated } = await downloadWithRetry({
+  url: "https://postman-echo.com/headers",
   headers: { authorization: "Bearer connector-runtime-smoke" },
-  authenticatedHosts: ["httpbingo.org"],
+  authenticatedHosts: ["postman-echo.com"],
 })
 if (authenticated.status !== "downloaded") {
   throw new Error(
@@ -170,20 +228,18 @@ if (authenticated.status !== "downloaded") {
 }
 const authenticatedHeaders = JSON.parse(
   authenticated.bytes.toString("utf8"),
-) as { headers?: { Authorization?: string[] } }
+) as { headers?: { authorization?: unknown; Authorization?: unknown } }
 if (
-  authenticatedHeaders.headers?.Authorization?.[0] !==
+  echoedAuthorization(authenticatedHeaders.headers) !==
   "Bearer connector-runtime-smoke"
 ) {
   throw new Error("Connector asset authentication header was not delivered")
 }
 
-const redirectBudget = createConnectorAssetBudget({ maxDurationMs: 20_000 })
-const redirected = await downloadConnectorAsset({
+const { result: redirected, budget: redirectBudget } = await downloadWithRetry({
   url: `https://httpbin.org/redirect-to?url=${encodeURIComponent(
-    "https://httpbingo.org/headers",
+    "https://postman-echo.com/headers",
   )}`,
-  budget: redirectBudget,
   headers: { authorization: "Bearer must-not-cross-hosts" },
   authenticatedHosts: ["httpbin.org"],
 })
@@ -193,9 +249,16 @@ if (redirected.status !== "downloaded") {
   )
 }
 const redirectedHeaders = JSON.parse(redirected.bytes.toString("utf8")) as {
-  headers?: { Authorization?: string[] }
+  headers?: { host?: unknown; authorization?: unknown; Authorization?: unknown }
 }
-if (redirectedHeaders.headers?.Authorization !== undefined) {
+if (redirectedHeaders.headers?.host !== "postman-echo.com") {
+  throw new Error("Redirect echo did not observe the destination request")
+}
+if (
+  Object.keys(redirectedHeaders.headers).some(
+    (header) => header.toLowerCase() === "authorization",
+  )
+) {
   throw new Error("Connector credential leaked across an asset redirect")
 }
 if (

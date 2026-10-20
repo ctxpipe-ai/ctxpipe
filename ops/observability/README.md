@@ -58,3 +58,7 @@ CI builds `ghcr.io/ctxpipe-ai/obs-<svc>:<git tree hash>` and Terraform pins thos
 Cost target is about $25–35/mo at idle: one replica, ClickHouse capped at 4 GiB (Railway bills used RAM), no preview copies of this project.
 
 If the ClickStack image cannot fan LLM spans out, run one contrib collector that exports to ClickHouse and Langfuse. Never run two collectors.
+
+## Langfuse model prices
+
+Langfuse computes the cost of a generation from its model price table. The built-in table has no entry for some product models, or matches them only without the gateway prefix. [langfuse/models.json](./langfuse/models.json) holds the custom entries. Prices are OpenRouter list prices from 2026-10-11. After a rebuild, or when a price or a default model changes, run `LANGFUSE_AUTH_STRING=<base64 pk:sk> ops/observability/langfuse/apply-models.sh`. A chat generation also sends the gateway cost (`gen_ai.usage.cost`) when the gateway reports it.

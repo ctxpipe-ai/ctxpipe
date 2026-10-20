@@ -1,4 +1,27 @@
-import type { UIMessage } from "ai"
+import type { InferResponseType } from "hono/client"
+import type { ApiClient } from "@/lib/api"
+
+export type ChatStatus = "submitted" | "streaming" | "ready" | "error"
+
+export type ChatMessage = {
+  id: string
+  role: "system" | "user" | "assistant"
+  parts: Array<{
+    type: string
+    content?: string
+    text?: string
+    url?: string
+    title?: string
+    name?: string
+    id?: string
+    data?: unknown
+    input?: unknown
+    arguments?: string
+  }>
+  createdAt?: Date
+  /** Message metadata; persistence puts the run id under `tanstack.run.id`. */
+  metadata?: unknown
+}
 
 export type PageInfo = {
   hasNextPage: boolean
@@ -7,19 +30,40 @@ export type PageInfo = {
   endCursor: string | null
 }
 
+export type ConversationPrState = "open" | "closed" | "merged"
+
 export type ConversationListItem = {
   id: string
   name: string
   source: string | null
   lastMessageAt: string | null
+  lastBranch?: string | null
+  lastChatPrNumber?: number | null
+  lastChatPrUrl?: string | null
+  prState?: ConversationPrState | null
+  branchTreeUrl?: string | null
 }
 
-export type ConversationDetail = {
-  conversation: ConversationListItem & {
-    orgId: string
-    userId?: string | null
-    createdAt: string
-    updatedAt: string
+type ConversationDetailRead = InferResponseType<
+  ApiClient[":orgSlug"]["api"]["v1"]["conversations"][":conversationId"]["$get"],
+  200
+>
+
+export type ConversationDetail = Omit<ConversationDetailRead, "messages"> & {
+  messages: ChatMessage[]
+}
+
+export type ConversationListPage = {
+  items: ConversationListItem[]
+  pageInfo: {
+    hasNextPage: boolean
+    endCursor: string | null
+    hasPreviousPage?: boolean
+    startCursor?: string | null
   }
-  messages: UIMessage[]
+}
+
+export type ConversationListInfiniteData = {
+  pages: ConversationListPage[]
+  pageParams: Array<string | undefined>
 }

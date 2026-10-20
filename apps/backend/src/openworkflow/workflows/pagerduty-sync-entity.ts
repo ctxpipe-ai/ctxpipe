@@ -1,15 +1,15 @@
 import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { legacyBindingHandedOver } from "../../domain/workspace-sources/legacy-handover.js"
+import { captureConnectorMirrorTarget } from "../../domain/workspaces/capture-connector-mirror.js"
 import {
   getPagerdutyBindingWithRepoByConnectionId,
   getPagerdutyConnectionByConnectionId,
 } from "../../models/pagerduty-connector.js"
-import { getLogger } from "../../observability/logger.js"
-import { loadPagerdutyScopeFromRepo } from "../../services/pagerduty/config-from-repo.js"
-import { syncPagerdutyIncrementalContent } from "../../services/pagerduty/sync.js"
+import { parsePagerdutyConfigYamlContent } from "../../services/pagerduty/config-yaml.js"
+import { capturePagerdutyIncrementalContent } from "../../services/pagerduty/sync.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
-import { runConnectorRepositoryIngestionWorkflow } from "../enqueue-repository-ingestion.js"
+import { workspaceConnectorMirror } from "./workspace-connector-mirror.js"
 
 const pagerdutySyncEntityInputSchema = z.object({
   orgId: z.string().min(1),
@@ -19,21 +19,26 @@ const pagerdutySyncEntityInputSchema = z.object({
 
 export const pagerdutySyncEntity = defineWorkflow(
   {
+    logFields: (input) => ({
+      orgId: input.orgId,
+      connectionId: input.connectionId,
+    }),
     name: "pagerduty-sync-entity",
     schema: pagerdutySyncEntityInputSchema,
   },
-  async ({ input, step }) => {
+  async ({ input, step, run }) => {
     const env = parseEnv(process.env as Record<string, string | undefined>)
     const context = await step.run(
-      { name: "load-pagerduty-entity-context" },
+      {
+        name: "load-pagerduty-entity-context",
+        retryPolicy: { maximumAttempts: 1 },
+      },
       async () => {
         const [connection, binding] = await Promise.all([
-          withOrgDbContext(input.orgId, () =>
-            getPagerdutyConnectionByConnectionId(
-              input.orgId,
-              input.connectionId,
-              env,
-            ),
+          getPagerdutyConnectionByConnectionId(
+            input.orgId,
+            input.connectionId,
+            env,
           ),
           getPagerdutyBindingWithRepoByConnectionId(
             input.orgId,
@@ -53,26 +58,39 @@ export const pagerdutySyncEntity = defineWorkflow(
         ) {
           return null
         }
-        const config = await loadPagerdutyScopeFromRepo({
+        // ADR-050: once Workspace sources own the repository, only they write it.
+        if (
+          await legacyBindingHandedOver("pagerduty", {
+            orgId: input.orgId,
+            connectionId: input.connectionId,
+            repositoryGitUrl: binding.repositoryGitUrl,
+          })
+        )
+          return null
+        const captured = await captureConnectorMirrorTarget({
+          repositoryGitUrl: binding.repositoryGitUrl,
           orgId: input.orgId,
           env,
-          repositoryName: binding.repositoryName,
-          githubConnectionId: binding.githubConnectionId,
-          branch: binding.branch,
+          mirror: {
+            provider: "pagerduty",
+            connectionId: input.connectionId,
+            repositoryId: binding.repositoryId,
+          },
         })
+        const config = parsePagerdutyConfigYamlContent(captured.config)
         if (!config) {
           throw new Error(
             "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
           )
         }
-        return { binding, connection, config }
+        return { binding, captured, config }
       },
     )
     if (!context) {
       return { written: 0, deleted: 0, errors: [] }
     }
 
-    const result = await step.run(
+    const captured = await step.run(
       {
         name: "apply-pagerduty-entity",
         retryPolicy: {
@@ -83,12 +101,20 @@ export const pagerdutySyncEntity = defineWorkflow(
         },
       },
       async () => {
-        const syncResult = await syncPagerdutyIncrementalContent({
+        const connection = await getPagerdutyConnectionByConnectionId(
+          input.orgId,
+          input.connectionId,
+          env,
+        )
+        if (!connection || connection.status !== "installed") {
+          throw new Error("PagerDuty authorization changed")
+        }
+        const syncResult = await capturePagerdutyIncrementalContent({
           orgId: input.orgId,
           env,
-          connection: context.connection,
-          binding: context.binding,
+          connection,
           config: context.config,
+          existingPaths: context.captured.paths,
           entity: {
             incidentId: input.incidentId,
           },
@@ -104,27 +130,26 @@ export const pagerdutySyncEntity = defineWorkflow(
       },
     )
 
-    await runConnectorRepositoryIngestionWorkflow(
-      step,
-      {
-        repositoryId: context.binding.repositoryId,
-        orgId: input.orgId,
-        targetBranch: context.binding.branch,
-        indexingReason: "Applying PagerDuty updates",
-      },
-      {
-        error: (error) =>
-          getLogger().error(error, {
-            step: "pagerduty-sync-entity.ingestion",
-            connectionId: input.connectionId,
-          }),
-      },
-    )
+    if (captured.files.length || captured.deletePaths.length) {
+      await step.runWorkflow(
+        workspaceConnectorMirror.spec,
+        {
+          orgId: input.orgId,
+          workspaceId: context.captured.workspaceId,
+          revision: context.captured.revision,
+          mirror: context.captured.mirror,
+          jobId: `wjob_${run.id}_mirror`,
+          files: captured.files,
+          deletePaths: captured.deletePaths,
+        },
+        { name: "commit-pagerduty-mirror" },
+      )
+    }
 
     return {
-      written: result.written,
-      deleted: result.deleted,
-      errors: result.errors,
+      written: captured.files.length,
+      deleted: captured.deletePaths.length,
+      errors: captured.errors,
     }
   },
 )

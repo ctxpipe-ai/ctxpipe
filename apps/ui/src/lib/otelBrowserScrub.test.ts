@@ -12,14 +12,11 @@ describe("scrubOtlpJsonText", () => {
                 spans: [
                   {
                     attributes: [
-                      { key: "userId", value: { stringValue: "" } },
-                      { key: "teamId", value: { stringValue: "" } },
-                      { key: "teamName", value: { stringValue: "" } },
                       { key: "enduser.id", value: { stringValue: "" } },
                       { key: "ctxpipe.org.id", value: { stringValue: "" } },
                       { key: "ctxpipe.org.slug", value: { stringValue: "" } },
-                      { key: "userId", value: { stringValue: "user_1" } },
-                      { key: "teamId", value: { intValue: "0" } },
+                      { key: "enduser.id", value: { stringValue: "user_1" } },
+                      { key: "ctxpipe.org.id", value: { intValue: "0" } },
                       { key: "note", value: { stringValue: "" } },
                     ],
                   },
@@ -40,6 +37,6 @@ describe("scrubOtlpJsonText", () => {
       parsed.resourceSpans[0]?.scopeSpans[0]?.spans[0]?.attributes.map(
         (attribute) => attribute.key,
       ),
-    ).toEqual(["userId", "teamId", "note"])
+    ).toEqual(["enduser.id", "ctxpipe.org.id", "note"])
   })
 })

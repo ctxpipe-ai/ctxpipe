@@ -78,6 +78,7 @@ export function DocsIcon({
       strokeLinejoin="round"
       {...props}
     >
+      <title>{name}</title>
       {paths[name]}
     </svg>
   )

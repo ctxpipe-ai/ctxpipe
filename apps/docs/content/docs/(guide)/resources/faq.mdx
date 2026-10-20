@@ -9,14 +9,34 @@ description: Frequently asked questions about ctx|, MCP, and self-hosting.
 
 An organization-scoped context platform for engineering agents: it ingests the
 sources you select, builds searchable and graph context, and exposes it through
-**MCP** using `ctx_advisor`.
+**MCP** read tools.
 
 ### Is ctx| only for GitHub?
 
-The OSS stack emphasizes **Git** and includes **GitHub App** flows for installs and
-webhooks. Other Git hosts generally work when you can supply a clone URL and
-credentials acceptable to your deployment. GitLab does not currently have a
-dedicated first-party setup flow.
+No. ctx| also reads Confluence, Linear, Notion, Slack, and PagerDuty. For code,
+the best-supported path is the **GitHub App**. GitLab and other git hosts have no
+first-party setup flow.
+
+ctx| can read a repository on another git host as a plain git source. Plain git
+sources are read-only. ctx| reads them with git over HTTPS or, on self-host, HTTP, and with no credential,
+so a private repository on another host does not work. The URL rules depend on
+where ctx| runs:
+
+- **Hosted ctx|, and a deployment where `SANDBOX_PROVIDER` is not `docker`:**
+  the URL uses `https://` and the default port. The host is a public domain
+  name. ctx| refuses an IP address, a private name such as `localhost`, and a
+  host that resolves to a private address.
+- **Self-hosted ctx| with `SANDBOX_PROVIDER=docker`:** the Compose file and the
+  AWS CDK stack set this value. On another setup, the operator sets it
+  explicitly. The URL can also use `http://`, a custom port, an IP address, or a
+  private host name. Agent Vault reaches a private address only when that
+  address is in `AGENT_VAULT_NETWORK_ALLOWLIST`.
+- **Both:** SSH (`git@…` or `ssh://`), `git://`, and `file://` URLs are not
+  supported. ctx| always refuses cloud metadata addresses (169.254.0.0/16 and
+  the IPv6 metadata addresses). The URL has no user name, password, query, or
+  fragment. ctx| does not follow a redirect.
+
+See [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories).
 
 ### Where does the marketing site fit?
 
@@ -25,22 +45,32 @@ site** is the technical companion. Some content overlaps by design.
 
 ## MCP
 
-### Why must I pass `orgSlug` on `/mcp`?
+### How does an MCP tool call choose the organization?
 
-ctx| is multi-tenant. The slug selects the **organization context** for every tool
-call and is validated against your membership. There is no separate `orgId` field
-inside tools for agents to spoof.
+The `/mcp` URL is the same for every organization. Each tool call names one
+organization with the `org` argument (the slug from your ctx| URL). Only
+`list_workspaces` can omit it. Then it returns the Workspaces of each
+organization in the connection.
+
+ctx| is multi-tenant, so the server checks every call. It allows the call only
+when the organization is in the set that you chose when you authorized the
+client, and you are still a member. Tools have no `orgId` argument for an agent
+to spoof. An organization API key reads one organization, and `org` must name it.
+
+The server accepts the old `?orgSlug=` URL parameter and ignores it. You can
+leave it in an old client configuration or remove it.
 
 ### Streamable HTTP vs SSE?
 
 ctx| uses **Streamable HTTP** (MCP 2025-03-26). Legacy SSE-only clients may not
 work without updates.
 
-### What does `ctx_advisor` actually do?
+### What do the MCP tools do?
 
-It opens an org-scoped conversation with source `"mcp"` and runs the **chat
-LangGraph** pipeline, which can query the graph and apply your instruction
-hierarchy. See [ctx| MCP](/docs/mcp/mcp-docs).
+They give your coding agent seven read-only tools: `list_workspaces`,
+`search_knowledge`, `search_code`, `find_symbol`, `read_file`, `list_files`, and
+`get_related`. The agent does the reasoning. ctx| returns facts with refs and
+runs no model for each call. See [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).
 
 ## Self-hosting
 

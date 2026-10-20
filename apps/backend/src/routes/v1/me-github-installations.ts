@@ -1,5 +1,4 @@
-import { OpenAPIHono } from "@hono/zod-openapi"
-import { createRoute, z } from "@hono/zod-openapi"
+import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import { getOrganizationSlugForInstallationByUser } from "../../models/github-installation.js"
 
@@ -11,7 +10,7 @@ const MeInstallationOrganizationResponseSchema = z
   .object({ orgSlug: z.string() })
   .openapi("MeInstallationOrganizationResponse")
 
-export const getMyInstallationOrganizationRoute = createRoute({
+const getMyInstallationOrganizationRoute = createRoute({
   method: "get",
   path: "/:installationId/organization",
   request: {

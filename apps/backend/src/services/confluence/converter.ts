@@ -6,6 +6,7 @@ import {
   isConnectorAssetCredentialUrl,
   sanitizeConnectorAssetName,
 } from "../connectors/assets.js"
+import { connectorPathSegment } from "../connectors/path-segment.js"
 
 const MANAGED_ROOT = "confluence"
 
@@ -30,6 +31,13 @@ type ConfluenceStorageMatchMedia =
       url: string
       alt: string
     }
+  | {
+      /** A link to a Confluence page by its title (`<ri:page>`). */
+      kind: "page"
+      title: string
+      spaceKey: string | undefined
+      alt: string
+    }
 
 export type ConfluenceMediaResolution =
   | { status: "ok"; href: string }
@@ -50,7 +58,7 @@ export function confluencePageAssetPrefix(
   spaceKey: string,
   pageId: string,
 ): string {
-  return `${MANAGED_ROOT}/${spaceKey}/_assets/${pageId}/`
+  return `${MANAGED_ROOT}/${spaceKey}/_assets/${connectorPathSegment(pageId)}/`
 }
 
 export function confluencePageAssetPath(input: {
@@ -59,7 +67,7 @@ export function confluencePageAssetPath(input: {
   sourceKey: string
   filename: string
 }): string {
-  return `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${input.sourceKey}--${sanitizeConnectorAssetName(input.filename)}`
+  return `${confluencePageAssetPrefix(input.spaceKey, input.pageId)}${connectorPathSegment(input.sourceKey)}--${sanitizeConnectorAssetName(input.filename)}`
 }
 
 export function relativeConfluenceAssetHref(
@@ -95,7 +103,7 @@ function redactCredentialBearingBareUrls(value: string): string {
   })
 }
 
-export function confluenceMediaStub(input: {
+function confluenceMediaStub(input: {
   label: string
   reason: Extract<ConfluenceMediaResolution, { status: "stub" }>["reason"]
 }): string {
@@ -113,7 +121,7 @@ export function confluenceMediaStub(input: {
   }
 }
 
-export type ConfluencePageTreeNode = {
+type ConfluencePageTreeNode = {
   id: string
   title: string
   parentId: string | null
@@ -197,6 +205,16 @@ function mediaFromInner(
     return externalKind === "link"
       ? { kind: "link", url, alt }
       : { kind: "external", url, asImage, alt }
+  }
+  const page = inner.match(/<ri:page\b([^>]*)\/?\s*>/i)
+  const title = page ? attrValue(page[1] ?? "", "ri:content-title") : undefined
+  if (externalKind === "link" && title) {
+    return {
+      kind: "page",
+      title,
+      spaceKey: attrValue(page?.[1] ?? "", "ri:space-key"),
+      alt: linkBodyText(inner) || title,
+    }
   }
   return undefined
 }
@@ -305,6 +323,11 @@ function collectStorageMedia(bodyStorage: string): StorageMediaMatch[] {
 function htmlToMarkdown(
   input: string,
   resolveMedia?: (media: ConfluenceStorageMedia) => ConfluenceMediaResolution,
+  /** The relative href of a mirrored page with this title, or undefined. */
+  resolvePage?: (
+    title: string,
+    spaceKey: string | undefined,
+  ) => string | undefined,
 ): string {
   const codeReplacements: string[] = []
   const withoutCodeMacros = input.replace(
@@ -348,23 +371,76 @@ function htmlToMarkdown(
   let cursor = 0
   for (const [index, match] of mediaMatches.entries()) {
     withPlaceholders += withoutCodeMacros.slice(cursor, match.start)
-    const rendered =
-      match.media.kind === "link"
-        ? isConnectorAssetCredentialUrl(match.media.url, {
-            includeGenericCredentials: true,
-          })
-          ? markdownLabel(match.media.alt)
-          : `[${markdownLabel(match.media.alt)}](${match.media.url})`
-        : resolveMedia === undefined
+    const media = match.media
+    let rendered: string
+    if (media.kind === "page") {
+      const href = resolvePage?.(media.title, media.spaceKey)
+      rendered = href
+        ? `[${markdownLabel(media.alt)}](${href})`
+        : markdownLabel(media.alt)
+    } else if (media.kind === "link") {
+      rendered = isConnectorAssetCredentialUrl(media.url, {
+        includeGenericCredentials: true,
+      })
+        ? markdownLabel(media.alt)
+        : `[${markdownLabel(media.alt)}](${media.url})`
+    } else {
+      rendered =
+        resolveMedia === undefined
           ? ""
-          : renderResolvedMedia(match.media, resolveMedia(match.media))
+          : renderResolvedMedia(media, resolveMedia(media))
+    }
     replacements[index] = match.block ? `\n\n${rendered}\n\n` : rendered
     withPlaceholders += `${MEDIA_PLACEHOLDER_PREFIX}${index}@@`
     cursor = match.end
   }
   withPlaceholders += withoutCodeMacros.slice(cursor)
 
-  const withLineBreaks = withPlaceholders
+  // An HTML anchor keeps its http(s) target, so the graph can join it.
+  const withAnchors = withPlaceholders.replace(
+    /<a\b([^>]*)>([\s\S]*?)<\/a>/gi,
+    (_full, attrs: string, inner: string) => {
+      const href = attrValue(attrs, "href")?.trim()
+      const label = inner.replace(/<[^>]+>/g, "").trim()
+      if (
+        !href ||
+        !/^https?:\/\//i.test(href) ||
+        isConnectorAssetCredentialUrl(href, { includeGenericCredentials: true })
+      ) {
+        return inner
+      }
+      return `[${markdownLabel(label || href)}](${href.replace(/[\s()]/g, encodeURIComponent)})`
+    },
+  )
+
+  // A table keeps its cells apart: one Markdown row for each row. Markdown
+  // needs a header row, so the first row is the header. Entities in a cell
+  // are decoded with the rest of the page below.
+  const withTables = withAnchors.replace(
+    /<table\b[^>]*>([\s\S]*?)<\/table>/gi,
+    (_full, inner: string) => {
+      const rows = [...inner.matchAll(/<tr\b[^>]*>([\s\S]*?)<\/tr>/gi)]
+        .map(([, row = ""]) =>
+          [...row.matchAll(/<t[hd]\b[^>]*>([\s\S]*?)<\/t[hd]>/gi)].map(
+            ([, cell = ""]) =>
+              cell
+                .replace(/<br\s*\/?>|<\/(p|div|li)>/gi, " ")
+                .replace(/<[^>]+>/g, "")
+                .replace(/\s+/g, " ")
+                .trim()
+                .replaceAll("|", "\\|"),
+          ),
+        )
+        .filter((cells) => cells.length)
+      const [header, ...body] = rows
+      if (!header) return ""
+      return `\n\n${[header, header.map(() => "---"), ...body]
+        .map((cells) => `| ${cells.join(" | ")} |`)
+        .join("\n")}\n\n`
+    },
+  )
+
+  const withLineBreaks = withTables
     .replace(/<br\s*\/?>/gi, "\n")
     .replace(/<\/(p|div|h1|h2|h3|h4|h5|h6|li|tr)>/gi, "\n")
   const withoutTags = withLineBreaks.replace(/<[^>]+>/g, "")
@@ -404,11 +480,11 @@ function buildChildrenByParent(
 }
 
 function pageDirectorySegment(pageId: string): string {
-  return `page--${pageId}`
+  return `page--${connectorPathSegment(pageId)}`
 }
 
 function pageLeafFileName(title: string, pageId: string): string {
-  return `${titleSlug(title)}--${pageId}.md`
+  return `${titleSlug(title)}--${connectorPathSegment(pageId)}.md`
 }
 
 /**
@@ -529,7 +605,10 @@ export function extractConfluenceStorageMedia(
 ): ConfluenceStorageMedia[] {
   return collectStorageMedia(bodyStorage)
     .map((match) => match.media)
-    .filter((media): media is ConfluenceStorageMedia => media.kind !== "link")
+    .filter(
+      (media): media is ConfluenceStorageMedia =>
+        media.kind === "attachment" || media.kind === "external",
+    )
 }
 
 export function toConfluenceMarkdownFile(input: {
@@ -553,7 +632,20 @@ export function toConfluenceMarkdownFile(input: {
     selectedIds: input.selectedIds,
     pathRootSkipPageIds: input.pathRootSkipPageIds,
   })
-  const body = htmlToMarkdown(input.bodyStorage, input.resolveMedia)
+  const pagesByTitle = new Map(input.pages.map((page) => [page.title, page]))
+  const body = htmlToMarkdown(
+    input.bodyStorage,
+    input.resolveMedia,
+    (title, spaceKey) => {
+      if (spaceKey && spaceKey !== input.spaceKey) return undefined
+      const target = pagesByTitle.get(title)
+      if (!target || !input.selectedIds.has(target.id)) return undefined
+      return pathPosix.relative(
+        pathPosix.dirname(path),
+        buildConfluenceMarkdownRelPath({ ...input, pageId: target.id }),
+      )
+    },
+  )
   const additionalAttachments = (input.additionalAttachments ?? []).map(
     ({ label, resolution }) =>
       renderResolvedMedia(

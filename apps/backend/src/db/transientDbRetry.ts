@@ -105,7 +105,7 @@ export function formatUnknownError(error: unknown): string {
   return [...new Set(parts)].join("; ")
 }
 
-export type WithTransientDbQueryRetryOptions = {
+type WithTransientDbQueryRetryOptions = {
   /** Retries after the first attempt (default 1 → 2 attempts total). */
   retries?: number
   baseDelayMs?: number
@@ -154,9 +154,7 @@ export async function withTransientDbQueryRetry<T>(
  * Callback-style `query` is left unchanged (Drizzle uses the promise API).
  */
 export function wrapPoolQueryWithTransientRetry(pool: Pool): void {
-  const originalQuery = pool.query.bind(pool) as (
-    ...args: unknown[]
-  ) => unknown
+  const originalQuery = pool.query.bind(pool) as (...args: unknown[]) => unknown
 
   pool.query = ((...args: unknown[]) => {
     const maybeCallback = args.find((a) => typeof a === "function")

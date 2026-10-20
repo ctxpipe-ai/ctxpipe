@@ -12,6 +12,8 @@ export type KnowledgeGraphPayload = {
     kind: string
     name: string | null
     summary: string | null
+    /** Workspace file the node came from. */
+    path?: string
   }>
   edges: Array<{
     sourceId: string
@@ -27,7 +29,7 @@ export type KnowledgeGraphNode = KnowledgeGraphPayload["nodes"][number]
 /** One side of an edge as seen from a specific node's perspective. */
 export type NodeClaim = {
   predicate: string
-  neighbourId: string
+  neighborId: string
   direction: "in" | "out"
   confidence: number | null
   observedAt: number | null
@@ -39,7 +41,7 @@ export type NodeFactsSummary = {
   predicateCounts: Map<string, number>
   firstObserved: number | null
   lastObserved: number | null
-  neighbourKindCounts: Map<string, number>
+  neighborKindCounts: Map<string, number>
 }
 
 export type NodeFacts = NodeFactsSummary & {

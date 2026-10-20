@@ -1,6 +1,7 @@
 import { LinearClient } from "@linear/sdk"
 import { z } from "zod"
 import type { Env } from "../../config/env.js"
+import { assertNotInOrgDbContext } from "../../db/client.js"
 import type { LinearConnection } from "../../models/linear-connector.js"
 import {
   getLinearOauthAppCreds,
@@ -20,7 +21,7 @@ const LinearOAuthTokenResponseSchema = z.object({
   scope: z.union([z.string(), z.array(z.string())]),
 })
 
-export type LinearOAuthTokenResponse = z.infer<
+type LinearOAuthTokenResponse = z.infer<
   typeof LinearOAuthTokenResponseSchema
 >
 
@@ -33,7 +34,7 @@ export type LinearTokenRefreshHandler = (
   accessTokenExpiresAt: string | null
 }>
 
-export type LinearDiscoveredScope = {
+type LinearDiscoveredScope = {
   externalId: string
   type: "team" | "project" | "document" | "initiative"
   title: string
@@ -80,6 +81,7 @@ async function requestLinearOAuthToken(
   creds: LinearOauthAppCreds,
   body: URLSearchParams,
 ): Promise<LinearOAuthTokenResponse> {
+  assertNotInOrgDbContext()
   assertLinearOauthAppCreds(creds)
   body.set("client_id", creds.clientId)
   body.set("client_secret", creds.clientSecret)
@@ -141,18 +143,23 @@ async function refreshConnectionToken(input: {
   }
   const expectedRefreshToken = input.connection.refreshToken
   const expectedAccessToken = input.connection.accessToken
-  const creds = getLinearOauthAppCreds(input.connection, input.env)
+  const refreshWithAppCreds = async () => {
+    const creds = getLinearOauthAppCreds(input.connection, input.env)
+    assertLinearOauthAppCreds(creds)
+    const token = await refreshLinearOAuthToken({
+      env: input.env,
+      refreshToken: expectedRefreshToken,
+      creds,
+    })
+    return {
+      accessToken: token.access_token,
+      refreshToken: token.refresh_token ?? expectedRefreshToken,
+      accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
+    }
+  }
   const tokens = input.onTokenRefresh
     ? await input.onTokenRefresh(expectedRefreshToken, expectedAccessToken)
-    : await refreshLinearOAuthToken({
-        env: input.env,
-        refreshToken: expectedRefreshToken,
-        creds: (assertLinearOauthAppCreds(creds), creds),
-      }).then((token) => ({
-        accessToken: token.access_token,
-        refreshToken: token.refresh_token ?? expectedRefreshToken,
-        accessTokenExpiresAt: linearTokenExpiresAt(token.expires_in),
-      }))
+    : await refreshWithAppCreds()
   input.connection.accessToken = tokens.accessToken
   input.connection.refreshToken = tokens.refreshToken
   input.connection.accessTokenExpiresAt = tokens.accessTokenExpiresAt
@@ -250,6 +257,8 @@ export async function discoverLinearScopes(input: {
   env: Env
   connection: LinearConnection
   onTokenRefresh?: LinearTokenRefreshHandler
+  /** Only teams: skip the project, document, and initiative pages. */
+  teamsOnly?: boolean
 }): Promise<LinearDiscoveredScope[]> {
   return withLinearClient(input, async (client) => {
     const accessToken = input.connection.accessToken
@@ -267,9 +276,9 @@ export async function discoverLinearScopes(input: {
     let documentsAfter: string | null = null
     let initiativesAfter: string | null = null
     let includeTeams = true
-    let includeProjects = true
-    let includeDocuments = true
-    let includeInitiatives = true
+    let includeProjects = !input.teamsOnly
+    let includeDocuments = !input.teamsOnly
+    let includeInitiatives = !input.teamsOnly
 
     while (
       includeTeams ||
@@ -277,7 +286,7 @@ export async function discoverLinearScopes(input: {
       includeDocuments ||
       includeInitiatives
     ) {
-      const data = await linearGraphql(
+      const data: DiscoverScopesQuery = await linearGraphql(
         client,
         DiscoverScopesDocument,
         {

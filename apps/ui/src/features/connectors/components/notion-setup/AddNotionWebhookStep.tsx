@@ -83,7 +83,7 @@ export function AddNotionWebhookStep({
       ) : null}
       <Button
         variant="primary"
-        className="rounded-none"
+        className="rounded-md"
         isDisabled={!canContinue}
         onPress={onContinue}
       >

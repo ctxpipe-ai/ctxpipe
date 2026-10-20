@@ -5,7 +5,6 @@ import { repositories } from "../../db/schema/repositories.js"
 import { resolvePagerdutyOAuthAppCreds } from "../../lib/connection-config.js"
 import type {
   PagerdutyBinding,
-  PagerdutyBindingWithRepo,
   PagerdutyConnection,
 } from "../../models/pagerduty-connector.js"
 import {
@@ -14,7 +13,6 @@ import {
   refreshPagerdutyConnectionTokensWithLock,
 } from "../../models/pagerduty-connector.js"
 import {
-  connectorCommitFileUnchanged,
   connectorPathMatchesPreservation,
   createConnectorAssetBudget,
   createConnectorAssetBytePool,
@@ -22,11 +20,10 @@ import {
 import {
   type CommitFile,
   closePullRequest,
-  commitFiles,
   createPullRequestWithFiles,
   getFileContent,
-  listFilesInTree,
   parseGithubPullNumberFromUrl,
+  workspaceRootPathOfRepository,
 } from "../github/installation-write-client.js"
 import {
   getPagerdutyIncident,
@@ -34,7 +31,6 @@ import {
   listPagerdutyIncidentIdsForService,
   refreshPagerdutyOAuthToken,
 } from "./client.js"
-import { loadPagerdutyScopeFromRepo } from "./config-from-repo.js"
 import type {
   PagerdutyConfigService,
   ParsedPagerdutyRepoConfig,
@@ -52,7 +48,7 @@ import {
 } from "./incremental.js"
 import { capturePagerdutyIncidentAssets } from "./sync-assets.js"
 
-export type PagerdutySyncResult = {
+type PagerdutySyncResult = {
   status: "completed" | "partial_failed" | "failed"
   resourcesProcessed: number
   resourcesFailed: number
@@ -97,7 +93,7 @@ function createPagerdutyTokenRefreshHandler(input: {
     )
 }
 
-async function resolveFreshAccessToken(input: {
+export async function resolveFreshAccessToken(input: {
   orgId: string
   env: Env
   connection: PagerdutyConnection
@@ -132,14 +128,17 @@ async function resolveFreshAccessToken(input: {
     return tokens.accessToken
   } catch (error) {
     if (isPagerdutyAuthorizationRevokedError(error)) {
-      await withOrgDbContext(input.orgId, () =>
-        recordPagerdutyOAuthRevocation({
-          orgId: input.orgId,
-          connectionId: input.connection.id,
-          env: input.env,
-          expectedAccessToken: input.connection.accessToken,
-        }),
-      )
+      const expectedAccessToken = input.connection.accessToken
+      if (expectedAccessToken) {
+        await withOrgDbContext(input.orgId, () =>
+          recordPagerdutyOAuthRevocation({
+            orgId: input.orgId,
+            connectionId: input.connection.id,
+            env: input.env,
+            expectedAccessToken,
+          }),
+        )
+      }
     }
     throw error
   }
@@ -179,7 +178,7 @@ async function resolveRepoContextForBinding(
   })
 }
 
-export function getPagerdutyDeletePaths(input: {
+function getPagerdutyDeletePaths(input: {
   managedRepoPaths: string[]
   desiredPaths: Set<string>
   resourcesFailed: number
@@ -205,6 +204,10 @@ export async function syncPagerdutyConfigYaml(input: {
 }): Promise<{ changed: boolean; pullUrl?: string }> {
   const { repositoryName, githubConnectionId } =
     await resolveRepoContextForBinding(input.orgId, input.binding)
+  const rootPath = await workspaceRootPathOfRepository({
+    orgId: input.orgId,
+    repositoryName,
+  })
   const current = await getFileContent({
     orgId: input.orgId,
     env: input.env,
@@ -212,6 +215,7 @@ export async function syncPagerdutyConfigYaml(input: {
     githubConnectionId,
     branch: input.binding.branch,
     path: PAGERDUTY_CONFIG_PATH,
+    rootPath,
   })
   const next = renderPagerdutyConfigYaml({
     accountId: input.connection.accountId,
@@ -249,59 +253,31 @@ export async function syncPagerdutyConfigYaml(input: {
     commitMessage: pr.commitMessage,
     files: [{ path: PAGERDUTY_CONFIG_PATH, content: next }],
     featureBranchPrefix: "ctxpipe/pagerduty-config",
+    rootPath,
   })
   return { changed: true, pullUrl: pull.pullUrl }
 }
 
-export async function syncPagerdutyContent(input: {
+export async function capturePagerdutyContent(input: {
   orgId: string
   env: Env
   connection: PagerdutyConnection
-  binding: PagerdutyBinding
-  scopeFromRepo?: ParsedPagerdutyRepoConfig
-}): Promise<PagerdutySyncResult> {
-  if (input.binding.setupPhase === "awaiting_merge") {
-    return {
-      status: "completed",
-      resourcesProcessed: 0,
-      resourcesFailed: 0,
-      errors: [],
-    }
-  }
-
-  const { repositoryName, githubConnectionId } =
-    await resolveRepoContextForBinding(input.orgId, input.binding)
-  const repoScope =
-    input.scopeFromRepo ??
-    (await loadPagerdutyScopeFromRepo({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      githubConnectionId,
-      branch: input.binding.branch,
-    }))
-  if (!repoScope) {
-    throw new Error(
-      "PagerDuty scope configuration is missing from the repository; expected pagerduty/config.yaml",
-    )
-  }
-
+  config: ParsedPagerdutyRepoConfig
+  existingPaths: string[]
+}): Promise<{
+  status: PagerdutySyncResult["status"]
+  files: CommitFile[]
+  deletePaths: string[]
+  resourcesProcessed: number
+  resourcesFailed: number
+  errors: Array<{ externalId: string; message: string }>
+}> {
   const accessToken = await resolveFreshAccessToken({
     orgId: input.orgId,
     env: input.env,
     connection: input.connection,
   })
 
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch: input.binding.branch,
-    githubConnectionId,
-  })
-  const existingShaByPath = new Map(
-    allRepoFiles.map((entry) => [entry.path, entry.sha]),
-  )
   const filesToWrite: CommitFile[] = []
   const preservePathPrefixes: string[] = []
   const assetBytePool = createConnectorAssetBytePool()
@@ -309,7 +285,7 @@ export async function syncPagerdutyContent(input: {
   let resourcesProcessed = 0
   let resourcesFailed = 0
 
-  for (const service of repoScope.services) {
+  for (const service of input.config.services) {
     try {
       const incidentIds = await listPagerdutyIncidentIdsForService({
         accessToken,
@@ -323,7 +299,7 @@ export async function syncPagerdutyContent(input: {
           incidentId,
         })
         if (incident === "not_found") continue
-        if (!pagerdutyIncidentIsInScope(incident, repoScope)) continue
+        if (!pagerdutyIncidentIsInScope(incident, input.config)) continue
         const captured = await capturePagerdutyIncidentAssets({
           incident,
           budget: createConnectorAssetBudget(),
@@ -356,13 +332,11 @@ export async function syncPagerdutyContent(input: {
     }
   }
 
-  const managedRepoFiles = allRepoFiles
-    .map((entry) => entry.path)
-    .filter(
-      (path) =>
-        path.startsWith(`${PAGERDUTY_MANAGED_ROOT}/`) &&
-        path !== PAGERDUTY_CONFIG_PATH,
-    )
+  const managedRepoFiles = input.existingPaths.filter(
+    (path) =>
+      path.startsWith(`${PAGERDUTY_MANAGED_ROOT}/`) &&
+      path !== PAGERDUTY_CONFIG_PATH,
+  )
   const desiredPaths = new Set(filesToWrite.map((file) => file.path))
   const deletePaths = getPagerdutyDeletePaths({
     managedRepoPaths: managedRepoFiles,
@@ -371,64 +345,36 @@ export async function syncPagerdutyContent(input: {
     preservePathPrefixes,
   })
 
-  const filesToCommit = filesToWrite.filter(
-    (file) => !connectorCommitFileUnchanged(file, existingShaByPath),
-  )
-
-  let commitSha: string | undefined
-  if (filesToCommit.length > 0 || deletePaths.length > 0) {
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch: input.binding.branch,
-      githubConnectionId,
-      message: "chore(pagerduty): sync content",
-      files: filesToCommit,
-      deletePaths,
-    })
-    commitSha = commit.commitSha
-  }
-
-  const status: PagerdutySyncResult["status"] =
-    resourcesFailed === 0
-      ? "completed"
-      : resourcesProcessed > 0
-        ? "partial_failed"
-        : "failed"
-
   return {
-    status,
+    status:
+      resourcesFailed === 0
+        ? "completed"
+        : resourcesProcessed > 0
+          ? "partial_failed"
+          : "failed",
+    files: filesToWrite,
+    deletePaths,
     resourcesProcessed,
     resourcesFailed,
-    commitSha,
     errors,
   }
 }
 
-export type PagerdutyIncrementalSyncResult = {
+type PagerdutyIncrementalCaptureResult = {
   status: "completed" | "failed"
-  written: number
-  deleted: number
-  commitSha?: string
+  files: CommitFile[]
+  deletePaths: string[]
   errors: Array<{ externalId: string; message: string }>
 }
 
-export async function syncPagerdutyIncrementalContent(input: {
+export async function capturePagerdutyIncrementalContent(input: {
   orgId: string
   env: Env
   connection: PagerdutyConnection
-  binding: PagerdutyBindingWithRepo
   config: ParsedPagerdutyRepoConfig
+  existingPaths: string[]
   entity: PagerdutyEntityChange
-}): Promise<PagerdutyIncrementalSyncResult> {
-  const { repositoryName, githubConnectionId, branch } = input.binding
-  if (!githubConnectionId) {
-    throw new Error(
-      "PagerDuty binding repository has no GitHub connection; link the repository to a GitHub installation first",
-    )
-  }
-
+}): Promise<PagerdutyIncrementalCaptureResult> {
   const accessToken = await resolveFreshAccessToken({
     orgId: input.orgId,
     env: input.env,
@@ -436,23 +382,11 @@ export async function syncPagerdutyIncrementalContent(input: {
   })
   input.connection.accessToken = accessToken
 
-  const allRepoFiles = await listFilesInTree({
-    orgId: input.orgId,
-    env: input.env,
-    repositoryName,
-    branch,
-    githubConnectionId,
-  })
-  const existingShaByPath = new Map(
-    allRepoFiles.map((entry) => [entry.path, entry.sha]),
+  const managedPaths = input.existingPaths.filter(
+    (path) =>
+      path.startsWith(`${PAGERDUTY_MANAGED_ROOT}/`) &&
+      path !== PAGERDUTY_CONFIG_PATH,
   )
-  const managedPaths = allRepoFiles
-    .map((entry) => entry.path)
-    .filter(
-      (path) =>
-        path.startsWith(`${PAGERDUTY_MANAGED_ROOT}/`) &&
-        path !== PAGERDUTY_CONFIG_PATH,
-    )
 
   let changes: Awaited<ReturnType<typeof buildPagerdutyIncrementalChanges>>
   try {
@@ -478,30 +412,10 @@ export async function syncPagerdutyIncrementalContent(input: {
     throw error
   }
 
-  const filesToCommit = changes.files.filter(
-    (file) => !connectorCommitFileUnchanged(file, existingShaByPath),
-  )
-
-  let commitSha: string | undefined
-  if (filesToCommit.length > 0 || changes.deletePaths.length > 0) {
-    const commit = await commitFiles({
-      orgId: input.orgId,
-      env: input.env,
-      repositoryName,
-      branch,
-      githubConnectionId,
-      message: "chore(pagerduty): apply incremental updates",
-      files: filesToCommit,
-      deletePaths: changes.deletePaths,
-    })
-    commitSha = commit.commitSha
-  }
-
   return {
     status: changes.failures.length > 0 ? "failed" : "completed",
-    written: filesToCommit.length,
-    deleted: changes.deletePaths.length,
-    commitSha,
+    files: changes.files,
+    deletePaths: changes.deletePaths,
     errors: changes.failures.map((failure) => ({
       externalId: failure.id,
       message: failure.message,

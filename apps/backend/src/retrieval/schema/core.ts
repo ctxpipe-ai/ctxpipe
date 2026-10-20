@@ -26,16 +26,8 @@ export const CoreRelType = z.enum([
   "IMPLEMENTED_IN",
   "RUNS_ON",
   "HAS_INSTRUCTION",
+  "FOLLOWS",
 ])
-
-export const CoreNodeSchema = z.object({
-  id: z.string(),
-  kind: CoreNodeType,
-  orgId: z.string(),
-  name: z.string().optional(),
-  summary: z.string().max(500).optional(),
-})
 
 export type CoreNodeType = z.infer<typeof CoreNodeType>
 export type CoreRelType = z.infer<typeof CoreRelType>
-export type CoreNode = z.infer<typeof CoreNodeSchema>

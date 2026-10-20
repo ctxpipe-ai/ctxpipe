@@ -10,7 +10,7 @@ const PagerdutyOAuthStateSchema = z.object({
   connectionId: z.string().min(1).optional(),
 })
 
-export type PagerdutyOAuthState = z.infer<typeof PagerdutyOAuthStateSchema>
+type PagerdutyOAuthState = z.infer<typeof PagerdutyOAuthStateSchema>
 
 export const PAGERDUTY_PKCE_COOKIE = "pagerduty_pkce"
 

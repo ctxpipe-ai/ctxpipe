@@ -1,6 +1,8 @@
 import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
+import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
+import { isTransientDbConnectionError } from "../db/transient.js"
 import { withRepositoryIndexOperation } from "../domain/indexing/indexConcurrency.js"
 import {
   releaseIndexPipelineReference,
@@ -18,7 +20,6 @@ import {
   phaseZoekt,
 } from "../domain/indexing/phases.js"
 import {
-  DEFAULT_CHECKOUT_KEY,
   repoCheckoutPath,
   scipIndexPath,
 } from "../domain/repositories/paths.js"
@@ -37,6 +38,7 @@ import {
   repositoryNotFoundBody,
   repositoryNotFoundResponse,
 } from "./errorBody.js"
+import { plainGitRemoteSchema } from "./plainGitRemoteSchema.js"
 
 const repoIdParam = z
   .string()
@@ -65,8 +67,11 @@ const renameSchema = z.object({
 const cloneCheckoutRequestSchema = z
   .object({
     githubToken: z.string().min(1).optional(),
+    /** The checked plain git remote of a repository with no token (CTX-815). */
+    plainGit: plainGitRemoteSchema.optional(),
     targetHash: optionalGitRefOrSha.optional(),
     fromHash: optionalGitRefOrSha.optional(),
+    checkoutKey: z.string().min(1).max(128).optional(),
   })
   .default({})
   .openapi("IndexCloneCheckoutRequest")
@@ -163,6 +168,7 @@ const cloneCheckoutRoute = createRoute({
       },
       description: "Clone, checkout, and compute ingest diff",
     },
+    403: { description: "Checkout does not match authenticated workspace" },
     404: repositoryNotFoundResponse,
     429: { description: "Index pipeline capacity exceeded" },
     503: { description: "Database not available" },
@@ -293,16 +299,38 @@ async function resolvePhaseContext(
   db: NonNullable<AppEnv["Variables"]["db"]>,
   orgId: string,
   repoId: string,
-  options?: { githubToken?: string },
+  options: {
+    checkoutKey: string
+    githubToken?: string
+    plainGit?: IndexPhaseRepoContext["plainGit"]
+  },
 ): Promise<
   | { ok: true; ctx: IndexPhaseRepoContext }
+  | { ok: false; status: 503; error: string }
   | { ok: false; body: typeof repositoryNotFoundBody }
 > {
-  const repo = await getAccessibleRepository(db, repoId, orgId)
+  let repo: Awaited<ReturnType<typeof getAccessibleRepository>>
+  try {
+    repo = await getAccessibleRepository(db, repoId, orgId)
+  } catch (error) {
+    if (isTransientDbConnectionError(error)) {
+      return { ok: false, status: 503, error: "Database connection lost" }
+    }
+    throw error
+  }
   if (!repo) {
     return { ok: false, body: repositoryNotFoundBody }
   }
-  const indexable = await getIndexableRepository(db, repoId, orgId)
+  const checkoutKey = options.checkoutKey
+  let indexable: Awaited<ReturnType<typeof getIndexableRepository>>
+  try {
+    indexable = await getIndexableRepository(db, repoId, orgId, checkoutKey)
+  } catch (error) {
+    if (isTransientDbConnectionError(error)) {
+      return { ok: false, status: 503, error: "Database connection lost" }
+    }
+    throw error
+  }
   if (!indexable) {
     return { ok: false, body: repositoryNotFoundBody }
   }
@@ -313,15 +341,34 @@ async function resolvePhaseContext(
       orgId: repo.orgId,
       repoId: repo.id,
       repoGitUrl: repo.gitUrl,
-      clonePath: repoCheckoutPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
-      scipIndexPath: scipIndexPath(repo.orgId, repo.id, DEFAULT_CHECKOUT_KEY),
+      checkoutKey,
+      clonePath: repoCheckoutPath(repo.orgId, repo.id, checkoutKey),
+      scipIndexPath: scipIndexPath(repo.orgId, repo.id, checkoutKey),
       zoektRepoId: indexable.zoektRepoId,
-      zoektName: zoektRepositoryName({ orgId: repo.orgId, repoId: repo.id }),
+      zoektName: zoektRepositoryName({
+        orgId: repo.orgId,
+        repoId: repo.id,
+        checkoutKey,
+      }),
       repoName: indexable.name,
       repoUrl: indexable.gitUrl,
-      githubToken: options?.githubToken,
+      githubToken: options.githubToken,
+      plainGit: options.plainGit,
     },
   }
+}
+type PhaseContextFailure =
+  | { ok: false; status: 503; error: string }
+  | { ok: false; body: typeof repositoryNotFoundBody }
+
+function phaseContextErrorResponse(
+  c: { json: (body: unknown, status: 404 | 503) => Response },
+  resolved: PhaseContextFailure,
+): Response {
+  if ("error" in resolved) {
+    return c.json({ error: resolved.error }, resolved.status)
+  }
+  return c.json(resolved.body, 404)
 }
 
 async function withIndexPipelineAdmission(
@@ -349,8 +396,13 @@ type ScipPhaseRun =
 
 const scipPhaseRuns = new Map<string, ScipPhaseRun>()
 
-function scipPhaseKey(repoId: string, lang: string): string {
-  return `${repoId}:${lang}`
+/** A Workspace revision indexes into its own checkout, so it is part of the key. */
+function scipPhaseKey(
+  repoId: string,
+  checkoutKey: string,
+  lang: string,
+): string {
+  return `${repoId}:${checkoutKey}:${lang}`
 }
 
 export function resetScipPhaseRunsForTests(): void {
@@ -418,15 +470,24 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId } = c.req.valid("param")
     const body = c.req.valid("json")
+    const checkoutKey = indexCheckoutFromAuth(auth, repoId, body.targetHash)
+    if (body.checkoutKey && body.checkoutKey !== checkoutKey) {
+      return c.json(
+        { error: "Checkout does not match authenticated workspace" },
+        403,
+      )
+    }
     return finishIndexPipelineAdmission(
       repoId,
       withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
           const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
             githubToken: body.githubToken,
+            plainGit: body.plainGit,
+            checkoutKey,
           })
           if (!resolved.ok) {
-            return c.json(resolved.body, 404)
+            return phaseContextErrorResponse(c, resolved)
           }
           try {
             const result = await withLogger(
@@ -449,6 +510,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
             )
             return c.json({ ok: true as const, ...result }, 200)
           } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
             const message = userFacingIndexingError(
               error,
               "Clone/checkout failed",
@@ -469,9 +533,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     const { repoId } = c.req.valid("param")
     return withIndexPipelineAdmission(c, repoId, () =>
       withRepositoryIndexOperation(repoId, async () => {
-        const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+        const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+          checkoutKey: checkoutKeyFromAuth(auth, repoId),
+        })
         if (!resolved.ok) {
-          return c.json(resolved.body, 404)
+          return phaseContextErrorResponse(c, resolved)
         }
         try {
           await withLogger(
@@ -488,6 +554,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
           )
           return c.json({ ok: true as const }, 200)
         } catch (error) {
+          if (isTransientDbConnectionError(error)) {
+            return c.json({ error: "Database connection lost" }, 503)
+          }
           const message = userFacingIndexingError(
             error,
             "Zoekt indexing failed",
@@ -509,9 +578,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       repoId,
       withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
-          const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            checkoutKey: checkoutKeyFromAuth(auth, repoId),
+          })
           if (!resolved.ok) {
-            return c.json(resolved.body, 404)
+            return phaseContextErrorResponse(c, resolved)
           }
           try {
             const result = await withLogger(
@@ -529,6 +600,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
             )
             return c.json({ ok: true as const, ...result }, 200)
           } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
             const message = userFacingIndexingError(
               error,
               "Language detection failed",
@@ -548,7 +622,8 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
     if (!auth) throw new Error("Missing auth context")
     const { repoId, lang } = c.req.valid("param")
     const body = c.req.valid("json")
-    const key = scipPhaseKey(repoId, lang)
+    const checkoutKey = checkoutKeyFromAuth(auth, repoId)
+    const key = scipPhaseKey(repoId, checkoutKey, lang)
     if (scipPhaseRuns.get(key)?.status === "running") {
       return c.json({ ok: true as const, status: "running" as const }, 202)
     }
@@ -557,11 +632,13 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       return c.json({ error: "Index pipeline capacity exceeded" }, 429)
     }
     scipPhaseRuns.set(key, { status: "running" })
-    const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+    const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+      checkoutKey,
+    })
     if (!resolved.ok) {
       scipPhaseRuns.delete(key)
       releaseIndexPipelineReference(repoId)
-      return c.json(resolved.body, 404)
+      return phaseContextErrorResponse(c, resolved)
     }
     void runDetachedScipPhase({
       key,
@@ -574,8 +651,12 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
   })
 
   app.openapi(scipLangStatusRoute, async (c) => {
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
     const { repoId, lang } = c.req.valid("param")
-    const run = scipPhaseRuns.get(scipPhaseKey(repoId, lang))
+    const run = scipPhaseRuns.get(
+      scipPhaseKey(repoId, checkoutKeyFromAuth(auth, repoId), lang),
+    )
     if (!run) {
       return c.json({ error: "SCIP index has not been started" }, 404)
     }
@@ -605,9 +686,11 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
       repoId,
       withIndexPipelineAdmission(c, repoId, () =>
         withRepositoryIndexOperation(repoId, async () => {
-          const resolved = await resolvePhaseContext(db, auth.orgId, repoId)
+          const resolved = await resolvePhaseContext(db, auth.orgId, repoId, {
+            checkoutKey: checkoutKeyFromAuth(auth, repoId),
+          })
           if (!resolved.ok) {
-            return c.json(resolved.body, 404)
+            return phaseContextErrorResponse(c, resolved)
           }
           try {
             let shardCount = 0
@@ -630,6 +713,9 @@ export function registerIndexPhaseRoutes(app: OpenAPIHono<AppEnv>) {
             )
             return c.json({ ok: true as const, shardCount }, 200)
           } catch (error) {
+            if (isTransientDbConnectionError(error)) {
+              return c.json({ error: "Database connection lost" }, 503)
+            }
             const message = userFacingIndexingError(error, "SCIP merge failed")
             return c.json({ error: message }, 500)
           }

@@ -44,7 +44,12 @@ export function sessionSignedInHandler(user: {
 
 /** Organization plugin client path (see better-auth proxy path builder). */
 export function organizationListHandler(
-  organizations: { id: string; name: string; slug: string }[],
+  organizations: {
+    id: string
+    name: string
+    slug: string
+    createdAt?: string
+  }[],
 ) {
   return http.get(`${authBase}/organization/list`, () =>
     HttpResponse.json(organizations),
@@ -84,7 +89,7 @@ export function organizationCreateSuccessHandler() {
 }
 
 export function organizationCreateErrorHandler(
-  message = "Failed to create organisation",
+  message = "Failed to create organization",
 ) {
   return http.post(`${authBase}/organization/create`, async () => {
     await delay("real")
@@ -109,67 +114,24 @@ export function organizationCreateSlowSuccessHandler() {
   })
 }
 
-/** `POST /.auth/api/v1/auth/organization/invite-member` — per-email success. */
-export function organizationInviteSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
-  )
-}
-
-export function organizationInviteErrorHandler() {
-  return http.post(`${authBase}/organization/invite-member`, async () => {
-    await delay("real")
-    return HttpResponse.json({ message: "Invite failed" }, { status: 400 })
-  })
-}
-
-/** Invite after MSW `delay("real")` (same JSON shape as {@link organizationInviteSuccessHandler}). */
-export function organizationInviteSlowSuccessHandler() {
-  return http.post(
-    `${authBase}/organization/invite-member`,
-    async ({ request }) => {
-      await delay("real")
-      const body = (await request.json()) as {
-        email: string
-        role: string
-        organizationId?: string
-      }
-      return HttpResponse.json({
-        id: `inv_${body.email.replace(/[@.]+/g, "_")}`,
-        email: body.email,
-        role: body.role,
-        organizationId: body.organizationId ?? "org_storybook",
-        inviterId: "user_onboarding_story",
-        status: "pending",
-        expiresAt: new Date(Date.now() + 86_400_000).toISOString(),
-        createdAt: new Date().toISOString(),
-      })
-    },
-  )
-}
-
 /** Backend returns JSON `null` with 200 when the org has no GitHub installation yet. */
 export const githubInstallationNoneHandler = http.get(
   ({ request }) =>
     new URL(request.url).pathname.includes("/api/v1/github/installation"),
   () => HttpResponse.json(null),
+)
+
+/** The org has a GitHub App installation (`installationId` set). */
+export const githubInstallationLinkedHandler = http.get(
+  ({ request }) =>
+    /\/api\/v1\/github\/installation$/.test(new URL(request.url).pathname),
+  () =>
+    HttpResponse.json({
+      id: "con_story_github",
+      appSlug: "ctxpipe",
+      accountSlug: "acme",
+      installationId: 4242,
+    }),
 )
 
 export function organizationFullHandler(organization: {
@@ -220,7 +182,7 @@ async function requireOrganizationApiKeyBody(
   )
 }
 
-export function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
+function orgApiKeysListHandler(apiKeys: StoryOrgApiKey[]) {
   return http.get(`${authBase}/api-key/list`, ({ request }) => {
     const url = new URL(request.url)
     if (url.searchParams.get("configId") !== "organization") {

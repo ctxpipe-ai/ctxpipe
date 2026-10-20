@@ -8,11 +8,15 @@ import {
   timestamp,
 } from "drizzle-orm/pg-core"
 import { claims } from "./claims.js"
+import { orgIsolationPolicy } from "./org-rls.js"
 
-export const claimEvidence = pgTable(
+export const claimEvidence = pgTable.withRLS(
   "claim_evidence",
   {
     id: text("id").primaryKey(),
+    // Nullable in this minor release, so that the previous image can write after a
+    // rollback. RLS hides a row with no org. The next major release sets NOT NULL.
+    orgId: text("org_id"),
     claimId: text("claim_id")
       .notNull()
       .references(() => claims.id, { onDelete: "cascade" }),
@@ -34,5 +38,10 @@ export const claimEvidence = pgTable(
       .notNull()
       .defaultNow(),
   },
-  (t) => [index().on(t.claimId), index().on(t.logicalSourceKey)],
+  (t) => [
+    index().on(t.claimId),
+    index().on(t.logicalSourceKey),
+    index("claim_evidence_org_id_idx").on(t.orgId),
+    orgIsolationPolicy(t.orgId),
+  ],
 )

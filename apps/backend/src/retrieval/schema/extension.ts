@@ -19,8 +19,8 @@ export const ExtensionNodeType = z.enum([
  * Extension predicates, grouped by relation family (ADR-033):
  * - provenance: DECLARED_IN, MEMBER_OF_PRIMARY
  * - containment: PART_OF
- * - change: ADDED, MODIFIED, REMOVED, RENAMED, TARGETS
- * - reference: REFERENCES, MENTIONS, SUPERSEDES
+ * - change: ADDED, MODIFIED, REMOVED, RENAMED, CHANGED, TARGETS
+ * - reference: REFERENCES, RESOLVES, MENTIONS, SUPERSEDES
  * - ownership: OWNS
  * - cause: INFLUENCES
  */
@@ -35,7 +35,9 @@ export const ExtensionRelType = z.enum([
   "MODIFIED",
   "REMOVED",
   "RENAMED",
+  "CHANGED",
   "REFERENCES",
+  "RESOLVES",
   "OWNS",
   "SUPERSEDES",
 ])

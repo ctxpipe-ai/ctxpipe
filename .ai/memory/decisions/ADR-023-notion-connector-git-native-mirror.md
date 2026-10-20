@@ -1,6 +1,6 @@
 # ADR-023: Notion connector Git-native mirror
 
-**Status:** Accepted | **Date:** 2026-08-09 | **Updated:** 2026-09-20 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
+**Status:** Accepted (sync repository and scope file superseded by [ADR-050](ADR-050-workspace-sources-config-file.md)) | **Date:** 2026-08-09 | **Updated:** 2026-10-12 | **Tags:** connectors, notion, oauth, webhooks, git, multi-tenant
 
 ## Context
 
@@ -19,6 +19,17 @@ ctxpipe needs Notion pages and databases as reviewed context alongside code. An 
 6. After successful git writes, hand off to `runRepositoryIngestionWorkflow` so codesearch indexes mirrored files.
 7. Webhook verification token **may** live on `connections.config` (`webhookSecretEnc`) for the Notion row that owns the public integration. Hosted still uses env **`NOTION_WEBHOOK_SECRET`** when the row has no secret. The one-time provisioning handshake is gated by a `provisioningToken` HMAC of **that row’s** client secret (or env `NOTION_CLIENT_SECRET` when the Event URL is not query-scoped). Single Event URL: `POST /api/v1/webhook/notion`, optionally query-scoped with `connectionId` + `provisioningToken`. A second webhook **path** stays rejected.
 8. OAuth app credentials **may** live on `connections.config` (`oauthClientId` / `oauthClientSecretEnc`). Resolvers prefer the row, then `NOTION_CLIENT_ID` + `NOTION_CLIENT_SECRET` (hosted fallback). Self-hosters register the public integration in the product UI; env remains an operator shortcut. Hosted and self-host use the same routes.
+
+### Workspace sources ([ADR-050](ADR-050-workspace-sources-config-file.md), 2026-10-12)
+
+- A Notion source in `.ctxpipe/sources.yaml` holds `pages` and `databases`. Each item has a dashed lowercase Notion `id` and a `title`. The title names the root folder (`notion/pages/<slug>--<id>/`, `notion/databases/<slug>--<id>/`), so the managed path is known from the scope. A rename in Notion does not move the folder.
+- Each root syncs its full subtree on its own. A page that is also selected inside another root has a copy in each root. This replaces rule 4 for Workspace sources: the files of a root do not depend on the other roots of the union, so the adapter uses the plain `fetch` form, not `fetchEach`.
+- The sync captures each distinct root one time for all Workspaces with the mirror capture above. It passes the existing managed blobs, so unchanged files and assets are skipped, and it returns a patch.
+- A webhook enqueues one sources sync for each connection, deduplicated by the Notion event id. The sync captures only the roots that hold the entity in Git or are above it in Notion; the other roots keep their files.
+- A failed root keeps its files. A permanent Notion error (400, 403, 404) on the root counts in `config.sourceSync.failures`, at most one time an hour. After three counts, the sources of that root go `out_of_access`. A provider outage does not count. A child page, row, or block that answers 403 or 404 is skipped and keeps its files; it does not count against the root.
+- A 401, or a token refresh that fails with an invalid grant, sets the connection `status` to `revoked`. The sync then keeps every file, each source shows a reconnect detail, and the card shows "Needs reconnect". A new OAuth connect sets the status back to `installed`.
+- The migration moves the pages and databases of `notion/config.yaml`. A page root takes its live Notion title, as the old mirror named its folder, so the existing folder stays the managed one. `--apply` sets `config.enabled` to false. The legacy content and entity syncs skip a repository where a Workspace has an `ok` source of the same connection; a failed check lets the legacy sync run.
+- Notion has no polling cursor. Webhooks are the incremental path; the incremental state is `config.sourceSync` on the connection.
 
 ## Rationale
 
