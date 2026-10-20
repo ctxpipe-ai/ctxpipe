@@ -1,4 +1,5 @@
 import HyperDX from "@hyperdx/browser"
+import { recordHyperDxActionError } from "@/lib/hyperdxBrowser"
 
 /**
  * The setup command for the step that connects the agents of the user.
@@ -14,4 +15,9 @@ export function editorSetupCommand(origin: string): string {
 /** The user copied the MCP setup command. Records the event, not the value. */
 export function recordMcpConfigCopied(target: "setup_command") {
   HyperDX.addAction("mcp_config_copy", { target })
+}
+
+/** The browser refused the copy of the MCP setup command. */
+export function recordMcpConfigCopyFailed(target: "setup_command") {
+  recordHyperDxActionError("mcp_config_copy", { target })
 }

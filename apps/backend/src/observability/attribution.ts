@@ -37,6 +37,7 @@ export const ATTRIBUTION_KEYS = [
   "ctxpipe.api_key.event",
   "ctxpipe.api_key.outcome",
   "ctxpipe.auth.refusal_reason",
+  "ctxpipe.auth.method",
 ] as const
 
 export type AttributionKey = (typeof ATTRIBUTION_KEYS)[number]

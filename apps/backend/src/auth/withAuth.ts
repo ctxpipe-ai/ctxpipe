@@ -129,6 +129,42 @@ function wwwAuthenticateForMcpRoute(
   )
 }
 
+/**
+ * A 401 for a credential that is not an API key, with the reason on the
+ * span and on the wide event. A refused key has its own event
+ * ({@link recordApiKeyRefusal}).
+ */
+function unauthorized(
+  c: Context<AppEnv>,
+  reason: string,
+  errorDescription: string,
+  kind?: WwwAuthMcpKind,
+) {
+  applyAttribution({ "ctxpipe.auth.refusal_reason": reason })
+  return c.json(
+    { error: "Unauthorized" },
+    401,
+    wwwAuthenticateForMcpRoute(c, errorDescription, kind),
+  )
+}
+
+/**
+ * The answer to a refused API key. A key that hit its rate limit on `/mcp`
+ * gets 429 with Retry-After: a 401 makes an OAuth client sign in again.
+ */
+function apiKeyRefusedResponse(c: Context<AppEnv>, refusal: OrgApiKeyRefusal) {
+  if (isMcpRequestPath(c.req.path) && refusal.retryAfterSeconds !== undefined) {
+    return c.json({ error: "Too Many Requests" }, 429, {
+      "Retry-After": String(refusal.retryAfterSeconds),
+    })
+  }
+  return c.json(
+    { error: "Unauthorized" },
+    401,
+    wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
+  )
+}
+
 function requestHasBearerCredential(raw: Request): boolean {
   const h = raw.headers.get("authorization")
   if (!h?.startsWith("Bearer ")) return false
@@ -311,11 +347,7 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
     const refusal = await personalApiKeyRefusal(err, apiKeyHeader)
     if (refusal) {
       recordApiKeyRefusal(refusal)
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
-      )
+      return apiKeyRefusedResponse(c, refusal)
     }
     authSession = null
   }
@@ -323,11 +355,7 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (!authSession?.user || !authSession.session) {
     getLogger().set({ auth: { resolvedIn, identified: false } })
     if (authSession?.user && !authSession.session) {
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(c, "Session invalid or missing"),
-      )
+      return unauthorized(c, "session_invalid", "Session invalid or missing")
     }
     return next()
   }
@@ -336,7 +364,7 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   if (apiKeyHeader) c.set("personalApiKeyId", authSession.session.id)
   c.set("user", authSession.user)
   c.set("session", authSession.session)
-  applyPrincipalAttribution(c)
+  applyPrincipalAttribution(c, apiKeyHeader ? "personal_key" : "cookie")
   getLogger().set({
     user: { id: authSession.user.id },
     auth: { resolvedIn, identified: true },
@@ -344,7 +372,20 @@ export const withCookieAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   return next()
 }
 
-function applyPrincipalAttribution(c: Context<AppEnv>): void {
+/** How the request proved who it is: the value of `ctxpipe.auth.method`. */
+type AuthMethod =
+  | "cookie"
+  | "personal_key"
+  | "org_key"
+  | "oauth"
+  | "bearer_key"
+  | "session_token"
+
+function applyPrincipalAttribution(
+  c: Context<AppEnv>,
+  method: AuthMethod,
+): void {
+  applyAttribution({ "ctxpipe.auth.method": method })
   const orgApiKey = c.get("orgApiKey")
   const userId = c.get("user")?.id
   const oauthClientId = c.get("oauthClientId")
@@ -382,7 +423,11 @@ type OrgApiKeyRefusal = {
   reason: string
   /** The key id, when the auth library tells it or the key row still exists. */
   keyId?: string
+  /** For `rate_limited`: when the key can try again, from the rate limit. */
+  retryAfterSeconds?: number
 }
+
+type AuthErrorBody = { code?: unknown; details?: { tryAgainIn?: unknown } }
 
 /** Our reason for each error code of `verifyApiKey`. */
 function refusalReason(code: unknown): string {
@@ -399,16 +444,26 @@ function refusalReason(code: unknown): string {
   }
 }
 
-/** A refusal with the key id when the key row is still there. */
+/**
+ * A refusal with the key id when the key row is still there. A rate limit
+ * (not a used-up key) tells in milliseconds when the key can try again.
+ */
 async function apiKeyRefusal(
-  reason: string,
+  body: AuthErrorBody | undefined,
   apiKey: string,
 ): Promise<OrgApiKeyRefusal> {
+  const reason = refusalReason(body?.code)
+  const tryAgainIn =
+    body?.code === "RATE_LIMITED" ? body.details?.tryAgainIn : undefined
   return {
     reason,
     keyId:
       reason === "disabled" || reason === "rate_limited"
         ? await refusedKeyId(apiKey)
+        : undefined,
+    retryAfterSeconds:
+      typeof tryAgainIn === "number" && Number.isFinite(tryAgainIn)
+        ? Math.max(1, Math.ceil(tryAgainIn / 1000))
         : undefined,
   }
 }
@@ -421,9 +476,10 @@ async function personalApiKeyRefusal(
   err: unknown,
   apiKey: string,
 ): Promise<OrgApiKeyRefusal | undefined> {
-  const code = (err as { body?: { code?: unknown } } | null)?.body?.code
-  const reason = refusalReason(code)
-  return reason === "invalid" ? undefined : apiKeyRefusal(reason, apiKey)
+  const body = (err as { body?: AuthErrorBody } | null)?.body
+  return refusalReason(body?.code) === "invalid"
+    ? undefined
+    : apiKeyRefusal(body, apiKey)
 }
 
 /**
@@ -473,10 +529,7 @@ async function verifyOrgApiKey(
 
   if (!verified?.valid || !verified.key) {
     return {
-      refusal: await apiKeyRefusal(
-        refusalReason(verified?.error?.code),
-        apiKey,
-      ),
+      refusal: await apiKeyRefusal(verified?.error ?? undefined, apiKey),
     }
   }
   if (verified.key.configId !== "organization" || !verified.key.referenceId) {
@@ -539,15 +592,11 @@ export const withOrgApiKeyAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
   const resolved = await verifyOrgApiKey(apiKey)
   if ("refusal" in resolved) {
     recordApiKeyRefusal(resolved.refusal)
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The API key could not be validated"),
-    )
+    return apiKeyRefusedResponse(c, resolved.refusal)
   }
 
   c.set("orgApiKey", resolved.orgApiKey)
-  applyPrincipalAttribution(c)
+  applyPrincipalAttribution(c, "org_key")
   return next()
 }
 
@@ -591,7 +640,7 @@ async function authenticateBearer(
       c.set("oauthReferenceId", opaque.oauthReferenceId)
       c.set("oauthClientId", opaque.oauthClientId)
       c.set("oauthScopes", opaque.oauthScopes)
-      applyPrincipalAttribution(c)
+      applyPrincipalAttribution(c, "oauth")
       return next()
     }
     const sessionResolved = await resolveSessionToken(accessToken)
@@ -599,7 +648,7 @@ async function authenticateBearer(
       c.set("personalApiKeyId", null)
       c.set("session", sessionResolved.session)
       c.set("user", sessionResolved.user)
-      applyPrincipalAttribution(c)
+      applyPrincipalAttribution(c, "session_token")
       return next()
     }
 
@@ -609,27 +658,28 @@ async function authenticateBearer(
         c.set("user", apiKeyAuth.user)
         c.set("session", apiKeyAuth.session)
         c.set("personalApiKeyId", apiKeyAuth.personalApiKeyId)
-        applyPrincipalAttribution(c)
+        applyPrincipalAttribution(c, "bearer_key")
         return next()
       }
       if (apiKeyAuth.kind === "org") {
         c.set("personalApiKeyId", null)
         c.set("orgApiKey", apiKeyAuth.orgApiKey)
-        applyPrincipalAttribution(c)
+        applyPrincipalAttribution(c, "bearer_key")
         return next()
       }
       // An unknown token can be an OAuth token that expired (a client
       // refreshes it after this 401), so only a known key is a key refusal.
       if (apiKeyAuth.refusal.reason !== "invalid") {
         recordApiKeyRefusal(apiKeyAuth.refusal)
+        return apiKeyRefusedResponse(c, apiKeyAuth.refusal)
       }
     }
 
     logBearerAuthFailure(new Error("Opaque access token not recognized"))
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+    return unauthorized(
+      c,
+      "token_not_recognized",
+      "The access token could not be validated",
     )
   }
 
@@ -664,10 +714,10 @@ async function authenticateBearer(
 
   if (jwksErr || !jwks) {
     logBearerAuthFailure(jwksErr, { kid })
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+    return unauthorized(
+      c,
+      "jwks_unavailable",
+      "The access token could not be validated",
     )
   }
 
@@ -683,21 +733,14 @@ async function authenticateBearer(
     const code = (verifyErr as { code?: string }).code
     if (code === "ERR_JWT_EXPIRED") {
       logBearerAuthFailure(verifyErr, { kid })
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(c, "The access token expired"),
-      )
+      return unauthorized(c, "token_expired", "The access token expired")
     }
     if (!isLikelyJwksKeyProblem(verifyErr)) {
       logBearerAuthFailure(verifyErr, { kid })
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(
-          c,
-          "The access token could not be validated",
-        ),
+      return unauthorized(
+        c,
+        "token_claims_invalid",
+        "The access token could not be validated",
       )
     }
     invalidateJwksCache()
@@ -706,13 +749,10 @@ async function authenticateBearer(
       .catch((err: unknown) => [undefined, err] as const)
     if (jwks2Err || !jwks2) {
       logBearerAuthFailure(jwks2Err, { kid })
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(
-          c,
-          "The access token could not be validated",
-        ),
+      return unauthorized(
+        c,
+        "jwks_unavailable",
+        "The access token could not be validated",
       )
     }
     ;[payload, verifyErr] = await jwtVerify(
@@ -724,38 +764,35 @@ async function authenticateBearer(
       .catch((err: unknown) => [undefined, err] as const)
     if (verifyErr) {
       logBearerAuthFailure(verifyErr, { kid })
-      return c.json(
-        { error: "Unauthorized" },
-        401,
-        wwwAuthenticateForMcpRoute(
-          c,
-          "The access token could not be validated",
-        ),
+      return unauthorized(
+        c,
+        "token_signature_invalid",
+        "The access token could not be validated",
       )
     }
   }
 
   if (!payload) {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+    return unauthorized(
+      c,
+      "token_signature_invalid",
+      "The access token could not be validated",
     )
   }
 
   if (typeof payload.sub !== "string" || payload.sub.length === 0) {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The access token subject is invalid"),
+    return unauthorized(
+      c,
+      "token_subject_invalid",
+      "The access token subject is invalid",
     )
   }
   const oauthReferenceClaim = readOAuthReferenceClaim(payload)
   if (oauthReferenceClaim === false) {
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "The access token organization is invalid"),
+    return unauthorized(
+      c,
+      "token_organization_invalid",
+      "The access token organization is invalid",
     )
   }
   tokenSessionId =
@@ -783,7 +820,7 @@ async function authenticateBearer(
     if (typeof clientIdClaim === "string" && clientIdClaim.length > 0) {
       c.set("oauthClientId", clientIdClaim)
     }
-    applyPrincipalAttribution(c)
+    applyPrincipalAttribution(c, "oauth")
     return next()
   }
 
@@ -795,10 +832,10 @@ async function authenticateBearer(
     ),
     { kid },
   )
-  return c.json(
-    { error: "Unauthorized" },
-    401,
-    wwwAuthenticateForMcpRoute(c, "The access token could not be validated"),
+  return unauthorized(
+    c,
+    "token_session_not_found",
+    "The access token could not be validated",
   )
 }
 
@@ -865,11 +902,7 @@ export const requireAuth: MiddlewareHandler<AppEnv> = async (c, next) => {
       isMcpRequestPath(c.req.path) && !requestHasBearerCredential(c.req.raw)
         ? "discovery"
         : "invalid_token"
-    return c.json(
-      { error: "Unauthorized" },
-      401,
-      wwwAuthenticateForMcpRoute(c, "Authentication required", mcpKind),
-    )
+    return unauthorized(c, "no_session", "Authentication required", mcpKind)
   }
   return next()
 }
@@ -934,7 +967,13 @@ export const withNetworkOrgContext: MiddlewareHandler<AppEnv> = async (
       400,
     )
   }
-  if (!result.ok) return c.json({ error: "Not found" }, 404)
+  if (!result.ok) {
+    applyAttribution({ "ctxpipe.auth.refusal_reason": result.error })
+    getLogger().warn("The organization of the request was not found", {
+      reason: result.error,
+    })
+    return c.json({ error: "Not found" }, 404)
+  }
   return bindRequestOrg(c, result.org, next)
 }
 

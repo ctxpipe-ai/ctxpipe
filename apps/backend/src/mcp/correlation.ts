@@ -291,6 +291,61 @@ export async function runMcpResourceRead<
   )
 }
 
+/** The code of an `error: <code>` tool result of a bridge tool (a TOON text). */
+function bridgeResultErrorCode(result: unknown): string | undefined {
+  return typeof result === "string"
+    ? /^error: ([a-z][A-Za-z0-9_]*)(?:\n|$)/.exec(result)?.[1]
+    : undefined
+}
+
+/**
+ * Run one tool call of a sandbox tool bridge (workspace chat, ingest) in a
+ * `bridge.tool <name>` span with the facts that an `mcp.tool` span has: the
+ * tool name, a call id, the size of the result, and an error code (`internal`
+ * for a thrown error, else the `error` of the result). The span takes the
+ * request attribution of its parent. Do not pass the arguments here.
+ */
+export async function runBridgeToolCall<R>(
+  toolName: string,
+  fn: () => Promise<R>,
+): Promise<R> {
+  const name = toolName.slice(0, 100)
+  return trace
+    .getTracer("ctxpipe-backend")
+    .startActiveSpan(`bridge.tool ${name}`, async (span) => {
+      span.setAttributes({
+        "ctxpipe.mcp.tool": name,
+        "ctxpipe.mcp.call.id": generateObjectId("call"),
+      })
+      try {
+        const result = await fn()
+        span.setAttribute(
+          "ctxpipe.mcp.result.bytes",
+          Buffer.byteLength(
+            typeof result === "string"
+              ? result
+              : (JSON.stringify(result) ?? ""),
+          ),
+        )
+        const code = bridgeResultErrorCode(result)
+        if (code) span.setAttribute("ctxpipe.mcp.error.code", code)
+        return result
+      } catch (error) {
+        const exception =
+          error instanceof Error ? error : new Error(String(error))
+        span.setAttribute("ctxpipe.mcp.error.code", "internal")
+        span.recordException(exception)
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: exception.message,
+        })
+        throw error
+      } finally {
+        span.end()
+      }
+    })
+}
+
 /** Error codes that report a bad call, not a server fault (ADR-051 section 5). */
 function isUserErrorCode(code: unknown): boolean {
   return (

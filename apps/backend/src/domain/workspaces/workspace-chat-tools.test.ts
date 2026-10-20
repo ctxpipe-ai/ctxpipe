@@ -10,6 +10,7 @@ import {
   it,
   vi,
 } from "vitest"
+import { recordSpans } from "../../../test/spans.js"
 import type { WorkspaceProjectionSnapshot } from "../../models/workspaces.js"
 import {
   EXPLORER_INPUT_SCHEMAS,
@@ -21,6 +22,8 @@ import {
   workspaceChatToolAllowed,
   workspaceChatTools,
 } from "./workspace-chat-tools.js"
+
+const spans = recordSpans()
 
 const CODESEARCH = "http://codesearch.chat-tools.test"
 const SHA = "d".repeat(40)
@@ -184,6 +187,60 @@ describe("workspace chat explorer tools (msw codesearch)", () => {
     )
     expect(result).toContain("repository_not_in_workspace")
     expect(seen).toHaveLength(0)
+  })
+})
+
+describe("workspace chat tool call spans", () => {
+  const callSpan = (name: string) => spans.spanNamed(`bridge.tool ${name}`)
+
+  it("records the call id and the size of a result", async () => {
+    const result = String(
+      await (await tool("get_file")).execute({
+        repositoryId: "repo_bound",
+        path: "OWNERS",
+      }),
+    )
+
+    expect(callSpan("get_file")?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.call.id": expect.stringMatching(/^call_/),
+      "ctxpipe.mcp.result.bytes": Buffer.byteLength(result),
+    })
+    expect(callSpan("get_file")?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      undefined,
+    )
+  })
+
+  it("records the error code of an error result, and no argument", async () => {
+    await (await tool("get_file")).execute({
+      repositoryId: "repo_unrelated",
+      path: "SECRET_PATH",
+    })
+
+    const span = callSpan("get_file")
+    expect(span?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "repository_not_in_workspace",
+    )
+    expect(JSON.stringify(span?.attributes)).not.toContain("SECRET_PATH")
+  })
+
+  it("records an internal error of a tool that throws", async () => {
+    server.use(
+      http.post(`${CODESEARCH}/:repositoryId/files-query`, () =>
+        HttpResponse.error(),
+      ),
+    )
+
+    await expect(
+      (await tool("get_file")).execute({
+        repositoryId: "repo_bound",
+        path: "OWNERS",
+      }),
+    ).rejects.toThrow()
+
+    expect(callSpan("get_file")?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "internal",
+    )
   })
 })
 

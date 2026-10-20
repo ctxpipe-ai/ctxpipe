@@ -51,6 +51,7 @@ import {
   personalApiKeyLocalization,
 } from "@/features/organization/apiKeyCopy"
 import {
+  API_KEY_MUTATION_KEYS,
   type ApiKey,
   createOrganizationApiKey,
   createPersonalApiKey,
@@ -61,6 +62,7 @@ import {
   listPersonalApiKeys,
   type PersonalApiKeyOrganization,
   recordApiKeyCopied,
+  recordApiKeyCopyFailed,
   setPersonalApiKeyOrganizations,
 } from "@/features/organization/organizationApiKeys"
 import { useListOrganizations } from "@/lib/auth-client"
@@ -181,6 +183,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   })
 
   const createMutation = useMutation({
+    mutationKey: API_KEY_MUTATION_KEYS.create,
     mutationFn: (input: {
       name: string
       expiresIn: number | null
@@ -210,6 +213,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   })
 
   const editOrganizationsMutation = useMutation({
+    mutationKey: API_KEY_MUTATION_KEYS.organizations,
     mutationFn: setPersonalApiKeyOrganizations,
     onSuccess: async () => {
       await queryClient.invalidateQueries({
@@ -220,6 +224,7 @@ function ApiKeysCard(props: ApiKeysCardProps) {
   })
 
   const revokeMutation = useMutation({
+    mutationKey: API_KEY_MUTATION_KEYS.revoke,
     mutationFn: (keyId: string) =>
       isOrganization
         ? deleteOrganizationApiKey(keyId)
@@ -459,6 +464,9 @@ function ApiKeysCard(props: ApiKeysCardProps) {
           <CreatedSecretDialog
             secret={createdSecret.key}
             onCopied={() => recordApiKeyCopied(props.kind, createdSecret.id)}
+            onCopyFailed={() =>
+              recordApiKeyCopyFailed(props.kind, createdSecret.id)
+            }
             onDone={() => setCreatedSecret(null)}
           />
         </Modal>
@@ -685,9 +693,10 @@ function CreateApiKeyModal(props: {
 function CreatedSecretDialog(props: {
   secret: string
   onCopied: () => void
+  onCopyFailed: () => void
   onDone: () => void
 }) {
-  const { secret, onCopied, onDone } = props
+  const { secret, onCopied, onCopyFailed, onDone } = props
   const [copied, setCopied] = useState(false)
 
   return (
@@ -711,7 +720,7 @@ function CreatedSecretDialog(props: {
             void navigator.clipboard.writeText(secret).then(() => {
               setCopied(true)
               onCopied()
-            })
+            }, onCopyFailed)
           }}
         >
           <IconCopy className="size-4" aria-hidden />

@@ -193,6 +193,42 @@ describe("API key lifecycle events (Postgres)", () => {
     expect(JSON.stringify(events)).not.toContain(row?.start ?? "")
   })
 
+  it("puts the org id on the create and update events of an organization key, and on no personal key event", async () => {
+    const created = await authPost("/api-key/create", {
+      configId: "organization",
+      organizationId: u().orgId,
+      name: "events-org",
+    })
+    expect(created.status).toBe(200)
+    const key = (await created.json()) as { id: string; key: string }
+    expect(eventFor("api_key.create")).toMatchObject({
+      "ctxpipe.org.id": u().orgId,
+      "api_key.id": key.id,
+      "api_key.owner": "organization",
+    })
+    expect(spans.serverSpan()?.attributes).toMatchObject({
+      "ctxpipe.org.id": u().orgId,
+    })
+
+    events.length = 0
+    const updated = await authPost("/api-key/update", {
+      keyId: key.id,
+      configId: "organization",
+      organizationId: u().orgId,
+      name: "events-org-renamed",
+    })
+    expect(updated.status).toBe(200)
+    expect(eventFor("api_key.update")).toMatchObject({
+      "ctxpipe.org.id": u().orgId,
+    })
+
+    events.length = 0
+    const personal = await createKey([u().orgId])
+    expect(eventFor("api_key.create")["ctxpipe.org.id"]).toBeUndefined()
+    noSecretAnywhere(key.key)
+    noSecretAnywhere(personal.key)
+  })
+
   it("emits api_key.create with outcome failure when the org set is refused, and no key id", async () => {
     const response = await authPost(
       "/api-key/create",

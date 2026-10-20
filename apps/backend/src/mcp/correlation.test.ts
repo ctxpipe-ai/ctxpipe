@@ -13,10 +13,12 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest"
 import { z } from "zod"
 import { recordSpans } from "../../test/spans.js"
 import type { AppEnv } from "../app/env.js"
+import { toToon } from "../lib/agentToolRuntime.js"
 import { backendOtelMiddleware } from "../observability/http.js"
 import {
   mcpOrgSlugHash,
   readMcpCorrelation,
+  runBridgeToolCall,
   runMcpResourceRead,
   runMcpToolCall,
   setMcpOrgSlugHash,
@@ -461,6 +463,56 @@ describe("MCP tool result facts", () => {
     // The size is the size of the result that the client gets, call id included.
     expect(bytes).toBe(Buffer.byteLength(JSON.stringify(result)))
     expect(events.at(-1)?.["ctxpipe.mcp.result.bytes"]).toBe(bytes)
+  })
+})
+
+describe("bridge tool call facts", () => {
+  const span = () => spans.spanNamed("bridge.tool get_file")
+
+  it("puts the tool name, a call id and the size of the result on the span", async () => {
+    const result = await runBridgeToolCall("get_file", async () => "owner: a\n")
+
+    expect(result).toBe("owner: a\n")
+    expect(span()?.attributes).toMatchObject({
+      "ctxpipe.mcp.tool": "get_file",
+      "ctxpipe.mcp.call.id": expect.stringMatching(/^call_/),
+      "ctxpipe.mcp.result.bytes": Buffer.byteLength("owner: a\n"),
+    })
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBeUndefined()
+    expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("puts the code of an error result on the span, and leaves the span out of ERROR", async () => {
+    await runBridgeToolCall("get_file", async () =>
+      toToon({ error: "checkout_not_in_run", repositoryId: "repo_1" }),
+    )
+
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe(
+      "checkout_not_in_run",
+    )
+    expect(span()?.status.code).not.toBe(SpanStatusCode.ERROR)
+  })
+
+  it("gives each call its own call id", async () => {
+    await runBridgeToolCall("get_file", async () => "a")
+    await runBridgeToolCall("get_file", async () => "b")
+
+    const ids = spans
+      .finishedSpans()
+      .filter((item) => item.name === "bridge.tool get_file")
+      .map((item) => item.attributes["ctxpipe.mcp.call.id"])
+    expect(new Set(ids).size).toBe(2)
+  })
+
+  it("marks the span as an internal error and throws the error on", async () => {
+    await expect(
+      runBridgeToolCall("get_file", async () => {
+        throw new Error("codesearch is down")
+      }),
+    ).rejects.toThrow("codesearch is down")
+
+    expect(span()?.attributes["ctxpipe.mcp.error.code"]).toBe("internal")
+    expect(span()?.status.code).toBe(SpanStatusCode.ERROR)
   })
 })
 

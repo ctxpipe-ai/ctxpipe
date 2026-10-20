@@ -1,6 +1,10 @@
 import HyperDX from "@hyperdx/browser"
 import { describe, expect, it, vi } from "vitest"
-import { editorSetupCommand, recordMcpConfigCopied } from "./editor-setup"
+import {
+  editorSetupCommand,
+  recordMcpConfigCopied,
+  recordMcpConfigCopyFailed,
+} from "./editor-setup"
 
 describe("editorSetupCommand", () => {
   it("is the bare command on the hosted origin", () => {
@@ -31,5 +35,23 @@ describe("recordMcpConfigCopied", () => {
       ["mcp_config_copy", { target: "setup_command" }],
     ])
     addAction.mockRestore()
+  })
+})
+
+describe("recordMcpConfigCopyFailed", () => {
+  it("sends an error to HyperDX with the part that the user tried to copy, and not the value", () => {
+    const recordException = vi
+      .spyOn(HyperDX, "recordException")
+      .mockImplementation(() => {})
+
+    recordMcpConfigCopyFailed("setup_command")
+
+    expect(recordException).toHaveBeenCalledTimes(1)
+    expect(recordException.mock.calls[0]?.[1]).toEqual({
+      target: "setup_command",
+      "ctxpipe.ui.source": "action",
+      "ctxpipe.ui.action": "mcp_config_copy",
+    })
+    recordException.mockRestore()
   })
 })

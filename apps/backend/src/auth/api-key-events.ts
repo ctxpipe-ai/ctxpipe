@@ -27,12 +27,15 @@ export function recordApiKeyEvent(event: {
   /** Why the key was refused, for a refusal. */
   reason?: string
   actorId?: string | null
+  /** The org of an organization key. */
+  orgId?: string
   apiKey: Record<string, string | number | boolean | undefined>
 }): void {
   const attribution = {
     "ctxpipe.api_key.event": event.step,
     "ctxpipe.api_key.outcome": event.outcome,
     "ctxpipe.auth.refusal_reason": event.reason,
+    "ctxpipe.org.id": event.orgId,
     "enduser.id": event.actorId ?? undefined,
     "ctxpipe.actor.type": event.actorId ? "user" : undefined,
   }
@@ -111,10 +114,19 @@ export function apiKeyLifecycleEvents(): BetterAuthPlugin {
                       : undefined
               const personal =
                 configId === undefined ? undefined : configId === "default"
+              // The delete answer and the deleted row hold no org: a delete
+              // of an organization key has the key id only.
+              const orgId =
+                personal === false
+                  ? [result.referenceId, body.organizationId].find(
+                      (value): value is string => typeof value === "string",
+                    )
+                  : undefined
               recordApiKeyEvent({
                 step,
                 outcome: failed ? "failure" : "success",
                 actorId: ctx.context.session?.user.id,
+                orgId,
                 apiKey: {
                   id: keyId,
                   owner:

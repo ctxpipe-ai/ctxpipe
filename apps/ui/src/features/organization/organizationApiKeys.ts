@@ -2,6 +2,17 @@ import HyperDX from "@hyperdx/browser"
 import { userClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { authClient } from "@/lib/auth-client"
+import { recordHyperDxActionError } from "@/lib/hyperdxBrowser"
+
+/**
+ * Mutation keys of the key actions. The query client sends a failed mutation
+ * to HyperDX with its key as `ctxpipe.ui.key`, so a failure names the action.
+ */
+export const API_KEY_MUTATION_KEYS = {
+  create: ["api-key-create"],
+  revoke: ["api-key-revoke"],
+  organizations: ["api-key-organizations"],
+} as const
 
 const ORG_API_KEY_CONFIG_ID = "organization"
 const PERSONAL_API_KEY_CONFIG_ID = "default"
@@ -91,6 +102,14 @@ async function createApiKey(input: {
 /** The user copied the secret of a new key. Records the key id, never the secret. */
 export function recordApiKeyCopied(owner: ApiKeyOwner["kind"], keyId: string) {
   HyperDX.addAction("api_key_copy", { owner, key_id: keyId })
+}
+
+/** The browser refused the copy of a new key secret. Records the key id only. */
+export function recordApiKeyCopyFailed(
+  owner: ApiKeyOwner["kind"],
+  keyId: string,
+) {
+  recordHyperDxActionError("api_key_copy", { owner, key_id: keyId })
 }
 
 async function deleteApiKey(
