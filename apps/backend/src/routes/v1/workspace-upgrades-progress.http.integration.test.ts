@@ -34,7 +34,7 @@ type Item = {
 }
 
 async function readItem(): Promise<Item> {
-  const response = await withOrgDbContext(org.id, () =>
+  const response = await withOrgDbContext(org.id, async () =>
     workspaceHttpApp(org, workspaceUpgradeRoutes).request(
       "/workspaces/progress/upgrades",
     ),

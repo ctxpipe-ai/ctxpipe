@@ -300,8 +300,8 @@ async function withFetchedGitSha<T>(
     await gitExec(["-C", dir, "remote", "add", "origin", input.url], {
       timeout: 15_000,
     })
-    const config = ["-C", dir, "config"]
-    const markPartial = async () => {
+    if (input.treesOnly) {
+      const config = ["-C", dir, "config"]
       await gitExec([...config, "remote.origin.promisor", "true"], {
         timeout: 15_000,
       })
@@ -310,7 +310,6 @@ async function withFetchedGitSha<T>(
         { timeout: 15_000 },
       )
     }
-    if (input.treesOnly) await markPartial()
     // A remote without filter support sends every blob; the read still works.
     const filter = input.treesOnly ? ["--filter=blob:none"] : []
     await timedGit("git.fetch-tip", () =>
@@ -326,10 +325,15 @@ async function withFetchedGitSha<T>(
       // The history walk reads commits and trees only. It needs no old blob,
       // and the blobs of a large history are most of its bytes. The tip
       // blobs came with the fetch above, so the walk adds only the rest.
-      if (!input.treesOnly) await markPartial()
       await timedGit("git.fetch-history", () =>
         gitExec(
           [
+            // Settings for this command only, so the budget of native Git
+            // commands per tree does not grow.
+            "-c",
+            "remote.origin.promisor=true",
+            "-c",
+            "remote.origin.partialclonefilter=blob:none",
             "-C",
             dir,
             "fetch",
