@@ -150,6 +150,29 @@ export type IngestionShardWorkspace = {
    * retraction, concept section 7.3). A repository-wide step has no root.
    */
   partialRoots: string[]
+  /**
+   * The steps that failed after their 3 attempts, by the cause of the last
+   * attempt (CTX-896). A page limit, a page with no op, and a broker refusal
+   * are `partial` but not here: a second run gets the same result.
+   */
+  stepFailures?: IngestStepFailures
+}
+
+/** The cause of the last failed attempt of a step: its time limit, a model error, or another cause. */
+type IngestStepFailureKind = "timeLimit" | "model" | "other"
+export type IngestStepFailures = Partial<Record<IngestStepFailureKind, number>>
+
+/** The sum of step failure counts; undefined when no step failed. */
+export function addStepFailures(
+  ...counts: ReadonlyArray<IngestStepFailures | undefined>
+): IngestStepFailures | undefined {
+  const total: IngestStepFailures = {}
+  for (const count of counts)
+    for (const [kind, n] of Object.entries(count ?? {}) as Array<
+      [IngestStepFailureKind, number]
+    >)
+      total[kind] = (total[kind] ?? 0) + n
+  return Object.keys(total).length ? total : undefined
 }
 
 export type IngestionShardOutput = {
@@ -170,7 +193,7 @@ type StepResult = (
       more: boolean
       partial?: undefined
     }
-  | { partial: true }
+  | { partial: true; failed?: IngestStepFailureKind }
 ) & {
   /** The model usage of the step's attempts, when the runtime reports it (the recorded spend reads it). */
   usage?: IngestStepUsage
@@ -487,6 +510,10 @@ export async function runSkillPages(ctx: SkillPages): Promise<void> {
     )
     if (result.partial) {
       failed()
+      if (result.failed)
+        state.stepFailures = addStepFailures(state.stepFailures, {
+          [result.failed]: 1,
+        })
       return
     }
     state.tip = result.tip
@@ -571,6 +598,7 @@ async function attemptSkillStep(
 ): Promise<StepResult> {
   const { run, destination, ref, runBase, broker } = ctx
   let reason = ""
+  let failed: IngestStepFailureKind = "other"
   let usage: IngestStepUsage | undefined
   const withUsage = <T extends object>(result: T) =>
     usage ? { ...result, usage } : result
@@ -697,6 +725,11 @@ async function attemptSkillStep(
       // attempt failed (the stage, the step command and its exit code, or
       // the time limit) and the fields of `ingestErrorFields`.
       const command = error instanceof IngestStepCommandError ? error : null
+      failed = signal.aborted
+        ? "timeLimit"
+        : command?.model?.errors.length
+          ? "model"
+          : "other"
       logIngestEvent("warn", "ingestion-v2.step-attempt-failed", {
         ingestionRunId: run.runId,
         ...(run.shard === undefined ? {} : { shard: run.shard }),
@@ -722,7 +755,10 @@ async function attemptSkillStep(
     }
   }
   logStepPartial(ctx, ctx.name, reason)
-  return withUsage({ partial: true as const })
+  return withUsage({
+    partial: true as const,
+    ...(reason === "step_failed" ? { failed } : {}),
+  })
 }
 
 function addIngestUsage(
