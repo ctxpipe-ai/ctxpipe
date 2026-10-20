@@ -46,7 +46,6 @@ export async function fetchOrgCapabilities(
     param: { orgSlug },
     query: { connectionId },
   })
-  // TODO: the capabilities route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to load org capabilities",
   })) as OrgCapabilities
@@ -119,7 +118,6 @@ export async function fetchForgeProvisionStatus(
     param: { orgSlug },
     query: { connectionId },
   })
-  // TODO: the provision-status route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to load Forge provision status",
   })) as ForgeProvisionStatusPayload
@@ -143,7 +141,6 @@ export async function postForgeProvision(
     param: { orgSlug },
     json: body,
   })
-  // TODO: the provision route has no response schema, so the body is unknown.
   return (await readApiJson(res, {
     message: "Failed to start Forge provisioning",
   })) as { accepted: true; workflowName?: string }
