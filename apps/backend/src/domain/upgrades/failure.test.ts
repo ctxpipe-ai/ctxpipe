@@ -53,6 +53,31 @@ describe("classifyUpgradeFailure", () => {
       "ingest",
     ],
     [["The ingestion run failed: something odd"], "unknown", "ingest"],
+    [
+      [
+        "2 ingest steps failed after 3 attempts. A step reached its time limit.",
+      ],
+      "timeout",
+      "ingest",
+    ],
+    [
+      ["1 ingest step failed after 3 attempts. The model returned an error."],
+      "model",
+      "ingest",
+    ],
+    [
+      ["1 ingest step failed after 3 attempts in the ingest sandbox."],
+      "sandbox",
+      "ingest",
+    ],
+    [
+      [
+        "no_writable_destination",
+        "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
+      ],
+      "workspace_write_access",
+      "publish",
+    ],
   ])("classifies %j as %s at %s", (report, code, step) => {
     expect(classifyUpgradeFailure(failed(report))).toMatchObject({ code, step })
   })
@@ -103,16 +128,27 @@ describe("safeFailureSummary", () => {
 })
 
 describe("isTemporaryFailure", () => {
-  it.each([
-    ["publish_conflict", true],
-    ["model", true],
-    ["sandbox", true],
-    ["timeout", true],
-    ["source_access", false],
-    ["workspace_write_access", false],
-    ["too_many_sources", false],
-    ["unknown", false],
-  ] as const)("%s is %s", (code, temporary) => {
-    expect(isTemporaryFailure(code)).toBe(temporary)
+  it("retries a step time limit, but not a long wait for a turn or a run", () => {
+    expect(
+      isTemporaryFailure(
+        failed([
+          "1 ingest step failed after 3 attempts. A step reached its time limit.",
+        ]),
+      ),
+    ).toBe(true)
+    expect(
+      isTemporaryFailure(
+        failed([
+          "The ingestion run did not finish in the time that the upgrade waits.",
+        ]),
+      ),
+    ).toBe(false)
+    expect(
+      isTemporaryFailure({
+        status: "failed",
+        failureReason:
+          "Another re-ingestion of this organization runs. The re-ingestion waited too long for its turn. Start it again.",
+      }),
+    ).toBe(false)
   })
 })

@@ -1,6 +1,5 @@
 import type { GitFileMode } from "../../services/git/file-change.js"
 import { CODE_FORMAT } from "../workspaces/workspace-format.js"
-import type { UpgradeFailureCode } from "./failure.js"
 import { exportAndSourcesStep } from "./steps/export-and-sources.js"
 import { ownershipMigrationStep, sourcesConversionStep } from "./steps.js"
 
@@ -263,10 +262,10 @@ export type WorkspaceUpgradePayload = {
   waitingForSlot?: { reason: string; since: string }
   /**
    * Only on a re-ingestion that ctx| started again by itself, once, after a
-   * run failed for a temporary cause (CTX-896): the failed run, its class, and
-   * when ctx| queued the new run. A start by the user removes it.
+   * run failed for a temporary cause (CTX-896): the failed run. A start by
+   * the user removes it.
    */
-  autoRetry?: { failedRunId: string; code: UpgradeFailureCode; at: string }
+  autoRetry?: { failedRunId: string }
 }
 
 /** A range from the p50 to the p90 value. */
@@ -300,7 +299,7 @@ export type ReingestRepositoryReport = {
   runId: string | null
   status: "pending" | "done" | "partial" | "skipped" | "failed"
   report: string[]
-  /** The model spend in USD of the ingestion run, from the usage that its steps report. */
+  /** The model spend in USD of the ingestion runs of the repository in this upgrade, from the usage that their steps report. A run that starts again adds to it. */
   spendUsd?: number
   /** A model step of the run reported no usage: `spendUsd` is only the known part. */
   spendUnknown?: boolean

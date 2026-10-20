@@ -557,7 +557,7 @@ export const FailedPublishConflict: Story = {
   },
 }
 
-/** CTX-896: the retry failed too, so the card says that ctx| already retried. */
+/** CTX-896: the automatic retry failed too, so the card says that ctx| started it again once. */
 export const FailedAfterAutoRetry: Story = {
   parameters: failedReingest(
     {
@@ -573,7 +573,7 @@ export const FailedAfterAutoRetry: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "ctx| already retried this upgrade once, with no change from you.",
+          "ctx| already started this upgrade again once by itself.",
         ),
       ).toBeVisible(),
     )

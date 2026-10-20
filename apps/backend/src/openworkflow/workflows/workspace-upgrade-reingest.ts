@@ -50,6 +50,7 @@ import { runWorkflowWithWorkerWake } from "../client.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import { enqueueWorkspaceHydrate } from "../enqueue-workspace-hydrate.js"
 import { isWorkflowControlSignal } from "../isSleepSignal.js"
+import type { IngestStepFailures } from "./ingestion-shard.js"
 import { repositoryIngestionV2 } from "./repository-ingestion-v2.js"
 
 export const workspaceUpgradeReingestInputSchema = z
@@ -115,6 +116,13 @@ const runOutputSchema = z
           .object({
             workspaceId: z.string(),
             partial: z.number(),
+            stepFailures: z
+              .object({
+                timeLimit: z.number().optional(),
+                model: z.number().optional(),
+                other: z.number().optional(),
+              })
+              .optional(),
             refused: z.string().optional(),
           })
           .passthrough(),
@@ -122,6 +130,22 @@ const runOutputSchema = z
       .optional(),
   })
   .passthrough()
+
+/**
+ * One fixed line for the steps that failed after their 3 attempts, with no
+ * error text: that text can hold source text. The line names the cause that
+ * classifies the failure (CTX-896): a time limit, else a model error, else
+ * the sandbox. Null when no step failed so.
+ */
+function stepFailureLine(failures: IngestStepFailures = {}): string | null {
+  const count =
+    (failures.timeLimit ?? 0) + (failures.model ?? 0) + (failures.other ?? 0)
+  if (!count) return null
+  const steps = `${count} ingest ${count === 1 ? "step" : "steps"} failed after 3 attempts`
+  if (failures.timeLimit) return `${steps}. A step reached its time limit.`
+  if (failures.model) return `${steps}. The model returned an error.`
+  return `${steps} in the ingest sandbox.`
+}
 
 /**
  * The report of one finished ingestion v2 run for the Workspace of the
@@ -160,11 +184,18 @@ function runReport(
         "The ingestion run did not publish to this Workspace: the Workspace was not a destination of the run.",
       ],
     }
-  if (result.refused !== undefined || result.partial > 0)
+  if (result.refused !== undefined || result.partial > 0) {
+    const failedSteps = stepFailureLine(result.stepFailures)
     return {
       status: "partial",
-      report: result.refused !== undefined ? [result.refused] : reason,
+      report:
+        result.refused !== undefined
+          ? [result.refused]
+          : failedSteps
+            ? [...reason, failedSteps]
+            : reason,
     }
+  }
   return { status: "done", report: [] }
 }
 
@@ -279,6 +310,8 @@ const plannedSchema = z.union([
             spendUnknown: z.boolean(),
           })
           .nullable(),
+        /** The spend of the earlier runs of this upgrade for a repository that is not done. */
+        earlierSpendUsd: z.number().optional(),
       }),
     ),
   }),
@@ -350,18 +383,23 @@ async function planReingest(input: {
     const sha = tip?.sha ?? null
     if (!sha && !tipError) tipError = "The repository has no default branch."
     const before = earlier.get(source.repository)
+    const done =
+      sha && before?.status === "done" && before.sha === sha
+        ? {
+            runId: before.runId,
+            spendUsd: before.spendUsd ?? 0,
+            spendUnknown: before.spendUnknown === true,
+          }
+        : null
     repositories.push({
       ...source,
       sha,
       tipError,
-      done:
-        sha && before?.status === "done" && before.sha === sha
-          ? {
-              runId: before.runId,
-              spendUsd: before.spendUsd ?? 0,
-              spendUnknown: before.spendUnknown === true,
-            }
-          : null,
+      done,
+      // A run that ctx| or the user starts again adds to the spend.
+      ...(!done && before?.spendUsd
+        ? { earlierSpendUsd: before.spendUsd }
+        : {}),
     })
   }
   return { repositories }
@@ -490,13 +528,36 @@ export function defineWorkspaceUpgradeReingest(
               const current = await getWorkspaceUpgradeRow(workspaceId, key)
               const retry = current?.upgrade.autoRetry
               const enqueueRetry = async (approvedAt: string) => {
-                await enqueueWorkspaceUpgradeReingest({
-                  orgId,
-                  workspaceId,
-                  key,
-                  approvedAt,
-                })
-                return { started: true, status: UPGRADE_STATUSES.queued }
+                try {
+                  await enqueueWorkspaceUpgradeReingest({
+                    orgId,
+                    workspaceId,
+                    key,
+                    approvedAt,
+                  })
+                  return { started: true, status: UPGRADE_STATUSES.queued }
+                } catch (error) {
+                  // As a start by the user: no row stays `queued` with no
+                  // run. The retry did not start, so the record goes.
+                  getLogger().error(
+                    error instanceof Error ? error : new Error(String(error)),
+                    {
+                      step: "upgrade-auto-retry",
+                      workspaceId,
+                      key,
+                    },
+                  )
+                  await transitionWorkspaceUpgradeRow({
+                    workspaceId,
+                    key,
+                    from: [UPGRADE_STATUSES.queued],
+                    to: UPGRADE_STATUSES.failed,
+                    autoRetryOf: run.id,
+                    upgrade: { autoRetry: undefined },
+                    failureReason: fields.failureReason,
+                  })
+                  return { started: false, status: UPGRADE_STATUSES.failed }
+                }
               }
               // An earlier attempt of this step queued the row, and then
               // stopped before it queued the run. The key makes a second
@@ -507,29 +568,34 @@ export function defineWorkspaceUpgradeReingest(
                 current.upgrade.approvedAt
               )
                 return enqueueRetry(current.upgrade.approvedAt)
-              const failure = retry
-                ? null
-                : classifyUpgradeFailure({
-                    status: UPGRADE_STATUSES.failed,
-                    failureReason: fields.failureReason ?? null,
-                    repositories:
-                      fields.upgrade?.repositories ??
-                      current?.upgrade.repositories,
-                  })
-              if (failure && isTemporaryFailure(failure.code)) {
-                const at = new Date().toISOString()
+              // Only the reports of this run: the reports on the row can be
+              // of an earlier run.
+              const failure = {
+                status: UPGRADE_STATUSES.failed,
+                failureReason: fields.failureReason ?? null,
+                repositories: fields.upgrade?.repositories,
+              }
+              if (!retry && isTemporaryFailure(failure)) {
+                const approvedAt = new Date().toISOString()
                 const queued = await transition(name, {
                   ...fields,
                   to: UPGRADE_STATUSES.queued,
                   upgrade: {
                     ...fields.upgrade,
-                    approvedAt: at,
-                    autoRetry: { failedRunId: run.id, code: failure.code, at },
+                    approvedAt,
+                    autoRetry: { failedRunId: run.id },
                   },
                   workflowRunId: null,
                   failureReason: null,
                 })
-                if (queued) return enqueueRetry(at)
+                if (!queued) return { started: false, status: null }
+                getLogger().info("upgrade-auto-retry", {
+                  workspaceId,
+                  key,
+                  code: classifyUpgradeFailure(failure)?.code,
+                  failedRunId: run.id,
+                })
+                return enqueueRetry(approvedAt)
               }
               await transition(name, fields)
               return { started: true, status: fields.to }
@@ -572,7 +638,9 @@ export function defineWorkspaceUpgradeReingest(
                       spendUsd: r.done.spendUsd,
                       ...(r.done.spendUnknown ? { spendUnknown: true } : {}),
                     }
-                  : {}),
+                  : r.earlierSpendUsd
+                    ? { spendUsd: r.earlierSpendUsd }
+                    : {}),
               }))
             await record("record-plan", {
               to: UPGRADE_STATUSES.running,
@@ -632,7 +700,9 @@ export function defineWorkspaceUpgradeReingest(
                 )
               }
               if (poll >= maxSlotPolls)
-                return recordFailure("record-no-slot", {
+                // A long wait is not temporary: a new run waits at the back
+                // of the queue again. So it gets no automatic retry.
+                return record("record-no-slot", {
                   to: UPGRADE_STATUSES.failed,
                   failureReason: `${slot.wait} The re-ingestion waited too long for its turn. Start it again.`,
                   upgrade: { repositories: reports, waitingForSlot: undefined },
@@ -689,7 +759,7 @@ export function defineWorkspaceUpgradeReingest(
                       "Spend unknown: a model step reported no usage, so the spend counts only the known part.",
                     ]
                   : result.report,
-                spendUsd: result.spendUsd,
+                spendUsd: (report.spendUsd ?? 0) + result.spendUsd,
                 ...(result.spendUnknown ? { spendUnknown: true } : {}),
               })
               await record(`record-run:${index}`, {

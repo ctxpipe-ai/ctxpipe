@@ -119,7 +119,7 @@ const WorkspaceUpgradeItemSchema = z
           report: z.array(z.string()),
           spendUsd: z.number().nullable().openapi({
             description:
-              "The model spend in USD of the ingestion run, from the usage that its steps report.",
+              "The model spend in USD of the ingestion runs of the repository in this upgrade, from the usage that their steps report. A run that starts again adds to it.",
           }),
           spendUnknown: z.boolean().openapi({
             description:
