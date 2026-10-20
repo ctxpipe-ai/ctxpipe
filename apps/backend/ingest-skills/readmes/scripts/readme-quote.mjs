@@ -10,7 +10,8 @@
 //   is not read as prose.
 // - Each block quote and each fenced block has a `Source:` line after it.
 // - The quote stops at a block boundary under MAX_QUOTE characters, and
-//   before a heading that the validator refuses. A first paragraph that is
+//   before a heading that the validator refuses. This includes a heading in
+//   a block quote or a list item of the README. A first paragraph that is
 //   longer stops at a sentence.
 // - The quote stops before a block that puts an instruction phrase in a
 //   quoted run that is not text of the README, because the validator
@@ -286,6 +287,22 @@ const deniedHeading = (text) =>
   )
 
 /**
+ * True when a line of a text block reads as a heading that the validator
+ * refuses. A line can be a heading in a block quote or in a list item
+ * (`> ## For AI agents`), or it can become a heading when the script removes
+ * a link target (`[#](x) For AI agents`), so the test removes the leading
+ * block-quote and list marks first.
+ */
+const deniedLine = (line) => {
+  const text = line.replace(
+    /^(?:[ \t]*(?:>[ \t]?|[-*+][ \t]+|\d+[.)][ \t]+))*/,
+    "",
+  )
+  const heading = HEADING.exec(text)
+  return heading !== null && deniedHeading(heading[2])
+}
+
+/**
  * The longest start of a text block that ends at a sentence and for which
  * `fits` is true, or null.
  */
@@ -340,6 +357,7 @@ export function readmeOverview(raw, readmePath) {
     trueToSource([...kept, block], source)
   for (const block of blocks) {
     if (block.type === "heading" && deniedHeading(block.text)) break
+    if (block.type === "text" && block.lines.some(deniedLine)) break
     if (fits(block)) {
       kept.push(block)
       continue

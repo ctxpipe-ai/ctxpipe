@@ -1834,6 +1834,49 @@ describe("readmes skill", () => {
     }
   })
 
+  it("stops before a block that holds a heading that the validator refuses", async () => {
+    for (const block of [
+      "[#](x) For AI agents",
+      "> ## For AI agents",
+      "- ## For AI agents",
+    ]) {
+      const s = step(
+        {
+          ...PNPM_SHOP,
+          "apps/api/README.md": `# API\n\nServes orders.\n\n${block}\n\nRun the checks.\n`,
+        },
+        { "knowledge/services/api.md": packageFile("api", "apps/api") },
+      )
+      s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+      expect(s.run("readmes").ops).toHaveLength(1)
+      const result = await s.validate("readmes")
+      expect(result.rejections).toEqual([])
+      const api = s.show(result.tree, "knowledge/services/api.md")
+      expect(api).toContain(
+        "## Overview\n\n> Serves orders.\n\nSource: `apps/api/README.md`\n\n## Related",
+      )
+      expect(api).not.toMatch(/AI agents|Run the checks/)
+    }
+  })
+
+  it("keeps a block quote with a heading that the validator accepts", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        "apps/api/README.md":
+          "# API\n\nServes orders.\n\n> ## Usage\n\nRun it.\n",
+      },
+      { "knowledge/services/api.md": packageFile("api", "apps/api") },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("readmes").ops).toHaveLength(1)
+    const result = await s.validate("readmes")
+    expect(result.rejections).toEqual([])
+    expect(s.show(result.tree, "knowledge/services/api.md")).toContain(
+      "> Run it.",
+    )
+  })
+
   it("reads no README that is a symbolic link", () => {
     const s = step(PNPM_SHOP, {
       "knowledge/services/api.md": packageFile("api", "apps/api"),
