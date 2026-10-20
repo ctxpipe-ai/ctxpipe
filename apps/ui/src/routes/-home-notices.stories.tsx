@@ -178,6 +178,7 @@ export const ToastTakesNoSpaceAfterItGoes: Story = {
     const region = await canvas.findByRole("region", {
       name: "Workspace notices",
     })
+    await document.fonts.ready
     const composerTop = () =>
       canvas
         .getByRole("button", { name: "Select workspace" })

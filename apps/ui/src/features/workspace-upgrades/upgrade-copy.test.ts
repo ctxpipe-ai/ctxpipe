@@ -100,7 +100,7 @@ describe("upgrade copy", () => {
         "Re-ingestion needs format 3. Merge the format upgrade first.",
       ).body,
     ).toBe(
-      "Re-ingestion needs format 3. Merge the format upgrade pull request, then press Check again.",
+      "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
     )
     expect(blocked("reingest", "sandbox_unavailable").body).toMatch(
       /no ingest sandbox/,

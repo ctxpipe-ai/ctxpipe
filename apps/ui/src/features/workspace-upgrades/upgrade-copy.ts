@@ -110,7 +110,7 @@ const UPGRADE_BLOCKED_COPY: Record<
     },
     needs_format: {
       title: "Apply the format upgrade first",
-      body: "Re-ingestion needs format 3. Merge the format upgrade pull request, then press Check again.",
+      body: "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
     },
     sandbox_unavailable: {
       title: "This deployment cannot run the re-ingestion",
@@ -130,8 +130,9 @@ export function upgradeBlockedCopy(
   const copy = item.blockedReason
     ? UPGRADE_BLOCKED_COPY[item.kind]?.[item.blockedReason]
     : undefined
-  // The note of this reason is long and has two actions. The format upgrade
-  // card above it names the real cause, so this item says one action.
+  // The note of this reason can name two actions. The format upgrade card
+  // names the real cause and its fix (merge the pull request, or give write
+  // access), so this item says one action.
   if (item.blockedReason === "needs_format" && copy)
     return { title: copy.title, body: copy.body }
   return {

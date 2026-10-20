@@ -850,7 +850,7 @@ export const ReingestBlockedNextStep: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "Re-ingestion needs format 3. Merge the format upgrade pull request, then press Check again.",
+          "Re-ingestion needs format 3. Finish the format upgrade, then press Check again.",
         ),
       ).toBeVisible(),
     )
@@ -978,9 +978,11 @@ export const ReadOnlyBelowFormat: Story = {
       expect(canvas.getByText("Apply the format upgrade first")).toBeVisible(),
     )
     expect(canvas.queryByText(/No upgrades are pending/)).toBeNull()
+    // The format card names the cause. The re-ingestion says one action.
     expect(
-      canvas.getAllByText(/needs write access through the GitHub App/).length,
-    ).toBeGreaterThanOrEqual(2)
+      canvas.getByText(/needs write access through the GitHub App/),
+    ).toBeVisible()
+    expect(canvas.getByText(/Finish the format upgrade/)).toBeVisible()
     expect(canvas.queryByRole("button", { name: /^Start/ })).toBeNull()
   },
 }
