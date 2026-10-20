@@ -149,6 +149,27 @@ export async function renameConversation(
   })
 }
 
+/**
+ * Deletes a conversation. A 404 means it is already gone, which is the result
+ * the caller wants. A 409 (`turn_running`) means a turn still runs in it.
+ */
+export async function deleteConversation(
+  orgSlug: string,
+  conversationId: string,
+): Promise<void> {
+  const client = await getApiClient()
+  const res = await client[":orgSlug"].api.v1.conversations[
+    ":conversationId"
+  ].$delete({
+    param: { orgSlug, conversationId },
+  })
+  await readApiJson(res, {
+    emptyOn: [404],
+    empty: undefined,
+    message: "Failed to delete conversation",
+  })
+}
+
 export function workspaceChatPrepareOptions(
   orgSlug: string,
   conversationId: string,

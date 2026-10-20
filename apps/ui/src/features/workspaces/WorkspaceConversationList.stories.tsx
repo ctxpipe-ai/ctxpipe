@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/react-vite"
 import { HttpResponse, http } from "msw"
-import { expect, waitFor, within } from "storybook/test"
+import { expect, userEvent, waitFor, within } from "storybook/test"
 import {
   expectBoxUnchanged,
   responseGate,
@@ -154,5 +154,308 @@ export const ConversationListSkeletonMatches: Story = {
         ).toBeVisible(),
       )
     })
+  },
+}
+
+const requests: string[] = []
+
+function conversationRequestHandlers(input: {
+  del: () => Response | Promise<Response>
+}) {
+  const conversationPath = (request: Request) =>
+    /\/api\/v1\/conversations\/[^/]+$/.test(new URL(request.url).pathname)
+  return [
+    conversationsListHandler(docsConversations),
+    http.patch(
+      ({ request }) => conversationPath(request),
+      async ({ request }) => {
+        const body = (await request.json()) as { name: string }
+        requests.push(`PATCH ${new URL(request.url).pathname} ${body.name}`)
+        return HttpResponse.json({
+          id: "conv_2",
+          name: body.name,
+          source: "ui",
+          lastMessageAt: "2026-08-16T09:12:00.000Z",
+        })
+      },
+    ),
+    http.delete(
+      ({ request }) => conversationPath(request),
+      ({ request }) => {
+        requests.push(`DELETE ${new URL(request.url).pathname}`)
+        return input.del()
+      },
+    ),
+  ]
+}
+
+/** Open the Actions menu of a chat with the keyboard and choose an item. */
+async function chooseAction(
+  canvasElement: HTMLElement,
+  chat: string,
+  action: "Rename" | "Delete",
+) {
+  const canvas = within(canvasElement)
+  const link = await canvas.findByRole("link", { name: chat })
+  link.focus()
+  // The next Tab stop after the chat link is its Actions button.
+  await userEvent.tab()
+  await waitFor(() =>
+    expect(
+      canvas.getByRole("button", { name: `Actions for ${chat}` }),
+    ).toHaveFocus(),
+  )
+  await userEvent.keyboard("{Enter}")
+  const body = within(canvasElement.ownerDocument.body)
+  await userEvent.click(await body.findByRole("menuitem", { name: action }))
+}
+
+/** The Actions button shows on keyboard focus and opens a menu with Rename and Delete. */
+export const ActionsMenuByKeyboard: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Auth claims" })
+    link.focus()
+    await userEvent.tab()
+    const button = await canvas.findByRole("button", {
+      name: "Actions for Auth claims",
+    })
+    await waitFor(() => expect(button).toHaveFocus())
+    await userEvent.keyboard("{Enter}")
+    const body = within(canvasElement.ownerDocument.body)
+    await body.findByRole("menu", { name: "Actions for Auth claims" })
+    await waitFor(() =>
+      expect(body.getByRole("menuitem", { name: "Rename" })).toBeVisible(),
+    )
+    expect(body.getByRole("menuitem", { name: "Delete" })).toBeVisible()
+    await userEvent.keyboard("{Escape}")
+    await waitFor(() => expect(body.queryByRole("menu")).toBeNull())
+    await waitFor(() =>
+      expect(
+        canvas.getByRole("button", { name: "Actions for Auth claims" }),
+      ).toHaveFocus(),
+    )
+  },
+}
+
+/** Rename edits the name in the row. Enter saves it once, and the new name shows. */
+export const RenameFromMenu: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await chooseAction(canvasElement, "Auth claims", "Rename")
+    const input = await canvas.findByRole("textbox", {
+      name: "Conversation name",
+    })
+    await waitFor(() => expect(input).toHaveFocus())
+    await userEvent.keyboard("Token claims{Enter}")
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Token claims" })).toBeVisible(),
+    )
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Token claims" })).toHaveFocus(),
+    )
+    expect(requests).toEqual([
+      "PATCH /acme/api/v1/conversations/conv_2 Token claims",
+    ])
+  },
+}
+
+/** Escape cancels a rename. The old name stays and nothing is sent. */
+export const RenameCancelWithEscape: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await chooseAction(canvasElement, "Auth claims", "Rename")
+    await canvas.findByRole("textbox", { name: "Conversation name" })
+    await userEvent.keyboard("Other{Escape}")
+    await waitFor(() =>
+      expect(canvas.getByRole("link", { name: "Auth claims" })).toHaveFocus(),
+    )
+    expect(requests).toEqual([])
+  },
+}
+
+/** Delete asks first. Cancel keeps the chat and sends nothing. */
+export const DeleteCancel: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await body.findByRole("alertdialog", { name: "Delete this chat?" })
+    await userEvent.click(body.getByRole("button", { name: "Cancel" }))
+    await waitFor(() => expect(body.queryByRole("alertdialog")).toBeNull())
+    expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
+    expect(requests).toEqual([])
+  },
+}
+
+/** Confirming a delete sends one DELETE and removes the chat from the list. */
+export const DeleteConfirm: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await body.findByRole("alertdialog", { name: "Delete this chat?" })
+    await userEvent.click(body.getByRole("button", { name: "Delete chat" }))
+    await waitFor(() =>
+      expect(canvas.queryByRole("link", { name: "Auth claims" })).toBeNull(),
+    )
+    expect(canvas.getByRole("link", { name: "Repo layout" })).toBeVisible()
+    expect(requests).toEqual(["DELETE /acme/api/v1/conversations/conv_2"])
+  },
+}
+
+/** Deleting the open chat leaves it for the Workspace start page. */
+export const DeleteOpenChatNavigatesAway: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  args: { currentConversationId: "conv_2" },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () => new HttpResponse(null, { status: 204 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await userEvent.click(
+      await body.findByRole("button", { name: "Delete chat" }),
+    )
+    await waitFor(() =>
+      expect(
+        within(canvasElement).getByText(/Story route: \/acme\/ws\//),
+      ).toBeVisible(),
+    )
+    expect(requests).toEqual(["DELETE /acme/api/v1/conversations/conv_2"])
+  },
+}
+
+/** A failed delete keeps the chat and shows the cause and a next step. */
+export const DeleteError: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () =>
+            HttpResponse.json(
+              { error: "Database unavailable" },
+              { status: 500 },
+            ),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await userEvent.click(
+      await body.findByRole("button", { name: "Delete chat" }),
+    )
+    const alert = await canvas.findByRole("alert")
+    await waitFor(() =>
+      expect(alert).toHaveTextContent("The chat was not deleted"),
+    )
+    expect(alert).toHaveTextContent("Database unavailable")
+    expect(alert).toHaveTextContent("Try again")
+    expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
+  },
+}
+
+/** A chat with a running turn is not deleted. The message says how to stop the turn. */
+export const DeleteRefusedWhileTurnRuns: Story = {
+  beforeEach: () => {
+    requests.length = 0
+  },
+  parameters: {
+    msw: {
+      handlers: {
+        page: conversationRequestHandlers({
+          del: () =>
+            HttpResponse.json({ error: "turn_running" }, { status: 409 }),
+        }),
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const body = within(canvasElement.ownerDocument.body)
+    await chooseAction(canvasElement, "Auth claims", "Delete")
+    await userEvent.click(
+      await body.findByRole("button", { name: "Delete chat" }),
+    )
+    const alert = await canvas.findByRole("alert")
+    await waitFor(() =>
+      expect(alert).toHaveTextContent("A turn is still running in this chat"),
+    )
+    expect(alert).toHaveTextContent("select Stop")
+    expect(canvas.getByRole("link", { name: "Auth claims" })).toBeVisible()
   },
 }

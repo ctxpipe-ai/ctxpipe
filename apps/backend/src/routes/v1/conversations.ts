@@ -291,6 +291,11 @@ const deleteConversationRoute = createRoute({
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Not found",
     },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "turn_running: a turn runs in the conversation (stop it or wait, then delete)",
+    },
   },
 })
 
@@ -1170,6 +1175,12 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
     const conversationId = c.req.param("conversationId")
     const existing = await getConversation(conversationId)
     if (!existing) return c.json({ error: "Not found" }, 404)
+    // A turn keeps running after its user leaves the chat. Deleting under it
+    // would destroy the sandbox the turn uses, so the user stops it first.
+    if (
+      await workspaceChatPersistence().stores.runs.findActiveRun(conversationId)
+    )
+      return c.json({ error: "turn_running" }, 409)
     const log = getLogger()
     log.set({
       conversationId,

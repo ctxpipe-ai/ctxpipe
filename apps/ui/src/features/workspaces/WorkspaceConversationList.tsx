@@ -1,8 +1,6 @@
 import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query"
 import { useRouter, useSearch } from "@tanstack/react-router"
-import { Link } from "react-aria-components"
 import { SideNavRowSkeleton } from "@/components/SideNav/SideNavRowSkeleton"
-import { SideNavTooltip } from "@/components/SideNav/SideNavTooltip"
 import type { SideNavLocation } from "@/components/SideNav/sideNavLocation"
 import {
   sideNavLabelClassName,
@@ -12,7 +10,6 @@ import { Button } from "@/components/ui/Button"
 import { useSkeletonHold } from "@/components/ui/Skeleton"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
-import { conversationShortLabel } from "./conversationLabel"
 import { workspaceSearch } from "./pane"
 import {
   conversationGitTreeOptions,
@@ -20,6 +17,7 @@ import {
   workspaceKeys,
 } from "./queries"
 import type { Workspace } from "./types"
+import { WorkspaceConversationRow } from "./WorkspaceConversationRow"
 
 export function WorkspaceConversationList(props: {
   orgSlug: string
@@ -96,67 +94,30 @@ export function WorkspaceConversationList(props: {
           </span>
         </li>
       ) : (
-        items.map((item) => {
-          const active = currentConversationId === item.id
-          const short = conversationShortLabel(item.name)
-          const href = router.buildLocation({
-            to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
-            params: {
-              orgSlug,
-              workspaceSlug: workspace.slug,
-              conversationId: item.id,
-            },
-            search: paneSearch,
-          }).href
-          return (
-            <li key={item.id}>
-              <SideNavTooltip label={item.name} enabled={!navExpanded}>
-                <Link
-                  href={href}
-                  onHoverStart={() => prefetchConversation(item.id)}
-                  onPress={() => {
-                    prefetchConversation(item.id)
-                    onSelectNav({
-                      orgSlug,
-                      primary: "workspace",
-                      workspaceSlug: workspace.slug,
-                      conversationId: item.id,
-                    })
-                  }}
-                  aria-current={active ? "page" : undefined}
-                  aria-label={item.name}
-                  className={sideNavRowClassName({ active })}
-                >
-                  <span className="relative flex size-8 shrink-0 items-center justify-center">
-                    <span
-                      className={[
-                        "text-xs font-normal tracking-tight",
-                        active ? "text-zinc-100" : "text-zinc-300",
-                        // Overlay drawer (`max-md`) always shows names, never initials.
-                        navExpanded
-                          ? "opacity-0"
-                          : "opacity-100 max-md:opacity-0",
-                      ].join(" ")}
-                      aria-hidden
-                    >
-                      {short}
-                    </span>
-                  </span>
-                  <span
-                    className={[
-                      sideNavLabelClassName(navExpanded),
-                      "truncate pr-3 text-left",
-                      active ? "text-zinc-100" : "",
-                    ].join(" ")}
-                    aria-hidden={!navExpanded}
-                  >
-                    {item.name}
-                  </span>
-                </Link>
-              </SideNavTooltip>
-            </li>
-          )
-        })
+        items.map((item) => (
+          <WorkspaceConversationRow
+            key={item.id}
+            orgSlug={orgSlug}
+            workspace={workspace}
+            item={item}
+            active={currentConversationId === item.id}
+            navExpanded={navExpanded}
+            href={
+              router.buildLocation({
+                to: "/$orgSlug/ws/$workspaceSlug/$conversationId",
+                params: {
+                  orgSlug,
+                  workspaceSlug: workspace.slug,
+                  conversationId: item.id,
+                },
+                search: paneSearch,
+              }).href
+            }
+            paneSearch={paneSearch}
+            prefetchConversation={prefetchConversation}
+            onSelectNav={onSelectNav}
+          />
+        ))
       )}
       {query.hasNextPage ? (
         <li className="mx-1.5 pl-8">
