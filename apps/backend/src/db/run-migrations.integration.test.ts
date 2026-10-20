@@ -1,3 +1,7 @@
+import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs"
+import { tmpdir } from "node:os"
+import { join } from "node:path"
+import { fileURLToPath } from "node:url"
 import pg from "pg"
 import { afterAll, beforeAll, describe, expect, it } from "vitest"
 import { describeMigrateError } from "./describe-migrate-error.js"
@@ -218,39 +222,89 @@ describe("runMigrations", () => {
     })
   })
 
-  it("retries the migration on a lock timeout and succeeds when the lock goes away", async () => {
-    await withFreshDatabase("retry", async (url, lockRole) => {
-      const holder = await holdDrizzleLock(url)
-      // Longer than four lock timeouts, so that several tries roll back.
-      setTimeout(() => void holder.end(), 1_000)
-      const started = Date.now()
-      try {
+  it("rolls back the migration on a lock timeout, retries, and applies it once when the lock goes away", async () => {
+    const folder = mkdtempSync(join(tmpdir(), "migrations-retry-"))
+    cpSync(
+      fileURLToPath(new URL("../../migrations", import.meta.url)),
+      folder,
+      {
+        recursive: true,
+      },
+    )
+    // The first statement changes something. The second needs a lock on an app table.
+    mkdirSync(join(folder, "29991231000000_retry_probe"))
+    writeFileSync(
+      join(folder, "29991231000000_retry_probe", "migration.sql"),
+      `CREATE TABLE "retry_probe" ("id" integer);--> statement-breakpoint\nALTER TABLE "organizations" ADD COLUMN "retry_probe" text;`,
+    )
+    try {
+      await withFreshDatabase("retry", async (url, lockRole) => {
+        // The applied prefix: every real migration, none of the probe.
         await runMigrations({
           connectionString: url,
           appRolePassword: password,
           roleName: lockRole,
-          drizzleLockRetry: {
-            lockTimeoutMs: 200,
-            tries: 10,
-            baseDelayMs: 100,
-            maxDelayMs: 200,
-          },
         })
-      } finally {
-        await holder.end().catch(() => {})
-      }
-      expect(Date.now() - started).toBeGreaterThanOrEqual(900)
-      const check = new pg.Client({ connectionString: url })
-      await check.connect()
-      try {
-        const found = await check.query(
-          `SELECT to_regclass('public.organizations') AS found`,
-        )
-        expect(found.rows[0]?.found).not.toBeNull()
-      } finally {
-        await check.end()
-      }
-    })
+        const reader = new pg.Client({ connectionString: url })
+        await reader.connect()
+        const holder = new pg.Client({ connectionString: url })
+        await holder.connect()
+        try {
+          const journalRows = async () =>
+            Number(
+              (
+                await reader.query(
+                  `SELECT count(*) AS n FROM "drizzle"."__drizzle_migrations"`,
+                )
+              ).rows[0]?.n,
+            )
+          const probeTable = async () =>
+            (
+              await reader.query(
+                `SELECT to_regclass('public.retry_probe') AS t`,
+              )
+            ).rows[0]?.t
+          const before = await journalRows()
+          await holder.query("BEGIN")
+          await holder.query(`LOCK TABLE "organizations" IN ACCESS SHARE MODE`)
+
+          const retries: number[] = []
+          await runMigrations({
+            connectionString: url,
+            appRolePassword: undefined,
+            roleName: lockRole,
+            migrationsFolder: folder,
+            drizzleLockRetry: {
+              lockTimeoutMs: 200,
+              tries: 10,
+              baseDelayMs: 50,
+              maxDelayMs: 50,
+              // The first try timed out and rolled back. Look, then free the lock.
+              onRetry: async ({ attempt }) => {
+                retries.push(attempt)
+                if (attempt !== 1) return
+                expect(await probeTable()).toBeNull()
+                expect(await journalRows()).toBe(before)
+                await holder.query("ROLLBACK")
+              },
+            },
+          })
+
+          expect(retries).toEqual([1])
+          expect(await probeTable()).not.toBeNull()
+          expect(await journalRows()).toBe(before + 1)
+          const column = await reader.query(
+            `SELECT 1 FROM information_schema.columns WHERE table_name = 'organizations' AND column_name = 'retry_probe'`,
+          )
+          expect(column.rowCount).toBe(1)
+        } finally {
+          await holder.end()
+          await reader.end()
+        }
+      })
+    } finally {
+      rmSync(folder, { recursive: true, force: true })
+    }
   })
 
   it("does not retry an error that is not a lock timeout, and names the cause", async () => {

@@ -25,12 +25,9 @@ export async function runMigrations(options: {
    * tables. A short lock wait with retries keeps a long transaction of an old
    * service from blocking that service's own queries, and from failing the run.
    */
-  drizzleLockRetry?: {
-    lockTimeoutMs: number
-    tries: number
-    baseDelayMs: number
-    maxDelayMs: number
-  }
+  drizzleLockRetry?: DrizzleLockRetry
+  /** The migration folder. Default: this package's `migrations`. */
+  migrationsFolder?: string
 }): Promise<void> {
   const roleName = options.roleName ?? APP_ROLE_NAME
   const lockTimeoutMs = options.lockTimeoutMs ?? 30_000
@@ -58,7 +55,12 @@ export async function runMigrations(options: {
     await provisionAppRole(pool, options.appRolePassword, roleName)
 
     log.info({ step: "migrate", message: "[migrate] running migrations…" })
-    await migrateWithLockRetry(poolWithLockTimeout(retry.lockTimeoutMs), retry)
+    await migrateWithLockRetry(
+      poolWithLockTimeout(retry.lockTimeoutMs),
+      retry,
+      options.migrationsFolder ??
+        fileURLToPath(new URL("../../migrations", import.meta.url)),
+    )
     await migrateOpenWorkflow(options.connectionString)
 
     await backfillNullOrgIds(pool)
@@ -84,6 +86,15 @@ export async function runMigrations(options: {
   }
 }
 
+type DrizzleLockRetry = {
+  lockTimeoutMs: number
+  tries: number
+  baseDelayMs: number
+  maxDelayMs: number
+  /** Called after a rolled-back try, before the wait. */
+  onRetry?: (retry: { attempt: number; waitMs: number }) => void | Promise<void>
+}
+
 class LockRetriesExhaustedError extends Error {}
 
 function isLockTimeout(error: unknown): boolean {
@@ -100,21 +111,13 @@ function isLockTimeout(error: unknown): boolean {
  */
 async function migrateWithLockRetry(
   pool: Pool,
-  retry: {
-    lockTimeoutMs: number
-    tries: number
-    baseDelayMs: number
-    maxDelayMs: number
-  },
+  retry: DrizzleLockRetry,
+  migrationsFolder: string,
 ): Promise<void> {
   try {
     for (let attempt = 1; ; attempt++) {
       try {
-        await migrate(drizzle({ client: pool }), {
-          migrationsFolder: fileURLToPath(
-            new URL("../../migrations", import.meta.url),
-          ),
-        })
+        await migrate(drizzle({ client: pool }), { migrationsFolder })
         return
       } catch (error) {
         if (!isLockTimeout(error)) throw error
@@ -135,6 +138,7 @@ async function migrateWithLockRetry(
           tries: retry.tries,
           waitMs,
         })
+        await retry.onRetry?.({ attempt, waitMs })
         await new Promise((resolve) => setTimeout(resolve, waitMs))
       }
     }

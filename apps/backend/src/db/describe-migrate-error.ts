@@ -3,15 +3,14 @@ type PgFields = {
   schema?: unknown
   table?: unknown
   constraint?: unknown
-  detail?: unknown
-  where?: unknown
   query?: unknown
 }
 
 /**
  * One text for a failed migrate: the message of each error in the cause chain,
- * plus what Postgres says about it (SQLSTATE, table, detail, statement start).
- * It never prints a connection URL or query parameters.
+ * plus what Postgres says about it (SQLSTATE, table, constraint, statement start).
+ * It never prints the Postgres `detail` or `where` text, which can hold key
+ * values or a whole row, and never a connection URL or query parameters.
  */
 export function describeMigrateError(error: unknown): string {
   const lines: string[] = []
@@ -34,11 +33,9 @@ export function describeMigrateError(error: unknown): string {
       )
     if (typeof fields.constraint === "string")
       facts.push(`constraint ${fields.constraint}`)
-    if (typeof fields.detail === "string") facts.push(fields.detail)
-    if (typeof fields.where === "string") facts.push(`where: ${fields.where}`)
     if (typeof fields.query === "string")
       facts.push(
-        `statement: ${fields.query.replace(/\s+/g, " ").slice(0, 200)}`,
+        `statement: ${fields.query.replace(/\s+/g, " ").slice(0, 120)}`,
       )
     lines.push(
       `${lines.length === 0 ? "" : "Caused by: "}${first}${facts.length ? ` (${facts.join("; ")})` : ""}`,
