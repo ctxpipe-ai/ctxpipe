@@ -1,4 +1,4 @@
-import { queryOptions } from "@tanstack/react-query"
+import { type QueryClient, queryOptions } from "@tanstack/react-query"
 import type { InferResponseType } from "hono/client"
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
@@ -40,16 +40,23 @@ export const WORKSPACE_UPGRADES_HASH = "upgrades"
 
 /**
  * How long to wait before the next read. A run that prepares the pull
- * request changes fast (3 s). An open pull request changes when someone
- * merges it on GitHub (15 s). An item that waits for a click changes when a
+ * request changes fast (3 s). A merged pull request that ctx| reads changes
+ * when the hydrate and the scan end (3 s). An open pull request changes when
+ * someone merges it on GitHub (15 s). An item that waits for a click changes when a
  * scan starts it (Always update) or when the user starts it elsewhere (15 s).
  * Nothing else changes by itself: no polling.
  */
 export function upgradePollInterval(
-  items: readonly Pick<WorkspaceUpgradeItem, "status">[] | undefined,
+  items:
+    | readonly (Pick<WorkspaceUpgradeItem, "status"> &
+        Partial<Pick<WorkspaceUpgradeItem, "mergedAt">>)[]
+    | undefined,
 ): number | false {
   const statuses = items?.map((item) => item.status) ?? []
-  if (statuses.some((status) => status === "queued" || status === "running"))
+  if (
+    statuses.some((status) => status === "queued" || status === "running") ||
+    items?.some((item) => item.status === "pr_open" && item.mergedAt)
+  )
     return 3_000
   if (statuses.includes("pr_open") || statuses.includes("awaiting_operator"))
     return 15_000
@@ -187,4 +194,38 @@ export function automaticUpgradesJobOptions(
         ? false
         : 2_000,
   })
+}
+
+/**
+ * Check again, and wait for the scan to write its result. The reply of the
+ * check comes at once, and the scan runs on the server. This reads the
+ * upgrades until the item has a new check time or a new status (the scan
+ * ran), up to about a minute. It returns `"pending"` when the scan did not
+ * write by then: the page still updates when it does.
+ */
+export async function checkWorkspaceUpgradesAndWait(
+  queryClient: QueryClient,
+  orgSlug: string,
+  workspaceSlug: string,
+  key: string,
+): Promise<"checked" | "pending"> {
+  const summary = (data: WorkspaceUpgrades | undefined) => {
+    const item = data?.items.find((candidate) => candidate.key === key)
+    return item ? `${item.status} ${item.checkedAt}` : null
+  }
+  const before = summary(
+    queryClient.getQueryData(workspaceUpgradeKeys.list(orgSlug, workspaceSlug)),
+  )
+  await checkWorkspaceUpgrades(orgSlug, workspaceSlug)
+  for (let attempt = 0; attempt < 30; attempt++) {
+    await new Promise((resolve) =>
+      setTimeout(resolve, attempt === 0 ? 1_500 : 2_000),
+    )
+    const data = await queryClient.fetchQuery({
+      ...workspaceUpgradesOptions(orgSlug, workspaceSlug),
+      staleTime: 0,
+    })
+    if (summary(data) !== before) return "checked"
+  }
+  return "pending"
 }

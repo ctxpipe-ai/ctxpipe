@@ -148,8 +148,22 @@ function waitedFor(sinceIso: string, now = Date.now()): string {
 
 /** The status tag of an item. A run that waits for a sandbox slot says so. */
 export function upgradeStatusTag(
-  item: Pick<WorkspaceUpgradeItem, "status" | "waitingForSlot">,
+  item: Pick<WorkspaceUpgradeItem, "status" | "waitingForSlot"> &
+    Partial<Pick<WorkspaceUpgradeItem, "mergedAt" | "kind">>,
 ) {
+  if (item.status === "pr_open" && item.mergedAt)
+    return {
+      label: "Merged. Reading the new format",
+      className: "border-teal-400/30 bg-teal-400/10 text-teal-200",
+      pulse: true,
+    }
+  // A re-ingestion opens no pull request while it runs.
+  if (
+    item.kind === "reingest" &&
+    item.status === "running" &&
+    !item.waitingForSlot
+  )
+    return { ...UPGRADE_STATUS_TAG.running, label: "Re-ingesting the sources" }
   return item.status === "running" && item.waitingForSlot
     ? { ...UPGRADE_STATUS_TAG.running, label: "Waiting for a free sandbox" }
     : UPGRADE_STATUS_TAG[item.status]
@@ -158,12 +172,13 @@ export function upgradeStatusTag(
 /** What a waiting item waits for, and what happens next. Null when it does not wait. */
 export function upgradeWaitingCopy(
   item: Pick<WorkspaceUpgradeItem, "status" | "pullRequest"> &
-    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot">>,
+    Partial<Pick<WorkspaceUpgradeItem, "waitingForSlot" | "mergedAt">>,
   now = Date.now(),
 ): string | null {
   if (item.status === "running" && item.waitingForSlot)
     return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctx| checks again every minute and starts the run when its turn comes.`
-  if (item.status !== "pr_open") return null
+  // The progress block of a merged pull request says what ctx| does now.
+  if (item.status !== "pr_open" || item.mergedAt) return null
   const pullRequest = item.pullRequest?.number
     ? `pull request #${item.pullRequest.number}`
     : "the upgrade pull request"

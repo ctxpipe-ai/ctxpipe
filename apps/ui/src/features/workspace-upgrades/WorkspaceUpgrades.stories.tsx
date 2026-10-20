@@ -375,8 +375,13 @@ export const CheckAgainAfterMerge: Story = {
     await userEvent.click(button)
     await waitFor(() => expect(checkRequests).toHaveLength(1))
     expect(checkRequests[0]).toMatch(/\/workspaces\/docs\/upgrades\/check$/)
-    await waitFor(async () =>
-      expect(await canvas.findByText("No upgrades are pending.")).toBeVisible(),
+    // The check waits for the scan, then the card shows the applied state.
+    await waitFor(
+      async () =>
+        expect(
+          await canvas.findByText("No upgrades are pending."),
+        ).toBeVisible(),
+      { timeout: 10_000 },
     )
   },
 }

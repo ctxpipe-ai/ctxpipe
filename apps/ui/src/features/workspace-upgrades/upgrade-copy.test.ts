@@ -9,6 +9,7 @@ import {
   upgradeIsPending,
   upgradeNotices,
   upgradeStartedMessage,
+  upgradeStatusTag,
   upgradeWaitingCopy,
 } from "./upgrade-copy"
 
@@ -140,5 +141,32 @@ describe("upgrade copy", () => {
     expect(upgradeCanCheck(blocked)).toBe(true)
     expect(upgradeCanCheck(item("pr_open"))).toBe(true)
     expect(upgradeCanCheck(item("awaiting_operator"))).toBe(false)
+  })
+
+  it("tags a merged pull request and a running re-ingestion for what they do", () => {
+    const base = { waitingForSlot: null }
+    expect(
+      upgradeStatusTag({
+        ...base,
+        status: "pr_open",
+        mergedAt: "2026-10-20T11:00:00.000Z",
+      }).label,
+    ).toBe("Merged. Reading the new format")
+    expect(
+      upgradeStatusTag({ ...base, status: "running", kind: "reingest" }).label,
+    ).toBe("Re-ingesting the sources")
+    expect(
+      upgradeStatusTag({ ...base, status: "running", kind: "format" }).label,
+    ).toBe("Preparing the pull request")
+  })
+
+  it("gives no wait line for a merged pull request: its progress block says what ctx| does", () => {
+    expect(
+      upgradeWaitingCopy({
+        status: "pr_open",
+        pullRequest: null,
+        mergedAt: "2026-10-20T11:00:00.000Z",
+      }),
+    ).toBeNull()
   })
 })

@@ -141,6 +141,7 @@ export async function scanWorkspaceUpgrade(input: {
   if (format < 0 || format > CODE_FORMAT)
     return { kind: "none", reason: "not_upgradable" }
   const key = formatUpgradeKey(targetFormat)
+  const checkedAt = new Date().toISOString()
   await failStoppedUpgradeRun(workspace.id, key)
   const existing = await getWorkspaceUpgradeRow(workspace.id, key)
   if (format >= targetFormat) {
@@ -152,7 +153,7 @@ export async function scanWorkspaceUpgrade(input: {
           (status) => status !== UPGRADE_STATUSES.completed,
         ),
         to: UPGRADE_STATUSES.completed,
-        upgrade: { note: undefined, blockedReason: undefined },
+        upgrade: { note: undefined, blockedReason: undefined, checkedAt },
       })
     return { kind: "current", format }
   }
@@ -162,7 +163,6 @@ export async function scanWorkspaceUpgrade(input: {
     statuses: SCAN_OWNED,
   })
   const branch = upgradeBranch(targetFormat)
-  const checkedAt = new Date().toISOString()
   const base = { key, fromFormat: format, targetFormat, branch, checkedAt }
   const repositoryName = githubRepoFullNameFromWorkspaceUrl(
     workspace.workspaceRepositoryUrl,

@@ -21,11 +21,13 @@ import {
 import { StatusTag } from "@/features/workspaces/StatusTag"
 import { useIsOrgAdmin } from "@/lib/org-member-role"
 import {
-  checkWorkspaceUpgrades,
+  checkWorkspaceUpgradesAndWait,
   type WorkspaceUpgradeItem,
+  type WorkspaceUpgrades as WorkspaceUpgradesData,
   workspaceUpgradeKeys,
   workspaceUpgradesOptions,
 } from "./queries"
+import { UpgradeRunProgress } from "./UpgradeRunProgress"
 import {
   formatHealthLine,
   MEMBER_ASK_ADMIN,
@@ -44,6 +46,7 @@ import {
   upgradeFailureCopy,
   upgradeFailurePrompt,
 } from "./upgrade-failure"
+import { upgradeCheckResult, upgradeProgress } from "./upgrade-progress"
 import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
 
 /**
@@ -54,6 +57,8 @@ import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
  */
 function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
+  /** The format that ctx| read last: a re-ingestion that needs it can be stale. */
+  formatVersion: number | null
   isAdmin: boolean | null
   onStart: () => void
   onCheck?: () => void
@@ -68,6 +73,8 @@ function UpgradeItemCard(props: {
   const waiting = upgradeWaitingCopy(item)
   const blockedNextStep = upgradeBlockedNextStep(item)
   const notices = upgradeNotices(item)
+  const progress = upgradeProgress(item)
+  const checkResult = upgradeCheckResult(item, props.formatVersion)
   const stepsWithReport = item.steps.filter((step) => step.report.length > 0)
   return (
     <li
@@ -105,6 +112,10 @@ function UpgradeItemCard(props: {
             </li>
           ))}
         </ol>
+      ) : null}
+
+      {progress ? (
+        <UpgradeRunProgress title={item.title} progress={progress} />
       ) : null}
 
       {notices.length > 0 ? (
@@ -185,6 +196,10 @@ function UpgradeItemCard(props: {
 
       {waiting ? (
         <p className="mt-3 text-xs text-muted-foreground">{waiting}</p>
+      ) : null}
+
+      {checkResult ? (
+        <p className="mt-3 text-xs text-muted-foreground">{checkResult}</p>
       ) : null}
 
       {item.status === "failed" ? (
@@ -303,6 +318,7 @@ function UpgradeFailureAlert(props: {
 
 function UpgradeItemRow(props: {
   item: WorkspaceUpgradeItem
+  formatVersion: number | null
   orgSlug: string
   workspaceSlug: string
   isAdmin: boolean | null
@@ -313,12 +329,34 @@ function UpgradeItemRow(props: {
   // One mutation for each card: the pending state of one card stays apart.
   const startMutation = useStartWorkspaceUpgrade(orgSlug, workspaceSlug, item)
   const checkMutation = useMutation({
-    mutationFn: () => checkWorkspaceUpgrades(orgSlug, workspaceSlug),
-    onSuccess: () => {
-      toast.success("ctx| is reading the repository now. This takes a minute.")
+    mutationFn: () =>
+      checkWorkspaceUpgradesAndWait(
+        queryClient,
+        orgSlug,
+        workspaceSlug,
+        item.key,
+      ),
+    onSuccess: (result) => {
+      if (result === "pending") {
+        toast.message(
+          "ctx| has not finished the check yet. This page shows the result when it does.",
+        )
+        return
+      }
+      const found = queryClient
+        .getQueryData<WorkspaceUpgradesData>(
+          workspaceUpgradeKeys.list(orgSlug, workspaceSlug),
+        )
+        ?.items.find(({ key }) => key === item.key)
+      toast.success(
+        (found && upgradeCheckResult(found, props.formatVersion)) ??
+          "ctx| checked the Workspace. The upgrade is not pending any more.",
+      )
     },
     onError: (error: Error) => {
-      toast.error(error.message)
+      toast.error(
+        `${error.message.replace(/\.$/, "")}. Press Check again to try again.`,
+      )
     },
     onSettled: () =>
       Promise.all([
@@ -333,6 +371,7 @@ function UpgradeItemRow(props: {
   return (
     <UpgradeItemCard
       item={item}
+      formatVersion={props.formatVersion}
       isAdmin={isAdmin}
       isStarting={startMutation.isPending}
       isChecking={checkMutation.isPending}
@@ -419,6 +458,7 @@ export function WorkspaceUpgrades(props: {
                   <UpgradeItemRow
                     key={item.key}
                     item={item}
+                    formatVersion={data.formatVersion}
                     orgSlug={orgSlug}
                     workspaceSlug={workspaceSlug}
                     isAdmin={isAdmin}
@@ -443,6 +483,7 @@ export function WorkspaceUpgrades(props: {
                       <UpgradeItemRow
                         key={item.key}
                         item={item}
+                        formatVersion={data.formatVersion}
                         orgSlug={orgSlug}
                         workspaceSlug={workspaceSlug}
                         isAdmin={isAdmin}
