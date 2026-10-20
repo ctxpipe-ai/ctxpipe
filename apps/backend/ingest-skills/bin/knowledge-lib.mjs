@@ -267,12 +267,54 @@ function claimYaml(claim, indent) {
   ].join("\n")
 }
 
-/** Text of a new file. */
-function newFile({ kind, name, summary, intro, claims, related }) {
+/**
+ * Text of a new file. `heading` replaces the name as the first heading,
+ * `fields` are more front matter scalars after the summary ([key, value]
+ * pairs), and `sections` is Markdown between the intro and the Related
+ * section.
+ */
+function newFile({
+  kind,
+  name,
+  heading = name,
+  summary,
+  intro,
+  fields = [],
+  sections = "",
+  claims,
+  related,
+}) {
   const yaml = [`kind: ${kind}`, `name: ${q(name)}`, `summary: ${q(summary)}`]
+  for (const [key, value] of fields) yaml.push(`${key}: ${q(value)}`)
   if (claims.length) yaml.push("claims:", ...claims.map((c) => claimYaml(c, 2)))
   const lines = related.slice(0, MAX_RELATED_LINES)
-  return `---\n${yaml.join("\n")}\n---\n\n# ${name}\n\n${intro}\n\n## Related\n\n${lines.join("\n")}\n`
+  const middle = sections ? `${sections.trim()}\n\n` : ""
+  return `---\n${yaml.join("\n")}\n---\n\n# ${heading}\n\n${intro}\n\n${middle}## Related\n\n${lines.join("\n")}\n`
+}
+
+/** The body of a file after its front matter, or null. */
+function bodyOf(text) {
+  const front = /^---[ \t]*\r?\n((?:.*\n)*?)---[ \t]*(?:\r?\n|$)/.exec(text)
+  return front ? text.slice(front[0].length) : null
+}
+
+/**
+ * The full text of a file that the source owns alone, as `newFile` writes
+ * it. Returns the text before when only the host fields would change (the
+ * same body and the same claims), so a second run and a next page make no
+ * op. Returns null when the file has a human section: then the caller adds
+ * to it only.
+ */
+function replaceFile(before, plan, claims, related) {
+  if (before.includes("<!-- ctxpipe:human -->")) return null
+  const text = newFile({ ...plan.create, claims, related })
+  const known = existingClaims(frontMatter(before) ?? "")
+  const same =
+    known !== null &&
+    known.size === claims.length &&
+    claims.every((c) => known.has(`${c.to} ${c.predicate}`)) &&
+    bodyOf(before) === bodyOf(text)
+  return same ? before : text
 }
 
 const YAML_ESCAPES = {
@@ -595,17 +637,22 @@ function mergeFile(text, { claims, related }) {
 
 /**
  * Write the planned files to the staged tree and write patch.json. A plan is
- * { path, create, claims, related, expectName?, exactName? }. `create` is
- * { kind, name, summary, intro } for a new file, or null when the script
- * only adds to an existing file. When `expectName` is set, an existing file
- * at the path must have that name; letters and digits only, unless
- * `exactName` is set (then the same text, in any letter case). Plans for one path are joined.
+ * { path, create, claims, related, expectName?, exactName?, replace? }.
+ * `create` is { kind, name, heading?, summary, intro, fields?, sections? } for a new
+ * file, or null when the script only adds to an existing file. When
+ * `expectName` is set, an existing file at the path must have that name;
+ * letters and digits only, unless `exactName` is set (then the same text, in
+ * any letter case). Plans for one path are joined. `replace` says that the
+ * source owns the existing file alone: the script then writes it again in
+ * full from `create`, except when it has a human section.
  *
  * A step writes at most MAX_STEP_OPS files. `more` is true when a plan waits
  * for the next page: the host runs the skill again on the new base until
  * `more` is false. A file that already has a claim or a line does not
  * change again, so each page continues where the last one stopped.
- * `options.more` adds a page that the caller knows of. patch.json holds
+ * `options.more` adds a page that the caller knows of, and
+ * `options.reserved` counts the ops that the caller recorded before (for
+ * example deletes) against MAX_STEP_OPS. patch.json holds
  * `more` for the host. Prints and returns { ops, skipped, more }.
  */
 export function writeStep(step, plans, skipped = [], options = {}) {
@@ -624,6 +671,8 @@ export function writeStep(step, plans, skipped = [], options = {}) {
       })
   }
   let changed = 0
+  // Ops that the caller recorded already, for example deletes.
+  const reserved = options.reserved ?? 0
   let more = false
   const sorted = [...byPath.values()].sort((a, b) => (a.path < b.path ? -1 : 1))
   for (const plan of sorted) {
@@ -659,13 +708,15 @@ export function writeStep(step, plans, skipped = [], options = {}) {
     const text =
       before === null
         ? newFile({ ...plan.create, claims, related })
-        : mergeFile(before, { claims, related })
+        : ((plan.replace && plan.create
+            ? replaceFile(before, plan, claims, related)
+            : null) ?? mergeFile(before, { claims, related }))
     if (typeof text !== "string") {
       skipped.push({ path: plan.path, reason: text.skip })
       continue
     }
     if (text === before) continue
-    if (changed >= MAX_STEP_OPS) {
+    if (changed + reserved >= MAX_STEP_OPS) {
       more = true
       break
     }

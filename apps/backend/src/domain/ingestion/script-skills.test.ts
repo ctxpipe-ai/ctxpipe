@@ -172,7 +172,10 @@ function step(source: Record<string, string>, context: Record<string, string>) {
     JSON.parse(readFileSync(join(root, "out", "patch.json"), "utf8")) as {
       ops: Array<{ op: string; path: string }>
     }
-  const validate = (skill: string) =>
+  const validate = (
+    skill: string,
+    extra: Partial<Parameters<typeof validatePatchStep>[0]> = {},
+  ) =>
     validatePatchStep({
       repoDir: contextDir,
       baseCommit: base,
@@ -183,6 +186,7 @@ function step(source: Record<string, string>, context: Record<string, string>) {
       bundle: "ingest-0000000000000000",
       ...gitSource(sourceDir, sourceSha),
       linkableRepositories: [SOURCE_URL],
+      ...extra,
     })
   const show = (tree: string, path: string) =>
     git(contextDir, "show", `${tree}:${path}`)
@@ -1296,6 +1300,391 @@ describe("ownership skill", () => {
         reason: "A root path has characters that the script does not quote",
       },
     ])
+  })
+})
+
+// A hostile workflow: commands, environment values, and secrets that a
+// knowledge file must never hold, and a block scalar that looks like jobs.
+const CI_WORKFLOW = `name: CI
+on:
+  push:
+    branches: [main]
+    paths:
+      - "apps/api/**"
+      - '!apps/api/docs/**'
+      - ".github/workflows/ci.yml"
+  pull_request:
+    paths: [apps/web/**, "apps/**"]
+  workflow_dispatch:
+env:
+  DEPLOY_REGION: eu-west-1
+  NPM_TOKEN: \${{ secrets.NPM_TOKEN }}
+defaults:
+  run:
+    working-directory: apps/api
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: postgres://ci:hunter2hunter2@localhost/ci
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install everything
+        run: |
+          pnpm install --frozen-lockfile
+          curl -H "Authorization: Bearer \${{ secrets.DEPLOY_KEY }}" https://deploy.example.com
+          jobs:
+            fake:
+              working-directory: apps/web
+      - run: pnpm test
+        working-directory: ./apps/web/
+        with:
+          token: \${{ secrets.GITHUB_TOKEN }}
+  lint:
+    defaults:
+      run:
+        working-directory: \${{ matrix.dir }}
+    steps:
+      - run: pnpm lint
+`
+
+const ownedUnit = (attributes: object, body: string) =>
+  front(
+    {
+      generated_by: "ctxpipe-extract",
+      sources: [SOURCE_PATH],
+      source_sha: "0".repeat(40),
+      skill: "fixture",
+      bundle: "ingest-0000000000000000",
+      ...attributes,
+    },
+    body,
+  )
+
+const SHOP_UNITS = {
+  "knowledge/codebases/shop.md": ownedUnit(
+    { kind: "Repository", name: "example-org/shop", root: "." },
+    "# example-org/shop\n",
+  ),
+  "knowledge/services/api.md": ownedUnit(
+    { kind: "Service", name: "API", root: "apps/api" },
+    "# API\n",
+  ),
+  "knowledge/apps/web.md": ownedUnit(
+    { kind: "App", name: "Web", root: "apps/web" },
+    "# Web\n",
+  ),
+}
+
+describe("workflows skill", () => {
+  it("writes a Workflow file with triggers, job ids, and MENTIONS claims to the packages that it names", async () => {
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      SHOP_UNITS,
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/apps/web.md"],
+    })
+    const out = s.run("workflows")
+    expect(out).toEqual({
+      ops: [
+        { op: "create", path: "knowledge/workflows/example-org-shop-ci.md" },
+      ],
+      skipped: [],
+      more: false,
+    })
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const ci = s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md")
+    const meta = parse(ci.split("---\n")[1] ?? "")
+    expect(meta).toMatchObject({
+      kind: "Workflow",
+      name: "CI",
+      workflow_file: ".github/workflows/ci.yml",
+      generated_by: "ctxpipe-extract",
+      sources: [SOURCE_PATH],
+      summary:
+        "GitHub Actions workflow .github/workflows/ci.yml of example-org/shop, on push, pull_request and workflow_dispatch, with the jobs test and lint.",
+    })
+    expect(meta.root).toBeUndefined()
+    expect(
+      meta.claims.map((c: { to: string; predicate: string }) => [
+        c.to,
+        c.predicate,
+      ]),
+    ).toEqual([
+      ["../services/api.md", "MENTIONS"],
+      ["../apps/web.md", "MENTIONS"],
+    ])
+    expect(meta.claims[0].evidence).toEqual({
+      path: ".github/workflows/ci.yml",
+      kind: "script",
+    })
+    expect(ci).toContain("## Triggers\n\n- `push`\n- `pull_request`\n")
+    expect(ci).toContain("## Jobs\n\n- `test`\n- `lint`\n")
+    expect(ci).toContain(
+      "- Names `apps/api` in `defaults.run.working-directory` (`apps/api`)",
+    )
+    expect(ci).toContain(
+      "- Names `apps/api` in `on.push.paths` (`apps/api/**`)",
+    )
+    expect(ci).toContain(
+      "- Names `apps/web` in `jobs.test.steps.working-directory` (`./apps/web/`)",
+    )
+    expect(ci).toContain("- Part of [example-org/shop](../codebases/shop.md)")
+    // A negation, a pattern above a root, and an expression name no root.
+    expect(ci).not.toContain("apps/api/docs")
+    expect(ci).not.toContain("`apps/**`")
+  })
+
+  it("copies no run script, env value, or secret into the knowledge file", async () => {
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      SHOP_UNITS,
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/apps/web.md"],
+    })
+    const out = s.run("workflows")
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const written = [
+      JSON.stringify(out),
+      s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md"),
+    ].join("\n")
+    for (const text of [
+      "pnpm",
+      "curl",
+      "Authorization",
+      "Bearer",
+      "deploy.example.com",
+      "secrets",
+      "NPM_TOKEN",
+      "DEPLOY_KEY",
+      "GITHUB_TOKEN",
+      "DEPLOY_REGION",
+      "eu-west-1",
+      "DATABASE_URL",
+      "hunter2",
+      "matrix",
+      "Install everything",
+      "actions/checkout",
+      "ubuntu-latest",
+      "fake",
+    ])
+      expect(written).not.toContain(text)
+  })
+
+  it("stays inside the step and run caps for a repository with many workflows", async () => {
+    const source: Record<string, string> = { ...PNPM_SHOP }
+    for (let i = 0; i < 70; i++)
+      source[`.github/workflows/w${String(i).padStart(2, "0")}.yml`] =
+        `on: push\njobs:\n  build:\n    runs-on: ubuntu-latest\n`
+    const s = step(source, SHOP_UNITS)
+    const first = s.run("workflows")
+    expect(first.ops).toHaveLength(30)
+    expect(first.more).toBe(true)
+    expect(first.skipped).toEqual([
+      {
+        path: null,
+        reason: "The script read only the first 50 of 70 workflow files",
+      },
+    ])
+    const page = await s.validate("workflows")
+    expect(page.rejections).toEqual([])
+    expect(page.accepted).toHaveLength(30)
+    s.advance(page.tree)
+    const second = s.run("workflows")
+    expect(second.ops).toHaveLength(20)
+    expect(second.more).toBe(false)
+    const last = await s.validate("workflows", { workspaceOpsBefore: 30 })
+    expect(last.rejections).toEqual([])
+    s.advance(last.tree)
+    expect(s.run("workflows").ops).toEqual([])
+  }, 60_000)
+
+  it("writes an owned file again in full, deletes the file of a gone workflow, and then makes no op", async () => {
+    const stale = (name: string) =>
+      ownedUnit(
+        {
+          kind: "Workflow",
+          name,
+          workflow_file: `.github/workflows/${name}.yml`,
+          summary: "Old",
+        },
+        `# ${name}\n\nOld text.\n\n## Jobs\n\n- \`build\`\n`,
+      )
+    const extra: Record<string, string> = {}
+    for (let i = 0; i < 3; i++)
+      extra[`knowledge/libraries/l${i}.md`] = ownedUnit(
+        { kind: "Library", name: `L${i}` },
+        `# L${i}\n`,
+      )
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      {
+        ...SHOP_UNITS,
+        ...extra,
+        "knowledge/workflows/example-org-shop-ci.md": stale("ci"),
+        "knowledge/workflows/example-org-shop-old.md": stale("old"),
+      },
+    )
+    const out = s.run("workflows")
+    expect(out.ops).toEqual([
+      { op: "update", path: "knowledge/workflows/example-org-shop-ci.md" },
+      { op: "delete", path: "knowledge/workflows/example-org-shop-old.md" },
+    ])
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const ci = s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md")
+    expect(ci).toContain("## Jobs\n\n- `test`\n- `lint`\n")
+    expect(ci).not.toContain("build")
+    expect(ci).not.toContain("Old text.")
+    s.advance(result.tree)
+    expect(s.run("workflows").ops).toEqual([])
+  })
+
+  it("only adds claims and Related lines to a file that a human took over", async () => {
+    const human = front(
+      {
+        kind: "Workflow",
+        name: "CI",
+        workflow_file: ".github/workflows/ci.yml",
+      },
+      "# CI\n\nThe release team keeps this page.\n",
+    )
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      { ...SHOP_UNITS, "knowledge/workflows/example-org-shop-ci.md": human },
+    )
+    s.mapFiles({ "apps/api": ["knowledge/services/api.md"] })
+    expect(s.run("workflows").ops).toEqual([
+      { op: "update", path: "knowledge/workflows/example-org-shop-ci.md" },
+    ])
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const ci = s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md")
+    expect(ci).toContain(
+      "# CI\n\nThe release team keeps this page.\n\n## Related\n\n- Names `apps/api`",
+    )
+    expect(ci).toContain("to: ../services/api.md")
+    expect(ci).not.toContain("generated_by")
+    expect(ci).not.toContain("## Jobs")
+  })
+
+  it("does not write into the Workflow file of another source with the same path", async () => {
+    // `example/org-shop` and `example-org/shop` give the same file name.
+    const other = front(
+      {
+        kind: "Workflow",
+        name: "CI",
+        workflow_file: ".github/workflows/ci.yml",
+        generated_by: "ctxpipe-extract",
+        sources: ["sources/github/example/org-shop.md"],
+      },
+      "# CI\n",
+    )
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      { ...SHOP_UNITS, "knowledge/workflows/example-org-shop-ci.md": other },
+    )
+    const out = s.run("workflows")
+    expect(out.ops).toEqual([
+      {
+        op: "create",
+        path: expect.stringMatching(
+          /^knowledge\/workflows\/example-org-shop-ci-[0-9a-f]{8}\.md$/,
+        ),
+      },
+    ])
+    expect((await s.validate("workflows")).rejections).toEqual([])
+  })
+
+  it("skips a file that it cannot read with certainty, and keeps agent words out of the heading", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        ".github/workflows/claude.yml":
+          "name: Claude Code Review\non: [pull_request]\njobs:\n  review:\n    runs-on: ubuntu-latest\n",
+        ".github/workflows/tabs.yml":
+          "on: push\njobs:\n\tbuild:\n\t\truns-on: x\n",
+        ".github/workflows/quote.yml":
+          'name: "Open\n  quote"\non: push\njobs:\n  a:\n    runs-on: x\n',
+        ".github/workflows/twice.yml":
+          "on: push\non: pull_request\njobs:\n  a:\n    runs-on: x\n",
+        ".github/workflows/empty.yaml": "name: Nothing\non: push\n",
+        ".github/workflows/nested/inner.yml": "on: push\njobs:\n  a: {}\n",
+        ".github/workflows/README.md": "# Workflows\n",
+      },
+      SHOP_UNITS,
+    )
+    const out = s.run("workflows")
+    expect(out.ops).toEqual([
+      { op: "create", path: "knowledge/workflows/example-org-shop-claude.md" },
+    ])
+    expect(out.skipped).toEqual([
+      { path: ".github/workflows/empty.yaml", reason: "The file has no jobs" },
+      {
+        path: ".github/workflows/quote.yml",
+        reason: "The file is not YAML that the script can read",
+      },
+      {
+        path: ".github/workflows/tabs.yml",
+        reason: "The file is not YAML that the script can read",
+      },
+      {
+        path: ".github/workflows/twice.yml",
+        reason: "The file is not YAML that the script can read",
+      },
+    ])
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const claude = s.show(
+      result.tree,
+      "knowledge/workflows/example-org-shop-claude.md",
+    )
+    expect(claude).toContain("name: Claude Code Review")
+    expect(claude).toMatch(/^# GitHub Actions workflow [0-9a-f]{8}$/m)
+  })
+
+  it("reads the YAML forms of workflows and never the text of a block scalar", async () => {
+    const { readWorkflow } = await import(
+      join(INGEST_SKILLS_DIR, "workflows/scripts/workflow-parse.mjs")
+    )
+    expect(readWorkflow("on: push\njobs:\n  a:\n    runs-on: x\n")).toEqual({
+      name: null,
+      triggers: ["push"],
+      jobs: ["a"],
+      locations: [],
+    })
+    expect(
+      readWorkflow(
+        `---\n"on": [push, 'pull_request'] # both\njobs:\n  a:\n    steps:\n    - working-directory: 'svc/a'\n      run: >-\n        working-directory: svc/b\n`,
+      ),
+    ).toEqual({
+      name: null,
+      triggers: ["push", "pull_request"],
+      jobs: ["a"],
+      locations: [{ where: "jobs.a.steps.working-directory", value: "svc/a" }],
+    })
+    expect(
+      readWorkflow(
+        "on:\n- push\njobs:\n  a: &job\n    runs-on: x\n  b:\n    <<: *job\n    defaults:\n      run: { working-directory: x }\n",
+      ),
+    ).toEqual({
+      name: null,
+      triggers: ["push"],
+      jobs: ["a", "b"],
+      locations: [],
+    })
+    expect(readWorkflow("on: push\njobs: [a]\n")).toEqual({
+      skip: "The file has no jobs",
+    })
+    expect(readWorkflow("on: push\njobs:\n  a:\n    b: 1\n   c: 2\n")).toEqual({
+      skip: "The file is not YAML that the script can read",
+    })
   })
 })
 
