@@ -57,10 +57,12 @@ export const PUBLISH_TURN_WAIT_MS = 60 * 60_000
 
 /**
  * Wait for the publish turn of a run (CTX-895). The run checks each minute.
- * The first check stores `deadlineAt`, 60 minutes after the run start, in its
- * step output. Each later check reads that stored value, so a step retry
- * (which moves the engine's `startedAt`) or a replay does not move the
- * deadline (CTX-964). After the deadline the run goes on: the merge model
+ * A first step, `publish-turn-deadline`, stores `deadlineAt`, 60 minutes after
+ * the run start. It does no I/O, so it does not fail and retry. Each check
+ * reads that stored value, so a retry of a check (which moves the engine's
+ * `startedAt`) or a replay does not move the deadline (CTX-964). A run that
+ * an earlier release started keeps the `deadlineAt` in its stored first
+ * check. After the deadline the run goes on: the merge model
  * then joins the two publishes. The worker can claim a sleeping run minutes
  * late, so a count of polls is not a time limit.
  */
@@ -76,25 +78,32 @@ export async function waitForPublishTurn(options: {
   now?: () => number
 }): Promise<{ outcome: "turn" | "deadline"; checks: number }> {
   const now = options.now ?? Date.now
-  let deadlineAt: number | undefined
+  const stored = await options.step.run(
+    { name: "publish-turn-deadline" },
+    async () => ({
+      deadlineAt:
+        (options.startedAt?.getTime() ?? now()) + PUBLISH_TURN_WAIT_MS,
+    }),
+  )
+  let deadlineAt = stored.deadlineAt
   for (let check = 0; ; check++) {
     const result = await options.step.run(
       { name: `publish-turn:${check}` },
-      async () => {
+      async (): Promise<
+        { turn: true } | { wait: string; expired: boolean; deadlineAt?: number }
+      > => {
         trace.getActiveSpan()?.setAttributes({
           "ctxpipe.wait.reason": "earlier-run-of-source",
           "ctxpipe.wait.check": check,
         })
         const turn = await options.check()
         if ("turn" in turn) return turn
-        const at =
-          deadlineAt ??
-          (options.startedAt?.getTime() ?? now()) + PUBLISH_TURN_WAIT_MS
-        return { ...turn, deadlineAt: at, expired: now() >= at }
+        return { ...turn, expired: now() >= deadlineAt }
       },
     )
     if ("turn" in result) return { outcome: "turn", checks: check + 1 }
-    deadlineAt = result.deadlineAt
+    // A check stored by an earlier release carries its own deadline.
+    deadlineAt = result.deadlineAt ?? deadlineAt
     if (result.expired) return { outcome: "deadline", checks: check + 1 }
     await options.step.sleep(`wait-publish-turn:${check}`, "60 seconds")
   }

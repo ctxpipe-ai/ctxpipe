@@ -116,6 +116,31 @@ describe("waitForPublishTurn", () => {
     expect(firstEnd - startedAt.getTime()).toBe(PUBLISH_TURN_WAIT_MS)
   })
 
+  it("stops at the first deadline when the first check throws once and startedAt moves later", async () => {
+    const { clock, step } = engine(0)
+    const startedAt = new Date(clock.now)
+    let calls = 0
+    const check = async () => {
+      if (calls++ === 0) throw new Error("database unavailable")
+      return alwaysWait()
+    }
+    const options = { step, check, now: () => clock.now }
+    await expect(waitForPublishTurn({ ...options, startedAt })).rejects.toThrow(
+      "database unavailable",
+    )
+
+    // The engine retries the run 30 minutes later and resets startedAt.
+    clock.now += 30 * 60_000
+    const retryStart = new Date(clock.now)
+    const retry = await waitForPublishTurn({
+      ...options,
+      startedAt: retryStart,
+    })
+
+    expect(retry.outcome).toBe("deadline")
+    expect(clock.now).toBe(startedAt.getTime() + PUBLISH_TURN_WAIT_MS)
+  })
+
   it("keeps waiting on a recorded check from before the deadline field, then gives up 60 minutes after the start", async () => {
     const { clock, history, step } = engine(0)
     const begin = clock.now
