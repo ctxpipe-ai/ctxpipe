@@ -31,7 +31,10 @@ import {
   resolveIngestionV2Run,
   withIngestionOrg,
 } from "../../domain/ingestion/ingestion-v2-resolve.js"
-import { ingestPublishTurn } from "../../domain/ingestion/publish-turn.js"
+import {
+  ingestPublishTurn,
+  waitForPublishTurn,
+} from "../../domain/ingestion/publish-turn.js"
 import {
   resolveIngestConflicts,
   SemanticResolveError,
@@ -64,7 +67,7 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 /*
  * The ingestion v2 parent workflow (ADR-052, T09 and T21):
  *
- *   publish-turn:<n> -> resolve -> index -> discover-roots
+ *   wait-for-earlier-run:<n> -> resolve -> index -> discover-roots
  *   -> skill:repository:repository
  *   -> shard:<n> (children) -> assemble:<workspaceId>
  *   -> repository-skills (child) -> release
@@ -201,21 +204,30 @@ export function defineRepositoryIngestionV2Workflow(
         attributes: Attributes,
       ): Promise<IngestionV2Output> {
         // Pin after an earlier run of this source publishes to the same
-        // Workspace (CTX-895), so the two publishes do not race. After about
-        // an hour the run goes on: the merge model then joins the two.
-        if (!input.shadow)
-          for (let poll = 0; poll < 60; poll++) {
-            const turn = await step.run({ name: `publish-turn:${poll}` }, () =>
+        // Workspace (CTX-895), so the two publishes do not race. After 60
+        // minutes of wall time the run goes on: the merge model then joins
+        // the two (CTX-964).
+        if (!input.shadow) {
+          const wait = await waitForPublishTurn({
+            step,
+            startedAt: run.startedAt ?? run.createdAt,
+            check: () =>
               ingestPublishTurn({
                 orgId: input.orgId,
                 runId: run.id,
                 sourceUrl: input.source.url,
                 destinations: input.destinations,
               }),
-            )
-            if ("turn" in turn) break
-            await step.sleep(`wait-publish-turn:${poll}`, "60 seconds")
-          }
+          })
+          attributes["ctxpipe.ingest.wait.outcome"] = wait.outcome
+          attributes["ctxpipe.ingest.wait.checks"] = wait.checks
+          if (wait.outcome === "deadline")
+            logIngestEvent("warn", "ingestion-v2.wait-deadline", {
+              ingestionRunId: run.id,
+              reason:
+                "An earlier run of this source did not finish in 60 minutes, so this run goes on and the merge model joins the two publishes",
+            })
+        }
         const resolved = await step.run({ name: "resolve" }, () =>
           resolveIngestionV2Run(input),
         )

@@ -1,4 +1,6 @@
+import { trace } from "@opentelemetry/api"
 import { sql } from "drizzle-orm"
+import type { StepApi } from "openworkflow"
 import { getSystemDb } from "../../db/client.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { INGESTION_V2_WORKFLOW_NAME } from "./ingestion-run.js"
@@ -49,4 +51,44 @@ export async function ingestPublishTurn(input: {
         wait: "An earlier ingestion run of this source publishes to the same Workspace. This run starts after it.",
       }
     : { turn: true }
+}
+
+/** A run waits at most this long for an earlier run (CTX-964). */
+export const PUBLISH_TURN_WAIT_MS = 60 * 60_000
+
+/**
+ * Wait for the publish turn of a run (CTX-895). The run checks each minute.
+ * After 60 minutes of wall time from `startedAt`, the run goes on: the merge
+ * model then joins the two publishes. The step output records whether the
+ * deadline passed, so a replay takes the same path. The engine sets the run
+ * start once, so a retry or a replay does not move the deadline (CTX-964).
+ * The worker can claim a sleeping run minutes late, so a count of polls is
+ * not a time limit.
+ */
+export async function waitForPublishTurn(options: {
+  step: Pick<StepApi, "run" | "sleep">
+  startedAt: Date
+  check: () => Promise<{ turn: true } | { wait: string }>
+  now?: () => number
+}): Promise<{ outcome: "turn" | "deadline"; checks: number }> {
+  const now = options.now ?? Date.now
+  const deadline = options.startedAt.getTime() + PUBLISH_TURN_WAIT_MS
+  for (let check = 0; ; check++) {
+    const result = await options.step.run(
+      { name: `wait-for-earlier-run:${check}` },
+      async () => {
+        trace
+          .getActiveSpan()
+          ?.setAttribute("ctxpipe.ingest.wait", "earlier-run")
+        const turn = await options.check()
+        return "turn" in turn ? turn : { ...turn, expired: now() >= deadline }
+      },
+    )
+    if ("turn" in result) return { outcome: "turn", checks: check + 1 }
+    if (result.expired) return { outcome: "deadline", checks: check + 1 }
+    await options.step.sleep(
+      `wait-for-earlier-run-pause:${check}`,
+      "60 seconds",
+    )
+  }
 }
