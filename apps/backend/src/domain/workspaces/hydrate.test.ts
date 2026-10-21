@@ -136,6 +136,58 @@ describe("hydrateKnowledgeTree", () => {
     ])
   })
 
+  it("does not skip a file that shows a conflict inside a fenced code block", () => {
+    const example = "<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs\n"
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/git.md",
+          content: `# Git\n\n\`\`\`diff\n${example}\`\`\`\n`,
+        },
+        {
+          path: "knowledge/tilde.md",
+          content: `# Git\n\n  ~~~text\n${example}~~~\n`,
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([])
+    expect(result.units.map((unit) => unit.path).sort()).toEqual([
+      "knowledge/git.md",
+      "knowledge/tilde.md",
+    ])
+  })
+
+  it("skips a real conflict that follows a closed fenced code block", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/a.md",
+          content:
+            "```sh\nls\n```\n<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs\n",
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([
+      { path: "knowledge/a.md", reason: "merge_conflict" },
+    ])
+  })
+
+  it("does not treat markers out of order as a conflict", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/a.md",
+          content: ">>>>>>> theirs\n=======\n<<<<<<< ours\n",
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([])
+    expect(result.units).toHaveLength(1)
+  })
+
   it("links only the repositories of GitHub sources, with their ref, once each", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
