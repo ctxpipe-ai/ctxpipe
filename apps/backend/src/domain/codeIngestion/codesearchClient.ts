@@ -226,7 +226,7 @@ export async function fetchFiles(
 }
 
 /** Fail-fast file bytes from the codesearch checkout. Pass workspaceId for `ws:<id>`. */
-export async function fetchCheckoutFileBytes(input: {
+type CheckoutFileQuery = {
   repositoryId: string
   orgId: string
   workspaceId?: string
@@ -238,7 +238,36 @@ export async function fetchCheckoutFileBytes(input: {
    * reads outside it, also through a symlink.
    */
   root?: string
-}): Promise<Uint8Array | null> {
+}
+
+export async function fetchCheckoutFileBytes(
+  input: CheckoutFileQuery,
+): Promise<Uint8Array | null> {
+  const file = await queryCheckoutFile(input)
+  // Without `maxBytes`, codesearch always sends the bytes.
+  return typeof file === "string" ? Buffer.from(file, "base64") : null
+}
+
+/**
+ * Reads a checkout file only when it has at most `maxBytes` bytes.
+ * Codesearch does not read a larger file: the result has only its size.
+ */
+export async function fetchCheckoutFileBytesUpTo(
+  input: CheckoutFileQuery & { maxBytes: number },
+): Promise<Uint8Array | { tooLarge: true; size: number } | null> {
+  const file = await queryCheckoutFile(input)
+  if (file === undefined) return null
+  if (typeof file !== "string") return { tooLarge: true, size: file.size }
+  const bytes = Buffer.from(file, "base64")
+  // A codesearch from before `maxBytes` sends every file in full.
+  return bytes.length > input.maxBytes
+    ? { tooLarge: true, size: bytes.length }
+    : bytes
+}
+
+async function queryCheckoutFile(
+  input: CheckoutFileQuery & { maxBytes?: number },
+): Promise<string | { size: number } | undefined> {
   const res = await fetchWithAuth(
     `${codesearchBaseUrl()}/${input.repositoryId}/files-query`,
     {
@@ -247,6 +276,7 @@ export async function fetchCheckoutFileBytes(input: {
       body: JSON.stringify({
         paths: [input.path],
         ...(input.root ? { root: input.root } : {}),
+        ...(input.maxBytes ? { maxBytes: input.maxBytes } : {}),
       }),
     },
     input.repositoryId,
@@ -261,8 +291,6 @@ export async function fetchCheckoutFileBytes(input: {
   if (!res.ok) {
     await raiseCodesearchFailure("fetchCheckoutFileBytes", res, "checkout")
   }
-  const encoded = (await res.json()) as Record<string, string>
-  const b64 = encoded[input.path]
-  if (b64 === undefined) return null
-  return Buffer.from(b64, "base64")
+  const files = (await res.json()) as Record<string, string | { size: number }>
+  return files[input.path]
 }

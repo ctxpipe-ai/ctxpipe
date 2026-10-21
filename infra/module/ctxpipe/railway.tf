@@ -7,6 +7,21 @@ resource "railway_project" "this" {
 
   lifecycle {
     prevent_destroy = true
+    # Railway provider 0.6.1 Update() writes the first environment that
+    # projectUpdate returns into default_environment, without the sort by age
+    # that Read() does. When a pr-* environment comes first, the apply fails
+    # with "Provider produced inconsistent result after apply". Thus
+    # Terraform never updates this project. Change the project settings in
+    # the Railway UI. Read() still refreshes default_environment, oldest first.
+    ignore_changes = all
+
+    # Each variable below writes to default_environment.id. Stop the plan
+    # when that is not the environment we deploy, so that production values
+    # never go to a PR environment.
+    postcondition {
+      condition     = self.default_environment.name == var.railway_environment_name
+      error_message = "The oldest environment of the Railway project is not \"${var.railway_environment_name}\". Terraform would write the production variables to the wrong environment. Fix: make sure that the ${var.railway_environment_name} environment exists and is the oldest environment in the project, then run Deploy again."
+    }
   }
 }
 

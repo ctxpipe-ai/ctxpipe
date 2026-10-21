@@ -12,7 +12,9 @@ railway_graphql() {
     echo "railway_graphql: RAILWAY_TOKEN or RAILWAY_API_TOKEN is not set" >&2
     return 1
   fi
-  raw="$(curl -sS -w '\n%{http_code}' \
+  # A Railway call that never answers hung a production Deploy for 90
+  # minutes. Stop each call after 2 minutes, so the step fails with a cause.
+  raw="$(curl -sS --connect-timeout 20 --max-time 120 -w '\n%{http_code}' \
     -H "Authorization: Bearer $token" \
     -H "Content-Type: application/json" \
     -d "$(jq -nc --arg q "$query" --argjson v "$variables" '{query:$q,variables:$v}')" \

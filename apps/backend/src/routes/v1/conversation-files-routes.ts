@@ -10,12 +10,14 @@ import {
 } from "../../domain/workspaces/conversation-diff.js"
 import {
   attachTurnSandboxForRead,
+  ConversationFileChangedError,
   conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
   listConversationSandboxPaths,
   readConversationSandboxFile,
+  readConversationSandboxFileBytes,
   removeConversationSandboxPath,
   renameConversationSandboxPath,
   UnsafeConversationPathError,
@@ -29,6 +31,11 @@ import { EXPLORER_GIT_STATUSES } from "../../domain/workspaces/git-explorer.js"
 import { adaptTanstackHandle } from "../../domain/workspaces/job-sandbox.js"
 import type { JobSandboxHandle } from "../../domain/workspaces/job-worktree.js"
 import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
+import {
+  RAW_FILE_MAX_BYTES,
+  rawFileHeaders,
+  rawFileTooLargeMessage,
+} from "../../domain/workspaces/raw-file.js"
 import {
   postgresSandboxLocks,
   withSandboxLockIfFree,
@@ -87,6 +94,9 @@ const ConversationGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    size: z.number().int().optional().openapi({
+      description: "Size in bytes of a binary file.",
+    }),
     readOnlyReason: z.string().optional().openapi({
       description:
         "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
@@ -290,6 +300,52 @@ const getBlobRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Chat sandbox missing",
+    },
+  },
+})
+
+const getRawRoute = createRoute({
+  method: "get",
+  path: "/{conversationId}/files/raw",
+  request: {
+    params: ConversationParamsSchema,
+    query: ConversationGitBlobQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/octet-stream": {
+          schema: z.string().openapi({ format: "binary" }),
+        },
+      },
+      description:
+        "Sandbox file bytes. Only raster images are inline; every other type is an attachment.",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Workspace configuration invalid",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description:
+        "Chat sandbox missing, a turn is running (`turn_running`), the chat sandbox starts (`chat_starting`), or the file changed during the read (`file_changed`)",
+    },
+    413: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "File is larger than the raw file limit",
+    },
+    429: sandboxAtCapacityResponse,
+    503: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Sandbox provider unavailable",
     },
   },
 })
@@ -580,6 +636,33 @@ async function conversationFileSnapshot(input: {
   }
 }
 
+/**
+ * The sandbox that a file read uses. While a turn holds the lock, the read
+ * attaches to the running sandbox and changes nothing.
+ */
+async function conversationReadHandle(
+  loaded: NonNullable<Awaited<ReturnType<typeof loadConversationWorkspace>>>,
+  turnRunning: boolean | undefined,
+) {
+  if (turnRunning) {
+    const attached = await attachTurnSandboxForRead({
+      orgId: loaded.conversation.orgId,
+      conversationId: loaded.conversation.id,
+      signal: loaded.abortSignal,
+    })
+    // Nothing runs to read (the idle sweep may hold the lock): the pane
+    // polls again.
+    if (!attached)
+      return {
+        ok: false as const,
+        status: 409 as const,
+        error: await conversationBusyError(loaded.conversation.id),
+      }
+    return { ok: true as const, handle: attached }
+  }
+  return readySandboxHandle({ ...loaded, existingOnly: true })
+}
+
 type ConversationFileEnv = AppEnv & {
   Variables: {
     sandboxAbortSignal: AbortSignal
@@ -657,6 +740,7 @@ const fileRoutes = new OpenAPIHono<ConversationFileEnv>()
 fileRoutes.get("/:conversationId/files/tree", readWithoutWait)
 fileRoutes.get("/:conversationId/files/status", readWithoutWait)
 fileRoutes.get("/:conversationId/files/blob", readDuringTurn)
+fileRoutes.get("/:conversationId/files/raw", readDuringTurn)
 fileRoutes.use("/:conversationId/files/*", withConversationFileLock)
 // A turn records its changes before it releases the lock. A read while the
 // lock is held would miss them, so it answers 409 and the UI asks again.
@@ -705,27 +789,9 @@ export const conversationFileRoutes = fileRoutes
       c.get("sandboxAbortSignal"),
     )
     if (!loaded) return c.json({ error: "Not found" }, 404)
-    let handle: JobSandboxHandle
-    if (c.get("turnRunning")) {
-      const attached = await attachTurnSandboxForRead({
-        orgId: loaded.conversation.orgId,
-        conversationId,
-        signal: c.get("sandboxAbortSignal"),
-      })
-      // Nothing runs to read (the idle sweep may hold the lock): the pane
-      // polls again.
-      if (!attached)
-        return c.json(
-          { error: await conversationBusyError(conversationId) },
-          409,
-        )
-      handle = attached
-    } else {
-      const ready = await readySandboxHandle({ ...loaded, existingOnly: true })
-      if (!ready.ok) return c.json({ error: ready.error }, ready.status)
-      handle = ready.handle
-    }
-    const blob = await readConversationSandboxFile(handle, path)
+    const read = await conversationReadHandle(loaded, c.get("turnRunning"))
+    if (!read.ok) return c.json({ error: read.error }, read.status)
+    const blob = await readConversationSandboxFile(read.handle, path)
     if (blob) return c.json(blob, 200)
     // A main-era knowledge unit that hydrate serves from Postgres: it is not
     // in the sandbox, and it is read-only.
@@ -741,6 +807,38 @@ export const conversationFileRoutes = fileRoutes
         readOnlyReason: LEGACY_KNOWLEDGE_READ_ONLY,
       },
       200,
+    )
+  })
+  .openapi(getRawRoute, async (c) => {
+    if (!requireUser(c)) return c.json({ error: "Unauthorized" }, 401)
+    const conversationId = c.req.param("conversationId")
+    const path = c.req.query("path") ?? ""
+    const loaded = await loadConversationWorkspace(
+      conversationId,
+      c.get("sandboxAbortSignal"),
+    )
+    if (!loaded) return c.json({ error: "Not found" }, 404)
+    const read = await conversationReadHandle(loaded, c.get("turnRunning"))
+    if (!read.ok) return c.json({ error: read.error }, read.status)
+    let file: Awaited<ReturnType<typeof readConversationSandboxFileBytes>>
+    try {
+      file = await readConversationSandboxFileBytes(
+        read.handle,
+        path,
+        RAW_FILE_MAX_BYTES,
+      )
+    } catch (error) {
+      if (error instanceof ConversationFileChangedError)
+        return c.json({ error: "file_changed" }, 409)
+      throw error
+    }
+    if (file.kind === "missing") return c.json({ error: "Not found" }, 404)
+    if (file.kind === "too_large")
+      return c.json({ error: rawFileTooLargeMessage(file.size) }, 413)
+    return c.body(
+      new Uint8Array(file.bytes),
+      200,
+      rawFileHeaders(path, file.bytes.length),
     )
   })
   .openapi(getStatusRoute, async (c) => {

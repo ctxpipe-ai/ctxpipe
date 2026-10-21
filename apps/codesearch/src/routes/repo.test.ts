@@ -741,6 +741,23 @@ describe("reads stay inside the checkout", () => {
     expect(atob(body["in-link"] as string)).toBe("inside\n")
   })
 
+  it("POST /files-query with maxBytes gives only the size of a larger file", async () => {
+    await writeFile(join(checkoutDir, "big.bin"), Buffer.alloc(11))
+    await writeFile(join(checkoutDir, "fits.bin"), Buffer.alloc(10, 1))
+    const app = createTestApp()
+    const res = await app.request("/repo_abcdef27/files-query", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ paths: ["big.bin", "fits.bin"], maxBytes: 10 }),
+    })
+
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({
+      "big.bin": { size: 11, tooLarge: true },
+      "fits.bin": Buffer.alloc(10, 1).toString("base64"),
+    })
+  })
+
   it("POST /files-query with a root reads only below the root folder", async () => {
     // The link stays in the checkout but leaves the root folder.
     await symlink("../inside.txt", join(checkoutDir, "sub", "up-link"))

@@ -42,6 +42,11 @@ import type {
   WorkspaceGitTreeResponse,
 } from "./types"
 import {
+  isSvgFile,
+  rawFileUrl,
+  WorkspaceBinaryFile,
+} from "./WorkspaceBinaryFile"
+import {
   WorkspaceFileTree,
   type WorkspaceFileTreeItem,
 } from "./WorkspaceFileTree"
@@ -1136,6 +1141,7 @@ function GitFilePreviewBody(props: {
     path: string
     body: string | null
     binary: boolean
+    size?: number
     readOnlyReason?: string
   }
 }) {
@@ -1155,12 +1161,14 @@ function GitFilePreviewBody(props: {
     }
   }
   if (data.binary) {
+    const rawUrl = rawFileUrl(props)
     return (
-      <div className="flex h-full min-h-0 items-center p-4">
-        <p className="text-sm text-muted-foreground">
-          This file is binary and cannot be previewed.
-        </p>
-      </div>
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        size={data.size}
+        rawUrl={rawUrl}
+      />
     )
   }
   const headBody = agentUpdated ? loadedBody : data.body
@@ -1174,7 +1182,7 @@ function GitFilePreviewBody(props: {
       </div>
     )
   }
-  return (
+  const textView = (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {data.readOnlyReason ? (
         <output className="block px-3 py-2 text-xs text-muted-foreground">
@@ -1212,4 +1220,16 @@ function GitFilePreviewBody(props: {
       </div>
     </div>
   )
+  if (isSvgFile(data.path)) {
+    const rawUrl = rawFileUrl(props)
+    return (
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        rawUrl={rawUrl}
+        source={textView}
+      />
+    )
+  }
+  return textView
 }
