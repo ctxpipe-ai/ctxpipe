@@ -29,3 +29,12 @@ output "ctxpipe_app_password" {
   sensitive = true
 }
 
+
+# Set these in Cloudflare (DNS only, proxy off) so Railway can issue the certificate.
+output "www_app_dns_record" {
+  value = {
+    name   = railway_custom_domain.www_app.domain
+    target = railway_custom_domain.www_app.dns_record_value
+    type   = "CNAME"
+  }
+}

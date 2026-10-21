@@ -23,3 +23,7 @@ output "ctxpipe_app_password" {
   sensitive = true
 }
 
+
+output "www_app_dns_record" {
+  value = module.ctxpipe.www_app_dns_record
+}
