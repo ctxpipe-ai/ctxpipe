@@ -182,8 +182,10 @@ async function withBox(
             )
             return {
               exitCode: r.exitCode,
-              output: async (stream) =>
-                stream === "stderr" ? r.stderr : r.stdout,
+              logs: async function* () {
+                yield { stream: "stdout" as const, data: r.stdout }
+                yield { stream: "stderr" as const, data: r.stderr }
+              },
             }
           },
         })

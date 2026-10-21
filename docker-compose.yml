@@ -345,6 +345,10 @@ services:
       context: .
       dockerfile: apps/backend/Dockerfile.worker
     restart: unless-stopped
+    # Docker waits this long after SIGTERM before SIGKILL (the default is
+    # 10 seconds). The worker marks its step attempts stopped in this time,
+    # and its supervisor kills the worker after 25 seconds.
+    stop_grace_period: 30s
     environment:
       NODE_ENV: production
       DATABASE_URL: postgresql://ctxpipe_app:${POSTGRES_PASSWORD:-ctxpipe}@postgres:5432/${POSTGRES_DB:-ctxpipe}

@@ -1031,6 +1031,8 @@ jobs:
               # Explicit OPENWORKFLOW_PR_IDLE_EXIT so supervisor idle-exits even if
               # RAILWAY_ENVIRONMENT_NAME is missing. 180s idle; 6h stale window
               # so a long connector reconciliation is not killed as "idle".
+              # The worker gets 30 seconds from SIGTERM to SIGKILL to mark its
+              # step attempts failed (CTX-971).
               railway_graphql \
                 'mutation variableCollectionUpsert($input: VariableCollectionUpsertInput!) { variableCollectionUpsert(input: $input) }' \
                 "$(jq -nc --arg project "$RAILWAY_PROJECT_ID" --arg env "$ENV_ID" --arg service "$service_id" \
@@ -1045,11 +1047,12 @@ jobs:
                         OPENWORKFLOW_IDLE_EXIT_SECONDS: "180",
                         OPENWORKFLOW_IDLE_STALE_AFTER_HOURS: "6",
                         OPENWORKFLOW_CONCURRENCY: "6",
-                        CODESEARCH_INDEXER_CONCURRENCY: "1"
+                        CODESEARCH_INDEXER_CONCURRENCY: "1",
+                        RAILWAY_DEPLOYMENT_DRAINING_SECONDS: "30"
                       }
                     }
                   }')"
-              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 + small capacity pair for worker $service_id"
+              echo "Set OPENWORKFLOW_PR_IDLE_EXIT + IDLE_EXIT=180 + STALE_AFTER_HOURS=6 + small capacity pair + 30s drain for worker $service_id"
             }
 
             upsert_preview_codesearch_capacity() {
