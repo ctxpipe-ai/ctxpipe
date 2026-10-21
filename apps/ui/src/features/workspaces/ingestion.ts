@@ -18,7 +18,7 @@ type WorkspaceIngestionResponse = InferResponseType<
 export type IngestionItem = WorkspaceIngestionResponse["items"][number]
 
 /** A Workspace of the org that ingests now, with the count of its work. */
-export type WorkspaceIngestionCount = OrgIngestionResponse["workspaces"][number]
+type WorkspaceIngestionCount = OrgIngestionResponse["workspaces"][number]
 
 const ingestionKeys = {
   org: (orgSlug: string) => ["workspace-ingestion", orgSlug] as const,
