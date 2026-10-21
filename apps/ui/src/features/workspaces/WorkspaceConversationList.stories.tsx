@@ -57,6 +57,32 @@ export const WithConversations: Story = {
   },
 }
 
+export const SwitchFromOpenFile: Story = {
+  parameters: {
+    storyRoute: {
+      pattern: "orgIndex",
+      orgSlug: "acme",
+      search: "?pane=file%3Aa.md",
+    } satisfies StoryRouteParams,
+    msw: {
+      handlers: {
+        page: [conversationsListHandler(docsConversations)],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const link = await canvas.findByRole("link", { name: "Auth claims" })
+    const href = link.getAttribute("href") ?? ""
+    await expect(href).toContain("pane=files")
+    await expect(href).not.toContain("a.md")
+    const current = await canvas.findByRole("link", { name: "Repo layout" })
+    await expect(current.getAttribute("href") ?? "").toContain(
+      "pane=file%3Aa.md",
+    )
+  },
+}
+
 export const Empty: Story = {
   parameters: {
     msw: {

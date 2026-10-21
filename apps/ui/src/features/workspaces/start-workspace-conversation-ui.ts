@@ -6,6 +6,7 @@ import type {
   ConversationDetail,
   ConversationListInfiniteData,
 } from "@/features/chat/types"
+import { paneSearchForOtherConversation } from "./pane"
 import {
   workspaceDetailOptions,
   workspaceKeys,
@@ -139,7 +140,7 @@ export function openWorkspaceConversation(input: {
       workspaceSlug: input.workspace.slug,
       conversationId,
     },
-    search: (prev) => prev,
+    search: (prev) => paneSearchForOtherConversation(prev),
   })
 }
 

@@ -1477,7 +1477,7 @@ export const SettingsPaneLandsOnUpgrades: Story = {
   },
 }
 
-/** Fix using agent closes the pane and fills the composer of a new conversation. */
+/** Fix using agent fills the composer of a new conversation and keeps the settings pane open. */
 export const FixUsingAgentOpensChat: Story = {
   parameters: {
     storyRoute: workspaceRoute({ pane: "settings" }),
@@ -1508,7 +1508,7 @@ export const FixUsingAgentOpensChat: Story = {
         "Hydrate skipped knowledge/billing/tax.md: Front matter is not valid. Fix the front matter of this file so that it is valid, then open the change.",
       ),
     )
-    expect(canvas.queryByText("Workspace settings")).toBeNull()
+    await expect(canvas.getByText("Workspace settings")).toBeVisible()
   },
 }
 

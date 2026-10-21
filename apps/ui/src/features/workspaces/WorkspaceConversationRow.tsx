@@ -31,7 +31,7 @@ import {
   conversationStatus,
   conversationStatusLabel,
 } from "./conversationStatus"
-import type { workspaceSearch } from "./pane"
+import type { paneSearchForOtherConversation } from "./pane"
 import { deleteConversation, workspaceKeys } from "./queries"
 import type { Workspace } from "./types"
 
@@ -72,7 +72,7 @@ export function WorkspaceConversationRow(props: {
   active: boolean
   navExpanded: boolean
   href: string
-  paneSearch: ReturnType<typeof workspaceSearch>
+  paneSearch: ReturnType<typeof paneSearchForOtherConversation>
   prefetchConversation: (conversationId: string) => void
   onSelectNav: (next: SideNavLocation) => void
 }) {
