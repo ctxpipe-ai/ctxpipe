@@ -55,7 +55,7 @@ type HydrateWriteHistory = {
  *
  * Below format 3 hydrate plans no write (ADR-053 section 7): the upgrade
  * pull request makes each layout change, also the bootstrap files and the
- * claim and valid_from rewrites. At format 3 or more these are ctx|-managed
+ * claim and valid_from rewrites. At format 3 or more these are ctxpipe-managed
  * files of a v2 Workspace, so hydrate keeps them current.
  */
 export async function planHydrateWrites(input: {

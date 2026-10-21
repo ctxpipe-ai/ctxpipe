@@ -39,7 +39,7 @@ export function FormatUpgradeNotice(props: {
   const canStart = item?.status === "awaiting_operator"
   const cause = item?.failure
     ? upgradeFailureCopy(item.failure).reason
-    : (item?.failureReason ?? "ctx| gives no reason.")
+    : (item?.failureReason ?? "ctxpipe gives no reason.")
   return (
     <InlineAlert
       variant={failed ? "error" : "warning"}

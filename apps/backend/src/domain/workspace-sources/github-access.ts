@@ -47,7 +47,7 @@ export async function checkGithubSourceAccess(input: {
       })
   }
   return missing.length
-    ? `ctx| has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`
+    ? `ctxpipe has no access to these repositories: ${missing.join(", ")}. Add them to the GitHub App installation of this connection.`
     : null
 }
 

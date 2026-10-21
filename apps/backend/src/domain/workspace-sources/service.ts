@@ -99,7 +99,7 @@ function pathOfBranchName(name: string): string {
 /**
  * The branch of a source pull request. A rename gives `[old, new]` as
  * `paths`. GitHub refuses a very long ref, so a branch name longer than 200
- * characters is refused (400) before ctx| writes anything.
+ * characters is refused (400) before ctxpipe writes anything.
  */
 function sourceBranch(action: SourceChange["action"], paths: string[]): string {
   const name = paths
@@ -125,7 +125,7 @@ function scopeSummary(row: WorkspaceSourceRow): string {
 /**
  * Every org member who can open the Workspace can change it (no Workspace
  * roles yet). A source changes only by a pull request, so the change needs a
- * connected repository that ctx| can push a branch to.
+ * connected repository that ctxpipe can push a branch to.
  */
 function canEditSources(workspace: WorkspaceRecord): boolean {
   return (
@@ -462,7 +462,7 @@ async function openSourcePullRequest(input: {
     branch,
     requireNewBranch: true,
     title: `${verb} ${subject}`,
-    body: `ctx| changes ${paths.map((path) => `\`${path}\``).join(", ")}. When you merge this pull request, the Workspace syncs the new sources.`,
+    body: `ctxpipe changes ${paths.map((path) => `\`${path}\``).join(", ")}. When you merge this pull request, the Workspace syncs the new sources.`,
     commitMessage: `${verb} ${subject}`,
     files: input.writes,
     deletePaths: input.deletes,

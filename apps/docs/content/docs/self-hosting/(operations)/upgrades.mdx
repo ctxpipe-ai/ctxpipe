@@ -1,6 +1,6 @@
 ---
 title: Upgrades
-description: Upgrade and rollback process for self-hosted ctx| deployments.
+description: Upgrade and rollback process for self-hosted ctxpipe deployments.
 ---
 
 Treat upgrades as an operational change: back up state, run migrations once,
@@ -67,7 +67,7 @@ release reads.
 - The migration deletes orphan rows (rows with no `org_id`) in
   `claim_evidence`, `confluence_spaces`, and `repository_checkouts`. The
   delete runs in the same transaction as the migration. If the migration
-  fails, the rows stay. ctx| keeps no copy of these rows.
+  fails, the rows stay. ctxpipe keeps no copy of these rows.
 - `org_id` stays nullable on these tables. Row-level security hides rows with
   no `org_id` from the app role.
 - A `BEFORE INSERT` trigger on each of the three tables copies `org_id` from
@@ -95,7 +95,7 @@ places. You do not need to change a connector setting.
 ### Workspace format file
 
 Each Workspace repository holds `.ctxpipe/workspace.yaml`. It has one key,
-`format`, with an integer. ctx| reads it at every hydrate and caches it in
+`format`, with an integer. ctxpipe reads it at every hydrate and caches it in
 `workspaces.format_version`.
 
 | Format | Layout |
@@ -125,7 +125,7 @@ deployments.
 
 - **Workspace settings:** open the Workspace, then **Settings**. The
   **Upgrades** section lists each item. It also shows the format of the
-  repository and the format that ctx| reads.
+  repository and the format that ctxpipe reads.
 - **Home alert:** the organization home page shows one alert for each
   Workspace that has an item to finish. Click **Review upgrades** to open the
   Workspace settings. The alert shows nothing when no item is pending.
@@ -147,8 +147,8 @@ If someone closes the pull request without a merge, the item goes back to
 
 #### Step 1 to 3: the git upgrade
 
-1. Click **Start** on the git upgrade. ctx| opens one pull request for the
-   Workspace on the branch `ctxpipe/upgrade/format-<target>`. ctx| never
+1. Click **Start** on the git upgrade. ctxpipe opens one pull request for the
+   Workspace on the branch `ctxpipe/upgrade/format-<target>`. ctxpipe never
    pushes to the default branch.
 2. The pull request holds one commit for each step that changes a file. The
    last commit writes `.ctxpipe/workspace.yaml`, the format file. This is
@@ -197,7 +197,7 @@ Workspace already holds.
   re-ingestions at once. A run that waits for its turn stays queued and
   starts when a slot is free. See
   [sandbox limits](/docs/workspaces/chat#sandbox-limits).
-- **Spend.** ctx| records the model spend of each repository run, and
+- **Spend.** ctxpipe records the model spend of each repository run, and
   does not cap it. A run does all of its steps. Use the limits of your
   model provider key to control spend. When a runtime reports no usage for
   a model step, the report shows "Spend unknown". The spend then counts
@@ -214,23 +214,23 @@ ingestion there.
 ### Repositories from before Workspaces
 
 Before Workspaces, an organization linked code repositories to the
-organization. When the organization moves to Workspaces, ctx| links these
+organization. When the organization moves to Workspaces, ctxpipe links these
 repositories to its **first Workspace**. The upgrade pull request of that
 Workspace does the work:
 
 - A GitHub repository becomes a GitHub source. After step 2 it is a source file
   at `sources/github/<owner>/<name>.md`.
 - A `repositories/*.md` file of a GitHub repository becomes a source file too.
-  Its `branch` becomes the `ref`. ctx| deletes the `repositories/*.md` file in
+  Its `branch` becomes the `ref`. ctxpipe deletes the `repositories/*.md` file in
   the same pull request.
 - A repository that the Workspace repository already is, or that another
   source already links, is not added again.
 - A repository that has no GitHub connection becomes a plain git source file at
-  `sources/git/<host>/<name>.md`, when ctx| can read its URL as a plain git URL
+  `sources/git/<host>/<name>.md`, when ctxpipe can read its URL as a plain git URL
   under the deployment's URL rule. See
   [Plain git repositories](/docs/workspaces/linked-repositories#plain-git-repositories)
   for the URL rules.
-- ctx| does not link any other repository. The pull request description names
+- ctxpipe does not link any other repository. The pull request description names
   each one. To add a plain git repository as a source, open a pull request in
   Git that adds its source file. Workspace **Settings** lists only GitHub App
   repositories. Or leave the repository out.

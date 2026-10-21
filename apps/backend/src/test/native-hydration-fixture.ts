@@ -429,7 +429,7 @@ async function createNativeHydrationFixture(
           : HttpResponse.json({ message: "Use native Git" }, { status: 404 })
       },
     ),
-    // The fixture GitHub App: it authors the pull requests that ctx| opens.
+    // The fixture GitHub App: it authors the pull requests that ctxpipe opens.
     http.get("https://api.github.com/app", () =>
       HttpResponse.json({ id: 12345, slug: "ctxpipe-fixture" }),
     ),

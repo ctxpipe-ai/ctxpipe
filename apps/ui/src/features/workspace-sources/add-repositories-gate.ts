@@ -34,7 +34,7 @@ export function addRepositoriesGate(input: {
       action: "Open Workspace settings",
     }
   // A format file that is not valid reads as a negative number. A format
-  // above the one that ctx| reads makes the Workspace read-only. An upgrade
+  // above the one that ctxpipe reads makes the Workspace read-only. An upgrade
   // does not fix either case.
   if (formatVersion < 0 || formatVersion > codeFormat)
     return {

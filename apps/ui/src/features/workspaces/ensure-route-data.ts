@@ -78,4 +78,3 @@ export function prefetchWorkspaceRouteData(
 ) {
   void ensureWorkspaceRouteData(input)
 }
-

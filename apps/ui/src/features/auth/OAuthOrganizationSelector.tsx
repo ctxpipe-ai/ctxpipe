@@ -29,7 +29,7 @@ export function OAuthOrganizationSelector({
           <p className="ctx-label">OAuth connection</p>
           <h1 className="text-xl font-medium">Choose an organization</h1>
           <p className="text-sm text-muted-foreground">
-            Claude will use ctx| data from this organization. The choice is
+            Claude will use ctxpipe data from this organization. The choice is
             bound to this connection and will not change when you switch
             organizations later.
           </p>
@@ -68,7 +68,7 @@ export function OAuthOrganizationSelector({
                 variant="outline"
                 className="rounded-md"
               >
-                Open ctx| setup
+                Open ctxpipe setup
               </Button>
             }
           >

@@ -104,7 +104,7 @@ export function upgradeLinkedRepositories(input: {
   skipped: Array<{ item: string; reason: string }>
   invalid: boolean
 } {
-  const onlyGithub = "ctx| links only GitHub repositories"
+  const onlyGithub = "ctxpipe links only GitHub repositories"
   const skips = new Map<string, string>()
   const moved: Array<{ path: string; gitUrl: string; ref: string | null }> = []
   const byConnection = new Map<

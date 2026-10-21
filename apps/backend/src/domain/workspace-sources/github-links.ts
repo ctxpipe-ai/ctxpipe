@@ -256,7 +256,7 @@ export function linkGithubSourceFile(input: {
  * Unlink one GitHub repository (`owner/name`): delete each GitHub source
  * file that names it. Returns null when no file does. Throws
  * {@link SourceChangeError} when the file at the path of the repository
- * cannot be read, because then ctx| cannot tell what it links.
+ * cannot be read, because then ctxpipe cannot tell what it links.
  */
 export function unlinkGithubSourceFile(input: {
   files: ReadonlyArray<RepoFile>

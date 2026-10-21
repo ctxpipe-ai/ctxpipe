@@ -19,7 +19,7 @@ import {
 } from "../../services/git/plain-git-remote.js"
 
 /**
- * The reason why ctx| does not read `gitUrl`, or null (CTX-815). With no
+ * The reason why ctxpipe does not read `gitUrl`, or null (CTX-815). With no
  * GitHub token, codesearch reads a repository as a plain git source, so
  * each URL must obey the plain git rules of the deployment mode, also the
  * DNS rule. The reason always states the protocol rule.
@@ -176,7 +176,7 @@ const createRepositoryRoute = createRoute({
           schema: ErrorResponseSchema,
         },
       },
-      description: "ctx| does not read this git URL",
+      description: "ctxpipe does not read this git URL",
     },
     500: {
       content: {
@@ -281,7 +281,7 @@ const reindexRepositoryRoute = createRoute({
           schema: ErrorResponseSchema,
         },
       },
-      description: "ctx| does not read the git URL of this repository",
+      description: "ctxpipe does not read the git URL of this repository",
     },
     401: {
       content: {

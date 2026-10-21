@@ -1,6 +1,6 @@
 ---
 title: Local memory
-description: How ctx| helps coding agents remember what your team teaches them, keep it in Git, and share it through your knowledge graph.
+description: How ctxpipe helps coding agents remember what your team teaches them, keep it in Git, and share it through your knowledge graph.
 ---
 
 <Callout type="info" title="This page changes often">
@@ -31,7 +31,7 @@ memory keeps those lessons:
   it runs in Cursor, Claude Code, Codex, OpenCode, or VS Code.
 - **With your team.** Memory is committed and reviewed like code, so a lesson one
   engineer teaches reaches everyone once it merges.
-- **In ctx|.** When the repository is linked to a Workspace, merged lessons
+- **In ctxpipe.** When the repository is linked to a Workspace, merged lessons
   become part of that Workspace's knowledge, and the MCP read tools pass them on to
   agents working in other repositories too.
 
@@ -51,7 +51,7 @@ memory keeps those lessons:
 4. **The pull request tells the story.** The agent summarizes the work in the
    pull request description: what changed, why, what was tried and ruled out, and
    what is left. That description is reviewed with the code.
-5. **ctx| learns from what merges.** After merge, ctx| reads
+5. **ctxpipe learns from what merges.** After merge, ctxpipe reads
    `lessons-learned.md` as instructions for how your team works, decision records
    as decisions, and, where pull request mirroring is enabled, pull request
    descriptions as the history behind each change.
@@ -83,7 +83,7 @@ home directory.
 npx ctxpipe memory init --agents cursor,claude --scope repo --non-interactive
 ```
 
-Or with the main setup wizard, which also configures the ctx| MCP:
+Or with the main setup wizard, which also configures the ctxpipe MCP:
 
 ```bash
 npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-interactive
@@ -107,14 +107,14 @@ npx ctxpipe init --org acme --agents cursor,claude --scope repo --memory --non-i
   events/              # candidate inbox, gitignored
 ```
 
-## Local memory and the ctx| MCP
+## Local memory and the ctxpipe MCP
 
 | | What it does |
 | --- | --- |
 | `ctxpipe` MCP (read tools) | Searches and reads your Workspaces: their knowledge files, connectors, and linked code. |
 | Local memory (this page) | Markdown in one repository plus agent hooks. It is not an MCP server. |
 
-You can use local memory on its own (`memory init`) or alongside the ctx| MCP
+You can use local memory on its own (`memory init`) or alongside the ctxpipe MCP
 (`init --memory`). Together, local memory is how agents learn, and the MCP is how
 that learning reaches every agent in your organization.
 

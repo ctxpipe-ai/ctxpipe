@@ -40,5 +40,5 @@ export function formatSlackBotMention(
   handle: string | null | undefined,
 ): string {
   const trimmed = handle?.replace(/^@/, "").trim()
-  return trimmed ? `@${trimmed}` : "the ctx| bot"
+  return trimmed ? `@${trimmed}` : "the ctxpipe bot"
 }

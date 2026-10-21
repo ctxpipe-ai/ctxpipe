@@ -144,7 +144,7 @@ export async function loginWithDeviceFlow({
 }): Promise<StoredAuth> {
   const normalizedBaseUrl = normalizeBaseUrl(baseUrl)
   const signInSpinner = spinner()
-  signInSpinner.start("Starting ctx| sign-in")
+  signInSpinner.start("Starting ctxpipe sign-in")
   let device: Record<string, unknown>
   try {
     device = await requestDeviceCode(normalizedBaseUrl)
@@ -209,7 +209,9 @@ async function requestDeviceCode(
   })
   const json = await response.json()
   if (!response.ok) {
-    throw new Error(authErrorMessage(json, "Could not start ctx| device login"))
+    throw new Error(
+      authErrorMessage(json, "Could not start ctxpipe device login"),
+    )
   }
   const data = unwrapBetterAuthData(json)
   if (!isObject(data) || !data.device_code || !data.verification_uri) {
@@ -250,14 +252,14 @@ async function pollDeviceToken({
       continue
     }
     if (code === "access_denied") {
-      throw new Error("The ctx| sign-in request was denied")
+      throw new Error("The ctxpipe sign-in request was denied")
     }
     if (code === "expired_token") {
-      throw new Error("The ctx| sign-in code expired")
+      throw new Error("The ctxpipe sign-in code expired")
     }
-    throw new Error(authErrorMessage(json, "ctx| sign-in failed"))
+    throw new Error(authErrorMessage(json, "ctxpipe sign-in failed"))
   }
-  throw new Error("ctx| sign-in timed out")
+  throw new Error("ctxpipe sign-in timed out")
 }
 
 /** Read `.ctxpipe/config.json` from cwd or any ancestor; returns null if absent. */
@@ -308,7 +310,9 @@ export async function fetchOrganizations({
   })
   const json = await response.json()
   if (!response.ok) {
-    throw new Error(authErrorMessage(json, "Could not load ctx| organizations"))
+    throw new Error(
+      authErrorMessage(json, "Could not load ctxpipe organizations"),
+    )
   }
   const data = unwrapBetterAuthData(json)
   if (!Array.isArray(data)) return []
@@ -337,7 +341,7 @@ export async function fetchSession({
   })
   const json = await response.json()
   if (!response.ok) {
-    throw new Error(authErrorMessage(json, "Could not load ctx| session"))
+    throw new Error(authErrorMessage(json, "Could not load ctxpipe session"))
   }
   const data = unwrapBetterAuthData(json)
   return isObject(data) ? data : {}
@@ -380,7 +384,7 @@ function authConnectionErrorMessage({
   const localHint = baseUrl.includes(".localhost")
     ? " For local testing, use the backend's direct local URL, such as `--base-url http://127.0.0.1:<backend-port>`."
     : ""
-  return `Could not reach ctx| auth at ${baseUrl}${code}.${localHint}`
+  return `Could not reach ctxpipe auth at ${baseUrl}${code}.${localHint}`
 }
 
 function unwrapBetterAuthData(json: unknown): unknown {
@@ -452,6 +456,6 @@ function stringField(
 
 function requiredString(value: Record<string, unknown>, key: string): string {
   const field = stringField(value, key)
-  if (!field) throw new Error(`Missing ${key} in ctx| auth response`)
+  if (!field) throw new Error(`Missing ${key} in ctxpipe auth response`)
   return field
 }

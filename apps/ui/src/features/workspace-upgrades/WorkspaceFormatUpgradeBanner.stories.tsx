@@ -127,7 +127,7 @@ export const Running: Story = {
     const canvas = within(canvasElement)
     await canvas.findByText(title)
     expect(
-      canvas.getByText("ctx| is preparing the upgrade pull request now."),
+      canvas.getByText("ctxpipe is preparing the upgrade pull request now."),
     ).toBeVisible()
     expect(
       canvas.queryByRole("button", { name: "Start the upgrade" }),

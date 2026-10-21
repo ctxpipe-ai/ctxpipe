@@ -681,8 +681,8 @@ function WorkspaceActivityError(props: {
     >
       {props.cause === "github" ? (
         <>
-          ctx| could not read the commit history of this Workspace from GitHub.
-          Reconnect GitHub in{" "}
+          ctxpipe could not read the commit history of this Workspace from
+          GitHub. Reconnect GitHub in{" "}
           <Link
             to="/$orgSlug/connectors"
             params={{ orgSlug: props.orgSlug }}
@@ -700,7 +700,7 @@ function WorkspaceActivityError(props: {
         </>
       ) : (
         <>
-          The activity request to ctx| failed. Check your network connection,
+          The activity request to ctxpipe failed. Check your network connection,
           then try again. The composer still works.
         </>
       )}

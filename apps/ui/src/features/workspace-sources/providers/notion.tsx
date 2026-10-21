@@ -33,9 +33,7 @@ type NotionRootItem = {
 }
 
 /** The picker selection of a source scope. A bad scope starts empty. */
-function notionScopeToItems(
-  scope: Record<string, unknown>,
-): NotionRootItem[] {
+function notionScopeToItems(scope: Record<string, unknown>): NotionRootItem[] {
   const parsed = notionSourceScopeSchema.safeParse(scope)
   if (!parsed.success) return []
   return [
@@ -153,8 +151,8 @@ export function NotionScopeEditor(props: SourceScopeEditorProps) {
           </InlineAlert>
         ) : listed.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            No pages or databases found. Share them with the ctx| integration in
-            Notion, then search again.
+            No pages or databases found. Share them with the ctxpipe integration
+            in Notion, then search again.
           </p>
         ) : (
           <CheckboxGroup

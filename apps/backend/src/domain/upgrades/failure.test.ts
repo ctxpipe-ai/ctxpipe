@@ -31,7 +31,7 @@ describe("classifyUpgradeFailure", () => {
   it.each([
     [
       [
-        "ctx| cannot read the default branch of the repository. Repository not found.",
+        "ctxpipe cannot read the default branch of the repository. Repository not found.",
       ],
       "source_access",
       "read_source",
@@ -80,7 +80,7 @@ describe("classifyUpgradeFailure", () => {
 
   it.each([
     "stdout maxBuffer length exceeded",
-    "The Git repository is too large for ctx| to read in one step: the Git pack of its commit is 300 MiB, and the limit is 190 MiB.",
+    "The Git repository is too large for ctxpipe to read in one step: the Git pack of its commit is 300 MiB, and the limit is 190 MiB.",
   ])("names a Git output that is too large as a known cause: %s", (failureReason) => {
     expect(
       classifyUpgradeFailure({ status: "failed", failureReason }),
@@ -106,7 +106,7 @@ describe("classifyUpgradeFailure", () => {
       classifyUpgradeFailure({
         status: "failed",
         failureReason:
-          "Git fetch did not finish in the time that ctx| waits (600 s).",
+          "Git fetch did not finish in the time that ctxpipe waits (600 s).",
       }),
     ).toMatchObject({ code: "timeout", step: null })
   })
@@ -137,11 +137,11 @@ describe("classifyUpgradeFailure", () => {
     expect(
       classifyUpgradeFailure({
         status: "failed",
-        failureReason: "ctx| could not queue the upgrade. Start it again.",
+        failureReason: "ctxpipe could not queue the upgrade. Start it again.",
       }),
     ).toMatchObject({
       code: "unknown",
-      summary: "ctx| could not queue the upgrade.",
+      summary: "ctxpipe could not queue the upgrade.",
     })
     expect(
       classifyUpgradeFailure({ status: "failed", failureReason: null }),
@@ -149,7 +149,7 @@ describe("classifyUpgradeFailure", () => {
       code: "unknown",
       step: null,
       repository: null,
-      summary: "ctx| recorded no reason.",
+      summary: "ctxpipe recorded no reason.",
     })
   })
 

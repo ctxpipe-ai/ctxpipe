@@ -409,7 +409,7 @@
   }
 }
 
-/* ctx| product surface primitives (shared page chrome) */
+/* ctxpipe product surface primitives (shared page chrome) */
 @layer components {
   .ctx-label {
     @apply font-mono text-xs uppercase tracking-[0.24em] text-muted-foreground;

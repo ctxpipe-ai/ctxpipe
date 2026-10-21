@@ -145,7 +145,7 @@ export function ConnectorListItem({
   /**
    * The provider account of the connection, for example the Linear workspace
    * or the GitHub organization. The row labels it "Account", so that it is
-   * not read as a ctx| Workspace.
+   * not read as a ctxpipe Workspace.
    */
   workspace: ReactNode
   /**

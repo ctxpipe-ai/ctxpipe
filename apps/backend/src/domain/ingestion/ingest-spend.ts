@@ -4,7 +4,7 @@ import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import type { IngestStepUsage } from "./ingest-shard-runtime.js"
 
 /*
- * The model spend of an ingestion v2 run. ctx| records the spend in the
+ * The model spend of an ingestion v2 run. ctxpipe records the spend in the
  * step outputs, the traces and the upgrade records. It does not cap it
  * (ADR-052).
  */

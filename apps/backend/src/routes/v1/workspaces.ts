@@ -59,7 +59,7 @@ const WorkspaceSkippedFileSchema = z
     }),
     source: z.literal("legacy-overlay").optional().openapi({
       description:
-        "`legacy-overlay`: the file is not in Git. ctx| builds it from its database for knowledge from before Workspaces, so an edit of the Workspace repository cannot fix it.",
+        "`legacy-overlay`: the file is not in Git. ctxpipe builds it from its database for knowledge from before Workspaces, so an edit of the Workspace repository cannot fix it.",
     }),
   })
   .openapi("WorkspaceSkippedFile")
@@ -73,7 +73,7 @@ const WorkspaceSchema = z
     workspaceRepositoryUrl: z.string(),
     rootPath: z.string().openapi({
       description:
-        'Folder in the repository that holds the Workspace. ctx| reads and changes files only below it. `""` is the repository root.',
+        'Folder in the repository that holds the Workspace. ctxpipe reads and changes files only below it. `""` is the repository root.',
     }),
     githubConnectionId: z.string().nullable(),
     desiredGeneration: z.number().int(),

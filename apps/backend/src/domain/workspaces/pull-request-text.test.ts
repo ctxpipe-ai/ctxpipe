@@ -50,7 +50,7 @@ describe("pullRequestTitle", () => {
 
   it("falls back to a fixed title without a name or files", () => {
     expect(pullRequestTitle("  ", { commits: [], files: [] })).toBe(
-      "Changes from ctx|",
+      "Changes from ctxpipe",
     )
   })
 })
@@ -66,7 +66,7 @@ describe("pullRequestBody", () => {
         "- docs: add referral bonus knowledge",
         "- Link the referral page from the loyalty program",
         "",
-        "[Open the conversation in ctx|](https://app.example.com/acme/ws/docs/conv_1)",
+        "[Open the conversation in ctxpipe](https://app.example.com/acme/ws/docs/conv_1)",
       ].join("\n"),
     )
   })
@@ -88,6 +88,6 @@ describe("pullRequestBody", () => {
         changes: { commits: [], files: [] },
         conversationUrl: null,
       }),
-    ).toBe("Changes made in a ctx| conversation.")
+    ).toBe("Changes made in a ctxpipe conversation.")
   })
 })

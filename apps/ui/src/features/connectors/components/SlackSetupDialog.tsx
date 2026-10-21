@@ -175,7 +175,7 @@ export function SlackSetupDialog({
               </h2>
               <p className="mt-2 text-sm text-muted-foreground">
                 Save a Slack thread to your Workspaces when someone mentions the
-                ctx| bot in it. The bot reads nothing else.
+                ctxpipe bot in it. The bot reads nothing else.
               </p>
               <a
                 href={SLACK_DOCS_URL}
@@ -313,7 +313,8 @@ export function SlackSetupDialog({
                   <code className="rounded-md bg-muted px-1 py-0.5 text-[11px]">
                     {formatSlackBotMention(status?.botHandle)}
                   </code>
-                  . ctx| saves the thread to each Workspace with that channel.
+                  . ctxpipe saves the thread to each Workspace with that
+                  channel.
                 </li>
               </ol>
             </section>

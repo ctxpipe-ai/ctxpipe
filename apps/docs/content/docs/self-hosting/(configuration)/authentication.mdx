@@ -1,9 +1,9 @@
 ---
 title: Authentication
-description: Establish the public auth origin, protect signing secrets, and choose sign-in methods for self-hosted ctx|.
+description: Establish the public auth origin, protect signing secrets, and choose sign-in methods for self-hosted ctxpipe.
 ---
 
-ctx| uses [Better Auth](https://www.better-auth.com) for identity management.
+ctxpipe uses [Better Auth](https://www.better-auth.com) for identity management.
 All browser sign-in, provider callbacks, sessions, and MCP OAuth flow through the
 same public backend origin.
 
@@ -42,7 +42,7 @@ verification is not required and the backend logs a warning at startup.
 
 ## Social providers (OAuth)
 
-ctx| supports GitHub, Google, and Microsoft social sign-in.
+ctxpipe supports GitHub, Google, and Microsoft social sign-in.
 Each provider is enabled conditionally - if the corresponding client ID and
 secret are set in the backend environment, the sign-in option appears.
 
@@ -69,7 +69,7 @@ both through your production TLS domain; WebAuthn credentials are origin-bound.
 
 ## MCP OAuth and API keys
 
-ctx| is an OAuth provider for downstream MCP clients. It supports discovery,
+ctxpipe is an OAuth provider for downstream MCP clients. It supports discovery,
 dynamic client registration, and device authorization for compatible headless
 clients.
 

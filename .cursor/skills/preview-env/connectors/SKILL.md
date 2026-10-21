@@ -36,7 +36,7 @@ Health chips on a closed card: **Connected** · **Not yet connected** · **Could
 ### CON-3 Linear: connect, config PR, initial sync (`needs-human`, `gated-live-oauth`)
 **Requires** `LINEAR_TEST`; ONB-3; ONB-4 (destination Workspace 1); HYD-1.
 **Steps**
-1. **Add connection**, **Linear**; human authorizes the read-only ctx| app in the popup.
+1. **Add connection**, **Linear**; human authorizes the read-only ctxpipe app in the popup.
 2. Select Workspace 1 as the destination and at least one team or project as scope.
 3. Wait for the configuration pull request; human (or `gh`, with `merge-pr`) merges it.
 4. Wait for **Connected**.
@@ -47,12 +47,12 @@ Health chips on a closed card: **Connected** · **Not yet connected** · **Could
 **Evidence** `CON-3-1.png`, `CON-3-2.png`; PR URL; `gh api` commit; run ids and traces.
 
 ### CON-4 Notion: connect, config PR, initial sync (`needs-human`, `gated-live-oauth`)
-Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared with the ctx| integration (select it in setup). **Expect (backend)** `notion/config.yaml` PR; after merge `notion-sync-config`, `workspace-connector-mirror`, files under `notion/`. **Budget**, **Evidence** as CON-3.
+Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared with the ctxpipe integration (select it in setup). **Expect (backend)** `notion/config.yaml` PR; after merge `notion-sync-config`, `workspace-connector-mirror`, files under `notion/`. **Budget**, **Evidence** as CON-3.
 
 ### CON-5 Slack: connect and capture a thread (`needs-human`, `gated-live-oauth`)
 **Requires** `SLACK_TEST`; ONB-3; ONB-4.
 **Steps**
-1. **Add connection**, **Slack**; human installs the ctx| app, choose Workspace 1.
+1. **Add connection**, **Slack**; human installs the ctxpipe app, choose Workspace 1.
 2. In Slack, invite the bot to a channel, start a thread, and **@mention** the bot inside it (a channel-top-level mention is refused).
 
 **Expect (UI)** the card is **Connected** with the bot handle (the handle alone is not capture proof); the bot replies in the thread when it captures.
@@ -63,7 +63,7 @@ Same shape as CON-3. **Requires** `NOTION_TEST` with a page or database shared w
 ### CON-6 Confluence: connect through Forge install, config PR, sync (`needs-human`, `gated-live-oauth`)
 **Requires** `CONFLUENCE_TEST`; ONB-3; ONB-4.
 **Steps**
-1. **Add connection**, **Confluence**; link the Atlassian account (OAuth), install the ctx| Forge app in the site (human), link GitHub, select Workspace 1 and spaces.
+1. **Add connection**, **Confluence**; link the Atlassian account (OAuth), install the ctxpipe Forge app in the site (human), link GitHub, select Workspace 1 and spaces.
 2. Merge the `confluence/config.yaml` PR.
 
 **Expect (UI)** the wizard advances through its steps to **Setup complete**; the card is **Connected**.

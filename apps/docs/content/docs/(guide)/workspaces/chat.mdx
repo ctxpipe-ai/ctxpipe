@@ -78,10 +78,10 @@ continues on a fresh branch (`…/<n+1>`) from the new default commit. Work
 that is not in the merged pull request moves to that branch. A pull request
 that is closed without a merge keeps its branch: choose **Create PR** again to
 open a new pull request from it. If someone else pushes to the conversation's
-branch, ctx| does not overwrite their commits: ask the agent to rebase onto
+branch, ctxpipe does not overwrite their commits: ask the agent to rebase onto
 their commits before you push again.
 
-If the default branch moves while a conversation is open, ctx| brings the
+If the default branch moves while a conversation is open, ctxpipe brings the
 conversation's branch up to date before the next message. If that update
 conflicts, the conversation shows **Branch needs a rebase**; keep chatting and
 the agent resolves the conflict before you publish.
@@ -93,7 +93,7 @@ workspace repository. The first message in a conversation may take a little
 longer while the sandbox starts (**Setting up sandbox**); later messages reuse
 it.
 
-On hosted ctx|, each conversation gets its own
+On hosted ctxpipe, each conversation gets its own
 [Vercel Sandbox](https://vercel.com/docs/vercel-sandbox) microVM, never shared
 with another conversation or organization:
 
@@ -103,7 +103,7 @@ with another conversation or organization:
   last used. Before that, commits not yet on GitHub are pushed to the
   conversation's branch. If someone else pushed to that branch, the commits
   go to a fresh branch. The pull request stays with the old branch, so choose
-  **Create PR** to open one from the fresh branch. If the push fails, ctx|
+  **Create PR** to open one from the fresh branch. If the push fails, ctxpipe
   keeps the sandbox and tries again later. Files nobody committed are deleted
   with the sandbox.
 - **The agent can use the internet.** It can read documentation and install
@@ -114,12 +114,12 @@ with another conversation or organization:
   - Read access to the workspace repository is added to GitHub requests. The
     GitHub token is short-lived. It is replaced regularly and revoked when
     the sandbox stops.
-  - Access to the model and to the Workspace tools is added to ctx| requests
+  - Access to the model and to the Workspace tools is added to ctxpipe requests
     only while a message is in progress. It is removed when the reply ends.
 
 The sandbox never holds a credential that can push to your default branch.
 Model calls, Workspace tools, and pushes to the conversation's branch go
-through ctx|, scoped to that conversation.
+through ctxpipe, scoped to that conversation.
 
 ## Sandbox limits
 
@@ -134,7 +134,7 @@ An ingestion that waits for a free sandbox shows "Waiting for a free sandbox".
 It starts when a slot is free. You do not need to start it again.
 
 These limits keep the organization fair to its own work. They are not spend
-limits. ctx| does not cap your spend. If these limits are not enough for your team,
+limits. ctxpipe does not cap your spend. If these limits are not enough for your team,
 [contact us](/docs/getting-started/get-in-touch).
 
 ## Know the limits
@@ -154,7 +154,7 @@ captured Slack threads and mirrored Linear, Notion, or Confluence content.
 
 ## Chat from your coding agent
 
-Coding agents reach the same context through [ctx| MCP](/docs/mcp/mcp-docs).
+Coding agents reach the same context through [ctxpipe MCP](/docs/mcp/mcp-docs).
 The MCP tools search and read your Workspaces directly. They do not start a
 Workspace chat, so no MCP call adds a conversation to the sidebar. See
 [Use ctxpipe from your agent](/docs/mcp/use-from-your-agent).

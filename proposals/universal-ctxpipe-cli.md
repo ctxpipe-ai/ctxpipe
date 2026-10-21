@@ -2,13 +2,13 @@
 
 ## Context
 
-ctx| currently helps teams install MCP configuration through repo-level pull
+ctxpipe currently helps teams install MCP configuration through repo-level pull
 requests. That is useful for standardized project config, but it is cumbersome as
 the primary onboarding path: every MCP client has different command syntax,
 config file locations, transport names, OAuth behavior, and install UX.
 
 If we keep documenting each path manually, the docs will sprawl and users will
-need to understand too much of the MCP ecosystem before they can connect ctx|.
+need to understand too much of the MCP ecosystem before they can connect ctxpipe.
 
 The npm package name `ctxpipe` appears to be available, which gives us a cleaner
 product surface than a narrow MCP-only package.
@@ -22,13 +22,13 @@ entrypoint:
 npx ctxpipe init
 ```
 
-`ctxpipe init` should initialize the current repository or workspace for ctx|,
+`ctxpipe init` should initialize the current repository or workspace for ctxpipe,
 not just install MCP. It can ask a small number of questions:
 
-- Which ctx| organization should this repo use?
+- Which ctxpipe organization should this repo use?
 - Which agents or clients do you use?
 - Should setup apply to this repo, the current user, or both?
-- Should ctx| add MCP configuration now?
+- Should ctxpipe add MCP configuration now?
 
 MCP setup should become one capability under this broader CLI. For example, an
 agent or advanced user could still run a focused command:
@@ -62,16 +62,16 @@ The expected flow is:
 
 ```txt
 npx ctxpipe init
--> CLI asks the user to sign in to ctx|
--> Browser opens for ctx| device-code approval
+-> CLI asks the user to sign in to ctxpipe
+-> Browser opens for ctxpipe device-code approval
 -> CLI receives setup auth
--> CLI loads the user's ctx| organizations
+-> CLI loads the user's ctxpipe organizations
 -> User selects the organization for this repo
--> User chooses where to connect ctx|: This repo, Globally, or Both
+-> User chooses where to connect ctxpipe: This repo, Globally, or Both
 -> CLI detects installed agents
 -> User chooses which agents to connect
 -> CLI shows a summary of what it will change
--> CLI writes agent config so selected agents know where ctx| MCP lives
+-> CLI writes agent config so selected agents know where ctxpipe MCP lives
 -> Setup completes
 -> Later, each agent triggers its own MCP OAuth flow on first use
 ```
@@ -136,7 +136,7 @@ The MCP ecosystem is converging on:
 - Checked-in config only when teams intentionally want project-level
   standardization.
 
-That direction fits ctx| because the backend already serves `/mcp`, Better Auth
+That direction fits ctxpipe because the backend already serves `/mcp`, Better Auth
 is already configured as an OAuth provider, and the product already has
 organisation-scoped MCP URLs.
 
@@ -174,7 +174,7 @@ organisation-scoped MCP URLs.
    - Make `npx ctxpipe init` the main customer-facing command.
 
 3. Implement interactive `init`
-   - Authenticate with ctx| or detect an existing session/token.
+   - Authenticate with ctxpipe or detect an existing session/token.
    - Let the user select an organization.
    - Detect known agent clients.
    - Ask which agents should be configured.

@@ -22,10 +22,10 @@ export const WRITE_STATUS_REASONS = {
     "The default branch is protected. Jobs cannot push it; conversation chat can still push a session branch and open a pull request.",
   /** The format file names a newer format than this code (`workspace-format.ts`). */
   formatAhead:
-    "This Workspace needs a newer ctx| version. ctx| can read it, but it cannot write to it until you upgrade ctx|.",
+    "This Workspace needs a newer ctxpipe version. ctxpipe can read it, but it cannot write to it until you upgrade ctxpipe.",
   /** The format file is not valid (`workspace-format.ts`). */
   formatInvalid:
-    "The file .ctxpipe/workspace.yaml is not valid. ctx| can read this Workspace, but it cannot write to it until the file is repaired.",
+    "The file .ctxpipe/workspace.yaml is not valid. ctxpipe can read this Workspace, but it cannot write to it until the file is repaired.",
   /** Kept with `unknown`: GitHub failed or limited the probe, so the UI stops its poll. */
   checkFailed:
     "ctxpipe could not check write access because GitHub returned an error or a rate limit. Check again later.",

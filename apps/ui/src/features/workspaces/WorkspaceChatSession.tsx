@@ -230,6 +230,16 @@ export function WorkspaceChatSession(props: {
       if (name && userRenamedRef.current !== conversationId) applyRename(name)
       const phase = sandboxPhaseFromChunk(chunk)
       if (phase) setSandboxPhase(phase)
+      if (
+        chunk.type === "RUN_STARTED" ||
+        chunk.type === "RUN_FINISHED" ||
+        chunk.type === "RUN_ERROR"
+      ) {
+        // The status dot of this chat in the list follows the run record.
+        void queryClient.invalidateQueries({
+          queryKey: workspaceKeys.conversations(orgSlug, workspace.id),
+        })
+      }
       if (chunk.type === "RUN_FINISHED" || chunk.type === "RUN_ERROR") {
         setSandboxPhase("idle")
         if (chunk.type === "RUN_FINISHED") firstMessageRef.current = null

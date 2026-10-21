@@ -147,7 +147,7 @@ describe("conversationPublishErrorMessage", () => {
     expect(
       conversationPublishErrorMessage("Create PR", new Error("no_pr_access")),
     ).toBe(
-      "Create PR failed. The ctx| GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
+      "Create PR failed. The ctxpipe GitHub App can't open pull requests. Give it the Pull requests: Read and write permission.",
     )
   })
 

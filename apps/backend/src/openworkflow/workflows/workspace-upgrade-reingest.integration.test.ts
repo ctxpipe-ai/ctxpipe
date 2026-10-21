@@ -960,7 +960,7 @@ it(
     vi.stubEnv("MODEL_PROVIDER_API_KEY", "fixture-only")
     vi.stubEnv("MODEL_PROVIDER_URL", "https://reingest-embeddings.test/v1")
     server.use(
-      // Hydrate checks that ctx| can write to the Workspace repository.
+      // Hydrate checks that ctxpipe can write to the Workspace repository.
       http.get(`https://api.github.com/repos/${contexts[5]}`, () =>
         HttpResponse.json({
           id: 7_000,
@@ -1161,7 +1161,7 @@ it(
   "fails at once, with no retry, when the cause is not temporary, and a start by the user clears the record",
   { timeout: 420_000 },
   async () => {
-    // The source repository has no remote: ctx| cannot read it, which a
+    // The source repository has no remote: ctxpipe cannot read it, which a
     // second run cannot change.
     expect(await row(denied)).toMatchObject({ status: "awaiting_operator" })
     expect(await start(denied)).toMatchObject({ kind: "queued" })
@@ -1302,7 +1302,7 @@ it(
 )
 
 it(
-  "fails the row, and keeps no queued row, when ctx| cannot queue the retry",
+  "fails the row, and keeps no queued row, when ctxpipe cannot queue the retry",
   { timeout: 420_000 },
   async () => {
     server.use(

@@ -94,6 +94,6 @@ describe("formatSlackBotMention", () => {
   it("prefixes the installed handle and falls back when missing", () => {
     expect(formatSlackBotMention("ctxpipe")).toBe("@ctxpipe")
     expect(formatSlackBotMention("@already")).toBe("@already")
-    expect(formatSlackBotMention(null)).toBe("the ctx| bot")
+    expect(formatSlackBotMention(null)).toBe("the ctxpipe bot")
   })
 })

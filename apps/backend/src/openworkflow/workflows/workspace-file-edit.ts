@@ -197,7 +197,7 @@ export const workspaceFileEdit = defineWorkflow(
                     : null
                 if (content === null)
                   throw new Error(
-                    `${WORKSPACE_FORMAT_PATH} is not valid. ctx| cannot change its upgrade setting.`,
+                    `${WORKSPACE_FORMAT_PATH} is not valid. ctxpipe cannot change its upgrade setting.`,
                   )
                 return { path: file.path, content }
               })

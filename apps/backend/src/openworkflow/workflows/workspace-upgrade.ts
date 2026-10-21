@@ -107,7 +107,8 @@ async function buildAndPushUpgrade(input: {
   if (admission.writeStatus === "read_only")
     return {
       kind: "blocked",
-      note: admission.readOnlyReason ?? "ctx| cannot write to this repository.",
+      note:
+        admission.readOnlyReason ?? "ctxpipe cannot write to this repository.",
     }
   const revision: WorkspaceRevision = { ...admission.revision, access: "read" }
   const token = await resolveRepositoryReadCredential({
@@ -167,7 +168,7 @@ async function buildAndPushUpgrade(input: {
   let branch = upgradeBranch(input.targetFormat)
   try {
     // A pull request of another person on the branch name keeps its branch:
-    // ctx| pushes to the next free suffixed name instead.
+    // ctxpipe pushes to the next free suffixed name instead.
     if (repositoryName && githubConnectionId)
       branch = chooseUpgradeBranch(
         await listUpgradePullRequests(
@@ -393,7 +394,7 @@ export function defineWorkspaceUpgrade(steps: readonly GitUpgradeStep[]) {
               })
             }
             throw new Error(
-              "The default branch kept changing while ctx| opened the upgrade pull request",
+              "The default branch kept changing while ctxpipe opened the upgrade pull request",
             )
           } catch (error) {
             if (isWorkflowControlSignal(error)) throw error

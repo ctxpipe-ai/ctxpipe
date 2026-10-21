@@ -8,7 +8,7 @@ usual path is to paste the client ID, client secret, and webhook signing secret
 into the connector wizard. No `LINEAR_*` environment variables or service
 restart are required for that path.
 
-The same routes run on hosted ctx| and on self-host. Hosted ctx| keeps a
+The same routes run on hosted ctxpipe and on self-host. Hosted ctxpipe keeps a
 deployment-wide Linear app in environment variables as a fallback. Self-host
 operators can use that fallback too if they want one shared Linear application
 for the whole deployment.
@@ -22,7 +22,7 @@ environment variable.
 - A public HTTPS `AUTH_BASE_URL`. In production, keep
   `CTXPIPE_PUBLIC_APP_URL` on the same origin.
 - Permission to create a Linear OAuth application.
-- A ctx| GitHub App connection with write access to the repository of each
+- A ctxpipe GitHub App connection with write access to the repository of each
   Workspace that uses Linear.
 - The backend and worker able to reach `api.linear.app` over HTTPS.
 
@@ -55,9 +55,9 @@ https://<public-origin>/api/v1/integrations/linear/callback
 
 Linear supports several redirect URIs, one per line. Add local, staging, or
 preview callbacks individually when those environments must run OAuth. The
-scheme, host, path, and trailing slash must match the URI sent by ctx|.
+scheme, host, path, and trailing slash must match the URI sent by ctxpipe.
 
-ctx| requests the **`read`** scope with a user actor on the authorize URL. You
+ctxpipe requests the **`read`** scope with a user actor on the authorize URL. You
 do not set those on this Linear form.
 
 Linear cannot deliver webhooks to a private localhost address. End-to-end
@@ -72,7 +72,7 @@ https://<public-origin>/api/v1/webhook/linear
 ```
 
 Copy **Webhook signing secret** from that form. Linear fills it in before you
-click Create. ctx| verifies the `Linear-Signature` HMAC against the raw request
+click Create. ctxpipe verifies the `Linear-Signature` HMAC against the raw request
 body and rejects stale timestamps. Accepted in-scope events start a durable
 update before the endpoint acknowledges delivery.
 
@@ -213,7 +213,7 @@ Register the app in the wizard, or set `LINEAR_CLIENT_ID` and
 ### Linear reports a redirect URI mismatch
 
 Compare the authorize request's `redirect_uri` with the application setting
-character for character. Prefer leaving `LINEAR_REDIRECT_URI` unset so ctx|
+character for character. Prefer leaving `LINEAR_REDIRECT_URI` unset so ctxpipe
 derives it from the public `AUTH_BASE_URL`; use the override only behind a proxy
 with a different external callback.
 

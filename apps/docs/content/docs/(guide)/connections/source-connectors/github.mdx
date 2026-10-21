@@ -1,10 +1,10 @@
 ---
 title: GitHub connector
-description: Why GitHub is the foundational connector for ctx| and what it enables.
+description: Why GitHub is the foundational connector for ctxpipe and what it enables.
 ---
 
-GitHub is the first connector most teams set up. The ctx| GitHub App hosts
-your [Workspaces'](/docs/workspaces) repositories and gives ctx| access to the
+GitHub is the first connector most teams set up. The ctxpipe GitHub App hosts
+your [Workspaces'](/docs/workspaces) repositories and gives ctxpipe access to the
 code repositories you link for search and extraction.
 
 Other connectors build on it. Confluence, Linear, Notion, and PagerDuty write
@@ -16,7 +16,7 @@ after the merge.
 Connect GitHub from the **Get started** guide on Home, or from the **Connectors** page.
 
 <Callout title="Hosted and self-hosted Apps are different">
-  Hosted ctx| supplies the managed GitHub App. A self-hosted deployment must
+  Hosted ctxpipe supplies the managed GitHub App. A self-hosted deployment must
   create and own its own App, private key, webhook secret, and installation.
   Operators should complete [Self-host GitHub](/docs/self-hosting/github) before
   users follow this page.
@@ -35,7 +35,7 @@ Connect GitHub from the **Get started** guide on Home, or from the **Connectors*
   <Step>
     ### Authorize GitHub access
 
-    GitHub asks you to install or authorize the ctx| GitHub App for a GitHub
+    GitHub asks you to install or authorize the ctxpipe GitHub App for a GitHub
     account or organization. You may need a GitHub organization owner to approve
     the installation if you do not have permission to install apps yourself.
   </Step>
@@ -54,14 +54,14 @@ Connect GitHub from the **Get started** guide on Home, or from the **Connectors*
     Link code repositories from that Workspace's **Settings**, under
     **Sources**. Each link is a source file at
     `sources/github/<owner>/<name>.md`. A pull request adds it. After you merge
-    it, ctx| indexes the repository, so it can power search, chat, MCP, and the
+    it, ctxpipe indexes the repository, so it can power search, chat, MCP, and the
     knowledge graph.
   </Step>
 </Steps>
 
 ## What GitHub enables
 
-- Workspace repositories that ctx| can read and write.
+- Workspace repositories that ctxpipe can read and write.
 - Code search and extraction across linked repositories.
 - Repo-native docs, ADRs, `AGENTS.md`, skills, and standards as agent context.
 - Pull requests for source changes, Workspace chat changes, and MCP setup.
@@ -86,7 +86,7 @@ requests, merged or not, are written under `github/pulls/<owner>/<repo>/` in tha
 repository:
 
 - **When you link** the repository, from **Settings** or by adding its source
-  file with Git, ctx| backfills up to 200 of its most recently updated closed
+  file with Git, ctxpipe backfills up to 200 of its most recently updated closed
   pull requests.
 - **After that**, each pull request that closes, and each later review or
   comment on it, is mirrored as GitHub reports it. The file records `merged`
@@ -105,5 +105,5 @@ configuration file.
 <Cards>
   <Card title="Create a Workspace" href="/docs/workspaces/create-workspace" description="Choose or create the workspace repository." />
   <Card title="Linked repositories" href="/docs/workspaces/linked-repositories" description="Add code repositories for search and extraction." />
-  <Card title="ctx| MCP" href="/docs/mcp/mcp-docs" description="Connect your agent clients to ctx| MCP." />
+  <Card title="ctxpipe MCP" href="/docs/mcp/mcp-docs" description="Connect your agent clients to ctxpipe MCP." />
 </Cards>

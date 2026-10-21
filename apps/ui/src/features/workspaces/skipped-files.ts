@@ -9,12 +9,12 @@ const skippedReasonCopy: Record<WorkspaceSkippedFile["reason"], string> = {
 
 /**
  * Why hydrate skipped one file, with its cause. A legacy overlay file is not
- * in Git: ctx| builds it from its database, so no edit of the Workspace
+ * in Git: ctxpipe builds it from its database, so no edit of the Workspace
  * repository fixes it.
  */
 export function skippedFileCopy(file: WorkspaceSkippedFile): string {
   return file.source === "legacy-overlay"
-    ? "Knowledge from before Workspaces. ctx| shows it from its database, so it cannot be fixed here."
+    ? "Knowledge from before Workspaces. ctxpipe shows it from its database, so it cannot be fixed here."
     : skippedReasonCopy[file.reason]
 }
 

@@ -40,8 +40,8 @@ export function upgradeToastLine(
   item: Pick<WorkspaceUpgradeItem, "kind" | "targetFormat">,
 ): string {
   return item.kind === "reingest"
-    ? "ctx| reads each source repository again. This uses model calls."
-    : `ctx| opens a pull request for format ${item.targetFormat}. Nothing changes until you merge it.`
+    ? "ctxpipe reads each source repository again. This uses model calls."
+    : `ctxpipe opens a pull request for format ${item.targetFormat}. Nothing changes until you merge it.`
 }
 
 /** The owner or admin can press Start on these. */
@@ -99,14 +99,14 @@ const UPGRADE_BLOCKED_COPY: Record<
 > = {
   format: {
     write_access: {
-      title: "ctx| cannot open the upgrade pull request",
-      body: "ctx| needs write access through the GitHub App to open the upgrade pull request. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
+      title: "ctxpipe cannot open the upgrade pull request",
+      body: "ctxpipe needs write access through the GitHub App to open the upgrade pull request. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
     },
   },
   reingest: {
     write_access: {
-      title: "ctx| cannot publish the re-ingestion",
-      body: "ctx| needs write access through the GitHub App to publish the re-ingestion. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
+      title: "ctxpipe cannot publish the re-ingestion",
+      body: "ctxpipe needs write access through the GitHub App to publish the re-ingestion. Connect the Workspace repository with the GitHub App, then check the Workspace again.",
     },
     needs_format: {
       title: "Apply the format upgrade first",
@@ -114,11 +114,11 @@ const UPGRADE_BLOCKED_COPY: Record<
     },
     sandbox_unavailable: {
       title: "This deployment cannot run the re-ingestion",
-      body: "This ctx| deployment has no ingest sandbox. Ask the operator of ctx| to configure one.",
+      body: "This ctxpipe deployment has no ingest sandbox. Ask the operator of ctxpipe to configure one.",
     },
     ingestion_v2_off: {
       title: "The re-ingestion cannot run here yet",
-      body: "ctx| has not read a valid format file of this Workspace yet.",
+      body: "ctxpipe has not read a valid format file of this Workspace yet.",
     },
   },
 }
@@ -141,7 +141,7 @@ export function upgradeBlockedCopy(
       (item.kind === "reingest"
         ? "The re-ingestion cannot start"
         : "The upgrade cannot start"),
-    body: item.note ?? copy?.body ?? "ctx| cannot start this item now.",
+    body: item.note ?? copy?.body ?? "ctxpipe cannot start this item now.",
   }
 }
 
@@ -189,19 +189,19 @@ export function upgradeWaitingCopy(
   now = Date.now(),
 ): string | null {
   if (item.status === "running" && item.waitingForSlot)
-    return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctx| checks again every minute and starts the run when its turn comes.`
+    return `Waiting for a free sandbox for ${waitedFor(item.waitingForSlot.since, now)}. ${item.waitingForSlot.reason} ctxpipe checks again every minute and starts the run when its turn comes.`
   if (item.status !== "pr_open") return null
   const pullRequest = item.pullRequest?.number
     ? `pull request #${item.pullRequest.number}`
     : "the upgrade pull request"
-  return `ctx| waits for you to merge ${pullRequest} on GitHub. After the merge, ctx| reads the new format of the repository. This takes a few minutes. This page updates by itself.`
+  return `ctxpipe waits for you to merge ${pullRequest} on GitHub. After the merge, ctxpipe reads the new format of the repository. This takes a few minutes. This page updates by itself.`
 }
 
 /**
  * A re-ingestion that the server still records as blocked for the format,
  * while the Workspace already has the format that it needs. The hydrate
  * writes the new format first. The upgrade scan runs after the hydrate and
- * writes the item. Until then, the item is stale: ctx| is checking.
+ * writes the item. Until then, the item is stale: ctxpipe is checking.
  */
 export function upgradeIsCheckingFormat(
   item: Pick<
@@ -221,28 +221,29 @@ export function upgradeIsCheckingFormat(
 
 /** The line of an item that waits for the scan to read the new format. */
 export const CHECKING_FORMAT_COPY =
-  "ctx| is checking the new format of the repository. This takes a minute. This page updates by itself."
+  "ctxpipe is checking the new format of the repository. This takes a minute. This page updates by itself."
 
 /** The toast after the start of an item. A re-ingestion opens no pull request on start. */
 export function upgradeStartedMessage(item: { kind: string }): string {
   return item.kind === "reingest"
-    ? "The re-ingestion is queued. ctx| reads each source repository again."
-    : "The upgrade is queued. ctx| prepares a pull request."
+    ? "The re-ingestion is queued. ctxpipe reads each source repository again."
+    : "The upgrade is queued. ctxpipe prepares a pull request."
 }
 
-/** The health line: the format of the repository against the format ctx| reads. */
+/** The health line: the format of the repository against the format ctxpipe reads. */
 export function formatHealthLine(
   formatVersion: number | null,
   codeFormat: number,
 ): string {
-  if (formatVersion === null) return "ctx| has not read the repository format."
+  if (formatVersion === null)
+    return "ctxpipe has not read the repository format."
   if (formatVersion < 0)
     return "The format file in the repository is not valid."
   if (formatVersion > codeFormat)
-    return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}. This Workspace needs a newer ctx| version.`
+    return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}. This Workspace needs a newer ctxpipe version.`
   if (formatVersion === codeFormat)
     return `The repository uses format ${formatVersion}. It is up to date.`
-  return `The repository uses format ${formatVersion}. ctx| reads format ${codeFormat}.`
+  return `The repository uses format ${formatVersion}. ctxpipe reads format ${codeFormat}.`
 }
 
 /** The text of the next action for a member. */

@@ -303,7 +303,7 @@ describeWithDatabase("repository HTTP attribution (Postgres)", () => {
     expect(await rowsWithUrl(gitUrl)).toEqual([])
   })
 
-  it("refuses to reindex a stored repository whose URL ctx| does not read", async () => {
+  it("refuses to reindex a stored repository whose URL ctxpipe does not read", async () => {
     const storedId = generateObjectId("repo")
     await withOrgDbContext(orgId, async (db) => {
       await db.insert(repositories).values({

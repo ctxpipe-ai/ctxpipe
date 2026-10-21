@@ -28,6 +28,33 @@ type UserPreferences = {
    * notice has a new key, so it shows again. The name stays for stored data.
    */
   dismissedUpgrades: string[]
+  /**
+   * Per chat, the end time (epoch ms, from the server) of the newest turn
+   * that the user has seen. A chat whose newest finished turn ended later is
+   * unread (CTX-941).
+   */
+  seenConversations: Record<string, number>
+}
+
+/** The most chats whose last-seen time the browser keeps. */
+const SEEN_CONVERSATIONS_MAX = 200
+
+/** Record that the user saw the chat up to `at`; the oldest entries drop out. */
+export function withSeenConversation(
+  preferences: UserPreferences,
+  conversationId: string,
+  at: number,
+): UserPreferences {
+  if (preferences.seenConversations[conversationId] === at) return preferences
+  const { [conversationId]: _previous, ...rest } = preferences.seenConversations
+  return {
+    ...preferences,
+    seenConversations: Object.fromEntries(
+      Object.entries({ ...rest, [conversationId]: at }).slice(
+        -SEEN_CONVERSATIONS_MAX,
+      ),
+    ),
+  }
 }
 
 /** The most dismissed upgrade keys that the browser keeps. */
@@ -84,6 +111,7 @@ function defaultPreferences(): UserPreferences {
     sideNavWidth: SIDE_NAV_DEFAULT_WIDTH,
     orgGuides: {},
     dismissedUpgrades: [],
+    seenConversations: {},
   }
 }
 
@@ -133,6 +161,14 @@ export function parseUserPreferences(raw: string | null): UserPreferences {
       if (guide) orgGuides[key] = guide
     }
   }
+  const seenConversations: Record<string, number> = {}
+  if (isRecord(parsed.seenConversations)) {
+    for (const [id, at] of Object.entries(parsed.seenConversations)) {
+      if (typeof at === "number" && Number.isFinite(at)) {
+        seenConversations[id] = at
+      }
+    }
+  }
   return {
     selectedOrganizationSlug:
       typeof parsed.selectedOrganizationSlug === "string"
@@ -152,6 +188,9 @@ export function parseUserPreferences(raw: string | null): UserPreferences {
           .filter((key): key is string => typeof key === "string")
           .slice(-DISMISSED_UPGRADES_MAX)
       : [],
+    seenConversations: Object.fromEntries(
+      Object.entries(seenConversations).slice(-SEEN_CONVERSATIONS_MAX),
+    ),
   }
 }
 

@@ -29,7 +29,7 @@ export async function listUpgradePullRequests(
 /**
  * The branch to push for the upgrade pull request: the branch of our own open
  * pull request, else the first name from `base`, `base-2`, ... `base-11` that
- * no pull request of another person or App uses. ctx| never pushes over the
+ * no pull request of another person or App uses. ctxpipe never pushes over the
  * branch of a pull request it does not own. When all of these names are
  * taken, the function throws, and the upgrade fails with that reason.
  */
@@ -44,6 +44,6 @@ export function chooseUpgradeBranch(
   for (let n = 2; n <= 11; n++)
     if (!taken.has(`${base}-${n}`)) return `${base}-${n}`
   throw new Error(
-    `Pull requests that ctx| did not open use the upgrade branch ${base} and its next 10 suffixed names. Close some of them, then start the upgrade again.`,
+    `Pull requests that ctxpipe did not open use the upgrade branch ${base} and its next 10 suffixed names. Close some of them, then start the upgrade again.`,
   )
 }

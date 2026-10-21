@@ -28,14 +28,14 @@ type FailureCopy = {
 const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   source_access: {
     reason:
-      "ctx| cannot read a source repository. The GitHub App may have lost access to it, or the repository moved.",
+      "ctxpipe cannot read a source repository. The GitHub App may have lost access to it, or the repository moved.",
     action:
       "Reconnect GitHub and give the App access to the repository, then start it again.",
     link: "connectors",
     linkLabel: "Reconnect GitHub",
   },
   workspace_write_access: {
-    reason: "ctx| cannot write to the Workspace repository.",
+    reason: "ctxpipe cannot write to the Workspace repository.",
     action:
       "Give the GitHub App write access to the Workspace repository, then start it again.",
     link: "connectors",
@@ -44,7 +44,7 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   sandbox: {
     reason: "The ingest sandbox stopped or did not start.",
     action:
-      "Start it again. If it fails again, ask the operator of ctx| to check the sandbox provider.",
+      "Start it again. If it fails again, ask the operator of ctxpipe to check the sandbox provider.",
   },
   model: {
     reason: "The model provider returned an error.",
@@ -52,7 +52,7 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   },
   publish_conflict: {
     reason:
-      "The Workspace changed while ctx| published, and ctx| could not merge the files.",
+      "The Workspace changed while ctxpipe published, and ctxpipe could not merge the files.",
     action:
       "Start it again. The new run starts from the current Workspace content.",
   },
@@ -69,7 +69,7 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
   },
   repository_too_large: {
     reason:
-      "A Git repository that this upgrade reads is too large for ctx| to read.",
+      "A Git repository that this upgrade reads is too large for ctxpipe to read.",
     action:
       "Remove large files that are not knowledge, such as build output or binary files, from that repository. Then start it again.",
     agent: true,
@@ -80,7 +80,7 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
     action: "Start it again.",
   },
   unknown: {
-    reason: "ctx| does not know the cause of this failure.",
+    reason: "ctxpipe does not know the cause of this failure.",
     action: "Ask the agent to find the cause, or start it again.",
     agent: true,
   },
@@ -111,16 +111,16 @@ export function upgradeFailurePrompt(
   failure: UpgradeFailure,
 ): string {
   const { step } = upgradeFailureCopy(failure)
-  return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctx| recorded: ${failure.summary} Find the cause, and tell me how to fix it.`
+  return `The upgrade "${item.title}" of this Workspace failed${step ? ` at the step "${step}"` : ""}. ctxpipe recorded: ${failure.summary} Find the cause, and tell me how to fix it.`
 }
 
 /**
  * The chat prompt of "Ask the agent" for a failed item. It names the cause
- * that ctx| recorded, also when the item has no failure class.
+ * that ctxpipe recorded, also when the item has no failure class.
  */
 export function upgradeFailedItemPrompt(
   item: Pick<WorkspaceUpgradeItem, "title" | "failure" | "failureReason">,
 ): string {
   if (item.failure) return upgradeFailurePrompt(item, item.failure)
-  return `The upgrade "${item.title}" of this Workspace failed. ctx| recorded: ${item.failureReason ?? "no reason."} Find the cause, and tell me how to fix it.`
+  return `The upgrade "${item.title}" of this Workspace failed. ctxpipe recorded: ${item.failureReason ?? "no reason."} Find the cause, and tell me how to fix it.`
 }

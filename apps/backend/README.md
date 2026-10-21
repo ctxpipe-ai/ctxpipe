@@ -1,6 +1,6 @@
 # `@ctxpipe/backend`
 
-Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono** on **Bun**, **Better Auth**, **PostgreSQL** + **Drizzle**, and workflow orchestration for ingestion and agent tooling.
+Core HTTP API and MCP service for [ctxpipe](https://ctxpipe.ai). Built with **Hono** on **Bun**, **Better Auth**, **PostgreSQL** + **Drizzle**, and workflow orchestration for ingestion and agent tooling.
 
 **Monorepo:** clone, environment, Compose deployment, and host dev flows live in the [repository root README](../../README.md). Run **`pnpm dev:infra`** and **`pnpm dev`** from the repo root unless you are intentionally running only this package.
 
@@ -32,7 +32,7 @@ Core HTTP API and MCP service for [ctx|](https://ctxpipe.ai). Built with **Hono*
 ## Diagnose MCP with MCPJam
 
 MCPJam is a **diagnostic client**, not part of the backend runtime and not a
-ctx| product feature. Use it to exercise OAuth and tools against a **test**
+ctxpipe product feature. Use it to exercise OAuth and tools against a **test**
 organisation. Keep the official `pnpm mcp:inspect` workflow as an independent
 protocol reference.
 

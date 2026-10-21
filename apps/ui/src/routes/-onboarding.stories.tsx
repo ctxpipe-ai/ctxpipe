@@ -130,7 +130,7 @@ function onboardingSession() {
 /** A joiner has one slide. "Get started" on How it works finishes. */
 async function finishJoiner(canvasElement: HTMLElement) {
   const canvas = within(canvasElement)
-  await canvas.findByRole("heading", { name: "Welcome to ctx|" })
+  await canvas.findByRole("heading", { name: "Welcome to ctxpipe" })
   expect(
     canvas.queryByRole("button", { name: /^Go to slide/ }),
   ).not.toBeInTheDocument()
@@ -205,7 +205,7 @@ export const JoinerFinishStaysWhenSessionIsStale: Story = {
     // The page fades back in after the failed finish.
     await waitFor(() =>
       expect(
-        canvas.getByRole("heading", { name: "Welcome to ctx|" }),
+        canvas.getByRole("heading", { name: "Welcome to ctxpipe" }),
       ).toBeVisible(),
     )
   },
@@ -279,7 +279,7 @@ export const AdminFlowCreateOrgLandsOnHome: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    await canvas.findByRole("heading", { name: "Welcome to ctx|" })
+    await canvas.findByRole("heading", { name: "Welcome to ctxpipe" })
     // Two steps, Next then Create organization, and no slide buttons.
     expect(
       canvas.queryByRole("button", { name: /^Go to slide/ }),

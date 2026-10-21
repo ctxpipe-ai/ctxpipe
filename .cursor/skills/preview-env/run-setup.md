@@ -30,7 +30,7 @@ Mint `run-id` once (`YYYYMMDD-HHMMSS`, UTC). Everything the run creates carries 
 
 ### GitHub test org and repositories
 
-`GH_TEST_ORG` is `ctxpipe-ai`, with the ctx| GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent private **template** repositories:
+`GH_TEST_ORG` is `ctxpipe-ai`, with the ctxpipe GitHub App installed on **all repositories**, so repositories created during the run are readable without another install step. It is the team's own organization, so the run creates and deletes only throwaway repositories whose names start with `pe-{run-id}-`, and touches nothing else there. It holds two persistent private **template** repositories:
 
 | Template | Content |
 | --- | --- |
@@ -69,8 +69,8 @@ Each provider needs its own test account. They are `ready-for-human` placeholder
 | Placeholder | Needs |
 | --- | --- |
 | `LINEAR_TEST` | Linear workspace with one team, a few issues |
-| `NOTION_TEST` | Notion workspace with one page or database shared with the ctx| integration |
-| `SLACK_TEST` | Slack workspace, one channel, the ctx| app installable |
+| `NOTION_TEST` | Notion workspace with one page or database shared with the ctxpipe integration |
+| `SLACK_TEST` | Slack workspace, one channel, the ctxpipe app installable |
 | `CONFLUENCE_TEST` | Confluence site with one space and the Forge app installable |
 | `PAGERDUTY_TEST` | PagerDuty account with one service and one incident |
 

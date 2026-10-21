@@ -55,7 +55,7 @@ export function parseSourceFile(path: string, text: string): ParsedSourceFile {
 
 /**
  * The text of a source file: the front matter from `source`, then `body`
- * byte for byte. ctx| never changes the body, which people own.
+ * byte for byte. ctxpipe never changes the body, which people own.
  */
 export function renderSourceFile(source: SourceFile, body: string): string {
   const frontMatter = YAML.stringify(

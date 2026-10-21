@@ -113,7 +113,7 @@ describeWithDatabase("email verification (Postgres)", () => {
 
     expect(mailsTo(email).map((mail) => mail.subject)).toEqual([
       "Verify your email address",
-      "You already have a ctx| account",
+      "You already have a ctxpipe account",
     ])
   })
 
