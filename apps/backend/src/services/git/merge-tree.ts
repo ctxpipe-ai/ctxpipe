@@ -174,15 +174,17 @@ export async function resolveGitMergeTree(
 /**
  * Keep both versions of a conflicting file when no resolution is available
  * (CTX-958). Git marks each overlapping hunk with conflict markers and merges
- * the other lines, so a person or an agent can finish the merge later. When
- * one side deleted the file, the merge keeps the side that changed it, so no
- * change is lost.
+ * the other lines, so a person or an agent can finish the merge later. Markers
+ * cannot show a delete/modify conflict, so that conflict throws: a clean file
+ * of one side would lose the other side with no notice.
  */
 export async function markGitConflict(
   conflict: GitMergeConflict,
-): Promise<string | null> {
+): Promise<string> {
   if (conflict.current === null || conflict.incoming === null)
-    return conflict.current ?? conflict.incoming
+    throw new Error(
+      `Semantic merge could not merge ${conflict.path}: one side deleted the file and the other side changed it. Keep or delete the file on the default branch, then send the write again.`,
+    )
   const directory = await mkdtemp(join(tmpdir(), "ctxpipe-merge-file-"))
   try {
     await writeFile(join(directory, "current"), conflict.current)

@@ -109,6 +109,33 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toEqual([])
   })
 
+  it("skips a Markdown file with unresolved merge markers, so search and the graph do not read it", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/payments/api.md",
+          content:
+            "---\ntitle: API\n---\n<<<<<<< default branch\nRetry 3 times.\n=======\nRetry 5 times.\n>>>>>>> ctxpipe write\n",
+        },
+        {
+          path: "AGENTS.md",
+          content:
+            "<<<<<<< default branch\na\n=======\nb\n>>>>>>> ctxpipe write\n",
+        },
+        // A Setext heading underline alone is not a conflict.
+        { path: "knowledge/guide.md", content: "Guide\n=======\n\nText.\n" },
+      ],
+    })
+    expect(result.units.map((unit) => unit.path)).toEqual([
+      "knowledge/guide.md",
+    ])
+    expect(result.skipped).toEqual([
+      { path: "knowledge/payments/api.md", reason: "merge_conflict" },
+      { path: "AGENTS.md", reason: "merge_conflict" },
+    ])
+  })
+
   it("links only the repositories of GitHub sources, with their ref, once each", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",

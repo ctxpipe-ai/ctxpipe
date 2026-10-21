@@ -416,6 +416,48 @@ it("asks for one file per call and flags only the file the model cannot resolve"
   expect(calls).toBe(4)
 }, 30_000)
 
+// Nothing tells the user about markers in a file that is not Markdown, so
+// that write fails with its cause.
+it("fails a non-Markdown conflict that the model cannot resolve, with its cause", async () => {
+  server.use(slipThen(Number.POSITIVE_INFINITY))
+  await expect(
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.json",
+          base: "{}\n",
+          current: '{"a":1}\n',
+          incoming: '{"b":2}\n',
+        },
+      ],
+      { origin: "extraction", flagUnresolved: true },
+    ),
+  ).rejects.toThrow(
+    "Semantic merge could not merge knowledge/services/checkout.json: The model did not call the structured output tool (3 attempts). Only a Markdown file can keep both versions in conflict markers.",
+  )
+}, 30_000)
+
+// Markers cannot show that one side deleted the file, so the merge must not
+// keep the other side as a clean file.
+it("fails a delete/modify conflict that the model cannot resolve, with its cause", async () => {
+  server.use(slipThen(Number.POSITIVE_INFINITY))
+  await expect(
+    resolveSemanticConflicts(
+      [
+        {
+          path: "knowledge/services/checkout.md",
+          base: HUMAN,
+          current: null,
+          incoming: `${HUMAN}\nIncoming.\n`,
+        },
+      ],
+      { origin: "extraction", flagUnresolved: true },
+    ),
+  ).rejects.toThrow(
+    "Semantic merge could not merge knowledge/services/checkout.md: one side deleted the file and the other side changed it.",
+  )
+}, 30_000)
+
 it("does not flag an agent write whose incoming side adds ownership fields", async () => {
   server.use(slipThen(Number.POSITIVE_INFINITY))
   await expect(

@@ -254,11 +254,17 @@ export const workspaceSemanticMerge = defineWorkflow(
                   // A provider error fails the step. Wait longer before each
                   // new attempt, so that a short outage does not fail the
                   // write (CTX-958).
-                  retryPolicy: { maximumAttempts: 4, initialInterval: "30s" },
+                  retryPolicy: {
+                    maximumAttempts: 4,
+                    initialInterval: "30s",
+                    backoffCoefficient: 2,
+                    maximumInterval: "120s",
+                  },
                 },
                 () =>
-                  // A file that the model cannot resolve keeps both versions
-                  // in conflict markers, so the write is not lost (CTX-958).
+                  // A Markdown file that the model cannot resolve keeps both
+                  // versions in conflict markers, so the write is not lost
+                  // (CTX-958). Hydrate skips it and tells the user.
                   resolveSemanticConflicts(merged.conflicts, {
                     origin: input.origin,
                     flagUnresolved: true,

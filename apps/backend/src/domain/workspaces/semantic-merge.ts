@@ -89,8 +89,10 @@ export function assertWriteOriginAllowed(input: {
  * The model gets one conflicting file per call, so that a large set of
  * knowledge files does not make one call reach its time limit (CTX-958).
  * When the model gives no usable answer for a file after a few attempts, the
- * merge fails. With `flagUnresolved`, it keeps both versions of that file in
- * Git conflict markers instead, so that the change is not lost. A provider
+ * merge fails. With `flagUnresolved`, it keeps both versions of a Markdown
+ * file in Git conflict markers instead, so that the change is not lost.
+ * Hydrate skips that file and shows its cause. Another file, or a file that
+ * one side deleted, still fails the merge with its cause. A provider
  * error (for example HTTP 5xx) is not a model answer: it propagates, so the
  * workflow step retries with its backoff.
  */
@@ -158,6 +160,12 @@ export async function resolveSemanticConflicts(
     }
     if (!options.flagUnresolved)
       throw new Error(`${slip?.message} (${MERGE_ATTEMPTS} attempts)`)
+    // Hydrate skips a Markdown file with markers and tells the user. Nothing
+    // reads markers in another file, so that write fails with its cause.
+    if (!conflict.path.endsWith(".md"))
+      throw new Error(
+        `Semantic merge could not merge ${conflict.path}: ${slip?.message} (${MERGE_ATTEMPTS} attempts). Only a Markdown file can keep both versions in conflict markers. Merge this file on the default branch, then send the write again.`,
+      )
     return {
       file: { path: conflict.path, content: await markGitConflict(conflict) },
       flagged: true,

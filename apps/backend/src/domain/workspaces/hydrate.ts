@@ -74,6 +74,7 @@ export type HydrateUnit = {
 export const HYDRATE_SKIP_REASONS = [
   "malformed",
   "duplicate_repository",
+  "merge_conflict",
 ] as const
 
 export type HydrateSkip = {
@@ -84,6 +85,15 @@ export type HydrateSkip = {
    * hydrate builds from the database for knowledge from before Workspaces.
    */
   source?: "legacy-overlay"
+}
+
+/** True when the text has a full set of Git conflict-marker lines. */
+function hasConflictMarkers(content: string): boolean {
+  return (
+    /^<{7} /m.test(content) &&
+    /^={7}\r?$/m.test(content) &&
+    /^>{7} /m.test(content)
+  )
 }
 
 const MD_LINK = /\[([^\]]*)\]\(([^)]+)\)/g
@@ -148,6 +158,13 @@ export function hydrateKnowledgeTree(input: {
     // moves it into the sources file), and it is not a knowledge unit.
     if (isLinkedRepositoryDeclaration(path)) continue
     if (!path.endsWith(".md")) continue
+    // The write workflow commits Git conflict markers when the model cannot
+    // merge a Markdown file. Such a file holds two versions, so it is not
+    // knowledge, and the user must see it.
+    if (hasConflictMarkers(file.content)) {
+      skipped.push({ path, reason: "merge_conflict" })
+      continue
+    }
     if (path === "AGENTS.md" || path.startsWith(".agents/")) continue
 
     const parsed = parseSimpleFrontMatter(file.content)
