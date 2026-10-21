@@ -6,7 +6,7 @@ import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import { readGitPackFromRemote } from "../../services/git/pack.js"
+import { remoteGitPack } from "../../services/git/pack.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
@@ -86,7 +86,11 @@ export async function completedWorkspaceWrite(
   return null
 }
 
-/** Capture native immutable data using a read credential; no credential or directory is durable. */
+/**
+ * Capture the immutable commit identity; no credential, directory, or Git
+ * object is durable. The output holds no pack: each later step fetches the
+ * commit from the Git host again (CTX-955).
+ */
 export async function acquireWorkspaceWriteRevision(
   input: WorkspaceWriteCommand,
   revision: WorkspaceRevision,
@@ -104,16 +108,21 @@ export async function acquireWorkspaceWriteRevision(
   )
     throw new Error("Workspace write binding changed")
   if (workspace.writeStatus !== "writable") return null
-  const token = await resolveRepositoryReadCredential({
+  // Fail here, not in a later step, when the repository refuses its read
+  // credential.
+  await resolveRepositoryReadCredential({
     orgId: input.orgId,
     env,
     remote: revision.remote,
   })
-  const pack = await readGitPackFromRemote({
-    url: revision.remote.url,
+  const pack = remoteGitPack({
+    base: {
+      url: revision.remote.url,
+      orgId: input.orgId,
+      connectionId: revision.remote.connectionId,
+    },
     sha: revision.sha,
     additionalShas: previousSha ? [previousSha] : [],
-    token,
     root: workspaceRootPath(revision),
   })
   if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)

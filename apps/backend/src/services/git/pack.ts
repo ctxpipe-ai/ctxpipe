@@ -42,6 +42,67 @@ export type GitPack = {
   objects: string
   shallow: string
   root?: string
+  /**
+   * The commits that each step fetches again from the Git host (CTX-955).
+   * With a base, `objects` holds only the objects that the base does not
+   * have, so a durable step output does not carry the pack of the base. A
+   * pack without a base (the shape before CTX-955) holds all its objects.
+   */
+  base?: GitPackBase
+}
+
+/**
+ * Immutable commits on a remote. The org and connection select a read
+ * credential in the step that fetches; no credential is durable.
+ */
+export type GitPackBase = {
+  url: string
+  orgId: string
+  connectionId: string | null
+  shas: string[]
+}
+
+/** The base of each temporary directory that `withGitDirectory` fetched. */
+const bases = new Map<string, GitPackBase>()
+
+/** A pack of remote commits with no objects in it: each step fetches them. */
+export function remoteGitPack(input: {
+  base: Omit<GitPackBase, "shas">
+  sha: string
+  additionalShas?: readonly string[]
+  root?: string
+}): GitPack {
+  return {
+    sha: input.sha,
+    objects: "",
+    shallow: "",
+    ...(input.root ? { root: input.root } : {}),
+    base: {
+      ...input.base,
+      shas: [input.sha, ...(input.additionalShas ?? [])],
+    },
+  }
+}
+
+async function fetchGitPackBase(directory: string, base: GitPackBase) {
+  // Late import: the credential lookup is in the domain layer.
+  const [{ resolveRepositoryReadCredential }, { parseEnv }] = await Promise.all(
+    [
+      import("../../domain/workspaces/resolve-revision.js"),
+      import("../../config/env.js"),
+    ],
+  )
+  const token = await resolveRepositoryReadCredential({
+    orgId: base.orgId,
+    env: parseEnv(process.env),
+    remote: { url: base.url, connectionId: base.connectionId },
+  })
+  await nativeGit(
+    directory,
+    ["fetch", "--depth", "1", "--", base.url, ...base.shas],
+    undefined,
+    gitRemoteEnvironment({ url: base.url, token }),
+  )
 }
 
 /** The tree of the pack's root folder, or null when that folder does not exist. */
@@ -251,13 +312,21 @@ export async function packGitObjects(
   directory: string,
   revs: readonly string[],
 ): Promise<string> {
+  // The base commits come from the Git host again in each step: the pack
+  // holds only the objects that they do not have (CTX-955).
+  // A tree in `revs` is not a commit: only an excluded tree excludes the
+  // objects below it.
+  const excluded = (bases.get(directory)?.shas ?? []).flatMap((sha) => [
+    `^${sha}`,
+    `^${sha}^{tree}`,
+  ])
   const scratch = await mkdtemp(join(tmpdir(), "ctxpipe-pack-"))
   try {
     const name = (
       await nativeGit(
         directory,
         ["pack-objects", "--revs", "-q", join(scratch, "pack")],
-        `${revs.join("\n")}\n`,
+        `${[...revs, ...excluded].join("\n")}\n`,
       )
     )
       .toString()
@@ -286,6 +355,8 @@ export async function captureGitPack(
   additionalShas: readonly string[] = [],
 ): Promise<GitPack> {
   const objects = await packGitObjects(directory, [sha, ...additionalShas])
+  const base = bases.get(directory)
+  if (base) return { sha, objects, shallow: "", base }
   const shallow = await readFile(join(directory, ".git/shallow"), "utf8").catch(
     (error: NodeJS.ErrnoException) => {
       if (error.code === "ENOENT") return ""
@@ -338,7 +409,11 @@ export async function withGitDirectory<T>(
     ])
     if (pack) {
       if (pack.sha !== sha) throw new Error("Git pack identity mismatch")
-      await indexGitPack(directory, pack.objects)
+      if (pack.base) {
+        await fetchGitPackBase(directory, pack.base)
+        bases.set(directory, pack.base)
+      }
+      if (pack.objects) await indexGitPack(directory, pack.objects)
       if (pack.shallow)
         await writeFile(join(directory, ".git/shallow"), pack.shallow)
       await nativeGit(directory, ["checkout", "--detach", sha])
@@ -369,6 +444,7 @@ export async function withGitDirectory<T>(
       })
     } finally {
       closing.delete(directory)
+      bases.delete(directory)
     }
   }
 }
