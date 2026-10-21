@@ -34,4 +34,18 @@ describe("skipped files", () => {
     ).toBe(false)
     expect(skippedFilesFixPrompt([gitFile])).toContain(gitFile.path)
   })
+
+  it("names unresolved merge markers as the cause, and offers the agent to remove them", () => {
+    const conflict = {
+      path: "knowledge/billing/tax.md",
+      reason: "merge_conflict" as const,
+    }
+    expect(skippedFileCopy(conflict)).toBe(
+      "This file has unresolved merge markers. Keep the right version and remove the markers.",
+    )
+    expect(skippedFileFixable(conflict)).toBe(true)
+    expect(skippedFilesFixPrompt([conflict])).toBe(
+      "Hydrate skipped knowledge/billing/tax.md: This file has unresolved merge markers. Keep the right version and remove the markers. Keep the right version of each marked part of this file and remove the markers, then open the change.",
+    )
+  })
 })

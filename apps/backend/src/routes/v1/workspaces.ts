@@ -55,7 +55,7 @@ const WorkspaceSkippedFileSchema = z
       .openapi({ description: "Path in the Workspace repository" }),
     reason: z.enum(HYDRATE_SKIP_REASONS).openapi({
       description:
-        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked.",
+        "`malformed`: the front matter is not valid. `duplicate_repository`: only in results of an earlier version, when a `repositories/*.md` file linked a repository that was already linked. `merge_conflict`: the file has unresolved Git conflict markers.",
     }),
     source: z.literal("legacy-overlay").optional().openapi({
       description:

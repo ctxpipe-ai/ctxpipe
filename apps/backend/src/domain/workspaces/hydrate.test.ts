@@ -109,6 +109,85 @@ describe("hydrateKnowledgeTree", () => {
     expect(result.linked).toEqual([])
   })
 
+  it("skips a Markdown file with unresolved merge markers, so search and the graph do not read it", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/payments/api.md",
+          content:
+            "---\ntitle: API\n---\n<<<<<<< default branch\nRetry 3 times.\n=======\nRetry 5 times.\n>>>>>>> ctxpipe write\n",
+        },
+        {
+          path: "AGENTS.md",
+          content:
+            "<<<<<<< default branch\na\n=======\nb\n>>>>>>> ctxpipe write\n",
+        },
+        // A Setext heading underline alone is not a conflict.
+        { path: "knowledge/guide.md", content: "Guide\n=======\n\nText.\n" },
+      ],
+    })
+    expect(result.units.map((unit) => unit.path)).toEqual([
+      "knowledge/guide.md",
+    ])
+    expect(result.skipped).toEqual([
+      { path: "knowledge/payments/api.md", reason: "merge_conflict" },
+      { path: "AGENTS.md", reason: "merge_conflict" },
+    ])
+  })
+
+  it("does not skip a file that shows a conflict inside a fenced code block", () => {
+    const example = "<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs\n"
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/git.md",
+          content: `# Git\n\n\`\`\`diff\n${example}\`\`\`\n`,
+        },
+        {
+          path: "knowledge/tilde.md",
+          content: `# Git\n\n  ~~~text\n${example}~~~\n`,
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([])
+    expect(result.units.map((unit) => unit.path).sort()).toEqual([
+      "knowledge/git.md",
+      "knowledge/tilde.md",
+    ])
+  })
+
+  it("skips a real conflict that follows a closed fenced code block", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/a.md",
+          content:
+            "```sh\nls\n```\n<<<<<<< ours\na\n=======\nb\n>>>>>>> theirs\n",
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([
+      { path: "knowledge/a.md", reason: "merge_conflict" },
+    ])
+  })
+
+  it("does not treat markers out of order as a conflict", () => {
+    const result = hydrateKnowledgeTree({
+      workspaceId: "ws_1",
+      files: [
+        {
+          path: "knowledge/a.md",
+          content: ">>>>>>> theirs\n=======\n<<<<<<< ours\n",
+        },
+      ],
+    })
+    expect(result.skipped).toEqual([])
+    expect(result.units).toHaveLength(1)
+  })
+
   it("links only the repositories of GitHub sources, with their ref, once each", () => {
     const result = hydrateKnowledgeTree({
       workspaceId: "ws_1",
