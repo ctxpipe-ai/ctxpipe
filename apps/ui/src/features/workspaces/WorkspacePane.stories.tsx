@@ -677,11 +677,10 @@ export const FileWhileChatStarts: Story = {
   },
   play: async ({ canvasElement }) => {
     const canvas = within(canvasElement)
-    expect(
-      await canvas.findByText("The chat is starting…", undefined, {
-        timeout: 5000,
-      }),
-    ).toBeVisible()
+    await waitFor(
+      () => expect(canvas.getByText("The chat is starting…")).toBeVisible(),
+      { timeout: 5000 },
+    )
     expect(textInShadows(canvasElement)).not.toContain("chat_starting")
     expect(canvasElement.textContent).not.toContain("chat_starting")
     expect(canvasElement.textContent).not.toMatch(/turn is (still )?running/i)
