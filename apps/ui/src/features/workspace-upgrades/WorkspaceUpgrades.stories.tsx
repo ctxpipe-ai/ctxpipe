@@ -696,6 +696,28 @@ export const FailedUnknown: Story = {
   },
 }
 
+/** CTX-952: the server had no room for a Git process, so starting again is the fix. */
+export const FailedServerBusy: Story = {
+  args: { onFixWithAgent: fixPrompts },
+  parameters: failedReingest({
+    code: "server_busy",
+    step: "ingest",
+    repository: "acme/ky",
+    summary: "spawn EAGAIN",
+  }),
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(async () =>
+      expect(
+        await canvas.findByText(
+          "The server was busy and could not start a Git process for this upgrade.",
+        ),
+      ).toBeVisible(),
+    )
+    expect(canvas.getByRole("button", { name: /^Start again/ })).toBeVisible()
+  },
+}
+
 export const Blocked: Story = {
   parameters: withUpgrades(
     workspaceUpgradesHandler(
