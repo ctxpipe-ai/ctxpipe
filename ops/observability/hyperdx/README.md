@@ -12,7 +12,9 @@ HYPERDX_ACCESS_KEY=... bun ops/observability/hyperdx/provision.ts
 
 Typecheck: `pnpm --filter hyperdx typecheck`.
 
-The script upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**.
+The script upserts `dashboards/*.json` and `saved-searches/*.json` by name (`POST` or `PUT`). It resolves source and connection names to ids. Dashboards not in the repo are left in place. Saved searches: **Request by id**, **Request by id (traces)**, **Production logs**, **Production traces**, **Production errors**, **Production worker restarts**.
+
+**Production worker restarts** has one row for each start of the OpenWorkflow worker (`openworkflow.config-loaded`). The provision script does not write alerts. Add its alert in the HyperDX UI: more than 3 rows in 10 minutes, to the on-call webhook.
 
 ## Environment filter
 

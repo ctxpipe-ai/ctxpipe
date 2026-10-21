@@ -36,5 +36,9 @@ COPY apps/backend/openworkflow.config.ts ./apps/backend/openworkflow.config.ts
 COPY apps/backend/package.json ./apps/backend/package.json
 COPY apps/backend/tsconfig.json ./apps/backend/tsconfig.json
 
-# supervisor.ts idle-exits when OpenWorkflow queue is empty; PR preview sets OPENWORKFLOW_IDLE_EXIT_SECONDS.
-CMD ["sh", "-c", "cd /app/apps/backend && bun run src/openworkflow/worker-supervisor.ts"]
+# The supervisor idle-exits when the OpenWorkflow queue is empty (PR previews set
+# OPENWORKFLOW_IDLE_EXIT_SECONDS); elsewhere it starts the worker and waits.
+# It runs under Node, not Bun: a Bun panic in this long-lived process stopped a
+# healthy worker (CTX-971). The worker child is the OpenWorkflow CLI under Node.
+RUN cd /app/apps/backend && bun build src/openworkflow/worker-supervisor.ts --target=node --packages=external --outfile=dist/worker-supervisor.mjs
+CMD ["sh", "-c", "cd /app/apps/backend && exec node dist/worker-supervisor.mjs"]

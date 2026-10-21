@@ -1,0 +1,16 @@
+{
+  "name": "Production worker restarts",
+  "sourceName": "Logs",
+  "select": "Timestamp, ServiceName, Body",
+  "where": "ResourceAttributes['deployment.environment'] IN ('production') AND ServiceName = 'openworkflow' AND Body LIKE '%\"step\":\"openworkflow.config-loaded\"%'",
+  "whereLanguage": "sql",
+  "orderBy": "Timestamp DESC",
+  "filters": [
+    {
+      "type": "sql",
+      "condition": "ResourceAttributes['deployment.environment'] IN ('production')"
+    },
+    { "type": "sql", "condition": "ServiceName = 'openworkflow'" }
+  ],
+  "tags": ["ctxpipe", "production"]
+}
