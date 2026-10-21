@@ -175,11 +175,11 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "Only on a git upgrade while `status` is `running`: the stage of the run and when it began. The stages in order: `read` (ctx| reads the Workspace repository), `build` (ctx| makes the upgrade commits), `push` (ctx| pushes the upgrade branch), `open` (ctx| opens the pull request). `null` before the first stage, on a re-ingestion, and when the status is not `running`.",
+          "Only on a git upgrade while `status` is `running`: the stage of the run and when it began. The stages in order: `read` (ctxpipe reads the Workspace repository), `build` (ctxpipe makes the upgrade commits), `push` (ctxpipe pushes the upgrade branch), `open` (ctxpipe opens the pull request). `null` before the first stage, on a re-ingestion, and when the status is not `running`.",
       }),
     mergedAt: z.string().datetime().nullable().openapi({
       description:
-        "Only on a git upgrade with an open pull request: when ctx| first saw that the pull request merged. After that, ctx| reads the new format of the repository, and a scan completes the upgrade.",
+        "Only on a git upgrade with an open pull request: when ctxpipe first saw that the pull request merged. After that, ctxpipe reads the new format of the repository, and a scan completes the upgrade.",
     }),
     checkedAt: z.string().datetime().nullable().openapi({
       description:
