@@ -143,12 +143,6 @@ export const HOST_FIELDS = [
   "skill",
   "bundle",
 ] as const
-/**
- * A GitHub Actions workflow file of the source: GitHub runs only the files
- * directly in `.github/workflows/`. Hydrate joins a merged pull request that
- * changes it to the Workflow file (`PullRequest CHANGED Workflow`).
- */
-const WORKFLOW_FILE = /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/
 const CONFIDENCE = { script: 0.7, model: 0.5 } as const
 const MAX_FILE_BYTES = 64 * 1024
 const MAX_STAGED_BYTES = 2 * 1024 * 1024
@@ -548,6 +542,8 @@ export async function validatePatchStep(
     root: input.root,
     meter,
     evidenceExists,
+    // `readSourceFile` reads a blob only, so a folder is not a file.
+    sourceFileExists: async (path) => (await sourceText(path)) !== null,
     quoteInSource: (path, quote) =>
       sourceIncludes(quotableSource(path), quotableText(quote)),
     patternInSource: (path, pattern) =>
@@ -751,6 +747,8 @@ type CheckContext = {
   root: string | undefined
   meter: WorkMeter
   evidenceExists: (path: string) => Promise<boolean>
+  /** True when the path is a file (a blob) of the source. */
+  sourceFileExists: (path: string) => Promise<boolean>
   /** True when the quote, whitespace normalized, is text of the source file. */
   quoteInSource: (path: string, quote: string) => Promise<boolean | "spent">
   /** True when the source file holds the pattern of an inferred rule. */
@@ -1009,11 +1007,16 @@ async function checkFullWrite(
       rule: "front_matter",
       reason: "Only a Workflow file has workflow_file",
     }
+  // A GitHub Actions workflow file of the source: GitHub runs only the
+  // files directly in `.github/workflows/`. It must be a file, not a
+  // folder. Hydrate joins a merged pull request that changes it to the
+  // Workflow file (`PullRequest CHANGED Workflow`).
   if (
     attributes.kind === "Workflow" &&
     !(
-      WORKFLOW_FILE.test(attributes.workflow_file ?? "") &&
-      (await context.evidenceExists(attributes.workflow_file ?? ""))
+      /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/.test(
+        attributes.workflow_file ?? "",
+      ) && (await context.sourceFileExists(attributes.workflow_file ?? ""))
     )
   )
     return {
