@@ -62,7 +62,7 @@ export function rawFileHeaders(path: string, size: number) {
     ),
     "X-Content-Type-Options": "nosniff",
     "Content-Security-Policy":
-      "default-src 'none'; style-src 'unsafe-inline'; sandbox",
+      "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox",
     "Cache-Control": "private, no-store",
   }
 }

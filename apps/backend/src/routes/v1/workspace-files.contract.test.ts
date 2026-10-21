@@ -146,7 +146,8 @@ it.each([
   },
 )
 
-const SANDBOXED = "default-src 'none'; style-src 'unsafe-inline'; sandbox"
+const SANDBOXED =
+  "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox"
 
 it(
   "serves raw file bytes with headers that never run them as a page",
@@ -219,22 +220,33 @@ it(
 )
 
 it(
-  "refuses a raw file over the size limit with a clear 413",
+  "refuses a raw file over the size limit with a clear 413 and a size-only blob",
   { timeout: 60_000 },
   async () => {
     await withFilesWorkspace(
       async ({ app }) => {
-        const response = await app.request(
-          "/workspaces/knowledge/files/raw?path=huge.png",
-        )
-        expect({
-          status: response.status,
-          body: await response.json(),
-        }).toEqual({
-          status: 413,
-          body: {
-            error:
-              "This file is 10.0 MB. The Files pane sends files up to 10.0 MB. Clone the repository to get this file.",
+        const read = async (kind: "raw" | "blob") => {
+          const response = await app.request(
+            `/workspaces/knowledge/files/${kind}?path=huge.png`,
+          )
+          return { status: response.status, body: await response.json() }
+        }
+        expect({ raw: await read("raw"), blob: await read("blob") }).toEqual({
+          raw: {
+            status: 413,
+            body: {
+              error:
+                "This file is 10.0 MB. The Files pane sends files up to 10.0 MB. Clone the repository to get this file.",
+            },
+          },
+          blob: {
+            status: 200,
+            body: {
+              path: "huge.png",
+              body: null,
+              binary: true,
+              size: RAW_FILE_MAX_BYTES + 1,
+            },
           },
         })
       },

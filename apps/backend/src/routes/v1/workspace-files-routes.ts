@@ -144,7 +144,8 @@ const WorkspaceGitBlobResponseSchema = z
     body: z.string().nullable(),
     binary: z.boolean(),
     size: z.number().int().optional().openapi({
-      description: "Size in bytes of a binary file.",
+      description:
+        "Size in bytes of a binary file, or of a file too large to show.",
     }),
     readOnlyReason: z.string().optional().openapi({
       description:
@@ -482,6 +483,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
       const file = await readWorkspaceCheckoutFile({
         ...loaded.input,
         path,
+        maxBytes: RAW_FILE_MAX_BYTES,
       })
       const blob = explorerBlobFromGitFile(file)
       if (!blob) {
@@ -507,6 +509,7 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           ...(blob.binary && file.kind === "bytes"
             ? { size: file.bytes.length }
             : {}),
+          ...(file.kind === "tooLarge" ? { size: file.size } : {}),
         },
         200,
       )
@@ -524,12 +527,19 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
     const loaded = await loadWorkspaceGitExplorer(c)
     if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
     try {
-      const file = await readWorkspaceCheckoutFile({ ...loaded.input, path })
+      const file = await readWorkspaceCheckoutFile({
+        ...loaded.input,
+        path,
+        maxBytes: RAW_FILE_MAX_BYTES,
+      })
+      if (file.kind === "tooLarge")
+        return c.json({ error: rawFileTooLargeMessage(file.size) }, 413)
       if (file.kind !== "bytes") return c.json({ error: "Not found" }, 404)
-      const size = file.bytes.length
-      if (size > RAW_FILE_MAX_BYTES)
-        return c.json({ error: rawFileTooLargeMessage(size) }, 413)
-      return c.body(new Uint8Array(file.bytes), 200, rawFileHeaders(path, size))
+      return c.body(
+        new Uint8Array(file.bytes),
+        200,
+        rawFileHeaders(path, file.bytes.length),
+      )
     } catch (error) {
       const failure = gitExplorerReadFailure(
         error,
