@@ -180,9 +180,12 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
       ? `- Part of [${repository}](${relativeTo(path, repositoryFile)})`
       : `- Part of \`${repository}\``,
   ]
-  for (const { where, value } of workflow.locations) {
+  for (const { where, value, keys } of workflow.locations) {
     const root = rootOf(value)
-    if (!root || !/^[A-Za-z0-9_.-]{1,200}$/.test(where)) continue
+    // `where` embeds an event key or a job key: it must be as plain as the
+    // Triggers and Jobs lists need.
+    const plain = where.startsWith("on.") ? EVENT : JOB
+    if (!root || !keys.every((key) => plain.test(key))) continue
     related.push(`- Names \`${root.path}\` in \`${where}\``)
     for (const target of root.files)
       if (PACKAGE_KINDS.has(target.kind))

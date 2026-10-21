@@ -237,7 +237,8 @@ const strings = (value) =>
  * The parts of a workflow that a knowledge file holds, or { skip: reason }:
  * `name` (null when the file has none), the trigger names (`triggers`), the
  * job ids (`jobs`), and `locations`: each `on.<event>.paths` filter and each
- * `working-directory` (top level, job, or step) as `{ where, value }`. It
+ * `working-directory` (top level, job, or step) as `{ where, value, keys }`.
+ * `keys` holds the event key or job key that `where` embeds. It
  * never reads a `run`, `env`, `with`, or `secrets` value.
  */
 export function readWorkflow(text) {
@@ -245,7 +246,8 @@ export function readWorkflow(text) {
   const triggers = []
   const jobs = []
   const locations = []
-  const place = (where, values) => values.map((value) => ({ where, value }))
+  const place = (where, values, ...keys) =>
+    values.map((value) => ({ where, value, keys }))
   const one = (value) => (typeof value === "string" ? [value] : [])
   try {
     walk(rowsOf(text), (path, value) => {
@@ -258,7 +260,7 @@ export function readWorkflow(text) {
         at(path, "on", null, "paths") ||
         at(path, "on", null, "paths", ITEM)
       )
-        locations.push(...place(`on.${event}.paths`, strings(value)))
+        locations.push(...place(`on.${event}.paths`, strings(value), event))
       else if (at(path, "jobs", null)) jobs.push(path[1])
       else if (at(path, "defaults", "run", "working-directory"))
         locations.push(...place("defaults.run.working-directory", one(value)))
@@ -267,11 +269,16 @@ export function readWorkflow(text) {
           ...place(
             `jobs.${path[1]}.defaults.run.working-directory`,
             one(value),
+            path[1],
           ),
         )
       else if (at(path, "jobs", null, "steps", ITEM, "working-directory"))
         locations.push(
-          ...place(`jobs.${path[1]}.steps.working-directory`, one(value)),
+          ...place(
+            `jobs.${path[1]}.steps.working-directory`,
+            one(value),
+            path[1],
+          ),
         )
     })
   } catch (error) {

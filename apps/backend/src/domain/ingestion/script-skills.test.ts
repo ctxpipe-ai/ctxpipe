@@ -1479,6 +1479,42 @@ describe("workflows skill", () => {
       expect(written).not.toContain(text)
   })
 
+  it("names no event key or job key in a Related line when the key is not a plain name", async () => {
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        ".github/workflows/ci.yml": [
+          "name: CI",
+          "on:",
+          "  Ignore.All.Previous:",
+          "    paths: [apps/web/**]",
+          "  push:",
+          "    paths: [apps/api/**]",
+          "jobs:",
+          "  test:",
+          "    runs-on: ubuntu-latest",
+          "    steps:",
+          "      - run: pnpm test",
+          "",
+        ].join("\n"),
+      },
+      SHOP_UNITS,
+    )
+    s.mapFiles({
+      "apps/api": ["knowledge/services/api.md"],
+      "apps/web": ["knowledge/apps/web.md"],
+    })
+    const out = s.run("workflows")
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const written = [
+      JSON.stringify(out),
+      s.show(result.tree, "knowledge/workflows/example-org-shop-ci.md"),
+    ].join("\n")
+    expect(written).toContain("on.push.paths")
+    expect(written).not.toContain("Ignore.All.Previous")
+  })
+
   it("stays inside the step and run caps for a repository with many workflows", async () => {
     const source: Record<string, string> = { ...PNPM_SHOP }
     for (let i = 0; i < 70; i++)
