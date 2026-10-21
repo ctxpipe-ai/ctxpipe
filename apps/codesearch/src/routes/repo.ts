@@ -3,8 +3,15 @@ import type { OpenAPIHono } from "@hono/zod-openapi"
 import { createRoute, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../app/env.js"
 import { checkoutKeyFromAuth, indexCheckoutFromAuth } from "../auth/jwt.js"
-import { withRepositoryPurgeOperation } from "../domain/indexing/indexConcurrency.js"
+import {
+  tryWithRepositoryPurgeOperation,
+  withRepositoryPurgeOperation,
+} from "../domain/indexing/indexConcurrency.js"
 import { cloneAndIndexRepository } from "../domain/indexing/service.js"
+import {
+  COLLECTABLE_CHECKOUT_KEY,
+  deleteCheckoutFromDisk,
+} from "../domain/repositories/checkoutGc.js"
 import {
   GlobInvalidRequestError,
   GlobPathNotFoundError,
@@ -160,6 +167,62 @@ const purgeRepositoryRoute = createRoute({
     400: { description: "Invalid request" },
     404: repositoryNotFoundResponse,
     403: { description: "Access denied" },
+  },
+})
+
+const deleteCheckoutsRequestSchema = z
+  .object({
+    /** `rev:<sha>` or `ws:<workspaceId>:<sha>` keys; never `default`. */
+    checkoutKeys: z
+      .array(z.string().regex(COLLECTABLE_CHECKOUT_KEY))
+      .min(1)
+      .max(50),
+  })
+  .openapi("DeleteCheckoutsRequest")
+
+const deleteCheckoutsResponseSchema = z
+  .object({
+    deleted: z.array(
+      z.object({ checkoutKey: z.string(), bytes: z.number().int() }),
+    ),
+    skipped: z.array(
+      z.object({
+        checkoutKey: z.string(),
+        reason: z.enum(["published", "not_found"]),
+      }),
+    ),
+  })
+  .openapi("DeleteCheckoutsResponse")
+
+const deleteCheckoutsRoute = createRoute({
+  method: "post",
+  path: "/{repoId}/checkouts/delete",
+  request: {
+    params: z.object({ repoId: repoIdParam }),
+    body: {
+      content: {
+        "application/json": { schema: deleteCheckoutsRequestSchema },
+      },
+    },
+  },
+  responses: {
+    200: {
+      content: {
+        "application/json": { schema: deleteCheckoutsResponseSchema },
+      },
+      description:
+        "Clones, SCIP files, and Zoekt shards of the listed checkouts removed. The caller deletes the checkout rows of `deleted`.",
+    },
+    403: { description: "Access denied" },
+    404: repositoryNotFoundResponse,
+    409: {
+      content: {
+        "application/json": { schema: z.object({ error: z.string() }) },
+      },
+      description:
+        "An index job of the repository runs now. Nothing was deleted; try again later.",
+    },
+    503: { description: "Database not available" },
   },
 })
 
@@ -444,6 +507,63 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       }
       return c.json(repositoryNotFoundBody, 404)
     })
+  })
+
+  app.openapi(deleteCheckoutsRoute, async (c) => {
+    const db = c.get("db")
+    if (!db) return c.json({ error: "Database not configured" }, 503)
+    const auth = c.get("auth")
+    if (!auth) throw new Error("Missing auth context")
+    const { repoId } = c.req.valid("param")
+    if (auth.principal !== "service" || auth.sub !== `repo-gc:${repoId}`)
+      return c.json({ error: "Access denied" }, 403)
+    const { checkoutKeys } = c.req.valid("json")
+    const repo = await getAccessibleRepository(db, repoId, auth.orgId)
+    if (!repo) return c.json(repositoryNotFoundBody, 404)
+    const result = await tryWithRepositoryPurgeOperation(repoId, async () => {
+      const deleted: Array<{ checkoutKey: string; bytes: number }> = []
+      const skipped: Array<{
+        checkoutKey: string
+        reason: "published" | "not_found"
+      }> = []
+      for (const checkoutKey of new Set(checkoutKeys)) {
+        if (checkoutKey === repo.publishedCheckoutKey) {
+          skipped.push({ checkoutKey, reason: "published" })
+          continue
+        }
+        const row = await getIndexableRepository(
+          db,
+          repoId,
+          auth.orgId,
+          checkoutKey,
+        )
+        if (!row) {
+          skipped.push({ checkoutKey, reason: "not_found" })
+          continue
+        }
+        const bytes = await deleteCheckoutFromDisk({
+          orgId: repo.orgId,
+          repoId: repo.id,
+          checkoutKey,
+          zoektRepoId: row.zoektRepoId,
+        })
+        deleted.push({ checkoutKey, bytes })
+      }
+      return { deleted, skipped }
+    })
+    if (!result.acquired)
+      return c.json(
+        { error: "An index job of this repository runs now; try again later" },
+        409,
+      )
+    getLogger().set({
+      step: "codesearch.checkout_gc",
+      repoId,
+      deletedKeys: result.value.deleted.length,
+      skippedKeys: result.value.skipped.length,
+      bytesFreed: result.value.deleted.reduce((sum, d) => sum + d.bytes, 0),
+    })
+    return c.json(result.value, 200)
   })
 
   app.openapi(indexRoute, async (c) => {
