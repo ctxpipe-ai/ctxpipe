@@ -6,6 +6,7 @@ import { shutdownOtel } from "./src/observability/otel.js"
 import { parseOpenWorkflowConcurrency } from "./src/openworkflow/codesearchCapacity.js"
 import { connectOpenWorkflowBackend } from "./src/openworkflow/storable-backend.js"
 import { wakeParkedParents } from "./src/openworkflow/wake-parked-parents.js"
+import { scheduleCodesearchCheckoutGc } from "./src/openworkflow/workflows/codesearch-checkout-gc.js"
 import { scheduleSweepsForOrgsNeedingIt } from "./src/openworkflow/workflows/conversation-sandbox-sweep.js"
 import { scheduleDailySourcesSync } from "./src/openworkflow/workflows/workspace-sources-daily-sync.js"
 import { scheduleUpgradeScansForAllOrgs } from "./src/openworkflow/workflows/workspace-upgrade-scan.js"
@@ -27,6 +28,15 @@ void scheduleDailySourcesSync(new Date()).catch((error: unknown) =>
   log.error({
     step: "workspace-sources-daily-sync-start",
     message: `Scheduling the daily sources sync failed: ${String(error)}`,
+  }),
+)
+// Start the hourly chain that deletes old codesearch checkouts. The key is
+// per hour, so a restart in the same hour queues nothing new. The first run
+// after a deploy collects every repository at once.
+void scheduleCodesearchCheckoutGc(new Date()).catch((error: unknown) =>
+  log.error({
+    step: "codesearch-checkout-gc-start",
+    message: `Scheduling the checkout collection failed: ${String(error)}`,
   }),
 )
 // Find the pending Workspace upgrades of each org after a deploy (ADR-053).
