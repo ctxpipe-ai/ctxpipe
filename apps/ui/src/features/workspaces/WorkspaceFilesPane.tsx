@@ -41,7 +41,11 @@ import type {
   WorkspaceGitStatusItem,
   WorkspaceGitTreeResponse,
 } from "./types"
-import { rawFileUrl, WorkspaceBinaryFile } from "./WorkspaceBinaryFile"
+import {
+  isSvgFile,
+  rawFileUrl,
+  WorkspaceBinaryFile,
+} from "./WorkspaceBinaryFile"
 import {
   WorkspaceFileTree,
   type WorkspaceFileTreeItem,
@@ -1178,7 +1182,7 @@ function GitFilePreviewBody(props: {
       </div>
     )
   }
-  return (
+  const textView = (
     <div className="flex h-full min-h-0 min-w-0 flex-col">
       {data.readOnlyReason ? (
         <output className="block px-3 py-2 text-xs text-muted-foreground">
@@ -1216,4 +1220,16 @@ function GitFilePreviewBody(props: {
       </div>
     </div>
   )
+  if (isSvgFile(data.path)) {
+    const rawUrl = rawFileUrl(props)
+    return (
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        rawUrl={rawUrl}
+        source={textView}
+      />
+    )
+  }
+  return textView
 }

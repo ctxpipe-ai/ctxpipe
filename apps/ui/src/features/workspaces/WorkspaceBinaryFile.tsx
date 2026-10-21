@@ -1,5 +1,5 @@
 import { IconDownload, IconFile } from "@tabler/icons-react"
-import { useState } from "react"
+import { type ReactNode, useState } from "react"
 import { Button } from "@/components/ui/Button"
 import { InlineAlert } from "@/components/ui/InlineAlert"
 
@@ -19,6 +19,11 @@ function isPreviewImage(path: string) {
   const name = fileName(path)
   const dot = name.lastIndexOf(".")
   return dot > 0 && PREVIEW_EXTENSIONS.has(name.slice(dot + 1).toLowerCase())
+}
+
+/** An SVG is often text, so the blob is not binary, but it still has a preview. */
+export function isSvgFile(path: string) {
+  return fileName(path).toLowerCase().endsWith(".svg")
 }
 
 function formatFileSize(bytes: number) {
@@ -42,14 +47,38 @@ export function rawFileUrl(input: {
 
 /**
  * A binary file in the Files pane: an image preview, or a download. An SVG
- * shows only through `<img>`, so its scripts never run in the page.
+ * shows only through `<img>`, so its scripts never run in the page. With
+ * `source`, the text view of a text SVG, a "View source" button shows it.
  */
 export function WorkspaceBinaryFile(props: {
   path: string
   size?: number
   rawUrl: string
+  source?: ReactNode
 }) {
   const name = fileName(props.path)
+  const [showSource, setShowSource] = useState(false)
+  if (props.source !== undefined && showSource) {
+    return (
+      <div className="flex h-full min-h-0 min-w-0 flex-col">
+        <div className="flex shrink-0 items-center gap-3 px-3 py-2 text-xs text-muted-foreground">
+          <span className="truncate text-foreground">{name}</span>
+          <span className="ml-auto">
+            <Button
+              variant="ghost"
+              size="sm"
+              onPress={() => setShowSource(false)}
+            >
+              View image
+            </Button>
+          </span>
+        </div>
+        <div className="min-h-0 min-w-0 flex-1">{props.source}</div>
+      </div>
+    )
+  }
+  const onViewSource =
+    props.source === undefined ? undefined : () => setShowSource(true)
   if (props.size !== undefined && props.size > RAW_FILE_MAX_BYTES) {
     return (
       <div className="p-4">
@@ -65,7 +94,14 @@ export function WorkspaceBinaryFile(props: {
     isPreviewImage(props.path) &&
     (props.size === undefined || props.size <= IMAGE_PREVIEW_MAX_BYTES)
   ) {
-    return <ImagePreview name={name} size={props.size} rawUrl={props.rawUrl} />
+    return (
+      <ImagePreview
+        name={name}
+        size={props.size}
+        rawUrl={props.rawUrl}
+        onViewSource={onViewSource}
+      />
+    )
   }
   return (
     <div className="flex h-full min-h-0 flex-col items-start gap-3 p-4">
@@ -103,7 +139,20 @@ function DownloadButton(props: { name: string; rawUrl: string }) {
   )
 }
 
-function ImagePreview(props: { name: string; size?: number; rawUrl: string }) {
+function ViewSourceButton(props: { onPress: () => void }) {
+  return (
+    <Button variant="ghost" size="sm" onPress={props.onPress}>
+      View source
+    </Button>
+  )
+}
+
+function ImagePreview(props: {
+  name: string
+  size?: number
+  rawUrl: string
+  onViewSource?: () => void
+}) {
   const [fit, setFit] = useState(true)
   const [dimensions, setDimensions] = useState<{
     width: number
@@ -121,7 +170,14 @@ function ImagePreview(props: { name: string; size?: number; rawUrl: string }) {
         <InlineAlert
           variant="error"
           title="The image did not load"
-          actions={<DownloadButton name={props.name} rawUrl={props.rawUrl} />}
+          actions={
+            <>
+              {props.onViewSource ? (
+                <ViewSourceButton onPress={props.onViewSource} />
+              ) : null}
+              <DownloadButton name={props.name} rawUrl={props.rawUrl} />
+            </>
+          }
         >
           The browser could not show {props.name}. The file can be damaged or in
           a format that the browser cannot read. Download it to open it in
@@ -146,6 +202,9 @@ function ImagePreview(props: { name: string; size?: number; rawUrl: string }) {
           <Button variant="ghost" size="sm" onPress={() => setFit(!fit)}>
             {fit ? "Actual size" : "Zoom to fit"}
           </Button>
+          {props.onViewSource ? (
+            <ViewSourceButton onPress={props.onViewSource} />
+          ) : null}
           <DownloadButton name={props.name} rawUrl={props.rawUrl} />
         </span>
       </div>
