@@ -4,6 +4,11 @@ import type { UpgradeProgress } from "@/features/workspace-upgrades/upgrade-prog
 import { type client, getApiClient } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 
+type OrgIngestionResponse = InferResponseType<
+  (typeof client)[":orgSlug"]["api"]["v1"]["workspace-ingestion"]["$get"],
+  200
+>
+
 type WorkspaceIngestionResponse = InferResponseType<
   (typeof client)[":orgSlug"]["api"]["v1"]["workspaces"][":workspaceSlug"]["ingestion"]["$get"],
   200
@@ -12,11 +17,8 @@ type WorkspaceIngestionResponse = InferResponseType<
 /** One unit of ingestion work that runs now for a Workspace (CTX-959). */
 export type IngestionItem = WorkspaceIngestionResponse["items"][number]
 
-/** The Workspaces of the org that ingest now, each with its items. */
-type OrgIngestion = Array<{
-  workspaceSlug: string
-  items: IngestionItem[]
-}>
+/** A Workspace of the org that ingests now, with the count of its work. */
+export type WorkspaceIngestionCount = OrgIngestionResponse["workspaces"][number]
 
 const ingestionKeys = {
   org: (orgSlug: string) => ["workspace-ingestion", orgSlug] as const,
@@ -28,15 +30,15 @@ const ingestionKeys = {
  * The poll interval: fast while work runs, so the progress moves; slow when
  * the Workspace is idle, so a new run shows in a minute or less.
  */
-function ingestionPollInterval(active: boolean, activeMs: number) {
-  return active ? activeMs : 60_000
+function ingestionPollInterval(active: boolean) {
+  return active ? 5_000 : 60_000
 }
 
 /** One read for the sidebar: every Workspace of the org that ingests now. */
 export function orgIngestionOptions(orgSlug: string) {
   return queryOptions({
     queryKey: ingestionKeys.org(orgSlug),
-    queryFn: async (): Promise<OrgIngestion> => {
+    queryFn: async (): Promise<WorkspaceIngestionCount[]> => {
       const api = await getApiClient()
       const res = await api[":orgSlug"].api.v1["workspace-ingestion"].$get({
         param: { orgSlug },
@@ -47,7 +49,7 @@ export function orgIngestionOptions(orgSlug: string) {
       return body.workspaces
     },
     refetchInterval: (query) =>
-      ingestionPollInterval(Boolean(query.state.data?.length), 5_000),
+      ingestionPollInterval(Boolean(query.state.data?.length)),
   })
 }
 
@@ -69,7 +71,7 @@ export function workspaceIngestionOptions(
       return body.items
     },
     refetchInterval: (query) =>
-      ingestionPollInterval(Boolean(query.state.data?.length), 3_000),
+      ingestionPollInterval(Boolean(query.state.data?.length)),
   })
 }
 
@@ -77,10 +79,12 @@ export function workspaceIngestionOptions(
  * The sidebar text for the work of a Workspace, for example "Ingesting 2
  * sources". A hydrate is not a source, so alone it has its own text.
  */
-export function ingestingLabel(items: readonly IngestionItem[]): string | null {
-  if (!items.length) return null
-  const sources = items.filter((item) => item.kind !== "hydrate").length
-  if (!sources) return "Indexing the newest commit"
+export function ingestingLabel(
+  count: Pick<WorkspaceIngestionCount, "sources" | "hydrating"> | undefined,
+): string | null {
+  if (!count) return null
+  const { sources, hydrating } = count
+  if (!sources) return hydrating ? "Indexing the newest commit" : null
   return `Ingesting ${sources} ${sources === 1 ? "source" : "sources"}`
 }
 

@@ -42,19 +42,24 @@ type ActiveIngestionItem = {
   startedAt: string
 }
 
-/** A hydrate shows only after this time: most hydrates take seconds. */
-const SLOW_HYDRATE_SECONDS = 30
-
 const SYNC_WORKFLOW_NAME = "workspace-sources-sync"
 const REINGEST_WORKFLOW_NAME = "workspace-upgrade-reingest"
 const HYDRATE_WORKFLOW_NAME = "workspace-hydrate"
 
+/** The unzipped root list of a run is smaller than this. */
+const MAX_ROOTS_BYTES = 32 * 1024 * 1024
+
+/** A run and the input keys that the read uses. */
 type RunRow = {
   id: string
   workflow_name: string
-  input: Record<string, unknown> | null
   created_at: string | Date
-  age_seconds: number | string
+  url: string | null
+  destinations: unknown
+  provider: string | null
+  connection_id: string | null
+  workspace_id: string | null
+  key: string | null
 }
 
 type StepRow = {
@@ -65,13 +70,171 @@ type StepRow = {
   roots: string | null
 }
 
+type ActiveRun = { run: RunRow; workspaceIds: string[] }
+
 /**
- * The ingestion work that runs now for each Workspace in `workspaceIds`, read
- * from the workflow runs (CTX-959): ingestion v2 runs of a source repository,
- * connector source syncs, upgrade re-ingestions, and a hydrate of the newest
- * commit when it takes longer than 30 s. The read is polled, so each query
- * uses an index of the run tables and has a bound. A run older than one day
- * (a hydrate: three hours) does not count, because it is stuck.
+ * The ingestion runs that run now for the Workspaces in `workspaceIds`, each
+ * with the Workspaces it writes to (CTX-959): ingestion v2 runs of a source
+ * repository (not shadow runs), connector source syncs, upgrade
+ * re-ingestions, and the hydrate of the newest commit of a Workspace when it
+ * takes longer than 30 s. The read is polled. Each branch of the query is a
+ * range scan of the index `(namespace_id, workflow_name, status, created_at)`
+ * with a constant start time: a run older than one day (a hydrate: three
+ * hours) does not count, because it is stuck. The limit of 200 applies after
+ * the exclusions.
+ */
+async function readActiveRuns(
+  orgId: string,
+  workspaceIds: readonly string[],
+): Promise<ActiveRun[]> {
+  const namespaceId = openWorkflowNamespaceId()
+  const db = getOrgDb()
+  const runs = (
+    await db.execute<RunRow>(sql`
+      select id, workflow_name, created_at, url, destinations, provider,
+        connection_id, workspace_id, key
+      from (
+        select id, workflow_name, created_at,
+          input#>>'{source,url}' as url,
+          input->'destinations' as destinations,
+          input->>'provider' as provider,
+          input->>'connectionId' as connection_id,
+          input->>'workspaceId' as workspace_id,
+          input->>'key' as key
+        from openworkflow.workflow_runs
+        where namespace_id = ${namespaceId}
+          and workflow_name in (${INGESTION_V2_WORKFLOW_NAME},
+            ${SYNC_WORKFLOW_NAME}, ${REINGEST_WORKFLOW_NAME})
+          and status in ('pending', 'running', 'sleeping')
+          and created_at > now() - interval '1 day'
+          and input->>'orgId' = ${orgId}
+          and (workflow_name <> ${INGESTION_V2_WORKFLOW_NAME}
+            or (input->'shadow') is distinct from 'true'::jsonb)
+          and (workflow_name <> ${SYNC_WORKFLOW_NAME}
+            or input->>'kind' = 'connection')
+        union all
+        -- Only the newest hydrate of a Workspace counts, and only when it
+        -- takes longer than 30 s: a newer fast hydrate hides an older slow
+        -- one.
+        select id, workflow_name, created_at, null, null, null, null,
+          workspace_id, null
+        from (
+          select distinct on (input->>'workspaceId') id, workflow_name,
+            created_at, input->>'workspaceId' as workspace_id
+          from openworkflow.workflow_runs
+          where namespace_id = ${namespaceId}
+            and workflow_name = ${HYDRATE_WORKFLOW_NAME}
+            and status in ('pending', 'running', 'sleeping')
+            and created_at > now() - interval '3 hours'
+            and input->>'orgId' = ${orgId}
+          order by input->>'workspaceId', created_at desc, id desc
+        ) newest
+        where created_at < now() - interval '30 seconds'
+      ) runs
+      order by created_at desc, id desc
+      limit 200
+    `)
+  ).rows
+  const syncs = runs.filter((run) => run.workflow_name === SYNC_WORKFLOW_NAME)
+
+  // The source files of each Workspace name its repositories and
+  // connections. Read them only when a run needs them.
+  const sources =
+    syncs.length ||
+    runs.some(
+      (run) =>
+        run.workflow_name === INGESTION_V2_WORKFLOW_NAME &&
+        !Array.isArray(run.destinations),
+    )
+      ? await db
+          .select({
+            workspaceId: workspaceSources.workspaceId,
+            sourceKey: workspaceSources.sourceKey,
+            provider: workspaceSources.provider,
+            connectionId: workspaceSources.connectionId,
+            status: workspaceSources.status,
+            scope: workspaceSources.scope,
+          })
+          .from(workspaceSources)
+          .where(
+            and(
+              eq(workspaceSources.orgId, orgId),
+              eq(workspaceSources.status, "ok"),
+            ),
+          )
+      : []
+
+  const urls = new Map<string, Set<string>>()
+  const sourceUrls = (workspaceId: string) => {
+    let found = urls.get(workspaceId)
+    if (!found) {
+      found = new Set(
+        repositorySourcePaths(
+          sources.filter((row) => row.workspaceId === workspaceId),
+        ).keys(),
+      )
+      urls.set(workspaceId, found)
+    }
+    return found
+  }
+
+  const known = new Set(workspaceIds)
+  return runs.map((run) => {
+    let targets: string[]
+    if (run.workflow_name === INGESTION_V2_WORKFLOW_NAME)
+      targets = Array.isArray(run.destinations)
+        ? run.destinations.map(String)
+        : workspaceIds.filter((workspaceId) =>
+            sourceUrls(workspaceId).has(
+              normalizeWorkspaceRepositoryUrl(run.url ?? ""),
+            ),
+          )
+    else if (run.workflow_name === SYNC_WORKFLOW_NAME)
+      targets = [
+        ...new Set(
+          sources
+            .filter((row) => row.connectionId === run.connection_id)
+            .map((row) => row.workspaceId),
+        ),
+      ]
+    else targets = [run.workspace_id ?? ""]
+    return {
+      run,
+      workspaceIds: targets.filter((workspaceId) => known.has(workspaceId)),
+    }
+  })
+}
+
+/**
+ * For the sidebar: the count of source runs of each Workspace in
+ * `workspaceIds`, and if it hydrates the newest commit. This read does not
+ * read the steps of the runs.
+ */
+export async function countActiveIngestion(
+  orgId: string,
+  workspaceIds: readonly string[],
+): Promise<Map<string, { sources: number; hydrating: boolean }>> {
+  const counts = new Map(
+    workspaceIds.map((id) => [id, { sources: 0, hydrating: false }]),
+  )
+  if (!workspaceIds.length) return counts
+  const active = await withOrgDbContext(orgId, () =>
+    readActiveRuns(orgId, workspaceIds),
+  )
+  for (const { run, workspaceIds: targets } of active)
+    for (const workspaceId of targets) {
+      const count = counts.get(workspaceId)
+      if (!count) continue
+      if (run.workflow_name === HYDRATE_WORKFLOW_NAME) count.hydrating = true
+      else count.sources += 1
+    }
+  return counts
+}
+
+/**
+ * For Workspace settings: the ingestion work that runs now for each
+ * Workspace in `workspaceIds`, oldest first, with the stage and progress of
+ * each run.
  */
 export async function listActiveIngestion(
   orgId: string,
@@ -84,75 +247,16 @@ export async function listActiveIngestion(
   const namespaceId = openWorkflowNamespaceId()
   return withOrgDbContext(orgId, async () => {
     const db = getOrgDb()
-    const runs = (
-      await db.execute<RunRow>(sql`
-        select id, workflow_name, input, created_at,
-          extract(epoch from now() - created_at) as age_seconds
-        from openworkflow.workflow_runs
-        where namespace_id = ${namespaceId}
-          and workflow_name in (${INGESTION_V2_WORKFLOW_NAME}, ${SYNC_WORKFLOW_NAME},
-            ${REINGEST_WORKFLOW_NAME}, ${HYDRATE_WORKFLOW_NAME})
-          and status in ('pending', 'running', 'sleeping')
-          and input->>'orgId' = ${orgId}
-          and created_at > now() - case workflow_name
-            when ${HYDRATE_WORKFLOW_NAME} then interval '3 hours'
-            else interval '1 day' end
-        order by created_at desc, id desc
-        limit 200
-      `)
-    ).rows
-    const repositoryRuns = runs.filter(
-      (run) =>
-        run.workflow_name === INGESTION_V2_WORKFLOW_NAME &&
-        run.input?.shadow !== true,
+    const active = await readActiveRuns(orgId, workspaceIds)
+    const repositoryRuns = active.filter(
+      ({ run, workspaceIds: targets }) =>
+        run.workflow_name === INGESTION_V2_WORKFLOW_NAME && targets.length,
     )
-    const syncRuns = runs.filter(
-      (run) =>
-        run.workflow_name === SYNC_WORKFLOW_NAME &&
-        run.input?.kind === "connection",
-    )
-
-    // The source files of each Workspace name its repositories and
-    // connections. Read them only when a run needs them.
-    const sources =
-      syncRuns.length ||
-      repositoryRuns.some((run) => !Array.isArray(run.input?.destinations))
-        ? await db
-            .select({
-              workspaceId: workspaceSources.workspaceId,
-              sourceKey: workspaceSources.sourceKey,
-              provider: workspaceSources.provider,
-              connectionId: workspaceSources.connectionId,
-              status: workspaceSources.status,
-              scope: workspaceSources.scope,
-            })
-            .from(workspaceSources)
-            .where(
-              and(
-                eq(workspaceSources.orgId, orgId),
-                eq(workspaceSources.status, "ok"),
-              ),
-            )
-        : []
-
-    const urls = new Map<string, Set<string>>()
-    const sourceUrls = (workspaceId: string) => {
-      let found = urls.get(workspaceId)
-      if (!found) {
-        found = new Set(
-          repositorySourcePaths(
-            sources.filter((row) => row.workspaceId === workspaceId),
-          ).keys(),
-        )
-        urls.set(workspaceId, found)
-      }
-      return found
-    }
 
     const steps = new Map<string, StepRow>()
     if (repositoryRuns.length) {
       const ids = sql.join(
-        repositoryRuns.map((run) => sql`${run.id}`),
+        repositoryRuns.map(({ run }) => sql`${run.id}`),
         sql`, `,
       )
       const rows = await db.execute<StepRow>(sql`
@@ -178,56 +282,33 @@ export async function listActiveIngestion(
       for (const row of rows.rows) steps.set(row.id, row)
     }
 
-    const hydrateSeen = new Set<string>()
-    const add = (workspaceId: string, item: ActiveIngestionItem) =>
-      byWorkspace.get(workspaceId)?.push(item)
-
-    for (const run of runs) {
+    for (const { run, workspaceIds: targets } of active) {
+      if (!targets.length) continue
       const startedAt = new Date(run.created_at).toISOString()
-      const input = run.input ?? {}
+      let item: ActiveIngestionItem
       if (run.workflow_name === INGESTION_V2_WORKFLOW_NAME) {
-        if (input.shadow === true) continue
-        const url = String(
-          (input.source as { url?: unknown } | undefined)?.url ?? "",
-        )
-        const destinations = Array.isArray(input.destinations)
-          ? input.destinations.map(String)
-          : workspaceIds.filter((workspaceId) =>
-              sourceUrls(workspaceId).has(normalizeWorkspaceRepositoryUrl(url)),
-            )
-        const step = steps.get(run.id)
-        const item: ActiveIngestionItem = {
+        item = {
           id: run.id,
           kind: "repository",
-          name: repositoryName(url),
-          ...repositoryStage(step),
+          name: repositoryName(run.url ?? ""),
+          ...repositoryStage(steps.get(run.id)),
           startedAt,
         }
-        for (const workspaceId of destinations) add(workspaceId, item)
       } else if (run.workflow_name === SYNC_WORKFLOW_NAME) {
-        if (input.kind !== "connection") continue
-        const provider = String(input.provider ?? "")
-        const connected = new Set(
-          sources
-            .filter((row) => row.connectionId === input.connectionId)
-            .map((row) => row.workspaceId),
-        )
-        for (const workspaceId of connected)
-          add(workspaceId, {
-            id: run.id,
-            kind: "source_sync",
-            name: PROVIDER_NAMES[provider] ?? provider,
-            stage: "syncing",
-            progress: null,
-            startedAt,
-          })
+        const provider = run.provider ?? ""
+        item = {
+          id: run.id,
+          kind: "source_sync",
+          name: PROVIDER_NAMES[provider] ?? provider,
+          stage: "syncing",
+          progress: null,
+          startedAt,
+        }
       } else if (run.workflow_name === REINGEST_WORKFLOW_NAME) {
-        const workspaceId = String(input.workspaceId ?? "")
-        if (!byWorkspace.has(workspaceId)) continue
-        const key = String(input.key ?? "")
-        const row = await getWorkspaceUpgradeRow(workspaceId, key)
+        const key = run.key ?? ""
+        const row = await getWorkspaceUpgradeRow(run.workspace_id ?? "", key)
         const repositories = row?.upgrade.repositories ?? []
-        add(workspaceId, {
+        item = {
           id: run.id,
           kind: "reingest",
           name: key,
@@ -240,23 +321,19 @@ export async function listActiveIngestion(
               }
             : null,
           startedAt,
-        })
-      } else if (run.workflow_name === HYDRATE_WORKFLOW_NAME) {
-        const workspaceId = String(input.workspaceId ?? "")
-        // The runs come newest first: only the newest commit counts, and a
-        // newer hydrate that is still fast hides an older slow one.
-        if (hydrateSeen.has(workspaceId)) continue
-        hydrateSeen.add(workspaceId)
-        if (Number(run.age_seconds) > SLOW_HYDRATE_SECONDS)
-          add(workspaceId, {
-            id: run.id,
-            kind: "hydrate",
-            name: "Newest commit",
-            stage: "hydrating",
-            progress: null,
-            startedAt,
-          })
+        }
+      } else {
+        item = {
+          id: run.id,
+          kind: "hydrate",
+          name: "Newest commit",
+          stage: "hydrating",
+          progress: null,
+          startedAt,
+        }
       }
+      for (const workspaceId of targets)
+        byWorkspace.get(workspaceId)?.push(item)
     }
     for (const items of byWorkspace.values())
       items.sort((a, b) => a.startedAt.localeCompare(b.startedAt))
@@ -307,9 +384,15 @@ function repositoryStage(
   if (/^(publish-target|publish|delete-refs):/.test(last))
     return { stage: "publishing", progress: null }
   if (!step.roots) return { stage: "planning", progress: null }
-  const total = Math.ceil(
-    unpackRoots(step.roots).length / INGEST_SHARD_MAX_ROOTS,
-  )
+  let total: number
+  try {
+    total = Math.ceil(
+      unpackRoots(step.roots, MAX_ROOTS_BYTES).length / INGEST_SHARD_MAX_ROOTS,
+    )
+  } catch {
+    // A corrupt or too large root list hides only the progress of this run.
+    return { stage: "ingesting", progress: null }
+  }
   return {
     stage: "ingesting",
     progress: total

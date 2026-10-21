@@ -180,6 +180,16 @@ export function packRoots(roots: readonly PackedRoot[]): string {
   ).toString("base64")
 }
 
-export function unpackRoots(packed: string): PackedRoot[] {
-  return JSON.parse(gunzipSync(Buffer.from(packed, "base64")).toString("utf8"))
+/**
+ * The root list that `packRoots` packed. `maxBytes` caps the unzipped size:
+ * a value over the cap throws, so a corrupt or very large value cannot use
+ * all the memory.
+ */
+export function unpackRoots(packed: string, maxBytes?: number): PackedRoot[] {
+  return JSON.parse(
+    gunzipSync(
+      Buffer.from(packed, "base64"),
+      maxBytes ? { maxOutputLength: maxBytes } : {},
+    ).toString("utf8"),
+  )
 }

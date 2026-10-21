@@ -63,8 +63,7 @@ export function WorkspaceNavRow(props: {
     ...orgIngestionOptions(orgSlug),
     select: (workspaces) =>
       ingestingLabel(
-        workspaces.find((entry) => entry.workspaceSlug === workspace.slug)
-          ?.items ?? [],
+        workspaces.find((entry) => entry.workspaceSlug === workspace.slug),
       ),
   })
   const titleAction = workspaceTitleAction({

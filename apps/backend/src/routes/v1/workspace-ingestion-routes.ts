@@ -1,6 +1,7 @@
 import { createRoute, OpenAPIHono, z } from "@hono/zod-openapi"
 import type { AppEnv } from "../../app/env.js"
 import {
+  countActiveIngestion,
   INGESTION_STAGES,
   listActiveIngestion,
 } from "../../models/workspace-ingestion.js"
@@ -49,7 +50,14 @@ const OrgIngestionSchema = z
     workspaces: z.array(
       z.object({
         workspaceSlug: z.string(),
-        items: z.array(IngestionItemSchema),
+        sources: z.number().int().openapi({
+          description:
+            "The count of runs that ingest or sync a source of the Workspace now.",
+        }),
+        hydrating: z.boolean().openapi({
+          description:
+            "True when ctxpipe reads the newest commit of the Workspace and it takes longer than 30 s.",
+        }),
       }),
     ),
   })
@@ -99,7 +107,7 @@ const getOrgIngestionRoute = createRoute({
     200: {
       content: { "application/json": { schema: OrgIngestionSchema } },
       description:
-        "The Workspaces of the org that have ingestion work now, each with its items. A Workspace with no work is not in the list. Every member can read it. The read writes nothing.",
+        "The Workspaces of the org that have ingestion work now, each with the count of its work. A Workspace with no work is not in the list. Every member can read it. The read writes nothing.",
     },
     401: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -116,16 +124,16 @@ export const orgWorkspaceIngestionRoutes = new OpenAPIHono<AppEnv>().openapi(
     if (!c.get("user") || !c.get("session") || !orgId)
       return c.json({ error: "Unauthorized" }, 401)
     const workspaces = await listOrgWorkspaces(orgId)
-    const items = await listActiveIngestion(
+    const counts = await countActiveIngestion(
       orgId,
       workspaces.map((workspace) => workspace.id),
     )
     return c.json(
       {
         workspaces: workspaces.flatMap((workspace) => {
-          const found = items.get(workspace.id) ?? []
-          return found.length
-            ? [{ workspaceSlug: workspace.slug, items: found }]
+          const count = counts.get(workspace.id)
+          return count && (count.sources || count.hydrating)
+            ? [{ workspaceSlug: workspace.slug, ...count }]
             : []
         }),
       },

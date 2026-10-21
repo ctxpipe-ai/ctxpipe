@@ -41,6 +41,8 @@ const otherOrg = {
 }
 const busy = `ws_busy_${suffix}`
 const quiet = `ws_quiet_${suffix}`
+const stale = `ws_stale_${suffix}`
+const steady = `ws_steady_${suffix}`
 const foreign = `ws_foreign_${suffix}`
 const linear = `con_linear_${suffix}`
 const repositoryUrl = `https://github.com/acme/web-${suffix}`
@@ -120,10 +122,15 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
     vi.stubEnv("RAILWAY_ENVIRONMENT_NAME", pr)
     await withOrgDbContext(org.id, async (db) => {
       await db.insert(workspaces).values(
-        [busy, quiet].map((id) => ({
+        [
+          [busy, "busy"],
+          [quiet, "quiet"],
+          [stale, "stale"],
+          [steady, "steady"],
+        ].map(([id = "", slug = ""]) => ({
           id,
           orgId: org.id,
-          slug: id === busy ? "busy" : "quiet",
+          slug,
           displayName: id,
           workspaceRepositoryUrl: `https://github.com/example/${id}.git`,
           formatVersion: 3,
@@ -286,6 +293,62 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
       ageSeconds: 2,
       input: { orgId: org.id, workspaceId: quiet },
     })
+    // Runs older than one day, and hydrates older than three hours, are
+    // stuck: they do not count.
+    await insertRun({
+      id: "run_stuck",
+      name: "repository-ingestion-v2",
+      ageSeconds: 25 * 3600,
+      input: v2Input(org.id, [stale]),
+    })
+    await insertRun({
+      id: "run_hydrate_stuck",
+      name: "workspace-hydrate",
+      ageSeconds: 3.5 * 3600,
+      input: { orgId: org.id, workspaceId: stale },
+    })
+    await insertRun({
+      id: "run_long",
+      name: "repository-ingestion-v2",
+      ageSeconds: 23 * 3600,
+      input: v2Input(org.id, [steady]),
+    })
+    await insertRun({
+      id: "run_hydrate_long",
+      name: "workspace-hydrate",
+      ageSeconds: 2.5 * 3600,
+      input: { orgId: org.id, workspaceId: steady },
+    })
+    // A root list that does not unzip hides only the progress of its run.
+    await insertRun({
+      id: "run_corrupt",
+      name: "repository-ingestion-v2",
+      ageSeconds: 400,
+      input: v2Input(org.id, [steady]),
+    })
+    await insertStep("run_corrupt", "discover-roots", "completed", {
+      roots: Buffer.from("not gzip").toString("base64"),
+    })
+    await insertStep("run_corrupt", "shard:0", "running")
+    // Many newer shadow runs and fast hydrates do not push the real runs out
+    // of the limit of 200.
+    await getSystemDb().execute(sql`
+      insert into openworkflow.workflow_runs
+        (namespace_id, id, workflow_name, status, config, input, attempts,
+         available_at, created_at, updated_at)
+      select ${namespace}, 'run_noise_shadow_' || n, 'repository-ingestion-v2',
+        'running', '{}'::jsonb,
+        ${JSON.stringify({ ...v2Input(org.id), shadow: true })}::jsonb, 1,
+        now(), now() - interval '1 second', now()
+      from generate_series(1, 250) n
+      union all
+      select ${namespace}, 'run_noise_hydrate_' || n, 'workspace-hydrate',
+        'running', '{}'::jsonb,
+        jsonb_build_object('orgId', ${org.id}::text,
+          'workspaceId', 'ws_noise_' || n),
+        1, now(), now() - interval '1 second', now()
+      from generate_series(1, 250) n
+    `)
     // The other org has a run that names a Workspace id of this org.
     await insertRun({
       id: "run_foreign",
@@ -368,18 +431,45 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
     expect(await readWorkspace("quiet")).toEqual([])
   })
 
-  it("gives the sidebar only the Workspaces of the org that have work", async () => {
+  it("does not count a run older than one day or a hydrate older than three hours", async () => {
+    expect(await readWorkspace("stale")).toEqual([])
+    expect((await readWorkspace("steady")).map((item) => item.id)).toEqual([
+      "run_long",
+      "run_hydrate_long",
+      "run_corrupt",
+    ])
+  })
+
+  it("gives a run whose root list does not unzip no progress", async () => {
+    const items = await readWorkspace("steady")
+    expect(items.find((item) => item.id === "run_corrupt")).toMatchObject({
+      kind: "repository",
+      stage: "ingesting",
+      progress: null,
+    })
+  })
+
+  it("gives the sidebar only the counts of the Workspaces of the org that have work", async () => {
     const response = await withOrgDbContext(org.id, async () =>
       workspaceHttpApp(org, orgWorkspaceIngestionRoutes).request("/workspaces"),
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
-      workspaces: Array<{ workspaceSlug: string; items: Item[] }>
+      workspaces: Array<{
+        workspaceSlug: string
+        sources: number
+        hydrating: boolean
+      }>
     }
-    expect(body.workspaces.map((w) => w.workspaceSlug)).toEqual(["busy"])
-    expect(body.workspaces[0]?.items.map((item) => item.id)).not.toContain(
-      "run_foreign",
-    )
+    // The run of the other org does not count for "busy".
+    expect(
+      body.workspaces.sort((a, b) =>
+        a.workspaceSlug.localeCompare(b.workspaceSlug),
+      ),
+    ).toEqual([
+      { workspaceSlug: "busy", sources: 4, hydrating: true },
+      { workspaceSlug: "steady", sources: 2, hydrating: true },
+    ])
   })
 
   it("shows the other org only its own run", async () => {

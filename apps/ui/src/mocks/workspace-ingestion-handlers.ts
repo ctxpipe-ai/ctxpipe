@@ -42,7 +42,11 @@ export function workspaceIngestionHandlers(
         return HttpResponse.json({
           workspaces: Object.entries(read())
             .filter(([, items]) => items.length > 0)
-            .map(([workspaceSlug, items]) => ({ workspaceSlug, items })),
+            .map(([workspaceSlug, items]) => ({
+              workspaceSlug,
+              sources: items.filter((item) => item.kind !== "hydrate").length,
+              hydrating: items.some((item) => item.kind === "hydrate"),
+            })),
         })
       },
     ),
