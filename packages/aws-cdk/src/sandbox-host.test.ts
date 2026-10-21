@@ -389,7 +389,12 @@ describe("sandbox host", () => {
     expect(script).toContain('"max-size": "10m"');
     expect(script).toContain("-H tcp://0.0.0.0:2376");
     expect(script).toContain('"icc": false');
-    expect(script).toContain("iptables -I INPUT -i docker0 -j REJECT");
+    // New connections from sandboxes to the host are refused. Replies to the
+    // host's own connections (docker-proxy for a published port) still pass.
+    expect(script).toContain(
+      "iptables -I INPUT -i docker0 -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT",
+    );
+    expect(script).not.toContain("iptables -I INPUT -i docker0 -j REJECT");
     expect(script).toContain("subjectAltName=DNS:%s");
     expect(script).not.toContain("docker build");
     // Private keys are removed on every exit path.
@@ -413,7 +418,12 @@ describe("sandbox host", () => {
     expect(script).not.toContain("AGENT_VAULT_NETWORK_ALLOWLIST='10.0.0.0/16'");
     // Agent Vault never reaches its own management API or the host: not
     // through the host (INPUT) and not back to its own bridge (hairpin).
-    expect(script).toContain("iptables -I INPUT -i ctxpipe-av -j REJECT");
+    // Replies still pass: else the host's own `/health` check of Agent Vault
+    // times out and the boot signals FAILURE (CTX-659).
+    expect(script).toContain(
+      "iptables -I INPUT -i ctxpipe-av -m conntrack ! --ctstate ESTABLISHED,RELATED -j REJECT",
+    );
+    expect(script).not.toContain("iptables -I INPUT -i ctxpipe-av -j REJECT");
     expect(script).toContain("iptables -I DOCKER-USER 1 -i ctxpipe-av -o ctxpipe-av -j REJECT");
     // The master password comes from the stack's secret, never the template.
     expect(script).toContain("AGENT_VAULT_MASTER_PASSWORD=\"$(aws secretsmanager get-secret-value");
