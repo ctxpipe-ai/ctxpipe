@@ -1,3 +1,4 @@
+import { getHeapStatistics } from "node:v8"
 import "./src/observability/register.js"
 import { defineConfig } from "@openworkflow/cli"
 import { initDb } from "./src/db/client.js"
@@ -113,6 +114,8 @@ const bootstrapLog = createLogger({
   cwd: process.cwd(),
   nodeEnv: process.env.NODE_ENV,
   concurrency: workerConcurrency,
+  heapLimitMib: Math.round(getHeapStatistics().heap_size_limit / 1024 / 1024),
+  nodeOptions: process.env.NODE_OPTIONS,
 })
 bootstrapLog.info("openworkflow worker config loaded")
 bootstrapLog.emit()

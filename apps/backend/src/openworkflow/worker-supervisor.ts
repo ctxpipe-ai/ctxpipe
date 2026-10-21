@@ -14,11 +14,14 @@
  */
 
 import { type ChildProcess, spawn } from "node:child_process"
+import { mkdirSync } from "node:fs"
+import { totalmem } from "node:os"
 import { resolve } from "node:path"
 import process from "node:process"
 import postgres from "postgres"
 import { openworkflowWorkerStartArgs } from "./codesearchCapacity.js"
 import { openWorkflowNamespaceId } from "./namespace.js"
+import { HEAP_SNAPSHOT_DIR, workerNodeOptions } from "./worker-heap.js"
 
 /** Same namespace the worker claims from; PR previews run in `preview-pr-N`, not `default`. */
 const NAMESPACE_ID = openWorkflowNamespaceId()
@@ -110,10 +113,28 @@ function shouldIdleExitOnEmptyQueue(): boolean {
  */
 function startOpenworkflowWorker(backendRoot: string): ChildProcess {
   const [, ...args] = openworkflowWorkerStartArgs()
+  // The container limit (cgroup), or the host memory when there is none.
+  const limit = process.constrainedMemory()
+  const nodeOptions = workerNodeOptions(
+    process.env.NODE_OPTIONS,
+    limit > 0 ? Math.min(limit, totalmem()) : totalmem(),
+  )
+  // Node writes a heap snapshot here before an out-of-memory exit.
+  mkdirSync(HEAP_SNAPSHOT_DIR, { recursive: true })
+  process.stderr.write(
+    `${JSON.stringify({
+      level: "info",
+      step: "openworkflow.worker-node-options",
+      message: `worker Node options: ${nodeOptions}`,
+      nodeOptions,
+      heapSnapshotDir: HEAP_SNAPSHOT_DIR,
+      timestamp: new Date().toISOString(),
+    })}\n`,
+  )
   return spawn(resolve(backendRoot, "node_modules/.bin/openworkflow"), args, {
     cwd: backendRoot,
     stdio: "inherit",
-    env: process.env,
+    env: { ...process.env, NODE_OPTIONS: nodeOptions },
   })
 }
 
