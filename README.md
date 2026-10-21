@@ -25,10 +25,12 @@
 **Context management for software factories.** Open source, MIT licensed.
 
 Your agents can reach everything, but they cannot tell what is true. ctxpipe
-turns your code, tickets, docs, and incidents into one organized, current git
-repository of Markdown that you can inspect. Background jobs keep it current,
-and every coding agent reads it over MCP. Self-host the open-source core, or use
-the hosted version ([early access](https://ctxpipe.ai/early-access)).
+turns your code into one organized, current git repository of Markdown that you
+can inspect. It also adds the context that code does not hold: Linear tickets,
+Notion and Confluence docs, Slack threads, and PagerDuty incidents. Background
+jobs keep it current, and every coding agent reads it over MCP. Self-host the
+open-source core, or use the hosted version
+([early access](https://ctxpipe.ai/early-access)).
 
 ## The problem
 
