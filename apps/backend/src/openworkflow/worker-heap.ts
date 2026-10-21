@@ -30,7 +30,7 @@ export function workerNodeOptions(
     options
       .split(/\s+/)
       .filter((token) => token.startsWith("--"))
-      .map((token) => token.split("=")[0].replaceAll("_", "-")),
+      .map((token) => (token.split("=", 1)[0] ?? token).replaceAll("_", "-")),
   )
   const add: string[] = []
   if (!names.has("--max-old-space-size"))
