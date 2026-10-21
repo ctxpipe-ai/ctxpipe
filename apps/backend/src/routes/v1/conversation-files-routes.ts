@@ -10,6 +10,7 @@ import {
 } from "../../domain/workspaces/conversation-diff.js"
 import {
   attachTurnSandboxForRead,
+  conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
@@ -99,6 +100,10 @@ const ConversationGitStatusResponseSchema = z
     sha: z.string().nullable(),
     desiredSha: z.string().nullable(),
     stale: z.boolean(),
+    workspaceMovedUnderChanges: z.boolean().openapi({
+      description:
+        "The Workspace has new commits and this conversation has its own changes. False for a conversation with no changes: its next turn moves it to the new commit.",
+    }),
     dirty: z.boolean(),
     differsFromDefault: z.boolean(),
     unpushed: z.boolean(),
@@ -564,9 +569,11 @@ async function conversationFileSnapshot(input: {
     status: {
       source: "sandbox" as const,
       ...status,
-      sha: binding?.desiredSha ?? null,
-      desiredSha: revision?.sha ?? null,
-      stale: binding?.desiredSha !== revision?.sha,
+      ...conversationRevisionStatus({
+        ...status,
+        sha: binding?.desiredSha ?? null,
+        desiredSha: revision?.sha ?? null,
+      }),
       worktreeVersion,
     },
   }
@@ -758,9 +765,11 @@ export const conversationFileRoutes = fileRoutes
       {
         source: "sandbox" as const,
         ...status,
-        sha: binding?.desiredSha ?? null,
-        desiredSha: revision?.sha ?? null,
-        stale: binding?.desiredSha !== revision?.sha,
+        ...conversationRevisionStatus({
+          ...status,
+          sha: binding?.desiredSha ?? null,
+          desiredSha: revision?.sha ?? null,
+        }),
         worktreeVersion,
       },
       200,

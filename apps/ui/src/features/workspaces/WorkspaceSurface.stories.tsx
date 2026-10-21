@@ -371,6 +371,82 @@ export const Conversation: Story = {
   },
 }
 
+/** The status of a sandbox that is on an older commit than the Workspace. */
+function workspaceMovedStatus(ownChanges: boolean) {
+  return conversationGitStatusHandler({
+    source: "sandbox",
+    branch: "ctxpipe/chat/conv_1/1",
+    sha: "cdc935a0000000000000000000000000000000000",
+    desiredSha: "3635994000000000000000000000000000000000",
+    stale: true,
+    workspaceMovedUnderChanges: ownChanges,
+    dirty: ownChanges,
+    differsFromDefault: ownChanges,
+    unpushed: ownChanges,
+    published: false,
+    ahead: ownChanges ? 1 : 0,
+    behind: 0,
+    items: [],
+    worktreeVersion: "wt-0",
+  })
+}
+
+/**
+ * The Workspace moved, but the conversation has no changes of its own. Its
+ * next turn moves it to the new commit, so no notice shows.
+ */
+export const ConversationWorkspaceMovedNoChanges: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [workspaceMovedStatus(false), ...workspaceShellHandlers()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    // The branch name shows when the status has loaded.
+    await waitFor(() => expect(canvas.getByText("chat/1")).toBeVisible(), {
+      timeout: 15_000,
+    })
+    expect(canvas.queryByRole("alert")).not.toBeInTheDocument()
+    expect(canvas.queryByText(/rebase|conflict/i)).not.toBeInTheDocument()
+  },
+}
+
+/**
+ * The Workspace moved under the conversation's own changes. The notice says
+ * to send a message first and does not name a conflict.
+ */
+export const ConversationWorkspaceMovedWithChanges: Story = {
+  args: { conversationId: "conv_1" },
+  parameters: {
+    storyRoute: workspaceRoute({ conversationId: "conv_1" }),
+    msw: {
+      handlers: {
+        page: [workspaceMovedStatus(true), ...workspaceShellHandlers()],
+      },
+    },
+  },
+  play: async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    const notice = await waitFor(
+      () => {
+        const alert = canvas.getByRole("alert")
+        expect(alert).toHaveTextContent("The Workspace has new commits")
+        return alert
+      },
+      { timeout: 15_000 },
+    )
+    expect(notice).toHaveTextContent(
+      "Send your next message to bring this conversation up to date. Then you can publish.",
+    )
+    expect(notice).not.toHaveTextContent(/conflict|rebase/i)
+  },
+}
+
 export const ConversationLoading: Story = {
   args: { conversationId: "conv_1" },
   parameters: {
