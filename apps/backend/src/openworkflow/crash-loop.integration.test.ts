@@ -12,6 +12,7 @@ import {
   failInFlightStepAttempts,
   MAX_CRASHED_STEP_ATTEMPTS,
   StepCrashLoopError,
+  stopGuardedStepAttempts,
   withCrashLoopGuard,
 } from "./crash-loop.js"
 import { defineWorkflow } from "./defineObservedWorkflow.js"
@@ -340,4 +341,129 @@ it("marks the attempt of a stopped worker failed, so three deploys in a step do 
   ])
   // Nothing is in flight after the step: a later stop marks nothing.
   expect(await failInFlightStepAttempts()).toBe(0)
+})
+
+/** The stop flag of `crash-loop.ts`. The tests set it back after a stop. */
+function workerStopState() {
+  return (globalThis as unknown as Record<symbol, { stopping: boolean }>)[
+    Symbol.for("ctxpipe.openworkflow.worker-stop-state")
+  ]
+}
+
+async function runState(runId: string, step: string) {
+  const attempts = await getSystemDb().execute<{ status: string }>(sql`
+    select status from openworkflow.step_attempts
+    where namespace_id = ${namespace}
+      and workflow_run_id = ${runId}
+      and step_name = ${step}
+    order by created_at
+  `)
+  const runs = await getSystemDb().execute<{ status: string }>(sql`
+    select status from openworkflow.workflow_runs
+    where namespace_id = ${namespace} and id = ${runId}
+  `)
+  return {
+    attempts: attempts.rows.map((row) => row.status),
+    run: runs.rows[0]?.status,
+  }
+}
+
+/**
+ * Start a worker that gets SIGTERM. Its guarded steps do not end, so the
+ * test does not wait for it to stop; the process would exit.
+ */
+async function startStoppedWorker(check: () => Promise<void>) {
+  const worker = ow.newWorker({ concurrency: 1 })
+  await worker.start()
+  try {
+    await vi.waitFor(check, { timeout: 15_000, interval: 100 })
+    // Nothing writes a result or an error later.
+    await new Promise((resolve) => setTimeout(resolve, 500))
+    await check()
+  } finally {
+    workerStopState().stopping = false
+    void worker.stop()
+  }
+}
+
+it("does not end a step whose body ends after the stop marked it, so the next worker runs it again", async () => {
+  let bodies = 0
+  workflows++
+  const workflow = defineWorkflow(
+    {
+      name: `crash-loop-${pr}-${workflows}`,
+      schema: z.object({}),
+      retryPolicy: once,
+    },
+    async ({ step, run }) =>
+      step.run({ name: "drain", retryPolicy: once }, () =>
+        withCrashLoopGuard(run.id, "drain", async () => {
+          bodies++
+          // SIGTERM comes while the first body runs. The body then ends
+          // while the worker flushes its logs, before the process exits.
+          if (bodies === 1) expect(await stopGuardedStepAttempts()).toBe(1)
+          return "ran"
+        }),
+      ),
+  )
+  ow.implementWorkflow(workflow.spec, workflow.fn)
+  const handle = await ow.runWorkflow(workflow.spec, {})
+  const runId = handle.workflowRun.id
+
+  await startStoppedWorker(async () => {
+    expect(await runState(runId, "drain")).toEqual({
+      attempts: ["failed"],
+      run: "running",
+    })
+  })
+  expect(bodies).toBe(1)
+
+  // The next worker claims the run when the lease of the stopped one ends.
+  await getSystemDb().execute(sql`
+    update openworkflow.workflow_runs set available_at = now()
+    where namespace_id = ${namespace} and id = ${runId}
+  `)
+  const next = ow.newWorker({ concurrency: 1 })
+  await next.start()
+  try {
+    expect(await handle.result({ timeoutMs: 30_000 })).toBe("ran")
+  } finally {
+    await next.stop()
+  }
+  expect(bodies).toBe(2)
+  expect(await runState(runId, "drain")).toEqual({
+    attempts: ["failed", "completed"],
+    run: "completed",
+  })
+})
+
+it("does not run a guarded step that starts after SIGTERM, and marks its attempt failed", async () => {
+  let bodies = 0
+  workflows++
+  const workflow = defineWorkflow(
+    {
+      name: `crash-loop-${pr}-${workflows}`,
+      schema: z.object({}),
+      retryPolicy: once,
+    },
+    async ({ step, run }) =>
+      step.run({ name: "late", retryPolicy: once }, () =>
+        withCrashLoopGuard(run.id, "late", async () => {
+          bodies++
+          return "ran"
+        }),
+      ),
+  )
+  ow.implementWorkflow(workflow.spec, workflow.fn)
+  const handle = await ow.runWorkflow(workflow.spec, {})
+  // SIGTERM came, with no guarded step in flight.
+  expect(await stopGuardedStepAttempts()).toBe(0)
+
+  await startStoppedWorker(async () => {
+    expect(await runState(handle.workflowRun.id, "late")).toEqual({
+      attempts: ["failed"],
+      run: "running",
+    })
+  })
+  expect(bodies).toBe(0)
 })

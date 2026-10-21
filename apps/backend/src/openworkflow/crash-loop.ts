@@ -70,30 +70,22 @@ async function runningStepAttempts(
 }
 
 /**
- * The guarded step attempts that this worker process runs now. The set is
- * on `globalThis` because the OpenWorkflow CLI can load the worker config
- * and the workflow files as different module instances.
+ * The guarded step attempts that this worker process runs now, and whether
+ * the process stops. The state is on `globalThis` because the OpenWorkflow
+ * CLI can load the worker config and the workflow files as different module
+ * instances.
  */
-const inFlightKey = Symbol.for("ctxpipe.openworkflow.in-flight-step-attempts")
-const processGlobals = globalThis as {
-  [inFlightKey]?: Set<string>
-}
-processGlobals[inFlightKey] ??= new Set()
-const inFlightAttempts = processGlobals[inFlightKey]
+const workerStateKey = Symbol.for("ctxpipe.openworkflow.worker-stop-state")
+type WorkerStopState = { inFlight: Set<string>; stopping: boolean }
+const processGlobals = globalThis as { [workerStateKey]?: WorkerStopState }
+processGlobals[workerStateKey] ??= { inFlight: new Set(), stopping: false }
+const workerState = processGlobals[workerStateKey]
 
-/**
- * Mark the guarded step attempts that this worker process runs now as
- * `failed`. Call it when the worker gets SIGTERM or SIGINT, before the
- * process stops: `Worker.stop()` of OpenWorkflow 0.10 does not end an
- * attempt, so a deploy would leave it `running`, and the crash-loop guard
- * would count the deploy as a crash. The write changes only the attempts of
- * this process. A process that runs out of memory gets no signal, so its
- * attempt stays `running` and the guard counts it. Returns the number of
- * attempts that it marked.
- */
-export async function failInFlightStepAttempts(): Promise<number> {
-  const ids = [...inFlightAttempts]
-  if (ids.length === 0) return 0
+/** Wait for ever. The process stops before this ends. */
+const never = () => new Promise<never>(() => {})
+
+async function markAttemptsFailed(ids: string[]): Promise<string[]> {
+  if (ids.length === 0) return []
   const error = {
     name: "WorkerStoppedError",
     message:
@@ -113,13 +105,41 @@ export async function failInFlightStepAttempts(): Promise<number> {
       and status = 'running'
     returning id
   `)
+  return result.rows.map((row) => row.id)
+}
+
+/**
+ * Mark the guarded step attempts that this worker process runs now as
+ * `failed`. `Worker.stop()` of OpenWorkflow 0.10 does not end an attempt, so
+ * a deploy would leave it `running`, and the crash-loop guard would count the
+ * deploy as a crash. The write changes only the attempts of this process. A
+ * process that runs out of memory gets no signal, so its attempt stays
+ * `running` and the guard counts it. Returns the number of attempts that it
+ * marked.
+ */
+export async function failInFlightStepAttempts(): Promise<number> {
+  const marked = await markAttemptsFailed([...workerState.inFlight])
+  if (marked.length === 0) return 0
   log.warn({
     step: "openworkflow.step-attempts-stopped",
-    message: `The worker stopped; marked ${result.rows.length} step attempts failed`,
-    stepAttemptIds: result.rows.map((row) => row.id).join(","),
+    message: `The worker stopped; marked ${marked.length} step attempts failed`,
+    stepAttemptIds: marked.join(","),
     workerBootId: WORKER_BOOT_ID,
   })
-  return result.rows.length
+  return marked.length
+}
+
+/**
+ * Call this when the worker gets SIGTERM or SIGINT, then stop the process.
+ * From now on, a guarded step does not end: OpenWorkflow must not write a
+ * result or an error for an attempt that this call marks `failed` (its write
+ * would fail the step), and a guarded step that starts now marks its own
+ * attempt `failed` and does not run. The flag and the list of attempts to
+ * mark are read in the same tick, so no guarded step falls between them.
+ */
+export function stopGuardedStepAttempts(): Promise<number> {
+  workerState.stopping = true
+  return failInFlightStepAttempts()
 }
 
 /**
@@ -127,7 +147,8 @@ export async function failInFlightStepAttempts(): Promise<number> {
  * `MAX_CRASHED_STEP_ATTEMPTS` times, so the worker does not restart on the
  * step again and again (CTX-971). Then log the error and return the result of
  * `onCrashLoop` (the step ends with that output and is not retried), or,
- * with no `onCrashLoop`, throw `StepCrashLoopError` (the step fails).
+ * with no `onCrashLoop`, throw `StepCrashLoopError` (the step fails). After
+ * `stopGuardedStepAttempts`, the guard does not return (see there).
  */
 export async function withCrashLoopGuard<T>(
   workflowRunId: string,
@@ -139,6 +160,11 @@ export async function withCrashLoopGuard<T>(
     workflowRunId,
     stepName,
   )
+  if (workerState.stopping) {
+    // SIGTERM came before this step started: do not run it.
+    if (attemptId) await markAttemptsFailed([attemptId])
+    return never()
+  }
   const crashes = crashed.length
   if (crashes >= MAX_CRASHED_STEP_ATTEMPTS) {
     const error = new StepCrashLoopError(stepName, crashes)
@@ -153,10 +179,12 @@ export async function withCrashLoopGuard<T>(
     if (onCrashLoop) return onCrashLoop(error)
     throw error
   }
-  if (attemptId) inFlightAttempts.add(attemptId)
+  if (attemptId) workerState.inFlight.add(attemptId)
   try {
     return await fn()
   } finally {
-    if (attemptId) inFlightAttempts.delete(attemptId)
+    if (attemptId) workerState.inFlight.delete(attemptId)
+    // The stop marked this attempt `failed`, or will mark it.
+    if (workerState.stopping) await never()
   }
 }
