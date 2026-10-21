@@ -199,7 +199,7 @@ export async function packGitObjects(
     const { size } = await stat(file)
     if (size > maxBytes)
       throw new Error(
-        `The Git repository is too large for ctx| to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
+        `The Git repository is too large for ctxpipe to read in one step: the Git pack of its commit is ${Math.ceil(size / 2 ** 20)} MiB, and the limit is ${maxBytes / 2 ** 20} MiB.`,
       )
     return (await readFile(file)).toString("base64")
   } finally {

@@ -341,7 +341,7 @@ it(
 )
 
 it(
-  "a rebind of a format 0 repository with ctx| content writes no bootstrap to the default branch, and the scan offers the upgrade",
+  "a rebind of a format 0 repository with ctxpipe content writes no bootstrap to the default branch, and the scan offers the upgrade",
   { timeout: 60_000 },
   async () => {
     await withNativeHydrationFixture(
@@ -349,7 +349,7 @@ it(
         github: true,
         githubWriteView: "writable",
         writeStatus: "writable",
-        // A repository with no ctx| content is new: bootstrap writes it.
+        // A repository with no ctxpipe content is new: bootstrap writes it.
         files: [
           { path: "document-000.md", body: "# Document 0\n" },
           { path: "repositories/example.md", body: "# Example\n" },

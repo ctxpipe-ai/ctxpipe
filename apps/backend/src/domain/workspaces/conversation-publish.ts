@@ -146,7 +146,7 @@ export type SessionPublishSkip =
 
 /** A publish that was attempted and did not reach GitHub. */
 export type SessionPublishFailure =
-  /** The session branch has commits ctx| did not push; fetch and rebase. */
+  /** The session branch has commits ctxpipe did not push; fetch and rebase. */
   | "session_moved"
   /** No write credential for the Workspace repository. */
   | "no_write_access"
@@ -175,7 +175,7 @@ export type PublishTarget = {
   repositoryName: string
   connectionId: string
   branch: string
-  /** The tip ctx| last pushed; only that tip may be replaced. */
+  /** The tip ctxpipe last pushed; only that tip may be replaced. */
   pushedSha: string | null
   /** A default-branch commit the sandbox builds on and GitHub has. */
   baseSha: string
@@ -326,7 +326,7 @@ printf 'branch %s\\n' "$B"
  * sandbox on the default branch first moves to the session branch.
  *
  * A clean sandbox with nothing unpushed does no network or database work.
- * The remote tip is replaced only when it is the tip ctx| pushed last (its
+ * The remote tip is replaced only when it is the tip ctxpipe pushed last (its
  * own history, rebased onto a moved default); anything else on the branch
  * that HEAD lacks answers `session_moved`. `dirty`: uncommitted files remain.
  */
@@ -495,7 +495,7 @@ async function brokerPush(input: {
           `git merge-base --is-ancestor ${shellSingleQuote(remote)} ${shellSingleQuote(sha)}`,
         )
       ).exitCode === 0
-    // Replacing the remote tip is only for the tip ctx| pushed itself, after
+    // Replacing the remote tip is only for the tip ctxpipe pushed itself, after
     // an option-D rebase. Anything else the agent must fetch and rebase onto.
     if (remote && !fastForward && remote !== target.pushedSha)
       return { status: "failed", reason: "session_moved" }

@@ -21,7 +21,7 @@ export function pullRequestTitle(
   const [first, second] = changes.files.map(
     (file) => file.path.split("/").pop() || file.path,
   )
-  if (!first) return "Changes from ctx|"
+  if (!first) return "Changes from ctxpipe"
   const others =
     changes.files.length > 2
       ? ` and ${changes.files.length - 1} other files`
@@ -49,8 +49,11 @@ export function pullRequestBody(input: {
   ]
   const lines = subjects.length
     ? subjects.map((subject) => `- ${subject}`)
-    : ["Changes made in a ctx| conversation."]
+    : ["Changes made in a ctxpipe conversation."]
   if (input.conversationUrl)
-    lines.push("", `[Open the conversation in ctx|](${input.conversationUrl})`)
+    lines.push(
+      "",
+      `[Open the conversation in ctxpipe](${input.conversationUrl})`,
+    )
   return maskCredentials(lines.join("\n"))
 }

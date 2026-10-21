@@ -15,7 +15,7 @@ import { CODE_FORMAT, INGESTION_V2_PUBLISH_FORMAT } from "./workspace-format.js"
 
 /** Why an edit of a main-era knowledge path is refused. */
 export const LEGACY_KNOWLEDGE_READ_ONLY =
-  "This file is knowledge from before Workspaces. ctx| shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
+  "This file is knowledge from before Workspaces. ctxpipe shows it from its database, not from git, so you cannot edit, move, or delete it. The re-ingestion of its repository replaces it after the format upgrade."
 
 /**
  * Which main-era knowledge hydrate adds to the projection at this format.

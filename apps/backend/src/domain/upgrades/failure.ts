@@ -19,7 +19,7 @@ export const UPGRADE_FAILURE_CODES = [
 
 type UpgradeFailureCode = (typeof UPGRADE_FAILURE_CODES)[number]
 
-/** The step that failed. `null`: ctx| cannot tell. */
+/** The step that failed. `null`: ctxpipe cannot tell. */
 export const UPGRADE_FAILURE_STEPS = [
   "plan",
   "wait",
@@ -35,7 +35,7 @@ type UpgradeFailure = {
   step: UpgradeFailureStep | null
   /** The source repository of the failed step, when one failed. */
   repository: string | null
-  /** The cause as ctx| recorded it: one line, with no credential and no stack trace. */
+  /** The cause as ctxpipe recorded it: one line, with no credential and no stack trace. */
   summary: string
 }
 
@@ -51,7 +51,7 @@ type FailureInput = {
 
 /**
  * The first rule that matches wins. `temporary`: a second run can pass with
- * no change by the user (CTX-896), so ctx| starts it again by itself, once.
+ * no change by the user (CTX-896), so ctxpipe starts it again by itself, once.
  * A long wait for a turn or for a run is not temporary: a new run waits at
  * the back of the queue again.
  */
@@ -120,7 +120,7 @@ const RULES: Array<{
     temporary: true,
   },
   {
-    // A Git output that is larger than ctx| keeps in memory (CTX-933).
+    // A Git output that is larger than ctxpipe keeps in memory (CTX-933).
     code: "repository_too_large",
     step: null,
     match: /too large for ctx\| to read|maxbuffer length exceeded/,
@@ -195,6 +195,6 @@ export function classifyUpgradeFailure(
     // The card gives the fix, so the summary does not repeat it.
     summary:
       safeFailureSummary(cause).replace(/\s*Start it again\.$/, "") ||
-      "ctx| recorded no reason.",
+      "ctxpipe recorded no reason.",
   }
 }

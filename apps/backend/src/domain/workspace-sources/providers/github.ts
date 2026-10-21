@@ -4,7 +4,7 @@ import type { SourceScopeDefinition } from "./scope.js"
 
 /**
  * The most repositories in one GitHub entry of `.ctxpipe/sources.yaml` (the
- * `repositories` list). ctx| clones and indexes each one. The cap is not for
+ * `repositories` list). ctxpipe clones and indexes each one. The cap is not for
  * a GitHub source file, because that file holds one repository.
  */
 export const GITHUB_SOURCE_MAX_REPOSITORIES = 100
@@ -29,7 +29,7 @@ const refSchema = z
 
 /**
  * One linked repository: `owner/name`, or a map with an optional `ref`
- * (branch or tag). Without `ref`, ctx| reads the default branch.
+ * (branch or tag). Without `ref`, ctxpipe reads the default branch.
  */
 const repositoryItemSchema = z.union([
   repositoryNameSchema,
@@ -59,7 +59,7 @@ export const githubScopeSchema = z.strictObject({
 
 /**
  * The GitHub entry scope with no cap on `repositories`. Use it only to read
- * an entry that ctx| wrote before the cap (CTX-822), so that the legacy
+ * an entry that ctxpipe wrote before the cap (CTX-822), so that the legacy
  * read paths do not drop the repositories of a long entry.
  */
 export const githubLegacyScopeSchema = z.strictObject({
@@ -80,7 +80,7 @@ export function githubScopeRepositories(
 type GithubSourceScope = z.infer<typeof githubScopeSchema>
 
 /**
- * The GitHub source scope: the repositories linked to the Workspace. ctx|
+ * The GitHub source scope: the repositories linked to the Workspace. ctxpipe
  * clones and indexes them; it does not mirror them as files.
  */
 export const githubSourceScope: SourceScopeDefinition = {

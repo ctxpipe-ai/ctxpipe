@@ -15,7 +15,7 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 2. Observe where the browser lands.
 
 **Expect (UI)**
-- The browser reaches `/onboarding` (a user with no org is redirected there from `/`) and the first slide, **Welcome to ctx|**, shows **Next**.
+- The browser reaches `/onboarding` (a user with no org is redirected there from `/`) and the first slide, **Welcome to ctxpipe**, shows **Next**.
 - *Uncertain:* the sign-up form may route to `/.auth/email-verification` ("check your email") although no verification is required. If so, sign in with the same credentials and record the screen as an observation, not a FAIL.
 
 **Expect (backend)** `users` row for A with `onboardingCompletedAt` empty; a credential row in `accounts`; a `sessions` row.
@@ -25,7 +25,7 @@ First area of every run. Creates account A, the org, the GitHub connection, and 
 ### ONB-2 Create the org and land on Home
 **Requires** ONB-1.
 **Steps**
-1. Click **Next** on **Welcome to ctx|**.
+1. Click **Next** on **Welcome to ctxpipe**.
 2. On **Create your organization**, first submit a 33-character slug and read the error; then enter name `preview-env {run-id}` and slug `pe-{YYYYMMDDHHMMSS}` and submit (Enter or the create button).
 3. Observe where the browser lands. ONB-3 connects GitHub from the guide.
 

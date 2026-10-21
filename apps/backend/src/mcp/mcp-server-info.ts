@@ -51,7 +51,7 @@ export function getMcpServerImplementation(
 
   const impl: Implementation = {
     name: "ctxpipe",
-    title: "ctx|",
+    title: "ctxpipe",
     version: "0.1.0",
     websiteUrl: base,
     icons,

@@ -31,7 +31,6 @@ function orgSql<T>(fn: () => Promise<T>): Promise<T> {
   return withAmbientOrgDb(fn)
 }
 
-
 export {
   derivedSlackSetupPhase,
   SLACK_SETUP_PHASES,
@@ -141,7 +140,7 @@ export const MULTIPLE_SLACK_CONNECTIONS_MESSAGE =
   "Multiple Slack connections for this organization; specify connectionId query parameter"
 
 const SLACK_TEAM_ALREADY_CONNECTED_MESSAGE =
-  "This Slack workspace is already connected to another ctx| organization"
+  "This Slack workspace is already connected to another ctxpipe organization"
 
 export class SlackTeamAlreadyConnectedError extends Error {
   constructor() {

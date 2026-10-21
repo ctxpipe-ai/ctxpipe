@@ -27,9 +27,7 @@ import type {
 import { ScopeLimitAlert } from "./ScopeLimitAlert"
 
 /** The selected service ids of a source scope. A bad scope starts empty. */
-function pagerdutyScopeToServiceIds(
-  scope: Record<string, unknown>,
-): string[] {
+function pagerdutyScopeToServiceIds(scope: Record<string, unknown>): string[] {
   const parsed = pagerdutySourceScopeSchema.safeParse(scope)
   return parsed.success ? parsed.data.services : []
 }
@@ -43,7 +41,7 @@ function pagerdutyServiceIdsToScope(
 }
 
 /**
- * Select the PagerDuty services of a source. ctx| syncs the incidents of
+ * Select the PagerDuty services of a source. ctxpipe syncs the incidents of
  * each selected service, with their alerts.
  */
 export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
@@ -88,8 +86,8 @@ export function PagerdutyScopeEditor(props: SourceScopeEditorProps) {
     <section aria-label={heading} className="flex flex-col gap-3">
       <h3 className="text-sm font-medium text-foreground">{heading}</h3>
       <p className="text-sm text-muted-foreground">
-        ctx| syncs the incidents of each selected service from the last 90 days,
-        with their alerts.
+        ctxpipe syncs the incidents of each selected service from the last 90
+        days, with their alerts.
       </p>
       <SearchField
         aria-label={`Search PagerDuty services for ${label ?? "this source"}`}

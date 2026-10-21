@@ -17,7 +17,7 @@ export function WorkspaceRootFolderField(props: {
       isDisabled={props.isDisabled}
       isInvalid={error !== null}
       errorMessage={error ?? undefined}
-      description="A team can keep its context in a folder of an existing repository. You can also keep several Workspaces in one repository, with one folder for each. ctx| reads and changes files only in this folder."
+      description="A team can keep its context in a folder of an existing repository. You can also keep several Workspaces in one repository, with one folder for each. ctxpipe reads and changes files only in this folder."
     />
   )
 }

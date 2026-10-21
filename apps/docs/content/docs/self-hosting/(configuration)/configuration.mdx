@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctx|.
+description: Configure Docker Compose, environment variables, and connector secrets for self-hosted ctxpipe.
 ---
 
 Configuration is environment-driven. Set only the values your deployment needs,
@@ -118,11 +118,11 @@ worker.
 
 ### Plain git repositories
 
-A plain git repository is a repository that ctx| reads with no credential
+A plain git repository is a repository that ctxpipe reads with no credential
 (see [Linked repositories](/docs/workspaces/linked-repositories#plain-git-repositories)).
 With `SANDBOX_PROVIDER=docker`, its URL can use `https://` or `http://`,
 another port, an IP address, or an internal host name. ssh (`git@…` or
-`ssh://`), `git://`, and `file://` URLs are not supported. ctx| never reads a
+`ssh://`), `git://`, and `file://` URLs are not supported. ctxpipe never reads a
 host that resolves to a cloud metadata or link-local address
 (`169.254.0.0/16`, `fe80::/10`, or `fd00:ec2::254`). With each other value
 of `SANDBOX_PROVIDER`, or with no value, the URL must use `https://` on the
@@ -160,7 +160,7 @@ events, credentials, installation, and end-to-end verification.
 
 ## Atlassian and Confluence
 
-Self-hosted Confluence uses the same product wizard as fully managed ctx|, but
+Self-hosted Confluence uses the same product wizard as fully managed ctxpipe, but
 your deployment or organization must provide Atlassian and Forge settings first.
 
 | Variable | Description |
@@ -229,7 +229,7 @@ See [Notion](/docs/self-hosting/notion) for provisioning and verification.
 ## PagerDuty
 
 PagerDuty can use a deployment-owned OAuth application. After a user
-authorizes an account, ctx| creates the signed webhook subscription. These
+authorizes an account, ctxpipe creates the signed webhook subscription. These
 variables are an optional hosted-style shortcut; self-host can save the app
 on the connection in the setup wizard instead.
 
@@ -246,7 +246,7 @@ verification.
 
 ## Observability
 
-Telemetry is off until you set it. ctx| does not ship a collector, Langfuse, or
+Telemetry is off until you set it. ctxpipe does not ship a collector, Langfuse, or
 ClickStack in the Compose `deploy` profile or in `@ctxpipe/aws-cdk`. Unset
 values keep logs on stdout and do not start trace or metric export. Empty
 values are treated as unset.
@@ -311,7 +311,7 @@ endpoint is unset returns `204`.
 
 ## Railway
 
-ctx| can be deployed on Railway with prebuilt images from GitHub Container
+ctxpipe can be deployed on Railway with prebuilt images from GitHub Container
 Registry. Runtime services (`backend`, `worker`, `codesearch`) must use a
 `DATABASE_URL` for `ctxpipe_app`. The migrate job uses the Neon owner / pooler
 URL (`neondb_owner`) and then GRANTs the app role. Do not point app services at

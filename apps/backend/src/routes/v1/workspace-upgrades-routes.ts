@@ -73,7 +73,7 @@ const WorkspaceUpgradeItemSchema = z
     }),
     status: UpgradeStatusSchema.openapi({
       description:
-        "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctx| prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `blocked`: see `blockedReason` and `note`.",
+        "`awaiting_operator`: waits for an owner or admin to start it. `queued` and `running`: ctxpipe prepares the pull request. `pr_open`: merge the pull request to apply it. `completed`: the repository has the target format. `failed`: see `failureReason`; start it again. `blocked`: see `blockedReason` and `note`.",
     }),
     fromFormat: z.number().int(),
     targetFormat: z.number().int().openapi({
@@ -97,7 +97,7 @@ const WorkspaceUpgradeItemSchema = z
             .optional()
             .openapi({
               description:
-                "The lines of `report` that the user must know, in plain words: `action` is a thing to do, `risk` is knowledge or a setting that ctx| cannot keep or make again. The UI shows these lines and keeps `report` behind Details.",
+                "The lines of `report` that the user must know, in plain words: `action` is a thing to do, `risk` is knowledge or a setting that ctxpipe cannot keep or make again. The UI shows these lines and keeps `report` behind Details.",
             }),
         }),
       )
@@ -139,7 +139,7 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "`write_access`: ctx| cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
+          "`write_access`: ctxpipe cannot write to the repository. `needs_format`: a re-ingestion needs format 3; merge the format upgrade first. `sandbox_unavailable`: this deployment has no ingest sandbox. `ingestion_v2_off`: ingestion v2 does not publish to this Workspace (its format is not read yet).",
       }),
     note: z.string().nullable(),
     waitingForSlot: z
@@ -160,11 +160,11 @@ const WorkspaceUpgradeItemSchema = z
       .nullable()
       .openapi({
         description:
-          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctx| cannot read a source repository. `workspace_write_access`: ctx| cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctx| could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `repository_too_large`: a Git repository is larger than ctx| can read in one step. `server_busy`: the server could not start a process, because it had too many processes or too little memory. `unknown`: no other class.",
+          "Only when `status` is `failed`: the class of the failure, the step that failed, and a short safe summary of the cause. `source_access`: ctxpipe cannot read a source repository. `workspace_write_access`: ctxpipe cannot write to the Workspace repository. `sandbox`: the ingest sandbox failed. `model`: a model or provider error. `publish_conflict`: the Workspace changed during the publish, and ctxpipe could not merge the files. `timeout`: a run or its turn took too long. `too_many_sources`: the Workspace has more source repositories than one run handles. `repository_too_large`: a Git repository is larger than ctxpipe can read in one step. `server_busy`: the server could not start a process, because it had too many processes or too little memory. `unknown`: no other class.",
       }),
     autoRetried: z.boolean().openapi({
       description:
-        "True when a run of this upgrade failed for a temporary cause, and ctx| started it again by itself, once. The user did not start that second run. A start by the user sets it to false.",
+        "True when a run of this upgrade failed for a temporary cause, and ctxpipe started it again by itself, once. The user did not start that second run. A start by the user sets it to false.",
     }),
     approvedBy: z.string().nullable().openapi({
       description: "The user id of the owner or admin who started it.",
@@ -178,10 +178,11 @@ const WorkspaceUpgradesSchema = z
   .object({
     formatVersion: z.number().int().nullable().openapi({
       description:
-        "The format of the Workspace repository that ctx| read last. `null`: not read yet. `-1`: the format file is not valid.",
+        "The format of the Workspace repository that ctxpipe read last. `null`: not read yet. `-1`: the format file is not valid.",
     }),
     codeFormat: z.number().int().openapi({
-      description: "The newest format that this ctx| version reads and writes.",
+      description:
+        "The newest format that this ctxpipe version reads and writes.",
     }),
     items: z.array(WorkspaceUpgradeItemSchema),
   })
@@ -298,7 +299,7 @@ const startUpgradeRoute = createRoute(
             "application/json": { schema: WorkspaceUpgradeItemSchema },
           },
           description:
-            "The upgrade is queued. A git upgrade opens a pull request on the branch `ctxpipe/upgrade/<key>`; ctx| never pushes to the default branch. A re-ingestion runs ingestion v2 for each source repository, one Workspace of the org at a time.",
+            "The upgrade is queued. A git upgrade opens a pull request on the branch `ctxpipe/upgrade/<key>`; ctxpipe never pushes to the default branch. A re-ingestion runs ingestion v2 for each source repository, one Workspace of the org at a time.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -330,7 +331,7 @@ const checkUpgradesRoute = createRoute(
             "application/json": { schema: z.object({ queued: z.boolean() }) },
           },
           description:
-            "ctx| reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts, and checks the upgrades of the org again. `queued` is false when a check ran in the last minute: that check still writes its result.",
+            "ctxpipe reads the default branch of the Workspace repository now, the same tip check that a merge webhook starts, and checks the upgrades of the org again. `queued` is false when a check ran in the last minute: that check still writes its result.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -366,7 +367,7 @@ const automaticUpgradesRoute = createRoute(
             },
           },
           description:
-            "Always update: ctx| commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctx| starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
+            "Always update: ctxpipe commits `upgrades: automatic` into `.ctxpipe/workspace.yaml` on the default branch of the Workspace repository. From then on, the upgrade scan starts each upgrade of this Workspace with no click. A merge of a git upgrade pull request still needs a person. When the job is done, ctxpipe starts the waiting upgrades of the Workspace itself, so that their pull request contains the setting. The caller sends no second request and need not wait for the job.",
         },
         401: {
           content: { "application/json": { schema: ErrorResponseSchema } },
@@ -378,7 +379,7 @@ const automaticUpgradesRoute = createRoute(
         },
         409: {
           content: { "application/json": { schema: ErrorResponseSchema } },
-          description: "ctx| cannot write to the Workspace repository now",
+          description: "ctxpipe cannot write to the Workspace repository now",
         },
       },
     },
@@ -438,7 +439,7 @@ const routes = new OpenAPIHono<AppEnv>()
       return c.json(
         {
           error:
-            "ctx| could not save the setting. Refresh the Workspace and try again.",
+            "ctxpipe could not save the setting. Refresh the Workspace and try again.",
         },
         409,
       )
@@ -495,11 +496,11 @@ const PendingWorkspaceUpgradesSchema = z
         workspaceSlug: z.string(),
         formatVersion: z.number().int().nullable().openapi({
           description:
-            "The format of the Workspace repository that ctx| read last. `null`: not read yet. `-1`: the format file is not valid.",
+            "The format of the Workspace repository that ctxpipe read last. `null`: not read yet. `-1`: the format file is not valid.",
         }),
         codeFormat: z.number().int().openapi({
           description:
-            "The newest format that this ctx| version reads and writes.",
+            "The newest format that this ctxpipe version reads and writes.",
         }),
         items: z.array(WorkspaceUpgradeItemSchema),
       }),

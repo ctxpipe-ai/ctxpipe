@@ -357,7 +357,7 @@ function AddSourcesStep(props: {
         </InlineAlert>
       )
     // A format file that is not valid reads as a negative number. A format
-    // above the one that ctx| reads makes the Workspace read-only. Neither
+    // above the one that ctxpipe reads makes the Workspace read-only. Neither
     // case is fixed with an upgrade.
     const { formatVersion, codeFormat } = upgrades
     if (formatVersion < 0 || formatVersion > codeFormat)

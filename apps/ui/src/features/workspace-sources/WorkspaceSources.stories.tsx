@@ -1184,7 +1184,7 @@ export const RefusedRepositoryFile: Story = {
                   connectionName: null,
                   status: "invalid",
                   statusDetail:
-                    "repositories/tools.md: ctx| links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
+                    "repositories/tools.md: ctxpipe links only GitHub repositories. Move the link into .ctxpipe/sources.yaml or remove the file.",
                   scopeSummary: "Repository file",
                   removable: false,
                 }),
@@ -2254,7 +2254,7 @@ export const StatusExplainsItself: Story = {
     await waitFor(() => {
       expect(tip()).toBeVisible()
       expect(tip()).toHaveTextContent(
-        "ctx| knows the latest commit of this repository. It has not indexed that commit yet.",
+        "ctxpipe knows the latest commit of this repository. It has not indexed that commit yet.",
       )
     })
     await userEvent.unhover(list.getByText("Indexing"))
@@ -2275,7 +2275,7 @@ export const StatusExplainsItself: Story = {
     // A screen reader gets the same text with the status.
     await expect(
       list.getByRole("button", {
-        name: "Pending ctx| has not read this repository yet.",
+        name: "Pending ctxpipe has not read this repository yet.",
       }),
     ).toBeVisible()
   },

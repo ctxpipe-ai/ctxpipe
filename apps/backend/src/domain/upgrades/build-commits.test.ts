@@ -162,9 +162,9 @@ describe("buildUpgradeCommits", () => {
       built.pack,
     )
     expect(head.subjects).toEqual([
-      "ctx| upgrade: set the Workspace format to 3",
-      "ctx| upgrade to format 3: Move notes",
-      "ctx| upgrade to format 1: Add notes",
+      "ctxpipe upgrade: set the Workspace format to 3",
+      "ctxpipe upgrade to format 3: Move notes",
+      "ctxpipe upgrade to format 1: Add notes",
       "Base",
     ])
     expect(head.large).toBe(
@@ -239,9 +239,9 @@ describe("buildUpgradeCommits", () => {
     )
     const commits = await readCommits(built.pack)
     expect(commits.subjects).toEqual([
-      "ctx| upgrade: set the Workspace format to 3",
-      "ctx| upgrade to format 3: Move notes",
-      "ctx| upgrade to format 1: Add notes",
+      "ctxpipe upgrade: set the Workspace format to 3",
+      "ctxpipe upgrade to format 3: Move notes",
+      "ctxpipe upgrade to format 1: Add notes",
       "Base",
     ])
     expect(commits.files.sort()).toEqual(

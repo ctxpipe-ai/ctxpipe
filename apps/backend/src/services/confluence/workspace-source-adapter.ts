@@ -241,7 +241,7 @@ export const confluenceSourceAdapter: SourceAdapter<ConfluenceSourceScope> = {
       return blockingFailures(ready.sourceSync, scope).join("; ") || null
     const missing = scope.spaces.filter((space) => !keys.has(space.key))
     return missing.length
-      ? `This Confluence site has no space ${missing.map((space) => space.key).join(", ")}, or ctx| cannot read it`
+      ? `This Confluence site has no space ${missing.map((space) => space.key).join(", ")}, or ctxpipe cannot read it`
       : null
   },
   matchesEvent: ({ event, scope }) => {

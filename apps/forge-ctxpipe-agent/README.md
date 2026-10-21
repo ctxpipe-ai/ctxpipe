@@ -2,7 +2,7 @@
 
 This directory is a **reference** `manifest.yml` (and `package.json` for Forge tooling) for operators and **CI** (`forge deploy`, including its pre-deployment lint, in [`.github/workflows/deploy.yaml`](../../.github/workflows/deploy.yaml)). The **product’s provision worker** does not copy this tree: it **generates** `manifest.yml` in a temp workdir (see `apps/backend/src/lib/forge-app-manifest.ts`) with the public API origin **baked into** `remotes.baseUrl`, then runs `forge register` (if needed) → `forge deploy` → `forge install`.
 
-Atlassian Forge lets ctx| integrate with Confluence via [Forge Remote](https://developer.atlassian.com/platform/forge/remote/). Events and scheduled work are forwarded to your ctx| deployment; business logic stays in the product.
+Atlassian Forge lets ctxpipe integrate with Confluence via [Forge Remote](https://developer.atlassian.com/platform/forge/remote/). Events and scheduled work are forwarded to your ctxpipe deployment; business logic stays in the product.
 
 **Primary setup (recommended):** use the in-product Confluence/Forge wizards, then **Provision** (see docs **Self hosting → Confluence & Atlassian** and `.ai/memory/decisions/ADR-019-confluence-forge-self-host-and-per-org-atlassian-3lo.md`).
 

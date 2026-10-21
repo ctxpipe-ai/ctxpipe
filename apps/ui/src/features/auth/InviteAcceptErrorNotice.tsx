@@ -23,7 +23,7 @@ export function InviteAcceptErrorNotice({
       <div className="grid gap-4">
         <InlineAlert variant="warning" title="You already have an account">
           <p>
-            This email already has a ctx| account. Sign in to accept the
+            This email already has a ctxpipe account. Sign in to accept the
             invitation.
           </p>
         </InlineAlert>

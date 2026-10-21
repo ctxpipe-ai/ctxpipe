@@ -1,6 +1,6 @@
 import YAML, { type Document } from "yaml"
 
-/** The largest `.ctxpipe/sources.yaml` that ctx| reads (256 KiB). */
+/** The largest `.ctxpipe/sources.yaml` that ctxpipe reads (256 KiB). */
 const SOURCES_FILE_MAX_BYTES = 256 * 1024
 /** A sources file needs no aliases; this cap stops alias expansion bombs. */
 const MAX_ALIAS_COUNT = 50

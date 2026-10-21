@@ -46,12 +46,12 @@ const rowCopy: Record<
   github: {
     icon: <IconBrandGithub stroke={1.5} aria-hidden />,
     title: "Connect GitHub",
-    body: "ctx| reads your code and keeps one knowledge repository.",
+    body: "ctxpipe reads your code and keeps one knowledge repository.",
   },
   workspace: {
     icon: <IconFolderCode stroke={1.5} aria-hidden />,
     title: "Create your first Workspace",
-    body: "ctx| creates a knowledge repository on GitHub, or uses one you have.",
+    body: "ctxpipe creates a knowledge repository on GitHub, or uses one you have.",
   },
   repositories: {
     icon: <IconGitBranch stroke={1.5} aria-hidden />,
@@ -361,7 +361,7 @@ function GuideRows(props: {
 const noSubscribe = () => () => {}
 
 /**
- * Connects the user's own agents to ctx| (CTX-871). It is not a counted
+ * Connects the user's own agents to ctxpipe (CTX-871). It is not a counted
  * row: no signal tells that a client uses the MCP server. The command names
  * the origin of this app, so it also works on a self-hosted deployment or a
  * preview.
@@ -383,7 +383,7 @@ export function EditorSetupStep() {
       </span>
       <div className="min-w-0 flex-1">
         <p className="text-sm font-medium text-foreground">
-          Use ctx| from your agents
+          Use ctxpipe from your agents
         </p>
         <p className="text-sm text-muted-foreground">
           Works with Cursor, Claude Code, Codex, and any MCP client.{" "}

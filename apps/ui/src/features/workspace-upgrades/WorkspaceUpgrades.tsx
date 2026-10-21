@@ -55,7 +55,7 @@ import { useStartWorkspaceUpgrade } from "./use-start-upgrade"
  */
 function UpgradeItemCard(props: {
   item: WorkspaceUpgradeItem
-  /** The format that ctx| read last: a re-ingestion that needs it can be stale. */
+  /** The format that ctxpipe read last: a re-ingestion that needs it can be stale. */
   formatVersion: number | null
   isAdmin: boolean | null
   onStart: () => void
@@ -85,7 +85,7 @@ function UpgradeItemCard(props: {
           <p className="mt-1 text-xs text-muted-foreground">
             {item.kind === "reingest"
               ? item.description
-              : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctx| opens one pull request. Nothing changes until you merge it.`}
+              : `${item.description} Format ${item.fromFormat} to format ${item.targetFormat}. ctxpipe opens one pull request. Nothing changes until you merge it.`}
           </p>
         </div>
         <StatusTag {...upgradeStatusTag(item, props.formatVersion)} />
@@ -202,7 +202,7 @@ function UpgradeItemCard(props: {
             />
           ) : (
             <InlineAlert variant="error" title="The upgrade failed">
-              <p>{item.failureReason ?? "ctx| gives no reason."}</p>
+              <p>{item.failureReason ?? "ctxpipe gives no reason."}</p>
             </InlineAlert>
           )}
         </div>
@@ -298,7 +298,7 @@ function UpgradeFailureAlert(props: {
       <p className="mt-1">{copy.action}</p>
       {item.autoRetried ? (
         <p className="mt-1">
-          ctx| already started this upgrade again once by itself.
+          ctxpipe already started this upgrade again once by itself.
         </p>
       ) : null}
     </InlineAlert>
@@ -320,7 +320,9 @@ function UpgradeItemRow(props: {
   const checkMutation = useMutation({
     mutationFn: () => checkWorkspaceUpgrades(orgSlug, workspaceSlug),
     onSuccess: () => {
-      toast.success("ctx| is reading the repository now. This takes a minute.")
+      toast.success(
+        "ctxpipe is reading the repository now. This takes a minute.",
+      )
     },
     onError: (error: Error) => {
       toast.error(error.message)
@@ -391,7 +393,7 @@ export function WorkspaceUpgrades(props: {
       </h2>
       <p className="mt-1 text-xs text-muted-foreground">
         Upgrades move your Workspace repository to the layout that this version
-        of ctx| reads. Nothing changes until you merge the pull request.
+        of ctxpipe reads. Nothing changes until you merge the pull request.
       </p>
       <div className="mt-3 flex flex-col gap-3">
         {loading ? (

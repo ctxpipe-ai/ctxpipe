@@ -75,7 +75,7 @@ export async function startWorkspaceUpgrade(input: {
       key: input.key,
       from: [UPGRADE_STATUSES.queued],
       to: UPGRADE_STATUSES.failed,
-      failureReason: "ctx| could not queue the upgrade. Start it again.",
+      failureReason: "ctxpipe could not queue the upgrade. Start it again.",
     })
     throw error
   }

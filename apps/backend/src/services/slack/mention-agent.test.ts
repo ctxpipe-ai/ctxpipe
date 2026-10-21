@@ -44,7 +44,7 @@ describe("formatSlackMentionStatusText", () => {
         ),
       })
     expect(reply("missing_scope")).toBe(
-      "Capture failed: the ctx| Slack app needs more permissions to read this channel. Reinstall Slack.",
+      "Capture failed: the ctxpipe Slack app needs more permissions to read this channel. Reinstall Slack.",
     )
     expect(reply("is_archived")).toBe(
       "Capture failed: this channel is archived.",

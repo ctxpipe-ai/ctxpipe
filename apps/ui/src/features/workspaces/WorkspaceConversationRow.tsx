@@ -33,7 +33,7 @@ function deleteErrorText(error: Error): string {
     return "A turn is still running in this chat. Open the chat and select Stop, or wait until the turn ends. Then delete the chat again."
   }
   if (error instanceof ApiError && error.status === 0) {
-    return "The request did not reach ctx|. Check your connection, then try again."
+    return "The request did not reach ctxpipe. Check your connection, then try again."
   }
   return `${error.message}. Try again. If the error stays, reload the page.`
 }

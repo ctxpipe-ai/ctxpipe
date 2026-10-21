@@ -3,7 +3,7 @@ title: Knowledge files
 description: How Markdown files, links, and claims in the workspace repository become search results and the knowledge graph.
 ---
 
-A Workspace's knowledge is plain Markdown in its workspace repository. ctx|
+A Workspace's knowledge is plain Markdown in its workspace repository. ctxpipe
 does not keep a hidden copy that can drift: what is in the default branch is
 what chat, search, and agents use.
 
@@ -75,7 +75,7 @@ in answers.
 
 ## Skipped files
 
-ctx| skips a file when it has one of the errors in the table below. ctx|
+ctxpipe skips a file when it has one of the errors in the table below. ctxpipe
 then continues with the other files, so one bad file does not stop the
 Workspace. A skipped file stays in **Files** because it is in git. Chat, MCP,
 search, and the graph do not use it.
@@ -93,7 +93,7 @@ the reason. Select the path to open the file in **Files**.
 | Front matter is not valid | The front matter has no closing `---` line, or its YAML is not valid. | Correct the front matter. |
 | Repeats a linked repository or the Workspace's own repository | Only in results of an earlier version: a `repositories/*.md` file linked a repository that was already linked. ctx\| no longer reads these files. | None. |
 
-Push the fix to the default branch. When ctx| hydrates the new commit, it
+Push the fix to the default branch. When ctxpipe hydrates the new commit, it
 reads the fixed file again:
 
 A fixed knowledge file is a knowledge unit again. Chat, MCP, search, and the
@@ -107,13 +107,13 @@ The file is then not in the list of skipped files. When the list is empty,
 Each file under `sources/` is a source. The GitHub source files link the code
 repositories of a Workspace. See
 [Linked repositories](/docs/workspaces/linked-repositories) and
-[Workspace settings](/docs/workspaces/settings#sources). ctx| does not read
+[Workspace settings](/docs/workspaces/settings#sources). ctxpipe does not read
 files in `repositories/`. When an organization moves to Workspaces, the upgrade
 pull request turns those files into source files.
 
-## What ctx| writes
+## What ctxpipe writes
 
-ctx| changes the workspace repository only through small, focused commits to
+ctxpipe changes the workspace repository only through small, focused commits to
 the default branch. Each commit does one job and has a descriptive message:
 
 - the setup commit (`AGENTS.md` and the knowledge skill);
@@ -124,8 +124,8 @@ the default branch. Each commit does one job and has a descriptive message:
 - upkeep such as rewriting links after a rename or filling in a missing
   `valid_from`.
 
-ctx| never force-pushes. If someone else pushed first, ctx| rebases its
-change onto theirs. If both changed the same lines, ctx| resolves the conflict
+ctxpipe never force-pushes. If someone else pushed first, ctxpipe rebases its
+change onto theirs. If both changed the same lines, ctxpipe resolves the conflict
 before pushing.
 
 Changes made in [Workspace chat](/docs/workspaces/chat) are different: they go
@@ -133,5 +133,5 @@ to a separate branch and reach the default branch only through a pull request
 you open.
 
 Source files under `sources/` change only through pull requests, so a person
-reviews the scope before ctx| mirrors content. No agent can change `sources/`
+reviews the scope before ctxpipe mirrors content. No agent can change `sources/`
 or `.ctxpipe/` without a pull request.

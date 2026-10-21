@@ -69,7 +69,7 @@ it(
       body: string
     }> = []
     // A pull request of someone else from a fork uses the upgrade branch
-    // name. ctx| ignores it: it does not record it, it does not change its
+    // name. ctxpipe ignores it: it does not record it, it does not change its
     // text (the fixture refuses a pull request update), and it opens its own
     // pull request on the same branch name.
     const foreignPulls = [
@@ -231,9 +231,9 @@ it(
           // One commit for each step that changes a file, in order; the
           // format file comes last. The default branch does not change.
           expect(branchLog()).toEqual([
-            "ctx| upgrade: set the Workspace format to 3",
-            "ctx| upgrade to format 3: Move notes",
-            "ctx| upgrade to format 1: Add notes",
+            "ctxpipe upgrade: set the Workspace format to 3",
+            "ctxpipe upgrade to format 3: Move notes",
+            "ctxpipe upgrade to format 1: Add notes",
             "Immutable fixture",
           ])
           expect(
@@ -316,7 +316,7 @@ it(
 )
 
 it(
-  "does not push over the branch of a pull request that ctx| does not own, and adopts its own pull request on the suffixed branch",
+  "does not push over the branch of a pull request that ctxpipe does not own, and adopts its own pull request on the suffixed branch",
   { timeout: 150_000 },
   async () => {
     const opened: Array<{ head: string; base: string }> = []
@@ -413,7 +413,7 @@ it(
           await expect
             .poll(async () => (await row())?.status, { timeout: 60_000 })
             .toBe("pr_open")
-          // ctx| left the branch of the others alone and used the next free
+          // ctxpipe left the branch of the others alone and used the next free
           // name.
           expect(hasBranch(BRANCH)).toBe(false)
           expect(hasBranch(`${BRANCH}-2`)).toBe(true)

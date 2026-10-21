@@ -281,7 +281,7 @@ export function disallowedPathReason(path: string): string | null {
   const segments = path.split("/")
   if (segments.some((s) => s === "" || s === "." || s === ".."))
     return "The path has an empty, '.', or '..' segment"
-  if (isHostOnlyPath(path)) return "Only ctx| writes host-only paths"
+  if (isHostOnlyPath(path)) return "Only ctxpipe writes host-only paths"
   if (segments.some((s) => s.startsWith(".")))
     return "Dot paths are not allowed"
   if (path !== path.normalize("NFC"))

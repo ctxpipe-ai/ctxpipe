@@ -266,7 +266,7 @@ export const GuideEditorStepCopiesCommand: Story = {
   play: async ({ canvasElement }) => {
     const guide = await findGuide(canvasElement)
     await waitFor(() =>
-      expect(guide.getByText("Use ctx| from your agents")).toBeVisible(),
+      expect(guide.getByText("Use ctxpipe from your agents")).toBeVisible(),
     )
     expect(
       guide.getByText(/Works with Cursor, Claude Code, Codex/),

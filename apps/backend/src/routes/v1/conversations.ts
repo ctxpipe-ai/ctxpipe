@@ -110,7 +110,7 @@ function publicConversation(
       workspaceRepositoryUrl: row.lastChatPrRevision?.remote.url ?? "",
       lastChatPrNumber: row.lastChatPrNumber ?? null,
     }),
-    // Only a branch ctx| pushed is on GitHub (a fresh one after a merge is not).
+    // Only a branch ctxpipe pushed is on GitHub (a fresh one after a merge is not).
     branchTreeUrl: row.lastPushedSha
       ? conversationPublicTreeUrl({
           workspaceRepositoryUrl,
@@ -541,7 +541,7 @@ const postConversationPushRoute = createRoute({
     },
     ...publishErrorResponses,
     409: publishConflictResponse(
-      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase) or stale_binding (the Workspace was relinked)",
+      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctxpipe did not push; ask the agent to fetch and rebase) or stale_binding (the Workspace was relinked)",
     ),
   },
 })
@@ -576,7 +576,7 @@ const postConversationPullRequestRoute = createRoute({
       description: `${publishNotPublishable}; no_pr_access (the GitHub App cannot open pull requests: it needs the Pull requests: Read and write permission); pr_refused (GitHub refused the pull request; message has GitHub's reason)`,
     },
     409: publishConflictResponse(
-      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctx| did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
+      "turn_running (a turn runs in the conversation), missing_sandbox, rebase_in_progress, session_moved (the branch on GitHub has commits ctxpipe did not push; ask the agent to fetch and rebase), pr_merged (the branch's PR was merged; send a message to continue on a fresh branch) or stale_binding (the Workspace was relinked)",
     ),
   },
 })
@@ -880,7 +880,9 @@ async function pushConversationBranch(input: {
     orgId: workspace.orgId,
     workspaceId: workspace.id,
     env: parseEnv(process.env as Record<string, string | undefined>),
-    commit: { subject: cleanTitle(conversation.name) || "Changes from ctx|" },
+    commit: {
+      subject: cleanTitle(conversation.name) || "Changes from ctxpipe",
+    },
   })
   if (pushed.status === "unchanged") return publishError("no_changes")
   if (pushed.status !== "pushed") return publishError(pushed.reason)

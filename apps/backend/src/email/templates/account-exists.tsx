@@ -26,13 +26,13 @@ export function AccountExistsEmail({
   return (
     <Html>
       <Head />
-      <Preview>You already have a ctx| account</Preview>
+      <Preview>You already have a ctxpipe account</Preview>
       <Body style={main}>
         <Container style={container}>
           <Text style={logo}>ctx|</Text>
           <Heading style={heading}>You already have an account</Heading>
           <Text style={paragraph}>
-            Someone tried to create a <strong>ctx|</strong> account for{" "}
+            Someone tried to create a <strong>ctxpipe</strong> account for{" "}
             <strong>{userEmail}</strong>, which already has one. Sign in
             instead. If you have not verified this address yet, we will send you
             a link when you do.
@@ -47,8 +47,8 @@ export function AccountExistsEmail({
             wasn&apos;t you, you can ignore this email.
           </Text>
           <Text style={brandFooter}>
-            ctx| - the self-learning context layer for engineering AI agents &
-            humans
+            ctxpipe - the self-learning context layer for engineering AI agents
+            & humans
           </Text>
         </Container>
       </Body>

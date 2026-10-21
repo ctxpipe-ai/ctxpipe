@@ -27,13 +27,7 @@ function Node({
   )
 }
 
-function Arrow({
-  double,
-  label,
-}: {
-  double?: boolean
-  label: string
-}) {
+function Arrow({ double, label }: { double?: boolean; label: string }) {
   return (
     <div className="confluence-model-arrow">
       <div />
@@ -70,7 +64,7 @@ export function ConfluenceDataModelDiagram() {
     >
       <div className="confluence-model-title">
         <h3>Confluence connector - data flow</h3>
-        <span>ctx|</span>
+        <span>ctxpipe</span>
       </div>
 
       <div className="confluence-model-flow">
@@ -78,17 +72,14 @@ export function ConfluenceDataModelDiagram() {
           label="Source"
           title="Confluence Cloud"
           tone="source"
-          artifacts={[
-            { text: "Spaces and pages" },
-            { text: "Change events" },
-          ]}
+          artifacts={[{ text: "Spaces and pages" }, { text: "Change events" }]}
         />
 
         <Arrow double label="OAuth reads / Forge events" />
 
         <Node
           label="Connector"
-          title="ctx| Confluence Connector"
+          title="ctxpipe Confluence Connector"
           tone="connector"
           artifacts={[
             { text: "Reads selected pages via OAuth" },
@@ -114,7 +105,7 @@ export function ConfluenceDataModelDiagram() {
 
         <Node
           label="Ingestion"
-          title="ctx| Ingestion"
+          title="ctxpipe Ingestion"
           tone="ingest"
           artifacts={[
             { text: "Search index" },
@@ -128,9 +119,9 @@ export function ConfluenceDataModelDiagram() {
         <div className="confluence-model-mcp-agents">
           <Node
             label="Interface"
-            title="ctx| MCP"
+            title="ctxpipe MCP"
             tone="mcp"
-            artifacts={[{ text: "ctx| read tools" }]}
+            artifacts={[{ text: "ctxpipe read tools" }]}
           />
           <div className="confluence-model-small-arrow" aria-hidden="true">
             <div className="confluence-model-small-arrow-line" />
@@ -162,7 +153,7 @@ export function ConfluenceDataModelDiagram() {
 
       <figcaption>
         Selected Confluence content moves into a team-controlled GitHub
-        repository before ctx| ingests it for search, graph context, and MCP
+        repository before ctxpipe ingests it for search, graph context, and MCP
         tools.
       </figcaption>
     </figure>

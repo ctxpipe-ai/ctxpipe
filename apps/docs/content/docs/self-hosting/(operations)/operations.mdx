@@ -1,6 +1,6 @@
 ---
 title: Operations
-description: Health checks, logs, migrations, backups, and recovery for self-hosted ctx|.
+description: Health checks, logs, migrations, backups, and recovery for self-hosted ctxpipe.
 ---
 
 Operations docs assume the deployment is already configured. Use this page to
@@ -68,7 +68,7 @@ For non-Compose deployments:
 
 ## Logs
 
-ctx| writes structured application logs through evlog. Without an OTLP logs
+ctxpipe writes structured application logs through evlog. Without an OTLP logs
 endpoint, logs go to stdout.
 
 | Component | Useful signals |
@@ -84,7 +84,7 @@ Configure `OTEL_EXPORTER_OTLP_TRACES_ENDPOINT`,
 on the app services when you want telemetry to leave stdout and reach your
 observability backend. See
 [Configuration](/docs/self-hosting/configuration) for headers, service names,
-and Langfuse. ctx| does not run a collector for you. Export failures are
+and Langfuse. ctxpipe does not run a collector for you. Export failures are
 visible in your collector or vendor, not in a bundled collector container.
 
 ## Backups
@@ -272,7 +272,7 @@ clones the repository again while a new base builds.
 
 - Confirm PagerDuty OAuth credentials are present on backend and worker.
 - Confirm the connection is live and the incident's service is listed in the
-  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctx|
+  scope of a PagerDuty source with the status **OK**. There is no shared webhook secret; ctxpipe
   stores the per-subscription secret on the connection.
 - Confirm signed requests reach `/api/v1/webhook/pagerduty` and merge pushes
   reach `/api/v1/webhook/github/<connectionId>`.

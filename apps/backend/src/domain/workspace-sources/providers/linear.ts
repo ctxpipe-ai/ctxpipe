@@ -103,7 +103,7 @@ export function summarizeLinearScope(scope: LinearSourceScope): string {
 /**
  * The Linear source scope: teams, plus optional projects. `connection` is
  * the Linear connection; it is bound to one Linear workspace (the Linear
- * organization), which is not a ctx| Workspace.
+ * organization), which is not a ctxpipe Workspace.
  */
 export const linearSourceScope: SourceScopeDefinition = {
   connectionType: "linear",

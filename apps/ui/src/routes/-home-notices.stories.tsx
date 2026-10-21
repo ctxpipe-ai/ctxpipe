@@ -144,7 +144,7 @@ export const SingleToast: Story = {
     await waitFor(() =>
       expect(
         within(region).getByText(
-          "ctx| opens a pull request for format 3. Nothing changes until you merge it.",
+          "ctxpipe opens a pull request for format 3. Nothing changes until you merge it.",
         ),
       ).toBeVisible(),
     )
@@ -243,7 +243,7 @@ export const AlwaysUpdate: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "ctx| saved the setting. The upgrade starts in a moment.",
+          "ctxpipe saved the setting. The upgrade starts in a moment.",
         ),
       ).toBeVisible(),
     )
@@ -508,7 +508,7 @@ export const StackOfThree: Story = {
     await waitFor(() =>
       expect(
         canvas.getByText(
-          "ctx| reads each source repository again. This uses model calls.",
+          "ctxpipe reads each source repository again. This uses model calls.",
         ),
       ).toBeVisible(),
     )

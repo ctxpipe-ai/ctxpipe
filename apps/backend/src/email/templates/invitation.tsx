@@ -28,12 +28,12 @@ export function InvitationEmail({
   return (
     <Html>
       <Head />
-      <Preview>ctx| invitation on behalf of {organizationName}</Preview>
+      <Preview>ctxpipe invitation on behalf of {organizationName}</Preview>
       <Body style={main}>
         <Container style={container}>
-          <Heading style={heading}>ctx| invitation</Heading>
+          <Heading style={heading}>ctxpipe invitation</Heading>
           <Text style={paragraph}>
-            You are receiving this invitation from <strong>ctx|</strong> on
+            You are receiving this invitation from <strong>ctxpipe</strong> on
             behalf of <strong>{organizationName}</strong>.
           </Text>
           <Text style={paragraph}>

@@ -76,7 +76,7 @@ export async function getWorkspaceFileJobStatus(
       await getOrgDb()
         .update(workspaceWriteJobs)
         .set({
-          payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{failureReason}', to_jsonb(${`The write stopped before it finished. ${summary || "ctx| recorded no reason."}`}::text))`,
+          payload: sql`jsonb_set(${workspaceWriteJobs.payload}, '{failureReason}', to_jsonb(${`The write stopped before it finished. ${summary || "ctxpipe recorded no reason."}`}::text))`,
         })
         .where(and(...forJob, eq(workspaceWriteJobs.status, "failed")))
     }

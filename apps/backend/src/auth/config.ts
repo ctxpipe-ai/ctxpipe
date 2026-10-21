@@ -163,7 +163,7 @@ export function createBetterAuth() {
   }
 
   return betterAuth({
-    appName: "ctx|",
+    appName: "ctxpipe",
     secret: env.AUTH_SECRET,
     baseURL: env.AUTH_BASE_URL,
     basePath: "/.auth/api/v1/auth",
@@ -247,7 +247,7 @@ export function createBetterAuth() {
         ])
         await sendEmail(
           user.email,
-          "You already have a ctx| account",
+          "You already have a ctxpipe account",
           AccountExistsEmail({
             signInUrl: signInUrl.toString(),
             resetUrl: new URL(
@@ -366,7 +366,7 @@ export function createBetterAuth() {
           ])
           await sendEmail(
             data.email,
-            `ctx| invitation on behalf of ${data.organization.name}`,
+            `ctxpipe invitation on behalf of ${data.organization.name}`,
             InvitationEmail({
               inviteLink,
               inviterName: data.inviter.user.name,

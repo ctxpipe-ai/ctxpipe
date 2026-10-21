@@ -348,7 +348,7 @@ export const StepTwoFormatNotValid: Story = {
   },
 }
 
-/** The repository has a newer format than ctx| reads: the Workspace is read-only. */
+/** The repository has a newer format than ctxpipe reads: the Workspace is read-only. */
 export const StepTwoFormatAhead: Story = {
   parameters: stepTwoWith(
     workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 4 })),

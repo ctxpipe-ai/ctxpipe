@@ -728,16 +728,16 @@ export async function getPullRequestHeadBranch(
 }
 
 /**
- * The open pull requests that ctx| opened on a branch that starts with
+ * The open pull requests that ctxpipe opened on a branch that starts with
  * `branchPrefix`. Give `exactBranch` to find one exact branch with fewer calls.
  * Give `baseBranch` to keep only the pull requests into that base branch.
  *
  * Other people can open a pull request with the same head branch name: from
  * a fork, from the repository itself, or as another GitHub App on the
  * repository. This function ignores them. It keeps only a pull request whose
- * head is in this repository and whose author is the ctx| GitHub App of this
- * installation (ctx| opens each pull request with the installation token).
- * Thus, ctx| opens its own pull request when someone else took the branch
+ * head is in this repository and whose author is the ctxpipe GitHub App of this
+ * installation (ctxpipe opens each pull request with the installation token).
+ * Thus, ctxpipe opens its own pull request when someone else took the branch
  * name in a fork, and it never shows or relabels the pull request of another
  * person or App as its own.
  */
@@ -757,7 +757,7 @@ export async function listOpenPullRequestsByBranchPrefix(
 /**
  * Like {@link listOpenPullRequestsByBranchPrefix}, but it also lists the pull
  * requests of other people and Apps whose head is in this repository. `ours`
- * tells which pull requests ctx| opened. A fork pull request does not use a
+ * tells which pull requests ctxpipe opened. A fork pull request does not use a
  * branch of this repository, so it is not listed.
  */
 export async function listOpenRepositoryPullRequestsByBranchPrefix(
@@ -1061,7 +1061,7 @@ export async function createPullRequestFromBranch(
     )
       return refusal("no_changes", error)
     // GitHub refuses a second pull request for the same head and base. Keep
-    // only a pull request that ctx| opened on this branch into this base. A
+    // only a pull request that ctxpipe opened on this branch into this base. A
     // pull request of a collaborator or of another App is not ours to show.
     const [open] = await listOpenPullRequestsByBranchPrefix({
       ...input,

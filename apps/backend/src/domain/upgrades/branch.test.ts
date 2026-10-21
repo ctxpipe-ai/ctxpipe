@@ -20,7 +20,7 @@ describe("chooseUpgradeBranch", () => {
       `${BASE}-11`,
     )
     expect(() => chooseUpgradeBranch(taken.map(theirs), BASE)).toThrow(
-      `Pull requests that ctx| did not open use the upgrade branch ${BASE} and its next 10 suffixed names.`,
+      `Pull requests that ctxpipe did not open use the upgrade branch ${BASE} and its next 10 suffixed names.`,
     )
   })
 })

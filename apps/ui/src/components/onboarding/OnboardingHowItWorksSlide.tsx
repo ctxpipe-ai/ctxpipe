@@ -24,7 +24,7 @@ const steps = [
   {
     number: "01",
     label: "Connect",
-    body: "Link your code and tools. ctx| keeps them current as Markdown in your git.",
+    body: "Link your code and tools. ctxpipe keeps them current as Markdown in your git.",
     delay: "delay-30",
   },
   {
@@ -50,7 +50,7 @@ export function OnboardingHowItWorksSlide({
     <>
       <div className={rowFadeClassName}>
         <h1 className="text-3xl font-semibold text-zinc-100 sm:text-4xl">
-          Welcome to ctx|
+          Welcome to ctxpipe
         </h1>
         <p className="mt-3 text-lg text-zinc-400">
           Context management for your software factory.
