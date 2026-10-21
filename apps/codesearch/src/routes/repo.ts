@@ -176,19 +176,17 @@ const deleteCheckoutsRequestSchema = z
     checkoutKeys: z
       .array(z.string().regex(COLLECTABLE_CHECKOUT_KEY))
       .min(1)
-      .max(50),
+      .max(10),
   })
   .openapi("DeleteCheckoutsRequest")
 
 const deleteCheckoutsResponseSchema = z
   .object({
-    deleted: z.array(
-      z.object({ checkoutKey: z.string(), bytes: z.number().int() }),
-    ),
+    deleted: z.array(z.object({ checkoutKey: z.string() })),
     skipped: z.array(
       z.object({
         checkoutKey: z.string(),
-        reason: z.enum(["published", "not_found"]),
+        reason: z.enum(["published", "not_found", "recent"]),
       }),
     ),
   })
@@ -531,10 +529,10 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
     const repo = await getAccessibleRepository(db, repoId, auth.orgId)
     if (!repo) return c.json(repositoryNotFoundBody, 404)
     const result = await tryWithRepositoryPurgeOperation(repoId, async () => {
-      const deleted: Array<{ checkoutKey: string; bytes: number }> = []
+      const deleted: Array<{ checkoutKey: string }> = []
       const skipped: Array<{
         checkoutKey: string
-        reason: "published" | "not_found"
+        reason: "published" | "not_found" | "recent"
       }> = []
       for (const checkoutKey of new Set(checkoutKeys)) {
         if (checkoutKey === repo.publishedCheckoutKey) {
@@ -551,13 +549,20 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
           skipped.push({ checkoutKey, reason: "not_found" })
           continue
         }
-        const bytes = await deleteCheckoutFromDisk({
+        // A run took the key again after the caller listed it. The index
+        // operation of that run waits for this lock, so the row is read
+        // under the lock.
+        if (row.checkoutUsedRecently) {
+          skipped.push({ checkoutKey, reason: "recent" })
+          continue
+        }
+        await deleteCheckoutFromDisk({
           orgId: repo.orgId,
           repoId: repo.id,
           checkoutKey,
           zoektRepoId: row.zoektRepoId,
         })
-        deleted.push({ checkoutKey, bytes })
+        deleted.push({ checkoutKey })
       }
       return { deleted, skipped }
     })
@@ -571,7 +576,6 @@ export function registerRepoRoutes(app: OpenAPIHono<AppEnv>) {
       repoId,
       deletedKeys: result.value.deleted.length,
       skippedKeys: result.value.skipped.length,
-      bytesFreed: result.value.deleted.reduce((sum, d) => sum + d.bytes, 0),
     })
     return c.json(result.value, 200)
   })

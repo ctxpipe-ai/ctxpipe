@@ -10,10 +10,12 @@ import { repositories } from "../db/schema/repositories.js"
 import { repositoryCheckouts } from "../db/schema/repository_checkouts.js"
 import { workspaces } from "../db/schema/workspaces.js"
 import { generateObjectId } from "../lib/id.js"
+import { ensureRepositoryRevisionCheckout } from "../models/repositories.js"
 import { openWorkflowNamespaceId } from "../openworkflow/namespace.js"
 import {
   collectRepositoryCheckouts,
   listCollectableCheckouts,
+  listLiveShas,
 } from "./codesearchCheckoutGc.js"
 
 const sha = () => randomBytes(20).toString("hex")
@@ -21,15 +23,25 @@ const orgId = generateObjectId("org")
 const repositoryId = generateObjectId("repo")
 const workspaceId = generateObjectId("ws")
 const goneWorkspaceId = generateObjectId("ws")
-const parentRunId = `run_${sha()}`
-const childRunId = `run_${sha()}`
+const runIds = {
+  parent: `run_${sha()}`,
+  finished: `run_${sha()}`,
+  pending: `run_${sha()}`,
+  sleeping: `run_${sha()}`,
+  outputs: `run_${sha()}`,
+  other: `run_${sha()}`,
+}
 const codesearchUrl = "http://codesearch.test"
 
 const published = sha()
 const shas = {
   old: sha(),
   live: sha(),
-  child: sha(),
+  finished: sha(),
+  pending: sha(),
+  sleeping: sha(),
+  stepOutput: sha(),
+  oldStepOutput: sha(),
   wsCurrent: sha(),
   wsOld: sha(),
   wsGone: sha(),
@@ -40,7 +52,12 @@ const keys = {
   published: `rev:${published}`,
   old: `rev:${shas.old}`,
   live: `rev:${shas.live}`,
-  child: `rev:${shas.child}`,
+  finished: `rev:${shas.finished}`,
+  pending: `rev:${shas.pending}`,
+  sleeping: `rev:${shas.sleeping}`,
+  stepOutput: `rev:${shas.stepOutput}`,
+  oldStepOutput: `rev:${shas.oldStepOutput}`,
+  raced: `rev:${sha()}`,
   wsLegacy: `ws:${workspaceId}`,
   wsCurrent: `ws:${workspaceId}:${shas.wsCurrent}`,
   wsOld: `ws:${workspaceId}:${shas.wsOld}`,
@@ -56,10 +73,17 @@ const codesearch = setupServer(
         checkoutKeys: string[]
       }
       deleteRequests.push(checkoutKeys)
+      // A run takes the key again while codesearch deletes its files.
+      if (checkoutKeys.includes(keys.raced))
+        await ensureRepositoryRevisionCheckout({
+          orgId,
+          repositoryId,
+          sha: keys.raced.slice("rev:".length),
+        })
       return HttpResponse.json({
         deleted: checkoutKeys
           .filter((key) => key !== keys.wsGone)
-          .map((checkoutKey) => ({ checkoutKey, bytes: 1000 })),
+          .map((checkoutKey) => ({ checkoutKey })),
         skipped: checkoutKeys
           .filter((key) => key === keys.wsGone)
           .map((checkoutKey) => ({ checkoutKey, reason: "not_found" })),
@@ -121,61 +145,119 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
         })),
       )
     })
-    // A running ingestion, and the finished index child run of another
-    // running parent: their SHAs are still in use.
+    // Unfinished runs of the ingestion and index workflows: their SHAs are
+    // still in use. A SHA in the input of a finished run, in an older output
+    // of a step, or in a run of another workflow is not.
     const ns = openWorkflowNamespaceId()
-    const now = new Date().toISOString()
+    const now = new Date()
+    const earlier = new Date(now.getTime() - 60_000)
+    const run = (
+      id: string,
+      name: string,
+      status: string,
+      input: Record<string, unknown>,
+    ) => sql`(${ns}, ${id}, ${name}, ${status}, '{}'::jsonb,
+      ${JSON.stringify({ orgId, repositoryId, ...input })}::jsonb, 1,
+      ${now.toISOString()}, ${now.toISOString()})`
     await getSystemDb().execute(sql`
       insert into openworkflow.workflow_runs
         (namespace_id, id, workflow_name, status, config, input, attempts, created_at, updated_at)
-      values
-        (${ns}, ${parentRunId}, 'repository-ingestion', 'running', '{}'::jsonb,
-          ${JSON.stringify({ orgId, repositoryId, targetHash: shas.live })}::jsonb, 1, ${now}, ${now}),
-        (${ns}, ${childRunId}, 'repository-index', 'completed', '{}'::jsonb,
-          ${JSON.stringify({ orgId, repositoryId, targetHash: shas.child })}::jsonb, 1, ${now}, ${now})
+      values ${sql.join(
+        [
+          run(runIds.parent, "repository-ingestion", "running", {
+            targetHash: shas.live,
+          }),
+          run(runIds.finished, "repository-index", "completed", {
+            targetHash: shas.finished,
+          }),
+          run(runIds.pending, "repository-index", "pending", {
+            targetHash: shas.pending,
+          }),
+          run(runIds.sleeping, "repository-ingestion-v2", "sleeping", {
+            sha: shas.sleeping,
+          }),
+          run(runIds.outputs, "repository-ingestion", "running", {}),
+          run(runIds.other, "conversation-sandbox-sweep", "running", {
+            targetHash: shas.old,
+          }),
+        ],
+        sql`, `,
+      )}
     `)
+    const attempt = (
+      output: unknown,
+      at: Date,
+    ) => sql`(${ns}, ${`step_${sha()}`},
+      ${runIds.outputs}, 'resolve-ref', 'function', 'completed', '{}'::jsonb,
+      ${JSON.stringify(output)}::jsonb, ${at.toISOString()}, ${at.toISOString()})`
     await getSystemDb().execute(sql`
       insert into openworkflow.step_attempts
         (namespace_id, id, workflow_run_id, step_name, kind, status, config,
-          child_workflow_run_namespace_id, child_workflow_run_id, created_at, updated_at)
-      values (${ns}, ${`step_${sha()}`}, ${parentRunId}, 'repository-index', 'workflow',
-        'running', '{}'::jsonb, ${ns}, ${childRunId}, ${now}, ${now})
+          output, created_at, updated_at)
+      values
+        ${attempt({ targetHash: shas.oldStepOutput }, earlier)},
+        ${attempt({ targetHash: shas.stepOutput }, now)}
     `)
   })
 
   afterAll(async () => {
     codesearch.close()
     await getSystemDb().execute(
-      sql`delete from openworkflow.workflow_runs where id in (${parentRunId}, ${childRunId})`,
+      sql`delete from openworkflow.workflow_runs where id in (${sql.join(
+        Object.values(runIds).map((id) => sql`${id}`),
+        sql`, `,
+      )})`,
     )
     await getSystemDb().delete(organizations).where(eq(organizations.id, orgId))
     await closeDb()
   })
 
   it("keeps the published, running, current Workspace, recent, and default checkouts", async () => {
-    const collectable = await listCollectableCheckouts(orgId, repositoryId)
+    const collectable = await listCollectableCheckouts({
+      orgId,
+      repositoryId,
+      liveShas: await listLiveShas(),
+    })
 
-    expect(collectable.map((row) => row.checkoutKey).sort()).toEqual(
-      [keys.old, keys.wsOld, keys.wsGone].sort(),
+    expect(collectable.sort()).toEqual(
+      [
+        keys.old,
+        keys.finished,
+        keys.oldStepOutput,
+        keys.raced,
+        keys.wsOld,
+        keys.wsGone,
+      ].sort(),
     )
   })
 
-  it("deletes the rows of the checkouts that codesearch deleted", async () => {
+  it("deletes the rows of the checkouts that codesearch deleted, but not of a key a run took again", async () => {
     const result = await collectRepositoryCheckouts({ orgId, repositoryId })
 
-    expect(deleteRequests).toHaveLength(1)
-    expect(result).toEqual({ deletedKeys: 2, bytesFreed: 2000 })
+    expect(result).toEqual({ deletedKeys: 4 })
     expect(await storedKeys()).toEqual(
       [
         keys.default,
         keys.published,
         keys.live,
-        keys.child,
+        keys.pending,
+        keys.sleeping,
+        keys.stepOutput,
         keys.wsLegacy,
         keys.wsCurrent,
         keys.wsGone,
         keys.fresh,
+        keys.raced,
       ].sort(),
     )
+  })
+
+  it("does not ask codesearch again for the keys it kept in this pass", async () => {
+    deleteRequests.length = 0
+
+    await collectRepositoryCheckouts({ orgId, repositoryId })
+
+    // Only the skipped `wsGone` is left, and it is asked for once.
+    expect(deleteRequests).toEqual([[keys.wsGone]])
   })
 })

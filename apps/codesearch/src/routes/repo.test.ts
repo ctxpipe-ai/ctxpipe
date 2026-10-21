@@ -973,10 +973,7 @@ describe("POST /{repoId}/checkouts/delete", () => {
 
     expect(res.status).toBe(200)
     expect(await res.json()).toEqual({
-      deleted: [
-        { checkoutKey: old, bytes: 1120 },
-        { checkoutKey: oldWorkspace, bytes: 1120 },
-      ],
+      deleted: [{ checkoutKey: old }, { checkoutKey: oldWorkspace }],
       skipped: [{ checkoutKey: published, reason: "published" }],
     })
     expect((await readdir(checkoutsDir)).sort()).toEqual(
@@ -992,6 +989,53 @@ describe("POST /{repoId}/checkouts/delete", () => {
     expect((await readdir(coldDir)).sort()).toEqual(
       [shardName("default"), shardName(published)].sort(),
     )
+  })
+
+  it("keeps a key that a run used again after the caller listed it", async () => {
+    getIndexableRepositoryMock.mockResolvedValue({
+      zoektRepoId: zoektIds[old],
+      checkoutUsedRecently: true,
+    })
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toEqual({
+      deleted: [],
+      skipped: [{ checkoutKey: old, reason: "recent" }],
+    })
+    expect(await exists(join(checkoutsDir, old))).toBe(true)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(true)
+  })
+
+  it("keeps the files of a longer key and of a repository whose id starts with this id", async () => {
+    // The SHA-256 key starts with the SHA-1 key; repo_abcdef271 starts with
+    // repo_abcdef27.
+    const longKey = `rev:${"b".repeat(64)}`
+    const otherRepo = `${REPO}1`
+    await mkdir(join(checkoutsDir, longKey), { recursive: true })
+    await writeFile(join(checkoutsDir, `${longKey}.scip`), "s")
+    await writeFile(join(coldDir, shardName(longKey)), "z")
+    const otherShard = `${zoektShardFilePrefix(
+      zoektRepositoryName({ orgId: ORG, repoId: otherRepo, checkoutKey: old }),
+    )}v16.00000.zoekt`
+    await mkdir(join(repoCacheDir, ORG, otherRepo, "checkouts", old), {
+      recursive: true,
+    })
+    await writeFile(join(coldDir, otherShard), "z")
+
+    const res = await deleteKeys([old])
+
+    expect(await res.json()).toMatchObject({ deleted: [{ checkoutKey: old }] })
+    expect(await exists(join(checkoutsDir, old))).toBe(false)
+    expect(await exists(join(coldDir, shardName(old)))).toBe(false)
+    for (const path of [
+      join(checkoutsDir, longKey),
+      join(checkoutsDir, `${longKey}.scip`),
+      join(coldDir, shardName(longKey)),
+      join(repoCacheDir, ORG, otherRepo, "checkouts", old),
+      join(coldDir, otherShard),
+    ])
+      expect(await exists(path)).toBe(true)
   })
 
   it("is idempotent: a key without a row is skipped", async () => {

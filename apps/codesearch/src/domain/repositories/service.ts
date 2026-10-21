@@ -14,6 +14,8 @@ type AccessibleRepository = {
 
 type IndexableRepository = AccessibleRepository & {
   zoektRepoId: number
+  /** A run used the checkout row in the last hour (checkout collection). */
+  checkoutUsedRecently?: boolean
 }
 
 export async function getAccessibleRepository(
@@ -54,6 +56,7 @@ export async function getIndexableRepository(
         gitUrl: repositories.gitUrl,
         zoektRepoId: repositoryCheckouts.zoektRepoId,
         name: repositories.name,
+        checkoutUsedRecently: sql<boolean>`${repositoryCheckouts.updatedAt} > now() - interval '1 hour'`,
       })
       .from(repositories)
       .innerJoin(

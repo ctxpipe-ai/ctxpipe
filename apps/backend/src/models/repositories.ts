@@ -52,6 +52,15 @@ function repositoryNotUnindexingCondition() {
   )
 }
 
+/**
+ * A run that uses a checkout key again moves `updated_at` of its row, so the
+ * checkout collection keeps the key for one more hour (CTX-973).
+ */
+const touchCheckoutOnReuse = {
+  target: [repositoryCheckouts.repositoryId, repositoryCheckouts.checkoutKey],
+  set: { updatedAt: sql`now()` },
+}
+
 export async function ensureWorkspaceCheckout(input: {
   repositoryId: string
   workspaceId: string
@@ -67,7 +76,7 @@ export async function ensureWorkspaceCheckout(input: {
         ref: input.ref,
         checkoutKey: workspaceCheckoutKey(input.workspaceId, input.ref),
       })
-      .onConflictDoNothing()
+      .onConflictDoUpdate(touchCheckoutOnReuse)
   })
 }
 /** Select only the successfully published immutable source, falling back to pre-upgrade artifacts. */
@@ -93,7 +102,7 @@ export async function ensureRepositoryRevisionCheckout(input: {
         ref: input.sha,
         checkoutKey: repositoryRevisionCheckoutKey(input.sha),
       })
-      .onConflictDoNothing(),
+      .onConflictDoUpdate(touchCheckoutOnReuse),
   )
 }
 
