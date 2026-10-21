@@ -328,6 +328,16 @@ describe("ingest shard commands in a Docker sandbox", () => {
         expect(Buffer.from(written).toString("utf8")).toBe(
           JSON.stringify(rootMap),
         )
+
+        // A step that writes more than the tar cap into /ctxpipe/out: the
+        // sandbox refuses the tar, so the host never reads it (CTX-971).
+        await runAsRoot(
+          root,
+          "head -c 5242880 /dev/urandom > /ctxpipe/out/files/large.bin",
+        )
+        await expect(collectIngestStep(handle, root)).rejects.toThrow(
+          /The step output is \d+ bytes; the limit is 4194304 bytes/,
+        )
       } finally {
         await provider.destroy({ id: handle.id })
       }

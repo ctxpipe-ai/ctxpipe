@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest"
 import { ingestAgentCommand } from "./ingest-opencode.js"
 import { assertIngestProvider } from "./ingest-prepare.js"
-import { runAsRoot, vercelRootExec } from "./ingest-root.js"
+import {
+  ROOT_STDERR_MAX_BYTES,
+  ROOT_STDOUT_MAX_BYTES,
+  runAsRoot,
+  vercelRootExec,
+} from "./ingest-root.js"
 
 /*
  * The hosted path runs the same root scripts as Docker, through the Vercel
@@ -14,7 +19,16 @@ import { runAsRoot, vercelRootExec } from "./ingest-root.js"
 
 type Call = { cmd: string; args?: string[]; sudo?: boolean }
 
-function fakeSandbox(exitCode: number, stderr = "") {
+type LogLine = { stream: "stdout" | "stderr"; data: string }
+
+function fakeSandbox(
+  exitCode: number,
+  stderr = "",
+  lines: () => Iterable<LogLine> = () => [
+    { stream: "stdout", data: "out" },
+    ...(stderr ? [{ stream: "stderr" as const, data: stderr }] : []),
+  ],
+) {
   const calls: Call[] = []
   return {
     calls,
@@ -23,8 +37,9 @@ function fakeSandbox(exitCode: number, stderr = "") {
         calls.push(input)
         return {
           exitCode,
-          output: async (stream: "stdout" | "stderr") =>
-            stream === "stderr" ? stderr : "out",
+          logs: async function* () {
+            yield* lines()
+          },
         }
       },
     },
@@ -42,6 +57,26 @@ describe("vercelRootExec", () => {
     expect(calls).toEqual([
       { cmd: "sh", args: ["-c", "mkdir -p /ctxpipe"], sudo: true },
     ])
+  })
+
+  it("keeps the start of a large stdout and the end of a large stderr", async () => {
+    // A command that writes far more than the caps, in 1 MiB lines, as the
+    // SDK log stream gives it. The worker must not keep all of it (CTX-971).
+    const mib = "x".repeat(1024 * 1024)
+    let streamed = 0
+    const { sandbox } = fakeSandbox(0, "", function* () {
+      for (let i = 0; i < 64; i++) {
+        streamed++
+        yield { stream: "stdout", data: mib }
+        yield { stream: "stderr", data: `${i}:${mib}` }
+      }
+      yield { stream: "stderr", data: "the last error" }
+    })
+    const result = await vercelRootExec(sandbox)("noisy")
+    expect(streamed).toBe(64)
+    expect(Buffer.byteLength(result.stdout)).toBe(ROOT_STDOUT_MAX_BYTES)
+    expect(Buffer.byteLength(result.stderr)).toBe(ROOT_STDERR_MAX_BYTES)
+    expect(result.stderr.endsWith("the last error")).toBe(true)
   })
 
   it("throws with the stderr when a root script fails", async () => {

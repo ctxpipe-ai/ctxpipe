@@ -11,7 +11,7 @@ import { join } from "node:path"
  * staged tree cap of the validator is 2 MiB; the tar may be at most 4 MiB.
  */
 
-const MAX_TAR_BYTES = 4 * 1024 * 1024
+export const MAX_TAR_BYTES = 4 * 1024 * 1024
 const BLOCK = 512
 
 function field(header: Uint8Array, start: number, length: number): string {

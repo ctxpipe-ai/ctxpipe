@@ -133,21 +133,16 @@ export function dockerRootExec(
     const stream = await exec.start({})
     const stdout = new PassThrough()
     const stderr = new PassThrough()
-    const out: Buffer[] = []
-    const err: Buffer[] = []
-    stdout.on("data", (chunk: Buffer) => out.push(chunk))
-    stderr.on("data", (chunk: Buffer) => err.push(chunk))
+    const output = boundedRootOutput()
+    stdout.on("data", (chunk: Buffer) => output.add("stdout", chunk))
+    stderr.on("data", (chunk: Buffer) => output.add("stderr", chunk))
     docker.modem.demuxStream(stream, stdout, stderr)
     await new Promise<void>((resolve, reject) => {
       stream.on("end", resolve)
       stream.on("error", reject)
     })
     const { ExitCode } = await exec.inspect()
-    return {
-      stdout: Buffer.concat(out).toString("utf8"),
-      stderr: Buffer.concat(err).toString("utf8"),
-      exitCode: ExitCode ?? -1,
-    }
+    return { ...output.result(), exitCode: ExitCode ?? -1 }
   })
 }
 
@@ -158,20 +153,70 @@ type VercelCommandSandbox = {
     sudo: boolean
   }) => Promise<{
     exitCode: number | null
-    output: (stream: "stdout" | "stderr") => Promise<string>
+    logs: () => AsyncIterable<{ stream: "stdout" | "stderr"; data: string }>
   }>
 }
 
-/** Root through the Vercel SDK's `sudo` option; the same scripts as Docker. */
+/**
+ * Root through the Vercel SDK's `sudo` option; the same scripts as Docker.
+ * The SDK's `output()` keeps the full stdout, the full stderr, and both
+ * together in the heap. A command that writes much can fill the worker heap
+ * (CTX-971), so this reads the log stream and keeps only the bounded part.
+ */
 export function vercelRootExec(sandbox: VercelCommandSandbox): RootExec {
   return signalledRootExec(async ([cmd = "sh", ...args]) => {
     const finished = await sandbox.runCommand({ cmd, args, sudo: true })
-    const [stdout, stderr] = await Promise.all([
-      finished.output("stdout"),
-      finished.output("stderr"),
-    ])
-    return { stdout, stderr, exitCode: finished.exitCode ?? -1 }
+    const output = boundedRootOutput()
+    for await (const line of finished.logs()) output.add(line.stream, line.data)
+    return { ...output.result(), exitCode: finished.exitCode ?? -1 }
   })
+}
+
+/** The stdout that a root command keeps: its first bytes, up to this cap. */
+export const ROOT_STDOUT_MAX_BYTES = 8 * 1024 * 1024
+/** The stderr that a root command keeps: its last bytes, up to this cap. */
+export const ROOT_STDERR_MAX_BYTES = 64 * 1024
+
+/**
+ * The output of one root command, with a cap on each stream, so that a
+ * command that writes gigabytes cannot fill the worker heap. Stdout keeps
+ * its start: the callers parse it, and a parse of a cut stdout fails or a
+ * size check refuses it. Stderr keeps its end: the callers show the last
+ * part of it in the error.
+ */
+export function boundedRootOutput() {
+  const out: Buffer[] = []
+  const err: Buffer[] = []
+  let outBytes = 0
+  let errBytes = 0
+  return {
+    add(stream: "stdout" | "stderr", data: Buffer | string) {
+      const chunk = typeof data === "string" ? Buffer.from(data) : data
+      if (stream === "stdout") {
+        if (outBytes >= ROOT_STDOUT_MAX_BYTES) return
+        const kept = chunk.subarray(0, ROOT_STDOUT_MAX_BYTES - outBytes)
+        out.push(kept)
+        outBytes += kept.length
+        return
+      }
+      err.push(chunk)
+      errBytes += chunk.length
+      while (
+        err.length > 1 &&
+        errBytes - (err[0]?.length ?? 0) >= ROOT_STDERR_MAX_BYTES
+      )
+        errBytes -= err.shift()?.length ?? 0
+    },
+    result(): { stdout: string; stderr: string } {
+      const stderr = Buffer.concat(err)
+      return {
+        stdout: Buffer.concat(out).toString("utf8"),
+        stderr: stderr
+          .subarray(Math.max(0, stderr.length - ROOT_STDERR_MAX_BYTES))
+          .toString("utf8"),
+      }
+    },
+  }
 }
 
 /** Run as root; throw with the stderr on a nonzero exit. */
