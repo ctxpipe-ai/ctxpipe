@@ -127,8 +127,24 @@ export async function resolveSafeReadableFilePath(
 export async function readContainedFile(
   basePath: string,
   relativePath: string,
+  root?: string,
+): Promise<Buffer<ArrayBuffer>>
+/**
+ * With `maxBytes`, a file larger than the limit is not read: the result has
+ * only its size, from the stat of the open descriptor.
+ */
+export async function readContainedFile(
+  basePath: string,
+  relativePath: string,
+  root: string,
+  maxBytes: number,
+): Promise<Buffer<ArrayBuffer> | { size: number; tooLarge: true }>
+export async function readContainedFile(
+  basePath: string,
+  relativePath: string,
   root = "",
-) {
+  maxBytes?: number,
+): Promise<Buffer<ArrayBuffer> | { size: number; tooLarge: true }> {
   const rootPath = resolveSafePath(basePath, root)
   const resolved = await resolveSafeReadableFilePath(
     basePath,
@@ -148,10 +164,30 @@ export async function readContainedFile(
         throw notFound()
       }
     }
-    if (!(await handle.stat()).isFile()) {
+    const stats = await handle.stat()
+    if (!stats.isFile()) {
       throw new Error("Not a file")
     }
-    return await handle.readFile()
+    if (maxBytes !== undefined && stats.size > maxBytes) {
+      return { size: stats.size, tooLarge: true }
+    }
+    if (maxBytes === undefined) return await handle.readFile()
+    // The file can grow after the stat. Read one byte past the limit, from the
+    // same descriptor, into a fixed buffer.
+    const buffer = Buffer.alloc(maxBytes + 1)
+    let length = 0
+    while (length < buffer.length) {
+      const { bytesRead } = await handle.read(
+        buffer,
+        length,
+        buffer.length - length,
+        length,
+      )
+      if (bytesRead === 0) break
+      length += bytesRead
+    }
+    if (length > maxBytes) return { size: length, tooLarge: true }
+    return buffer.subarray(0, length)
   } finally {
     await handle.close()
   }

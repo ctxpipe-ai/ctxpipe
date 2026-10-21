@@ -10,15 +10,18 @@ import { BackendPostgres } from "openworkflow/postgres"
 import { expect, it } from "vitest"
 import type { AppEnv } from "../../app/env.js"
 import { parseEnv } from "../../config/env.js"
-import { withOrgDbContext } from "../../db/client.js"
+import { getSystemDb, withOrgDbContext } from "../../db/client.js"
+import { organizations } from "../../db/schema/auth.js"
 import { connections } from "../../db/schema/connections.js"
 import {
   workspaceKnowledgeUnits,
   workspaces,
 } from "../../db/schema/workspaces.js"
 import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
+import { RAW_FILE_MAX_BYTES } from "../../domain/workspaces/raw-file.js"
 import type { WorkspaceRevision } from "../../domain/workspaces/revision.js"
 import { destroyWorkspaceSandbox } from "../../domain/workspaces/workspace-sandbox-cleanup.js"
+import { generateObjectId } from "../../lib/id.js"
 import { persistSandboxInstance } from "../../models/workspaces.js"
 import { openWorkflowNamespaceId } from "../../openworkflow/namespace.js"
 import { withNativeIndexFixture } from "../../test/native-index-fixture.js"
@@ -33,7 +36,7 @@ async function withFilesWorkspace(
     revision: WorkspaceRevision
     directory: string
   }) => Promise<void>,
-  extraFiles: Record<string, string> = {},
+  extraFiles: Record<string, string | Uint8Array> = {},
 ) {
   await withNativeIndexFixture(
     async (f) => {
@@ -106,7 +109,7 @@ it.each([
     "binary files",
     "logo.png",
     200,
-    { path: "logo.png", body: null, binary: true },
+    { path: "logo.png", body: null, binary: true, size: 9 },
   ],
   ["missing files", "missing.md", 404, { error: "Not found" }],
   [
@@ -139,6 +142,179 @@ it.each([
         status,
         body,
       })
+    })
+  },
+)
+
+const SANDBOXED =
+  "default-src 'none'; style-src 'unsafe-inline'; frame-ancestors 'none'; sandbox"
+
+it(
+  "serves raw file bytes with headers that never run them as a page",
+  { timeout: 60_000 },
+  async () => {
+    const svg =
+      '<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>'
+    await withFilesWorkspace(
+      async ({ app }) => {
+        const raw = async (path: string) => {
+          const response = await app.request(
+            `/workspaces/knowledge/files/raw?path=${encodeURIComponent(path)}`,
+          )
+          return {
+            status: response.status,
+            type: response.headers.get("content-type"),
+            disposition: response.headers.get("content-disposition"),
+            nosniff: response.headers.get("x-content-type-options"),
+            csp: response.headers.get("content-security-policy"),
+            body: Buffer.from(await response.arrayBuffer()).toString("latin1"),
+          }
+        }
+        expect({
+          png: await raw("logo.png"),
+          svg: await raw("diagram.svg"),
+          html: await raw("page.html"),
+          unknown: await raw("data.bin"),
+        }).toEqual({
+          png: {
+            status: 200,
+            type: "image/png",
+            disposition: `inline; filename="logo.png"; filename*=UTF-8''logo.png`,
+            nosniff: "nosniff",
+            csp: SANDBOXED,
+            body: "png\0bytes",
+          },
+          svg: {
+            status: 200,
+            type: "image/svg+xml",
+            disposition: `attachment; filename="diagram.svg"; filename*=UTF-8''diagram.svg`,
+            nosniff: "nosniff",
+            csp: SANDBOXED,
+            body: svg,
+          },
+          html: {
+            status: 200,
+            type: "application/octet-stream",
+            disposition: `attachment; filename="page.html"; filename*=UTF-8''page.html`,
+            nosniff: "nosniff",
+            csp: SANDBOXED,
+            body: "<script>alert(1)</script>",
+          },
+          unknown: {
+            status: 200,
+            type: "application/octet-stream",
+            disposition: `attachment; filename="data.bin"; filename*=UTF-8''data.bin`,
+            nosniff: "nosniff",
+            csp: SANDBOXED,
+            body: "\u0000\u0001\u00ff",
+          },
+        })
+      },
+      {
+        "diagram.svg": svg,
+        "page.html": "<script>alert(1)</script>",
+        "data.bin": Uint8Array.from([0, 1, 255]),
+      },
+    )
+  },
+)
+
+it(
+  "refuses a raw file over the size limit with a clear 413 and a size-only blob",
+  { timeout: 60_000 },
+  async () => {
+    await withFilesWorkspace(
+      async ({ app }) => {
+        const read = async (kind: "raw" | "blob") => {
+          const response = await app.request(
+            `/workspaces/knowledge/files/${kind}?path=huge.png`,
+          )
+          return { status: response.status, body: await response.json() }
+        }
+        expect({ raw: await read("raw"), blob: await read("blob") }).toEqual({
+          raw: {
+            status: 413,
+            body: {
+              error:
+                "This file is 10.0 MB. The Files pane sends files up to 10.0 MB. Clone the repository to get this file.",
+            },
+          },
+          blob: {
+            status: 200,
+            body: {
+              path: "huge.png",
+              body: null,
+              binary: true,
+              size: RAW_FILE_MAX_BYTES + 1,
+            },
+          },
+        })
+      },
+      { "huge.png": new Uint8Array(RAW_FILE_MAX_BYTES + 1) },
+    )
+  },
+)
+
+it.each([
+  ["missing files", "missing.png", 404, { error: "Not found" }],
+  [
+    "git metadata",
+    ".git/config",
+    400,
+    { error: "A valid file path is required" },
+  ],
+  [
+    "path traversal",
+    "../secret",
+    400,
+    { error: "A valid file path is required" },
+  ],
+])(
+  "refuses raw reads of %s",
+  { timeout: 30_000 },
+  async (_name, path, status, body) => {
+    await withFilesWorkspace(async ({ app }) => {
+      const response = await app.request(
+        `/workspaces/knowledge/files/raw?path=${path}`,
+      )
+      expect({ status: response.status, body: await response.json() }).toEqual({
+        status,
+        body,
+      })
+    })
+  },
+)
+
+it(
+  "answers 404 for raw and blob reads from another organization",
+  { timeout: 30_000 },
+  async () => {
+    await withFilesWorkspace(async () => {
+      const other = {
+        id: generateObjectId("org"),
+        slug: `other-${generateObjectId("org").slice(-8).toLowerCase()}`,
+        name: "Other organization",
+      }
+      await getSystemDb()
+        .insert(organizations)
+        .values({ ...other, createdAt: new Date() })
+      try {
+        const app = workspaceHttpApp(other, workspaceFilesRoutes)
+        const read = async (kind: "raw" | "blob") => {
+          const response = await app.request(
+            `/workspaces/knowledge/files/${kind}?path=logo.png`,
+          )
+          return { status: response.status, body: await response.json() }
+        }
+        expect({ raw: await read("raw"), blob: await read("blob") }).toEqual({
+          raw: { status: 404, body: { error: "Not found" } },
+          blob: { status: 404, body: { error: "Not found" } },
+        })
+      } finally {
+        await getSystemDb()
+          .delete(organizations)
+          .where(eq(organizations.id, other.id))
+      }
     })
   },
 )

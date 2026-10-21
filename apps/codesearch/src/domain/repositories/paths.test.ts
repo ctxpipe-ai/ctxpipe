@@ -103,6 +103,17 @@ describe("paths inside the checkout", () => {
     await expect(readContainedFile(checkout, "sub")).rejects.toThrow()
   })
 
+  it("reads at most one byte past the limit into a fixed buffer", async () => {
+    await writeFile(join(checkout, "edge.bin"), Buffer.alloc(100, 1))
+    expect(
+      await readContainedFile(checkout, "edge.bin", "", 100),
+    ).toHaveProperty("length", 100)
+    expect(await readContainedFile(checkout, "edge.bin", "", 99)).toEqual({
+      size: 100,
+      tooLarge: true,
+    })
+  })
+
   // The tree never lists .git, and .git/config can hold a clone token.
   it.each([
     ["a symlink to .git/config", "leak"],
