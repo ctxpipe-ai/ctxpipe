@@ -402,12 +402,15 @@ export function WorkspaceChatSession(props: {
           </InlineAlert>
         </div>
       ) : null}
-      {gitStatus?.stale ? (
-        <InlineAlert variant="warning" title="Branch needs a rebase">
-          This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
-          now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
-          the conflict before publishing.
-        </InlineAlert>
+      {/* A conversation with no changes moves to the new commit at its next
+          turn, so it gets no notice. */}
+      {gitStatus?.workspaceMovedUnderChanges ? (
+        <div className="px-6 pt-3">
+          <InlineAlert variant="warning" title="The Workspace has new commits">
+            ctxpipe applies this conversation's changes on top of them when you
+            publish.
+          </InlineAlert>
+        </div>
       ) : null}
       <ConversationThread
         messages={messages as ChatMessage[]}
