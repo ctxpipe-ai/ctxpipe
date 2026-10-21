@@ -1649,6 +1649,30 @@ describe("workflows skill", () => {
     expect(claude).toMatch(/^# GitHub Actions workflow [0-9a-f]{8}$/m)
   })
 
+  it("keeps the workflow name as the heading when the validator accepts it", async () => {
+    const workflow = (name: string) =>
+      `name: ${name}\non: push\njobs:\n  a:\n    runs-on: x\n`
+    const s = step(
+      {
+        ...PNPM_SHOP,
+        ".github/workflows/ai-tools.yml": workflow("Build"),
+        ".github/workflows/models.yml": workflow("Release models"),
+        ".github/workflows/style.yml": workflow("Coding style"),
+      },
+      SHOP_UNITS,
+    )
+    expect(s.run("workflows").ops).toHaveLength(3)
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    const heading = (file: string) =>
+      /^# (.+)$/m.exec(
+        s.show(result.tree, `knowledge/workflows/example-org-shop-${file}.md`),
+      )?.[1]
+    expect(heading("ai-tools")).toBe("Build")
+    expect(heading("models")).toBe("Release models")
+    expect(heading("style")).toBe("Coding style")
+  })
+
   it("reads the YAML forms of workflows and never the text of a block scalar", async () => {
     const { readWorkflow } = await import(
       join(INGEST_SKILLS_DIR, "workflows/scripts/workflow-parse.mjs")

@@ -14,6 +14,7 @@
 
 import { createHash } from "node:crypto"
 import { posix } from "node:path"
+import { DENIED_HEADINGS } from "../../bin/guard-patterns.mjs"
 import {
   findExisting,
   relativeTo,
@@ -51,15 +52,6 @@ const JOB = /^[A-Za-z_][A-Za-z0-9_-]{0,99}$/
 /** A workflow name that is safe as a heading and a YAML value. */
 const NAME = /^[A-Za-z0-9][A-Za-z0-9 _.,()&+/-]{0,99}$/
 const LOCATION = /^[A-Za-z0-9_./*?@[\]{},+-]{1,200}$/
-/**
- * Words that the host heading denylist refuses (ADR-052 section 5). A
- * workflow name with one of them stays in `name`, but not in the heading:
- * workflows such as `claude.yml` are common.
- */
-const AGENT_WORDS = [
-  /\b(?:system\s+prompts?|claude|chatgpt|gpt-?\d*|copilot|gemini|cursor)\b/i,
-  /\b(?:ai|llms?|coding|autonomous|agents?|assistants?|models?|prompts?)\b/i,
-]
 const PACKAGE_KINDS = new Set(["Service", "App", "Library"])
 
 const { step, source, repository, roots, index, skipped } = scriptStep()
@@ -175,9 +167,10 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
   const jobs = workflow.jobs.filter((j) => JOB.test(j))
   const named = workflow.name?.trim() ?? ""
   const name = NAME.test(named) ? named : posix.basename(file)
-  const heading = [name, file, repository].some((text) =>
-    AGENT_WORDS.some((word) => word.test(text)),
-  )
+  // The validator refuses a heading that addresses agents (ADR-052 section
+  // 5). Such a name stays in `name` only: workflows such as `claude.yml`
+  // are common.
+  const heading = DENIED_HEADINGS.some((pattern) => pattern.test(name))
     ? `GitHub Actions workflow ${hash(file)}`
     : name
 
