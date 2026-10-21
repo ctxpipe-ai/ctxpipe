@@ -1105,32 +1105,32 @@ export const notionConnectorRoutes = notionOAuthStartRoutes
       connection: installed.connection,
       query: query.q,
       onTokenRefresh: (expectedRefreshToken, expectedAccessToken) =>
-        withOrgDbContext(orgId, () =>
-          refreshNotionConnectionTokensWithLock({
-            orgId,
-            connectionId: installed.connection.id,
-            env: c.var.env,
-            expectedRefreshToken,
-            expectedAccessToken,
-            refresh: async (refreshToken) => {
-              const stored = await getNotionStoredConfigByConnectionId(
+        refreshNotionConnectionTokensWithLock({
+          orgId,
+          connectionId: installed.connection.id,
+          env: c.var.env,
+          expectedRefreshToken,
+          expectedAccessToken,
+          refresh: async (refreshToken) => {
+            const stored = await withOrgDbContext(orgId, () =>
+              getNotionStoredConfigByConnectionId(
                 orgId,
                 installed.connection.id,
-              )
-              const app = resolveNotionOAuthApp(stored, c.var.env)
-              if (!app) throw new Error("Notion OAuth is not configured")
-              const refreshed = await refreshNotionOAuthToken({
-                clientId: app.clientId,
-                clientSecret: app.clientSecret,
-                refreshToken,
-              })
-              return {
-                accessToken: refreshed.access_token,
-                refreshToken: refreshed.refresh_token ?? refreshToken,
-              }
-            },
-          }),
-        ),
+              ),
+            )
+            const app = resolveNotionOAuthApp(stored, c.var.env)
+            if (!app) throw new Error("Notion OAuth is not configured")
+            const refreshed = await refreshNotionOAuthToken({
+              clientId: app.clientId,
+              clientSecret: app.clientSecret,
+              refreshToken,
+            })
+            return {
+              accessToken: refreshed.access_token,
+              refreshToken: refreshed.refresh_token ?? refreshToken,
+            }
+          },
+        }),
     })
     return c.json(
       {
