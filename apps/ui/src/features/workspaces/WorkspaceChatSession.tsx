@@ -191,6 +191,12 @@ export function WorkspaceChatSession(props: {
     workspaceChatPrepareOptions(orgSlug, conversationId, workspace.id),
   )
   const gitStatus = props.publish?.status ?? null
+  // A cached status can omit the field; derive it the way the backend does.
+  const workspaceMovedUnderChanges =
+    gitStatus?.workspaceMovedUnderChanges ??
+    Boolean(
+      gitStatus?.stale && (gitStatus.differsFromDefault || gitStatus.unpushed),
+    )
 
   // When the first turn fails, the backend can drop the new conversation.
   // Give the text back to the composer and reload the list from the server.
@@ -402,12 +408,15 @@ export function WorkspaceChatSession(props: {
           </InlineAlert>
         </div>
       ) : null}
-      {gitStatus?.stale ? (
-        <InlineAlert variant="warning" title="Branch needs a rebase">
-          This conversation is on {gitStatus.sha?.slice(0, 7)}; the workspace is
-          now {gitStatus.desiredSha?.slice(0, 7)}. Continue chatting to resolve
-          the conflict before publishing.
-        </InlineAlert>
+      {/* A conversation with no changes moves to the new commit at its next
+          turn, so it gets no notice. */}
+      {workspaceMovedUnderChanges ? (
+        <div className="px-6 pt-3">
+          <InlineAlert variant="warning" title="The Workspace has new commits">
+            Send your next message to bring this conversation up to date. Then
+            you can publish.
+          </InlineAlert>
+        </div>
       ) : null}
       <ConversationThread
         messages={messages as ChatMessage[]}

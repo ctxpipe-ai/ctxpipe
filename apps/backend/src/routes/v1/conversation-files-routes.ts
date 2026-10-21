@@ -10,6 +10,7 @@ import {
 } from "../../domain/workspaces/conversation-diff.js"
 import {
   attachTurnSandboxForRead,
+  conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   getConversationSandboxBinding,
@@ -39,6 +40,7 @@ import {
   withSandboxLockIfFree,
 } from "../../domain/workspaces/sandbox-lock-store.js"
 import { warmTanstackWorkspaceChat } from "../../domain/workspaces/tanstack-workspace-chat.js"
+import { conversationBusyError } from "../../domain/workspaces/workspace-chat-persistence.js"
 import { resolveWorkspaceChatTurnRuntime } from "../../domain/workspaces/workspace-chat-turn-runtime.js"
 import { githubRepoFullNameFromWorkspaceUrl } from "../../domain/workspaces/write-status.js"
 import {
@@ -108,6 +110,10 @@ const ConversationGitStatusResponseSchema = z
     sha: z.string().nullable(),
     desiredSha: z.string().nullable(),
     stale: z.boolean(),
+    workspaceMovedUnderChanges: z.boolean().openapi({
+      description:
+        "The Workspace has new commits and this conversation has its own changes. False for a conversation with no changes: its next turn moves it to the new commit.",
+    }),
     dirty: z.boolean(),
     differsFromDefault: z.boolean(),
     unpushed: z.boolean(),
@@ -254,7 +260,7 @@ const listTreeRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -375,7 +381,7 @@ const getStatusRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "Chat sandbox missing, or turn_running: a turn holds the conversation now (ask again later)",
+        "Chat sandbox missing, or turn_running: a turn holds the conversation now, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -446,7 +452,7 @@ const getTurnChangesRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description:
-        "turn_running: a turn holds the conversation and records its changes when it ends (ask again later)",
+        "turn_running: a turn holds the conversation and records its changes when it ends, or chat_starting: the chat sandbox starts (ask again later)",
     },
   },
 })
@@ -618,9 +624,11 @@ async function conversationFileSnapshot(input: {
     status: {
       source: "sandbox" as const,
       ...status,
-      sha: binding?.desiredSha ?? null,
-      desiredSha: revision?.sha ?? null,
-      stale: binding?.desiredSha !== revision?.sha,
+      ...conversationRevisionStatus({
+        ...status,
+        sha: binding?.desiredSha ?? null,
+        desiredSha: revision?.sha ?? null,
+      }),
       worktreeVersion,
     },
   }
@@ -643,7 +651,11 @@ async function conversationReadHandle(
     // Nothing runs to read (the idle sweep may hold the lock): the pane
     // polls again.
     if (!attached)
-      return { ok: false as const, status: 409 as const, error: "turn_running" }
+      return {
+        ok: false as const,
+        status: 409 as const,
+        error: await conversationBusyError(loaded.conversation.id),
+      }
     return { ok: true as const, handle: attached }
   }
   return readySandboxHandle({ ...loaded, existingOnly: true })
@@ -660,7 +672,8 @@ type ConversationFileEnv = AppEnv & {
 /**
  * A turn holds the conversation lock until its reply ends. The Files pane
  * polls the tree and status, so these reads do not wait for the lock: when a
- * turn holds it, they answer 409 `turn_running` and the pane polls again.
+ * turn holds it, they answer 409 `turn_running` (or `chat_starting` when a
+ * prepare holds it) and the pane polls again.
  */
 const readWithoutWait = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
@@ -671,7 +684,8 @@ const readWithoutWait = createMiddleware<ConversationFileEnv>(
 /**
  * A file read does not wait for a turn either: when another holder has the
  * lock, it reads from the running sandbox with a plain attach that changes
- * nothing, or answers 409 `turn_running` when no sandbox runs.
+ * nothing, or answers 409 (`turn_running` or `chat_starting`) when no
+ * sandbox runs.
  */
 const readDuringTurn = createMiddleware<ConversationFileEnv>(
   async (c, next) => {
@@ -705,7 +719,10 @@ const withConversationFileLock = createMiddleware<ConversationFileEnv>(
         )
         if (!read.busy) return
         if (!c.get("readDuringTurn"))
-          return c.json({ error: "turn_running" }, 409)
+          return c.json(
+            { error: await conversationBusyError(loaded.conversation.id) },
+            409,
+          )
         c.set("turnRunning", true)
         return await next()
       }
@@ -847,9 +864,11 @@ export const conversationFileRoutes = fileRoutes
       {
         source: "sandbox" as const,
         ...status,
-        sha: binding?.desiredSha ?? null,
-        desiredSha: revision?.sha ?? null,
-        stale: binding?.desiredSha !== revision?.sha,
+        ...conversationRevisionStatus({
+          ...status,
+          sha: binding?.desiredSha ?? null,
+          desiredSha: revision?.sha ?? null,
+        }),
         worktreeVersion,
       },
       200,

@@ -109,7 +109,11 @@ type ConversationGitStatusRead = InferResponseType<
 /** The sandbox status read; the cached copies of it omit some fields. */
 export type ConversationGitStatusResponse = WithOptional<
   ConversationGitStatusRead,
-  "sha" | "desiredSha" | "stale" | "worktreeVersion"
+  | "sha"
+  | "desiredSha"
+  | "stale"
+  | "workspaceMovedUnderChanges"
+  | "worktreeVersion"
 >
 
 /** A diff read. `gone`: the turn's snapshots are no longer in the sandbox (410). */

@@ -129,10 +129,11 @@ it(
               fast: true,
             })
             // The lock holder can also be the idle sweep: a stopped sandbox
-            // is never started for a read; the pane polls again.
+            // is never started for a read; the pane polls again. No running
+            // row exists, so the answer is chat_starting.
             const busy = {
               status: 409,
-              body: { error: "turn_running" },
+              body: { error: "chat_starting" },
               fast: true,
             }
             const setState = (state: "live" | "stopped") =>

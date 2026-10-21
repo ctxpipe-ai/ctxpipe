@@ -16,6 +16,7 @@ import { describe, expect, it } from "vitest"
 import { conversationBaseDiff } from "./conversation-diff.js"
 import {
   conversationPathIsSafe,
+  conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
   fingerprintConversationWorktree,
@@ -95,6 +96,41 @@ function withWorktree<T>(
 }
 
 describe("conversation sandbox files", { timeout: 15_000 }, () => {
+  it("gives no notice for a conversation without changes after the Workspace moved", () => {
+    expect(
+      conversationRevisionStatus({
+        sha: "aaa",
+        desiredSha: "bbb",
+        differsFromDefault: false,
+        unpushed: false,
+      }),
+    ).toEqual({
+      sha: "aaa",
+      desiredSha: "bbb",
+      stale: true,
+      workspaceMovedUnderChanges: false,
+    })
+  })
+
+  it("reports a Workspace move under the conversation's own changes", () => {
+    const moved = (change: {
+      differsFromDefault: boolean
+      unpushed: boolean
+    }) =>
+      conversationRevisionStatus({ sha: "aaa", desiredSha: "bbb", ...change })
+        .workspaceMovedUnderChanges
+    expect(moved({ differsFromDefault: true, unpushed: false })).toBe(true)
+    expect(moved({ differsFromDefault: false, unpushed: true })).toBe(true)
+    expect(
+      conversationRevisionStatus({
+        sha: "bbb",
+        desiredSha: "bbb",
+        differsFromDefault: true,
+        unpushed: true,
+      }),
+    ).toMatchObject({ stale: false, workspaceMovedUnderChanges: false })
+  })
+
   it("strips tokens from git remote errors", () => {
     expect(
       sanitizeGitRemoteError("fatal: token ghp_secret denied", "ghp_secret"),

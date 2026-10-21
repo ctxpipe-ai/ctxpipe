@@ -36,6 +36,7 @@ function isExpectedState(
   if (httpStatus(error) !== "409") return false
   return (
     error.message === "turn_running" ||
+    error.message === "chat_starting" ||
     error.message === "missing_sandbox" ||
     error.message === "Conversation sandbox is not ready"
   )

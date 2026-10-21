@@ -28,6 +28,8 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
   const ownId = generateObjectId("conv")
   const runningId = generateObjectId("conv")
   const startingId = generateObjectId("conv")
+  const preparingId = generateObjectId("conv")
+  const turnStartsId = generateObjectId("conv")
   const otherOrgId = generateObjectId("conv")
   const otherMemberId = generateObjectId("conv")
 
@@ -57,6 +59,22 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
           orgId: caller.orgId,
           userId: caller.userId,
           name: "Starting conversation",
+          source: "ui",
+          lastMessageAt: now,
+        },
+        {
+          id: preparingId,
+          orgId: caller.orgId,
+          userId: caller.userId,
+          name: "Preparing conversation",
+          source: "ui",
+          lastMessageAt: now,
+        },
+        {
+          id: turnStartsId,
+          orgId: caller.orgId,
+          userId: caller.userId,
+          name: "Turn starts conversation",
           source: "ui",
           lastMessageAt: now,
         },
@@ -165,16 +183,65 @@ describeWithDatabase("DELETE /conversations/{id} scope", () => {
     expect(await exists(caller.orgId, runningId)).toBe(true)
   })
 
-  it("refuses with 409 while a starting turn holds the chat lock, and keeps the conversation", async () => {
-    // A turn takes this lock before it inserts its running row.
+  it("answers 409 chat_starting while a prepare keeps the chat lock, and keeps the conversation", async () => {
+    // A prepare (or a turn before it inserts its running row) holds this
+    // lock with no running row. The delete waits a few seconds, then stops.
     const res = await postgresSandboxLocks(caller.orgId).withLock(
       `chat-thread:${startingId}`,
       async () => remove(startingId),
     )
 
     expect(res.status).toBe(409)
-    expect(await res.json()).toEqual({ error: "turn_running" })
+    expect(await res.json()).toEqual({ error: "chat_starting" })
     expect(await exists(caller.orgId, startingId)).toBe(true)
+  })
+
+  it("waits for a short prepare to release the chat lock, then deletes", async () => {
+    let releasePrepare = () => {}
+    let prepareHolds = () => {}
+    const holding = new Promise<void>((resolve) => {
+      prepareHolds = resolve
+    })
+    const prepare = postgresSandboxLocks(caller.orgId).withLock(
+      `chat-thread:${preparingId}`,
+      () =>
+        new Promise<void>((resolve) => {
+          releasePrepare = resolve
+          prepareHolds()
+        }),
+    )
+    await holding
+    const deleting = remove(preparingId)
+    setTimeout(() => releasePrepare(), 500)
+    await prepare
+
+    const res = await deleting
+
+    expect(res.status).toBe(204)
+    expect(await exists(caller.orgId, preparingId)).toBe(false)
+  })
+
+  it("answers 409 turn_running when a turn starts while the delete waits", async () => {
+    const res = await postgresSandboxLocks(caller.orgId).withLock(
+      `chat-thread:${turnStartsId}`,
+      async () => {
+        const deleting = remove(turnStartsId)
+        await withOrgDbContext(caller.orgId, (db) =>
+          db.insert(chatRuns).values({
+            runId: generateObjectId("run"),
+            threadId: turnStartsId,
+            orgId: caller.orgId,
+            status: "running",
+            startedAt: now.getTime(),
+          }),
+        )
+        return deleting
+      },
+    )
+
+    expect(res.status).toBe(409)
+    expect(await res.json()).toEqual({ error: "turn_running" })
+    expect(await exists(caller.orgId, turnStartsId)).toBe(true)
   })
 
   it("deletes a conversation of the caller in the caller's org", async () => {

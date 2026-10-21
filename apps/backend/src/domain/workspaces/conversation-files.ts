@@ -515,6 +515,30 @@ export async function conversationSandboxStatus(input: {
   }
 }
 
+/**
+ * The revision fields of a conversation's Git status. `stale`: the sandbox is
+ * not on the Workspace's current commit. A conversation with no changes of
+ * its own moves to that commit at the start of its next turn, so it needs no
+ * notice. `workspaceMovedUnderChanges` is true only when the sandbox is stale
+ * and the conversation has its own changes. No merge check runs here, so this
+ * status never reports a conflict.
+ */
+export function conversationRevisionStatus(input: {
+  sha: string | null
+  desiredSha: string | null
+  differsFromDefault: boolean
+  unpushed: boolean
+}) {
+  const stale = input.sha !== input.desiredSha
+  return {
+    sha: input.sha,
+    desiredSha: input.desiredSha,
+    stale,
+    workspaceMovedUnderChanges:
+      stale && (input.differsFromDefault || input.unpushed),
+  }
+}
+
 export function sanitizeGitRemoteError(text: string, token: string): string {
   return token ? text.split(token).join("***") : text
 }

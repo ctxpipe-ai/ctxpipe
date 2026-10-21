@@ -405,3 +405,18 @@ export function workspaceChatPersistence(input?: { threadId?: string }) {
     },
   })
 }
+
+/**
+ * The 409 code for a held `chat-thread:` lock. A running row means a turn
+ * runs. Without it, the holder is a prepare, a sandbox resume, the idle
+ * sweep, or a turn that has not inserted its row yet: the chat is starting.
+ */
+export async function conversationBusyError(
+  conversationId: string,
+): Promise<"turn_running" | "chat_starting"> {
+  return (await workspaceChatPersistence().stores.runs.findActiveRun(
+    conversationId,
+  ))
+    ? "turn_running"
+    : "chat_starting"
+}

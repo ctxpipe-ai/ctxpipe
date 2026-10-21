@@ -1092,6 +1092,18 @@ function SandboxGitFilePreview(
   const { data } = useSuspenseQuery(
     conversationGitBlobOptions(props.orgSlug, props.conversationId, props.path),
   )
+  // The query asks again by itself until the holder lets go.
+  if (data.busy) {
+    return (
+      <div className="flex flex-1 items-center justify-center p-6">
+        <output className="text-sm text-muted-foreground">
+          {data.busy === "chat_starting"
+            ? "The chat is starting…"
+            : "The agent is working. The file shows when it is free…"}
+        </output>
+      </div>
+    )
+  }
   return <GitFilePreviewBody {...props} data={data} />
 }
 
