@@ -56,6 +56,7 @@ import {
   listWorkspaceIngestStepFiles,
   pushWorkspaceIngestStep,
 } from "../../domain/workspaces/write-broker.js"
+import { withCrashLoopGuard } from "../crash-loop.js"
 import { defineWorkflow } from "../defineObservedWorkflow.js"
 import {
   cleanUpUnlessParked,
@@ -243,7 +244,7 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
       name: INGESTION_SHARD_WORKFLOW_NAME,
       schema: ingestionShardInputSchema,
     },
-    async ({ input, step }) => {
+    async ({ input, step, run }) => {
       const runShard = async (): Promise<IngestionShardOutput> => {
         const bundle = await deps.bundle()
         if (bundle.name !== input.bundle)
@@ -262,10 +263,11 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
         // makes a provider that cannot start fail the child soon.
         await step.run(
           { name: "ensure-sandbox", retryPolicy: { maximumAttempts: 2 } },
-          async () => {
-            await runtime.ensure()
-            return { ready: true }
-          },
+          () =>
+            withCrashLoopGuard(run.id, "ensure-sandbox", async () => {
+              await runtime.ensure()
+              return { ready: true }
+            }),
         )
         const skills = plannedIngestSkills(
           bundle.skills,
@@ -301,7 +303,9 @@ export function defineIngestionShardWorkflow(deps: IngestionV2Deps) {
               await runSkillPages({
                 step: (name, fn) =>
                   step.run({ name, retryPolicy: { maximumAttempts: 1 } }, () =>
-                    withIngestionOrg(input.orgId, fn),
+                    withCrashLoopGuard(run.id, name, () =>
+                      withIngestionOrg(input.orgId, fn),
+                    ),
                   ),
                 run: input,
                 broker: workspaceSkillBroker({
@@ -604,6 +608,15 @@ async function attemptSkillStep(
     usage ? { ...result, usage } : result
   for (let attempt = 1; attempt <= STEP_ATTEMPTS; attempt++) {
     span.setAttribute("ctxpipe.ingest.attempts", attempt)
+    // The span of a step that stops the worker is never exported; this
+    // event names the step that was in progress (CTX-971).
+    logIngestEvent("info", "ingestion-v2.step-attempt-started", {
+      ingestionRunId: run.runId,
+      ...(run.shard === undefined ? {} : { shard: run.shard }),
+      workspaceId: destination.workspaceId,
+      ingestStep: ctx.name,
+      attempt,
+    })
     // Where the attempt is, for the log of a failed attempt.
     let stage: "find" | "list-files" | "runtime" | "push" = "find"
     const signal = ingestStepSignal()
