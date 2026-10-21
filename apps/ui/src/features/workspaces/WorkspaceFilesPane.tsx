@@ -41,6 +41,7 @@ import type {
   WorkspaceGitStatusItem,
   WorkspaceGitTreeResponse,
 } from "./types"
+import { rawFileUrl, WorkspaceBinaryFile } from "./WorkspaceBinaryFile"
 import {
   WorkspaceFileTree,
   type WorkspaceFileTreeItem,
@@ -1124,6 +1125,7 @@ function GitFilePreviewBody(props: {
     path: string
     body: string | null
     binary: boolean
+    size?: number
     readOnlyReason?: string
   }
 }) {
@@ -1143,12 +1145,14 @@ function GitFilePreviewBody(props: {
     }
   }
   if (data.binary) {
+    const rawUrl = rawFileUrl(props)
     return (
-      <div className="flex h-full min-h-0 items-center p-4">
-        <p className="text-sm text-muted-foreground">
-          This file is binary and cannot be previewed.
-        </p>
-      </div>
+      <WorkspaceBinaryFile
+        key={rawUrl}
+        path={data.path}
+        size={data.size}
+        rawUrl={rawUrl}
+      />
     )
   }
   const headBody = agentUpdated ? loadedBody : data.body

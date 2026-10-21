@@ -18,6 +18,11 @@ import {
   planWorkspaceFileJob,
 } from "../../domain/workspaces/git-file-jobs.js"
 import { LEGACY_KNOWLEDGE_READ_ONLY } from "../../domain/workspaces/legacy-knowledge-overlay.js"
+import {
+  RAW_FILE_MAX_BYTES,
+  rawFileHeaders,
+  rawFileTooLargeMessage,
+} from "../../domain/workspaces/raw-file.js"
 import { publishedProjection } from "../../domain/workspaces/revision.js"
 import { workspaceRootPath } from "../../domain/workspaces/root-path.js"
 import { normalizeWorkspaceRepositoryUrl } from "../../domain/workspaces/slug.js"
@@ -138,6 +143,9 @@ const WorkspaceGitBlobResponseSchema = z
     path: z.string(),
     body: z.string().nullable(),
     binary: z.boolean(),
+    size: z.number().int().optional().openapi({
+      description: "Size in bytes of a binary file.",
+    }),
     readOnlyReason: z.string().optional().openapi({
       description:
         "Set when the file is knowledge from before Workspaces that is not in git. It cannot be edited.",
@@ -174,6 +182,50 @@ const getWorkspaceGitBlobRoute = createRoute({
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
       description: "Cannot browse this Workspace repository",
+    },
+    502: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Checkout read failed",
+    },
+  },
+})
+
+const getWorkspaceGitRawRoute = createRoute({
+  method: "get",
+  path: "/{workspaceSlug}/files/raw",
+  request: {
+    params: WorkspaceSlugParamsSchema,
+    query: WorkspaceGitBlobQuerySchema,
+  },
+  responses: {
+    200: {
+      content: {
+        "application/octet-stream": {
+          schema: z.string().openapi({ format: "binary" }),
+        },
+      },
+      description:
+        "File bytes at the Workspace projection SHA. Only raster images are inline; every other type is an attachment.",
+    },
+    400: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Invalid path",
+    },
+    401: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Unauthorized",
+    },
+    404: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Not found",
+    },
+    409: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "Cannot browse this Workspace repository",
+    },
+    413: {
+      content: { "application/json": { schema: ErrorResponseSchema } },
+      description: "File is larger than the raw file limit",
     },
     502: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -448,11 +500,40 @@ export const workspaceFilesRoutes = new OpenAPIHono<AppEnv>()
           200,
         )
       }
-      return c.json({ path, ...blob }, 200)
+      return c.json(
+        {
+          path,
+          ...blob,
+          ...(blob.binary && file.kind === "bytes"
+            ? { size: file.bytes.length }
+            : {}),
+        },
+        200,
+      )
     } catch (error) {
       const failure = gitExplorerReadFailure(
         error,
         "workspace.git_explorer.blob",
+      )
+      return c.json({ error: failure.error }, failure.status)
+    }
+  })
+  .openapi(getWorkspaceGitRawRoute, async (c) => {
+    const path = explorerBlobPath(c.req.query("path") ?? "")
+    if (!path) return c.json({ error: "A valid file path is required" }, 400)
+    const loaded = await loadWorkspaceGitExplorer(c)
+    if (!loaded.ok) return c.json({ error: loaded.error }, loaded.status)
+    try {
+      const file = await readWorkspaceCheckoutFile({ ...loaded.input, path })
+      if (file.kind !== "bytes") return c.json({ error: "Not found" }, 404)
+      const size = file.bytes.length
+      if (size > RAW_FILE_MAX_BYTES)
+        return c.json({ error: rawFileTooLargeMessage(size) }, 413)
+      return c.body(new Uint8Array(file.bytes), 200, rawFileHeaders(path, size))
+    } catch (error) {
+      const failure = gitExplorerReadFailure(
+        error,
+        "workspace.git_explorer.raw",
       )
       return c.json({ error: failure.error }, failure.status)
     }

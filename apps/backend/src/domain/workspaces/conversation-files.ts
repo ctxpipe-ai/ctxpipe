@@ -14,8 +14,6 @@ import type { JobSandboxHandle } from "./job-worktree.js"
 import { sameWorkspaceBinding, type WorkspaceRevision } from "./revision.js"
 import { attachProviderSandbox } from "./sandbox-provider.js"
 
-
-
 export function splitGitNulPaths(stdout: string): string[] {
   return stdout.split("\0").filter((path) => path.length > 0)
 }
@@ -189,38 +187,21 @@ export async function listConversationSandboxPaths(
 export async function readConversationSandboxFile(
   handle: JobSandboxHandle,
   path: string,
-): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  // Read only a path that the tree lists, with no symlink. This prevents a
-  // read of .git and of ignored files, such as .env.
-  return readSandboxFileIfListed(
-    handle,
-    path,
-    `${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
-  )
-}
-
-/**
- * Reads a path when `listCommand` prints it after the symlink check. The
- * diff checks the tree list before the call, so its command only prints the
- * path.
- */
-async function readSandboxFileIfListed(
-  handle: JobSandboxHandle,
-  path: string,
-  listCommand: string,
-): Promise<{ path: string; body: string | null; binary: boolean } | null> {
-  if (!isConversationSandboxListedPath(path)) return null
-  const listed = await execGitOk(
-    handle.exec,
-    `${STOP_AT_SYMLINK}${listCommand}`,
-    { CTXPIPE_FILE_PATH: path },
-  )
-  if (!splitGitNulPaths(listed).includes(path)) return null
+): Promise<{
+  path: string
+  body: string | null
+  binary: boolean
+  size?: number
+} | null> {
+  if (!(await conversationSandboxPathIsListed(handle, path))) return null
   try {
     const content = await handle.fs.read(path)
     const blob = explorerBlobFromContent(content)
     if (!blob) return null
-    return { path, ...blob }
+    if (!blob.binary) return { path, ...blob }
+    // The text read changes binary bytes, so the size comes from the file.
+    const size = await sandboxFileSize(handle, path)
+    return { path, ...blob, ...(size === null ? {} : { size }) }
   } catch (error) {
     if (isMissingFileError(error)) return null
     const exists = await handle.exec('test -e "$CTXPIPE_FILE_PATH"', {
@@ -229,6 +210,74 @@ async function readSandboxFileIfListed(
     if (exists.exitCode === 1) return null
     throw error
   }
+}
+
+/**
+ * Reads the exact bytes of a listed file, in chunks of base64 on stdout. A
+ * file over `maxBytes` is refused before any copy.
+ */
+export async function readConversationSandboxFileBytes(
+  handle: JobSandboxHandle,
+  path: string,
+  maxBytes: number,
+): Promise<
+  | { kind: "missing" }
+  | { kind: "too_large"; size: number }
+  | { kind: "bytes"; bytes: Uint8Array }
+> {
+  if (!(await conversationSandboxPathIsListed(handle, path)))
+    return { kind: "missing" }
+  const size = await sandboxFileSize(handle, path)
+  if (size === null) return { kind: "missing" }
+  if (size > maxBytes) return { kind: "too_large", size }
+  const chunkBytes = 256 * 1024
+  const chunks: Buffer[] = []
+  for (let offset = 0; offset < size; offset += chunkBytes) {
+    const chunk = await handle.exec(
+      `dd if="$CTXPIPE_FILE_PATH" bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
+      { env: { CTXPIPE_FILE_PATH: path } },
+    )
+    const encoded = chunk.stdout.replace(/\s/g, "")
+    const bytes = Buffer.from(encoded, "base64")
+    if (
+      chunk.exitCode !== 0 ||
+      !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) ||
+      bytes.length !== Math.min(chunkBytes, size - offset)
+    )
+      throw new Error("The file changed while it was read. Open it again.")
+    chunks.push(bytes)
+  }
+  return { kind: "bytes", bytes: Buffer.concat(chunks) }
+}
+
+/**
+ * Reads only a path that the tree lists, with no symlink. This prevents a
+ * read of .git and of ignored files, such as .env.
+ */
+async function conversationSandboxPathIsListed(
+  handle: JobSandboxHandle,
+  path: string,
+): Promise<boolean> {
+  if (!isConversationSandboxListedPath(path)) return false
+  const listed = await execGitOk(
+    handle.exec,
+    `${STOP_AT_SYMLINK}${LIST_TREE_FILES_COMMAND} -- ":(literal)$CTXPIPE_FILE_PATH"`,
+    { CTXPIPE_FILE_PATH: path },
+  )
+  return splitGitNulPaths(listed).includes(path)
+}
+
+/** The size in bytes of a regular file, or null when it is not one. */
+async function sandboxFileSize(
+  handle: JobSandboxHandle,
+  path: string,
+): Promise<number | null> {
+  const result = await handle.exec(
+    'test -f "$CTXPIPE_FILE_PATH" && wc -c < "$CTXPIPE_FILE_PATH"',
+    { env: { CTXPIPE_FILE_PATH: path } },
+  )
+  const size = Number.parseInt(result.stdout.trim(), 10)
+  return result.exitCode === 0 && Number.isSafeInteger(size) ? size : null
 }
 
 function isMissingFileError(error: unknown): boolean {
