@@ -8,6 +8,13 @@ export function greenfieldKnowledgePath(area: string, unit: string): string {
   return `knowledge/${slugSegment(area)}/${slugSegment(unit)}.md`
 }
 
+/**
+ * A GitHub Actions workflow file: GitHub runs only the files directly in
+ * `.github/workflows/`. The sandbox script `workflows.mjs` keeps its own copy.
+ */
+export const WORKFLOW_FILE_PATTERN =
+  /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/
+
 /** Knowledge folder for each object kind. */
 export const KNOWLEDGE_KIND_FOLDERS: Readonly<Record<string, string>> = {
   Service: "services",

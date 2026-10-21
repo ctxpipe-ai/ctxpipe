@@ -18,7 +18,10 @@ import {
 } from "../../../ingest-skills/bin/guard-patterns.mjs"
 import { isConnectorMirrorPath } from "../codeIngestion/connectorMirrorPaths.js"
 import { isHostOnlyPath } from "../workspaces/host-only.js"
-import { KNOWLEDGE_KIND_FOLDERS } from "../workspaces/layout.js"
+import {
+  KNOWLEDGE_KIND_FOLDERS,
+  WORKFLOW_FILE_PATTERN,
+} from "../workspaces/layout.js"
 import { normalizeWorkspaceRepositoryUrl } from "../workspaces/slug.js"
 import { type AreaFile, checkAreaChange, parseAreaBody } from "./area-file.js"
 import { parseYamlObject, splitFrontMatter } from "./front-matter.js"
@@ -85,8 +88,11 @@ export type PatchStepInput = {
   sourcePath: string
   skill: string
   bundle: string
-  /** True when `path` exists in the source repository at `source.sha`. */
-  sourcePathExists: (path: string) => Promise<boolean>
+  /**
+   * True when `path` exists in the source repository at `source.sha`. With
+   * `"blob"`, true only when it is a file: a folder or a gitlink is not.
+   */
+  sourcePathExists: (path: string, type?: "blob") => Promise<boolean>
   /**
    * The text of the file `path` in the source repository at `source.sha`, or
    * null when it is not a file or is too large to read.
@@ -345,9 +351,31 @@ export function gitSource(
 function gitSourcePathExists(
   repoDir: string,
   sha: string,
-): (path: string) => Promise<boolean> {
+): PatchStepInput["sourcePathExists"] {
   let paths: Promise<Set<string>> | undefined
-  return async (path) => {
+  return async (path, type) => {
+    if (type === "blob") {
+      // A blob lookup reads the one tree entry and no content.
+      const out = await git(repoDir, [
+        "--literal-pathspecs",
+        "ls-tree",
+        "-z",
+        sha,
+        "--",
+        path,
+      ]).catch((error: unknown) => {
+        if (error instanceof GitOutputTooLargeError) throw error
+        return Buffer.alloc(0)
+      })
+      return out
+        .toString("utf8")
+        .split("\0")
+        .some(
+          (r) =>
+            r.split("\t")[0]?.split(" ")[1] === "blob" &&
+            r.slice(r.indexOf("\t") + 1) === path,
+        )
+    }
     paths ??= git(repoDir, ["ls-tree", "-r", "-t", "-z", "--name-only", sha])
       .then((out) => new Set(out.toString("utf8").split("\0")))
       .catch((error: unknown) => {
@@ -542,8 +570,8 @@ export async function validatePatchStep(
     root: input.root,
     meter,
     evidenceExists,
-    // `readSourceFile` reads a blob only, so a folder is not a file.
-    sourceFileExists: async (path) => (await sourceText(path)) !== null,
+    // The lookup reads no content, so it uses no read or byte budget.
+    sourceFileExists: (path) => input.sourcePathExists(path, "blob"),
     quoteInSource: (path, quote) =>
       sourceIncludes(quotableSource(path), quotableText(quote)),
     patternInSource: (path, pattern) =>
@@ -1014,9 +1042,8 @@ async function checkFullWrite(
   if (
     attributes.kind === "Workflow" &&
     !(
-      /^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/.test(
-        attributes.workflow_file ?? "",
-      ) && (await context.sourceFileExists(attributes.workflow_file ?? ""))
+      WORKFLOW_FILE_PATTERN.test(attributes.workflow_file ?? "") &&
+      (await context.sourceFileExists(attributes.workflow_file ?? ""))
     )
   )
     return {

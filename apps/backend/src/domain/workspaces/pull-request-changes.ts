@@ -1,6 +1,7 @@
 import { posix, win32 } from "node:path"
 import { log } from "../../observability/logger.js"
 import { type HydrateClaim, sourcePathOf } from "./hydrate.js"
+import { WORKFLOW_FILE_PATTERN } from "./layout.js"
 import { WORKSPACE_LINK_SCHEME } from "./mirror-units.js"
 import { normalizeWorkspaceRepositoryUrl } from "./slug.js"
 
@@ -63,7 +64,7 @@ export function pullRequestChangedClaims(
         unit.attributes.generated_by !== "ctxpipe-extract" ||
         !unit.path.startsWith("knowledge/workflows/") ||
         typeof file !== "string" ||
-        !/^\.github\/workflows\/[A-Za-z0-9_.-]{1,100}\.ya?ml$/.test(file) ||
+        !WORKFLOW_FILE_PATTERN.test(file) ||
         !Array.isArray(unit.attributes.sources) ||
         unit.attributes.sources.length !== 1
       )

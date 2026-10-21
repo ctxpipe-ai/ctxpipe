@@ -218,7 +218,8 @@ export function defineWorkspaceExtractIngestWorkflow() {
                           resolve: resolveIngestConflicts,
                           source: { url: source.url, sha: sourceSha },
                           sourcePath,
-                          sourcePathExists: (path) => sourceTree().exists(path),
+                          sourcePathExists: (path, type) =>
+                            sourceTree().exists(path, type),
                           readSourceFile: (path) => sourceTree().read(path),
                         },
                       },
