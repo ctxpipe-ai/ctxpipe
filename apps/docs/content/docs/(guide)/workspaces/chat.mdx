@@ -82,9 +82,11 @@ branch, ctxpipe does not overwrite their commits: ask the agent to rebase onto
 their commits before you push again.
 
 If the default branch moves while a conversation is open, ctxpipe brings the
-conversation's branch up to date before the next message. If that update
-conflicts, the conversation shows **Branch needs a rebase**; keep chatting and
-the agent resolves the conflict before you publish.
+conversation's branch up to date before the next message. Until that message,
+a conversation that has its own changes shows **The Workspace has new
+commits**, and you cannot publish it. Send your next message to bring it up to
+date. If the update conflicts, the conversation stays on its old commit and
+the agent resolves the conflict. Publish after that.
 
 ## Where the agent runs
 
