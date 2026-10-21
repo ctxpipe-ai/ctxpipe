@@ -1651,6 +1651,89 @@ describe("workflows skill", () => {
     expect(claude).toMatch(/^# GitHub Actions workflow [0-9a-f]{8}$/m)
   })
 
+  const staleWorkflow = (name: string, body = "") =>
+    ownedUnit(
+      {
+        kind: "Workflow",
+        name,
+        workflow_file: `.github/workflows/${name}.yml`,
+        summary: "Old",
+      },
+      `# ${name}\n\nOld text.\n${body}`,
+    )
+  const libraries = (count: number) =>
+    Object.fromEntries(
+      Array.from({ length: count }, (_, i) => [
+        `knowledge/libraries/l${i}.md`,
+        ownedUnit({ kind: "Library", name: `L${i}` }, `# L${i}\n`),
+      ]),
+    )
+
+  it("deletes at most 20% of the files that the source owns alone, and keeps a file with a human section", async () => {
+    // 10 owned files: a step deletes at most 2 of them.
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/ci.yml": CI_WORKFLOW },
+      {
+        ...SHOP_UNITS,
+        ...libraries(4),
+        "knowledge/workflows/example-org-shop-old-a.md": staleWorkflow(
+          "old-a",
+          "\n<!-- ctxpipe:human -->\n\nThe release team keeps this.\n",
+        ),
+        "knowledge/workflows/example-org-shop-old-b.md": staleWorkflow("old-b"),
+        "knowledge/workflows/example-org-shop-old-c.md": staleWorkflow("old-c"),
+      },
+    )
+    const out = s.run("workflows")
+    expect(out.ops).toEqual([
+      { op: "create", path: "knowledge/workflows/example-org-shop-ci.md" },
+      { op: "delete", path: "knowledge/workflows/example-org-shop-old-b.md" },
+    ])
+    expect(out.skipped).toEqual([
+      {
+        path: "knowledge/workflows/example-org-shop-old-a.md",
+        reason:
+          "The workflow file left the source; the file has a human section",
+      },
+      {
+        path: "knowledge/workflows/example-org-shop-old-c.md",
+        reason:
+          "The workflow file left the source; a step deletes at most 2 files",
+      },
+    ])
+    expect((await s.validate("workflows")).rejections).toEqual([])
+  })
+
+  it("deletes at most 10 files in a step, and counts the deletes against the 30 ops of the step", async () => {
+    // 60 owned files would allow 12 deletes; the script deletes 10.
+    const source: Record<string, string> = { ...PNPM_SHOP }
+    for (let i = 0; i < 25; i++)
+      source[`.github/workflows/w${String(i).padStart(2, "0")}.yml`] =
+        "on: push\njobs:\n  build:\n    runs-on: x\n"
+    const stale: Record<string, string> = {}
+    for (let i = 0; i < 12; i++) {
+      const name = `old${String(i).padStart(2, "0")}`
+      stale[`knowledge/workflows/example-org-shop-${name}.md`] =
+        staleWorkflow(name)
+    }
+    const s = step(source, { ...SHOP_UNITS, ...libraries(45), ...stale })
+    const first = s.run("workflows")
+    expect(first.ops).toHaveLength(30)
+    expect(first.ops.filter((o) => o.op === "delete")).toHaveLength(10)
+    expect(first.ops.filter((o) => o.op === "create")).toHaveLength(20)
+    expect(first.more).toBe(true)
+    expect(first.skipped.map((e) => e.path)).toEqual([
+      "knowledge/workflows/example-org-shop-old10.md",
+      "knowledge/workflows/example-org-shop-old11.md",
+    ])
+    const page = await s.validate("workflows")
+    expect(page.rejections).toEqual([])
+    s.advance(page.tree)
+    const second = s.run("workflows")
+    expect(second.ops.filter((o) => o.op === "create")).toHaveLength(5)
+    expect(second.more).toBe(false)
+  }, 60_000)
+
   it("keeps the workflow name as the heading when the validator accepts it", async () => {
     const workflow = (name: string) =>
       `name: ${name}\non: push\njobs:\n  a:\n    runs-on: x\n`
