@@ -16,6 +16,10 @@ import {
   workspaceShellHandlers,
 } from "@/mocks/workspace-handlers"
 import {
+  ingestionItemFixture,
+  workspaceIngestionHandlers,
+} from "@/mocks/workspace-ingestion-handlers"
+import {
   activeMemberRoleHandler,
   orgConnectionsHandler,
   workspaceSourceList,
@@ -1863,5 +1867,91 @@ export const DeleteFromConversationShowsNoError: Story = {
       path: `/${orgSlug}/ws/${workspaceSlug}/conv_1`,
       alsoAt: [`/${orgSlug}`],
     } satisfies StoryRouteParams,
+  },
+}
+
+let demoStart = 0
+
+/**
+ * The ingestion state of the demo at `seconds` after the story starts: idle,
+ * then a repository run in its shards, a Linear sync, a second run that
+ * waits for the first one and a slow hydrate, then idle again.
+ */
+function ingestionDemoState(seconds: number) {
+  if (seconds < 4 || seconds >= 30) return {}
+  const startedAt = (ago: number) =>
+    new Date(demoStart + (4 - ago) * 1000).toISOString()
+  const shards = Math.max(0, Math.min(8, Math.floor((seconds - 7) / 2)))
+  return {
+    docs: [
+      ingestionItemFixture({
+        stage:
+          seconds < 7 ? "planning" : shards < 8 ? "ingesting" : "publishing",
+        progress:
+          seconds < 7 || shards === 8
+            ? null
+            : { done: shards, total: 8, unit: "shards" },
+        startedAt: startedAt(95),
+      }),
+      ingestionItemFixture({
+        id: "run_web_2",
+        stage: "waiting",
+        progress: null,
+        startedAt: startedAt(40),
+      }),
+      ...(seconds < 14
+        ? [
+            ingestionItemFixture({
+              id: "run_linear",
+              kind: "source_sync",
+              name: "Linear",
+              stage: "syncing",
+              progress: null,
+              startedAt: startedAt(12),
+            }),
+          ]
+        : []),
+      ...(seconds >= 14 && seconds < 22
+        ? [
+            ingestionItemFixture({
+              id: "run_hydrate",
+              kind: "hydrate",
+              name: "Newest commit",
+              stage: "hydrating",
+              progress: null,
+              startedAt: startedAt(34),
+            }),
+          ]
+        : []),
+    ],
+  }
+}
+
+/**
+ * The demo of CTX-959 for a video: the sidebar goes from idle to ingesting,
+ * Workspace settings shows the progress move, and the list empties when the
+ * work ends (about 30 s). The state changes with time, on each read.
+ */
+export const IngestingDemo: Story = {
+  beforeEach: () => {
+    demoStart = Date.now()
+  },
+  parameters: {
+    storyRoute: workspaceRoute(),
+    msw: {
+      handlers: {
+        page: [
+          workspaceUpgradesHandler(upgradesFixture([], { formatVersion: 3 })),
+          workspaceSourcesHandler(workspaceSourceList()),
+          orgConnectionsHandler([{ id: "con_gh", type: "github" }]),
+          activeMemberRoleHandler("owner"),
+          githubInstallationReposHandler(),
+          ...workspaceShellHandlers(),
+        ],
+        ingestion: workspaceIngestionHandlers(() =>
+          ingestionDemoState((Date.now() - demoStart) / 1000),
+        ),
+      },
+    },
   },
 }

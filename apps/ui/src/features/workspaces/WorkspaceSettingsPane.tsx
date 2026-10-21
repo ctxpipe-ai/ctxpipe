@@ -34,6 +34,7 @@ import {
   skippedFilesFixPrompt,
 } from "./skipped-files"
 import type { WorkspaceDetail, WorkspaceSkippedFile } from "./types"
+import { WorkspaceIngestingNow } from "./WorkspaceIngestingNow"
 import {
   type WorkspaceRepositoryChoice,
   WorkspaceRepositoryPicker,
@@ -591,6 +592,13 @@ export function WorkspaceSettingsPane(props: {
               orgSlug={orgSlug}
               workspaceSlug={workspace.slug}
               linkedRepositories={workspace.linkedRepositories}
+            />
+          </SettingsGroup>
+
+          <SettingsGroup eyebrow="Ingesting now">
+            <WorkspaceIngestingNow
+              orgSlug={orgSlug}
+              workspaceSlug={workspace.slug}
             />
           </SettingsGroup>
 
