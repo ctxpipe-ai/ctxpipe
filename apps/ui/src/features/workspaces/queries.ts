@@ -555,7 +555,7 @@ export function activityOptions(
 type ConversationFilesBlocked = { blocked: true; busy: boolean }
 
 /** Who holds the conversation now, from a 409 body. */
-export type ConversationBusy = "turn_running" | "chat_starting"
+type ConversationBusy = "turn_running" | "chat_starting"
 
 function conversationBusy(error: unknown): ConversationBusy | undefined {
   return error === "turn_running" || error === "chat_starting"

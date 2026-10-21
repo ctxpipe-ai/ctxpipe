@@ -361,14 +361,8 @@ it.each(["conversation", "workspace"] as const)(
       }
       await holding
       const [prepared, deleted] = await Promise.all([preparing, deleting])
-      if (scope === "conversation") {
-        // The preparing turn holds the chat lock, so the delete is refused
-        // and the conversation keeps its new sandbox.
-        expect(deleted.status).toBe(409)
-        expect(prepared.ok).toBe(true)
-        expect((await warmTanstackWorkspaceChat(input)).ok).toBe(true)
-        return
-      }
+      // A conversation delete waits for the prepare to release the chat
+      // lock (no turn runs), then deletes. Both scopes destroy the sandbox.
       expect(deleted.status).toBe(204)
       expect(
         await withOrgDbContext(f.orgId, () =>
