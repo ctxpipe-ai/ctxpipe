@@ -370,9 +370,7 @@ describe("Active ingestion of a Workspace (Postgres)", () => {
 
   it("gives the sidebar only the Workspaces of the org that have work", async () => {
     const response = await withOrgDbContext(org.id, () =>
-      workspaceHttpApp(org, orgWorkspaceIngestionRoutes).request(
-        "/workspaces",
-      ),
+      workspaceHttpApp(org, orgWorkspaceIngestionRoutes).request("/workspaces"),
     )
     expect(response.status).toBe(200)
     const body = (await response.json()) as {
