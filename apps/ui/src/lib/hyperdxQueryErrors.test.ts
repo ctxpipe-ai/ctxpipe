@@ -189,6 +189,7 @@ describe("expected states", () => {
 
   it.each([
     ["turn_running", ["conversation-turn-changes", "acme", "conv_1"]],
+    ["chat_starting", ["conversation-git-tree", "acme", "conv_1"]],
     ["missing_sandbox", ["conversation-git-status", "acme", "conv_1"]],
     [
       "Conversation sandbox is not ready",
