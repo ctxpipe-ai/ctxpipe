@@ -76,6 +76,10 @@ export const SwitchFromOpenFile: Story = {
     const href = link.getAttribute("href") ?? ""
     await expect(href).toContain("pane=files")
     await expect(href).not.toContain("a.md")
+    const current = await canvas.findByRole("link", { name: "Repo layout" })
+    await expect(current.getAttribute("href") ?? "").toContain(
+      "pane=file%3Aa.md",
+    )
   },
 }
 

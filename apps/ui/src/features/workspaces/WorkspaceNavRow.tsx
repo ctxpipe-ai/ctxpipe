@@ -18,7 +18,7 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { workspaceTitleAction } from "./nav"
-import { paneSearchForOtherConversation } from "./pane"
+import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {
   conversationGitTreeOptions,
   workspaceConversationOptions,
@@ -75,7 +75,10 @@ export function WorkspaceNavRow(props: {
           workspaceSlug: workspace.slug,
           conversationId: workspace.mostRecentConversationId,
         },
-        search: paneSearch,
+        search:
+          workspace.mostRecentConversationId === currentConversationId
+            ? workspaceSearch(search)
+            : paneSearch,
       }).href
     : composeHref
   const titleHref = titleAction === "resume" ? resumeHref : composeHref

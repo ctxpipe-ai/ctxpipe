@@ -11,7 +11,7 @@ import { useSkeletonHold } from "@/components/ui/Skeleton"
 import { client } from "@/lib/api"
 import { readApiJson } from "@/lib/api-result"
 import { isLiveRun } from "./conversationStatus"
-import { paneSearchForOtherConversation } from "./pane"
+import { paneSearchForOtherConversation, workspaceSearch } from "./pane"
 import {
   conversationGitTreeOptions,
   workspaceConversationOptions,
@@ -35,9 +35,8 @@ export function WorkspaceConversationList(props: {
     onSelectNav,
   } = props
   const router = useRouter()
-  const paneSearch = paneSearchForOtherConversation(
-    useSearch({ strict: false }),
-  )
+  const currentSearch = useSearch({ strict: false })
+  const paneSearch = paneSearchForOtherConversation(currentSearch)
   const queryClient = useQueryClient()
   const prefetchConversation = (conversationId: string) => {
     void queryClient.prefetchQuery(
@@ -120,7 +119,10 @@ export function WorkspaceConversationList(props: {
                   workspaceSlug: workspace.slug,
                   conversationId: item.id,
                 },
-                search: paneSearch,
+                search:
+                  item.id === currentConversationId
+                    ? workspaceSearch(currentSearch)
+                    : paneSearch,
               }).href
             }
             paneSearch={paneSearch}
