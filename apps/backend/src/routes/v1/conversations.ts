@@ -54,6 +54,7 @@ import {
   discardUnstartedConversation,
   ensureConversation,
   getConversation,
+  getLastTurns,
   listConversationsPaginated,
   persistConversationPublication,
   updateConversation,
@@ -91,6 +92,24 @@ const ConversationSchema = z
     prState: z.enum(["open", "closed", "merged"]).nullable().optional(),
     branchTreeUrl: z.string().nullable().optional(),
     lastMessageAt: z.string().datetime().nullable(),
+    /**
+     * The newest turn of the conversation: its run status, and when it ended
+     * (when it started, while it runs), in epoch milliseconds. Only the chat
+     * list sets it.
+     */
+    lastTurn: z
+      .object({
+        status: z.enum([
+          "running",
+          "interrupted",
+          "completed",
+          "failed",
+          "aborted",
+        ]),
+        at: z.number().int(),
+      })
+      .nullable()
+      .optional(),
     createdAt: z.string().datetime(),
     updatedAt: z.string().datetime(),
   })
@@ -99,9 +118,11 @@ const ConversationSchema = z
 function publicConversation(
   row: ConversationRecord,
   workspaceRepositoryUrl = "",
+  lastTurn?: z.infer<typeof ConversationSchema>["lastTurn"],
 ) {
   return ConversationSchema.parse({
     ...row,
+    ...(lastTurn !== undefined && { lastTurn }),
     userId: row.userId ?? null,
     workspaceId: row.workspaceId ?? null,
     lastBranch: row.lastBranch ?? null,
@@ -1075,9 +1096,15 @@ export const conversationRoutes = new OpenAPIHono<AppEnv>()
       after: query.after,
     })
     const listedWorkspace = await getWorkspaceById(query.workspaceId.trim())
+    // The chat list shows a status dot from the newest turn of each chat.
+    const lastTurns = await getLastTurns(rows.map((row) => row.id))
 
     const items = rows.map((row) =>
-      publicConversation(row, listedWorkspace?.workspaceRepositoryUrl),
+      publicConversation(
+        row,
+        listedWorkspace?.workspaceRepositoryUrl,
+        lastTurns.get(row.id) ?? null,
+      ),
     )
     return c.json({ items, pageInfo }, 200)
   })

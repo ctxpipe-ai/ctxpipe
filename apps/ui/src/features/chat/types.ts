@@ -32,11 +32,18 @@ export type PageInfo = {
 
 export type ConversationPrState = "open" | "closed" | "merged"
 
+/** The newest turn of a chat: its run status, and when it ended (epoch ms). */
+export type ConversationLastTurn = {
+  status: "running" | "interrupted" | "completed" | "failed" | "aborted"
+  at: number
+}
+
 export type ConversationListItem = {
   id: string
   name: string
   source: string | null
   lastMessageAt: string | null
+  lastTurn?: ConversationLastTurn | null
   lastBranch?: string | null
   lastChatPrNumber?: number | null
   lastChatPrUrl?: string | null
