@@ -418,6 +418,11 @@ describe("sandbox host", () => {
     expect(script).not.toContain("AGENT_VAULT_NETWORK_ALLOWLIST='10.0.0.0/16'");
     // Agent Vault never reaches its own management API or the host: not
     // through the host (INPUT) and not back to its own bridge (hairpin).
+    // While Agent Vault starts, docker-proxy accepts and then resets the
+    // connection (curl exit 56). The boot check retries that too.
+    expect(script).toContain(
+      "curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:14321/health",
+    );
     // Replies still pass: else the host's own `/health` check of Agent Vault
     // times out and the boot signals FAILURE (CTX-659).
     expect(script).toContain(

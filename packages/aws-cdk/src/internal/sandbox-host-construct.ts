@@ -525,7 +525,8 @@ function hostBootstrapScript(input: HostBootstrapInput): string[] {
     "docker rm -f ctxpipe-agent-vault >/dev/null 2>&1 || true",
     `docker run -d --name ctxpipe-agent-vault --restart unless-stopped --network ctxpipe-av -p ${AGENT_VAULT_API_PORT}:${AGENT_VAULT_API_PORT} -p ${AGENT_VAULT_PROXY_PORT}:${AGENT_VAULT_PROXY_PORT} -v ctxpipe-agent-vault:/data -e AGENT_VAULT_MASTER_PASSWORD="$AGENT_VAULT_MASTER_PASSWORD" -e AGENT_VAULT_RATELIMIT_PROXY_RATE=200 -e AGENT_VAULT_RATELIMIT_PROXY_BURST=2000 -e AGENT_VAULT_RATELIMIT_PROXY_CONCURRENCY=256 -e AGENT_VAULT_TELEMETRY=false -e AGENT_VAULT_NETWORK_ALLOWLIST='${[...input.backendSubnetCidrs, ...input.operatorAllowlist].join(",")}' infisical/agent-vault:latest`,
     "unset AGENT_VAULT_MASTER_PASSWORD",
-    `curl -sf --retry 30 --retry-connrefused --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
+    "# While Agent Vault starts, docker-proxy accepts and then resets the connection, so retry every error.",
+    `curl -sf --max-time 5 --retry 30 --retry-all-errors --retry-delay 2 http://127.0.0.1:${AGENT_VAULT_API_PORT}/health`,
 
     "# Disk and memory metrics for the CloudFormation alarms.",
     "cat > /opt/aws/amazon-cloudwatch-agent/etc/amazon-cloudwatch-agent.json <<'JSON'",
