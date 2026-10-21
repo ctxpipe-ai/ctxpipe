@@ -18,7 +18,7 @@ import {
 import { focusVisibleClassName } from "@/lib/focus-styles"
 import { prefetchWorkspaceRouteData } from "./ensure-route-data"
 import { workspaceTitleAction } from "./nav"
-import { workspaceSearch } from "./pane"
+import { paneSearchForOtherConversation } from "./pane"
 import {
   conversationGitTreeOptions,
   workspaceConversationOptions,
@@ -41,7 +41,7 @@ export function WorkspaceNavRow(props: {
 }) {
   const router = useRouter()
   const search = useSearch({ strict: false })
-  const paneSearch = workspaceSearch(search)
+  const paneSearch = paneSearchForOtherConversation(search)
   const queryClient = useQueryClient()
   const {
     orgSlug,
