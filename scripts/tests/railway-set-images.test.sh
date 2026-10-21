@@ -7,11 +7,13 @@ fail() {
   exit 1
 }
 
-# deploy <tmp> <latest deployment image> <deploy response>
+# deploy <tmp> <latest deployment image> <deploy response> [meta JSON] [status]
+# The optional meta JSON replaces the default {"image":"<repo>:<image>"}.
 # Runs railway-set-images.sh against a fake curl. Every service has source
 # image ...:new. The latest deployment of every service runs <image>.
 deploy() {
-  local tmp="$1" running="$2" deploy_response="$3"
+  local tmp="$1" running="$2" deploy_response="$3" meta="${4:-}" status="${5:-SUCCESS}"
+  [[ -n "$meta" ]] || meta="{\"image\":\"ghcr.io/ctxpipe-ai/REPO:$running\"}"
   mkdir -p "$tmp/bin"
   : >"$tmp/calls"
   cat >"$tmp/bin/curl" <<FAKE
@@ -25,7 +27,9 @@ case "\$op" in
   serviceInstanceSource)
     repo="\${service#svc_}"
     [[ "\$repo" != openworkflow ]] || repo=worker
-    body="{\"data\":{\"serviceInstance\":{\"source\":{\"image\":\"ghcr.io/ctxpipe-ai/\$repo:new\"},\"latestDeployment\":{\"status\":\"SUCCESS\",\"meta\":{\"image\":\"ghcr.io/ctxpipe-ai/\$repo:$running\"}}}}}" ;;
+    meta='$meta'
+    meta="\${meta//REPO/\$repo}"
+    body="{\"data\":{\"serviceInstance\":{\"source\":{\"image\":\"ghcr.io/ctxpipe-ai/\$repo:new\"},\"latestDeployment\":{\"status\":\"$status\",\"meta\":\$meta}}}}" ;;
   serviceInstanceDeployV2) body='$deploy_response' ;;
   deploymentStatus) body='{"data":{"deployment":{"id":"dep_1","status":"SUCCESS"}}}' ;;
   *) body='{"errors":[{"message":"unexpected call"}]}' ;;
@@ -50,6 +54,22 @@ deploy "$tmp/current" new "$deployed" >"$tmp/current.out" 2>&1 || fail "a curren
 if grep -q '^serviceInstanceDeployV2 ' "$tmp/current/calls"; then
   fail "should skip a service whose latest deployment already runs the new image"
 fi
+
+# Railway may record the image with a digest. The tag inside the meta still matches.
+deploy "$tmp/digest" new "$deployed" '{"image":"ghcr.io/ctxpipe-ai/REPO:new@sha256:abc123"}' >"$tmp/digest.out" 2>&1 || fail "a digest deploy should succeed: $(cat "$tmp/digest.out")"
+if grep -q '^serviceInstanceDeployV2 ' "$tmp/digest/calls"; then
+  fail "should skip a service whose meta image is repo:tag@sha256"
+fi
+
+# A meta with only a digest does not name the tag. Deploy.
+deploy "$tmp/onlydigest" new "$deployed" '{"imageDigest":"sha256:abc123"}' >"$tmp/onlydigest.out" 2>&1 || fail "an imageDigest-only deploy should succeed: $(cat "$tmp/onlydigest.out")"
+[[ "$(grep -c '^serviceInstanceDeployV2 ' "$tmp/onlydigest/calls")" -eq 4 ]] \
+  || fail "should deploy every service whose meta has only an imageDigest"
+
+# The right tag with a status that is not SUCCESS or SLEEPING. Deploy.
+deploy "$tmp/failed" new "$deployed" "" FAILED >"$tmp/failed.out" 2>&1 || fail "a failed-status deploy should succeed: $(cat "$tmp/failed.out")"
+[[ "$(grep -c '^serviceInstanceDeployV2 ' "$tmp/failed/calls")" -eq 4 ]] \
+  || fail "should deploy every service whose latest deployment is not SUCCESS or SLEEPING"
 
 refused='{"errors":[{"message":"Problem processing request","traceId":"1"}]}'
 if deploy "$tmp/refused" old "$refused" >"$tmp/refused.out" 2>&1; then

@@ -143,10 +143,12 @@ deploy_image() {
   current="$(echo "$state" | jq -r '.data.serviceInstance.source.image // empty')"
   # The source image changes before the deploy starts. When the deploy call
   # fails, the source is already $desired but the old image still runs. So
-  # skip only when the latest deployment itself runs $desired.
+  # skip only when the latest deployment itself runs $desired. Railway may
+  # record the image as repo:tag@sha256:..., so match the tag inside the meta.
+  meta="$(echo "$state" | jq -c '.data.serviceInstance.latestDeployment.meta // {}')"
   deployed="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.meta.image // empty')"
   status="$(echo "$state" | jq -r '.data.serviceInstance.latestDeployment.status // empty')"
-  if [[ "$deployed" == "$desired" && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
+  if [[ "$meta" == *"$desired"* && ( "$status" == "SUCCESS" || "$status" == "SLEEPING" ) ]]; then
     echo "Skipping $name ($service_id): latest deployment already runs $desired ($status)"
     return 0
   fi
