@@ -57,11 +57,14 @@ function liveShasQuery(): SQL {
     live_text(body) as (
       select input::text from live where input is not null
       union all
-      select distinct on (sa.workflow_run_id, sa.step_name) sa.output::text
-      from openworkflow.step_attempts sa
-      join live on live.id = sa.workflow_run_id
-      where sa.namespace_id = ${ns} and sa.output is not null
-      order by sa.workflow_run_id, sa.step_name, sa.created_at desc
+      -- In parentheses, so that the order applies to this branch only.
+      (
+        select distinct on (sa.workflow_run_id, sa.step_name) sa.output::text
+        from openworkflow.step_attempts sa
+        join live on live.id = sa.workflow_run_id
+        where sa.namespace_id = ${ns} and sa.output is not null
+        order by sa.workflow_run_id, sa.step_name, sa.created_at desc
+      )
     )
     select distinct m[1] as sha from live_text
     cross join lateral regexp_matches(live_text.body, ${`(${SHA})`}, 'g') as m
