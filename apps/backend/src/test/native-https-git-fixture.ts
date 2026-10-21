@@ -69,6 +69,9 @@ export async function withNativeHttpsGitFixture<T>(
   let result: T | undefined
   let primaryError: unknown
   const cleanupErrors: unknown[] = []
+  // A failure names its step: a Docker call that stops past the client
+  // timeout fails only with "socket hang up" (CI run 39561981903).
+  let step = "create the fixture CA"
 
   try {
     const caKey = join(root, "ca.key")
@@ -144,6 +147,7 @@ export async function withNativeHttpsGitFixture<T>(
       ["--no-xattrs", "-C", root, "-cf", caArchive, basename(caCert)],
       { timeout: 10_000 },
     )
+    step = "add the CA to a derived image"
     customizer = await input.docker.createContainer({
       name: customizerName,
       Image: input.baseImage,
@@ -163,6 +167,7 @@ export async function withNativeHttpsGitFixture<T>(
     await customizer.remove({ force: true, v: true })
     customizer = undefined
 
+    step = "run the fixture callback"
     result = await fn({
       image: derivedImage,
       caCertificatePath: caCert,
@@ -171,6 +176,7 @@ export async function withNativeHttpsGitFixture<T>(
         remoteFn: (remote: NativeHttpsGitRemote) => Promise<R>,
         serveOptions?: { githubAuth: NativeHttpsGitGithubAuth },
       ) {
+        step = "start the Git server"
         const bridge = await input.docker.getNetwork("bridge").inspect()
         const gateway = bridge.IPAM?.Config?.[0]?.Gateway
         if (!gateway || !/^\d{1,3}(?:\.\d{1,3}){3}$/.test(gateway))
@@ -289,6 +295,7 @@ export async function withNativeHttpsGitFixture<T>(
         }
 
         try {
+          step = "run the remote callback"
           const remoteUrl = new URL(`https://${hostname}`)
           if (port !== 443) remoteUrl.port = String(port)
           remoteUrl.pathname = repositoryPath
@@ -307,14 +314,17 @@ export async function withNativeHttpsGitFixture<T>(
             { cause: error },
           )
         } finally {
+          step = "remove the Git server"
           await server.remove({ force: true, v: true })
           server = undefined
+          step = "run the fixture callback"
         }
       },
     })
   } catch (error) {
     primaryError = error
   } finally {
+    if (!primaryError) step = "clean up"
     for (const container of [server, customizer]) {
       if (!container) continue
       try {
@@ -342,7 +352,7 @@ export async function withNativeHttpsGitFixture<T>(
     )
     throw new AggregateError(
       errors,
-      `Native HTTPS Git fixture failed: ${errors.map(String).join("; ")}`,
+      `Native HTTPS Git fixture failed to ${step}: ${errors.map(String).join("; ")}`,
     )
   }
   return result as T

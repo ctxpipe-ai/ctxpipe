@@ -438,7 +438,9 @@ it(
     const previous = Object.fromEntries(
       ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
-    const docker = new Docker({ timeout: 30_000 })
+    // A busy CI Docker daemon can keep one call silent past 30 s; the
+    // client then drops it as "socket hang up" (CI run 39561981903).
+    const docker = new Docker({ timeout: 120_000 })
     try {
       await withNativeHttpsGitFixture(
         {
@@ -598,7 +600,9 @@ it(
     const previous = Object.fromEntries(
       ["SANDBOX_CHAT_IMAGE"].map((key) => [key, process.env[key]]),
     )
-    const docker = new Docker({ timeout: 30_000 })
+    // A busy CI Docker daemon can keep one call silent past 30 s; the
+    // client then drops it as "socket hang up" (CI run 39561981903).
+    const docker = new Docker({ timeout: 120_000 })
     try {
       await withNativeHttpsGitFixture(
         {
