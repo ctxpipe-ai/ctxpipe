@@ -67,7 +67,7 @@ import { workspaceExtractIngest } from "./workspace-extract-ingest.js"
 /*
  * The ingestion v2 parent workflow (ADR-052, T09 and T21):
  *
- *   wait-for-earlier-run:<n> -> resolve -> index -> discover-roots
+ *   publish-turn:<n> -> resolve -> index -> discover-roots
  *   -> skill:repository:repository
  *   -> shard:<n> (children) -> assemble:<workspaceId>
  *   -> repository-skills (child) -> release
@@ -210,7 +210,7 @@ export function defineRepositoryIngestionV2Workflow(
         if (!input.shadow) {
           const wait = await waitForPublishTurn({
             step,
-            startedAt: run.startedAt ?? run.createdAt,
+            startedAt: run.startedAt,
             check: () =>
               ingestPublishTurn({
                 orgId: input.orgId,

@@ -92,20 +92,46 @@ describe("waitForPublishTurn", () => {
     expect(replay).toEqual(first)
   })
 
-  it("keeps waiting on a recorded check from before the deadline field, then gives up by wall time", async () => {
-    const { clock, history, step } = engine(0)
-    // A run that an earlier release started 2 hours ago.
-    const startedAt = new Date(clock.now - 2 * PUBLISH_TURN_WAIT_MS)
-    history.set("wait-for-earlier-run:0", { wait: "earlier run" })
-    history.set("wait-for-earlier-run-pause:0", true)
-
-    const wait = await waitForPublishTurn({
+  it("stops at the first stored deadline when a step retry moves startedAt", async () => {
+    const { clock, step } = engine(0)
+    const startedAt = new Date(clock.now)
+    await waitForPublishTurn({
       step,
       startedAt,
       check: alwaysWait,
       now: () => clock.now,
     })
+    const firstEnd = clock.now
 
-    expect(wait).toEqual({ outcome: "deadline", checks: 2 })
+    // A retry set startedAt 30 minutes later; the run replays from history.
+    const replay = await waitForPublishTurn({
+      step,
+      startedAt: new Date(startedAt.getTime() + 30 * 60_000),
+      check: alwaysWait,
+      now: () => clock.now,
+    })
+
+    expect(replay.outcome).toBe("deadline")
+    expect(clock.now).toBe(firstEnd)
+    expect(firstEnd - startedAt.getTime()).toBe(PUBLISH_TURN_WAIT_MS)
+  })
+
+  it("keeps waiting on a recorded check from before the deadline field, then gives up 60 minutes after the start", async () => {
+    const { clock, history, step } = engine(0)
+    const begin = clock.now
+    // A run that an earlier release started 10 minutes ago.
+    history.set("publish-turn:0", { wait: "earlier run" })
+    history.set("wait-publish-turn:0", true)
+
+    const wait = await waitForPublishTurn({
+      step,
+      startedAt: new Date(begin - 10 * 60_000),
+      check: alwaysWait,
+      now: () => clock.now,
+    })
+
+    expect(wait.outcome).toBe("deadline")
+    // It kept waiting about 50 more minutes, not 0.
+    expect(clock.now - begin).toBe(50 * 60_000)
   })
 })

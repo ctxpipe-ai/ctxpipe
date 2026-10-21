@@ -57,12 +57,12 @@ export const PUBLISH_TURN_WAIT_MS = 60 * 60_000
 
 /**
  * Wait for the publish turn of a run (CTX-895). The run checks each minute.
- * After 60 minutes of wall time from `startedAt`, the run goes on: the merge
- * model then joins the two publishes. The step output records whether the
- * deadline passed, so a replay takes the same path. The engine sets the run
- * start once, so a retry or a replay does not move the deadline (CTX-964).
- * The worker can claim a sleeping run minutes late, so a count of polls is
- * not a time limit.
+ * The first check stores `deadlineAt`, 60 minutes after the run start, in its
+ * step output. Each later check reads that stored value, so a step retry
+ * (which moves the engine's `startedAt`) or a replay does not move the
+ * deadline (CTX-964). After the deadline the run goes on: the merge model
+ * then joins the two publishes. The worker can claim a sleeping run minutes
+ * late, so a count of polls is not a time limit.
  */
 export async function waitForPublishTurn(options: {
   /** The `step` of the workflow; openworkflow does not export its type. */
@@ -70,28 +70,32 @@ export async function waitForPublishTurn(options: {
     run<T>(config: { name: string }, fn: () => Promise<T>): Promise<T>
     sleep(name: string, duration: "60 seconds"): Promise<void>
   }
-  startedAt: Date
+  /** The engine start of the run; null when the engine has not set it. */
+  startedAt: Date | null
   check: () => Promise<{ turn: true } | { wait: string }>
   now?: () => number
 }): Promise<{ outcome: "turn" | "deadline"; checks: number }> {
   const now = options.now ?? Date.now
-  const deadline = options.startedAt.getTime() + PUBLISH_TURN_WAIT_MS
+  let deadlineAt: number | undefined
   for (let check = 0; ; check++) {
     const result = await options.step.run(
-      { name: `wait-for-earlier-run:${check}` },
+      { name: `publish-turn:${check}` },
       async () => {
-        trace
-          .getActiveSpan()
-          ?.setAttribute("ctxpipe.ingest.wait", "earlier-run")
+        trace.getActiveSpan()?.setAttributes({
+          "ctxpipe.wait.reason": "earlier-run-of-source",
+          "ctxpipe.wait.check": check,
+        })
         const turn = await options.check()
-        return "turn" in turn ? turn : { ...turn, expired: now() >= deadline }
+        if ("turn" in turn) return turn
+        const at =
+          deadlineAt ??
+          (options.startedAt?.getTime() ?? now()) + PUBLISH_TURN_WAIT_MS
+        return { ...turn, deadlineAt: at, expired: now() >= at }
       },
     )
     if ("turn" in result) return { outcome: "turn", checks: check + 1 }
+    deadlineAt = result.deadlineAt
     if (result.expired) return { outcome: "deadline", checks: check + 1 }
-    await options.step.sleep(
-      `wait-for-earlier-run-pause:${check}`,
-      "60 seconds",
-    )
+    await options.step.sleep(`wait-publish-turn:${check}`, "60 seconds")
   }
 }
