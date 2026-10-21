@@ -299,18 +299,23 @@ function bodyOf(text) {
 /**
  * The full text of a file that the source owns alone, as `newFile` writes
  * it. Returns the text before when only the host fields would change (the
- * same body and the same claims), so a second run and a next page make no
- * op. Returns null when the file has a human section: then the caller adds
- * to it only.
+ * same body, the same claims, and the same front matter values that
+ * `create` sets), so a second run and a next page make no op. Returns null
+ * when the file has a human section: then the caller adds to it only.
  */
 function replaceFile(before, plan, claims, related) {
   if (before.includes("<!-- ctxpipe:human -->")) return null
+  const { kind, name, summary, fields = [] } = plan.create
   const text = newFile({ ...plan.create, claims, related })
-  const known = existingClaims(frontMatter(before) ?? "")
+  const yaml = frontMatter(before) ?? ""
+  const known = existingClaims(yaml)
   const same =
     known !== null &&
     known.size === claims.length &&
     claims.every((c) => known.has(`${c.to} ${c.predicate}`)) &&
+    [["kind", kind], ["name", name], ["summary", summary], ...fields].every(
+      ([key, value]) => frontValue(yaml, key) === String(value),
+    ) &&
     bodyOf(before) === bodyOf(text)
   return same ? before : text
 }

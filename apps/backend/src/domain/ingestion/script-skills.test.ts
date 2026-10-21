@@ -1768,6 +1768,36 @@ describe("workflows skill", () => {
     expect(result.more).toBe(true)
   })
 
+  it("writes a new workflow name on the next run when the heading does not change", async () => {
+    const claude =
+      "name: Claude Code Review\non: [pull_request]\njobs:\n  review:\n    runs-on: x\n"
+    const first = step(
+      { ...PNPM_SHOP, ".github/workflows/claude.yml": claude },
+      SHOP_UNITS,
+    )
+    first.run("workflows")
+    const created = await first.validate("workflows")
+    expect(created.rejections).toEqual([])
+    const path = "knowledge/workflows/example-org-shop-claude.md"
+    // `show` drops the last newline of the file.
+    const written = `${first.show(created.tree, path)}\n`
+    // The workflow had another name before: the hashed heading and the
+    // body are the same.
+    const before = written.replace(
+      "name: Claude Code Review",
+      "name: Claude Review",
+    )
+    expect(before).not.toBe(written)
+    const s = step(
+      { ...PNPM_SHOP, ".github/workflows/claude.yml": claude },
+      { ...SHOP_UNITS, [path]: before },
+    )
+    expect(s.run("workflows").ops).toEqual([{ op: "update", path }])
+    const result = await s.validate("workflows")
+    expect(result.rejections).toEqual([])
+    expect(s.show(result.tree, path)).toContain("name: Claude Code Review\n")
+  })
+
   it("keeps the workflow name as the heading when the validator accepts it", async () => {
     const workflow = (name: string) =>
       `name: ${name}\non: push\njobs:\n  a:\n    runs-on: x\n`
