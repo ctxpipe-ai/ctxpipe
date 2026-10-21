@@ -38,7 +38,7 @@ const CONTENT_TYPES: Record<string, string> = {
   wasm: "application/wasm",
 }
 
-export function rawFileContentType(path: string): string {
+function rawFileContentType(path: string): string {
   const name = path.split("/").at(-1) ?? ""
   const dot = name.lastIndexOf(".")
   const extension = dot > 0 ? name.slice(dot + 1).toLowerCase() : ""
