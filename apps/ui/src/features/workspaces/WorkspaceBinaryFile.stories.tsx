@@ -89,7 +89,7 @@ export const SvgTextWithSource: Story = {
     const sourceText = /^<svg xmlns=/
     await expect(canvas.queryByText(sourceText)).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "View source" }))
-    await expect(await canvas.findByText(sourceText)).toBeVisible()
+    await waitFor(() => expect(canvas.getByText(sourceText)).toBeVisible())
     await expect(canvas.queryByRole("img")).toBeNull()
     await userEvent.click(canvas.getByRole("button", { name: "View image" }))
     await canvas.findByRole("img", { name: "diagram.svg" })
