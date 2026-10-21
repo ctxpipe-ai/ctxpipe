@@ -74,6 +74,11 @@ const FAILURE_COPY: Record<UpgradeFailure["code"], FailureCopy> = {
       "Remove large files that are not knowledge, such as build output or binary files, from that repository. Then start it again.",
     agent: true,
   },
+  server_busy: {
+    reason:
+      "The server was busy and could not start a Git process for this upgrade.",
+    action: "Start it again.",
+  },
   unknown: {
     reason: "ctx| does not know the cause of this failure.",
     action: "Ask the agent to find the cause, or start it again.",
