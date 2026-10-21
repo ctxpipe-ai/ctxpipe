@@ -183,9 +183,7 @@ for (const file of files.slice(0, MAX_WORKFLOWS)) {
   for (const { where, value } of workflow.locations) {
     const root = rootOf(value)
     if (!root || !/^[A-Za-z0-9_.-]{1,200}$/.test(where)) continue
-    related.push(
-      `- Names \`${root.path}\` in \`${where}\` (\`${value.trim()}\`)`,
-    )
+    related.push(`- Names \`${root.path}\` in \`${where}\``)
     for (const target of root.files)
       if (PACKAGE_KINDS.has(target.kind))
         claims.push({

@@ -1423,15 +1423,17 @@ describe("workflows skill", () => {
     })
     expect(ci).toContain("## Triggers\n\n- `push`\n- `pull_request`\n")
     expect(ci).toContain("## Jobs\n\n- `test`\n- `lint`\n")
+    // A Related line names the root and the key, and copies no value of
+    // the workflow file.
     expect(ci).toContain(
-      "- Names `apps/api` in `defaults.run.working-directory` (`apps/api`)",
+      "- Names `apps/api` in `defaults.run.working-directory`\n",
     )
+    expect(ci).toContain("- Names `apps/api` in `on.push.paths`\n")
     expect(ci).toContain(
-      "- Names `apps/api` in `on.push.paths` (`apps/api/**`)",
+      "- Names `apps/web` in `jobs.test.steps.working-directory`\n",
     )
-    expect(ci).toContain(
-      "- Names `apps/web` in `jobs.test.steps.working-directory` (`./apps/web/`)",
-    )
+    expect(ci).not.toContain("apps/api/**")
+    expect(ci).not.toContain("./apps/web/")
     expect(ci).toContain("- Part of [example-org/shop](../codebases/shop.md)")
     // A negation, a pattern above a root, and an expression name no root.
     expect(ci).not.toContain("apps/api/docs")
