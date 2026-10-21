@@ -380,6 +380,8 @@ export const repositoryIngestion = defineWorkflow(
           collectRepositoryCheckouts({
             orgId: input.orgId,
             repositoryId: input.repositoryId,
+            // Three batches: the hourly job finishes the rest.
+            maxBatches: 3,
           }),
         )
 

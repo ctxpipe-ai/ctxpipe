@@ -226,19 +226,26 @@ async function deleteOnCodesearch(
  * files on codesearch, then the rows of the keys that codesearch deleted and
  * that are still collectable. `liveShas` comes from the caller when it
  * collects many repositories; otherwise this reads it once.
+ * `maxBatches` caps the codesearch calls of this collection.
  * Never throws; a failure is logged and the next run tries again.
  */
 export async function collectRepositoryCheckouts(input: {
   orgId: string
   repositoryId: string
   liveShas?: string[]
+  /** Fewer calls than `MAX_BATCHES`; the hourly job finishes the rest. */
+  maxBatches?: number
 }): Promise<{ deletedKeys: number }> {
   let deletedKeys = 0
   try {
     const liveShas = input.liveShas ?? (await listLiveShas())
     // Codesearch kept these in this pass; do not ask for them again.
     const skipped: string[] = []
-    for (let batch = 0; batch < MAX_BATCHES; batch++) {
+    for (
+      let batch = 0;
+      batch < Math.min(input.maxBatches ?? MAX_BATCHES, MAX_BATCHES);
+      batch++
+    ) {
       const keys = await listCollectableCheckouts({
         orgId: input.orgId,
         repositoryId: input.repositoryId,

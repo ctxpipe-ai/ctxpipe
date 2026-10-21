@@ -260,4 +260,29 @@ describeWithDatabase("codesearch checkout collection (Postgres)", () => {
     // Only the skipped `wsGone` is left, and it is asked for once.
     expect(deleteRequests).toEqual([[keys.wsGone]])
   })
+  it("stops after maxBatches calls when more keys are left", async () => {
+    const old = new Date(Date.now() - 2 * 3_600_000)
+    await withOrgDbContext(orgId, (db) =>
+      db.insert(repositoryCheckouts).values(
+        Array.from({ length: 25 }, () => ({
+          id: generateObjectId("co"),
+          orgId,
+          repositoryId,
+          checkoutKey: `rev:${sha()}`,
+          createdAt: old,
+          updatedAt: old,
+        })),
+      ),
+    )
+    deleteRequests.length = 0
+
+    const result = await collectRepositoryCheckouts({
+      orgId,
+      repositoryId,
+      maxBatches: 2,
+    })
+
+    expect(deleteRequests.length).toBe(2)
+    expect(result.deletedKeys).toBe(20)
+  })
 })

@@ -276,6 +276,8 @@ export function defineRepositoryIngestionV2Workflow(
             collectRepositoryCheckouts({
               orgId: input.orgId,
               repositoryId: sourceRepositoryId,
+              // Three batches: the hourly job finishes the rest.
+              maxBatches: 3,
             }),
           )
 
