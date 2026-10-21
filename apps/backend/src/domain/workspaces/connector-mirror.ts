@@ -5,6 +5,7 @@ import { getPagerdutyBindingWithRepoByConnectionId } from "../../models/pagerdut
 import { getSlackBindingWithRepoByConnectionId } from "../../models/slack-connector.js"
 import {
   type GitPack,
+  type GitRemoteRead,
   nativeGit,
   packRootTree,
   readGitFiles,
@@ -78,12 +79,14 @@ export async function assertConnectorMirrorBinding(
 export async function assertConnectorMirrorScope(
   source: ConnectorMirrorSource,
   pack: GitPack,
+  read?: GitRemoteRead,
 ): Promise<void> {
   if ("sourcesBlobSha" in source) {
     const fence = await withGitDirectory(
       pack.sha,
       (directory) => sourcesFenceAt(directory, pack),
       pack,
+      read,
     )
     if (fence !== source.sourcesBlobSha)
       throw new Error(
@@ -93,7 +96,7 @@ export async function assertConnectorMirrorScope(
   }
   if ("removedTargets" in source) {
     const { sourcesFile, sourceFiles } = splitSourcesTree(
-      await readGitFiles(pack, isSourcesTreePath),
+      await readGitFiles(pack, isSourcesTreePath, undefined, read),
     )
     if (
       !(await sourcesHaveNone(
@@ -109,7 +112,7 @@ export async function assertConnectorMirrorScope(
   if (source.provider === "github") {
     // Unlinking is the GitHub scope change: a mirror never lands after it.
     const { sourcesFile, sourceFiles } = splitSourcesTree(
-      await readGitFiles(pack, isSourcesTreePath),
+      await readGitFiles(pack, isSourcesTreePath, undefined, read),
     )
     const target = normalizeWorkspaceRepositoryUrl(source.gitUrl)
     if (
@@ -123,7 +126,7 @@ export async function assertConnectorMirrorScope(
     return
   }
   if (
-    (await blobShaAt(pack, `${source.provider}/config.yaml`)) !==
+    (await blobShaAt(pack, `${source.provider}/config.yaml`, read)) !==
     source.configBlobSha
   )
     throw new Error(
@@ -132,7 +135,11 @@ export async function assertConnectorMirrorScope(
 }
 
 /** The blob id of root-relative `path` at the pack's commit, or null when it is absent. */
-async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
+async function blobShaAt(
+  pack: GitPack,
+  path: string,
+  read: GitRemoteRead | undefined,
+): Promise<string | null> {
   return withGitDirectory(
     pack.sha,
     async (directory) => {
@@ -144,5 +151,6 @@ async function blobShaAt(pack: GitPack, path: string): Promise<string | null> {
       return entry ? (entry.split(/\s+/)[2] ?? null) : null
     },
     pack,
+    read,
   )
 }

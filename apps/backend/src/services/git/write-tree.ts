@@ -8,6 +8,7 @@ export type { GitFileChange } from "./file-change.js"
 import {
   captureGitPack,
   type GitPack,
+  type GitRemoteRead,
   nativeGit,
   packGitObjects,
   withGitDirectory,
@@ -37,6 +38,7 @@ export async function stageGitFiles(
   pack: GitPack,
   rootFiles: readonly GitFileChange[],
   rootDeletePaths: readonly string[] = [],
+  read?: GitRemoteRead,
 ): Promise<StagedGitTree> {
   const root = pack.root ?? ""
   const files = rootFiles.map((file) => ({
@@ -111,10 +113,15 @@ export async function stageGitFiles(
       const tree = (await nativeGit(directory, ["write-tree"]))
         .toString()
         .trim()
-      const objects = await packGitObjects(directory, [pack.sha, tree])
+      const objects = await packGitObjects(
+        directory,
+        [pack.sha, tree],
+        pack.base ?? null,
+      )
       return { pack: { ...pack, objects }, tree }
     },
     pack,
+    read,
   )
 }
 
@@ -122,6 +129,7 @@ export async function validateGitTree(
   staged: StagedGitTree,
   allowedPaths: readonly string[],
   options: { allowNoChanges?: boolean } = {},
+  read?: GitRemoteRead,
 ): Promise<string[]> {
   return withGitDirectory(
     staged.pack.sha,
@@ -149,6 +157,7 @@ export async function validateGitTree(
       return relative
     },
     staged.pack,
+    read,
   )
 }
 
@@ -156,6 +165,7 @@ export async function validateGitTree(
 export async function commitGitTree(
   staged: StagedGitTree,
   input: { subject: string; createdAt: Date | string },
+  read?: GitRemoteRead,
 ): Promise<GitPack> {
   return withGitDirectory(
     staged.pack.sha,
@@ -179,12 +189,17 @@ export async function commitGitTree(
       )
         .toString()
         .trim()
-      const committed = await captureGitPack(directory, sha)
+      const committed = await captureGitPack(
+        directory,
+        sha,
+        staged.pack.base ?? null,
+      )
       return staged.pack.root
         ? { ...committed, root: staged.pack.root }
         : committed
     },
     staged.pack,
+    read,
   )
 }
 
@@ -192,6 +207,7 @@ export async function commitGitTree(
 export async function readGitCommitChanges(
   pack: GitPack,
   parent: string,
+  read?: GitRemoteRead,
 ): Promise<{ files: GitFileChange[]; deletePaths: string[] }> {
   return withGitDirectory(
     pack.sha,
@@ -243,5 +259,6 @@ export async function readGitCommitChanges(
       return { files, deletePaths }
     },
     pack,
+    read,
   )
 }

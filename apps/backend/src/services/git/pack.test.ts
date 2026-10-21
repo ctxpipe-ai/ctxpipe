@@ -1,11 +1,14 @@
 import { execFile } from "node:child_process"
 import { randomBytes } from "node:crypto"
 import { mkdir, mkdtemp, open, rm, writeFile } from "node:fs/promises"
+import { createServer } from "node:http"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
-import { expect, it } from "vitest"
+import { expect, it, vi } from "vitest"
 import {
   captureGitPack,
+  fetchGitCommits,
+  type GitPack,
   listTreeBlobs,
   nativeGit,
   withGitDirectory,
@@ -160,7 +163,7 @@ it("opens a large pack without the whole pack in memory", async () => {
     const sha = (await nativeGit(source, ["rev-parse", "HEAD"]))
       .toString()
       .trim()
-    const pack = await captureGitPack(source, sha)
+    const pack = await captureGitPack(source, sha, null)
     const packBytes = (pack.objects.length * 3) / 4
     expect(packBytes).toBeGreaterThan(40 * 2 ** 20)
 
@@ -200,3 +203,141 @@ it("puts the Git error output and the exit code in the error of a failed pack", 
     }),
   ).rejects.toThrow(/git index-pack exit code 128 after \d+ s: fatal: /)
 })
+
+/** A repository with one commit; the caller removes `directory`. */
+async function seededRepository() {
+  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-base-source-"))
+  await nativeGit(directory, ["init", "-q"])
+  await writeFile(join(directory, "notes.md"), "# Notes\n")
+  await nativeGit(directory, ["add", "-A"])
+  await nativeGit(directory, [
+    "-c",
+    "user.name=Test",
+    "-c",
+    "user.email=test@example.com",
+    "commit",
+    "-qm",
+    "seed",
+  ])
+  const sha = (await nativeGit(directory, ["rev-parse", "HEAD"]))
+    .toString()
+    .trim()
+  return { directory, sha }
+}
+
+const boundUrl = "https://github.com/fixture/bound.git"
+
+it.each([
+  {
+    name: "another repository, with the connection of another org",
+    url: "https://github.com/other-owner/other-repo.git",
+    readUrl: boundUrl,
+    stored: { orgId: "org_other", connectionId: "con_other" },
+  },
+  {
+    name: "another host",
+    url: "https://git.example.invalid/fixture/bound.git",
+    readUrl: "https://git.example.invalid/fixture/bound.git",
+    stored: {},
+  },
+  {
+    name: "plain HTTP",
+    url: "http://github.com/fixture/bound.git",
+    readUrl: "http://github.com/fixture/bound.git",
+    stored: {},
+  },
+])("rejects a stored base on $name before it asks for a token (CTX-955)", async ({
+  url,
+  readUrl,
+  stored,
+}) => {
+  const sha = "a".repeat(40)
+  const token = vi.fn(async () => "fixture-only-token")
+  const pack = {
+    sha,
+    objects: "",
+    shallow: "",
+    base: { url, shas: [sha], ...stored },
+  } as GitPack
+  await expect(
+    withGitDirectory(sha, async () => "opened", pack, {
+      url: readUrl,
+      token,
+    }),
+  ).rejects.toThrow("not the GitHub repository of its Workspace")
+  expect(token).not.toHaveBeenCalled()
+})
+
+it("fetches a stored base with the read access of the caller, not with the org and connection in the output (CTX-955)", async () => {
+  const source = await seededRepository()
+  const config = join(source.directory, "gitconfig")
+  try {
+    // The bound GitHub URL reads from the local repository.
+    await writeFile(
+      config,
+      `[url "${source.directory}"]\n\tinsteadOf = ${boundUrl}\n`,
+    )
+    vi.stubEnv("GIT_CONFIG_GLOBAL", config)
+    const token = vi.fn(async () => "fixture-only-token")
+    const pack = {
+      sha: source.sha,
+      objects: "",
+      shallow: "",
+      base: {
+        url: boundUrl,
+        shas: [source.sha],
+        orgId: "org_other",
+        connectionId: "con_other",
+      },
+    } as GitPack
+    const content = await withGitDirectory(
+      source.sha,
+      async (directory) =>
+        (
+          await nativeGit(directory, ["show", `${source.sha}:notes.md`])
+        ).toString(),
+      pack,
+      { url: boundUrl, token },
+    )
+    expect(content).toBe("# Notes\n")
+    expect(token).toHaveBeenCalledTimes(1)
+    await expect(
+      withGitDirectory(source.sha, async () => "opened", pack),
+    ).rejects.toThrow("needs the read access of its Workspace")
+  } finally {
+    vi.unstubAllEnvs()
+    await rm(source.directory, { recursive: true, force: true })
+  }
+})
+
+it.each([
+  { status: 503, attempts: 3, error: "returned error: 503" },
+  { status: 404, attempts: 1, error: "not found" },
+])("fetches again after a $status answer only when the Git host can recover: $attempts attempts", async ({
+  status,
+  attempts,
+  error,
+}) => {
+  let requests = 0
+  const server = createServer((_request, response) => {
+    requests++
+    response.writeHead(status).end()
+  })
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve))
+  const address = server.address()
+  if (!address || typeof address === "string") throw new Error("No port")
+  const directory = await mkdtemp(join(tmpdir(), "ctxpipe-fetch-retry-"))
+  try {
+    await nativeGit(directory, ["init", "-q"])
+    await expect(
+      fetchGitCommits(directory, {
+        url: `http://127.0.0.1:${address.port}/fixture/bound.git`,
+        shas: ["a".repeat(40)],
+      }),
+    ).rejects.toThrow(error)
+    expect(requests).toBe(attempts)
+  } finally {
+    server.close()
+    await rm(directory, { recursive: true, force: true })
+  }
+}, 30_000)

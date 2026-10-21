@@ -56,17 +56,18 @@ export async function connectOpenWorkflowBackend(
     })
     // OpenWorkflow reads each step output of a run again from Postgres on
     // each claim. A large output costs memory and Postgres traffic on each
-    // replay (CTX-955), so name each one.
-    if (text !== undefined && text.length > 2 ** 20) {
-      const run = await backend
-        .getWorkflowRun({ workflowRunId: params.workflowRunId })
-        .catch(() => null)
-      getLogger().warn("openworkflow.step_output_large", {
-        workflow: run?.workflowName,
-        workflowRunId: params.workflowRunId,
-        stepName: attempt.stepName,
-        bytes: Buffer.byteLength(text),
-      })
+    // replay (CTX-955), so name each one. The warning never changes the
+    // step result.
+    try {
+      const bytes = text === undefined ? 0 : Buffer.byteLength(text)
+      if (bytes > 2 ** 20)
+        getLogger().warn("openworkflow.step_output_large", {
+          workflowRunId: params.workflowRunId,
+          stepName: attempt.stepName,
+          bytes,
+        })
+    } catch {
+      // A failed warning is not a failed step.
     }
     return attempt
   }

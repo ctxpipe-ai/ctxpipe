@@ -4,6 +4,7 @@ import { sql } from "drizzle-orm"
 import { expect, it } from "vitest"
 import { getSystemDb } from "../../db/client.js"
 import { workspaceFileEdit } from "../../openworkflow/workflows/workspace-file-edit.js"
+import { workspaceSemanticMerge } from "../../openworkflow/workflows/workspace-semantic-merge.js"
 import { readGitPackFromRemote } from "../../services/git/pack.js"
 import { withNativeHydrationFixture } from "../../test/native-hydration-fixture.js"
 import { workspaceRootPath } from "./root-path.js"
@@ -152,6 +153,50 @@ it(
         expect(staged.pack.base).toBeUndefined()
       } finally {
         restore()
+        await worker.stop()
+      }
+    })
+  },
+)
+
+it(
+  "keeps the merge candidate and the staged tree of a semantic merge small",
+  { timeout: 90_000 },
+  async () => {
+    await withNativeHydrationFixture(fixture, async (f) => {
+      const spec = {
+        ...workspaceSemanticMerge.spec,
+        retryPolicy: { maximumAttempts: 1 },
+      }
+      f.runner.implementWorkflow(spec, workspaceSemanticMerge.fn)
+      await f.worker.stop()
+      const worker = f.runner.newWorker({ concurrency: 1 })
+      await worker.start()
+      try {
+        const handle = await f.runner.runWorkflow(spec, {
+          orgId: f.org.id,
+          workspaceId: f.workspaceId,
+          jobId: `wjob_${f.id}_merge`,
+          origin: "host",
+          revision: { ...f.revision, access: "write-default" },
+          previousSha: f.revision.sha,
+          files: [{ path: "notes.md", content: "# Notes\nMerged.\n" }],
+          deletePaths: [],
+        })
+        expect(await handle.result({ timeoutMs: 60_000 })).toMatchObject({
+          committed: true,
+        })
+        expect(
+          f.git("--git-dir", f.remote, "show", "refs/heads/main:large.md"),
+        ).toBe(largeBody)
+        const outputs = await stepOutputs(f, handle.workflowRun.id)
+        for (const name of ["transform-semantic-merge", "stage"]) {
+          expect(outputs.has(name)).toBe(true)
+          expect(JSON.stringify(outputs.get(name)).length, name).toBeLessThan(
+            4096,
+          )
+        }
+      } finally {
         await worker.stop()
       }
     })

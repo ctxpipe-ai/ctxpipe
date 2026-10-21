@@ -1,6 +1,10 @@
 import type { Env } from "../../config/env.js"
 import { readFileAtGitSha } from "../../services/git/clone-tree.js"
-import { type GitPack, readGitFiles } from "../../services/git/pack.js"
+import {
+  type GitPack,
+  type GitRemoteRead,
+  readGitFiles,
+} from "../../services/git/pack.js"
 import { workspaceRepositoryPath } from "../../services/git/root-folder.js"
 import { resolveRepositoryReadCredential } from "./resolve-revision.js"
 import type { WorkspaceRevision } from "./revision.js"
@@ -19,10 +23,15 @@ import {
  */
 
 /** The format in a pack of the Workspace tree. Pack paths are relative to the root folder. */
-export async function packWorkspaceFormat(pack: GitPack): Promise<number> {
+export async function packWorkspaceFormat(
+  pack: GitPack,
+  read?: GitRemoteRead,
+): Promise<number> {
   const [file] = await readGitFiles(
     pack,
     (path) => path === WORKSPACE_FORMAT_PATH,
+    undefined,
+    read,
   )
   return workspaceFormatCacheValue(readWorkspaceFormat(file?.content ?? null))
 }

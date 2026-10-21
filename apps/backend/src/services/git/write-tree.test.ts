@@ -47,7 +47,10 @@ beforeEach(async () => {
   const sha = (await nativeGit(directory, ["rev-parse", "HEAD"]))
     .toString()
     .trim()
-  base = { ...(await captureGitPack(directory, sha)), root: "docs/context" }
+  base = {
+    ...(await captureGitPack(directory, sha, null)),
+    root: "docs/context",
+  }
 })
 
 afterEach(async () => {
@@ -160,7 +163,7 @@ describe("a pack with a Workspace root folder", () => {
       .toString()
       .trim()
     const tip = {
-      ...(await captureGitPack(directory, tipSha)),
+      ...(await captureGitPack(directory, tipSha, null)),
       root: "docs/context",
     }
     const merged = await mergeGitFiles({

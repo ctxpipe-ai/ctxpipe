@@ -40,6 +40,7 @@ import {
 import {
   resolveRepositoryReadCredential,
   resolveWorkspaceReadRevision,
+  workspaceGitRead,
 } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import {
@@ -123,12 +124,16 @@ export async function pushWorkspaceCommit(
     throw new WorkspaceWriteAccessUnavailableError()
   if (tip.sha !== revision.sha || !sameWorkspaceRevision(current, revision))
     throw new WorkspaceTipAdvancedError()
+  // The binding check above proves that `revision.remote` is the bound
+  // repository.
+  const read = { url: revision.remote.url, token: async () => readToken }
   if (input.mirror) {
     await assertConnectorMirrorBinding(input.orgId, input.mirror, revision)
-    await assertConnectorMirrorScope(input.mirror, {
-      ...committed,
-      sha: revision.sha,
-    })
+    await assertConnectorMirrorScope(
+      input.mirror,
+      { ...committed, sha: revision.sha },
+      read,
+    )
   }
   const token = await getRepoWriteCloneToken(input.orgId, env, {
     githubConnectionId: connectionId,
@@ -199,6 +204,7 @@ export async function pushWorkspaceCommit(
       })
     },
     committed,
+    read,
   )
 }
 
@@ -247,6 +253,8 @@ async function remoteContainsCommit(
       }
     },
     committed,
+    // The caller checked that `revision` has the bound remote.
+    { url: revision.remote.url, token: async () => token },
   )
 }
 
@@ -381,8 +389,18 @@ export async function captureSemanticHandoff(
   const { readGitCommitChanges } = await import(
     "../../services/git/write-tree.js"
   )
-  const delta = await readGitCommitChanges(committed, revision.sha)
+  // The refresh comes first: it proves that the remote is the bound
+  // repository before the delta read sends it a credential.
   const nextRevision = await refreshWorkspaceWriteRevision(input, revision, env)
+  const delta = await readGitCommitChanges(
+    committed,
+    revision.sha,
+    workspaceGitRead({
+      orgId: input.orgId,
+      env,
+      remote: nextRevision.remote,
+    }),
+  )
   const dropped = new Set(dropPaths ? await dropPaths(nextRevision) : [])
   const changes = {
     files: delta.files.filter((file) => !dropped.has(file.path)),

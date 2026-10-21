@@ -5,6 +5,7 @@ import { join } from "node:path"
 import { isMap, isSeq } from "yaml"
 import {
   type GitPack,
+  type GitRemoteRead,
   listPackBlobs,
   readGitFiles,
   withGitDirectory,
@@ -98,6 +99,7 @@ type UnlinkRetractionPlan = {
  */
 export async function planUnlinkRetraction(input: {
   pack: GitPack
+  read?: GitRemoteRead
   /** The repository that left the sources. */
   sourceUrl: string
   /**
@@ -113,6 +115,8 @@ export async function planUnlinkRetraction(input: {
   const before = await readGitFiles(
     input.pack,
     (path) => path.startsWith("knowledge/") && path.endsWith(".md"),
+    undefined,
+    input.read,
   )
   const workspaceUrl = normalizeWorkspaceRepositoryUrl(
     input.workspaceRepositoryUrl,
@@ -166,17 +170,23 @@ export async function planUnlinkRetraction(input: {
     .map((file) => ({ path: file.path, content: file.content }))
   for (const file of files)
     checkRetractionEdit(file.path, original.get(file.path) ?? "", file.content)
-  if (deletePaths.length) await validateDeletes(input.pack, input, deletePaths)
+  if (deletePaths.length)
+    await validateDeletes(input.pack, input, deletePaths, input.read)
   const legacyDeletePaths = legacyDeletes.map((file) => file.path)
   if (legacyDeletes.length)
     await validateDeletes(
       // A local commit that only the validator reads; it is never pushed.
-      await commitGitTree(await stageGitFiles(input.pack, legacyDeletes), {
-        subject: "Migrate the old pipeline files that the retraction deletes",
-        createdAt: input.observedAt,
-      }),
+      await commitGitTree(
+        await stageGitFiles(input.pack, legacyDeletes, [], input.read),
+        {
+          subject: "Migrate the old pipeline files that the retraction deletes",
+          createdAt: input.observedAt,
+        },
+        input.read,
+      ),
       input,
       legacyDeletePaths,
+      input.read,
     )
   return {
     files,
@@ -290,6 +300,7 @@ async function validateDeletes(
   pack: GitPack,
   source: { sourceUrl: string; sourcePath: string },
   paths: readonly string[],
+  read: GitRemoteRead | undefined,
 ): Promise<void> {
   await withGitDirectory(
     pack.sha,
@@ -346,5 +357,6 @@ async function validateDeletes(
       }
     },
     pack,
+    read,
   )
 }

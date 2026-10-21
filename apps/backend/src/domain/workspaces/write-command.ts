@@ -6,14 +6,14 @@ import { reconcileWorkspaceWriteJob } from "../../models/workspace-write-jobs.js
 import { getWorkspaceWriteAdmission } from "../../models/workspaces.js"
 import { createLogger, withLogger } from "../../observability/logger.js"
 import type { GitFileChange } from "../../services/git/file-change.js"
-import { remoteGitPack } from "../../services/git/pack.js"
+import type { GitPack } from "../../services/git/pack.js"
 import type { ConnectorMirrorSource } from "./connector-mirror.js"
 import {
   assertConnectorMirrorBinding,
   assertConnectorMirrorScope,
 } from "./connector-mirror.js"
 import type { IngestPublishSource } from "./extraction-source.js"
-import { resolveRepositoryReadCredential } from "./resolve-revision.js"
+import { workspaceGitRead } from "./resolve-revision.js"
 import { sameWorkspaceRevision, type WorkspaceRevision } from "./revision.js"
 import { workspaceRootPath } from "./root-path.js"
 import type { WorkspaceWriteJobKind } from "./write-jobs.js"
@@ -108,23 +108,24 @@ export async function acquireWorkspaceWriteRevision(
   )
     throw new Error("Workspace write binding changed")
   if (workspace.writeStatus !== "writable") return null
-  // Fail here, not in a later step, when the repository refuses its read
-  // credential.
-  await resolveRepositoryReadCredential({
-    orgId: input.orgId,
-    env,
-    remote: revision.remote,
-  })
-  const pack = remoteGitPack({
+  const root = workspaceRootPath(revision)
+  const pack: GitPack = {
+    sha: revision.sha,
+    objects: "",
+    shallow: "",
+    ...(root ? { root } : {}),
     base: {
       url: revision.remote.url,
-      orgId: input.orgId,
-      connectionId: revision.remote.connectionId,
+      shas: [revision.sha, ...(previousSha ? [previousSha] : [])],
     },
-    sha: revision.sha,
-    additionalShas: previousSha ? [previousSha] : [],
-    root: workspaceRootPath(revision),
-  })
-  if (input.mirror) await assertConnectorMirrorScope(input.mirror, pack)
+  }
+  if (input.mirror)
+    await assertConnectorMirrorScope(
+      input.mirror,
+      pack,
+      // The binding check above proves that `revision.remote` is the bound
+      // repository.
+      workspaceGitRead({ orgId: input.orgId, env, remote: revision.remote }),
+    )
   return { pack, displayName: workspace.displayName }
 }

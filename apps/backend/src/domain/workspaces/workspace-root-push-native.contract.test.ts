@@ -52,6 +52,7 @@ it(
         const committed = await captureGitPack(
           f.directory,
           f.git("rev-parse", "HEAD"),
+          null,
         )
         expect(f.revision.rootPath).toBe(ROOT)
         await expect(

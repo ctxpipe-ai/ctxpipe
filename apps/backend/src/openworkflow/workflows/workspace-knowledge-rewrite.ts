@@ -7,6 +7,7 @@ import {
 import type { SourceFileBlob } from "../../domain/workspace-sources/projection-plan.js"
 import { readSourcesTree } from "../../domain/workspace-sources/source-tree.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   type WorkspaceRevision,
@@ -101,6 +102,12 @@ export function defineKnowledgeRewriteWorkflow(options: {
       const input = inputSchema.parse(queuedInput)
       return withWorkspaceWriteContext(input, options.name, async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -165,9 +172,11 @@ export function defineKnowledgeRewriteWorkflow(options: {
                   acquired.pack,
                   (path) =>
                     path.startsWith("knowledge/") && path.endsWith(".md"),
+                  undefined,
+                  read,
                 ),
                 revision,
-                (await readSourcesTree(acquired.pack)).sourceFiles,
+                (await readSourcesTree(acquired.pack, read)).sourceFiles,
                 input.orgId,
               ),
           )
@@ -198,12 +207,14 @@ export function defineKnowledgeRewriteWorkflow(options: {
               throw new Error(
                 "A knowledge rewrite may only edit knowledge Markdown",
               )
-            return stageGitFiles(acquired.pack, files)
+            return stageGitFiles(acquired.pack, files, [], read)
           })
           await step.run({ name: "validate" }, () =>
             validateGitTree(
               staged,
               files.map((file) => file.path),
+              {},
+              read,
             ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
@@ -214,10 +225,14 @@ export function defineKnowledgeRewriteWorkflow(options: {
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
@@ -231,7 +246,7 @@ export function defineKnowledgeRewriteWorkflow(options: {
                 if (
                   options.ingestionV2Publish &&
                   workspacePublishPipeline(
-                    await packWorkspaceFormat(committed),
+                    await packWorkspaceFormat(committed, read),
                   ) !== "v2"
                 ) {
                   // The job publishes nothing, so it keeps no commit.

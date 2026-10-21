@@ -2,6 +2,7 @@ import { z } from "zod"
 import { parseEnv } from "../../config/env.js"
 import { generateCommitSubject } from "../../domain/workspaces/commit-subject.js"
 import { connectorMirrorContentSchema } from "../../domain/workspaces/connector-mirror-input.js"
+import { workspaceGitRead } from "../../domain/workspaces/resolve-revision.js"
 import {
   sameWorkspaceRevision,
   workspaceRevisionSchema,
@@ -68,6 +69,12 @@ export const workspaceConnectorMirror = defineWorkflow(
       "workspace-write-connector-mirror",
       async () => {
         const env = parseEnv(process.env)
+        // Read access to the bound repository, from the workflow input (CTX-955).
+        const read = workspaceGitRead({
+          orgId: input.orgId,
+          env,
+          remote: input.revision.remote,
+        })
         let revision = input.revision
         const repositoryName = githubRepoFullNameFromWorkspaceUrl(
           revision.remote.url,
@@ -152,6 +159,7 @@ export const workspaceConnectorMirror = defineWorkflow(
                   }
                 },
                 acquired.pack,
+                read,
               ),
           )
           const files = changes.files
@@ -172,13 +180,15 @@ export const workspaceConnectorMirror = defineWorkflow(
             }
           }
           const staged = await step.run({ name: "stage" }, () =>
-            stageGitFiles(acquired.pack, files, changes.deletePaths),
+            stageGitFiles(acquired.pack, files, changes.deletePaths, read),
           )
           await step.run({ name: "validate" }, () =>
-            validateGitTree(staged, [
-              ...files.map((file) => file.path),
-              ...changes.deletePaths,
-            ]),
+            validateGitTree(
+              staged,
+              [...files.map((file) => file.path), ...changes.deletePaths],
+              {},
+              read,
+            ),
           )
           const subject = await step.run({ name: "commit-subject" }, () =>
             generateCommitSubject({
@@ -191,10 +201,14 @@ export const workspaceConnectorMirror = defineWorkflow(
             }),
           )
           const committed = await step.run({ name: "commit" }, async () => {
-            const pack = await commitGitTree(staged, {
-              subject,
-              createdAt: run.createdAt,
-            })
+            const pack = await commitGitTree(
+              staged,
+              {
+                subject,
+                createdAt: run.createdAt,
+              },
+              read,
+            )
             await persistWriteJobPreparedCommit(input.jobId, pack.sha)
             return pack
           })
