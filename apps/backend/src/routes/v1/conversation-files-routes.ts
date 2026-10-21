@@ -10,6 +10,7 @@ import {
 } from "../../domain/workspaces/conversation-diff.js"
 import {
   attachTurnSandboxForRead,
+  ConversationFileChangedError,
   conversationRevisionStatus,
   conversationSandboxStatus,
   conversationWorktreeVersion,
@@ -334,7 +335,8 @@ const getRawRoute = createRoute({
     },
     409: {
       content: { "application/json": { schema: ErrorResponseSchema } },
-      description: "Chat sandbox missing",
+      description:
+        "Chat sandbox missing, a turn is running (`turn_running`), or the file changed during the read (`file_changed`)",
     },
     413: {
       content: { "application/json": { schema: ErrorResponseSchema } },
@@ -818,11 +820,18 @@ export const conversationFileRoutes = fileRoutes
     if (!loaded) return c.json({ error: "Not found" }, 404)
     const read = await conversationReadHandle(loaded, c.get("turnRunning"))
     if (!read.ok) return c.json({ error: read.error }, read.status)
-    const file = await readConversationSandboxFileBytes(
-      read.handle,
-      path,
-      RAW_FILE_MAX_BYTES,
-    )
+    let file: Awaited<ReturnType<typeof readConversationSandboxFileBytes>>
+    try {
+      file = await readConversationSandboxFileBytes(
+        read.handle,
+        path,
+        RAW_FILE_MAX_BYTES,
+      )
+    } catch (error) {
+      if (error instanceof ConversationFileChangedError)
+        return c.json({ error: "file_changed" }, 409)
+      throw error
+    }
     if (file.kind === "missing") return c.json({ error: "Not found" }, 404)
     if (file.kind === "too_large")
       return c.json({ error: rawFileTooLargeMessage(file.size) }, 413)

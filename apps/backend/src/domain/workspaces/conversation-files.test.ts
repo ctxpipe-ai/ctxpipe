@@ -15,6 +15,7 @@ import { DockerHandle } from "@tanstack/ai-sandbox-docker"
 import { describe, expect, it } from "vitest"
 import { conversationBaseDiff } from "./conversation-diff.js"
 import {
+  ConversationFileChangedError,
   conversationPathIsSafe,
   conversationRevisionStatus,
   conversationSandboxStatus,
@@ -567,8 +568,7 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
   })
 
   it("reads the exact bytes of a listed binary file, and refuses one over the limit", async () => {
-    // Three chunks, with every byte value, so a chunk edge or a text decode
-    // would change the result.
+    // Every byte value, so a text decode would change the result.
     const image = Buffer.alloc(600 * 1024)
     for (let i = 0; i < image.length; i++) image[i] = (i * 7) % 256
     await withWorktree(
@@ -605,6 +605,29 @@ describe("conversation sandbox files", { timeout: 15_000 }, () => {
           gitMetadata: { kind: "missing" },
           missing: { kind: "missing" },
         })
+      },
+    )
+  })
+
+  it("refuses a read when the file changes between the size check and the read", async () => {
+    await withWorktree(
+      (directory) => writeFileSync(join(directory, "logo.png"), "png"),
+      async ({ handle }) => {
+        // The file grows inside the one read command, after its size check.
+        const growing: JobSandboxHandle = {
+          ...handle,
+          exec: (command, options) =>
+            handle.exec(
+              command.replace(
+                "head -c",
+                'printf more >> "$CTXPIPE_FILE_PATH"; head -c',
+              ),
+              options,
+            ),
+        }
+        await expect(
+          readConversationSandboxFileBytes(growing, "logo.png", 1024),
+        ).rejects.toBeInstanceOf(ConversationFileChangedError)
       },
     )
   })

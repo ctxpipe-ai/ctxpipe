@@ -212,9 +212,21 @@ export async function readConversationSandboxFile(
   }
 }
 
+/** The file changed while a read of it ran. The route answers 409. */
+export class ConversationFileChangedError extends Error {
+  constructor() {
+    super("The file changed while it was read. Open it again.")
+    this.name = "ConversationFileChangedError"
+  }
+}
+
 /**
- * Reads the exact bytes of a listed file, in chunks of base64 on stdout. A
- * file over `maxBytes` is refused before any copy.
+ * Reads the exact bytes of a listed file. One sandbox command does the
+ * checks and the read, so the file cannot change between them: no symlink
+ * at the path or at a parent folder, a regular file, and at most `maxBytes`
+ * bytes. The command prints the size, then the bytes in base64. A size
+ * that is not the same as the count of bytes read means that the file
+ * changed during the read.
  */
 export async function readConversationSandboxFileBytes(
   handle: JobSandboxHandle,
@@ -227,27 +239,34 @@ export async function readConversationSandboxFileBytes(
 > {
   if (!(await conversationSandboxPathIsListed(handle, path)))
     return { kind: "missing" }
-  const size = await sandboxFileSize(handle, path)
-  if (size === null) return { kind: "missing" }
-  if (size > maxBytes) return { kind: "too_large", size }
-  const chunkBytes = 256 * 1024
-  const chunks: Buffer[] = []
-  for (let offset = 0; offset < size; offset += chunkBytes) {
-    const chunk = await handle.exec(
-      `dd if="$CTXPIPE_FILE_PATH" bs=${chunkBytes} skip=${offset / chunkBytes} count=1 2>/dev/null | base64`,
-      { env: { CTXPIPE_FILE_PATH: path } },
-    )
-    const encoded = chunk.stdout.replace(/\s/g, "")
-    const bytes = Buffer.from(encoded, "base64")
-    if (
-      chunk.exitCode !== 0 ||
-      !/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) ||
-      bytes.length !== Math.min(chunkBytes, size - offset)
-    )
-      throw new Error("The file changed while it was read. Open it again.")
-    chunks.push(bytes)
-  }
-  return { kind: "bytes", bytes: Buffer.concat(chunks) }
+  const result = await handle.exec(
+    [
+      "set -f; p=; s=; IFS=/",
+      'for part in $CTXPIPE_FILE_PATH; do p="$p$s$part"; s=/; if [ -L "$p" ]; then exit 2; fi; done',
+      "unset IFS",
+      '[ -f "$CTXPIPE_FILE_PATH" ] || exit 2',
+      'size=$(wc -c < "$CTXPIPE_FILE_PATH") || exit 2',
+      "size=$((size))",
+      "echo $size",
+      `[ "$size" -gt ${maxBytes} ] && exit 3`,
+      `head -c ${maxBytes + 1} "$CTXPIPE_FILE_PATH" | base64`,
+    ].join("\n"),
+    { env: { CTXPIPE_FILE_PATH: path } },
+  )
+  if (result.exitCode === 2) return { kind: "missing" }
+  const [sizeLine = "", ...encodedLines] = result.stdout.split("\n")
+  const size = Number.parseInt(sizeLine.trim(), 10)
+  if (
+    !Number.isSafeInteger(size) ||
+    (result.exitCode !== 0 && result.exitCode !== 3)
+  )
+    throw new Error(`The sandbox file read failed (exit ${result.exitCode}).`)
+  if (result.exitCode === 3) return { kind: "too_large", size }
+  const encoded = encodedLines.join("").replace(/\s/g, "")
+  const bytes = Buffer.from(encoded, "base64")
+  if (!/^[A-Za-z0-9+/]*={0,2}$/.test(encoded) || bytes.length !== size)
+    throw new ConversationFileChangedError()
+  return { kind: "bytes", bytes }
 }
 
 /**
