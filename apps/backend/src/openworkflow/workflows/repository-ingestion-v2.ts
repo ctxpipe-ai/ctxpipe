@@ -2,6 +2,7 @@ import { gunzipSync, gzipSync } from "node:zlib"
 import type { Attributes } from "@opentelemetry/api"
 import type { Workflow } from "openworkflow"
 import { parseEnv } from "../../config/env.js"
+import { collectRepositoryCheckouts } from "../../domain/codesearchCheckoutGc.js"
 import {
   IngestRefRefusedError,
   ingestRefName,
@@ -267,6 +268,17 @@ export function defineRepositoryIngestionV2Workflow(
               ingestionV2: true,
             },
             { name: "index" },
+          )
+        // The index published a new revision: delete the checkouts that no
+        // reader needs any more (CTX-973). It never throws.
+        if (sourceRepositoryId)
+          await step.run({ name: "collect-old-checkouts" }, () =>
+            collectRepositoryCheckouts({
+              orgId: input.orgId,
+              repositoryId: sourceRepositoryId,
+              // Three batches: the hourly job finishes the rest.
+              maxBatches: 3,
+            }),
           )
 
         // The shard-0 sandbox runs discovery; shard 0 then uses it, and
