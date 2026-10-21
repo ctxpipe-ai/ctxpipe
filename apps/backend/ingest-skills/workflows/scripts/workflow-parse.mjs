@@ -175,7 +175,7 @@ function walk(rows, visit) {
     // The value on the row. A deeper row after it continues the value, so
     // the reader gives no value; a quote or a flow value that does not close
     // on the row fails first.
-    const valueOf = (text) => {
+    const rowValue = (text) => {
       const value = scalar(text)
       return rows[i + 1]?.indent > column ? OPAQUE : value
     }
@@ -204,7 +204,7 @@ function walk(rows, visit) {
           continue
         }
         skipDeeper = column
-        visit(path, valueOf(uncomment(inner)))
+        visit(path, rowValue(uncomment(inner)))
         break
       }
       const entry = yamlEntry(text)
@@ -216,7 +216,7 @@ function walk(rows, visit) {
         visit(path, undefined)
       } else {
         skipDeeper = column
-        visit(path, valueOf(entry.value))
+        visit(path, rowValue(entry.value))
       }
       break
     }
